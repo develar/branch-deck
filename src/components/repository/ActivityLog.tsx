@@ -15,12 +15,15 @@ import {
   UploadIcon,
   UserCheckIcon,
 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { PopoverSectionTitle } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { LandedBranchRow } from "@/components/repository/LandedCard"
+import { CopyButton } from "@/components/shared/CopyButton"
 import { RelativeTime } from "@/components/shared/RelativeTime"
+import { activityDiagnostics } from "@/lib/activity-window"
 import type { LandedBranchLinks } from "@/lib/activity-window"
 import { notifyError } from "@/lib/errors"
 import { openPullRequestUrl } from "@/lib/pull-request"
@@ -29,7 +32,7 @@ import { groupActivityByDay, isUndoOpen } from "@/stores/activity"
 
 type LandedDetails = Extract<ActivityDetails, { type: "landed" }>
 
-/** What the log acts with: the main window owns the log, the window asks it (`@/lib/activity-window-link`) */
+/** What the log acts with: the main window runs the actions, the Activity window asks it (`@/lib/activity-window-link`) */
 export interface ActivityLogActions {
   /** The branches of the table: their names are buttons that show the row */
   readonly branches: ReadonlySet<string>
@@ -43,9 +46,10 @@ export interface ActivityLogActions {
 }
 
 /**
- * The log, newest first by day: what Branch Deck did, each entry with its icon, title, description and age. A branch
- * name that is a row of the table shows it; a landed report expands to its branches, a force push lists the remote
- * commits it dropped, a robot opens in Patronus, a rewrite has its Undo while it lasts. `openedAt` dates the days.
+ * The log, newest first by day: what Branch Deck did, each entry with its icon, title, description and age, an agent's
+ * marked. A branch name that is a row of the table shows it; a landed report expands to its branches, a force push lists
+ * the remote commits it dropped, a robot opens in Patronus, a rewrite has its Undo while it lasts; an entry of an
+ * operation copies its diagnostics (on hover). `openedAt` dates the days.
  */
 export function ActivityLog({ entries, openedAt, actions }: { entries: readonly ActivityEntry[]; openedAt: number; actions: ActivityLogActions }) {
   const days = groupActivityByDay(entries, openedAt)
@@ -64,14 +68,22 @@ export function ActivityLog({ entries, openedAt, actions }: { entries: readonly 
 function ActivityRow({ entry, actions }: { entry: ActivityEntry; actions: ActivityLogActions }) {
   const { branches, onReveal } = actions
   const details = entry.details
+  const diagnostics = activityDiagnostics(entry)
   return (
-    <li className="flex gap-2.5 px-4 py-2" data-testid="activity-entry" data-kind={entry.kind}>
+    <li className="group flex gap-2.5 px-4 py-2" data-testid="activity-entry" data-kind={entry.kind}>
       <EntryIcon entry={entry} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 text-sm break-words" data-testid="activity-title">
             <BranchLinks text={entry.title} branches={branches} onReveal={onReveal} />
           </span>
+          {entry.agent !== undefined && (
+            <Tooltip>
+              <TooltipTrigger render={<Badge variant="outline" className="shrink-0 self-center text-muted-foreground" data-testid="activity-agent" />}>Agent</TooltipTrigger>
+              <TooltipContent>{`An agent in ${entry.agent.worktree}`}</TooltipContent>
+            </Tooltip>
+          )}
+          {diagnostics !== null && <CopyButton text={() => diagnostics} tooltip="Copy Diagnostics" label={`Copy Diagnostics of ${entry.title}`} className="-my-1 self-center" />}
           <span className="shrink-0 text-xs text-muted-foreground">
             <RelativeTime time={entry.time} />
           </span>

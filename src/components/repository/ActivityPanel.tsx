@@ -10,13 +10,13 @@ import { openActivityInWindow } from "@/hooks/useActivityPanel"
 import type { ActivityWindowState } from "@/lib/activity-window"
 import { buildActivityState, subscribeActivityState } from "@/lib/activity-window-link"
 import { notifyError } from "@/lib/errors"
-import { canUndoActivity, undoActivity } from "@/stores/activity"
+import { canUndoActivity, undoActivity, useActivityOf, useUnavailableJournals } from "@/stores/activity"
 import { closeActivityPanel, useActivityPanelOpen } from "@/stores/activity-panel"
 import { requestReveal } from "@/stores/commit-move"
 import { dismissLanded } from "@/stores/landed"
 import { getSelectedProject } from "@/stores/repository"
 
-/** What the panel shows, as JSON too: a change of a store that changes nothing of it renders nothing */
+/** What the panel shows besides the log, as JSON too: a change of a store that changes nothing of it renders nothing */
 let shownState: { json: string; state: ActivityWindowState | null } | null = null
 
 /** Builds the state of the selected repository; true when it changed */
@@ -50,11 +50,13 @@ function getShownState(): ActivityWindowState | null {
 /**
  * The Activity side panel of the main window (spec/repository/activity.spec.md): one island beside the branch tables,
  * its 40px header with "Activity", Open in Window and Close, then the search, the chips and the log of the selected
- * repository, read from the stores of this window, which owns the log. A keyboard open puts the focus into the log;
+ * repository, as this window read it, with what only this window knows. A keyboard open puts the focus into the log;
  * Escape there, or Close, closes the panel and gives the focus back where it was before it came in.
  */
 export function ActivityPanel() {
   const state = useSyncExternalStore(subscribeShownState, getShownState)
+  const entries = useActivityOf(state?.repositoryPath)
+  const unavailable = useUnavailableJournals(state?.repositoryPath)
   const { openedAt, kind, focus } = useActivityPanelOpen()
   const root = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
@@ -123,7 +125,17 @@ export function ActivityPanel() {
           <TooltipContent>Close Activity</TooltipContent>
         </Tooltip>
       </div>
-      <ActivityPanelContent key={openedAt} entries={state.entries} initialFilter={kind} openedAt={openedAt} actions={actions} layout="panel" listRef={list} slashFocus={false} />
+      <ActivityPanelContent
+        key={openedAt}
+        entries={entries}
+        unavailable={unavailable}
+        initialFilter={kind}
+        openedAt={openedAt}
+        actions={actions}
+        layout="panel"
+        listRef={list}
+        slashFocus={false}
+      />
     </Card>
   )
 }

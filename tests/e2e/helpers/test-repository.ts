@@ -7,6 +7,7 @@ import type {
   PatronusReviewRequirement,
   PatronusRobot,
   PatronusRobotProgress,
+  PlannedEffect,
   RemoteStatusUpdate,
   Resource,
   StackBranchUpdate,
@@ -568,6 +569,23 @@ export class TestRepositoryBuilder {
   async setForeignOperation(intent: Intent | null, resources?: Resource[], unknown = false): Promise<{ op: string; pid: number } | null> {
     const response = await this.postFixture("foreign-operation", { intent, unknown, ...(resources !== undefined && { resources }) })
     return (await response.json()) as { op: string; pid: number } | null
+  }
+
+  /**
+   * An agent's `bd` ran `intent` in a slot of the lease pool of the repository and it ended with each of `effects` done:
+   * the journal of the repository has its entry, an agent's by the state of the pool, which the page reads at its next
+   * read of Activity. Answers its operation and the worktree of its slot
+   */
+  async journalAgentOperation(intent: Intent, effects: PlannedEffect[]): Promise<{ op: string; worktree: string }> {
+    return (await (await this.postFixture("agent-operation", { intent, effects })).json()) as { op: string; worktree: string }
+  }
+
+  /**
+   * The disk of the journal of the repository is gone, as a removed one is: the settings remember its journal at a path
+   * on no disk, until a window subscribes to the session again. Answers that path
+   */
+  async loseJournalDisk(): Promise<string> {
+    return ((await (await this.postFixture("journal-gone", {})).json()) as { journal: string }).journal
   }
 
   /** `bd` did a mutation of the repository behind the app's back (an agent's `bd group`): it touched the stamp of the repository */

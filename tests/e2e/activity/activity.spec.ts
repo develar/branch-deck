@@ -13,11 +13,12 @@ import {
   verifyBranchState,
   verifyCommitCount,
 } from "../helpers/branch-helpers"
+import { readClipboard } from "../helpers/clipboard-helpers"
 import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { confirmForcePush, expectPushedToRemote, virtualBranch } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu, waitForTauriListener } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -156,6 +157,77 @@ testWithIssueLinks.describe("Activity", () => {
     const window = await openActivityWindow(page)
     await expect(window.getByTestId("activity-title")).toHaveText(["Pushed feature-auth"])
     await expect(activityEntry(window, "Pushed feature-auth").getByTestId("activity-description")).toHaveText("1 commit · created the remote branch")
+  })
+
+  testWithIssueLinks("should hide the operations of agent leases behind the Agents chip", async ({ page, issueLinksRepo }) => {
+    const row = findBranchRow(page, "ABC-123")
+    await getPushButton(row).click()
+    await expectNothingToPush(row)
+    const window = await openActivityWindow(page)
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed ABC-123"])
+    const filter = window.getByTestId("activity-filter")
+    // no agent did anything yet: no Agents chip
+    await expect(filter.getByRole("button")).toHaveText(["All1", "Pushes1"])
+
+    // an agent's bd pushed feature-auth from a slot of the lease pool of the repository: the watch of the registry tells
+    // the open window, which reads the journal again; the agent's push is behind its chip
+    const agent = await issueLinksRepo.journalAgentOperation(
+      { kind: "push", subject: { kind: "branch", name: "feature-auth" }, scope: { kind: "alone" }, expectRemote: null, force: false, restartRunning: false },
+      [{ kind: "push", branches: ["feature-auth"], force: false }],
+    )
+    const read = nextAnswer(window, "read_activity")
+    await emitTauriEvent(window, "activity-changed")
+    await read
+    const agents = filter.getByRole("button", { name: /Agents/ })
+    await expect(filter.getByRole("button")).toHaveText(["All1", "Pushes1", "Agents1"])
+    await expect(agents).toHaveAttribute("aria-pressed", "false")
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed ABC-123"])
+
+    // its chip shows it among the others, marked an agent's, and the chips count it
+    await agents.click()
+    await expect(agents).toHaveAttribute("aria-pressed", "true")
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed feature-auth", "Pushed ABC-123"])
+    await expect(filter.getByRole("button")).toHaveText(["All2", "Pushes2", "Agents1"])
+    const pushed = activityEntry(window, "Pushed feature-auth")
+    await expect(pushed.getByTestId("activity-agent")).toHaveText("Agent")
+    await expect(activityEntry(window, "Pushed ABC-123").getByTestId("activity-agent")).toHaveCount(0)
+
+    // Copy Diagnostics of the entry: what it says and its operation, as its lines in the log name it
+    await pushed.hover()
+    await pushed.getByRole("button", { name: "Copy Diagnostics of Pushed feature-auth" }).click()
+    await expect.poll(() => readClipboard(window)).toContain(`operation_id=${agent.op}`)
+    const diagnostics = await readClipboard(window)
+    expect(diagnostics.split("\n")[0]).toBe("Pushed feature-auth")
+    expect(diagnostics).toContain(`agent worktree=${agent.worktree}`)
+
+    // the chip again hides it
+    await agents.click()
+    await expect(agents).toHaveAttribute("aria-pressed", "false")
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed ABC-123"])
+  })
+
+  testWithIssueLinks("should mark an unavailable journal", async ({ page, issueLinksRepo }) => {
+    const row = findBranchRow(page, "feature-auth")
+    await getPushButton(row).click()
+    await expectNothingToPush(row)
+    await expect(activityButton(page)).toBeVisible()
+
+    // the disk of the journal of the repository is gone: a read lists it unavailable, and none of its operations
+    const journal = await issueLinksRepo.loseJournalDisk()
+    const window = await openActivityWindow(page)
+    const mark = window.getByTestId("activity-unavailable")
+    await expect(mark).toHaveText(`Cannot read the journal of the repositoryIts operations show once it answers again.${journal}`)
+    await expect(activityEntry(window, "Pushed feature-auth")).toHaveCount(0)
+    // the mark says why the log is short: no "Nothing yet"
+    await expect(window.getByTestId("activity-empty")).toHaveCount(0)
+
+    // the main window marks it too once it reads again, and keeps the button that opens it
+    const read = nextAnswer(page, "read_activity")
+    await emitTauriEvent(page, "activity-changed")
+    await read
+    await activityButton(page).click()
+    await expect(activityPanel(page).getByTestId("activity-unavailable-path")).toHaveText(journal)
+    await expect(activityEntry(activityPanel(page), "Pushed feature-auth")).toHaveCount(0)
   })
 
   testWithIssueLinks("should clear the log of the repository", async ({ page }) => {

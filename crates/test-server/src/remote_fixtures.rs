@@ -5,23 +5,28 @@
 
 use crate::remote_host::{GITHUB_TOKEN, GITHUB_VIEWER, HeldAnswer, PAGE_CLOCK_START, RemoteHost};
 use crate::state::AppState;
+use app_settings::journals::{activity_projects, remember_journal};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::HolderTool;
-use domain_types::landing::StartRoute;
-use domain_types::operation::{Intent, OperationId, OperationStep, Resource};
+use domain_types::landing::{PlannedEffect, StartRoute};
+use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Resource};
 use domain_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
 use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
 use github::fake_repository::{FakePull, RepositoryState, search_data};
+use lease_pool::lease::{Pool, Slot, canonical_path};
+use operations::journal::journal_path;
+use operations::registry::OperationRequest;
 use operations::registry_file::{External, PendingStart, ProcessRegistry, Record, RecordStatus};
 use operations::registry_watch::touch_stamp;
 use patronus::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, REVIEW_APPROVAL_CHECK_SKIP_OPTION};
 use remote_facts::pull_requests::parse_pull_request_maps;
+use repository_model::session::SessionKey;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -647,6 +652,18 @@ impl ForeignOperation {
   }
 }
 
+/// The path of the test repository `id`
+fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode, String)> {
+  state.repositories.get(id).map(|repo| repo.path.clone()).ok_or_else(unknown_repository)
+}
+
+/// The key of the session of the repository at `path`, as the sessions of the server key it
+async fn session_of(state: &AppState, path: &str) -> Result<SessionKey, (StatusCode, String)> {
+  crate::session_routes::session_key(state, path)
+    .await
+    .map_err(|_rejected| (StatusCode::UNPROCESSABLE_ENTITY, "the repository has no branch prefix".to_string()))
+}
+
 /// `POST /repositories/{id}/foreign-operation`: the operation `intent` that `bd` of another process runs in the
 /// repository, holding what it lands and pushes (`resources`, by default the branch of a start or a push: what it lands
 /// and its ref); `unknown`: a start of it whose answer was lost, sent now on the clock of the sessions of the repository
@@ -706,9 +723,7 @@ pub async fn set_foreign_operation(
   let Some(intent) = request.intent else {
     return Ok(Json(serde_json::Value::Null));
   };
-  let key = crate::session_routes::session_key(&state, &path)
-    .await
-    .map_err(|_rejected| (StatusCode::UNPROCESSABLE_ENTITY, "the repository has no branch prefix".to_string()))?;
+  let key = session_of(&state, &path).await?;
   let failed = |error: String| (StatusCode::INTERNAL_SERVER_ERROR, error);
   let process = agent_process().map_err(|error| failed(format!("Cannot start the process of the agent: {error}")))?;
   let pid = process.id();
@@ -761,7 +776,97 @@ pub async fn set_foreign_operation(
 /// `POST /repositories/{id}/stamp`: `bd` did a mutation in the repository behind the app's back, as after an agent's
 /// `bd group` (`touch_stamp`): the sessions a window shows sync once the inputs changed
 pub async fn touch_repository_stamp(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, (StatusCode, String)> {
-  let path = state.repositories.get(&id).map(|repo| repo.path.clone()).ok_or_else(unknown_repository)?;
+  let path = path_of(&state, &id)?;
   touch_stamp(&std::path::Path::new(&path).join(".git"));
   Ok(StatusCode::OK)
+}
+
+/// `POST /repositories/{id}/agent-operation`: an agent's `bd` ran `intent` in a slot of the lease pool of the repository
+/// (a directory that `leases.json` of the repository lists) and it ended with each of `effects` done
+#[derive(Deserialize)]
+pub struct AgentOperationRequest {
+  intent: Intent,
+  effects: Vec<PlannedEffect>,
+}
+
+/// Journals the operation of an agent as `bd` does at its end: admitted into the operations registry of the repository
+/// in the session of the slot, then finished, so the journal tells it the operation of an agent (`leaseSlot`) by the state
+/// of the pool, as it does for a real one. The page reads it at its next read of Activity. Answers the id of the
+/// operation and the worktree of the slot
+pub async fn journal_agent_operation(
+  Path(id): Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<AgentOperationRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let path = path_of(&state, &id)?;
+  let key = session_of(&state, &path).await?;
+  let failed = |error: String| (StatusCode::INTERNAL_SERVER_ERROR, error);
+  let common_dir = std::path::Path::new(&path).join(".git");
+  // inside the repository, so it goes with it
+  let worktree = common_dir.join("e2e-agent-slot");
+  std::fs::create_dir_all(&worktree).map_err(|error| failed(format!("Cannot make the slot of the agent: {error}")))?;
+  let slot = canonical_path(&worktree);
+  Pool::new(&common_dir)
+    .update(std::time::Duration::from_secs(2), |store| {
+      if !store.slots.iter().any(|known| known.path == slot) {
+        store.slots.push(Slot {
+          name: "e2e-agent-slot".to_string(),
+          path: slot.clone(),
+          dirty: false,
+          returned: None,
+          lease: None,
+        });
+      }
+      Ok(())
+    })
+    .map_err(|error| failed(format!("Cannot list the slot of the agent: {error:#}")))?;
+  let session = SessionKey {
+    worktree: slot.clone(),
+    prefix: key.prefix,
+  };
+  let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+  let admitted = OperationRequest {
+    intent: request.intent,
+    resources: Vec::new(),
+    step: OperationStep::Checking,
+    moves: Vec::new(),
+  };
+  let entry = ProcessRegistry::of(&common_dir)
+    .admit(&op, HolderTool::Bd, &session, &admitted)
+    .map_err(|error| failed(error.message))?;
+  let outcome = Outcome {
+    op: op.clone(),
+    effects: request.effects.into_iter().map(|effect| EffectRecord::new(effect, EffectStatus::Done)).collect(),
+    news_key: None,
+    version_after: None,
+    result: OperationResult::None,
+    stats: OperationStats::default(),
+  };
+  let stats = entry.stats();
+  entry.finish(Ok(&outcome), stats);
+  Ok(Json(serde_json::json!({ "op": op.0, "worktree": slot })))
+}
+
+/// `POST /repositories/{id}/journal-gone`: the disk of the journal of the repository is gone, as a removed one is: the
+/// settings remember the journal of each project of the repository at a path under a directory that does not exist
+/// (as `subscribe_view` remembers the real one, until the next subscription of a window). Answers that path
+pub async fn lose_journal(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let path = path_of(&state, &id)?;
+  let key = session_of(&state, &path).await?;
+  // the journal as `subscribe_view` remembers it
+  let journal = state.registry.journal_of(&key).await.map(|journal| journal.to_string_lossy().into_owned());
+  let gone = journal_path(&std::path::Path::new(&path).join("removed-disk").join(".git")).to_string_lossy().into_owned();
+  let repo = state.repositories.get(&id).ok_or_else(unknown_repository)?;
+  let mut projects: Vec<String> = activity_projects(&repo.store)
+    .into_iter()
+    .filter(|(_, remembered)| remembered.is_some() && *remembered == journal)
+    .map(|(project, _)| project)
+    .collect();
+  if projects.is_empty() {
+    projects.push(path);
+  }
+  for project in projects {
+    remember_journal(&repo.store, &project, &gone).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+  }
+  Ok(Json(serde_json::json!({ "journal": gone })))
 }

@@ -67,6 +67,7 @@ function said(entries: JournalEntry[], page: PageEntry[] = [], repositories = ["
     description: entry.description,
     ...(entry.warning === true && { warning: true }),
     ...(entry.details !== undefined && { details: entry.details }),
+    ...(entry.agent !== undefined && { agent: entry.agent }),
   }))
 }
 
@@ -177,12 +178,11 @@ describe("presentActivity", () => {
     ])
   })
 
-  it("says an operation that failed unless the page recorded the error of its toast, and leaves out the agents' and the canceled", () => {
+  it("says an operation that failed unless the page recorded the error of its toast, and leaves out the canceled", () => {
     const failed = operation("op1", PUSH, [pushed(["auth"], [null], { kind: "failed", error: apiError("push_refused", "The remote refused the push: hook") })])
     const refused = operation("op2", LAND, [], { error: apiError("busy", "bd runs the Safe Push of auth"), endedAt: 102 })
-    const agents = operation("op3", PUSH, [pushed(["auth"], [null])], { leaseSlot: true, endedAt: 103 })
     const canceled = operation("op4", PUSH, [], { error: apiError("canceled", "Canceled"), endedAt: 104 })
-    expect(said([failed, refused, agents, canceled])).toEqual([
+    expect(said([failed, refused, canceled])).toEqual([
       { repositoryPath: "/a", kind: "error", title: "Cannot start the Safe Push of auth", description: "bd runs the Safe Push of auth" },
       { repositoryPath: "/a", kind: "error", title: "Cannot push auth", description: "The remote refused the push: hook" },
     ])
@@ -192,6 +192,15 @@ describe("presentActivity", () => {
       activity: { repositoryPath: "/a", kind: "error", title: "Cannot push auth", description: "hook", warning: false, details: null, operationId: "op1" },
     }
     expect(said([failed], [toast])).toEqual([{ repositoryPath: "/a", kind: "error", title: "Cannot push auth", description: "hook" }])
+  })
+
+  it("says an operation of an agent as any other, with the worktree of its slot of the lease pool", () => {
+    const agents = operation("op3", PUSH, [pushed(["auth"], [null])], { leaseSlot: true, worktree: "/pool/branch-deck-1/1/a", endedAt: 103 })
+    const users = operation("op4", PUSH, [pushed(["docs"], [null])], { endedAt: 104 })
+    expect(said([agents, users]).map(it => [it.title, it.agent])).toEqual([
+      ["Pushed docs", undefined],
+      ["Pushed auth", { worktree: "/pool/branch-deck-1/1/a" }],
+    ])
   })
 
   it("puts the operations of a journal in every project of its repository, and the page's entries in theirs, newest first", () => {

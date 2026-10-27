@@ -28,6 +28,7 @@ targets:
   - ../../src/lib/activity-window.ts
   - ../../src/lib/activity-window-link.ts
   - ../../src/hooks/useActivityWindowLink.ts
+  - ../../src/hooks/useActivityReads.ts
   - ../../src/hooks/useMainWindowLink.ts
   - ../../src/lib/main-menu.ts
   - ../../src-tauri/src/menu.rs
@@ -156,7 +157,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   is the entry of its error toast, which names it (`operationId`); one no toast told (of `bd`) says what it was for and
   why it failed ("Cannot push auth" / "The remote refused the push: …"); a canceled one is no entry.
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about, in the repository the main window shows`)
-  [@test] ../../src/presenters/activity.test.ts (`says an operation that failed unless the page recorded the error of its toast, and leaves out the agents' and the canceled`)
+  [@test] ../../src/presenters/activity.test.ts (`says an operation that failed unless the page recorded the error of its toast, and leaves out the canceled`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`)
 - The entry of an error a command returned keeps the operation it names as `operationId`, the key to the command's
   lines in the app's log: every command that can fail runs its body as an operation, the `operation{operation_id=…}`
@@ -165,8 +166,8 @@ tells the present, its line of the last day opens Activity at its Robots.
   log line of the error carries it as `operation_id`. A page step that throws what a command returned throws it as a
   `commandFailure` (`src/lib/errors.ts`), which keeps the id up to the `notifyError` of its caller, and a review write
   hands the error of its effect itself to its feedback. An entry of an operation of the remote is its id (the
-  `operation_id` of its log lines, of its entry in the journal, of the JSON of `bd`). It is stored, not shown yet; an
-  error raised outside a command has none.
+  `operation_id` of its log lines, of its entry in the journal, of the JSON of `bd`). Copy Diagnostics of the entry
+  copies it (below); an error raised outside a command has none.
   [@test] ../../src/stores/activity.test.ts (`keeps the operation a failed command names, for its lines in the log`)
   [@test] ../../src/stores/review-requests.test.ts (`hands the error of a failed approval to its feedback as the engine answered it, and starts nothing`)
   [@test] ../../src/lib/errors.test.ts (`throws what a command returned with its message, its code and the operation it names`)
@@ -201,16 +202,28 @@ tells the present, its line of the last day opens Activity at its Robots.
   `subscribe_view` remembered for the project when a window opened its session (`journalPaths` of the settings, by the
   path of the project, written by Rust; no window writes it), so the read runs no git process; each journal once for
   the projects that share it (the worktrees of one repository), all in parallel on the blocking pool, each within
-  200 ms (`ACTIVITY_READ_TIMEOUT`): one that is not read by then (a removed disk) is listed unavailable and the others
-  show. The journal of the page comes with them. The main window reads again when it starts, after each operation and
-  each write of its own, and when a journal changes (`activity-changed`: the watch of the operations registry of a
-  repository a window shows sees its journal change, an operation of `bd` ended). The log of a settings file of before
-  (the key `activity`) is dropped by the load. The operations of the agents (a worktree that is a slot of the lease
-  pool) are not shown. The Activity window gets the log of the selected repository over its link (below).
-  [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_does_not_answer_within_the_bound_is_unavailable`)
+  200 ms (`ACTIVITY_READ_TIMEOUT`): one that is not read by then (a disk that hangs), or whose repository is gone (its
+  `$GIT_COMMON_DIR` is not there: a removed disk, a deleted repository), is listed unavailable and the others show; a
+  journal its repository has not written yet is empty. The journal of the page comes with them. The main window and
+  the Activity window each read the log themselves (`useActivityReads`): when they open, and again when a journal
+  changes (`activity-changed`: a write of the page, or the watch of the operations registry of a repository a window
+  shows sees its journal change, an operation of the app or of `bd` ended); the main window also after each operation
+  and each write of its own. The log of a settings file of before (the key `activity`) is dropped by the load.
+  [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_does_not_answer_within_the_bound_is_unavailable`, `the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_written_yet_is_empty`)
   [@test] ../../crates/app-settings/src/journals_test.rs (`the_recent_projects_have_the_journals_remembered_for_them_and_one_opened_before_has_none`, `no_recent_projects_have_no_journals`)
   [@test] ../../crates/app-settings/src/file_test.rs (`the_activity_log_of_a_file_of_before_is_dropped_by_the_load_and_the_next_save`)
   [@test] ../../src/lib/run-intent.test.ts (`runs the plan Rust prepared on its fingerprint, then waits for the view of what it changed; Activity reads the journal it ended in`)
+- The operations of the agents, whose worktree is a slot of the lease pool of the repository (`leaseSlot` of the entry,
+  by `leases.json` when it ended), are entries as any other, marked "Agent" (its worktree in the tooltip), and show
+  only behind the Agents chip (Window).
+  [@test] ../../src/presenters/activity.test.ts (`says an operation of an agent as any other, with the worktree of its slot of the lease pool`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should hide the operations of agent leases behind the Agents chip`)
+- A journal of the repository the read could not read is a mark above the log, in the window and in the panel: "Cannot
+  read the journal of the repository" / "Its operations show once it answers again." and the path of the journal; a
+  journal of another repository marks nothing. Without other entries the mark stands for "Nothing yet", and the header
+  button stays.
+  [@test] ../../src/stores/activity.test.ts (`lists the journals of a repository its read could not read, and none of another repository`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should mark an unavailable journal`)
 - Each journal keeps at most 200 entries, none older than 30 days; the oldest go first.
   [@test] ../../crates/operations/src/journal_test.rs (`the_journal_keeps_the_newest_entries_of_the_last_thirty_days`)
 - "Clear Log" in the footer of the window forgets the whole log of the repository, whatever the filter shows (its
@@ -226,9 +239,10 @@ tells the present, its line of the last day opens Activity at its Robots.
 - The header button, View → Activity of ☰ (custom title bar) and the native Window → Activity (macOS) or View →
   Activity (Windows and Linux) toggle the side panel of the main window; "Show in Activity" of the landing overview
   opens it at its chip. Every entry point asks the main window (`openActivity`, the app command `open_activity`), which
-  owns the log. An open names its chip ("Show in Activity": Robots; the others none, All) and starts over with it and an
-  empty search. The panel shows the log of the selected repository only, and follows a switch of it.
-  [@test] ../../tests/e2e/activity/activity.spec.ts (`should toggle the side panel from the header button, show a branch from it, and remember it open`, `should toggle the side panel from the View menu of ☰ and from the native menu`)
+  shows Activity. An open names its chip ("Show in Activity": Robots; the others none, All) and starts over with it and
+  an empty search. The panel shows the log of the selected repository only, with the chips, the Agents chip and the
+  marks of the window, and follows a switch of it.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should toggle the side panel from the header button, show a branch from it, and remember it open`, `should toggle the side panel from the View menu of ☰ and from the native menu`, `should mark an unavailable journal`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
 - The panel opens only where the area under the header has room for it beside the islands: their minimum (768 CSS px,
   `MIN_ISLANDS_WIDTH`) plus the panel's (320 px). Without the room an entry point opens the window `activity` instead
@@ -253,10 +267,14 @@ tells the present, its line of the last day opens Activity at its Robots.
   bring the open one to the front; an open starts over with its chip and an empty search.
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should filter by the chips of the kinds and the search, an open starting over at its chip`)
 - The window shows the log of the repository the main window shows, and follows a switch of it; its title names the
-  repository ("Activity — branch-deck"). The main window tells it the entries, the branches of its table, the commits
-  of the undismissed landed report and the links of the landed branches whenever one of them or the selection changes
-  (`@/lib/activity-window-link`, the window link of [Branch Review](../branch/branch-review.spec.md)).
-  [@test] ../../tests/e2e/activity/activity.spec.ts (`should follow the repository the main window shows`)
+  repository ("Activity — branch-deck"). It reads the log itself (Log) and shows once its first read answered. The
+  main window tells it what only the main window knows: the branches of its table, the commits of the undismissed
+  landed report, the links of the landed branches, the GitHub repository the pull requests of the entries link in and
+  the Undo of this session's rewrites by entry id, whenever one of them or the selection changes
+  (`@/lib/activity-window-link`, the window link of [Branch Review](../branch/branch-review.spec.md)); no entry goes
+  over the link.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should follow the repository the main window shows`, `should clear the log of the repository`)
+  [@test] ../../src/stores/activity.test.ts (`gives the Activity window the Undo of the main window's rewrites by entry id`)
 - What the window does runs in the main window, which refuses a request of a repository it no longer shows: a branch
   name brings the main window to the front and reveals the row (`requestReveal`), the window stays; Undo runs the undo
   of this session's rewrite (`canUndoActivity`: "Cannot undo …: its time ran out" past the window); Dismiss and Clear
@@ -268,6 +286,16 @@ tells the present, its line of the last day opens Activity at its Robots.
   ignoring case (`filterActivity`). Nothing kept: "No match for “…”" (or "Nothing of this kind") with Clear Filter.
   [@test] ../../src/lib/activity-window.test.ts (`keeps the entries of the chip whose title or description has the text, ignoring case`, `counts the entries of each chip that have the text, and of all`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should filter by the chips of the kinds and the search, an open starting over at its chip`)
+- After them the Agents chip, on or off, off at each open: the operations of the agents show only while it is on,
+  whatever chip is chosen. It shows while it counts an entry or is on; its count is the agents' entries the chosen chip
+  and the search keep (what a press adds), and the other chips count the agents' only while it is on. A log of only
+  the agents' operations says "Only the operations of agents" with Show Agents, which turns the chip on.
+  [@test] ../../src/lib/activity-window.test.ts (`shows the operations of the agents only behind their chip, which counts what its press adds`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should hide the operations of agent leases behind the Agents chip`)
+- An entry of an operation (`operationId`) has Copy Diagnostics: it copies the title, the description, the time it
+  ended with `operation_id=<id>`, the field of its lines in the app's log, and the worktree of an agent's.
+  [@test] ../../src/lib/activity-window.test.ts (`copies the words of an entry, when it ended and its operation as the lines of the log name it, with the worktree of an agent`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should hide the operations of agent leases behind the Agents chip`)
 
 ### Landed entries
 
@@ -288,8 +316,10 @@ tells the present, its line of the last day opens Activity at its Robots.
   at most half the area. Its 40px header has "Activity", Open in Window (`AppWindowIcon`, `xs`) and Close; under it the
   search (`w-full`, without `/`, which stays the search of the view that shows) and the chips, then the log, which scrolls.
 - The window opens at 560 × 720, at least 440 × 400 (wider above a zoom of 110%: `sub_window_min_size`); "Activity" in
-  its title bar. On the canvas the search (`SearchField`, `w-60`, `/` focuses it) and the chips (`FilterChips`, the
-  stock `ToggleGroup`, as the filter bar of the branch table), below them the log in one `Card` island, the entries newest first grouped by day
+  its title bar. On the canvas the search (`SearchField`, `w-60`, `/` focuses it), the chips (`FilterChips`, the
+  stock `ToggleGroup`, as the filter bar of the branch table) and the Agents chip (`FilterToggle`, a `Toggle` in their
+  look, its tooltip "The operations of agents, in the worktrees of the lease pool"), below them the log in one `Card`
+  island, a mark of an unavailable journal first (`TriangleAlertIcon` in `warning`, the path in `font-mono`), the entries newest first grouped by day
   ("Today", "Yesterday", the date) with the day headings sticky on `bg-card`, then on the canvas the footer with Clear
   Log and "Esc Close".
   [@test] ../../src/stores/activity.test.ts (`groups by local day: today, yesterday, then the date`)
@@ -297,7 +327,9 @@ tells the present, its line of the last day opens Activity at its Robots.
 - An entry: the icon of its kind (`UploadIcon` push, `ArrowDownIcon` update, `ShieldCheckIcon` robot, `PenLineIcon`
   rewrite, `UserCheckIcon` review request), `PackageCheckIcon` in `info` for what landed, `TriangleAlertIcon` in `warning` for a refusal, a dropping
   push or a moved remote, `OctagonXIcon` in `destructive` for an error; the title, the description muted, the relative
-  time (`RelativeTime`). Commit subjects show through `CommitSubjectLine`, with their issue links.
+  time (`RelativeTime`); before the time an agent's "Agent" (`Badge` `outline`, muted) and, on hover or keyboard
+  focus, Copy Diagnostics (`CopyButton`, `CopyIcon`, "Copied" in its tooltip once it copied). Commit subjects show
+  through `CommitSubjectLine`, with their issue links.
 - A word of the title or description that names a branch of the table is a button: it reveals the row in the main
   window, as a branch name of the landing overview.
 - The rows of a landed report have the pull request ("#7", "Open Pull Request") and the robot (`ShieldCheckIcon`, "Open
@@ -315,9 +347,12 @@ tells the present, its line of the last day opens Activity at its Robots.
   linked page of its own (`openActivityWindow` of `tests/e2e/helpers/activity-helpers.ts`, `openLinkedSubWindow`), opened
   by Open in Window of the side panel unless a test opens it otherwise. Test ids: `activity-button`, `activity-panel`,
   `activity-panel-window`, `activity-panel-close`, `activity-window`, `activity-filter`, `activity-list`, `activity-empty`,
-  `activity-day`, `activity-entry` with `activity-title`, `activity-description`, `activity-branch`, `activity-undo`,
-  `activity-undone`, `activity-landed-toggle`, `activity-landed-dismiss`, `activity-landed-report`;
-  `activity-clear`.
+  `activity-day`, `activity-entry` with `activity-title`, `activity-description`, `activity-branch`, `activity-agent`,
+  `activity-undo`, `activity-undone`, `activity-landed-toggle`, `activity-landed-dismiss`, `activity-landed-report`;
+  `activity-unavailable` with `activity-unavailable-path`, `activity-clear`. The fixtures of the test server journal an agent's operation in a slot of
+  the pool of the repository (`journalAgentOperation`, through the registry as `bd` does) and remember the journal of
+  the repository on a disk that is gone (`loseJournalDisk`); the page mock tells the pages `activity-changed` after
+  `record_activity`, `clear_activity` and `execute`, as the backend does, and a test fires it for an operation of `bd`.
 
 ## Open Questions / Risks
 

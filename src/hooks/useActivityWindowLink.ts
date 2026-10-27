@@ -1,37 +1,22 @@
 import { useEffect } from "react"
+import { useActivityReads } from "@/hooks/useActivityReads"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { ACTIVITY_WINDOW } from "@/lib/activity-window"
 import type { ActivityWindowRequest } from "@/lib/activity-window"
 import { broadcastActivityState, runActivityRequest, subscribeActivityState } from "@/lib/activity-window-link"
+import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { windowLinkEvents } from "@/lib/sub-window-link"
-import { refreshActivity, startActivityReads } from "@/stores/activity"
-import { getGitHubRepository, pullRequestsStore } from "@/stores/pull-requests"
-import { repositoryStore } from "@/stores/repository"
-
-/** The event the backend tells a change of a journal Activity reads with (`activity-changed`: an operation of `bd` ended) */
-const ACTIVITY_CHANGED = "activity-changed"
+import { usePullRequestAvailability } from "@/stores/pull-requests"
 
 /**
- * The log of Activity and the Activity window, which doesn't own the log. The main window reads the log from the
- * journals (`startActivityReads`), again when one changes; it opens the window (`useActivityPanel`: where the side panel
- * has no room, and its Open in Window), tells it the log of the selected repository whenever the log, the branches,
- * the landed report, the links of the landed branches or the selected repository change, and runs what it asks for.
- * Main window only.
+ * Activity of the main window and its side of the Activity window. The main window reads the log
+ * (`useActivityReads`), for its side panel and the header button; it opens the window (`useActivityPanel`: where the
+ * side panel has no room, and its Open in Window), which reads the log itself, tells it what only the main window
+ * knows (the branches, the landed report and the links of its branches, the GitHub repository, the Undo of this
+ * session's rewrites, the selected repository) whenever it changes, and runs what it asks for. Main window only.
  */
 export function useActivityWindowLink(): void {
-  useEffect(
-    () =>
-      startActivityReads(getGitHubRepository, changed => {
-        const unsubscribes = [pullRequestsStore.subscribe(changed), repositoryStore.subscribe(changed)]
-        return () => {
-          for (const unsubscribe of unsubscribes) {
-            unsubscribe()
-          }
-        }
-      }),
-    [],
-  )
-  useTauriListen<null>(ACTIVITY_CHANGED, () => void refreshActivity())
+  useActivityReads(gitHubRepositoryOf(usePullRequestAvailability()))
   useEffect(() => subscribeActivityState(broadcastActivityState), [])
   useTauriListen<ActivityWindowRequest>(windowLinkEvents(ACTIVITY_WINDOW).request, runActivityRequest)
 }

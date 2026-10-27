@@ -274,9 +274,12 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
     wrappers,
     [
       "cancel_lock_wait",
+      "clear_activity",
+      "execute",
       "get_file_diffs",
       "get_file_merges",
       "get_settings_changes",
+      "record_activity",
       "save_youtrack_token",
       "set_repository_config",
       "set_setting",

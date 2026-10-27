@@ -621,3 +621,38 @@ async fn a_push_that_restarts_the_safe_push_of_its_branch_cancels_pushes_and_res
   let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
   assert_eq!((log["cancels"].clone(), log["restarts"].clone()), (json!(["r1"]), json!(["r1"])));
 }
+
+/// The operation of an agent that the fixture journals is an agent's by the state of the lease pool, as a real one is
+/// (`leaseSlot`), and comes with the next read of Activity; once the disk of the journal is gone, the read lists the
+/// journal of the repository unavailable and none of its operations
+#[tokio::test]
+async fn an_agents_operation_comes_from_a_slot_of_the_pool_and_a_journal_whose_disk_is_gone_is_unavailable() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, repository_path) = create_repository(&client, addr).await;
+  post(&client, addr, "/invoke/subscribe_view", json!({"repositoryPath": repository_path})).await;
+  let read = || post_as(&client, addr, Named::Id(&id), "/invoke/read_activity", json!({}));
+
+  let push = json!({"kind": "push", "branches": ["test-branch"], "force": false});
+  let agent = post(
+    &client,
+    addr,
+    &format!("/repositories/{id}/agent-operation"),
+    json!({"intent": push_intent("test-branch", None), "effects": [push]}),
+  )
+  .await;
+  let log = read().await;
+  let journal = &log["journals"][0];
+  assert_eq!((&journal["repositories"], &journal["available"]), (&json!([repository_path]), &json!(true)));
+  let entry = &journal["entries"][0];
+  assert_eq!((&entry["id"], &entry["leaseSlot"], &entry["worktree"]), (&agent["op"], &json!(true), &agent["worktree"]));
+  assert_eq!(entry["effects"][0]["effect"], push);
+
+  let gone = post(&client, addr, &format!("/repositories/{id}/journal-gone"), json!({})).await;
+  let log = read().await;
+  let journal = &log["journals"][0];
+  assert_eq!(
+    (&journal["path"], &journal["available"], &journal["entries"]),
+    (&gone["journal"], &json!(false), &json!([]))
+  );
+}

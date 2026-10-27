@@ -1,11 +1,13 @@
 import { useRef, useState } from "react"
 import type { ReactNode, RefObject } from "react"
 import { cn } from "cn"
+import { TriangleAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActivityLog } from "@/components/repository/ActivityLog"
 import type { ActivityLogActions } from "@/components/repository/ActivityLog"
-import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
+import { FilterChip, FilterChips, FilterToggle } from "@/components/shared/FilterChips"
 import { SearchField } from "@/components/shared/SearchField"
 import { ACTIVITY_FILTER_LABELS, ACTIVITY_FILTERS, countActivityFilters, filterActivity } from "@/lib/activity-window"
 import type { ActivityFilter } from "@/lib/activity-window"
@@ -15,8 +17,10 @@ import type { ActivityEntry } from "@/stores/activity"
 const ALL = "all"
 
 export interface ActivityPanelContentProps {
-  /** The log of the repository, newest first */
+  /** The log of the repository, newest first, the agents' operations too */
   entries: readonly ActivityEntry[]
+  /** The journals of the repository the last read could not read: their operations don't show */
+  unavailable: readonly string[]
   /** The chip an open names ("Show in Activity": Robots), null for All; each open mounts it anew (a `key`) */
   initialFilter: ActivityFilter | null
   /** When it was opened: dates the days */
@@ -34,17 +38,19 @@ export interface ActivityPanelContentProps {
 }
 
 /**
- * Activity of a repository (spec/repository/activity.spec.md): the search and the chips of the kinds, then the log, in
- * the Activity window and in the side panel of the main window alike. Only the props: the window gets the log over its
- * link, the panel from the stores of the main window.
+ * Activity of a repository (spec/repository/activity.spec.md): the search, the chips of the kinds and the Agents chip,
+ * then the log, in the Activity window and in the side panel of the main window alike, under a mark of each journal of
+ * the repository the read could not read. Only the props: each window reads the log itself.
  */
-export function ActivityPanelContent({ entries, initialFilter, openedAt, actions, layout, listRef, slashFocus = true }: ActivityPanelContentProps) {
+export function ActivityPanelContent({ entries, unavailable, initialFilter, openedAt, actions, layout, listRef, slashFocus = true }: ActivityPanelContentProps) {
   const [filter, setFilter] = useState<ActivityFilter | null>(initialFilter)
   const [query, setQuery] = useState("")
+  const [agents, setAgents] = useState(false)
   const ownListRef = useRef<HTMLDivElement>(null)
   const list = listRef ?? ownListRef
-  const counts = countActivityFilters(entries, query)
-  const shown = filterActivity(entries, filter, query)
+  const shownBy = { filter, query, agents }
+  const counts = countActivityFilters(entries, shownBy)
+  const shown = filterActivity(entries, shownBy)
   const filtered = filter !== null || query.trim() !== ""
   const clearFilter = () => {
     setFilter(null)
@@ -52,23 +58,39 @@ export function ActivityPanelContent({ entries, initialFilter, openedAt, actions
   }
   const focusList = () => list.current?.focus()
 
-  const log: ReactNode =
-    shown.length > 0 ? (
-      <ActivityLog entries={shown} openedAt={openedAt} actions={actions} />
-    ) : (
-      <div className="flex items-center gap-3 px-4 py-4 text-sm text-muted-foreground" data-testid="activity-empty">
-        {filtered ? (
-          <>
-            <span className="min-w-0 truncate">{query.trim() === "" ? "Nothing of this kind" : `No match for “${query.trim()}”`}</span>
-            <Button variant="link" size="xs" className="h-auto px-0" onClick={clearFilter}>
-              Clear Filter
-            </Button>
-          </>
-        ) : (
-          "Nothing yet: what Branch Deck does in the repository shows here"
-        )}
-      </div>
-    )
+  const empty: ReactNode = filtered ? (
+    <>
+      <span className="min-w-0 truncate">{query.trim() === "" ? "Nothing of this kind" : `No match for “${query.trim()}”`}</span>
+      <Button variant="link" size="xs" className="h-auto px-0" onClick={clearFilter}>
+        Clear Filter
+      </Button>
+    </>
+  ) : counts.agents > 0 ? (
+    <>
+      <span className="min-w-0 truncate">Only the operations of agents</span>
+      <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setAgents(true)}>
+        Show Agents
+      </Button>
+    </>
+  ) : unavailable.length > 0 ? null : (
+    "Nothing yet: what Branch Deck does in the repository shows here"
+  )
+  const log: ReactNode = (
+    <>
+      {unavailable.map(path => (
+        <UnavailableJournal key={path} path={path} />
+      ))}
+      {shown.length > 0 ? (
+        <ActivityLog entries={shown} openedAt={openedAt} actions={actions} />
+      ) : (
+        empty !== null && (
+          <div className="flex items-center gap-3 px-4 py-4 text-sm text-muted-foreground" data-testid="activity-empty">
+            {empty}
+          </div>
+        )
+      )}
+    </>
+  )
   const listClassName = "min-h-0 flex-1 overflow-y-auto pb-2 outline-none"
   return (
     <>
@@ -94,6 +116,12 @@ export function ActivityPanelContent({ entries, initialFilter, openedAt, actions
             </FilterChip>
           ))}
         </FilterChips>
+        {(counts.agents > 0 || agents) && (
+          <Tooltip>
+            <TooltipTrigger render={<FilterToggle pressed={agents} onPressedChange={setAgents} count={counts.agents} data-chip="agents" />}>Agents</TooltipTrigger>
+            <TooltipContent>The operations of agents, in the worktrees of the lease pool</TooltipContent>
+          </Tooltip>
+        )}
       </div>
       {layout === "window" ? (
         <Card ref={list} tabIndex={-1} className={cn(listClassName, "gap-0 py-0")} data-testid="activity-list">
@@ -105,5 +133,21 @@ export function ActivityPanelContent({ entries, initialFilter, openedAt, actions
         </div>
       )}
     </>
+  )
+}
+
+/** A journal of the repository the read could not read: its operations don't show until it answers again */
+function UnavailableJournal({ path }: { path: string }) {
+  return (
+    <div role="status" className="flex gap-2.5 px-4 py-2" data-testid="activity-unavailable">
+      <TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-sm">Cannot read the journal of the repository</span>
+        <span className="text-xs text-muted-foreground">Its operations show once it answers again.</span>
+        <span className="font-mono text-xs break-all text-muted-foreground" data-testid="activity-unavailable-path">
+          {path}
+        </span>
+      </div>
+    </div>
   )
 }

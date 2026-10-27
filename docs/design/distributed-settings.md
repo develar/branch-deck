@@ -146,7 +146,8 @@ sequenceDiagram
    that path (`app_settings::journals`), which Activity reads in Rust (`read_activity`). The log of Activity is no key:
    it is read from the journals (`operations::journal`), and the load drops the key `activity` of a file of before.
    **Rationale**: They are large or change with every sync, and only the main window writes them; the Activity window
-   gets the log of the selected repository over its window link (`src/lib/activity-window-link.ts`). A key Rust writes
+   reads the log itself (`read_activity`), and its window link (`src/lib/activity-window-link.ts`) carries what only
+   the main window knows of the selected repository. A key Rust writes
    no window writes, so a window's copy of a key never drops a field Rust added (a page schema strips what it doesn't
    know).
 

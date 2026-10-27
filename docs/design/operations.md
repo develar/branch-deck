@@ -242,9 +242,10 @@ start by itself: Forget This Start (`Intent::ForgetStart`) is the user's word th
 
 An operation that ended, of any process, is an entry of the journal of its repository ([Git Operations](git-operations.md),
 "Journal"), which Activity shows ([Activity](../../spec/repository/activity.spec.md)): the page records no operation of
-the remote itself; it reads the log again after each `execute` it ran (`executeIntent` of `src/lib/run-intent.ts`), and
-when the watch of the registry sees the journal change (`activity-changed`, the operation of an agent), and words each
-entry as its toast had it (`presentActivity` of `src/presenters/activity.ts`).
+the remote itself; the main window reads the log again after each `execute` it ran (`executeIntent` of
+`src/lib/run-intent.ts`), and it and the Activity window when the watch of the registry sees the journal change
+(`activity-changed`, an operation of the app or of an agent), and each words the entries as their toasts had them
+(`presentActivity` of `src/presenters/activity.ts`).
 
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
 and back. The other operations pass, as a sync does: the node keeps the state they started from.

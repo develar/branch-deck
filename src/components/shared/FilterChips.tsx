@@ -1,6 +1,7 @@
 import { createContext, use } from "react"
 import type { ComponentProps, ReactNode } from "react"
 import { cn } from "cn"
+import { Toggle } from "@/components/ui/toggle"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 export interface FilterChipsProps {
@@ -56,7 +57,25 @@ export function FilterChip({ count, children, ...props }: ComponentProps<typeof 
   return (
     <ToggleGroupItem {...props} data-composite-item-active={chosen !== null && props.value === chosen ? "" : undefined}>
       {children}
-      {count != null && <span className="tabular-nums opacity-70">{count}</span>}
+      <ChipCount count={count} />
     </ToggleGroupItem>
   )
+}
+
+/**
+ * A chip of its own beside `FilterChips`, on or off, in their look: a part of the list that shows only while it is on,
+ * whatever chip is chosen (the operations of the agents in Activity); its count is what a press adds or takes away
+ */
+export function FilterToggle({ count, children, ...props }: ComponentProps<typeof Toggle> & { count?: number | null }) {
+  return (
+    <Toggle variant="outline" size="sm" {...props}>
+      {children}
+      <ChipCount count={count} />
+    </Toggle>
+  )
+}
+
+/** The count of a chip, in tabular figures */
+function ChipCount({ count }: { count: number | null | undefined }) {
+  return count != null && <span className="tabular-nums opacity-70">{count}</span>
 }

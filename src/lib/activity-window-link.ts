@@ -6,29 +6,32 @@ import { formatPushMode } from "@/lib/patronus"
 import { repositoryName } from "@/lib/repository-config"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { activityStore, canUndoActivity, clearActivity, selectActivity, undoActivity } from "@/stores/activity"
+import type { ActivityEntry } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { dismissLanded, landedStore } from "@/stores/landed"
 import { getBranchRobot, patronusStore } from "@/stores/patronus"
-import { getPullRequest, pullRequestsStore } from "@/stores/pull-requests"
+import { getGitHubRepository, getPullRequest, pullRequestsStore } from "@/stores/pull-requests"
 import { getSelectedProject, repositoryStore } from "@/stores/repository"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
 /*
- * The main window's side of the Activity window (`@/lib/activity-window`): the log is the main window's (it records,
- * keeps the Undo of this session's rewrites and the landed report), so it tells the window the log of the selected
- * repository whenever it changed, and runs what the window asks for. The window follows the selected repository. The
- * side panel of the main window reads the same state from the stores (`buildActivityState`, `subscribeActivityState`).
+ * The main window's side of the Activity window (`@/lib/activity-window`): the window reads the log itself, and the
+ * main window tells it what only the main window knows of the selected repository (its branches, the undismissed landed
+ * report and the links of its branches, the GitHub repository, the Undo of this session's rewrites) whenever it
+ * changed, and runs what the window asks for (reveal, Undo, Dismiss, Clear Log). The window follows the selected
+ * repository. The side panel of the main window reads the same state from the stores (`buildActivityState`,
+ * `subscribeActivityState`).
  */
 
 interface ActivityShown {
   readonly repositoryPath: string
 }
 
-/** The links of the branches the landed entries name, as the island's chips open them */
-function landedLinks(state: Pick<ActivityWindowState, "entries">): Record<string, LandedBranchLinks> {
+/** The links of the branches the landed entries of the log of this window name, as the island's chips open them */
+function landedLinks(entries: readonly ActivityEntry[]): Record<string, LandedBranchLinks> {
   const links: Record<string, LandedBranchLinks> = {}
-  for (const entry of state.entries) {
+  for (const entry of entries) {
     if (entry.details?.type !== "landed") {
       continue
     }
@@ -47,19 +50,23 @@ function landedLinks(state: Pick<ActivityWindowState, "entries">): Record<string
   return links
 }
 
-/** What Activity shows of the repository: its log, the branches of the table, the undismissed landed report, the links */
+/**
+ * What Activity shows of the repository besides its log: the branches of the table, the undismissed landed report, the
+ * links of its branches, the GitHub repository and the Undo of this session's rewrites
+ */
 export function buildActivityState({ repositoryPath }: ActivityShown): ActivityWindowState {
-  const entries = selectActivity(activityStore.getState(), repositoryPath)
+  const activity = activityStore.getState()
   const landed = landedStore.getState()
   const branches = branchSyncStore.getState()
   return {
     repositoryPath,
     repositoryName: repositoryName(repositoryPath),
-    entries,
+    gitHubRepository: getGitHubRepository(),
+    undo: activity.undo,
     // the rows of another repository a switch left behind name no branch of this one
     branches: branches.syncedRepositoryPath === repositoryPath ? branches.branchOrder : [],
     undismissed: landed.repositoryPath === repositoryPath ? landed.landed.flatMap(branch => branch.commits.map(commit => commit.id)) : [],
-    links: landedLinks({ entries }),
+    links: landedLinks(selectActivity(activity, repositoryPath)),
   }
 }
 

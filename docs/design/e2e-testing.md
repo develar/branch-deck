@@ -345,8 +345,9 @@ Mock implementation:
     reviews and writes in the `pull-request-review` window this way. A write of the settings in the window reaches the
     main window, which saves it in the store of the test server (`testStore`); `reopenLinkedSubWindow` hands the shown
     window a later open, as the backend does. The Activity window is always linked too (`openActivityWindow` of
-    `activity-helpers.ts`, by Open in Window of the side panel unless the test opens it otherwise: the main window sends
-    it the log, and runs its reveal, Undo, Dismiss and Clear Log). The
+    `activity-helpers.ts`, by Open in Window of the side panel unless the test opens it otherwise: the window reads the
+    log itself, the main window sends it what only it knows and runs its reveal, Undo, Dismiss and Clear Log; the mock
+    tells both pages `activity-changed` after `record_activity`, `clear_activity` and `execute`, as the backend does). The
     Settings window is always linked: `openSettingsWindow` of
     `settings-helpers.ts` fires `open_settings` in the main window's page once it listens (`waitForTauriListener`; an
     event fired before a lazy page registered its listener is lost) and shows the open, `expectSettingsOpened` checks

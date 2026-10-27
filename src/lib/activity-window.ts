@@ -1,11 +1,14 @@
 import { runAppCommand } from "@/lib/app-commands"
+import type { GitHubRepository } from "@/lib/pull-request"
 import { repositoryName } from "@/lib/repository-config"
-import type { ActivityEntry, ActivityKind } from "@/stores/activity"
+import type { ActivityEntry, ActivityKind, UndoState } from "@/stores/activity"
 
 /*
  * The Activity window (spec/repository/activity.spec.md): the log of the selected repository in a window of its own,
- * opened by the main window only, which owns the log and sends it over the link of the window
- * (`@/lib/activity-window-link`). Every entry point asks the main window (`openActivity`).
+ * opened by the main window only. The window reads the log itself, as the main window does; the main window tells it
+ * over the link of the window (`@/lib/activity-window-link`) what only it knows (the shown repository, its branches,
+ * the landed report, the Undo of this session's rewrites) and runs what it asks for. Every entry point asks the main
+ * window (`openActivity`).
  */
 
 export const ACTIVITY_WINDOW = "activity"
@@ -39,18 +42,36 @@ export function activityFilterOf(entry: Pick<ActivityEntry, "kind">): ActivityFi
   return FILTER_OF_KIND[entry.kind]
 }
 
-/** The entries of the chip (`null`: all) whose title or description has `query`, ignoring case */
-export function filterActivity(entries: readonly ActivityEntry[], filter: ActivityFilter | null, query: string): ActivityEntry[] {
-  return entries.filter(entry => (filter === null || activityFilterOf(entry) === filter) && matchesQuery(entry, query))
+/** What the log shows: the entries of a chip (`filter`, null: all) that have the text `query`, the agents' too while `agents` is on */
+export interface ActivityQuery {
+  readonly filter: ActivityFilter | null
+  readonly query: string
+  /** The Agents chip: the operations of the agents (their worktree a slot of the lease pool) show only while it is on */
+  readonly agents: boolean
 }
 
-/** The entries of each chip that have `query`, and of all: the counts of the chips */
-export function countActivityFilters(entries: readonly ActivityEntry[], query: string): Record<ActivityFilter | "all", number> {
-  const counts = { all: 0, robots: 0, pushes: 0, updates: 0, reviews: 0, rewrites: 0, errors: 0 }
+/** The entries `query` keeps: of its chip, whose title or description has its text, ignoring case, the agents' only while they show */
+export function filterActivity(entries: readonly ActivityEntry[], { filter, query, agents }: ActivityQuery): ActivityEntry[] {
+  return entries.filter(entry => (agents || entry.agent === undefined) && (filter === null || activityFilterOf(entry) === filter) && matchesQuery(entry, query))
+}
+
+/**
+ * The counts of the chips: the entries of each kind and of all that have the text, the agents' only while they show; of
+ * Agents, the agents' entries the chosen chip and the text keep, what its press adds or takes away
+ */
+export function countActivityFilters(entries: readonly ActivityEntry[], { filter, query, agents }: ActivityQuery): Record<ActivityFilter | "all" | "agents", number> {
+  const counts = { all: 0, robots: 0, pushes: 0, updates: 0, reviews: 0, rewrites: 0, errors: 0, agents: 0 }
   for (const entry of entries) {
-    if (matchesQuery(entry, query)) {
+    if (!matchesQuery(entry, query)) {
+      continue
+    }
+    const kind = activityFilterOf(entry)
+    if (entry.agent !== undefined && (filter === null || kind === filter)) {
+      counts.agents++
+    }
+    if (agents || entry.agent === undefined) {
       counts.all++
-      counts[activityFilterOf(entry)]++
+      counts[kind]++
     }
   }
   return counts
@@ -59,6 +80,21 @@ export function countActivityFilters(entries: readonly ActivityEntry[], query: s
 function matchesQuery(entry: ActivityEntry, query: string): boolean {
   const needle = query.trim().toLowerCase()
   return needle === "" || entry.title.toLowerCase().includes(needle) || (entry.description?.toLowerCase().includes(needle) ?? false)
+}
+
+/**
+ * What Copy Diagnostics of an entry copies: what it says, when, and the operation it is of as the lines of the log name
+ * it (`operation_id=…`), with the worktree of an agent's; null for an entry of no operation
+ */
+export function activityDiagnostics(entry: ActivityEntry): string | null {
+  if (entry.operationId === undefined) {
+    return null
+  }
+  const lines = [entry.title, ...(entry.description === undefined ? [] : [entry.description]), `${new Date(entry.time).toISOString()} operation_id=${entry.operationId}`]
+  if (entry.agent !== undefined) {
+    lines.push(`agent worktree=${entry.agent.worktree}`)
+  }
+  return lines.join("\n")
 }
 
 /** "Activity — branch-deck": the window names its repository */
@@ -85,13 +121,15 @@ export interface LandedBranchLinks {
   readonly robot?: { readonly url: string; readonly mode: string }
 }
 
-/** What the main window tells the window of the log of its selected repository */
+/** What the main window tells the window of its selected repository: what only it knows; the window reads the log itself */
 export interface ActivityWindowState {
   readonly repositoryPath: string
   /** The name of the repository, in the title of the window */
   readonly repositoryName: string
-  /** The log of the repository, newest first */
-  readonly entries: readonly ActivityEntry[]
+  /** The GitHub repository of the repository, where the pull requests of the entries link; null while GitHub lists none */
+  readonly gitHubRepository: GitHubRepository | null
+  /** The Undo of the rewrites of this session, by entry id: only the main window can undo them (`canUndoActivity`) */
+  readonly undo: Readonly<Record<string, UndoState>>
   /** The branches of the table: a word of an entry that names one shows its row */
   readonly branches: readonly string[]
   /** The commits of the undismissed landed report: an entry whose commits are among them offers Dismiss */

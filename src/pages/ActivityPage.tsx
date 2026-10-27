@@ -7,17 +7,22 @@ import type { ActivityLogActions } from "@/components/repository/ActivityLog"
 import { ActivityPanelContent } from "@/components/repository/ActivityPanelContent"
 import { KeyHint, PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
+import { useActivityReads } from "@/hooks/useActivityReads"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { ACTIVITY_WINDOW, activityWindowTitle } from "@/lib/activity-window"
 import type { ActivityWindowData, ActivityWindowFeedback, ActivityWindowRequest } from "@/lib/activity-window"
 import { logError, notifyError } from "@/lib/errors"
+import { markWindowContentReady } from "@/lib/sub-window"
+import { useActivityOf, useActivityRead, useUnavailableJournals, withUndo } from "@/stores/activity"
 
 /**
  * The Activity window (spec/repository/activity.spec.md): the log of the repository the main window shows, in one
- * island under a search and the chips of the kinds on the canvas, Clear Log in the footer. The main window owns the log
- * and sends it over the link of the window; a branch name, Undo, Dismiss and Clear Log run there. Each open starts over
- * with the chip it names and an empty search.
+ * island under a search and the chips of the kinds on the canvas, Clear Log in the footer. The window reads the log
+ * itself (at each open, and when a journal changed); the main window tells it over the link of the window the shown
+ * repository, its branches, the landed report and the Undo of its rewrites, and runs a branch name, Undo, Dismiss and
+ * Clear Log. The window shows once the first read answered. Each open starts over with the chip it names and an empty
+ * search.
  */
 export function ActivityPage() {
   const data = useSubWindowData<ActivityWindowData>()
@@ -31,6 +36,15 @@ function ActivityWindow({ data }: { data: ActivityWindowData }) {
   // the window follows the repository the main window shows
   const state = useLinkedState(ACTIVITY_WINDOW, data.state, { anyRepository: true })
   const { repositoryPath } = state
+  useActivityReads(state.gitHubRepository)
+  const read = useActivityRead()
+  const entries = withUndo(useActivityOf(repositoryPath), state.undo)
+  const unavailable = useUnavailableJournals(repositoryPath)
+  useEffect(() => {
+    if (read) {
+      markWindowContentReady()
+    }
+  }, [read])
   useEffect(() => {
     getCurrentWindow()
       .setTitle(activityWindowTitle(repositoryPath))
@@ -53,6 +67,7 @@ function ActivityWindow({ data }: { data: ActivityWindowData }) {
     <WindowPage
       title="Activity"
       body="fill"
+      readyByContent
       data-testid="activity-window"
       footer={
         <PreviewDialogFooter
@@ -61,7 +76,7 @@ function ActivityWindow({ data }: { data: ActivityWindowData }) {
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <Button size="xs" variant="ghost" disabled={state.entries.length === 0} focusableWhenDisabled data-testid="activity-clear" onClick={() => ask({ clear: true })} />
+                  <Button size="xs" variant="ghost" disabled={entries.length === 0} focusableWhenDisabled data-testid="activity-clear" onClick={() => ask({ clear: true })} />
                 }
               >
                 Clear Log
@@ -74,7 +89,8 @@ function ActivityWindow({ data }: { data: ActivityWindowData }) {
         </PreviewDialogFooter>
       }
     >
-      <ActivityPanelContent entries={state.entries} initialFilter={data.kind} openedAt={data.openedAt} actions={actions} layout="window" />
+      {/* nothing before the first read: the window is still hidden, and an empty log would be news it isn't */}
+      {read && <ActivityPanelContent entries={entries} unavailable={unavailable} initialFilter={data.kind} openedAt={data.openedAt} actions={actions} layout="window" />}
     </WindowPage>
   )
 }

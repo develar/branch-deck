@@ -17,8 +17,8 @@
 //! what only the page knows (an error it told, an update, what landed, a rewrite, the news of a review request, an
 //! approval or a robot), recorded through `record_page` under `journal.lock` beside it, within the same bounds.
 //! Activity reads both (`read_activity`): the journals of the recent projects in parallel on the blocking pool, each
-//! within `ACTIVITY_READ_TIMEOUT` (a journal of a removed disk is listed unavailable), and Clear Log forgets the log of
-//! a repository in both (`clear`).
+//! within `ACTIVITY_READ_TIMEOUT` (a journal of a removed disk, or of one that does not answer, is listed unavailable),
+//! and Clear Log forgets the log of a repository in both (`clear`).
 
 use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::activity::{ActivityLog, PageActivity, PageEntry, RepositoryJournal};
@@ -66,6 +66,24 @@ pub fn read(git_common_dir: &Path) -> std::io::Result<Vec<JournalEntry>> {
 /// The journal in the directory `dir` of a registry, as `subscribe_view` remembers it for the projects of its repository
 pub(crate) fn journal_path_in(dir: &Path) -> PathBuf {
   path(dir)
+}
+
+/// The journal of the repository of `git_common_dir`, as `subscribe_view` remembers it for the projects of the
+/// repository
+#[must_use]
+pub fn journal_path(git_common_dir: &Path) -> PathBuf {
+  path(ProcessRegistry::of(git_common_dir).dir())
+}
+
+/// The entries of the journal of a repository at `path` for Activity: one the repository has not written yet is empty,
+/// but the journal of a repository that is gone (its `$GIT_COMMON_DIR` is not there: a removed disk, a deleted
+/// repository) can't be read
+fn read_journal(path: &Path) -> std::io::Result<Vec<JournalEntry>> {
+  let entries = read_lines(path)?;
+  if entries.is_empty() && !path.parent().and_then(Path::parent).is_some_and(Path::is_dir) {
+    return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "the repository of the journal is gone"));
+  }
+  Ok(entries)
 }
 
 /// Whether `name` is the name of a journal: a watch of the directory of a registry tells Activity of its change
@@ -254,8 +272,8 @@ pub fn clear(journal: Option<&Path>, app_data: &Path, repository: &str) -> Resul
 
 /// What Activity shows (`read_activity`): the journals of `projects` (each recent project with the journal
 /// `subscribe_view` remembered for it; one never opened since has none), each read once for the projects that share
-/// it, in parallel on the blocking pool, each within `timeout` (one that is not read by then is unavailable), and the
-/// journal of the page in `app_data`
+/// it, in parallel on the blocking pool, each within `timeout` (one that is not read by then, or whose repository is
+/// gone, is unavailable), and the journal of the page in `app_data`
 pub async fn read_activity(projects: &[(String, Option<String>)], app_data: &Path, timeout: Duration) -> ActivityLog {
   let mut journals: Vec<RepositoryJournal> = Vec::new();
   for (repository, journal) in projects {
@@ -274,7 +292,7 @@ pub async fn read_activity(projects: &[(String, Option<String>)], app_data: &Pat
     .iter()
     .map(|journal| {
       let path = PathBuf::from(&journal.path);
-      tokio::task::spawn_blocking(in_current_span(move || read_lines::<JournalEntry>(&path)))
+      tokio::task::spawn_blocking(in_current_span(move || read_journal(&path)))
     })
     .collect();
   let app_data = app_data.to_path_buf();

@@ -32,7 +32,7 @@ export async function openWindowFromPanel(page: Page): Promise<void> {
 /**
  * Opens the Activity window by `open` (Open in Window of the side panel by default; where the panel has no room, an
  * entry point opens the window itself), then shows the window as a linked page of its own (`openLinkedSubWindow`): the
- * main window tells it the log, and runs what it asks for
+ * window reads the log itself, the main window tells it what only it knows and runs what it asks for
  */
 export async function openActivityWindow(page: Page, open: () => Promise<unknown> = () => openWindowFromPanel(page)): Promise<Page> {
   const count = (await getOpenedSubWindows(page)).length

@@ -1,6 +1,6 @@
 use crate::engine::run;
 use crate::events::EventSink;
-use crate::journal::{LIMIT, MAX_AGE, clear, journal_path_in, kept, read, read_activity, read_page, record_page};
+use crate::journal::{LIMIT, MAX_AGE, clear, journal_path, journal_path_in, kept, read, read_activity, read_page, record_page};
 use crate::registry::registry_test::sessions;
 use crate::registry::{Answer, Registry, RegistryFiles, RunningGuard};
 use crate::registry_file::ProcessRegistry;
@@ -329,6 +329,23 @@ async fn activity_reads_the_journal_of_each_repository_once_and_lists_one_it_can
     ]
   );
   assert_eq!(log.page.iter().map(|entry| entry.activity.title.as_str()).collect::<Vec<_>>(), ["Cannot push docs"]);
+}
+
+/// The journal of a repository that wrote none yet is an empty journal, but the journal of a repository that is gone (its
+/// disk removed: no `$GIT_COMMON_DIR` where the settings remember it) is unavailable, never an empty log
+#[tokio::test(flavor = "multi_thread")]
+async fn the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_written_yet_is_empty() {
+  let (common, app_data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  let gone = common.path().join("removed-disk").join(".git");
+  let projects = [
+    ("/new".to_string(), Some(journal_path(common.path()).to_string_lossy().into_owned())),
+    ("/gone".to_string(), Some(journal_path(&gone).to_string_lossy().into_owned())),
+  ];
+
+  let log = read_activity(&projects, app_data.path(), Duration::from_mins(1)).await;
+  let available: Vec<_> = log.journals.iter().map(|journal| (journal.repositories.clone(), journal.available)).collect();
+  assert_eq!(available, [(vec!["/new".to_string()], true), (vec!["/gone".to_string()], false)]);
+  assert_eq!(journal_path(common.path()), journal_path_in(ProcessRegistry::of(common.path()).dir()));
 }
 
 /// A journal that does not answer within the bound (a disk that hangs: here a pipe nobody writes) is listed unavailable,

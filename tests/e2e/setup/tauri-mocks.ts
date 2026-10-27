@@ -644,6 +644,14 @@ export const tauriMockScript = () => {
     wait_youtrack_sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
     save_youtrack_token: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
     sign_out_of_youtrack: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
+
+    // a write of a journal of Activity: the backend tells every window `activity-changed` (`ACTIVITY_CHANGED_EVENT` of
+    // src-tauri), after a write of the page and after an operation of the remote ended, which the watch of the registry
+    // sees in the journal of its repository (failed ones too), so the main window and the Activity window read the log
+    // again
+    record_activity: async (cmd: string, payload: any) => emitAfter(cmd, payload, "activity-changed"),
+    clear_activity: async (cmd: string, payload: any) => emitAfter(cmd, payload, "activity-changed"),
+    execute: async (cmd: string, payload: any) => proxyToTestServer(cmd, payload).finally(() => emitToAll("activity-changed")),
   }
 
   /**
@@ -652,9 +660,14 @@ export const tauriMockScript = () => {
    */
   async function emitAfter(cmd: string, payload: any, event: string): Promise<any> {
     const answer = await proxyToTestServer(cmd, payload)
+    emitToAll(event)
+    return answer
+  }
+
+  /** Emits `event` to every window as the backend does: to this page and, through `__e2eRelay`, to the other pages of a linked sub-window */
+  function emitToAll(event: string): void {
     ;(window as any).__e2eEmitTauriEvent(event, null)
     void (window as any).__e2eRelay?.(event, null)
-    return answer
   }
 
   // All unhandled commands are proxied to test server for single source of truth

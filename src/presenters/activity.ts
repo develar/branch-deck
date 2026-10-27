@@ -3,8 +3,8 @@
 // pushed (`describePush` over the status the push found, `EffectRecord.remote`) or found moved on the remote, each pull
 // request it retargeted, the robot it started, restarted or canceled (`presentLandOutcome`), the pull request it
 // created, closed or reviewed; one that failed is an error entry unless the page recorded the error of its toast (an
-// entry of the page that names the operation). The operations of the agents (a slot of the lease pool) are left out. An
-// entry the page recorded (`PageEntry`) is as the page worded it.
+// entry of the page that names the operation). An operation of an agent (its worktree a slot of the lease pool) says so
+// (`agent`): Activity shows it behind its Agents chip. An entry the page recorded (`PageEntry`) is as the page worded it.
 import type { ActivityLog, EffectRecord, Intent, JournalEntry, PageEntry, RemoteStatusUpdate } from "@/lib/bindings"
 import { formatCreatedToast } from "@/lib/create-pull-request"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
@@ -17,7 +17,7 @@ import { presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
 import type { ActivityDetails, ActivityEntry } from "@/stores/activity"
 
 /** What an event of an operation says, before it is placed in a repository and in time */
-type Said = Omit<ActivityEntry, "id" | "repositoryPath" | "time" | "operationId">
+type Said = Omit<ActivityEntry, "id" | "repositoryPath" | "time" | "operationId" | "agent">
 
 /**
  * The entries of `log`, newest first (in one second the later line of a journal first, and an entry of the page before
@@ -29,12 +29,10 @@ export function presentActivity(log: ActivityLog, github: GitHubRepository | nul
   const entries: ActivityEntry[] = []
   for (const journal of log.journals) {
     for (const entry of journal.entries) {
-      if (entry.leaseSlot) {
-        continue
-      }
       const said = presentOperation(entry, github, told.has(entry.id))
+      const agent = entry.leaseSlot ? { agent: { worktree: entry.worktree } } : {}
       for (const repositoryPath of journal.repositories) {
-        said.forEach((it, at) => entries.push({ ...it, id: `${entry.id}/${at}`, repositoryPath, time: entry.endedAt * 1000, operationId: entry.id }))
+        said.forEach((it, at) => entries.push({ ...it, id: `${entry.id}/${at}`, repositoryPath, time: entry.endedAt * 1000, operationId: entry.id, ...agent }))
       }
     }
   }

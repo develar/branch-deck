@@ -15,8 +15,10 @@ import {
   recordUpdate,
   refreshActivity,
   selectActivity,
+  selectUnavailableJournals,
   undoActivity,
   UNDO_WINDOW_MS,
+  withUndo,
 } from "@/stores/activity"
 import { fakeActivity } from "@/test-support/fake-activity"
 import { conflictState } from "@/test-support/update-conflict"
@@ -109,6 +111,26 @@ describe("activity", () => {
   it("records nothing without a repository", async () => {
     expect(await recordActivity("", { kind: "update", title: "Updated master" })).toBeNull()
     expect(fakeActivity.page).toEqual([])
+  })
+
+  it("lists the journals of a repository its read could not read, and none of another repository", async () => {
+    fakeActivity.setJournals([
+      { path: "/a/.git/branch-deck/journal.jsonl", repositories: ["/a", "/a-feature"], available: false, entries: [] },
+      { path: "/b/.git/branch-deck/journal.jsonl", repositories: ["/b"], available: true, entries: [] },
+    ])
+    await refreshActivity()
+    const state = activityStore.getState()
+    expect(selectUnavailableJournals(state, "/a-feature")).toEqual(["/a/.git/branch-deck/journal.jsonl"])
+    expect(selectUnavailableJournals(state, "/b")).toEqual([])
+    expect(selectUnavailableJournals(state, undefined)).toEqual([])
+  })
+
+  it("gives the Activity window the Undo of the main window's rewrites by entry id", () => {
+    const [kept, rewritten] = [
+      { id: "e1", repositoryPath: "/a", time: 0, kind: "push", title: "Pushed auth" },
+      { id: "e2", repositoryPath: "/a", time: 0, kind: "rewrite", title: "Squashed 2 commits" },
+    ] as const
+    expect(withUndo([kept, rewritten], { e2: { until: 10, undone: true } })).toEqual([kept, { ...rewritten, undo: { until: 10, undone: true } }])
   })
 
   it("offers the Undo of a rewrite for the window of its toast, once", async () => {

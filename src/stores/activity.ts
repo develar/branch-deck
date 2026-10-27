@@ -1,6 +1,7 @@
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
+import { ACTIVITY_WINDOW } from "@/lib/activity-window"
 import type { ActivityLog, DroppedCommit, LandedBranch, PageActivity, PatronusRobot, ReviewRequest, UpdateProjectResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { logError, setErrorRecorder } from "@/lib/errors"
@@ -8,7 +9,7 @@ import { appliedUpdateToast, foundLandedNews } from "@/lib/landed"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { describeRequestActivity } from "@/lib/review-requests"
 import { describeUpdateState } from "@/lib/update-state"
-import { isMainWindow } from "@/lib/window-label"
+import { isMainWindow, windowLabel } from "@/lib/window-label"
 import { presentActivity } from "@/presenters/activity"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
@@ -16,9 +17,11 @@ import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
  * Activity: what Branch Deck did in a repository, newest first, read from the journals (spec/repository/activity.spec.md).
  * The operations of the remote, of the app and of `bd`, are the journal of their repository; what only the page knows
  * (an error it told, an update, what landed, a rewrite, a review request, an approval, the news of a robot) it records
- * in the journal of the app data directory (`record_activity`). The main window reads the log (`read_activity`) when
- * it starts, after each write and operation of its own (`refreshActivity`), and when a journal changes
- * (`activity-changed`); `presentActivity` words the entries. The Undo of a rewrite lives here, in memory, by entry id.
+ * in the journal of the app data directory (`record_activity`). The main window and the Activity window each read the
+ * log (`read_activity`) when they open, the main window after each write and operation of its own too
+ * (`refreshActivity`), and both when a journal changes (`activity-changed`, `useActivityReads`); `presentActivity`
+ * words the entries. The Undo of a rewrite lives in the main window, in memory, by entry id; the Activity window gets
+ * it over its link.
  */
 
 /** How long the Undo of a rewrite lasts, the toast's and the one in Activity alike */
@@ -55,10 +58,12 @@ export interface ActivityEntry {
   readonly undo?: { readonly until: number; readonly undone?: boolean }
   /** The operation of the entry: the id of its lines in the app's log (an error a command named, an operation of the remote) */
   readonly operationId?: string
+  /** The operation of an agent: its worktree is a slot of the lease pool of the repository */
+  readonly agent?: { readonly worktree: string }
 }
 
 /** The Undo of a rewrite of this session */
-interface UndoState {
+export interface UndoState {
   readonly until: number
   readonly undone: boolean
 }
@@ -74,18 +79,23 @@ interface ActivityState {
 
 export const activityStore = createStore<ActivityState>(() => ({ log: null, items: [], undo: {} }))
 
-/** The GitHub repository the pull requests of the entries are linked in; set by `startActivityReads` */
-let gitHubRepositoryOf: () => GitHubRepository | null = () => null
+/** The windows that read the log: the main window (its side panel, the header button) and the Activity window */
+const readsLog = isMainWindow || windowLabel === ACTIVITY_WINDOW
 
-/** The entries of `log` in their words, with the Undo of this session's rewrites */
-function itemsOf(log: ActivityLog | null, undo: Readonly<Record<string, UndoState>>): ActivityEntry[] {
-  if (log === null) {
-    return []
-  }
-  return presentActivity(log, gitHubRepositoryOf()).map(entry => {
+/** The GitHub repository the pull requests of the entries are linked in (`linkActivityPullRequests`) */
+let gitHubRepository: GitHubRepository | null = null
+
+/** `entries` with the Undo of the rewrites of this session, by entry id: the main window's, in either window */
+export function withUndo(entries: readonly ActivityEntry[], undo: Readonly<Record<string, UndoState>>): ActivityEntry[] {
+  return entries.map(entry => {
     const state = undo[entry.id]
     return state === undefined ? entry : { ...entry, undo: { until: state.until, ...(state.undone && { undone: true }) } }
   })
+}
+
+/** The entries of `log` in their words, with the Undo of this session's rewrites */
+function itemsOf(log: ActivityLog | null, undo: Readonly<Record<string, UndoState>>): ActivityEntry[] {
+  return log === null ? [] : withUndo(presentActivity(log, gitHubRepository), undo)
 }
 
 function setLog(log: ActivityLog): void {
@@ -103,9 +113,12 @@ function setUndo(id: string, undo: UndoState): void {
 let reading: Promise<void> | null = null
 let readAgain = false
 
-/** Reads the log again (`read_activity`); resolves once the store has a read made after the call. Main window only */
+/**
+ * Reads the log again (`read_activity`); resolves once the store has a read made after the call. Only in a window that
+ * shows Activity: the main window and the Activity window
+ */
 export function refreshActivity(): Promise<void> {
-  if (!isMainWindow) {
+  if (!readsLog) {
     return Promise.resolve()
   }
   if (reading !== null) {
@@ -130,21 +143,15 @@ export function refreshActivity(): Promise<void> {
 }
 
 /**
- * Reads the log now and links its pull requests in the GitHub repository `gitHubRepository` answers, again when
- * `subscribe` says it changed; returns the unsubscribe. The main window's (`useActivityWindowLink`)
+ * Links the pull requests of the entries in `repository`, the GitHub repository of the shown repository (null: none);
+ * the entries are worded again when it changed (`useActivityReads`)
  */
-export function startActivityReads(gitHubRepository: () => GitHubRepository | null, subscribe: (changed: () => void) => () => void): () => void {
-  gitHubRepositoryOf = gitHubRepository
-  let shown = gitHubRepository()
-  const unsubscribe = subscribe(() => {
-    const now = gitHubRepository()
-    if (now?.owner !== shown?.owner || now?.name !== shown?.name) {
-      shown = now
-      activityStore.setState(state => ({ items: itemsOf(state.log, state.undo) }))
-    }
-  })
-  void refreshActivity()
-  return unsubscribe
+export function linkActivityPullRequests(repository: GitHubRepository | null): void {
+  if (repository?.owner === gitHubRepository?.owner && repository?.name === gitHubRepository?.name) {
+    return
+  }
+  gitHubRepository = repository
+  activityStore.setState(state => ({ items: itemsOf(state.log, state.undo) }))
 }
 
 // ---- what the page records ----
@@ -415,9 +422,8 @@ export function selectActivity(state: Pick<ActivityState, "items">, repositoryPa
   return state.items.filter(entry => entry.repositoryPath === repositoryPath)
 }
 
-/** The log of the selected repository, newest first */
-export function useActivity(): readonly ActivityEntry[] {
-  const repositoryPath = useSelectedProjectPath()
+/** The log of the repository at `repositoryPath`, newest first */
+export function useActivityOf(repositoryPath: string | undefined): readonly ActivityEntry[] {
   const entries = useStore(
     activityStore,
     useShallow((state: ActivityState) => selectActivity(state, repositoryPath)),
@@ -425,8 +431,42 @@ export function useActivity(): readonly ActivityEntry[] {
   return entries.length === 0 ? noEntries : entries
 }
 
-/** Whether the selected repository has a log: the header hides the Activity button without one */
+/** The log of the selected repository, newest first */
+export function useActivity(): readonly ActivityEntry[] {
+  return useActivityOf(useSelectedProjectPath())
+}
+
+const noJournals: readonly string[] = []
+
+/**
+ * The journals of the repository at `repositoryPath` the last read could not read (its disk is gone, or it did not
+ * answer within the bound): their operations don't show
+ */
+export function selectUnavailableJournals(state: Pick<ActivityState, "log">, repositoryPath: string | undefined): string[] {
+  return (state.log?.journals ?? [])
+    .filter(journal => !journal.available && repositoryPath !== undefined && journal.repositories.includes(repositoryPath))
+    .map(journal => journal.path)
+}
+
+/** `selectUnavailableJournals` of the repository at `repositoryPath` */
+export function useUnavailableJournals(repositoryPath: string | undefined): readonly string[] {
+  const journals = useStore(
+    activityStore,
+    useShallow((state: ActivityState) => selectUnavailableJournals(state, repositoryPath)),
+  )
+  return journals.length === 0 ? noJournals : journals
+}
+
+/** Whether the log was read in this window: until then it shows nothing yet */
+export function useActivityRead(): boolean {
+  return useStore(activityStore, state => state.log !== null)
+}
+
+/**
+ * Whether the selected repository has a log, or a journal the last read could not read (Activity says why its log is
+ * short): the header hides the Activity button otherwise
+ */
 export function useHasActivity(): boolean {
   const repositoryPath = useSelectedProjectPath()
-  return useStore(activityStore, state => state.items.some(entry => entry.repositoryPath === repositoryPath))
+  return useStore(activityStore, state => state.items.some(entry => entry.repositoryPath === repositoryPath) || selectUnavailableJournals(state, repositoryPath).length > 0)
 }

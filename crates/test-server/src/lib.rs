@@ -213,6 +213,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/repository-lock", post(hold_repository_lock))
     .route("/repositories/{id}/foreign-operation", post(remote_fixtures::set_foreign_operation))
     .route("/repositories/{id}/stamp", post(remote_fixtures::touch_repository_stamp))
+    .route("/repositories/{id}/agent-operation", post(remote_fixtures::journal_agent_operation))
+    .route("/repositories/{id}/journal-gone", post(remote_fixtures::lose_journal))
     .route("/repositories/{id}/sync-overrides", post(sync_overrides::set_sync_overrides))
     .route("/repositories/{id}/revision", get(sync_overrides::get_revision))
     .route("/repositories/{id}/rebase-in-progress", post(sync_overrides::set_rebase_in_progress))
