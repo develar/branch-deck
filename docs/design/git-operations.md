@@ -1743,7 +1743,9 @@ state of its own: the commit comes from the client, and the outputs go back to i
 ended, and the host keeps a fixed set of warm slots that runs borrow (`crates/lease-pool/src/host_slots.rs`). The agent
 of yonder (yonderd) drives them through `bd lease host` (`crates/bd-lease/src/host_command.rs`): a supervisor lends a
 slot for its run (`lend --pid <supervisor>`, polled while it waits) and gives it back on every way out
-(`give-back --run`), and a keeper runs `reclaim` and `fill`. The network and the run stay yonder's; the full move of
+(`give-back --run`), and a keeper runs `reclaim` and `fill`. A lend answers the `generation` of the files of the slot,
+which a give-back that discarded changes and a clean move before the slot is idle again: yonder keys the fingerprints
+of its prepare steps by it, so a run never skips a step whose output a give-back of the run before removed. The network and the run stay yonder's; the full move of
 yonder into Branch Deck (`bd host`) is a later decision.
 
 The slots are plain `ready` leases of the holders `bd-host/<n>`, so `leases.json` keeps its format. A get never takes

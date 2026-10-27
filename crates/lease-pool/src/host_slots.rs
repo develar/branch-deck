@@ -87,6 +87,11 @@ pub struct HostSlot {
   /// When it was last cleaned (or filled), in Unix seconds
   #[serde(default)]
   pub cleaned_at: u64,
+  /// One more each time something removed files of the slot: a give-back that discarded changes, a clean. What an agent
+  /// made in the slot (the outputs of its prepare steps) holds only within one generation, and the table moves it before
+  /// the slot is idle again, so no next run sees a stale one
+  #[serde(default)]
+  pub generation: u64,
   /// The affinity of the run it served last (`checkout-<12 hex>` of the client's checkout): a run of the same checkout
   /// gets it first, with the outputs of its last run
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -313,9 +318,11 @@ pub struct Lend {
   pub n: u32,
   pub path: String,
   pub lease_id: String,
-  /// When it was last cleaned or filled, in Unix seconds: the agent keys what its prepare steps made in the slot by it,
-  /// since a clean can delete that
+  /// When it was last cleaned or filled, in Unix seconds
   pub cleaned_at: u64,
+  /// The generation of the files of the slot (`HostSlot::generation`): the agent keys what its prepare steps made in
+  /// the slot by it, since a give-back or a clean can delete that
+  pub generation: u64,
   /// When the same affinity used it last, in Unix milliseconds: the wait line says "last used by this checkout 12 min
   /// ago"
   pub last_used_by_affinity: Option<u64>,
@@ -356,6 +363,7 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
         path: slot.path.clone(),
         lease_id: slot.lease_id.clone(),
         cleaned_at: slot.cleaned_at,
+        generation: slot.generation,
         last_used_by_affinity: None,
       }));
     }
@@ -394,6 +402,7 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
         path: slot.path.clone(),
         lease_id: slot.lease_id.clone(),
         cleaned_at: slot.cleaned_at,
+        generation: slot.generation,
         last_used_by_affinity,
       };
       table.queue.remove(position);
@@ -535,6 +544,9 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
   let slot = set_state(params, n, mine, |slot| {
     slot.state = HostState::Idle;
     slot.runs_since_clean = slot.runs_since_clean.saturating_add(1);
+    if !discarded.is_empty() {
+      slot.generation = slot.generation.saturating_add(1);
+    }
   })?;
   let cleaned = match clean_due(git_executor, &slot, &config) {
     Ok(true) => clean_core(git_executor, params, n, CleanOverrides::default(), Take::Idle)
@@ -716,6 +728,8 @@ fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
   let succeeded = cleaned.is_ok();
   set_state(params, n, mine, |slot| {
     slot.state = HostState::Idle;
+    // a clean that failed partway can have removed files too
+    slot.generation = slot.generation.saturating_add(1);
     if succeeded {
       slot.runs_since_clean = 0;
       slot.cleaned_at = now_secs();
@@ -795,6 +809,7 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
         used: None,
         runs_since_clean: 0,
         cleaned_at: 0,
+        generation: 0,
         affinity: None,
         state: HostState::Filling(me.clone()),
       });

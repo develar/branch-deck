@@ -267,7 +267,8 @@ fn an_abandoned_lend_is_given_back_by_reclaim_before_another_run_gets_the_slot()
   );
   assert_eq!(slot_git(&slot.path, &["status", "--porcelain"]), "");
   assert!(path.join("out/keep").exists(), "the ignored files stay as the warm cache");
-  assert_eq!(lent(lend_to(&params, "run-2", None)).n, 1);
+  let next = lent(lend_to(&params, "run-2", None));
+  assert_eq!((next.n, next.generation), (1, 1), "the give-back discarded changes: a new generation of the files");
 }
 
 /// A process that the run started in its slot is stopped by the give-back; a process older than the lend is never

@@ -16,7 +16,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::io::Write as _;
 use std::path::Path;
-use sync_utils::process_scan::process_started;
+use sync_utils::process_scan::{is_running, process_started};
 
 #[derive(Debug, clap::Args)]
 pub struct LeaseHostArgs {
@@ -112,9 +112,11 @@ pub struct LentSlotOutput {
   pub n: u32,
   pub path: String,
   pub lease_id: String,
-  /// When the slot was last cleaned or filled, in Unix seconds: what the prepare steps of the agent made in it is keyed
-  /// by it with the lease id, since a clean can delete that
+  /// When the slot was last cleaned or filled, in Unix seconds
   pub cleaned_at: u64,
+  /// One more each time a give-back discarded changes of the slot or a clean ran in it: what the prepare steps of the
+  /// agent made in the slot holds within one generation, keyed by it with the lease id
+  pub generation: u64,
   /// When a run of the same affinity used it last, in Unix milliseconds
   #[serde(skip_serializing_if = "Option::is_none")]
   pub last_used_by_affinity_ms: Option<u64>,
@@ -306,10 +308,11 @@ fn params<'a>(context: &'a LeaseContext, environment: &'a Environment) -> HostSl
 }
 
 /// `bd lease host lend`: the start of `--pid` is read here, since the caller does not know the unit of the platform; a
-/// pid that is gone refuses where the system tells starts
+/// pid that is gone refuses
 pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: &LeaseHostLendArgs) -> Result<LeaseHostLendOutput, CliError> {
   let started = process_started(args.pid);
-  if started.is_none() && cfg!(any(target_os = "macos", target_os = "linux")) {
+  // a sandbox can hide the start of a live process: `is_running` without a start asks whether the pid exists
+  if started.is_none() && !is_running(args.pid, None) {
     return Err(CliError::new(ErrorCode::InvalidArguments, format!("No process has the pid {}", args.pid)));
   }
   let request = LendRequest {
@@ -328,6 +331,7 @@ pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: 
         path: lent.path,
         lease_id: lent.lease_id,
         cleaned_at: lent.cleaned_at,
+        generation: lent.generation,
         last_used_by_affinity_ms: lent.last_used_by_affinity,
       }),
       ahead: None,

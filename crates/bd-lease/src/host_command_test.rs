@@ -50,9 +50,17 @@ fn a_run_lends_a_slot_waits_in_line_and_gives_it_back() {
     "{status}"
   );
 
+  assert_eq!(first["slot"]["generation"], json!(0));
+  let path = first["slot"]["path"].as_str().unwrap().to_string();
+  std::fs::write(std::path::Path::new(&path).join("left.txt"), "a run left it\n").unwrap();
   let gave_back = host(&fixture, "lease_host_give_back", &["give-back", "--run", "run-1"]);
-  assert_eq!((&gave_back["n"], &gave_back["left_queue"]), (&json!(1), &json!(false)), "{gave_back}");
-  assert_eq!(lend(&fixture, "run-2", "checkout-b")["state"], json!("lent"));
+  assert_eq!(
+    (&gave_back["n"], &gave_back["left_queue"], &gave_back["discarded"]),
+    (&json!(1), &json!(false), &json!(1)),
+    "{gave_back}"
+  );
+  let second = lend(&fixture, "run-2", "checkout-b");
+  assert_eq!((&second["state"], &second["slot"]["generation"]), (&json!("lent"), &json!(1)), "{second}");
   let left = host(&fixture, "lease_host_give_back", &["give-back", "--run", "run-3"]);
   assert_eq!(
     (&left["n"], &left["left_queue"]),
