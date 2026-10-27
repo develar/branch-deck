@@ -6,7 +6,7 @@ use crate::registry::registry_test::{operations_until, view_operations};
 use domain_types::PushAction;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
-use domain_types::operation::{EffectStatus, NewsKey, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Push, PushScope, RunningOperation};
+use domain_types::operation::{EffectStatus, Intent, NewsKey, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Push, PushScope, RunningOperation};
 use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
@@ -257,28 +257,37 @@ async fn a_push_of_a_branch_alone_is_planned_and_run_by_the_engine() {
   assert_eq!(fixture.plan(&pushed).await.effects, Vec::new(), "nothing left to push");
 }
 
-/// The same push twice side by side is one push (the second joins the first); another push of the same ref waits for
-/// it (`Queued` behind it, here behind the repository lock the test holds) and is decided again on what it left: the
-/// remote has the branch, so it pushes nothing, and no `plan_changed` refuses it
+/// The same push twice side by side is one push (the second joins the first); another push of the same ref, clicked
+/// while the first one runs, waits for it (`Queued` behind it, here behind the repository lock the test holds) and is
+/// decided again on what it left: the remote has the branch, so it pushes nothing, and no `plan_changed` refuses it
 #[tokio::test(flavor = "multi_thread")]
 async fn a_push_queued_behind_a_push_of_its_ref_is_decided_again_on_what_that_one_left() {
   let fixture = fixture(true).await;
   let held = fixture.lock();
   let push = alone("alpha", None);
   let forced = Push { force: true, ..push.clone() };
+  let (pushes, forces) = (Intent::Push(push.clone()), Intent::Push(forced.clone()));
+  // the forced push is clicked once the push runs, behind the lock: the registry admits the requests in the order of
+  // their clicks, which the order their plans happen to end in is not
+  let forced_later = async {
+    let running = |operation: &RunningOperation| operation.intent == pushes && operation.step == OperationStep::WaitingForLock;
+    fixture.until(|operations| operations.iter().any(running)).await;
+    fixture.execute(&forced, Vec::new()).await
+  };
   let release = async {
     let operations = fixture.until_queued().await;
     assert_eq!(operations.len(), 2, "the second click joined the first, the forced push waits: {operations:?}");
+    let op_of = |intent: &Intent| operations.iter().find(|operation| operation.intent == *intent);
+    assert_eq!(
+      op_of(&forces).map(|operation| &operation.step),
+      op_of(&pushes).map(|operation| OperationStep::Queued { behind: operation.id.clone() }).as_ref(),
+      "the forced push waits behind the push: {operations:?}"
+    );
     drop(held);
   };
-  let (first, again, queued, ()) = tokio::time::timeout(Duration::from_mins(1), async {
-    tokio::join!(
-      fixture.execute(&push, Vec::new()),
-      fixture.execute(&push, Vec::new()),
-      fixture.execute(&forced, Vec::new()),
-      release
-    )
-  })
+  let (first, again, queued, ()) = Box::pin(tokio::time::timeout(Duration::from_mins(1), async {
+    tokio::join!(fixture.execute(&push, Vec::new()), fixture.execute(&push, Vec::new()), forced_later, release)
+  }))
   .await
   .unwrap();
   let (first, again, queued) = (first.unwrap(), again.unwrap(), queued.unwrap());
