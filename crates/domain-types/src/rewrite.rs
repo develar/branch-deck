@@ -1,12 +1,307 @@
-//! The requests and the answers of the rewrites of the checked out branch and of the refs of Branch Deck
-//! (docs/design/git-operations.md, "Operations"): what an intent of the family `Rewrite` names
-//! (`operation::RewriteIntent`: the texts of a reword, a regroup plan, the scope of a squash of fixups, the branches to
-//! park) and what its core answered (`operation::RewriteResult`), as the cores of `history-rewrite`, `sync-core`,
+//! The rewrites of the checked out branch and of the refs of Branch Deck as operations (docs/design/git-operations.md,
+//! "Rewrite in the engine"): what the user asks (`RewriteIntent`, the intent `Rewrite` of `operation::Intent`) with the
+//! table it was asked on (`TableWitness`), how its outcome is undone (`UndoToken`), and what its core answered
+//! (`RewriteResult`); with the requests the intents name (the texts of a reword, a regroup plan, the scope of a squash
+//! of fixups, the branches to park) and the answers of the cores, as the cores of `history-rewrite`, `sync-core`,
 //! `trial-check` and `update-core` build them, `bd` prints them and the page reads them.
 
 use crate::BranchError;
+use crate::commit::CommitInfo;
+use crate::session::StoreTips;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+
+/// A rewrite of the checked out branch or of the refs of Branch Deck (the family `Rewrite`, `operations::rewrite`): what
+/// its core takes but the repository, which its session names, and the table its window showed (`witness`), which its
+/// commits and branches are named on. The undo (`Undo`) names no table: its token holds what it moves back, each ref
+/// with compare-and-swap
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "rewrite", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum RewriteIntent {
+  /// The commits (original ids) go into `target_branch`, existing or new, or back out of their prefix branch or issue
+  /// group (`None`): Move to…, a drag of commits
+  Move {
+    commit_ids: Vec<String>,
+    target_branch: Option<String>,
+    witness: TableWitness,
+  },
+  /// Every commit of the branch goes back where its key groups it (Ungroup)
+  Ungroup {
+    branch_name: String,
+    witness: TableWitness,
+  },
+  /// The branch and the branches stacked on it get `new_name` in the prefix of their commits, its issue groups too
+  Rename {
+    branch_name: String,
+    new_name: String,
+    witness: TableWitness,
+  },
+  /// The branch is stacked on `parent` (Stack On)
+  Restack {
+    branch_name: String,
+    parent: String,
+    witness: TableWitness,
+  },
+  /// The branch is made a root (Unstack)
+  Unstack {
+    branch_name: String,
+    witness: TableWitness,
+  },
+  /// The branches are parked with their notes, or the notes of parked ones change
+  Park {
+    branches: Vec<ParkBranchLine>,
+    witness: TableWitness,
+  },
+  Unpark {
+    branch_names: Vec<String>,
+    witness: TableWitness,
+  },
+  /// The branch and its files leave HEAD for `{prefix}/unapplied/<name>`; `original_commit_ids`: the commits its row
+  /// showed, which it must still have
+  Unapply {
+    branch_name: String,
+    original_commit_ids: Option<Vec<String>>,
+    witness: TableWitness,
+  },
+  /// The unapplied branch of that name comes back on top of HEAD
+  Reapply {
+    branch_name: String,
+    witness: TableWitness,
+  },
+  /// The commits become one with `message`, in place of the oldest of them
+  Squash {
+    commit_ids: Vec<String>,
+    message: String,
+    witness: TableWitness,
+  },
+  /// The fixups of `scope` fold into their targets
+  SquashFixups {
+    scope: AutosquashScope,
+    witness: TableWitness,
+  },
+  /// The texts of commits ahead of the baseline change
+  Reword {
+    rewords: Vec<CommitReword>,
+    witness: TableWitness,
+  },
+  /// The uncommitted changes of `files` go into the commit `original_commit_id` of the branch
+  Amend {
+    branch_name: String,
+    original_commit_id: String,
+    files: Vec<String>,
+    witness: TableWitness,
+  },
+  /// `issue_reference` goes into the subjects of `commits` of the branch
+  AddIssueReference {
+    branch_name: String,
+    commits: Vec<CommitInfo>,
+    issue_reference: String,
+    witness: TableWitness,
+  },
+  /// The regroup the conflict fix found and built (`fingerprint` of its trial) is written
+  ApplyConflictFix {
+    fingerprint: String,
+    plan: RegroupPlan,
+    witness: TableWitness,
+  },
+  /// The archived branch of that name is deleted
+  DeleteArchived {
+    branch_name: String,
+    witness: TableWitness,
+  },
+  /// The unapplied branch of that name is deleted
+  DeleteUnapplied {
+    branch_name: String,
+    witness: TableWitness,
+  },
+  /// The commits someone else pushed to the remote branch of the virtual branch go onto HEAD with the prefix of the
+  /// branch (Pick Remote Commits); `expected_remote`: the remote tip the row showed
+  PickRemote {
+    branch_name: String,
+    parent_branch: Option<String>,
+    my_email: Option<String>,
+    expected_remote: Option<String>,
+    witness: TableWitness,
+  },
+  /// The rewrite whose outcome gave `token` (`Outcome::undo`) is undone
+  Undo {
+    token: UndoToken,
+  },
+}
+
+impl RewriteIntent {
+  /// The table it was asked on; none for an undo
+  #[must_use]
+  pub const fn witness(&self) -> Option<&TableWitness> {
+    match self {
+      Self::Move { witness, .. }
+      | Self::Ungroup { witness, .. }
+      | Self::Rename { witness, .. }
+      | Self::Restack { witness, .. }
+      | Self::Unstack { witness, .. }
+      | Self::Park { witness, .. }
+      | Self::Unpark { witness, .. }
+      | Self::Unapply { witness, .. }
+      | Self::Reapply { witness, .. }
+      | Self::Squash { witness, .. }
+      | Self::SquashFixups { witness, .. }
+      | Self::Reword { witness, .. }
+      | Self::Amend { witness, .. }
+      | Self::AddIssueReference { witness, .. }
+      | Self::ApplyConflictFix { witness, .. }
+      | Self::DeleteArchived { witness, .. }
+      | Self::DeleteUnapplied { witness, .. }
+      | Self::PickRemote { witness, .. } => Some(witness),
+      Self::Undo { .. } => None,
+    }
+  }
+
+  /// The branch it is about, as the view keys a row: the target of a move, the branch of the others; none for a move
+  /// back, a squash, a reword, a fix, an undo
+  #[must_use]
+  pub fn subject(&self) -> Option<&str> {
+    match self {
+      Self::Move { target_branch, .. } => target_branch.as_deref(),
+      Self::Park { branches, .. } => branches.first().map(|line| line.branch_name.as_str()),
+      Self::Unpark { branch_names, .. } => branch_names.first().map(String::as_str),
+      Self::SquashFixups {
+        scope: AutosquashScope::Branch(branch),
+        ..
+      } => Some(branch),
+      Self::Ungroup { branch_name, .. }
+      | Self::Rename { branch_name, .. }
+      | Self::Restack { branch_name, .. }
+      | Self::Unstack { branch_name, .. }
+      | Self::Unapply { branch_name, .. }
+      | Self::Reapply { branch_name, .. }
+      | Self::Amend { branch_name, .. }
+      | Self::AddIssueReference { branch_name, .. }
+      | Self::DeleteArchived { branch_name, .. }
+      | Self::DeleteUnapplied { branch_name, .. }
+      | Self::PickRemote { branch_name, .. } => Some(branch_name),
+      Self::Squash { .. } | Self::SquashFixups { .. } | Self::Reword { .. } | Self::ApplyConflictFix { .. } | Self::Undo { .. } => None,
+    }
+  }
+}
+
+/// The table a rewrite was asked on: HEAD and the tips of the refs of Branch Deck the rewrites read, as the last sync of
+/// the window's session read them (`TableHeader::witness`); a patch of the facts of the remote never changes it
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct TableWitness {
+  /// The commit HEAD pointed at
+  pub head: String,
+  pub store_tips: StoreTips,
+}
+
+/// How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `bd undo` takes,
+/// by the core that undoes it
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UndoToken {
+  pub kind: UndoKind,
+  pub token: String,
+}
+
+/// The core an undo token is for
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum UndoKind {
+  /// A regroup (a move, an ungroup, a rename, a restack, an unstack, a reword, a fix) or a park: HEAD and the stores
+  /// back (`<previous>..<new>`, `groups:`, `stacks:`, `parked:`, joined by `+`)
+  Regroup,
+  /// A squash or a squash of fixups: HEAD back from the new commit (`<previous>..<new>`)
+  Squash,
+  /// An unapply (`unapply:…`)
+  Unapply,
+  /// A reapply (`reapply:…`)
+  Reapply,
+  /// Pick Remote Commits (`pick:…`)
+  Pick,
+}
+
+/// What the core of a rewrite answered (`OperationResult::Rewrite`), by its kind
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "rewrite", content = "answer", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum RewriteResult {
+  /// A move, an ungroup, a rename, a restack, an unstack: the commits that moved and the branch they are in
+  Moved(MoveCommitsResult),
+  /// A park or an unpark
+  Parked(ParkResult),
+  Unapplied(UnapplyBranchResult),
+  Reapplied(ReapplyBranchResult),
+  Squashed(SquashCommitsResult),
+  FixupsSquashed(SquashFixupsResult),
+  Reworded(RewordResult),
+  Amended(AmendCommandResult),
+  IssueReferenceAdded(AddIssueReferenceResult),
+  ConflictFixApplied(AppliedConflictFix),
+  Picked(PickRemoteCommitsResult),
+  /// An archived or an unapplied branch is gone
+  Deleted,
+  /// An undo; `already_undone`: an undo before had done it, nothing changed now (of an unapply, a reapply, a pick)
+  Undone {
+    already_undone: bool,
+  },
+}
+
+impl RewriteResult {
+  /// HEAD as the rewrite left it, when its core says; none for a rewrite that moves no HEAD and for an undo
+  #[must_use]
+  pub fn head(&self) -> Option<&str> {
+    match self {
+      Self::Moved(moved) | Self::ConflictFixApplied(AppliedConflictFix::Applied { result: moved }) => Some(&moved.head),
+      Self::Unapplied(unapplied) => Some(&unapplied.new_head),
+      Self::Reapplied(reapplied) => Some(&reapplied.new_head),
+      Self::Squashed(squashed) => Some(&squashed.new_head),
+      Self::FixupsSquashed(squashed) => Some(&squashed.new_head),
+      Self::Reworded(reworded) => Some(&reworded.new_head),
+      Self::Picked(picked) => Some(&picked.new_head),
+      Self::Amended(AmendCommandResult::Ok(amended)) => Some(&amended.rebased_to_commit),
+      _ => None,
+    }
+  }
+
+  /// Whether it changed anything a sync shows: a move that moved nothing, a park of the same notes, a squash of no
+  /// fixups, a stale fix and an undo done before change nothing
+  #[must_use]
+  pub fn changes(&self) -> bool {
+    match self {
+      Self::Moved(moved) | Self::ConflictFixApplied(AppliedConflictFix::Applied { result: moved }) => {
+        moved.moves() || !moved.grouped_issues.is_empty() || !moved.ungrouped_issues.is_empty() || moved.undo_token.is_some()
+      }
+      Self::Parked(parked) => parked.changed,
+      Self::FixupsSquashed(squashed) => squashed.squashed_count > 0,
+      Self::Reworded(reworded) => reworded.new_head != reworded.previous_head || reworded.undo_token.is_some(),
+      Self::Amended(amended) => matches!(amended, AmendCommandResult::Ok(_)),
+      Self::IssueReferenceAdded(added) => added.updated_count > 0,
+      Self::ConflictFixApplied(AppliedConflictFix::Stale) => false,
+      Self::Picked(picked) => picked.new_head != picked.previous_head,
+      Self::Undone { already_undone } => !already_undone,
+      Self::Unapplied(_) | Self::Reapplied(_) | Self::Squashed(_) | Self::Deleted => true,
+    }
+  }
+
+  /// Commit id → its id after the rewrite, of the commits its core names (a move, a reword, the targets of the fixups);
+  /// a commit it does not name may have a new id too (one on top of a rewritten one)
+  #[must_use]
+  pub fn rewritten(&self) -> BTreeMap<String, String> {
+    let changed = |(old, new): (&String, &String)| (old != new).then(|| (old.clone(), new.clone()));
+    match self {
+      Self::Moved(moved) | Self::ConflictFixApplied(AppliedConflictFix::Applied { result: moved }) => {
+        moved.commits.iter().filter_map(|commit| changed((&commit.old_id, &commit.new_id))).collect()
+      }
+      Self::Reworded(reworded) => reworded.new_commit_ids.iter().filter_map(changed).collect(),
+      Self::FixupsSquashed(squashed) => squashed.squashed.iter().filter_map(|target| changed((&target.target, &target.new_id))).collect(),
+      _ => BTreeMap::new(),
+    }
+  }
+}
 
 /// The new text of a commit; `{"message": …}` or `{"subject": …}` in the app's request
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,15 +477,17 @@ pub struct UndoneUnapply {
   pub already_undone: bool,
 }
 
-/// A commit of the unapplied branch that the reapply put on top of HEAD
+/// A commit copied onto HEAD by a reapply or a pick of remote commits: the commit it was copied from, its copy and the
+/// subject of the copy
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct ReappliedCommit {
-  /// The commit of the unapplied branch (or of its restored chain)
+pub struct CopiedCommit {
+  /// The commit of the unapplied branch (or of its restored chain), or of the remote branch
   pub commit: String,
-  /// Its copy on HEAD (with a dry run: the one the reapply writes)
+  /// Its copy on HEAD (a dry run of a reapply: the one it writes)
   pub new_id: String,
+  /// The subject of the copy; of a pick with the prefix of the branch
   pub subject: String,
 }
 
@@ -203,7 +500,7 @@ pub struct ReapplyBranchResult {
   /// The branch its commits group into again
   pub branch: String,
   /// Oldest first
-  pub reapplied: Vec<ReappliedCommit>,
+  pub reapplied: Vec<CopiedCommit>,
   /// The commits HEAD has already, by their patch or their content: left out
   pub present: Vec<String>,
   /// How many messages got the grouping prefix back (`(<name>) `): a virtual branch keeps none, so a commit whose
@@ -236,6 +533,7 @@ pub struct SquashCommitsResult {
   pub squashed_count: u32,
 }
 
+// jscpd:ignore-start: plain data, whose derives and closing fields repeat those of the other answers
 /// A fixup without a target among the older commits of the range: it is not squashed
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -254,6 +552,7 @@ pub struct SquashedTarget {
   pub target: String,
   pub new_id: String,
 }
+// jscpd:ignore-end
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -320,24 +619,13 @@ pub enum AppliedConflictFix {
   Stale,
 }
 
-/// A commit Pick Remote Commits took in: the remote commit and its copy on the checked out branch
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PickedRemoteCommit {
-  pub commit: String,
-  pub new_id: String,
-  /// The subject of the copy, with the prefix of the branch
-  pub subject: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PickRemoteCommitsResult {
   pub previous_head: String,
   pub new_head: String,
-  pub picked: Vec<PickedRemoteCommit>,
+  pub picked: Vec<CopiedCommit>,
   /// `pick:<previous>..<new>` (`bd undo`); none when nothing moved
   pub undo_token: Option<String>,
 }

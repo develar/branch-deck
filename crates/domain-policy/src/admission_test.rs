@@ -4,6 +4,7 @@ use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::landing::Subject;
 use domain_types::operation::{Admission, Intent, OperationId, OperationStep, Origin, PullRequestField, Resource, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
+use domain_types::rewrite::{RewriteIntent, TableWitness, UndoKind, UndoToken};
 use pretty_assertions::assert_eq;
 
 fn push(branch: &str) -> Intent {
@@ -170,4 +171,39 @@ fn another_process_holds_the_same_intent_and_its_resources_and_under_another_pre
     &Intent::Retarget { number: 12 },
     &[field(12, PullRequestField::Base)]
   ));
+}
+
+/// The rewrite of `branch` (an unstack) on HEAD `head`
+fn unstack(branch: &str, head: &str) -> Intent {
+  Intent::Rewrite(Box::new(RewriteIntent::Unstack {
+    branch_name: branch.to_string(),
+    witness: TableWitness {
+      head: head.to_string(),
+      ..TableWitness::default()
+    },
+  }))
+}
+
+/// Every rewrite holds HEAD: within a process the same rewrite joins, another waits behind the newest rewrite (an undo
+/// too, never refused), and a push runs beside them; a rewrite of another process makes none busy, the repository lock
+/// orders them, but the same rewrite under the same prefix does
+#[test]
+fn a_rewrite_waits_for_the_rewrites_of_its_process_and_for_none_of_another() {
+  let first = running("a", unstack("beta", "h1"), &[Resource::Head]);
+  let undo = Intent::Rewrite(Box::new(RewriteIntent::Undo {
+    token: UndoToken {
+      kind: UndoKind::Regroup,
+      token: "h0..h1".to_string(),
+    },
+  }));
+  let operations = [first.clone()];
+  assert_eq!(admit(&operations, &first.intent, &[Resource::Head]), Admission::Join { op: id("a") });
+  assert_eq!(admit(&operations, &unstack("gamma", "h1"), &[Resource::Head]), Admission::Queue { op: id("a") });
+  assert_eq!(admit(&operations, &undo, &[Resource::Head]), Admission::Queue { op: id("a") });
+  assert_eq!(admit(&operations, &push("beta"), &[reference("beta")]), Admission::Run);
+
+  let of_another = of_bd(first);
+  assert!(!holds_across(&of_another, "user", "user", &unstack("gamma", "h1"), &[Resource::Head]));
+  assert!(!holds_across(&of_another, "user", "user", &undo, &[Resource::Head]));
+  assert!(holds_across(&of_another, "user", "user", &unstack("beta", "h1"), &[Resource::Head]));
 }

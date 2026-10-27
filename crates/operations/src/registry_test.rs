@@ -169,6 +169,7 @@ fn outcome(op: &OperationId) -> Outcome {
     news_key: None,
     version_after: None,
     result: OperationResult::None,
+    undo: None,
     stats: OperationStats::default(),
   }
 }

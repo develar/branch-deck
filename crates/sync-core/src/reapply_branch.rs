@@ -8,9 +8,9 @@ use anyhow::Result;
 use branch_integration::archive::own_commits_start;
 use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use domain_types::error::ErrorCode;
-use domain_types::rewrite::{ReappliedCommit, ReapplyBranchResult, UndoneReapply};
+use domain_types::rewrite::{ReapplyBranchResult, UndoneReapply};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::pick::{PickRequest, PickSource, PickState, check_pick};
+use git_ops::pick::{PickRequest, PickSource, PickState, PickedCommit, check_pick};
 use git_ops::reapply::{UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
 use git_ops::revs::with_dirs_of;
 use git_ops::unapply::MoveBlocked;
@@ -137,16 +137,7 @@ pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBr
   let mut result = ReapplyBranchResult {
     unapplied_branch_name: full_name.clone(),
     branch: name.to_string(),
-    reapplied: plan
-      .check
-      .picked
-      .iter()
-      .map(|commit| ReappliedCommit {
-        commit: commit.commit.clone(),
-        new_id: commit.new_id.clone(),
-        subject: commit.subject.clone(),
-      })
-      .collect(),
+    reapplied: plan.check.picked.iter().map(PickedCommit::copied).collect(),
     present: plan.check.present.iter().map(|commit| commit.commit.clone()).collect(),
     prefix_restored: u32::try_from(chain.restored).unwrap_or(u32::MAX),
     previous_head: plan.check.head.clone(),

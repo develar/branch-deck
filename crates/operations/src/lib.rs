@@ -81,6 +81,7 @@ pub mod registry;
 pub mod registry_file;
 pub mod registry_watch;
 pub mod review;
+pub mod rewrite;
 pub mod robot;
 pub mod robot_start;
 pub mod witness;

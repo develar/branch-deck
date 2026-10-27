@@ -79,6 +79,7 @@ vi.mock("@/lib/bindings", () => ({
         effects: engine.run(plan.data),
         newsKey: { kind: "push", branch: name },
         versionAfter: null,
+        undo: null,
         result: { kind: "push", pushedOver: [], restarted: engine.restarted },
         stats: { gitProcesses: {}, httpRequests: 0, millis: 1 },
       }

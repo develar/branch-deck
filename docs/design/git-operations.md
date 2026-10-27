@@ -417,6 +417,42 @@ the whole history, which has 10⁵–10⁶ commits in a monorepo. There are two 
   baseline branch itself, as the commit list does) also prints the boundary, the first parent of the oldest commit,
   and the second parent of every merge among them; the one that is the oldest commit's first parent is kept.
 
+#### Rewrite in the engine
+
+A rewrite of the app's session (a move, an ungroup, a rename, a restack, an unstack, a park, an unpark, an unapply, a
+reapply, a squash, a squash of fixups, a reword, an amend, an added issue reference, a conflict fix, the delete of an
+archived or an unapplied branch, Pick Remote Commits) and its undo are the intent `Rewrite` of the engine
+(`operations::rewrite`, `RewriteIntent` of `domain_types::rewrite`), run by the cores below as they are:
+
+1. **The intent** names its commits and branches on the table the window showed, with that table's witness
+   (`TableWitness`: HEAD and the tips of `refs/branch-deck/{issue-groups, stack-parents, parked}` of its grouping,
+   `TableHeader::witness`, which the sync fills from `RepoFacts.head` and the store commits it read; a patch of the facts
+   of the remote never changes it). An undo names no table: its token (`Outcome::undo`, `UndoToken { kind, token }`) is
+   the one its core printed, the same `bd undo` takes, and moves each ref back with compare-and-swap; a park's undo is
+   the `parked:` token of the store commit it was written on (`ParkOutcome::previous_commit`).
+2. **Admission**: every rewrite holds `Resource::Head` (a delete holds only the ref it deletes): a second click of the
+   same rewrite joins the first, any other rewrite of the process waits behind it in the queue (an undo too, never
+   refused), a push and a start run beside it. Between processes the repository lock orders them.
+3. **What it names, now**: once admitted, one `for-each-ref` of the checked out branch and the three stores reads the
+   witness of now. HEAD as the intent saw it: its ids hold. Else a rewrite of this process moved HEAD since
+   (`TableState::rewrites`, the last 16, each with the new ids its core reported, `RewriteResult::rewritten`; one that
+   only added commits keeps the others): each id goes through them. Else the session's table is brought to HEAD (the
+   sync in flight, `SyncReason::Open`, at most three times) and each id is the commit of the same author, author time
+   and subject without the prefix (`CommitKey`, read off the table when the request came; a key two commits share finds
+   neither); an ungroup takes the commits
+   of its branch there. A branch goes by its name. A commit none of them finds is `plan_changed`, nothing written.
+4. **The core** runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`, `RegroupOptions`) and
+   the lock waited for as long as its holder lives (`LockWait::WhileHeld`): the step of the operation is
+   `WaitingForLock` with the holder its record names, then `Rewriting`; `cancel_operation` ends the wait (`canceled`,
+   nothing read or written). The core takes the lock itself: the lock spans what it spanned before.
+5. **The end**: the operation asks the sync that shows what it changed (`SyncReason::AfterRewrite`, the effect `Sync`;
+   none when the core changed nothing) and ends: it does not wait for that sync, a rewrite queued behind it runs beside
+   it, and the sync of the one after joins its chain as one follow-up. A delete asks no sync: the table drops the branch
+   at once (`version_after`). Its outcome has what the core answered (`OperationResult::Rewrite`, `RewriteResult` by
+   kind), its undo and its git processes: those of its core and the one `for-each-ref` of its witness
+   (`a_rewrite_costs_its_core_and_one_read_of_its_witness` in `crates/operations/src/process_budget_test.rs`); the undo
+   reads no witness.
+
 #### Reword, move, add issue reference
 
 Only messages change, so every tree stays the same and the index and the working tree are already correct. The app's
@@ -476,6 +512,10 @@ A move of the app (`move_commits_to_branch`) computes its plan from the snapshot
 also writes the stack parent of `X`, with an empty list when the issue groups move every commit), and a prefixed commit
 that its key puts into the target anyway into `unassign`. So combining issues rewrites nothing, and a mixed move is one
 reword and one ref transaction. A dry run of it is the preview of the "Move to…" form.
+
+The app's move, rename, restack, unstack and reword in the engine run these cores with the HEAD of their witness
+expected ([Rewrite in the engine](#rewrite-in-the-engine)): `rename_branch_core` and `restack_branch_core` with
+`RegroupOptions::expect_head`, and `move_result` of their outcome, as the commands of the app answer them.
 
 `bd reword` (`crates/history-rewrite/src/reword.rs`) gives the regroup whole new messages by id (`Change::messages`,
 a `--subject` keeps the body it reads from the snapshot, under the lock), cleaned up as `git commit` does, before the
@@ -2891,8 +2931,10 @@ anywhere else):
   nothing is done. The records of a process never hold its own operations: its session admits those over each other
   (a join, the queue). A record holds what it needs in every session of the repository: a ref by its full name, a
   robot, a field of a pull request, an issue; a branch named without its prefix (what a start lands) and the intent
-  only under the same branch prefix (`domain_policy::admission::holds_across`). It leaves the file once its operation
-  ended (the app after the end on the actor, `bd` after its run).
+  only under the same branch prefix (`domain_policy::admission::holds_across`); HEAD (`Resource::Head`, which a rewrite
+  holds) never: the repository lock orders the rewrites of the processes, and the record of a rewrite tells the view
+  and the journal who rewrites. It leaves the file once its operation ended (the app after the end on the actor, `bd`
+  after its run).
 - **Liveness**: a record of a process that is gone leaves at the next admission: of this host one whose pid runs no
   more or runs another process (another start time, `process_scan::is_running`), at once; of another host (a common
   dir on a shared disk), whose pids tell nothing here, once its heartbeat is older than 5 minutes. A record with an

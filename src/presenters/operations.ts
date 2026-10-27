@@ -4,6 +4,7 @@
 // (`RunningOperation` with `origin.otherProcess`, `operations::registry_watch`): "bd: Safe Push of auth".
 import type { HolderTool, Intent, OperationHolder, OperationKind, RunningOperation, Subject } from "@/lib/bindings"
 import { formatHeldFor } from "@/presenters/lock-wait"
+import { presentRewrite } from "@/presenters/rewrite"
 
 /** What an operation of `kind` does, in the words of a sentence */
 const KIND_WORDS: Record<OperationKind, string> = {
@@ -20,6 +21,7 @@ const KIND_WORDS: Record<OperationKind, string> = {
   submit_review: "review of a pull request",
   set_issue_state: "change of the state of an issue",
   forget_start: "forget of a start",
+  rewrite: "rewrite",
 }
 
 /** Who runs it: `bd`, or another Branch Deck */
@@ -73,6 +75,10 @@ function runningWords(intent: Intent): readonly [label: string, phrase: string] 
       return [`Setting ${intent.key} to ${intent.state}`, `a change of the state of ${intent.key}`]
     case "forgetStart":
       return [`Forgetting start ${intent.op}`, `the forget of start ${intent.op}`]
+    case "rewrite": {
+      const { label, phrase } = presentRewrite(intent)
+      return [label, phrase]
+    }
   }
 }
 

@@ -59,7 +59,7 @@ async fn forget_this_start_takes_the_record_out_and_frees_what_it_held() {
     confirmations: Vec::new(),
   };
   let offline = Services { patronus: None, github: None };
-  let outcome = execute(&registry, &key, forget.clone(), accepted(), &offline, Arc::new(NoEvents)).await.unwrap();
+  let outcome = execute(&registry, &key, forget.clone(), accepted(), offline.hosts(), Arc::new(NoEvents)).await.unwrap();
   assert_eq!(outcome.effects[0].status, EffectStatus::Done);
   assert_eq!(files.records().unwrap().unwrap(), Vec::<Record>::new());
   drop(
@@ -68,7 +68,7 @@ async fn forget_this_start_takes_the_record_out_and_frees_what_it_held() {
       .unwrap(),
   );
 
-  let again = execute(&registry, &key, forget, accepted(), &offline, Arc::new(NoEvents)).await.unwrap();
+  let again = execute(&registry, &key, forget, accepted(), offline.hosts(), Arc::new(NoEvents)).await.unwrap();
   let EffectStatus::Failed { error } = &again.effects[0].status else {
     panic!("{again:?}")
   };

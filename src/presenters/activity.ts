@@ -16,6 +16,7 @@ import { buildRemoteMovedTexts, toRemoteStatus } from "@/lib/remote-status"
 import { describeReview } from "@/lib/review-requests"
 import { formatReadinessSubject, formatWholeStackBranch, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
+import { presentRewrite } from "@/presenters/rewrite"
 import type { ActivityDetails, ActivityEntry } from "@/stores/activity"
 
 /** What an event of an operation says, before it is placed in a repository and in time */
@@ -301,5 +302,7 @@ function failureTitle(intent: Intent, subject: string): string {
       return "Cannot forget the start"
     case "land":
       return `Cannot start the ${formatPushMode(intent.mode)} of ${subject}`
+    case "rewrite":
+      return presentRewrite(intent).failure
   }
 }

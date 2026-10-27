@@ -7,7 +7,7 @@
 use anyhow::{Result, anyhow};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
-use domain_types::rewrite::{PickRemoteCommitsResult, PickedRemoteCommit};
+use domain_types::rewrite::PickRemoteCommitsResult;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list_at;
@@ -307,16 +307,7 @@ pub fn pick_remote_commits_core(
   Ok(PickRemoteCommitsResult {
     previous_head: result.check.head.clone(),
     new_head,
-    picked: result
-      .check
-      .picked
-      .iter()
-      .map(|commit| PickedRemoteCommit {
-        commit: commit.commit.clone(),
-        new_id: commit.new_id.clone(),
-        subject: commit.subject.clone(),
-      })
-      .collect(),
+    picked: result.check.picked.iter().map(PickedCommit::copied).collect(),
     undo_token: result.undo_token().map(|token| token.to_string()),
   })
 }

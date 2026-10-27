@@ -182,3 +182,21 @@ pub fn land_intent(branch: &str, mode: PatronusPushMode) -> crate::operation::In
     allow: crate::patronus::LandingAllowances::default(),
   })
 }
+
+/// The grouping of a sync of `branches` on `origin/master` (`SyncEvent::BranchesGrouped`), stacked branches off: no
+/// issue group, stack parent, parked branch, stack branch or target; a test sets what it needs of it
+pub fn branches_grouped(branches: Vec<crate::GroupedBranchInfo>) -> crate::SyncEvent {
+  crate::SyncEvent::BranchesGrouped {
+    branches,
+    baseline_branch: "origin/master".to_string(),
+    stacks: false,
+    issue_groups: std::collections::BTreeMap::new(),
+    stack_parents: std::collections::BTreeMap::new(),
+    parked: std::collections::BTreeMap::new(),
+    stack_branches: Vec::new(),
+    target_branch: None,
+    head: String::new(),
+    branch: String::new(),
+    store_tips: crate::session::StoreTips::default(),
+  }
+}

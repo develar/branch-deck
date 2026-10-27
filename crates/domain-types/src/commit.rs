@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Simple commit information with hash and message.
 /// Used for passing commit data between frontend and backend.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct CommitInfo {
   pub hash: String,

@@ -38,6 +38,9 @@ fn synced() -> TableState {
     parked,
     stack_branches,
     target_branch: Some("master".to_owned()),
+    head: String::new(),
+    branch: String::new(),
+    store_tips: domain_types::session::StoreTips::default(),
   });
   state
 }

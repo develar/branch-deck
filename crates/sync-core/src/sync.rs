@@ -24,6 +24,7 @@ use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_br
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
 use domain_types::issue_navigation::IssueNavigationConfig;
+use domain_types::session::StoreTips;
 use domain_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchUpdate};
 use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, GroupedBranchInfo, ProgressReporter, SyncEvent, UnappliedBranchInfo};
 use git_executor::concurrency::ProcessPermits;
@@ -530,7 +531,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     upstream: facts.upstream.clone(),
     remotes: facts.remotes.clone(),
     head: facts.head.clone(),
-    branch: current_branch,
+    branch: current_branch.clone(),
     grouping: grouping.clone(),
     branches: grouped.clone(),
     forest,
@@ -547,6 +548,13 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     branches: grouped,
     baseline_branch,
     stacks: stacks.is_some(),
+    head: facts.head.clone(),
+    branch: current_branch,
+    store_tips: StoreTips {
+      issue_groups: grouping.issue_groups.commit.clone(),
+      stack_parents: grouping.stack_parents.commit.clone(),
+      parked: grouping.parked.commit.clone(),
+    },
     issue_groups: grouping.issue_groups.entries,
     stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
     parked: grouping.parked.entries,

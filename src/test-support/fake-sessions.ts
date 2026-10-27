@@ -16,6 +16,7 @@ import type {
   SyncOutcome,
   SyncParams,
   TableChanges,
+  TableHeader,
   Version,
   ViewPatch,
   ViewSubscription,
@@ -41,12 +42,26 @@ export interface HeldSync {
   fail(error: ApiError): void
 }
 
+/** The header of a table before its first grouping */
+const EMPTY_HEADER: TableHeader = {
+  baselineBranch: "",
+  stacksEnabled: false,
+  issueGroups: {},
+  stackParents: {},
+  parked: {},
+  issueNavigationConfig: null,
+  targetBranch: null,
+  head: "",
+  branch: "",
+  storeTips: { issueGroups: null, stackParents: null, parked: null },
+}
+
 /** The view of a session that never synced, at `version` */
 export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryView {
   return {
     version,
     sync: { kind: "idle" },
-    header: { baselineBranch: "", stacksEnabled: false, issueGroups: {}, stackParents: {}, parked: {}, issueNavigationConfig: null, targetBranch: null },
+    header: EMPTY_HEADER,
     order: [],
     branches: {},
     stacks: {},
@@ -89,7 +104,7 @@ export function grouping(...names: string[]): TableChanges {
   return {
     order: names,
     branches,
-    header: { baselineBranch: "origin/master", stacksEnabled: false, issueGroups: {}, stackParents: {}, parked: {}, issueNavigationConfig: null, targetBranch: null },
+    header: { ...EMPTY_HEADER, baselineBranch: "origin/master" },
   }
 }
 

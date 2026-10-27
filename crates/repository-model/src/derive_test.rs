@@ -9,6 +9,7 @@ use crate::table::table_test::{branch_status, grouped, remote_status, run_sync, 
 use domain_policy::parked::parked_state;
 use domain_types::actions::{ActionId, Availability};
 use domain_types::error::ApiError;
+use domain_types::fixtures::branches_grouped;
 use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot};
 use domain_types::landed::LandedBranch;
 use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, PlannedEffect, ProfileChoice, StartRoute, Subject};
@@ -41,16 +42,19 @@ fn on(name: &str, parent: Option<&str>) -> GroupedBranchInfo {
 }
 
 fn grouping(branches: Vec<GroupedBranchInfo>, parked: &[(&str, &str)], stack_branches: &[&str]) -> SyncEvent {
-  SyncEvent::BranchesGrouped {
-    branches,
-    baseline_branch: "origin/master".to_string(),
-    stacks: true,
-    issue_groups: BTreeMap::new(),
-    stack_parents: BTreeMap::new(),
-    parked: parked.iter().map(|(name, note)| ((*name).to_string(), (*note).to_string())).collect(),
-    stack_branches: stack_branches.iter().map(ToString::to_string).collect(),
-    target_branch: None,
+  let mut grouping = branches_grouped(branches);
+  if let SyncEvent::BranchesGrouped {
+    stacks,
+    parked: lines,
+    stack_branches: roots,
+    ..
+  } = &mut grouping
+  {
+    *stacks = true;
+    *lines = parked.iter().map(|(name, note)| ((*name).to_string(), (*note).to_string())).collect();
+    *roots = stack_branches.iter().map(ToString::to_string).collect();
   }
+  grouping
 }
 
 fn stack_branch(root: &str, members: &[&str]) -> SyncEvent {

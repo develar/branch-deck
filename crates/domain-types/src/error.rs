@@ -525,6 +525,7 @@ pub enum OperationKind {
   SubmitReview,
   SetIssueState,
   ForgetStart,
+  Rewrite,
 }
 
 /// Which program holds the lock, or runs an operation

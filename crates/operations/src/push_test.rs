@@ -1,8 +1,10 @@
+use crate::engine::Hosts;
 use crate::events::{EventSink, NoEvents};
 use crate::land_execute::Accepted;
 use crate::push::{execute_push, prepare_push};
 use crate::registry::registry_test::{operations_until, view_operations};
 use crate::registry::{Registry, RegistryFiles};
+use crate::rewrite::RewriteHost;
 use domain_types::error::{ApiError, ErrorCode, HolderTool, LockHolderInfo};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
 use domain_types::operation::{EffectStatus, Intent, NewsKey, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Push, PushScope, RunningOperation};
@@ -36,7 +38,7 @@ use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
 /// The prefix of the branches of `stack_ahead_of_bare_origin`, which the host resolved for the push
 const PREFIX: &str = "test";
 /// The command line of another process that holds the repository lock: an agent's push
-const AGENT_PUSH: &str = "bd push auth";
+pub(crate) const AGENT_PUSH: &str = "bd push auth";
 
 /// The syncs of the sessions of the tests: the options of a sync of the app, under the prefix of the key
 struct TestEnvironment;
@@ -64,15 +66,22 @@ impl SessionEnvironment for TestEnvironment {
 
 /// `stack_ahead_of_bare_origin` with stacks on (`alpha`, and `beta` built on it) and the registry of the sessions of its
 /// key, its session synced unless `synced` is false
-struct Fixture {
-  repo: TestRepo,
-  registry: Registry,
-  key: SessionKey,
+pub(crate) struct Fixture {
+  pub(crate) repo: TestRepo,
+  pub(crate) registry: Registry,
+  pub(crate) key: SessionKey,
 }
 
-async fn fixture(synced: bool) -> Fixture {
+pub(crate) async fn fixture(synced: bool) -> Fixture {
   let repo = stack_ahead_of_bare_origin();
   repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (registry, key) = registry_of(&repo, synced).await;
+  Fixture { repo, registry, key }
+}
+
+/// The registry of the sessions of `repo` under the prefix of the tests, its session synced unless `synced` is false:
+/// recorded in the registry file of the repository as the app's
+pub(crate) async fn registry_of(repo: &TestRepo, synced: bool) -> (Registry, SessionKey) {
   let host = GitSessionHost::new(GitCommandExecutor::new(), TestEnvironment);
   let sessions = Arc::new(Sessions::new(
     tokio::runtime::Handle::current(),
@@ -86,12 +95,8 @@ async fn fixture(synced: bool) -> Fixture {
   if synced {
     sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
   }
-  Fixture {
-    // the registry of the repository of the test, so a push is recorded as the app's
-    registry: Registry::new(sessions, RegistryFiles::new(HolderTool::App, |key| Some(std::path::Path::new(&key.worktree).join(".git")))),
-    repo,
-    key,
-  }
+  let files = RegistryFiles::new(HolderTool::App, |key| Some(std::path::Path::new(&key.worktree).join(".git")));
+  (Registry::new(sessions, files), key)
 }
 
 impl Fixture {
@@ -106,22 +111,22 @@ impl Fixture {
   }
 
   /// The repository lock, held by the test as another process holds it (an agent's push)
-  fn lock(&self) -> RepositoryLock {
+  pub(crate) fn lock(&self) -> RepositoryLock {
     lock_repository_as_another_process(&self.repo.path().join(".git"), AGENT_PUSH).unwrap()
   }
 
   /// The operations of the view of the session now
-  async fn operations(&self) -> Vec<RunningOperation> {
+  pub(crate) async fn operations(&self) -> Vec<RunningOperation> {
     view_operations(self.registry.sessions(), &self.key).await
   }
 
   /// The operations of the view once `done` holds of them; the other tasks run meanwhile
-  async fn until(&self, done: impl Fn(&[RunningOperation]) -> bool) -> Vec<RunningOperation> {
+  pub(crate) async fn until(&self, done: impl Fn(&[RunningOperation]) -> bool) -> Vec<RunningOperation> {
     operations_until(self.registry.sessions(), &self.key, done).await
   }
 
   /// The operations of the view once one of them waits in the queue
-  async fn until_queued(&self) -> Vec<RunningOperation> {
+  pub(crate) async fn until_queued(&self) -> Vec<RunningOperation> {
     self
       .until(|operations| operations.iter().any(|operation| matches!(operation.step, OperationStep::Queued { .. })))
       .await
@@ -137,7 +142,7 @@ pub(crate) struct Services {
 }
 
 /// Off Space and off GitHub
-const OFFLINE: Services = Services { patronus: None, github: None };
+pub(crate) const OFFLINE: Services = Services { patronus: None, github: None };
 
 // jscpd:ignore-start: the test host of the engine, as the one of `remote-facts` (`service_sources_test.rs`): a test
 // module of another crate shares no code
@@ -184,6 +189,24 @@ impl ServiceHost for Services {
   }
 }
 // jscpd:ignore-end
+
+impl Services {
+  /// These services as the hosts of the engine, of its rewrites too
+  pub(crate) fn hosts(&self) -> Hosts<'_> {
+    Hosts { services: self, rewrites: self }
+  }
+}
+
+/// A core's failure in the words of its context chain, as a test reads it
+impl RewriteHost for Services {
+  fn rewrite_error(&self, error: anyhow::Error) -> ApiError {
+    ApiError::internal(format!("{error:#}"))
+  }
+
+  fn undo_error(&self, error: anyhow::Error) -> ApiError {
+    ApiError::internal(format!("{error:#}")).in_undo()
+  }
+}
 
 /// The push of `name` alone over the remote head the row showed (`expect_remote`)
 fn alone(name: &str, expect_remote: Option<String>) -> Push {
@@ -802,7 +825,7 @@ impl ServiceHost for Counted {
 
 /// Whether the first operation waits for the lock that the agent's push of `Fixture::lock` holds, named in its step as
 /// its record names it, so every window says whom it waits for
-fn waits_for_the_agent(operations: &[RunningOperation]) -> bool {
+pub(crate) fn waits_for_the_agent(operations: &[RunningOperation]) -> bool {
   operations.first().is_some_and(|operation| match &operation.step {
     OperationStep::WaitingForLock {
       holder: Some(LockHolderInfo { tool, command, pid, .. }),

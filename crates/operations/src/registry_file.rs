@@ -645,6 +645,7 @@ const fn kind_words(kind: OperationKind) -> &'static str {
     OperationKind::SubmitReview => "review of a pull request",
     OperationKind::SetIssueState => "change of the state of an issue",
     OperationKind::ForgetStart => "forget of a start",
+    OperationKind::Rewrite => "rewrite",
   }
 }
 

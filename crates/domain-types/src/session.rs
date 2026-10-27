@@ -30,6 +30,7 @@ use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, Pul
 use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
 use crate::review_request::{ReviewEntry, ReviewRequest};
+use crate::rewrite::TableWitness;
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
 use crate::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate, UnappliedBranchInfo};
@@ -638,6 +639,34 @@ pub struct TableHeader {
   /// The branch of origin the baseline tracks, which Patronus pushes into; none before the first grouping and for a
   /// baseline that is no branch of origin
   pub target_branch: Option<String>,
+  /// The commit HEAD pointed at when the commits were grouped; empty before the first grouping
+  pub head: String,
+  /// The checked out branch whose commits were grouped (`main`); empty before the first grouping
+  pub branch: String,
+  /// The tips of the refs of Branch Deck the commits were grouped with
+  pub store_tips: StoreTips,
+}
+
+impl TableHeader {
+  /// What a rewrite asked on this table names it by (`RewriteIntent`): HEAD and the store tips of the grouping
+  #[must_use]
+  pub fn witness(&self) -> TableWitness {
+    TableWitness {
+      head: self.head.clone(),
+      store_tips: self.store_tips.clone(),
+    }
+  }
+}
+
+/// The commits of the refs of Branch Deck that a grouping reads and the rewrites write
+/// (`refs/branch-deck/issue-groups`, `stack-parents`, `parked`); `None` for a ref that does not exist
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StoreTips {
+  pub issue_groups: Option<String>,
+  pub stack_parents: Option<String>,
+  pub parked: Option<String>,
 }
 
 /// The check of the checked out branch against the last fetched baseline

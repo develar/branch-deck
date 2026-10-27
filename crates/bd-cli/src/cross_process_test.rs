@@ -138,6 +138,18 @@ impl Subscriber for Window {
     self.0.send(()).map_err(|_gone| SubscriberGone)
   }
 }
+/// The rewrites of the app's session of the test, which runs none: a failure in the words of its chain
+struct Rewrites;
+
+impl operations::rewrite::RewriteHost for Rewrites {
+  fn rewrite_error(&self, error: anyhow::Error) -> ApiError {
+    ApiError::internal(format!("{error:#}"))
+  }
+
+  fn undo_error(&self, error: anyhow::Error) -> ApiError {
+    ApiError::internal(format!("{error:#}")).in_undo()
+  }
+}
 // jscpd:ignore-end
 
 /// The services of the app's session in the repository of `space`: its fake Patronus with the Space token of its home,
@@ -242,7 +254,13 @@ impl App {
       confirmations: plan.confirmations,
     };
     let (registry, key, services) = (self.registry.clone(), self.key.clone(), Arc::clone(&self.services));
-    tokio::spawn(async move { operations::engine::execute(&registry, &key, intent, accepted, &*services, Arc::new(NoEvents)).await })
+    tokio::spawn(async move {
+      let hosts = operations::engine::Hosts {
+        services: &*services,
+        rewrites: &Rewrites,
+      };
+      operations::engine::execute(&registry, &key, intent, accepted, hosts, Arc::new(NoEvents)).await
+    })
   }
 }
 

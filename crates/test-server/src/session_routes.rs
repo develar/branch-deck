@@ -288,6 +288,17 @@ struct TestServices {
   git: GitCommandExecutor,
 }
 
+/// A rewrite of a test repository answers a core's failure as the app's commands do
+impl operations::rewrite::RewriteHost for TestServices {
+  fn rewrite_error(&self, error: anyhow::Error) -> ApiError {
+    api_error(error)
+  }
+
+  fn undo_error(&self, error: anyhow::Error) -> ApiError {
+    app_api::api_error::undo_error(error)
+  }
+}
+
 /// The services a start whose answer was lost of the registry of the server is settled with: the fakes of its test
 /// repository, as the app's are its own (`RegistryFiles::settled_with`)
 pub fn settle_host(state: &Weak<AppState>, git: GitCommandExecutor) -> Arc<dyn ServiceHost> {
@@ -484,7 +495,11 @@ pub async fn execute(State(state): State<Arc<AppState>>, headers: HeaderMap, Jso
       fingerprint: params.fingerprint,
       confirmations: params.accepted,
     };
-    let outcome = Box::pin(operations::engine::execute(&state.registry, &key, params.intent, accepted, &services, events)).await;
+    let hosts = operations::engine::Hosts {
+      services: &services,
+      rewrites: &services,
+    };
+    let outcome = Box::pin(operations::engine::execute(&state.registry, &key, params.intent, accepted, hosts, events)).await;
     Ok(Json(outcome.map_err(|error| failed("execute", error))?))
   })
   .await

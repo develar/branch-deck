@@ -6,10 +6,9 @@ use domain_types::rewrite::{ParkBranchLine, ParkResult, ParkedBranchChange};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::parked::{ParkLine, ParkOutcome, park_core, unpark_core};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
-use serde::Deserialize;
 use tracing::instrument;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ParkBranchesParams {
@@ -18,7 +17,7 @@ pub struct ParkBranchesParams {
   pub branches: Vec<ParkBranchLine>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct UnparkBranchesParams {

@@ -54,6 +54,7 @@ function outcome(statuses: EffectRecord["status"][], result: Partial<LandResult>
     effects: PLAN.effects.map((effect, index) => ({ effect, status: statuses[index] ?? { kind: "skipped", reason: null } })),
     newsKey: { kind: "robotSubject", subject: "auth", mode: "rebaseAutosquash" },
     versionAfter: null,
+    undo: null,
     result: { kind: "land", robot: null, canceled: null, comment: null, notes: [], lost: null, ...result },
     stats: { gitProcesses: {}, httpRequests: 0, millis: 1 },
   }

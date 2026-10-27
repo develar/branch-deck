@@ -7,7 +7,7 @@ use crate::facts::fill;
 use crate::needs::{FactNeed, needs, waits};
 use domain_types::commit::Commit;
 use domain_types::error::ApiError;
-use domain_types::fixtures::{land_intent, push_intent, robot};
+use domain_types::fixtures::{branches_grouped, land_intent, push_intent, robot};
 use domain_types::landing::{FactWait, LandDecision, LandFact, Subject};
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile, PatronusRobotStatus,
@@ -209,16 +209,7 @@ fn branch() -> GroupedBranchInfo {
 pub(crate) fn session() -> OneShot {
   let mut state = TableState::new();
   state.begin_sync();
-  state.apply(SyncEvent::BranchesGrouped {
-    branches: vec![branch()],
-    baseline_branch: "origin/master".to_owned(),
-    stacks: false,
-    issue_groups: BTreeMap::new(),
-    stack_parents: BTreeMap::new(),
-    parked: BTreeMap::new(),
-    stack_branches: Vec::new(),
-    target_branch: None,
-  });
+  state.apply(branches_grouped(vec![branch()]));
   state.apply(SyncEvent::CommitSynced {
     branch_name: "auth".to_owned(),
     commit_hash: "a1".to_owned(),

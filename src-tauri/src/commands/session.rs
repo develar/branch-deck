@@ -21,7 +21,7 @@ use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use crate::settings::emit_change;
-use app_api::api_error::{api_error, no_branch_prefix};
+use app_api::api_error::{api_error, no_branch_prefix, undo_error};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::journals::remember_journal;
 use app_settings::linked_pull_requests::{forget, linked};
@@ -31,12 +31,15 @@ use domain_types::operation::Intent;
 use domain_types::patronus::PatronusRobot;
 use domain_types::review_request::LinkedPullRequest;
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
+use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use object_cache::cache::ObjectCache;
+use operations::engine::Hosts;
 use operations::events::EventSink;
 use operations::land_execute::Accepted;
 use operations::registry::{Answer, Registry, RegistryFiles};
+use operations::rewrite::RewriteHost;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
@@ -171,7 +174,11 @@ impl SessionsState {
   /// the engine of the operations (`operations::engine::execute`)
   pub async fn execute(&self, app: &AppHandle, key: &SessionKey, intent: Intent, accepted: Accepted, events: Arc<dyn EventSink>) -> Answer {
     let services = AppServices { app: app.clone() };
-    operations::engine::execute(&self.registry, key, intent, accepted, &services, events).await
+    let hosts = Hosts {
+      services: &services,
+      rewrites: &services,
+    };
+    operations::engine::execute(&self.registry, key, intent, accepted, hosts, events).await
   }
 
   fn windows(&self) -> std::sync::MutexGuard<'_, WindowSubscriptions> {
@@ -319,6 +326,21 @@ impl ServiceHost for AppServices {
       Ok(None) => {}
       Err(error) => warn!(%error, "cannot forget the links of Reviews"),
     }
+  }
+}
+
+/// The rewrites of the app read the diffs of its windows and answer a failure as its commands do
+impl RewriteHost for AppServices {
+  fn file_diffs(&self) -> FileDiffs {
+    self.app.state::<FileDiffs>().inner().clone()
+  }
+
+  fn rewrite_error(&self, error: anyhow::Error) -> ApiError {
+    api_error(error)
+  }
+
+  fn undo_error(&self, error: anyhow::Error) -> ApiError {
+    undo_error(error)
   }
 }
 

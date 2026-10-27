@@ -1421,6 +1421,19 @@ export type ConflictFix = {
 	trials: number,
 };
 
+/**
+ *  A commit copied onto HEAD by a reapply or a pick of remote commits: the commit it was copied from, its copy and the
+ *  subject of the copy
+ */
+export type CopiedCommit = {
+	/**  The commit of the unapplied branch (or of its restored chain), or of the remote branch */
+	commit: string,
+	/**  Its copy on HEAD (a dry run of a reapply: the one it writes) */
+	newId: string,
+	/**  The subject of the copy; of a pick with the prefix of the branch */
+	subject: string,
+};
+
 /**  What the numbers miss */
 export type Coverage = {
 	/**  The robots of the window that count, everyone's */
@@ -2772,7 +2785,11 @@ export type Intent =
  *  The start `op`, whose answer was lost (`OperationStep::StartUnknown`), leaves the operations registry: what it held
  *  is free, and a start of its subject can be sent again; Patronus may still run the robot it sent
  */
-({ kind: "forgetStart"; op: OperationId }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
+({ kind: "forgetStart"; op: OperationId }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**  A rewrite of the checked out branch or of the refs of Branch Deck by its core (`operations::rewrite`) */
+{
+	kind: "rewrite",
+} & RewriteIntent;
 
 export type IssueNavigationConfig = {
 	links: IssueNavigationLink[],
@@ -3599,7 +3616,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -3632,7 +3649,11 @@ export type OperationResult =
 /**  A push: the remote statuses it went over once more, the Safe Push it restarted on the pushed commit */
 {
 	kind: "push",
-} & PushResult;
+} & PushResult | 
+/**  A rewrite or its undo: what its core answered, by its kind */
+{
+	kind: "rewrite",
+} & RewriteResult;
 
 /**  What an operation cost */
 export type OperationStats = {
@@ -3659,6 +3680,8 @@ export type OperationStep =
 { kind: "waitingForLock"; holder: LockHolderInfo | null } | 
 /**  Reads the facts it needs and checks what it lands (the target, the landing gate) */
 { kind: "checking" } | 
+/**  Rewrites the checked out branch or the refs of Branch Deck (a rewrite, its undo) */
+{ kind: "rewriting" } | 
 /**  Moves the pull request of its subject into the base its rule names */
 { kind: "retargeting" } | 
 /**  Cancels the robot its start replaces */
@@ -3705,6 +3728,8 @@ export type Outcome = {
 	versionAfter: Version | null,
 	/**  What its effects answered, by its family */
 	result: OperationResult,
+	/**  How what it did is undone (a rewrite's Undo); `None` when it changed nothing or has no undo */
+	undo: UndoToken | null,
 	stats: OperationStats,
 };
 
@@ -4109,17 +4134,9 @@ export type PickRemoteCommitsParams = {
 export type PickRemoteCommitsResult = {
 	previousHead: string,
 	newHead: string,
-	picked: PickedRemoteCommit[],
+	picked: CopiedCommit[],
 	/**  `pick:<previous>..<new>` (`bd undo`); none when nothing moved */
 	undoToken: string | null,
-};
-
-/**  A commit Pick Remote Commits took in: the remote commit and its copy on the checked out branch */
-export type PickedRemoteCommit = {
-	commit: string,
-	newId: string,
-	/**  The subject of the copy, with the prefix of the branch */
-	subject: string,
 };
 
 /**
@@ -4187,7 +4204,14 @@ export type PlannedEffect =
 /**  The state field of the YouTrack issue `key` goes to `state` (`Intent::SetIssueState`) */
 { kind: "setIssueState"; key: string; state: string } | 
 /**  The record of the start `op` whose answer was lost leaves the operations registry (`Intent::ForgetStart`) */
-{ kind: "forgetStart"; op: OperationId };
+{ kind: "forgetStart"; op: OperationId } | 
+/**
+ *  The core of a rewrite rewrites (`Intent::Rewrite`): the commits it names as the table has them when it runs, and
+ *  the branches it names; under the repository lock, refused when HEAD is no longer the one it was planned on
+ */
+{ kind: "rewrite"; commits: string[]; branches: string[] } | 
+/**  The sync that shows what the operation changed (`SyncReason::AfterRewrite`): the operation ends once it is asked */
+{ kind: "sync" };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -4461,15 +4485,6 @@ export type PushUpTo = {
 	blocker?: Reason | null,
 };
 
-/**  A commit of the unapplied branch that the reapply put on top of HEAD */
-export type ReappliedCommit = {
-	/**  The commit of the unapplied branch (or of its restored chain) */
-	commit: string,
-	/**  Its copy on HEAD (with a dry run: the one the reapply writes) */
-	newId: string,
-	subject: string,
-};
-
 export type ReapplyBranchParams = {
 	repositoryPath: string,
 	/**  The name of the unapplied branch, `<name>` of `{prefix}/unapplied/<name>` */
@@ -4484,7 +4499,7 @@ export type ReapplyBranchResult = {
 	/**  The branch its commits group into again */
 	branch: string,
 	/**  Oldest first */
-	reapplied: ReappliedCommit[],
+	reapplied: CopiedCommit[],
 	/**  The commits HEAD has already, by their patch or their content: left out */
 	present: string[],
 	/**
@@ -4879,7 +4894,13 @@ export type Resource =
 /**  A field of a pull request it writes: two writes of one pull request wait for each other only on the same field */
 { kind: "pullRequest"; number: number; field: PullRequestField } | 
 /**  A YouTrack issue whose state it sets */
-{ kind: "issue"; key: string };
+{ kind: "issue"; key: string } | 
+/**
+ *  HEAD, the index and the refs of Branch Deck of the worktree of its session: a rewrite holds it, so the rewrites of
+ *  a process run one after the other, each on what the one before left. Only in this process: between processes the
+ *  repository lock orders them (`domain_policy::admission::holds_across`)
+ */
+{ kind: "head" };
 
 export type RestackBranchParams = {
 	repositoryPath: string,
@@ -5235,6 +5256,72 @@ export type RewordText =
 ({ message: string }) & { subject?: never } | 
 /**  The subject line, the `(prefix)` included; the body stays */
 ({ subject: string }) & { message?: never };
+
+/**
+ *  A rewrite of the checked out branch or of the refs of Branch Deck (the family `Rewrite`, `operations::rewrite`): what
+ *  its core takes but the repository, which its session names, and the table its window showed (`witness`), which its
+ *  commits and branches are named on. The undo (`Undo`) names no table: its token holds what it moves back, each ref
+ *  with compare-and-swap
+ */
+export type RewriteIntent = 
+/**
+ *  The commits (original ids) go into `target_branch`, existing or new, or back out of their prefix branch or issue
+ *  group (`None`): Move to…, a drag of commits
+ */
+{ rewrite: "move"; commitIds: string[]; targetBranch: string | null; witness: TableWitness } | 
+/**  Every commit of the branch goes back where its key groups it (Ungroup) */
+{ rewrite: "ungroup"; branchName: string; witness: TableWitness } | 
+/**  The branch and the branches stacked on it get `new_name` in the prefix of their commits, its issue groups too */
+{ rewrite: "rename"; branchName: string; newName: string; witness: TableWitness } | 
+/**  The branch is stacked on `parent` (Stack On) */
+{ rewrite: "restack"; branchName: string; parent: string; witness: TableWitness } | 
+/**  The branch is made a root (Unstack) */
+{ rewrite: "unstack"; branchName: string; witness: TableWitness } | 
+/**  The branches are parked with their notes, or the notes of parked ones change */
+{ rewrite: "park"; branches: ParkBranchLine[]; witness: TableWitness } | { rewrite: "unpark"; branchNames: string[]; witness: TableWitness } | 
+/**
+ *  The branch and its files leave HEAD for `{prefix}/unapplied/<name>`; `original_commit_ids`: the commits its row
+ *  showed, which it must still have
+ */
+{ rewrite: "unapply"; branchName: string; originalCommitIds: string[] | null; witness: TableWitness } | 
+/**  The unapplied branch of that name comes back on top of HEAD */
+{ rewrite: "reapply"; branchName: string; witness: TableWitness } | 
+/**  The commits become one with `message`, in place of the oldest of them */
+{ rewrite: "squash"; commitIds: string[]; message: string; witness: TableWitness } | 
+/**  The fixups of `scope` fold into their targets */
+{ rewrite: "squashFixups"; scope: AutosquashScope; witness: TableWitness } | 
+/**  The texts of commits ahead of the baseline change */
+{ rewrite: "reword"; rewords: CommitReword[]; witness: TableWitness } | 
+/**  The uncommitted changes of `files` go into the commit `original_commit_id` of the branch */
+{ rewrite: "amend"; branchName: string; originalCommitId: string; files: string[]; witness: TableWitness } | 
+/**  `issue_reference` goes into the subjects of `commits` of the branch */
+{ rewrite: "addIssueReference"; branchName: string; commits: CommitInfo[]; issueReference: string; witness: TableWitness } | 
+/**  The regroup the conflict fix found and built (`fingerprint` of its trial) is written */
+{ rewrite: "applyConflictFix"; fingerprint: string; plan: RegroupPlan; witness: TableWitness } | 
+/**  The archived branch of that name is deleted */
+{ rewrite: "deleteArchived"; branchName: string; witness: TableWitness } | 
+/**  The unapplied branch of that name is deleted */
+{ rewrite: "deleteUnapplied"; branchName: string; witness: TableWitness } | 
+/**
+ *  The commits someone else pushed to the remote branch of the virtual branch go onto HEAD with the prefix of the
+ *  branch (Pick Remote Commits); `expected_remote`: the remote tip the row showed
+ */
+{ rewrite: "pickRemote"; branchName: string; parentBranch: string | null; myEmail: string | null; expectedRemote: string | null; witness: TableWitness } | 
+/**  The rewrite whose outcome gave `token` (`Outcome::undo`) is undone */
+{ rewrite: "undo"; token: UndoToken };
+
+/**  What the core of a rewrite answered (`OperationResult::Rewrite`), by its kind */
+export type RewriteResult = 
+/**  A move, an ungroup, a rename, a restack, an unstack: the commits that moved and the branch they are in */
+{ rewrite: "moved"; answer: MoveCommitsResult } | 
+/**  A park or an unpark */
+{ rewrite: "parked"; answer: ParkResult } | { rewrite: "unapplied"; answer: UnapplyBranchResult } | { rewrite: "reapplied"; answer: ReapplyBranchResult } | { rewrite: "squashed"; answer: SquashCommitsResult } | { rewrite: "fixupsSquashed"; answer: SquashFixupsResult } | { rewrite: "reworded"; answer: RewordResult } | { rewrite: "amended"; answer: AmendCommandResult } | { rewrite: "issueReferenceAdded"; answer: AddIssueReferenceResult } | { rewrite: "conflictFixApplied"; answer: AppliedConflictFix } | { rewrite: "picked"; answer: PickRemoteCommitsResult } | 
+/**  An archived or an unapplied branch is gone */
+{ rewrite: "deleted" } | 
+/**  An undo; `already_undone`: an undo before had done it, nothing changed now (of an unapply, a reapply, a pick) */
+{ rewrite: "undone"; answer: {
+	alreadyUndone: boolean,
+} };
 
 /**  The robot of a subject that needs the user (`RepositoryView::attention`) */
 export type RobotAttention = {
@@ -6107,6 +6194,16 @@ export type StepRetarget = {
  */
 export type StepRow = "noSlot" | "0" | "1" | "1′" | "1″" | "2" | "3" | "5" | "5′" | "6" | "7" | "8" | "9" | "10" | "8′" | "10′" | "11";
 
+/**
+ *  The commits of the refs of Branch Deck that a grouping reads and the rewrites write
+ *  (`refs/branch-deck/issue-groups`, `stack-parents`, `parked`); `None` for a ref that does not exist
+ */
+export type StoreTips = {
+	issueGroups: string | null,
+	stackParents: string | null,
+	parked: string | null,
+};
+
 /**  What the page of a sub-window gets when it loaded (`sub_window_loaded`) */
 export type SubWindowLoaded = {
 	/**  The latest open that came while the page loaded, if any */
@@ -6302,6 +6399,12 @@ export type TableHeader = {
 	 *  baseline that is no branch of origin
 	 */
 	targetBranch: string | null,
+	/**  The commit HEAD pointed at when the commits were grouped; empty before the first grouping */
+	head: string,
+	/**  The checked out branch whose commits were grouped (`main`); empty before the first grouping */
+	branch: string,
+	/**  The tips of the refs of Branch Deck the commits were grouped with */
+	storeTips: StoreTips,
 };
 
 /**  The sections below the branch table */
@@ -6312,6 +6415,16 @@ export type TableSections = {
 	/**  The unapplied branches, newest first */
 	unapplied: UnappliedBranchInfo[],
 	landed: LandedSection,
+};
+
+/**
+ *  The table a rewrite was asked on: HEAD and the tips of the refs of Branch Deck the rewrites read, as the last sync of
+ *  the window's session read them (`TableHeader::witness`); a patch of the facts of the remote never changes it
+ */
+export type TableWitness = {
+	/**  The commit HEAD pointed at */
+	head: string,
+	storeTips: StoreTips,
 };
 
 /**  The diff of two texts */
@@ -6475,6 +6588,22 @@ export type UncommittedFileChange = {
 	unstaged: boolean,
 };
 
+/**  The core an undo token is for */
+export type UndoKind = 
+/**
+ *  A regroup (a move, an ungroup, a rename, a restack, an unstack, a reword, a fix) or a park: HEAD and the stores
+ *  back (`<previous>..<new>`, `groups:`, `stacks:`, `parked:`, joined by `+`)
+ */
+"regroup" | 
+/**  A squash or a squash of fixups: HEAD back from the new commit (`<previous>..<new>`) */
+"squash" | 
+/**  An unapply (`unapply:…`) */
+"unapply" | 
+/**  A reapply (`reapply:…`) */
+"reapply" | 
+/**  Pick Remote Commits (`pick:…`) */
+"pick";
+
 /**  The undo of Pick Remote Commits (`undo_pick_remote_commits`): the undo token its result named */
 export type UndoPickRemoteCommitsParams = {
 	repositoryPath: string,
@@ -6490,6 +6619,15 @@ export type UndoReapplyParams = {
 export type UndoRegroupParams = {
 	repositoryPath: string,
 	/**  What the operation reported in `MoveCommitsResult.undo_token` */
+	token: string,
+};
+
+/**
+ *  How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `bd undo` takes,
+ *  by the core that undoes it
+ */
+export type UndoToken = {
+	kind: UndoKind,
 	token: string,
 };
 

@@ -420,6 +420,11 @@ pub enum PlannedEffect {
   SetIssueState { key: String, state: String },
   /// The record of the start `op` whose answer was lost leaves the operations registry (`Intent::ForgetStart`)
   ForgetStart { op: crate::operation::OperationId },
+  /// The core of a rewrite rewrites (`Intent::Rewrite`): the commits it names as the table has them when it runs, and
+  /// the branches it names; under the repository lock, refused when HEAD is no longer the one it was planned on
+  Rewrite { commits: Vec<String>, branches: Vec<String> },
+  /// The sync that shows what the operation changed (`SyncReason::AfterRewrite`): the operation ends once it is asked
+  Sync,
 }
 
 impl PlannedEffect {

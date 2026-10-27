@@ -20,6 +20,7 @@ use crate::update_branch::{
   move_branch_and_files, move_branch_and_files_carrying, recheck_blocking_paths,
 };
 use anyhow::{Result, anyhow, bail};
+use domain_types::rewrite::CopiedCommit;
 use domain_types::update_project::UpdateCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_utils::list_cut::kept;
@@ -79,6 +80,18 @@ pub struct PickedCommit {
   /// Its copy on the target
   pub new_id: String,
   pub subject: String,
+}
+
+impl PickedCommit {
+  /// The commit as the answer of a pick or a reapply names it
+  #[must_use]
+  pub fn copied(&self) -> CopiedCommit {
+    CopiedCommit {
+      commit: self.commit.clone(),
+      new_id: self.new_id.clone(),
+      subject: self.subject.clone(),
+    }
+  }
 }
 
 /// How the target has the change of a commit of the range

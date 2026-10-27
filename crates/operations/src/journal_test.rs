@@ -42,6 +42,7 @@ fn started(op: &domain_types::operation::OperationId, status: EffectStatus) -> O
     news_key: None,
     version_after: None,
     result: OperationResult::None,
+    undo: None,
     stats: OperationStats::default(),
   }
 }

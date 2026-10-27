@@ -169,6 +169,12 @@ reword, the conflict fix, park and unpark, unapply, and their undos. The inline 
 or `withRowProgress` around an action that is an operation itself (rename, ungroup, park, unapply, squash fixups, close
 the stack's pull request).
 
+The engine has the same rewrites as one family (`Intent::Rewrite`, [Rewrite in the
+engine](git-operations.md#rewrite-in-the-engine)), which the page does not call yet: each holds `Resource::Head`, so a
+second click joins it, another rewrite of the process (an undo too) waits in the queue of the session and is decided
+again on what it left, and a push runs beside it; a wait for the lock is its step `WaitingForLock`, stopped by
+`cancel_operation`; it ends once it asked its sync, with what its core answered and its undo (`Outcome::undo`).
+
 ### Remote actions
 
 - **The robot**: its restart (with the push first of a robot whose branch moved past its commit) and its cancel are
@@ -287,9 +293,14 @@ operation.
    lets all of them say the same.
 2. **Decision**: a second start of the same action joins the first instead of being refused.
    **Rationale**: a double click is no mistake to report; the caller of the second start gets the first one's result.
-3. **Decision**: a rewrite lasts until its sync ends, and its toast comes then.
+3. **Decision**: a rewrite of the engine (`Rewrite`, `operations::rewrite`) ends once it asked the sync that shows
+   it; the page's `runRewrite`, which runs the rewrites of the page until they move onto the engine, lasts until that
+   sync ends, and its toast comes then.
    **Rationale**: the row shows the state before the rewrite until the sync; offering the action again then is what
-   ran it three times.
+   ran it three times. In Rust a second click joins the running rewrite, and a rewrite after it names its commits on
+   what the first left (its `TableWitness`, the new ids the first reported, the commit keys), so it needs no wait for
+   the sync, which would hold every rewrite queued behind it for as long; the page, which decides on its table, keeps
+   the wait until its rewrites run in the engine.
    A rewrite names the repository of its click (`RewriteSpec.repositoryPath`), and so does its Undo: one of a
    repository the main window no longer shows (an Undo clicked after a switch) ends with its command, and that
    repository syncs when it opens.

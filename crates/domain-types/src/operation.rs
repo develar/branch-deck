@@ -10,6 +10,7 @@ use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, 
 use crate::patronus::{PatronusPushMode, PatronusRobot};
 use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedReviewers};
 use crate::reason::Reason;
+use crate::rewrite::{RewriteIntent, RewriteResult, UndoToken};
 use crate::session::Version;
 use crate::youtrack::YouTrackStateChange;
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,8 @@ pub enum Intent {
   /// The start `op`, whose answer was lost (`OperationStep::StartUnknown`), leaves the operations registry: what it held
   /// is free, and a start of its subject can be sent again; Patronus may still run the robot it sent
   ForgetStart { op: OperationId },
+  /// A rewrite of the checked out branch or of the refs of Branch Deck by its core (`operations::rewrite`)
+  Rewrite(Box<RewriteIntent>),
 }
 
 impl Intent {
@@ -91,6 +94,7 @@ impl Intent {
       Self::SubmitReview { .. } => OperationKind::SubmitReview,
       Self::SetIssueState { .. } => OperationKind::SetIssueState,
       Self::ForgetStart { .. } => OperationKind::ForgetStart,
+      Self::Rewrite(_) => OperationKind::Rewrite,
     }
   }
 
@@ -102,6 +106,7 @@ impl Intent {
       Self::Land(Land { subject, .. }) | Self::Push(Push { subject, .. }) | Self::CreatePullRequest(CreatePullRequest { subject, .. }) | Self::RequestReview { subject, .. } => {
         Some(subject.key())
       }
+      Self::Rewrite(rewrite) => rewrite.subject().map(str::to_owned),
       _ => None,
     }
   }
@@ -177,6 +182,10 @@ pub enum Resource {
   PullRequest { number: u32, field: PullRequestField },
   /// A YouTrack issue whose state it sets
   Issue { key: String },
+  /// HEAD, the index and the refs of Branch Deck of the worktree of its session: a rewrite holds it, so the rewrites of
+  /// a process run one after the other, each on what the one before left. Only in this process: between processes the
+  /// repository lock orders them (`domain_policy::admission::holds_across`)
+  Head,
 }
 
 /// A field of a pull request an operation writes
@@ -225,6 +234,8 @@ pub enum OperationStep {
   },
   /// Reads the facts it needs and checks what it lands (the target, the landing gate)
   Checking,
+  /// Rewrites the checked out branch or the refs of Branch Deck (a rewrite, its undo)
+  Rewriting,
   /// Moves the pull request of its subject into the base its rule names
   Retargeting,
   /// Cancels the robot its start replaces
@@ -395,6 +406,8 @@ pub struct Outcome {
   pub version_after: Option<Version>,
   /// What its effects answered, by its family
   pub result: OperationResult,
+  /// How what it did is undone (a rewrite's Undo); `None` when it changed nothing or has no undo
+  pub undo: Option<UndoToken>,
   pub stats: OperationStats,
 }
 
@@ -420,6 +433,8 @@ pub enum OperationResult {
   Issue(Box<YouTrackStateChange>),
   /// A push: the remote statuses it went over once more, the Safe Push it restarted on the pushed commit
   Push(Box<PushResult>),
+  /// A rewrite or its undo: what its core answered, by its kind
+  Rewrite(Box<RewriteResult>),
 }
 
 /// What a push answered (`Intent::Push`): the toast of the push and its Activity entry name it

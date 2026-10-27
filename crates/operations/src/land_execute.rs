@@ -763,9 +763,14 @@ impl<'a> Run<'a> {
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
           // a close, a review, the state of an issue and a forget are operations of their own, never a step of a start
-          PlannedEffect::ClosePullRequest { .. } | PlannedEffect::SubmitReview { .. } | PlannedEffect::SetIssueState { .. } | PlannedEffect::ForgetStart { .. } => self.fail(
-            ApiError::internal("A start closes and reviews no pull request, sets the state of no issue and forgets no start"),
-          ),
+          PlannedEffect::ClosePullRequest { .. }
+          | PlannedEffect::SubmitReview { .. }
+          | PlannedEffect::SetIssueState { .. }
+          | PlannedEffect::ForgetStart { .. }
+          | PlannedEffect::Rewrite { .. }
+          | PlannedEffect::Sync => self.fail(ApiError::internal(
+            "A start closes and reviews no pull request, sets the state of no issue, forgets no start and rewrites nothing",
+          )),
         }
       };
       let remote = if matches!(effect, PlannedEffect::Push { .. }) {
@@ -1331,6 +1336,7 @@ impl Run<'_> {
       news_key,
       version_after: self.version,
       result,
+      undo: None,
       // what it cost is the registry's to fill: `RunningGuard::finish` of the app, the entry of the run of `bd`
       stats: OperationStats::default(),
     };

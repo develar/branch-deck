@@ -123,6 +123,8 @@ pub struct ParkOutcome {
   pub branches: Vec<ParkedChange>,
   /// The commit of the store written, one for every branch; `None` when nothing changed
   pub new_commit: Option<String>,
+  /// The commit of the store it was written on (the undo moves the store back to it); `None` when there was no store
+  pub previous_commit: Option<String>,
 }
 
 /// Park the branches of `lines` with their notes (empty for none), or change the notes of parked branches: each must
@@ -185,6 +187,7 @@ fn write_lines(
       })
       .collect(),
     new_commit: None,
+    previous_commit: read.commit.clone(),
   };
   let mut entries = read.entries.clone();
   for (branch, note) in changes {

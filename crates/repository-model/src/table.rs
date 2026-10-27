@@ -27,11 +27,13 @@
 //! (`Sessions::apply_with`), the one writer of that part. Among them are the operations of other processes of the
 //! repository (`Origin::OtherProcess`, an agent's `bd safe-push`), as the operations registry of the repository has them
 //! (`operations::registry_watch`): each read of it replaces them all (`OperationPatch::Foreign`), and the ones of this
-//! process stay as they are.
+//! process stay as they are. It keeps the rewrites of this process that moved HEAD too (`rewrites`, `RewriteLink`), which a
+//! rewrite asked on the table before one of them names its commits through (`operations::rewrite`).
 
 use crate::derive;
 use crate::facts::{Seq, Sequence};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
+use domain_types::commit::Commit;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::operation::{OperationId, OperationStep, Origin, RunningMove, RunningOperation};
 use domain_types::session::{
@@ -79,6 +81,24 @@ pub struct TableState {
   /// The operations of the remote that run or wait, in the order they were admitted (`apply_operation`); no part of the
   /// table, so no sync restores or drops one
   operations: Vec<RunningOperation>,
+  /// The rewrites of this process that moved HEAD, oldest first, the last `REWRITE_LINKS` of them
+  /// (`record_rewrite`): a rewrite asked on the table before one of them names its commits through them
+  /// (`operations::rewrite`); no part of the table either
+  rewrites: Vec<RewriteLink>,
+}
+
+/// How many rewrites that moved HEAD a session keeps (`TableState::rewrites`)
+const REWRITE_LINKS: usize = 16;
+
+/// What a rewrite of this process did to HEAD: the commit it found and the one it left, and the new id of each commit
+/// its core named (`RewriteResult::rewritten`); a commit it does not name may have another id after it too, but after
+/// a rewrite that only added commits on top (`appends`: a pick, a reapply)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RewriteLink {
+  pub from: String,
+  pub to: String,
+  pub rewritten: BTreeMap<String, String>,
+  pub appends: bool,
 }
 
 /// A change of the operations of a session, which `operations::registry` makes (the module's header)
@@ -157,6 +177,27 @@ impl TableState {
   #[must_use]
   pub const fn header(&self) -> &TableHeader {
     &self.parts.header
+  }
+
+  /// The commits ahead of the baseline the last grouping placed: of the branches in the order of the table, then the
+  /// unassigned ones
+  pub fn commits(&self) -> impl Iterator<Item = &Commit> {
+    let branches = self.parts.order.iter().filter_map(|name| self.parts.branches.get(name));
+    branches.flat_map(|branch| branch.commits.iter()).chain(self.parts.sections.unassigned.iter())
+  }
+
+  /// The rewrites of this process that moved HEAD, oldest first (`RewriteLink`)
+  #[must_use]
+  pub fn rewrites(&self) -> &[RewriteLink] {
+    &self.rewrites
+  }
+
+  /// A rewrite of this process moved HEAD as `link` says: the oldest one beyond `REWRITE_LINKS` is forgotten
+  pub fn record_rewrite(&mut self, link: RewriteLink) {
+    if self.rewrites.len() == REWRITE_LINKS {
+      self.rewrites.remove(0);
+    }
+    self.rewrites.push(link);
   }
 
   /// The names of the branches in the order of the table
@@ -278,11 +319,17 @@ impl TableState {
         parked,
         stack_branches,
         target_branch,
+        head,
+        branch,
+        store_tips,
       } => {
         self.set_step(SyncStep::Building);
         let header = &mut self.parts.header;
         header.baseline_branch = baseline_branch;
         header.target_branch = target_branch;
+        header.head = head;
+        header.branch = branch;
+        header.store_tips = store_tips;
         header.stacks_enabled = stacks;
         header.issue_groups = issue_groups;
         header.stack_parents = stack_parents;

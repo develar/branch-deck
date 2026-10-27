@@ -19,6 +19,7 @@ use crate::events::EventSink;
 use crate::land_execute::{self, Accepted, Planned, StartServices, Steps};
 use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
+use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
 use crate::witness::check;
 use crate::{close, forget, issue, land, pull_request, push, review, robot};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
@@ -31,6 +32,14 @@ use repository_model::session::{SessionKey, Sessions};
 use std::sync::Arc;
 use sync_core::transfer_progress::TransferProgress;
 use tracing::Instrument;
+
+/// What the operations of a host run with: the services of its reads and of its effects on the remote, and what its
+/// rewrites run with besides (the app's and the E2E server's services are both)
+#[derive(Clone, Copy)]
+pub struct Hosts<'a> {
+  pub services: &'a dyn ServiceHost,
+  pub rewrites: &'a dyn RewriteHost,
+}
 
 /// Runs `request` in the session of `key` as a new operation, inside its root span: `body` once the registry admitted
 /// it (at once, or after the operations it waits for), counting what it costs, or the answer of the operation of the
@@ -91,17 +100,20 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
     Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
     Intent::ForgetStart { .. } => forget::forget_plan(&intent).map(Some),
+    Intent::Rewrite(rewrite) => Ok(prepare_rewrite(sessions, key, *rewrite).await),
   }
 }
 
 /// Runs `intent` in the session of `key` on the plan its caller accepted (`accepted`: the fingerprint of the plan it
 /// showed, the confirmations the user accepted of it), over the services `services` resolves for the session (the
-/// app's and the E2E server's `ServiceHost`): admitted over the operations of the session, planned again, then its
-/// effects; its steps in the view, its progress and its outcome to `events`
+/// app's and the E2E server's `Hosts`): admitted over the operations of the session, planned again, then its
+/// effects; its steps in the view, its progress and its outcome to `events`. A rewrite asks nothing to accept: the table
+/// it names its commits on is in its intent (`rewrite::execute_rewrite`)
 ///
 /// # Errors
 /// What refused it before its first effect, a session that is not open, an intent whose family runs elsewhere
-pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
+pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
+  let services = hosts.services;
   match intent {
     // the run of a start is a large future: on the heap
     Intent::Land(land) => Box::pin(execute_land(registry, key, land, accepted, services, events)).await,
@@ -114,6 +126,8 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     intent @ Intent::SetIssueState { .. } => issue::execute_issue(registry, key, intent, accepted, services, events).await,
     Intent::Push(push) => Box::pin(push::execute_push(registry, key, push, accepted, services, events)).await,
     intent @ Intent::ForgetStart { .. } => forget::execute_forget(registry, key, intent, accepted, events).await,
+    // the run of a rewrite is a large future: on the heap
+    Intent::Rewrite(rewrite) => Box::pin(execute_rewrite(registry, key, *rewrite, hosts, events)).await,
   }
 }
 
@@ -204,6 +218,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     intent @ Intent::SubmitReview { number, .. } => review::review_request(intent, *number),
     intent @ Intent::SetIssueState { key, .. } => issue::issue_request(intent, key),
     intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),
+    Intent::Rewrite(rewrite) => rewrite_request(prefix, rewrite),
   }
 }
 
@@ -236,6 +251,7 @@ pub(crate) fn outcome_of(op: OperationId, effects: Vec<EffectRecord>, news_key: 
     news_key,
     version_after,
     result,
+    undo: None,
     stats: OperationStats::default(),
   }
 }

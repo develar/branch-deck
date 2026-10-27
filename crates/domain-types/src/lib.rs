@@ -48,6 +48,7 @@
 use crate::commit::Commit;
 use crate::conflict::{MergeConflictInfo, WordResolutionSummary};
 use crate::issue_navigation::IssueNavigationConfig;
+use crate::session::StoreTips;
 use crate::update_project::UpdateCheck;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -271,6 +272,18 @@ pub enum SyncEvent {
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(optional))]
     target_branch: Option<String>,
+    /// The commit HEAD pointed at when the commits were grouped
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    head: String,
+    /// The checked out branch
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    branch: String,
+    /// The tips of the refs of Branch Deck the commits were grouped with
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    store_tips: StoreTips,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },

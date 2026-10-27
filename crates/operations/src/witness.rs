@@ -133,6 +133,10 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::SubmitReview { number, .. } => (format!("the review of pull request #{number}"), "review it again"),
     Intent::SetIssueState { key, .. } => (format!("the state of {key}"), "set it again"),
     Intent::ForgetStart { op } => (format!("the forget of start {op}"), "forget it again"),
+    Intent::Rewrite(rewrite) => (
+      rewrite.subject().map_or_else(|| "the rewrite".to_string(), |subject| format!("the rewrite of {subject}")),
+      "sync, then ask it again",
+    ),
   }
 }
 

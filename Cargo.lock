@@ -4185,6 +4185,7 @@ dependencies = [
  "anyhow",
  "domain-policy",
  "domain-types",
+ "file-diffs",
  "git-executor",
  "git-ops",
  "github",
@@ -4205,6 +4206,7 @@ dependencies = [
  "tokio",
  "tracing",
  "trial-check",
+ "update-core",
 ]
 
 [[package]]

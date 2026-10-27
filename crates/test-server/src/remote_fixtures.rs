@@ -853,6 +853,7 @@ pub async fn journal_agent_operation(
     news_key: None,
     version_after: None,
     result: OperationResult::None,
+    undo: None,
     stats: OperationStats::default(),
   };
   let stats = entry.stats();

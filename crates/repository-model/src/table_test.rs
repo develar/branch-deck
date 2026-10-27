@@ -2,11 +2,11 @@ use crate::table::{RemoteSubject, TableState};
 use domain_policy::push;
 use domain_types::commit::Commit;
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::fixtures::branches_grouped;
 use domain_types::session::{BranchStatus, CommitSync, SyncState, SyncStep};
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate, StackProblem, StackProblemView};
 use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use pretty_assertions::assert_eq;
-use std::collections::BTreeMap;
 use test_utils::sync_fixtures::integrated_branch_info;
 
 pub(crate) fn commit(id: &str) -> Commit {
@@ -46,41 +46,17 @@ pub(crate) fn grouped(name: &str, commits: &[&str]) -> GroupedBranchInfo {
 }
 
 pub(crate) fn grouping(branches: Vec<GroupedBranchInfo>) -> SyncEvent {
-  SyncEvent::BranchesGrouped {
-    branches,
-    baseline_branch: "origin/master".to_string(),
-    stacks: false,
-    issue_groups: BTreeMap::new(),
-    stack_parents: BTreeMap::new(),
-    parked: BTreeMap::new(),
-    stack_branches: Vec::new(),
-    target_branch: None,
-  }
+  branches_grouped(branches)
 }
 
 /// A grouping of no branch with stacked branches on, which announces the stack branches of `roots`
 fn stack_grouping(roots: &[&str]) -> SyncEvent {
-  let SyncEvent::BranchesGrouped {
-    branches,
-    baseline_branch,
-    issue_groups,
-    stack_parents,
-    parked,
-    ..
-  } = grouping(Vec::new())
-  else {
-    unreachable!()
-  };
-  SyncEvent::BranchesGrouped {
-    branches,
-    baseline_branch,
-    stacks: true,
-    issue_groups,
-    stack_parents,
-    parked,
-    stack_branches: roots.iter().map(ToString::to_string).collect(),
-    target_branch: None,
+  let mut grouping = grouping(Vec::new());
+  if let SyncEvent::BranchesGrouped { stacks, stack_branches, .. } = &mut grouping {
+    *stacks = true;
+    *stack_branches = roots.iter().map(ToString::to_string).collect();
   }
+  grouping
 }
 
 pub(crate) fn synced(branch: &str, commit: &str, status: CommitSyncStatus) -> SyncEvent {

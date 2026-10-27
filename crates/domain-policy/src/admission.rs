@@ -15,7 +15,10 @@
 //!
 //! The same intent is the equal one (the same family, subject and options): a second click joins the first, while a
 //! request that differs in anything waits and is decided again over what the first one left. Two resources are one
-//! when they are equal (`Resource`: a ref, what a robot lands, a robot, a field of a pull request, an issue).
+//! when they are equal (`Resource`: a ref, what a robot lands, a robot, a field of a pull request, an issue, HEAD). HEAD
+//! (`Resource::Head`, which every rewrite holds) is one only within a process: the rewrites of a process run one after
+//! the other, while between processes the repository lock orders them, and a rewrite of another process makes none
+//! busy (only the same intent does).
 
 use domain_types::operation::{Admission, Intent, Origin, Resource, RunningOperation};
 
@@ -38,7 +41,8 @@ pub fn admit(running: &[RunningOperation], intent: &Intent, resources: &[Resourc
 /// `resources` needs, which makes the new one busy: the same intent, or one of its resources. The sessions of all
 /// worktrees of a repository share its refs, robots and pull requests, so a ref by its full name, a robot, a field of a
 /// pull request and an issue are one in all of them; a branch named without its prefix (`Resource::Lands`) and an
-/// intent, which names its subject so, are one only under the same prefix
+/// intent, which names its subject so, are one only under the same prefix; HEAD never (the repository lock orders the
+/// rewrites of the processes)
 #[must_use]
 pub fn holds_across(held: &RunningOperation, held_prefix: &str, prefix: &str, intent: &Intent, resources: &[Resource]) -> bool {
   let same_prefix = held_prefix == prefix;
@@ -46,7 +50,7 @@ pub fn holds_across(held: &RunningOperation, held_prefix: &str, prefix: &str, in
     || held
       .resources
       .iter()
-      .any(|resource| (same_prefix || !matches!(resource, Resource::Lands { .. })) && resources.contains(resource))
+      .any(|resource| !matches!(resource, Resource::Head) && (same_prefix || !matches!(resource, Resource::Lands { .. })) && resources.contains(resource))
 }
 
 /// `operation` holds one of `resources`
