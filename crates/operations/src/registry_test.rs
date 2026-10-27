@@ -236,7 +236,7 @@ async fn an_admitted_operation_is_in_the_view_until_it_ends() {
 }
 
 /// A second request of the same intent runs nothing of its own: it joins the first and answers its answer, and so does
-/// its caller hear the outcome; the session shows one operation
+/// its caller hear the outcome; the session shows one operation, which counts the join
 #[tokio::test]
 async fn a_request_of_the_same_intent_joins_the_running_one() {
   let fixture = fixture();
@@ -245,7 +245,8 @@ async fn a_request_of_the_same_intent_joins_the_running_one() {
   let id = first.id().clone();
   let joined = joined(fixture.admit(push("auth"), &heard).await);
   assert_eq!(joined.op(), &id);
-  assert_eq!(fixture.operations().await.len(), 1);
+  let operations = fixture.operations().await;
+  assert_eq!(operations.iter().map(|operation| (&operation.id, operation.joined)).collect::<Vec<_>>(), [(&id, 1)]);
 
   let (answer, finished) = tokio::join!(joined.answer(), first.finish(Ok(outcome(&id))));
   assert_eq!(answer, finished);
@@ -272,7 +273,12 @@ async fn a_request_of_the_same_intent_joins_the_running_one() {
     Arc::clone(&again) as Arc<dyn EventSink>,
     async |_guard: &RunningGuard| -> Answer { unreachable!("a joined request runs no body") },
   );
-  let (second, ()) = tokio::join!(second, async { gate.notify_one() });
+  // the first ends once the second joined it
+  let release = async {
+    fixture.until(|operations| operations.iter().any(|operation| operation.joined == 1)).await;
+    gate.notify_one();
+  };
+  let (second, ()) = tokio::join!(second, release);
   assert_eq!(first.await.unwrap(), second.clone());
   let second = Box::new(second.unwrap());
   assert_eq!(pushed.take(), vec![OperationEvent::Done { outcome: second.clone() }]);

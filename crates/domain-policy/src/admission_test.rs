@@ -41,6 +41,7 @@ fn running(op: &str, intent: Intent, resources: &[Resource]) -> RunningOperation
     step: OperationStep::Checking,
     origin: Origin::ThisProcess,
     moves: Vec::new(),
+    joined: 0,
   }
 }
 

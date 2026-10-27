@@ -287,6 +287,12 @@ pub struct RunningOperation {
   pub origin: Origin,
   /// The moves of rows it makes while it runs
   pub moves: Vec<RunningMove>,
+  /// The requests of the same intent that joined it (a second click, the same action from another surface): each gets
+  /// its answer and runs nothing of its own. Always 0 for an operation of another process, which no request of this
+  /// process joins
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub joined: u32,
 }
 
 /// What `domain_policy::admission` answers a new operation of this process over those that run or wait

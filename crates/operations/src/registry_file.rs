@@ -161,6 +161,7 @@ impl Record {
       step,
       origin: Origin::OtherProcess { tool: self.tool, pid: self.pid },
       moves: Vec::new(),
+      joined: 0,
     }
   }
 

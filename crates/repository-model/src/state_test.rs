@@ -95,11 +95,12 @@ fn operation(id: &str, number: u32) -> RunningOperation {
     step: OperationStep::Checking,
     origin: Origin::ThisProcess,
     moves: Vec::new(),
+    joined: 0,
   }
 }
 
-/// The operations of the session are a part of the view by id: a patch carries the one that came or changed its step,
-/// and the id of the one that ended; a sync never touches them
+/// The operations of the session are a part of the view by id: a patch carries the one that came, changed its step or
+/// was joined, and the id of the one that ended; a sync never touches them
 #[test]
 fn a_patch_carries_the_operations_that_came_changed_or_ended_by_id() {
   let mut state = TableState::new();
@@ -121,13 +122,17 @@ fn a_patch_carries_the_operations_that_came_changed_or_ended_by_id() {
   let stepped = view.diff(&state, &facts).unwrap();
   let b = RunningOperation { step, ..operation("b", 2) };
   assert_eq!(stepped.changes.operations, BTreeMap::from([(b.id.clone(), b.clone())]));
+  state.apply_operation(OperationPatch::Joined(OperationId("b".to_string())));
+  let joined = view.diff(&state, &facts).unwrap();
+  let b = RunningOperation { joined: 1, ..b };
+  assert_eq!(joined.changes.operations, BTreeMap::from([(b.id.clone(), b.clone())]));
 
   state.apply_operation(OperationPatch::Ended(OperationId("a".to_string())));
   run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
   let ended = view.diff(&state, &facts).unwrap();
   assert_eq!(ended.changes.removed_operations, [OperationId("a".to_string())]);
   assert_eq!(ended.changes.operations, BTreeMap::new());
-  patches.extend([admitted, stepped, ended]);
+  patches.extend([admitted, stepped, joined, ended]);
   assert_eq!(fold(7, patches).operations, BTreeMap::from([(b.id.clone(), b)]));
   assert_eq!(view.snapshot().operations.len(), 1);
 }

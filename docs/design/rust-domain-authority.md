@@ -619,7 +619,8 @@ intent'ов. Ресурсы операции: имена веток (subject, т
 | Remote-действие | join в процессе; из другого процесса — `Busy { holder }` | run | wait в очереди по ресурсу (PR — по полю); ресурс другого процесса — `Busy { holder }` | run | push и land допускаются со step `WaitingForSync` и **держат свои ресурсы**, пока ждут tip своего subject'а в зафиксированной таблице, не конца цепочки sync |
 
 In-process реестр: его **данные** — раздел `operations` сессии (`RunningOperation { id, intent, resources, step,
-origin, moves }`, тип в `domain_types::operation`, потому что вид несёт его окнам; хранит его `TableState`), из которого
+origin, moves, joined }`, тип в `domain_types::operation`, потому что вид несёт его окнам; хранит его `TableState`;
+`joined` — сколько запросов того же intent присоединилось, `OperationPatch::Joined` при допуске), из которого
 `derive` выводит `Running{op}`/`Waits{op}`; его **писатель** — `operations::registry`, который допускает, меняет step и
 применяет изменения к сессии на её actor (`Sessions::apply_with` с `TableState::apply_operation(OperationPatch)`: допуск
 и запись — одно изменение) и к файлу (s10). Ребро остаётся `operations → repository-model`; никто другой состояние операций не хранит. Удаляются: допуск `src/stores/operations.ts` (`getOperationBlocker`,

@@ -921,6 +921,7 @@ fn a_start_whose_answer_was_lost_offers_open_in_patronus_and_forget_this_start()
       pid: 4242,
     },
     moves: Vec::new(),
+    joined: 0,
   };
   let unknown = |url: Option<&str>| {
     operation(OperationStep::StartUnknown {

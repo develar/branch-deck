@@ -290,6 +290,7 @@ pub(crate) fn running(id: &str, request: &crate::registry::OperationRequest) -> 
     step: request.step.clone(),
     origin: Origin::ThisProcess,
     moves: request.moves.clone(),
+    joined: 0,
   }
 }
 

@@ -275,11 +275,11 @@ async fn a_push_queued_behind_a_push_of_its_ref_is_decided_again_on_what_that_on
   let push = alone("alpha", None);
   let forced = Push { force: true, ..push.clone() };
   let (pushes, forces) = (Intent::Push(push.clone()), Intent::Push(forced.clone()));
-  // the forced push is clicked once the push runs, behind the lock: the registry admits the requests in the order of
-  // their clicks, which the order their plans happen to end in is not
+  // the forced push is clicked once the push waits for the lock and the second click joined it: the registry admits the
+  // requests in the order of their clicks, which the order their plans happen to end in is not
   let forced_later = async {
-    let running = |operation: &RunningOperation| operation.intent == pushes && matches!(operation.step, OperationStep::WaitingForLock { .. });
-    fixture.until(|operations| operations.iter().any(running)).await;
+    let joined = |operation: &RunningOperation| operation.intent == pushes && operation.joined == 1 && matches!(operation.step, OperationStep::WaitingForLock { .. });
+    fixture.until(|operations| operations.iter().any(joined)).await;
     fixture.execute(&forced, Vec::new()).await
   };
   let release = async {
@@ -939,12 +939,19 @@ async fn the_pushes_of_one_ref_wait_for_each_other_and_both_push() {
   let fixture = fixture(true).await;
   let (first, mut holds, release) = fixture.held(alone("alpha", None));
   let (stack_push, again_push) = (scoped("beta", PushScope::WithAncestors), alone("alpha", None));
+  let pushes_alpha = Intent::Push(again_push.clone());
   let stack = async {
     assert_eq!(holds.recv().await, Some("pushes"));
     tokio::join!(fixture.execute(&stack_push, Vec::new()), fixture.execute(&again_push, Vec::new()))
   };
+  // the first push sends once the push of the stack waits behind it and the second click joined it
   let wait = async {
-    let operations = fixture.until_queued().await;
+    let operations = fixture
+      .until(|operations| {
+        operations.iter().any(|operation| matches!(operation.step, OperationStep::Queued { .. }))
+          && operations.iter().any(|operation| operation.intent == pushes_alpha && operation.joined == 1)
+      })
+      .await;
     assert_eq!(operations.len(), 2, "the push of the stack waits, the second click joined: {operations:?}");
     release.send(()).unwrap();
   };

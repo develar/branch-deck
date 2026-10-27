@@ -258,7 +258,8 @@ and back. The other operations pass, as a sync does: the node keeps the state th
   Here: `pushFromButton`, `pushStack`, `pushWithChildren`, `pushUpTo`) and of the stack branch of a whole stack alone
   (`pushWholeStack`), all in `src/lib/push-run.ts` over `runIntent`. Rust admits it per ref it writes
   (`Resource::Ref`, the refs its plan pushes in their order): the same intent joins it (a second click, the push of
-  an action that asks the same push), another push of one of its refs waits in the queue and is decided again on what
+  an action that asks the same push; the record counts the joins, `RunningOperation.joined`, so every window and a
+  test see the second click admitted), another push of one of its refs waits in the queue and is decided again on what
   it left, the pushes of other refs run side by side. Its steps are the view's `operations` (`Checking`,
   `WaitingForSync`, `WaitingForLock`, `Pushing`): `pushOperationIn` says which branches a running push holds (its
   spinner on their push buttons, a stack branch under `stack:<root>`), `useStackPush` what a push of a stack started

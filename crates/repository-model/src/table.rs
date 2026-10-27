@@ -90,6 +90,8 @@ pub enum OperationPatch {
   Step { id: OperationId, step: OperationStep },
   /// The moves of rows an operation makes now
   Moves { id: OperationId, moves: Vec<RunningMove> },
+  /// A request of the same intent joined an operation
+  Joined(OperationId),
   /// An operation ended, or stopped waiting
   Ended(OperationId),
   /// The operations of other processes in the session as the operations registry of the repository has them now, in
@@ -439,7 +441,8 @@ impl TableState {
     &self.operations
   }
 
-  /// Changes the operations as `patch` says; a step, moves or an end of an operation the session lacks change nothing
+  /// Changes the operations as `patch` says; a step, moves, a join or an end of an operation the session lacks change
+  /// nothing
   pub fn apply_operation(&mut self, patch: OperationPatch) {
     match patch {
       OperationPatch::Admitted(operation) => self.operations.push(operation),
@@ -451,6 +454,11 @@ impl TableState {
       OperationPatch::Moves { id, moves } => {
         if let Some(operation) = self.operations.iter_mut().find(|operation| operation.id == id) {
           operation.moves = moves;
+        }
+      }
+      OperationPatch::Joined(id) => {
+        if let Some(operation) = self.operations.iter_mut().find(|operation| operation.id == id) {
+          operation.joined = operation.joined.saturating_add(1);
         }
       }
       OperationPatch::Ended(id) => self.operations.retain(|operation| operation.id != id),

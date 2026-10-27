@@ -5508,6 +5508,12 @@ export type RunningOperation = {
 	origin: Origin,
 	/**  The moves of rows it makes while it runs */
 	moves: RunningMove[],
+	/**
+	 *  The requests of the same intent that joined it (a second click, the same action from another surface): each gets
+	 *  its answer and runs nothing of its own. Always 0 for an operation of another process, which no request of this
+	 *  process joins
+	 */
+	joined?: number,
 };
 
 /**  A declaration of a text: its lines and its label, `Outer › inner` */

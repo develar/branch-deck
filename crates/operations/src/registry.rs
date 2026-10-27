@@ -7,8 +7,9 @@
 //! An admitted operation runs (`Admitted::Run`, a `RunningGuard` that changes its step and moves and ends it with its
 //! answer), or waits in the queue first: it is in the session with the step `Queued` until the operations before it that
 //! hold what it needs end, then it runs, in the order the waiting ones came. A request of the same intent joins it
-//! (`Admitted::Joined`) and gets its answer. A guard that is dropped without an answer (its future dropped, a panic)
-//! ends the operation all the same, with an internal error for the requests that joined it, so nothing waits forever.
+//! (`Admitted::Joined`), which its record counts (`RunningOperation::joined`), and gets its answer. A guard that is
+//! dropped without an answer (its future dropped, a panic) ends the operation all the same, with an internal error for
+//! the requests that joined it, so nothing waits forever.
 //! Besides the session the registry keeps only the channels of the operations it admitted: the answer of each for the
 //! requests that join it, and the wake-up of each one that waits.
 //!
@@ -478,7 +479,10 @@ fn decide(
     Admission::Join { op } => {
       let answer = lock(channels).get(&op).map(|channel| channel.answer.subscribe());
       // an operation is in the session only while its channel is kept, but for a session that closed
-      return answer.map_or(Decision::Closed, |answer| Decision::Join { op, answer });
+      let Some(answer) = answer else { return Decision::Closed };
+      // the view counts the join: every window, and a test, sees the second click admitted
+      state.apply_operation(OperationPatch::Joined(op.clone()));
+      return Decision::Join { op, answer };
     }
   };
   let queued = waiting.is_some();
@@ -499,6 +503,7 @@ fn decide(
     step,
     origin: Origin::ThisProcess,
     moves: request.moves,
+    joined: 0,
   }));
   if queued { Decision::Queued } else { Decision::Run }
 }
