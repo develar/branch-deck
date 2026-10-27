@@ -1,4 +1,4 @@
-use crate::commit_writer::{NewCommit, NewParent, StoreCommit, complete_line, write_commits_with_notes, write_store_commits};
+use crate::commit_writer::{NewCommit, NewParent, NotesOfWritten, StoreCommit, complete_line, write_commits_with_notes, write_store_commits};
 use crate::ref_transaction::RefTransaction;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -64,4 +64,39 @@ fn a_temporary_ref_is_stale_after_its_age_or_without_a_time() {
   // the shared ref of the commit chains up to 0.21
   assert!(is_stale_temp_ref("refs/branch-deck/tmp/chain", STALE_TEMP_REF_AGE));
   assert!(!is_stale_temp_ref("refs/branch-deck/conflict/abc", STALE_TEMP_REF_AGE));
+}
+
+/// A rewrite that carries mapping notes to its new commits loses the notes ref to another writer in the middle of its
+/// `fast-import` (a sync that writes its notes): the write goes once more from the tip the other writer left, so the
+/// rewrite does not fail, and both notes are kept
+#[test]
+fn a_write_of_commits_that_loses_the_notes_ref_to_another_writer_goes_once_more_and_keeps_both_notes() {
+  let repo = TestRepo::new();
+  let initial = repo.create_commit("Initial", "README.md", "# Test\n");
+  let head = repo.create_commit("Add a", "a.txt", "a\n");
+  let path = repo.path_str();
+  repo.git(&["notes", "add", "-m", "first", &head]);
+  let tree = repo.git(&["rev-parse", "HEAD^{tree}"]);
+  let ident = "Test User <test@example.com> 1700000000 +0000";
+  let copy = NewCommit {
+    tree: &tree,
+    parent: Some(NewParent::Existing(&initial)),
+    author: ident,
+    committer: ident,
+    encoding: None,
+    message: b"Add a again\n",
+  };
+  let other = format!("[ -f '{{dir}}/moved' ] || {{ touch '{{dir}}/moved'; git -C '{path}' notes add -f -m 'other writer' {initial}; }}");
+  let wrapped = test_utils::wrapped_git::WrappedGit::new(&format!(
+    "*\" fast-import --quiet --done --date-format=raw\"*) {};;",
+    test_utils::wrapped_git::WrappedGit::during_fast_import(&other)
+  ));
+  let notes = NotesOfWritten {
+    notes_ref: "refs/notes/commits",
+    notes: vec![(0, "v-commit-v1:copy".to_string())],
+  };
+  let written = write_commits_with_notes(wrapped.executor(), path, &[copy], Some(&notes), &[], Some(ident)).unwrap();
+  assert!(wrapped.marked("moved"));
+  assert_eq!(repo.git(&["notes", "show", &initial]).trim(), "other writer");
+  assert_eq!(repo.git(&["notes", "show", &written.ids[0]]).trim(), "v-commit-v1:copy", "the rewrite's own note");
 }

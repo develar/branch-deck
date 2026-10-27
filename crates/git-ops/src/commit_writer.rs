@@ -401,10 +401,21 @@ pub fn write_commits_with_notes(
   }
   stream.extend_from_slice(b"done\n");
 
-  let output = git_executor
-    .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path)
-    .stdin(&stream)
-    .bytes()?;
+  let write = || {
+    git_executor
+      .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path)
+      .stdin(&stream)
+      .bytes()
+  };
+  let output = match write() {
+    // the notes ref moved under the stream (a sync wrote its mapping notes meanwhile): once more from its tip, which
+    // `<ref>^0` names anew; the commits are the same objects
+    Err(first) if has_notes => {
+      debug!(error = %format!("{first:#}"), "the notes lost to another writer: once more from its tip");
+      write()?
+    }
+    output => output?,
+  };
   let mut ids: Vec<String> = String::from_utf8(output)?.lines().map(str::to_string).collect();
   let store_commits = ids.split_off(ids.len().saturating_sub(stores.len()));
   if ids.len() != commits.len() || store_commits.len() != stores.len() || store_commits.iter().any(String::is_empty) {

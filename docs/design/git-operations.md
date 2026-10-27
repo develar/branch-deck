@@ -168,7 +168,11 @@ written, except by Update Project and the finish of its resolve session (their o
    write fails nothing (`write_cache_notes`): it runs once more, from the tip the other writer left (its notes kept),
    and a second loss is a warning; a later sync writes them
    (`a_sync_that_loses_the_notes_ref_to_another_writer_writes_again_and_finishes`,
-   `a_detection_write_that_loses_its_ref_runs_again_and_never_fails`).
+   `a_detection_write_that_loses_its_ref_runs_again_and_never_fails`). The mapping notes a rewrite carries to its new
+   commits (`write_commits_with_notes`) go once more too, the same stream from the tip the other writer left (the
+   commits are the same objects), and a second loss fails the rewrite before its ref transaction: a rewrite during the
+   sync of the one before it, which the engine runs side by side, does not fail on that sync's notes
+   (`a_write_of_commits_that_loses_the_notes_ref_to_another_writer_goes_once_more_and_keeps_both_notes`).
 
    **The stack branches** (`{prefix}/stack/<root>`, see "Stack branch") follow the rule without an exception: a sync
    moves one with CAS on the tip it listed, only when every branch of its stack was built, and deletes the ones of
