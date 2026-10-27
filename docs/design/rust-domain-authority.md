@@ -2308,6 +2308,19 @@ rewrites между процессами через файл `s10`; `s12` ждё
   ожидание.
 - **Критерий выхода:** `bd safe-push` во время Safe Push приложения на том же piece получает `busy` с id держателя, и
   наоборот.
+- **Уточнения при планировании (2026-10-27):** (1) порядок допуска между файлом и actor: сначала read-modify-write
+  `operations.json` под `operations.lock` в blocking-шаге — `Busy { holder }` решают только записи **других**
+  процессов (живые или `Unknown`), своя запись пишется туда же (как `Queued` или с первым step) до того, как операцию
+  увидит actor, и снимается под тем же lock после того, как actor её завершил; допуск на actor между операциями
+  своего процесса (join, очередь) не меняется; файл никогда не читается и не пишется на actor, lock никогда не
+  держится поперёк `await`. (2) `FetchBaseline` в s10: объединяемая запись — holder-файл `fetch.lock` (pid, start
+  time, tracking ref, `started_at`), не запись `operations.json`; intent `FetchBaseline` приходит в s11, как
+  запланировано. (3) In-process FIFO перед repository lock живёт в `history_rewrite::repository_lock` (честная
+  очередь процесса на путь lock-файла), так что за своим процессом встают все вызывающие lock — движок и ядра
+  rewrites приложения до s11. (4) Activity: оба окна читают журналы одним IPC (`read_activity`) и слышат событие
+  писателя; главное окно хранит только Undo (в памяти) и reveal; link окна Activity записи больше не несёт.
+  (5) В объём s10 входят остатки s9, названные в строке «Прогресс»: `bd push` как адаптер `execute(Push)` и
+  внимание к роботу как часть вида (`needsRobotAttention`, строка ALLOWLIST `lint:arch`).
 
 ### s11-engine-rewrites
 
