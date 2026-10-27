@@ -1,6 +1,6 @@
 ---
 name: bd lease
-description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand; the host slots of bd host are leases of the pool that a lend table lends to one run at a time.
+description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand; the host slots are leases of the pool that a lend table lends to one run at a time, which the remote-run agent of a host drives through bd lease host.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/lease_command.rs
@@ -13,6 +13,7 @@ targets:
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/lease-pool/src/lease.rs
   - ../../crates/lease-pool/src/host_slots.rs
+  - ../../crates/bd-lease/src/host_command.rs
   - ../../crates/lease-pool/src/state_file.rs
   - ../../crates/lease-pool/src/lease_clean.rs
   - ../../crates/lease-pool/src/clone_dir.rs
@@ -415,9 +416,22 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Host slots
 
-The slots that `bd host` keeps for the runs of other machines (IJAI-4792): its agent (`bd host serve`, to come) calls
-these functions of `lease_pool::host_slots` on the host. A remote slot holds no state of its own, since the commit
-comes from the client and the outputs go back to it, so a slot is lent to one run for the duration of that run only.
+The slots that the remote-run agent of a host (yonderd of the IntelliJ monorepo; IJAI-4792) keeps for the runs of
+other machines: it calls the functions of `lease_pool::host_slots` through `bd lease host` on the host. A remote slot
+holds no state of its own, since the commit comes from the client and the outputs go back to it, so a slot is lent to
+one run for the duration of that run only.
+
+- `bd lease host` must answer each function of the table as one JSON object: `lend --run <id> --pid <pid>
+  [--affinity <key>]` (`state` `lent` with the `slot`, its `lease_id` and `cleaned_at`, or `queued` with `ahead`, the
+  lent runs and the slots in quarantine; a repeat answers the same slot), `give-back --run <id>` (the slot of the run,
+  else the run leaves the queue: `left_queue`), `fill` (its steps on stderr), `reclaim`, `shrink <keep>`, `limit <n>`
+  or `limit --unset`, and `status` (each slot, its state in words, `abandoned`, the queue, the limit). bd reads the
+  start of `--pid` itself; a pid without a start is refused as `invalid_arguments` where the system tells starts. A
+  refusal of the table is `no_lease` (no such slot, or not this run's), `slot_busy` (another process acts on it) or
+  `invalid_arguments` (a bad `branchdeck.hostSlots`). It is never a command of a coding agent.
+  [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_run_lends_a_slot_waits_in_line_and_gives_it_back`)
+  [@test] ../../crates/bd-lease/src/host_command_test.rs (`reclaim_shrink_and_limit_answer_the_table`)
+  [@test] ../../crates/bd-lease/src/host_command_test.rs (`the_refusals_of_the_table_have_their_codes`)
 
 - A fill must lease the missing host slots up to `branchdeck.hostSlots` (git config of the host, 4 by default) as plain
   `ready` leases of the holders `bd-host/1`, `bd-host/2`, … at the HEAD of the host checkout, detached, through the get
@@ -453,7 +467,7 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs`)
 - A shrink to a count must give the host slots past it back to the pool and keep the count as the limit of later
   fills until it is lifted. It takes a slot that is idle, in quarantine or abandoned, also without a running
-  `bd host serve`, and refuses a slot that a live process has. It signals no process (a process in the slot refuses
+  agent, and refuses a slot that a live process has. It signals no process (a process in the slot refuses
   it), discards the changes, checks the slot out at the commit it was leased at, so the snapshot commits of the runs
   count as landed, and returns it through the return of the pool without `--confirm-preserved`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_shrink_returns_the_host_slots_past_the_count_also_without_the_agent`)
@@ -462,8 +476,7 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   does not name and whose number no live fill holds.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`reclaim_drops_a_dead_fill_and_returns_a_lease_the_table_does_not_name`)
 - A hand `bd lease return` of a host slot (its holder is `bd-host/<n>`, or the table names its lease id) must be refused
-  as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `bd host slots --shrink`, which comes with
-  `bd host`.
+  as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `bd lease host shrink`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_hand_return_of_a_host_slot_is_refused`)
 - A lend runs no git, a give-back one `status` (plus `reset` and `clean` for a dirty slot), a shrink one `status`, one
   `checkout` and the processes of a return.
@@ -478,7 +491,8 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
 | 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
 | 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`; `bd lease pick`: `home_branch_switched`, `no_home_branch` and the refusals of `bd pick` |
 
-- The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`).
+- The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`,
+  and `lease_host_lend` … `lease_host_status`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)

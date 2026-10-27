@@ -1,5 +1,6 @@
 //! The host slots (spec/cli/lease.spec.md, "Host slots"; "Host slots" in docs/design/git-operations.md): the slots of
-//! the pool that `bd host` keeps for the runs of other machines, each a plain `ready` lease of the holder `bd-host/<n>`
+//! the pool that the remote-run agent of a host (yonderd, through `bd lease host`) keeps for the runs of other machines,
+//! each a plain `ready` lease of the holder `bd-host/<n>`
 //! in `leases.json`, and the lend table in `$GIT_COMMON_DIR/branch-deck/host-slots.json`, which lends a slot to one run
 //! for the duration of that run. A remote slot holds no state of its own: the commit comes from the client, and the
 //! outputs go back to it, so a slot is free once its run ended and its processes are gone.
@@ -60,7 +61,7 @@ pub struct HostSlots {
   /// The runs that wait for a slot, first come first
   #[serde(default)]
   pub queue: Vec<Ticket>,
-  /// The count the last shrink kept: a fill adds no slot past it, so a shrink beside a running `bd host serve` stays
+  /// The count the last shrink kept: a fill adds no slot past it, so a shrink beside a running agent of the host stays
   /// (`set_limit` lifts it)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub limit: Option<u32>,
@@ -312,6 +313,9 @@ pub struct Lend {
   pub n: u32,
   pub path: String,
   pub lease_id: String,
+  /// When it was last cleaned or filled, in Unix seconds: the agent keys what its prepare steps made in the slot by it,
+  /// since a clean can delete that
+  pub cleaned_at: u64,
   /// When the same affinity used it last, in Unix milliseconds: the wait line says "last used by this checkout 12 min
   /// ago"
   pub last_used_by_affinity: Option<u64>,
@@ -351,6 +355,7 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
         n: slot.n,
         path: slot.path.clone(),
         lease_id: slot.lease_id.clone(),
+        cleaned_at: slot.cleaned_at,
         last_used_by_affinity: None,
       }));
     }
@@ -388,6 +393,7 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
         n: slot.n,
         path: slot.path.clone(),
         lease_id: slot.lease_id.clone(),
+        cleaned_at: slot.cleaned_at,
         last_used_by_affinity,
       };
       table.queue.remove(position);
@@ -461,6 +467,22 @@ enum Take<'a> {
 /// and a clean slot runs neither) and the slot is idle again; then the clean rules run, when they are due
 pub fn give_back(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, run: &str) -> Result<GaveBack> {
   give_back_core(git_executor, params, n, Take::Run(run))
+}
+
+/// Give back the slot that the run `run` has (`give_back`), found by the run; `None` when it has none, and then its
+/// ticket leaves the queue: the one call of an agent on every way out of a run, also when the run never got a slot, or
+/// when a kill cut its lend after the table recorded it
+pub fn give_back_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str) -> Result<Option<GaveBack>> {
+  let table: HostSlots = params.table().read()?;
+  let lent = table
+    .slots
+    .iter()
+    .find(|slot| matches!(&slot.state, HostState::Lent(lent) if lent.run == run))
+    .map(|slot| slot.n);
+  match lent {
+    Some(n) => give_back(git_executor, params, n, run).map(Some),
+    None => leave_queue(params, run).map(|()| None),
+  }
 }
 
 fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, take: Take<'_>) -> Result<GaveBack> {
@@ -849,7 +871,7 @@ pub enum ShrinkOutcome {
 
 /// Give the host slots past `keep` back to the pool, and keep the table at most at `keep` (`limit`), so a running fill
 /// adds none of them again. A slot is taken when it is idle, in quarantine, or abandoned by its process, also without a
-/// running `bd host serve`; a slot that a live run has, or that a live process prepares, cleans or gives back, is
+/// running agent; a slot that a live run has, or that a live process prepares, cleans or gives back, is
 /// refused. Each taken slot: a process in it refuses it (none is signalled: it is older than any lend), its changes are
 /// discarded, it is checked out at the commit it was leased at, which `unlanded_commits` counts as landed, so the
 /// snapshot commits of the runs never refuse it, and its lease goes back through the return of the pool, with its clean
@@ -1005,7 +1027,7 @@ pub enum ReclaimAction {
   Returned,
 }
 
-/// Take up what no process acts on, a tick of the keeper of `bd host serve` (every 60 s), and in its absence of any
+/// Take up what no process acts on, a tick of the keeper of the host agent (every 60 s), and in its absence of any
 /// command of the host slots: the tickets of gone processes leave the queue; the record of a fill that died before its
 /// get goes; an abandoned lend or give-back is given back; a slot in quarantine whose processes are gone is given back;
 /// an abandoned clean runs again; an abandoned shrink returns its slot; a `ready` lease of the holder `bd-host/<n>`

@@ -1736,12 +1736,15 @@ Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `cra
 
 ##### Host slots
 
-`bd host` (IJAI-4792) runs a command of a checkout on another Mac in a slot of that host's pool. Its predecessor,
-yonder, made a host slot the property of one local checkout for 8 hours. So the slot count had no bound, and on
+yonder (`community/tools/yonder` of the IntelliJ monorepo, IJAI-4792) runs a command of a checkout on another Mac in
+a slot of that host's pool. Until 2026-10-27 it made a host slot the property of one local checkout for 8 hours. So the slot count had no bound, and on
 2026-10-24 fourteen gets cloned the monorepo at once (the clones lock above now prevents that). A remote slot holds no
 state of its own: the commit comes from the client, and the outputs go back to it. So a slot is free once its run
-ended, and the host keeps a fixed set of warm slots that runs borrow (`crates/lease-pool/src/host_slots.rs`; its agent
-and the network come with `bd host`).
+ended, and the host keeps a fixed set of warm slots that runs borrow (`crates/lease-pool/src/host_slots.rs`). The agent
+of yonder (yonderd) drives them through `bd lease host` (`crates/bd-lease/src/host_command.rs`): a supervisor lends a
+slot for its run (`lend --pid <supervisor>`, polled while it waits) and gives it back on every way out
+(`give-back --run`), and a keeper runs `reclaim` and `fill`. The network and the run stay yonder's; the full move of
+yonder into Branch Deck (`bd host`) is a later decision.
 
 The slots are plain `ready` leases of the holders `bd-host/<n>`, so `leases.json` keeps its format. A get never takes
 them, a clean of the free slots skips them, and an older bd or the app reads the pool as before. Who has a slot now is

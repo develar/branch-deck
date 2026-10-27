@@ -4,6 +4,9 @@ use bd_core::error::ErrorOutput;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::SyncOutput;
 use bd_core::version::VersionOutput;
+use bd_lease::host_command::{
+  LeaseHostFillOutput, LeaseHostGiveBackOutput, LeaseHostLendOutput, LeaseHostLimitOutput, LeaseHostReclaimOutput, LeaseHostShrinkOutput, LeaseHostStatusOutput,
+};
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
 use bd_lease::workspace_command::WorkspaceOutput;
 use bd_remote::push_command::PushOutput;
@@ -31,7 +34,8 @@ use std::collections::BTreeMap;
 
 /// The outputs of each command, by their names in `bd schema --all`: `rewrite` is the output of group, rename, restack,
 /// unstack and reword, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort`
-/// those of `bd update --status` and `--abort`, `lease_get` … `lease_clean` those of `bd lease <command>`. `error` is
+/// those of `bd update --status` and `--abort`, `lease_get` … `lease_clean` those of `bd lease <command>`,
+/// `lease_host_lend` … `lease_host_status` those of `bd lease host <command>`. `error` is
 /// what any command prints when it fails
 pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("check", &["check"]),
@@ -40,7 +44,24 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("fold", &["fold"]),
   ("group", &["rewrite"]),
   ("install", &["install"]),
-  ("lease", &["lease_get", "lease_pick", "lease_return", "lease_status", "lease_adopt", "lease_clean"]),
+  (
+    "lease",
+    &[
+      "lease_get",
+      "lease_pick",
+      "lease_return",
+      "lease_status",
+      "lease_adopt",
+      "lease_clean",
+      "lease_host_lend",
+      "lease_host_give_back",
+      "lease_host_fill",
+      "lease_host_reclaim",
+      "lease_host_shrink",
+      "lease_host_limit",
+      "lease_host_status",
+    ],
+  ),
   ("move-hunk", &["move_hunk"]),
   ("park", &["park"]),
   ("pick", &["pick"]),
@@ -145,6 +166,13 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("lease_adopt".to_string(), schema_for!(LeaseAdoptOutput)),
     ("lease_clean".to_string(), schema_for!(LeaseCleanOutput)),
     ("lease_get".to_string(), schema_for!(LeaseGetOutput)),
+    ("lease_host_fill".to_string(), schema_for!(LeaseHostFillOutput)),
+    ("lease_host_give_back".to_string(), schema_for!(LeaseHostGiveBackOutput)),
+    ("lease_host_lend".to_string(), schema_for!(LeaseHostLendOutput)),
+    ("lease_host_limit".to_string(), schema_for!(LeaseHostLimitOutput)),
+    ("lease_host_reclaim".to_string(), schema_for!(LeaseHostReclaimOutput)),
+    ("lease_host_shrink".to_string(), schema_for!(LeaseHostShrinkOutput)),
+    ("lease_host_status".to_string(), schema_for!(LeaseHostStatusOutput)),
     ("lease_pick".to_string(), schema_for!(LeasePickOutput)),
     ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),
     ("lease_status".to_string(), schema_for!(LeaseStatusOutput)),

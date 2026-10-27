@@ -22,7 +22,7 @@ use sync_utils::process_scan::process_started;
 const RULES: &str = "[lease]\nclean = [\n  { delete = \"out/cache\" },\n]\n";
 
 /// A fixture whose repository keeps `slots` host slots, with the rules and the `.gitignore` of `RULES`
-fn host_fixture(slots: u32) -> Fixture {
+pub(crate) fn host_fixture(slots: u32) -> Fixture {
   let fixture = Fixture::new();
   fixture
     .repo
@@ -89,7 +89,7 @@ fn lent(answer: LendAnswer) -> Lend {
 }
 
 /// The pid and the start of a process that has exited
-fn gone_process() -> (u32, Option<u64>) {
+pub(crate) fn gone_process() -> (u32, Option<u64>) {
   let mut command = if cfg!(windows) {
     let mut command = std::process::Command::new("cmd");
     command.args(["/C", "exit"]);

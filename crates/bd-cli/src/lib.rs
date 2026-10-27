@@ -17,6 +17,9 @@ use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::write_json;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
+use bd_lease::host_command::{
+  LeaseHostArgs, LeaseHostCommand, lease_host_fill, lease_host_give_back, lease_host_lend, lease_host_limit, lease_host_reclaim, lease_host_shrink, lease_host_status,
+};
 use bd_lease::lease_command::{
   LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status, refuse_update_in_lease,
 };
@@ -424,6 +427,17 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     }) => lease_context(None)
       .and_then(|context| lease_clean(&context, environment, args))
       .and_then(|output| print(out, &output)),
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Host(LeaseHostArgs { command }),
+    }) => lease_context(None).and_then(|context| match command {
+      LeaseHostCommand::Lend(args) => lease_host_lend(&context, environment, args).and_then(|output| print(out, &output)),
+      LeaseHostCommand::GiveBack(args) => lease_host_give_back(&context, environment, args).and_then(|output| print(out, &output)),
+      LeaseHostCommand::Fill => lease_host_fill(&context, environment).and_then(|output| print(out, &output)),
+      LeaseHostCommand::Reclaim => lease_host_reclaim(&context, environment).and_then(|output| print(out, &output)),
+      LeaseHostCommand::Shrink(args) => lease_host_shrink(&context, environment, args).and_then(|output| print(out, &output)),
+      LeaseHostCommand::Limit(args) => lease_host_limit(&context, environment, args).and_then(|output| print(out, &output)),
+      LeaseHostCommand::Status => lease_host_status(&context).and_then(|output| print(out, &output)),
+    }),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),
     }) => {

@@ -2,6 +2,7 @@
 //! (spec/cli/lease.spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
+use crate::host_command::LeaseHostArgs;
 use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, counted_git};
 use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
@@ -13,7 +14,7 @@ use git_ops::revs::{RepositoryDirs, ref_exists, repository_dirs};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::free_space::available_bytes;
-use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotsParams, clean_host_slots};
+use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool,
   SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at,
@@ -56,6 +57,9 @@ pub enum LeaseCommand {
   /// It deletes what the rules name; --dry-run only reports. A slot with a lease or with a process in it is skipped, and
   /// a host slot that a run has
   Clean(LeaseCleanArgs),
+  /// The host slots of the remote-run agent of this host (yonderd): lend, give back, fill, reclaim, shrink. Never a
+  /// command of a coding agent
+  Host(LeaseHostArgs),
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -575,7 +579,7 @@ pub struct CleanedOutput {
   pub error: Option<String>,
 }
 
-fn cleaned_output(cleaned: &[Cleaned]) -> Vec<CleanedOutput> {
+pub(crate) fn cleaned_output(cleaned: &[Cleaned]) -> Vec<CleanedOutput> {
   cleaned
     .iter()
     .map(|cleaned| CleanedOutput {
@@ -955,11 +959,19 @@ pub fn lease_clean(context: &LeaseContext, environment: &Environment, args: &Lea
 /// The error of a failed lease command: a refusal of the pool by its code, a held pool lock as `locked`, else
 /// `git_error`
 #[expect(clippy::needless_pass_by_value, reason = "used as `map_err(lease_error)`")]
-fn lease_error(error: anyhow::Error) -> CliError {
+pub(crate) fn lease_error(error: anyhow::Error) -> CliError {
   if let Some(refusal) = error.downcast_ref::<LeaseRefusal>() {
     let mut cli_error = refusal_error(refusal);
     cli_error.message = format!("{error:#}");
     return cli_error;
+  }
+  if let Some(refusal) = error.downcast_ref::<HostSlotRefusal>() {
+    let code = match refusal {
+      HostSlotRefusal::UnknownSlot(_) | HostSlotRefusal::NotLent { .. } => ErrorCode::NoLease,
+      HostSlotRefusal::Busy { .. } => ErrorCode::SlotBusy,
+      HostSlotRefusal::InvalidConfig { .. } => ErrorCode::InvalidArguments,
+    };
+    return CliError::new(code, format!("{error:#}"));
   }
   if error.downcast_ref::<RepositoryLocked>().is_some() {
     return CliError::new(ErrorCode::Locked, format!("{error:#}"));

@@ -195,7 +195,7 @@ fn idle_leases(store: &LeaseStore) -> Vec<IdleLease> {
     .iter()
     .filter_map(|slot| {
       let lease = slot.lease.as_ref()?;
-      // a host slot is idle between runs by design: `bd host slots --shrink` gives it back, never a hand return
+      // a host slot is idle between runs by design: `bd lease host shrink` gives it back, never a hand return
       (lease.state == LeaseState::Ready && lease.holder_alive() == Some(false) && !lease.holder.starts_with(HOST_HOLDER_PREFIX)).then(|| IdleLease {
         path: slot.path.clone(),
         holder: lease.holder.clone(),
@@ -263,10 +263,10 @@ pub enum LeaseRefusal {
   #[error("Cannot move {path} into the pool: {reason}")]
   CannotMove { path: String, reason: String },
   #[error(
-    "{path} is host slot {n}, which `bd host` lends to the runs of other machines; `bd host slots --shrink <count>` on this host gives the host slots past the count back to the pool"
+    "{path} is host slot {n}, which the remote-run agent of this host lends to the runs of other machines; `bd lease host shrink <count>` on this host gives the host slots past the count back to the pool"
   )]
   HostSlot { path: String, n: u32 },
-  #[error("The holder {0:?} is reserved: `bd host` names its host slots `{HOST_HOLDER_PREFIX}<n>`")]
+  #[error("The holder {0:?} is reserved: the host slots of `bd lease host` are `{HOST_HOLDER_PREFIX}<n>`")]
   ReservedHolder(String),
 }
 
@@ -1468,7 +1468,7 @@ pub struct LeaseReturned {
 /// of its lease overtook answers `joined` too and changes nothing
 ///
 /// A host slot (`host_slots`: its holder is `bd-host/<n>`, or the lend table names its lease) is refused (`HostSlot`):
-/// `bd host` lends it to its runs, and only its shrink gives it back
+/// the agent of the host lends it to its runs, and only `bd lease host shrink` gives it back
 pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>) -> Result<LeaseReturned> {
   return_lease(git_executor, params, ReturnAs::Hand)
 }
