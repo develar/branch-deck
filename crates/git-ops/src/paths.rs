@@ -83,6 +83,13 @@ impl ChangedPath {
   }
 }
 
+/// The paths that differ between two tree-ish (`diff-tree -r -z --name-only --no-renames`), in git's order; `None`
+/// when git knows one of them no longer (a tree that `gc` pruned)
+pub fn changed_path_names(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Option<Vec<String>>> {
+  let (output, exit_code) = git_executor.execute_command_with_status(&["diff-tree", "-r", "-z", "--name-only", "--no-renames", "--end-of-options", from, to], repo_path)?;
+  Ok((exit_code == 0).then(|| output.split('\0').filter(|path| !path.is_empty()).map(str::to_string).collect()))
+}
+
 /// Every path that differs between two tree-ish (`diff-tree -r -z --no-renames`, raw format), the paths as bytes
 pub(crate) fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Vec<ChangedPath>> {
   let output = git_executor

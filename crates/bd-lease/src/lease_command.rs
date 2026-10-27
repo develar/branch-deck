@@ -10,16 +10,17 @@ use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
-use git_ops::revs::{RepositoryDirs, ref_exists, repository_dirs};
+use git_ops::revs::{RepositoryDirs, ref_exists, repository_dirs, short_id};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
+use lease_pool::check_record::{NAMED_PATHS, TreeCheck, check_tree};
 use lease_pool::free_space::available_bytes;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool,
   SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at,
 };
-use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
+use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age, read_pick_requires_check};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write;
@@ -28,6 +29,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_utils::list_cut::kept;
 use sync_utils::size::parse_size;
+use sync_utils::timestamp::format_utc_timestamp;
 
 /// How many local paths an error or a skipped slot names
 const PATH_LIMIT: usize = 100;
@@ -78,9 +80,23 @@ pub struct LeaseGetArgs {
 
 #[derive(Debug, Default, clap::Args)]
 pub struct LeasePickArgs {
-  /// Print what the pick would do; nothing is written but git objects
+  /// Print what the pick would do, and whether a green build or test recorded the tree (`check`); nothing is written
+  /// but git objects
   #[arg(long)]
   pub dry_run: bool,
+  /// Land a tree that no green build or test recorded, where `.branchdeck.toml` sets `pick_requires_check`: say why,
+  /// the output repeats it (`unchecked`)
+  #[arg(long, value_name = "REASON", value_parser = reason)]
+  pub unchecked: Option<String>,
+}
+
+/// The reason of `--unchecked`: words, not an empty or blank string
+fn reason(value: &str) -> Result<String, String> {
+  let value = value.trim();
+  if value.is_empty() {
+    return Err("say why the tree lands without a check".to_string());
+  }
+  Ok(value.to_string())
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -320,6 +336,48 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
       ),
     )),
   }
+}
+
+/// `pick_requires_check` of `.branchdeck.toml` in `checkout`, the home checkout of a lease: the file of the branch its
+/// commits land on, as the return reads its clean rules from the source. A file that does not parse is
+/// `invalid_arguments`
+pub fn pick_requires_check(checkout: &str) -> Result<bool, CliError> {
+  read_pick_requires_check(Path::new(checkout)).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))
+}
+
+/// Whether a green build or test recorded the tree of the lease's HEAD: one `rev-parse`, for a stale tree one `diff-tree`
+pub fn lease_tree_check(context: &LeaseContext) -> Result<TreeCheck, CliError> {
+  check_tree(&context.git, &context.dirs.top_level, Path::new(&context.dirs.git_dir)).map_err(CliError::from)
+}
+
+/// `unchecked_tree`: the pick of the lease at `lease_dir` lands nothing, as no green build or test recorded its tree
+pub fn unchecked_tree(lease_dir: &str, check: &TreeCheck) -> CliError {
+  let lease = shell_word(lease_dir);
+  let mut message = format!(
+    "bd lease pick: no green build or test ran on the tree of {lease_dir} (tree {}, HEAD {}).",
+    short_id(&check.tree),
+    short_id(&check.head)
+  );
+  if let Some(record) = &check.record {
+    let at = format_utc_timestamp(u32::try_from(record.at / 1000).unwrap_or(0));
+    let _ = write!(message, " The last check ran on tree {} at {at} (`{}`)", short_id(&record.tree), record.describe());
+    match check.changed_paths.as_deref() {
+      Some(paths) => {
+        let count = paths.len();
+        let named = paths.iter().take(NAMED_PATHS).map(String::as_str).collect::<Vec<_>>().join(", ");
+        let more = count.saturating_sub(NAMED_PATHS);
+        let more = if more == 0 { String::new() } else { format!(" and {more} more") };
+        let files = if count == 1 { "file" } else { "files" };
+        let _ = write!(message, ", and {count} {files} changed since, which no check saw as they are in HEAD: {named}{more}.");
+      }
+      None => message.push('.'),
+    }
+  }
+  let _ = write!(
+    message,
+    " Run the build and the tests on this tree, then `bd -C {lease} lease pick` again. To land without a check: `bd -C {lease} lease pick --unchecked '<reason>'`."
+  );
+  CliError::new(ErrorCode::UncheckedTree, message)
 }
 
 /// `bd update` in the worktree at `top_level`: refused in a lease of the pool (`lease_follows_home`), which follows the

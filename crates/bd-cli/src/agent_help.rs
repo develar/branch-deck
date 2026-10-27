@@ -290,7 +290,12 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
      get, nothing landed; ask the user, and pick again once the branch is back (`bd workspace` shows
      `home.switched_to`). `no_home_branch` (exit 4): the lease was cut from a detached HEAD, no branch is named; ask
      the user where the commits go. `no_lease` (exit 2): run it inside your lease. `resolve_in_progress` (exit 4): the
-     session of its conflict is still open; finish or close it first.
+     session of its conflict is still open; finish or close it first. `unchecked_tree` (exit 4): the repository sets
+     `pick_requires_check` in `.branchdeck.toml`, and no green build or test recorded the tree of your HEAD (the check
+     tool writes `bd-checks.jsonl`; a raw build writes nothing); run the build and the tests on this tree, then pick
+     again. `bd lease pick --dry-run` shows `check` (`ok`, `stale`, `missing`). `bd lease pick --unchecked '<reason>'`
+     lands without a check: only when the user agreed or the change cannot break a build (docs only), and the reason
+     says which.
    - `followed.state` `head_moved` or `blocked`: the branch moved, your worktree did not; the same command again moves
      only the worktree. A build daemon or a file watcher of the worktree may need a restart after it moved.
    - `bd undo <undo_token>` moves the branch and your worktree back.

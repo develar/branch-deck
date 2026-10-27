@@ -15,6 +15,7 @@ fn from(worktree: &TestWorktree, follow: bool) -> PickRequest<'_> {
     upstream: None,
     follow,
     expect_branch: None,
+    expect_source_head: None,
     prefix: None,
   }
 }
@@ -291,6 +292,7 @@ fn without_a_fork_point_a_local_shared_history_is_refused_and_a_range_names_the_
       upstream: Some(TRACKING_REF),
       follow: false,
       expect_branch: None,
+      expect_source_head: None,
       prefix: None,
     };
     let plan = check_pick(repo.git_executor(), repo.path_str(), &request).unwrap();
@@ -699,6 +701,7 @@ fn the_source_is_another_worktree_of_this_repository() {
     upstream: None,
     follow: false,
     expect_branch: None,
+    expect_source_head: None,
     prefix: None,
   };
   let error = check_pick(repo.git_executor(), repo.path_str(), &request(PickSource::Worktree(repo.path_str()))).unwrap_err();
@@ -729,6 +732,7 @@ fn listed<'a>(ids: &'a [String], prefix: Option<SubjectPrefix<'a>>) -> PickReque
     upstream: None,
     follow: false,
     expect_branch: None,
+    expect_source_head: None,
     prefix,
   }
 }
@@ -778,4 +782,20 @@ fn listed_commits_apart_replay_each_after_its_parent() {
   apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
   assert_eq!(subjects(&repo, "HEAD~2..HEAD"), ["first", "third"]);
   assert!(!repo.path().join("skipped.txt").exists());
+}
+
+/// A pick that expects the source at a commit (`bd lease pick` after its check of the tree) refuses a source whose HEAD
+/// moved since, before anything is written
+#[test]
+fn a_source_that_moved_from_the_expected_head_is_refused() {
+  let (repo, _base, worktree, first) = a_lane_cut_at_the_tip();
+  let second = worktree.commit("(lane) second", "a.txt", "a2\n");
+  let request = |expected| PickRequest {
+    expect_source_head: Some(expected),
+    ..from(&worktree, true)
+  };
+  let error = check_pick(repo.git_executor(), repo.path_str(), &request(&first)).unwrap_err();
+  assert!(matches!(error.downcast_ref::<PickRefusal>(), Some(PickRefusal::SourceMoved(_))), "{error:#}");
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &request(&second)).unwrap();
+  assert_eq!(plan.check.state, PickState::Clean);
 }

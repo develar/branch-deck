@@ -243,6 +243,7 @@ fn classify_pick(error: &anyhow::Error) -> Option<Classified> {
   }
   let code = match error.downcast_ref::<PickRefusal>()? {
     PickRefusal::RemoteMoved(_) => ErrorCode::LeaseRejected,
+    PickRefusal::SourceMoved(_) => ErrorCode::HeadMoved,
     PickRefusal::NothingToPick(_) => ErrorCode::NothingToPick,
     PickRefusal::BranchSwitched(_) => ErrorCode::HomeBranchSwitched,
     PickRefusal::RangeUnknown(_) => ErrorCode::RangeUnknown,

@@ -12,11 +12,15 @@
 //!   `bd lease host`, plain leases of the holders `bd-host/<n>`, and the lend table that lends each to one run at a
 //!   time, gives it back, cleans and shrinks it
 //! - `state_file`: a JSON state file of `branch-deck/` with a lock of its own, of the pool and of the lend table
-//! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot
+//! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot, and its
+//!   `pick_requires_check`
+//! - `check_record`: the green builds and tests a check tool recorded in the git dir of a worktree, by tree, which
+//!   `bd lease pick` reads
 //! - `clone_dir`: a directory tree by APFS clones, the new slot of a get on macOS, without what the clean rules delete
 //! - `free_space`: the free space of the volume of the pool, which a get checks
 
 pub mod agent_workspace;
+pub mod check_record;
 pub mod clone_dir;
 pub mod free_space;
 pub mod host_slots;
@@ -26,3 +30,5 @@ mod state_file;
 
 #[cfg(test)]
 mod agent_workspace_test;
+#[cfg(test)]
+mod check_record_test;

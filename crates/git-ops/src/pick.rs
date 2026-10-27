@@ -13,7 +13,7 @@ use crate::landed_pairing::pair_by_patch_id;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
-use crate::revs::{RepositoryDirs, is_ancestor, merge_base, repository_dirs, resolve_commit};
+use crate::revs::{RepositoryDirs, is_ancestor, merge_base, repository_dirs, resolve_commit, short_id};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
 use crate::update_branch::{
   BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, branch_fork_point, check_move_undo, check_update_guards,
@@ -58,6 +58,9 @@ pub struct PickRequest<'a> {
   /// The branch the target must have checked out (`bd lease pick`: the branch the lease was cut from); another one is
   /// refused as `PickRefusal::BranchSwitched`
   pub expect_branch: Option<&'a str>,
+  /// The commit the HEAD of the source worktree must be (`bd lease pick`: the commit whose tree was checked); another one
+  /// is refused as `PickRefusal::SourceMoved`, and `recheck_pick` holds it under the lock. Only with `PickSource::Worktree`
+  pub expect_source_head: Option<&'a str>,
   /// The prefix some copies take in their subject; their messages are rewritten after the replay, before the move
   pub prefix: Option<SubjectPrefix<'a>>,
 }
@@ -220,6 +223,9 @@ pub enum PickRefusal {
   /// `bd pick --remote`: the fetched remote branch is not at the head the caller saw; nothing was picked
   #[error("{0}")]
   RemoteMoved(String),
+  /// The HEAD of the source worktree is not `PickRequest::expect_source_head`: it moved after the caller read it
+  #[error("{0}")]
+  SourceMoved(String),
   /// `bd pick --remote`: the remote branch has no commit the branch lacks
   #[error("{0}")]
   NothingToPick(String),
@@ -265,6 +271,16 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
       git_dirs = Some((target_dirs.git_dir, source.git_dir.clone()));
       let head_ref = if request.follow { Some(HeadRef::read(git_executor, &source.top_level)?) } else { None };
       let source_head = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], &source.top_level)?;
+      if let Some(expected) = request.expect_source_head
+        && expected != source_head
+      {
+        return Err(anyhow::Error::new(PickRefusal::SourceMoved(format!(
+          "HEAD of {} is {}, not {}, the commit that was checked: it moved since; run the pick again",
+          source.top_level,
+          short_id(&source_head),
+          short_id(expected)
+        ))));
+      }
       let base = worktree_base(git_executor, target, &branch, &head, &source_head, upstream_head.as_deref(), dir)?;
       let follow = head_ref.map(|head_ref| {
         (
@@ -650,10 +666,7 @@ fn listed_commits(git_executor: &GitCommandExecutor, repo_path: &str, head: &str
     return Err(crate::rewrite_guard::merge_refusal(&merge.commit.id));
   }
   if ids.iter().any(|id| id == head) {
-    return Err(anyhow::Error::new(PickRefusal::InvalidSource(format!(
-      "{} is the target's HEAD already",
-      crate::revs::short_id(head)
-    ))));
+    return Err(anyhow::Error::new(PickRefusal::InvalidSource(format!("{} is the target's HEAD already", short_id(head)))));
   }
   Ok(range)
 }

@@ -193,6 +193,17 @@ pub fn resolve_commit(git_executor: &GitCommandExecutor, repo_path: &str, rev: &
   peel(git_executor, repo_path, rev, "commit")
 }
 
+/// HEAD and its tree, in one `rev-parse`: the commit and the tree a check record of the worktree names
+/// (`lease_pool::check_record`)
+pub fn head_and_tree(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(String, String)> {
+  let output = git_executor.execute_command(&["rev-parse", "HEAD", "HEAD^{tree}"], repo_path)?;
+  let mut lines = output.lines().map(str::trim);
+  match (lines.next(), lines.next()) {
+    (Some(head), Some(tree)) if is_object_id(head) && is_object_id(tree) => Ok((head.to_string(), tree.to_string())),
+    _ => Err(anyhow!("Cannot read HEAD and its tree: {output}")),
+  }
+}
+
 /// The full id of the tree `rev` names (a commit, a ref, `HEAD~1`, a tree), an error when it names none. No cache: a
 /// caller caches by its own rules (`TreeIdCache`)
 pub fn resolve_tree_id(git_executor: &GitCommandExecutor, repo_path: &str, rev: &str) -> Result<String> {

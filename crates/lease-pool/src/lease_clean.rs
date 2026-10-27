@@ -75,25 +75,52 @@ pub type ParsedRule = Result<CleanRule, (String, String)>;
 /// The rules of `.branchdeck.toml` in `checkout`; none without the file. A file that does not parse, an unknown key or
 /// an unknown kind is an error
 pub fn read_clean_rules(checkout: &Path) -> Result<Vec<ParsedRule>> {
-  let path = checkout.join(BRANCH_DECK_FILE);
-  match std::fs::read_to_string(&path) {
-    Ok(text) => parse_clean_rules(&text).map_err(|error| error.context(format!("Cannot read {}", path.display()))),
-    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+  read_parsed(&checkout.join(BRANCH_DECK_FILE), parse_clean_rules).map(Option::unwrap_or_default)
+}
+
+/// The text of the file at `path` as `parse` reads it, `None` without the file; an error names the file
+pub(crate) fn read_parsed<T>(path: &Path, parse: impl FnOnce(&str) -> Result<T>) -> Result<Option<T>> {
+  match std::fs::read_to_string(path) {
+    Ok(text) => parse(&text).map(Some).map_err(|error| error.context(format!("Cannot read {}", path.display()))),
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
     Err(error) => Err(anyhow!(error).context(format!("Cannot read {}", path.display()))),
+  }
+}
+
+/// The key of `[lease]` by which `bd lease pick` refuses a tree that no green build or test recorded (`check_record`)
+const PICK_REQUIRES_CHECK: &str = "pick_requires_check";
+
+/// The `[lease]` table of the text of a `.branchdeck.toml`, `None` without one. An unknown key is an error
+fn lease_table(text: &str) -> Result<Option<toml::Table>> {
+  let mut table: toml::Table = text.parse()?;
+  if let Some(key) = table.keys().find(|key| *key != "lease") {
+    bail!("unknown key {key:?}; the file has only a [lease] table");
+  }
+  let Some(lease) = table.remove("lease") else { return Ok(None) };
+  let toml::Value::Table(lease) = lease else { bail!("`lease` is not a table") };
+  if let Some(key) = lease.keys().find(|key| *key != "clean" && *key != PICK_REQUIRES_CHECK) {
+    bail!("unknown key lease.{key}; [lease] has only `clean` and `{PICK_REQUIRES_CHECK}`");
+  }
+  Ok(Some(lease))
+}
+
+/// `pick_requires_check` of `.branchdeck.toml` in `checkout`: false without the file or the key. A file that does not
+/// parse, an unknown key or a value that is no boolean is an error
+pub fn read_pick_requires_check(checkout: &Path) -> Result<bool> {
+  read_parsed(&checkout.join(BRANCH_DECK_FILE), parse_pick_requires_check).map(Option::unwrap_or_default)
+}
+
+/// `pick_requires_check` of the text of a `.branchdeck.toml`
+pub fn parse_pick_requires_check(text: &str) -> Result<bool> {
+  match lease_table(text)?.as_ref().and_then(|lease| lease.get(PICK_REQUIRES_CHECK)) {
+    None => Ok(false),
+    Some(value) => value.as_bool().ok_or_else(|| anyhow!("`lease.{PICK_REQUIRES_CHECK}` is not a boolean")),
   }
 }
 
 /// The rules of the text of a `.branchdeck.toml`
 pub fn parse_clean_rules(text: &str) -> Result<Vec<ParsedRule>> {
-  let table: toml::Table = text.parse()?;
-  if let Some(key) = table.keys().find(|key| *key != "lease") {
-    bail!("unknown key {key:?}; the file has only a [lease] table");
-  }
-  let Some(lease) = table.get("lease") else { return Ok(Vec::new()) };
-  let lease = lease.as_table().ok_or_else(|| anyhow!("`lease` is not a table"))?;
-  if let Some(key) = lease.keys().find(|key| *key != "clean") {
-    bail!("unknown key lease.{key}; [lease] has only `clean`");
-  }
+  let Some(lease) = lease_table(text)? else { return Ok(Vec::new()) };
   let Some(clean) = lease.get("clean") else { return Ok(Vec::new()) };
   let clean = clean.as_array().ok_or_else(|| anyhow!("`lease.clean` is not an array"))?;
   let rules: Vec<ParsedRule> = clean

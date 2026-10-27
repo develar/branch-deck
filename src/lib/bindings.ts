@@ -1721,6 +1721,12 @@ export type ErrorCode =
 /**  `bd lease pick`: the lease was cut from a detached HEAD, so no branch is named to land on */
 "no_home_branch" | 
 /**
+ *  `bd lease pick` in a repository whose `.branchdeck.toml` sets `pick_requires_check`: no green build or test
+ *  recorded the tree of the lease's HEAD (`bd-checks.jsonl` of its git dir); nothing landed. Build and test that
+ *  tree, then pick again
+ */
+"unchecked_tree" | 
+/**
  *  `bd update` in a lease of the pool: the lease follows the branch it was cut from, not the baseline; `bd lease
  *  pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
  */

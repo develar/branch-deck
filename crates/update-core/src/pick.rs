@@ -72,6 +72,8 @@ pub struct PickParams {
   pub dry_run: bool,
   /// The branch the target must have checked out (`bd lease pick`), else `PickRefusal::BranchSwitched`
   pub expect_branch: Option<String>,
+  /// The commit the HEAD of the source worktree must be (`bd lease pick`), else `PickRefusal::SourceMoved`
+  pub expect_source_head: Option<String>,
 }
 
 /// What groups a picked commit on the target, by its subject
@@ -191,6 +193,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     upstream: upstream.as_deref(),
     follow: params.follow,
     expect_branch: params.expect_branch.as_deref(),
+    expect_source_head: params.expect_source_head.as_deref(),
     prefix: match (&params.from, &remote) {
       (PickFrom::Remote(pick), Some(remote)) if !remote.prefixed.is_empty() => Some(SubjectPrefix {
         group: &pick.group,
@@ -307,6 +310,7 @@ pub fn pick_remote_commits_core(
     follow: false,
     dry_run: false,
     expect_branch: None,
+    expect_source_head: None,
   };
   let result = pick_core(git_executor, &pick, options, cache, file_diffs)?;
   match &result.check.state {

@@ -22,7 +22,8 @@ use bd_lease::host_command::{
   lease_host_status,
 };
 use bd_lease::lease_command::{
-  LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status, refuse_update_in_lease,
+  LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status, lease_tree_check,
+  pick_requires_check, refuse_update_in_lease, unchecked_tree,
 };
 use bd_lease::workspace_command::workspace;
 use bd_remote::push_command::{PushArgs, push};
@@ -41,13 +42,14 @@ use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UnstackArgs, group, rename, restack, unstack};
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
-use bd_update::pick_command::{HomePick, LeasePickOutput, PickArgs, PickOutcome, PickOutput, pick, pick_into};
+use bd_update::pick_command::{CheckRecordOutput, HomePick, LeasePickOutput, PickArgs, PickOutcome, PickOutput, TreeCheckOutput, TreeCheckState, pick, pick_into};
 use bd_update::unapply_command::{ReapplyArgs, UnapplyArgs, reapply, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
 use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, UpdateOutcome, update, update_lease_onto};
 use clap::error::ErrorKind;
 use clap::{ArgAction, ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use domain_types::error::ErrorCode;
+use lease_pool::check_record::{CheckState, NAMED_PATHS, TreeCheck};
 use serde::Serialize;
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -302,9 +304,25 @@ fn operation_name(matches: &ArgMatches) -> String {
 /// `bd lease pick`: `bd pick --from <this lease> --follow` in the checkout the lease was cut from, onto the branch it
 /// had checked out then. A conflict lands nothing and comes back to the lease: the lease is updated onto the tip of
 /// that branch, a resolve session opened in it; an update that applies (the words resolved the conflict) is picked
-/// again at once
+/// again at once. Where `.branchdeck.toml` of that checkout sets `pick_requires_check`, a tree of the lease's HEAD that
+/// no green build or test recorded lands nothing (`unchecked_tree`) unless `--unchecked` says why; the tree of an update
+/// that applies is new, so it is picked again only when a record names it too, else the conflict says to build first
 fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<LeasePickOutput, CliError> {
   let (checkout, branch) = lease_home(lease)?;
+  let gated = pick_requires_check(&checkout)? && args.unchecked.is_none();
+  let check = if args.dry_run || gated { Some(lease_tree_check(lease)?) } else { None };
+  if let Some(check) = &check
+    && gated
+    && !args.dry_run
+    && check.state != CheckState::Ok
+  {
+    return Err(unchecked_tree(&lease.dirs.top_level, check));
+  }
+  if let Some(reason) = &args.unchecked
+    && !args.dry_run
+  {
+    let _ = writeln!(std::io::stderr().lock(), "bd lease pick: the tree lands without a check: {reason}");
+  }
   let in_dir = |dir: &str| {
     RepoContext::resolve(
       environment,
@@ -316,22 +334,68 @@ fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOpt
       },
     )
   };
+  let answer = |pick, update, check: Option<&TreeCheck>| LeasePickOutput {
+    pick,
+    update,
+    check: check.map(tree_check_output),
+    unchecked: args.unchecked.clone(),
+  };
   let home = in_dir(&checkout)?;
-  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch.clone(), environment, args)?;
+  let checked_head = |check: Option<&TreeCheck>| check.filter(|_| gated).map(|check| check.head.clone());
+  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch.clone(), checked_head(check.as_ref()).as_deref(), environment, args)?;
   if pick.state != PickOutcome::Conflict || args.dry_run {
-    return Ok(LeasePickOutput { pick, update: None });
+    return Ok(answer(pick, None, check.as_ref()));
   }
   let update = update_lease_onto(&in_dir(&lease.dirs.top_level)?, &branch)?;
-  let pick = if matches!(update.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
-    lease_pick_in(&home, &lease.dirs.top_level, branch, environment, args)?
-  } else {
-    pick
-  };
-  Ok(LeasePickOutput { pick, update: Some(update) })
+  if !matches!(update.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
+    return Ok(answer(pick, Some(update), check.as_ref()));
+  }
+  let check = if gated { Some(lease_tree_check(lease)?) } else { None };
+  if let Some(check) = check.as_ref().filter(|check| check.state != CheckState::Ok) {
+    let mut pick = pick;
+    if let Some(conflict) = pick.conflict.as_mut() {
+      conflict.next = format!(
+        "Nothing landed. The update moved the lease onto the tip of {branch} (`update`), a tree that no build or test ran on: run the build and the \
+         tests in the lease, then `bd -C {lease} lease pick` again",
+        lease = bd_core::bd_command::shell_word(&lease.dirs.top_level),
+      );
+    }
+    return Ok(answer(pick, Some(update), Some(check)));
+  }
+  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch, checked_head(check.as_ref()).as_deref(), environment, args)?;
+  Ok(answer(pick, Some(update), check.as_ref()))
 }
 
-/// `bd lease pick` of the lease at `lease_dir` in `context`, the checkout it was cut from, onto `branch`
-fn lease_pick_in(context: &RepoContext, lease_dir: &str, branch: String, environment: &Environment, args: &LeasePickArgs) -> Result<PickOutput, CliError> {
+/// The check of a lease's tree as `bd lease pick` prints it
+fn tree_check_output(check: &TreeCheck) -> TreeCheckOutput {
+  TreeCheckOutput {
+    state: match check.state {
+      CheckState::Ok => TreeCheckState::Ok,
+      CheckState::Stale => TreeCheckState::Stale,
+      CheckState::Missing => TreeCheckState::Missing,
+    },
+    tree: check.tree.clone(),
+    head: check.head.clone(),
+    record: check.record.as_ref().map(|record| CheckRecordOutput {
+      tree: record.tree.clone(),
+      command: record.describe(),
+      at: record.at,
+      changed_files: check.changed_paths.as_ref().map(Vec::len),
+      changed_paths: check.changed_paths.iter().flatten().take(NAMED_PATHS).cloned().collect(),
+    }),
+  }
+}
+
+/// `bd lease pick` of the lease at `lease_dir` in `context`, the checkout it was cut from, onto `branch`; with
+/// `source_head` only while the lease's HEAD is that commit, the one whose tree was checked
+fn lease_pick_in(
+  context: &RepoContext,
+  lease_dir: &str,
+  branch: String,
+  source_head: Option<&str>,
+  environment: &Environment,
+  args: &LeasePickArgs,
+) -> Result<PickOutput, CliError> {
   let pick_args = PickArgs {
     from: Some(PathBuf::from(lease_dir)),
     follow: true,
@@ -341,6 +405,7 @@ fn lease_pick_in(context: &RepoContext, lease_dir: &str, branch: String, environ
   let home = HomePick {
     branch,
     again: format!("{} -C {} lease pick", context.bd, bd_core::bd_command::shell_word(lease_dir)),
+    source_head: source_head.map(str::to_string),
   };
   pick_into(context, &pick_args, environment, Some(&home))
 }

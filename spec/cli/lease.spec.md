@@ -16,6 +16,7 @@ targets:
   - ../../crates/bd-lease/src/host_command.rs
   - ../../crates/lease-pool/src/state_file.rs
   - ../../crates/lease-pool/src/lease_clean.rs
+  - ../../crates/lease-pool/src/check_record.rs
   - ../../crates/lease-pool/src/clone_dir.rs
   - ../../crates/lease-pool/src/free_space.rs
   - ../../crates/bd-core/src/error.rs
@@ -331,10 +332,45 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - Its git processes are those of the pick (`a_pick`); the lease itself comes from the state of the pool, without git,
   and one `show-ref` asks whether its resolve session is open.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_pick`)
+- A repository whose committed `.branchdeck.toml` sets `pick_requires_check = true` in `[lease]` (false by default)
+  must land only a tree that a green build or test ran on. A check tool (`bt` of the IntelliJ monorepo) appends one
+  JSON line per green run to `bd-checks.jsonl` in the git dir of the worktree (`git rev-parse --git-path`):
+  `{"schema":1,"tree","head","tool","command","patterns","exit":0,"at"}`, with `host` for a run on another machine.
+  The tree is `HEAD^{tree}` of a clean worktree, else the tree of the worktree with its local changes. bd only reads
+  the file: a line of another schema, with an `exit` other than 0 or that does not parse counts as no record. The
+  pick reads the setting from the home checkout, the file of the branch the commits land on, as the return reads its
+  clean rules; a file that does not parse is `invalid_arguments` (exit 2). When no record names `HEAD^{tree}` of the
+  lease, nothing lands: `unchecked_tree` (exit 4), whose message names the tree and HEAD, the last check (its tree,
+  time and command, how many files changed since and the first 10 of them, left out when git no longer has that
+  tree) and both ways on: build and test, then `bd -C <lease> lease pick` again, or `bd -C <lease> lease pick
+  --unchecked '<reason>'`. The pick expects the lease's HEAD to be the commit it checked (`expect_source_head`, held
+  under the lock by the recheck of the pick): a lease that moved between the check and the lock is `head_moved`
+  (exit 3), and the pick runs again. The gate stops a stale claim, a check that ran before the last edit; it does not
+  stop a merge break: a pick onto a tip that moved, without a conflict, lands a tree that no record saw. It does not
+  judge coverage either: any green build or test of the tree counts, whatever it built.
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_source_that_moved_from_the_expected_head_is_refused`)
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_tree_that_no_green_check_recorded`)
+  [@test] ../../crates/lease-pool/src/check_record_test.rs (`only_green_records_of_schema_one_count`, `pick_requires_check_is_a_boolean_of_the_lease_table`)
+- `--unchecked <reason>` must land the tree without a check: the reason is required (a blank one is
+  `invalid_arguments`), the output repeats it (`unchecked`) and stderr names it. Without the setting the pick reads no
+  record and prints no `check`.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`unchecked_lands_without_a_check_and_says_why`)
+- `--dry-run` must report the check of the tree in `check` (`state`: `ok`, a record names the tree; `stale`, records
+  exist and none names it; `missing`, no record; `record`: the newest record of the tree, else the newest one, with
+  `changed_files` and the first 10 of them in `changed_paths`), and never refuse for it, with or without the setting. With the setting, a pick reports `check` too.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_tree_that_no_green_check_recorded`)
+- With the setting, an update after a conflict that applies at once moves the lease onto a new tree: the pick again
+  runs only when a record names that tree too, else the answer stays `state: conflict` (exit 1) with the `update`, the
+  `check` of the new tree, and a `conflict.next` that says to build and test in the lease, then pick again.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`an_update_that_applies_after_a_conflict_waits_for_a_check_of_the_new_tree`)
+- The check costs one `rev-parse` (HEAD and its tree) and, for a stale tree, one `diff-tree`; without the setting and
+  without --dry-run the pick runs neither.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_tree_check_of_a_lease_pick`, `a_lease_pick`)
 
 ### Clean rules
 
-- The rules are the `clean` array of the `[lease]` table of `.branchdeck.toml` at the root of the checkout, committed
+- The rules are the `clean` array of the `[lease]` table of `.branchdeck.toml` at the root of the checkout (beside
+  `pick_requires_check` of [Pick](#pick)), committed
   with the build layout they clean (not git config, and not `.worktreeinclude`, which Treehouse and Claude Code read
   too). There are two kinds and no command, since a return must not run arbitrary code:
   `{ cargo = "<dir>", keep = 8, age = "1h" }` (the defaults) prunes the profile dirs under `<dir>` (a dir with
@@ -519,7 +555,7 @@ one run for the duration of that run only.
 |---|---|
 | 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
-| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`; `bd lease pick`: `home_branch_switched`, `no_home_branch` and the refusals of `bd pick` |
+| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`; `bd lease pick`: `home_branch_switched`, `no_home_branch`, `unchecked_tree` and the refusals of `bd pick` |
 
 - The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`,
   and `lease_host_lend` … `lease_host_status`).

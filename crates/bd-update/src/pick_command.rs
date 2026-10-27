@@ -111,6 +111,50 @@ pub struct LeasePickOutput {
   /// that applies (the words resolved the conflict) moved the lease onto the tip: build and test, then `next`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub update: Option<UpdateOutput>,
+  /// Whether a green build or test recorded the tree of the lease's HEAD (`bd-checks.jsonl` of its git dir): with
+  /// --dry-run, and with `pick_requires_check` of `.branchdeck.toml`, which refuses a pick without one
+  /// (`unchecked_tree`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub check: Option<TreeCheckOutput>,
+  /// `--unchecked <reason>`: the reason the pick did not ask for a check
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub unchecked: Option<String>,
+}
+
+/// The check of the tree of a lease's HEAD
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct TreeCheckOutput {
+  /// `ok`: a green build or test recorded this tree; `stale`: records exist, none of this tree; `missing`: no record
+  pub state: TreeCheckState,
+  pub tree: String,
+  pub head: String,
+  /// `ok`: the newest record of the tree; `stale`: the newest record
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub record: Option<CheckRecordOutput>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeCheckState {
+  Ok,
+  Stale,
+  Missing,
+}
+
+/// A green run that a check tool recorded
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CheckRecordOutput {
+  pub tree: String,
+  /// The run as a command line: `bt build //plugins/air/...`
+  pub command: String,
+  /// When the run ended, ms since the epoch
+  pub at: u64,
+  /// `stale`: how many files differ between this tree and the tree of HEAD; omitted when git knows this tree no longer
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub changed_files: Option<usize>,
+  /// `stale`: the first 10 of those files, which no check saw as they are in HEAD
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub changed_paths: Vec<String>,
 }
 
 impl LeasePickOutput {
@@ -263,6 +307,8 @@ pub struct HomePick {
   pub branch: String,
   /// `bd -C <lease> lease pick`: what a conflict's `next` runs again
   pub again: String,
+  /// The commit the lease's HEAD must be: the one whose tree the check of `pick_requires_check` read
+  pub source_head: Option<String>,
 }
 
 /// `bd pick`, or with `home` the pick of `bd lease pick` (`args.from` the lease, `args.follow` set)
@@ -284,6 +330,7 @@ pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environme
     follow: args.follow,
     dry_run: args.dry_run,
     expect_branch: home.map(|home| home.branch.clone()),
+    expect_source_head: home.and_then(|home| home.source_head.clone()),
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
@@ -323,6 +370,7 @@ fn pick_error(error: anyhow::Error) -> CliError {
     Some(PickRefusal::SourceOnNewerBaseline(_)) => ErrorCode::SourceOnNewerBaseline,
     Some(PickRefusal::BranchSwitched(_)) => ErrorCode::HomeBranchSwitched,
     Some(PickRefusal::RemoteMoved(_)) => ErrorCode::LeaseRejected,
+    Some(PickRefusal::SourceMoved(_)) => ErrorCode::HeadMoved,
     Some(PickRefusal::NothingToPick(_)) => ErrorCode::NothingToPick,
     None => return core_error(error),
   };

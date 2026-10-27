@@ -199,3 +199,139 @@ fn a_lease_pick_outside_a_lease_is_refused() {
   let (exit_code, output) = fixture.run(&["--prefix", PREFIX, "lease", "pick"]);
   assert_error(&output, exit_code, (2, "no_lease"));
 }
+
+/// A fixture whose home checkout commits `pick_requires_check = true` before the get, so the lease has it too
+fn gated_fixture() -> Fixture {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit("Require a check", ".branchdeck.toml", "[lease]\npick_requires_check = true\n");
+  fixture
+}
+
+/// The tree of the lease's HEAD
+fn tree_of(path: &str) -> String {
+  slot_git(path, &["rev-parse", "HEAD^{tree}"])
+}
+
+/// Appends a line to `bd-checks.jsonl` of the lease, as a check tool writes it
+fn record(path: &str, tree: &str, exit: i32) {
+  let file = slot_git(path, &["rev-parse", "--path-format=absolute", "--git-path", "bd-checks.jsonl"]);
+  let line = format!(
+    r#"{{"schema":1,"tree":"{tree}","head":"{}","tool":"bt","command":"build","patterns":["//plugins/air/..."],"exit":{exit},"at":1793108792000}}"#,
+    slot_git(path, &["rev-parse", "HEAD"])
+  );
+  let mut text = std::fs::read_to_string(&file).unwrap_or_default();
+  text.push_str(&line);
+  text.push('\n');
+  std::fs::write(file, text).unwrap();
+}
+
+/// The message of the `unchecked_tree` refusal of `bd lease pick` in the lease at `path`
+fn unchecked_message(fixture: &Fixture, path: &str) -> String {
+  let (exit_code, output) = lease_pick(fixture, path, &[]);
+  assert_error(&output, exit_code, (4, "unchecked_tree"));
+  output["error"]["message"].as_str().unwrap().to_string()
+}
+
+/// `bd lease pick` that must exit with `exit_code`, and the given field of its `check`
+fn checked_pick(fixture: &Fixture, path: &str, args: &[&str], exit_code: i32, field: &str) -> (Value, Value) {
+  let (exit, output) = lease_pick(fixture, path, args);
+  assert_eq!(exit, exit_code, "{output}");
+  let field = output["check"][field].clone();
+  (output, field)
+}
+
+/// With `pick_requires_check`, a tree that no green build or test recorded lands nothing (`unchecked_tree`): no record,
+/// a red one, or a green one of an older tree, which the refusal names with the files changed since; --dry-run reports
+/// the check and never refuses; a green record of the tree lands it
+#[test_log::test]
+fn a_lease_pick_refuses_a_tree_that_no_green_check_recorded() {
+  let fixture = gated_fixture();
+  let path = path_of(&fixture.get(&[]));
+  let before = tree_of(&path);
+  commit_in(&path, "(lane) Add a", "lane-a.txt");
+  let tree = tree_of(&path);
+  let home = fixture.repo.head();
+
+  let message = unchecked_message(&fixture, &path);
+  assert!(message.contains("no green build or test ran") && message.contains("--unchecked '<reason>'"), "{message}");
+  assert!(!message.contains("The last check"), "{message}");
+  let (dry, state) = checked_pick(&fixture, &path, &["--dry-run"], 0, "state");
+  assert_eq!((&dry["state"], state), (&json!("picked"), json!("missing")), "{dry}");
+
+  record(&path, &tree, 3);
+  record(&path, &before, 0);
+  let message = unchecked_message(&fixture, &path);
+  assert!(
+    message.contains("The last check ran on tree")
+      && message.contains("(`bt build //plugins/air/...`), and 1 file changed since, which no check saw as they are in HEAD: lane-a.txt."),
+    "{message}"
+  );
+  let (dry, last) = checked_pick(&fixture, &path, &["--dry-run"], 0, "record");
+  assert_eq!(
+    (&dry["check"]["state"], &last["changed_files"], &last["changed_paths"]),
+    (&json!("stale"), &json!(1), &json!(["lane-a.txt"])),
+    "{dry}"
+  );
+  assert_eq!(fixture.repo.head(), home, "nothing landed");
+
+  record(&path, &tree, 0);
+  let (dry, checked) = checked_pick(&fixture, &path, &["--dry-run"], 0, "tree");
+  assert_eq!((&dry["check"]["state"], checked), (&json!("ok"), json!(tree)), "{dry}");
+  let (output, state) = checked_pick(&fixture, &path, &[], 0, "state");
+  assert_eq!((&output["state"], state), (&json!("picked"), json!("ok")), "{output}");
+  let (_, schema) = fixture.run(&["schema", "--all"]);
+  assert_covered(&schema["outputs"]["lease_pick"], &schema["outputs"]["lease_pick"], &dry, "lease_pick");
+  fixture.give_back(&path);
+}
+
+/// `--unchecked` lands a tree without a check and the output repeats the reason; a blank reason is refused. Without
+/// `pick_requires_check` the pick reads no record and prints no `check`
+#[test_log::test]
+fn unchecked_lands_without_a_check_and_says_why() {
+  let fixture = gated_fixture();
+  let path = path_of(&fixture.get(&[]));
+  commit_in(&path, "(lane) Add a", "lane-a.txt");
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--unchecked", " "]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--unchecked", "docs only"]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["unchecked"], output.get("check")),
+    (0, &json!("picked"), &json!("docs only"), None),
+    "{output}"
+  );
+  fixture.give_back(&path);
+
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  commit_in(&path, "(lane) Add a", "lane-a.txt");
+  let (exit_code, output) = lease_pick(&fixture, &path, &[]);
+  assert_eq!((exit_code, &output["state"], output.get("check")), (0, &json!("picked"), None), "{output}");
+}
+
+/// A conflict whose update applies at once moves the lease onto a new tree: with `pick_requires_check` the pick does
+/// not land it before a build, the conflict says so, and once a green record names the new tree the pick lands it
+#[test_log::test]
+fn an_update_that_applies_after_a_conflict_waits_for_a_check_of_the_new_tree() {
+  let fixture = gated_fixture();
+  fixture.repo.create_commit("Add words", "w.txt", "alpha beta gamma delta\n");
+  let path = path_of(&fixture.get(&[]));
+  std::fs::write(Path::new(&path).join("w.txt"), "ALPHA beta gamma delta\n").unwrap();
+  slot_git(&path, &["commit", "-q", "-a", "-m", "(lane) Change alpha"]);
+  fixture.repo.create_commit("(peer) Change delta", "w.txt", "alpha beta gamma DELTA\n");
+  record(&path, &tree_of(&path), 0);
+
+  let (output, state) = checked_pick(&fixture, &path, &[], 1, "state");
+  assert_eq!(
+    (&output["state"], &output["update"]["state"], state),
+    (&json!("conflict"), &json!("rebase"), json!("stale")),
+    "{output}"
+  );
+  let next = output["conflict"]["next"].as_str().unwrap();
+  assert!(next.contains("no build or test ran on") && next.contains("lease pick` again"), "{next}");
+  assert_eq!(std::fs::read_to_string(Path::new(&path).join("w.txt")).unwrap(), "ALPHA beta gamma DELTA\n");
+
+  record(&path, &tree_of(&path), 0);
+  let (output, state) = checked_pick(&fixture, &path, &[], 0, "state");
+  assert_eq!((&output["state"], state), (&json!("picked"), json!("ok")), "{output}");
+  fixture.give_back(&path);
+}

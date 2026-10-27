@@ -764,7 +764,15 @@ fn a_lease_pick_that_conflicts() {
     .unwrap();
   repo.create_commit("(own) Rewrite readme", "README.md", "own\n");
   let context = context(&repo);
-  let output = crate::lease_pick_in(&context, &got.path, "master".to_string(), &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
+  let output = crate::lease_pick_in(
+    &context,
+    &got.path,
+    "master".to_string(),
+    None,
+    &environment,
+    &bd_lease::lease_command::LeasePickArgs::default(),
+  )
+  .unwrap();
   assert_eq!(output.state, bd_update::pick_command::PickOutcome::Conflict);
   assert_processes(
     &context,
@@ -816,6 +824,28 @@ fn a_lease_pick_that_conflicts() {
   );
 }
 
+/// The check of `bd lease pick` with `pick_requires_check` (beside the resolve of the lease, one `rev-parse`): one
+/// `rev-parse` of HEAD and its tree, and for a tree that only an older record names one `diff-tree` that counts the files
+/// changed since
+#[test]
+fn the_tree_check_of_a_lease_pick() {
+  let (_repo, _home, environment, got) = leased_repo();
+  let lane = std::path::Path::new(&got.path);
+  let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
+  // the empty tree, which git knows without an object
+  std::fs::write(
+    std::path::Path::new(&lease.dirs.git_dir).join(lease_pool::check_record::CHECKS_FILE),
+    "{\"schema\":1,\"tree\":\"4b825dc642cb6eb9a060e54bf8d69288fbee4904\",\"exit\":0}\n",
+  )
+  .unwrap();
+  let check = bd_lease::lease_command::lease_tree_check(&lease).unwrap();
+  assert_eq!(
+    (check.state, check.changed_paths),
+    (lease_pool::check_record::CheckState::Stale, Some(vec!["README.md".to_string()]))
+  );
+  assert_git_processes(&lease.git, &[("diff-tree", 1), ("rev-parse", 2)]);
+}
+
 /// `bd lease pick`: the lease from the state of the pool and whether its resolve session is open (`show-ref`); then the processes of `bd pick --from <lease>
 /// --follow` in the checkout it was cut from (`a_pick`)
 #[test]
@@ -838,7 +868,7 @@ fn a_lease_pick() {
   let context = context(&repo);
   // the checkout as the pool keeps it, the repository as git names its top level (forward slashes on Windows)
   assert_eq!(canonical(std::path::Path::new(&checkout)), canonical(std::path::Path::new(&context.repository)));
-  let output = crate::lease_pick_in(&context, &got.path, branch, &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
+  let output = crate::lease_pick_in(&context, &got.path, branch, None, &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
   assert_followed_pick(&context, &output);
 }
 

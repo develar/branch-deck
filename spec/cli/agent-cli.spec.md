@@ -1479,7 +1479,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
   `fixup!` subject on the shared branch, `bd rename`, `bd suggest` only for commits without a prefix); one owner
   rewrites the shared branch (`bd reword` among its rewrites) and every other session only adds commits with
-  `bd lease pick` from its lease (its refusals `home_branch_switched`, `no_home_branch`, `no_lease`) or
+  `bd lease pick` from its lease (its refusals `home_branch_switched`, `no_home_branch`, `no_lease`, `unchecked_tree`
+  and its `--unchecked`) or
   `bd pick --from <worktree> --follow`, never with `git cherry-pick` and never with `bd update` in a lease, its one rewrite a `bd reword` of its own landed
   commit with `-C <shared checkout>` and `--expect-head`, without `--sync`; after a rewrite a session's next write is
   `head_moved`, which `--allow-append` does not cure; the outcomes of a pick (`grouped_by: none`, `already_present`, `conflict.next`,

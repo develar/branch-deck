@@ -44,6 +44,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::PickConflict, 4, false),
   (ErrorCode::HomeBranchSwitched, 4, false),
   (ErrorCode::NoHomeBranch, 4, false),
+  (ErrorCode::UncheckedTree, 4, false),
   (ErrorCode::LeaseFollowsHome, 4, false),
   (ErrorCode::ResolveInProgress, 4, false),
   (ErrorCode::UncommittedOverlap, 4, false),
