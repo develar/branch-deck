@@ -2,7 +2,7 @@
 //! `sync_core::process_budget_test` counts the cores: a change that runs fewer processes lowers the numbers here.
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
-use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
+use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, canonical, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
 use crate::remote_fixture_test::{
   AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, push_from_elsewhere_to, repo_with_remote, robot as robot_json, stack_remote_moved_back,
 };
@@ -832,7 +832,8 @@ fn a_lease_pick() {
   let (checkout, branch) = bd_lease::lease_command::lease_home(&lease).unwrap();
   assert_git_processes(&lease.git, &[("rev-parse", 1), ("show-ref", 1)]);
   let context = context(&repo);
-  assert_eq!(checkout, context.repository);
+  // the checkout as the pool keeps it, the repository as git names its top level (forward slashes on Windows)
+  assert_eq!(canonical(std::path::Path::new(&checkout)), canonical(std::path::Path::new(&context.repository)));
   let output = crate::lease_pick_in(&context, &got.path, branch, &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
   assert_followed_pick(&context, &output);
 }

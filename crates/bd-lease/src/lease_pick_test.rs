@@ -157,7 +157,10 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   std::fs::write(edit_of(&output["update"], "b.txt"), "peer and lane\n").unwrap();
   let (exit_code, done) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--continue", "--round", "1"]);
   assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
-  assert_eq!(done["next"], json!([format!("bd -C {} lease pick", shell_word(&path))]), "{done}");
+  // the update names the lease by its top level, which has forward slashes on Windows
+  let repository = done["repository"].as_str().unwrap();
+  assert_eq!(display(Path::new(repository)), display(Path::new(&path)));
+  assert_eq!(done["next"], json!([format!("bd -C {} lease pick", shell_word(repository))]), "{done}");
   assert_eq!(slot_git(&path, &["rev-parse", "HEAD~1"]), home, "the lease is on the tip of master");
 
   let (exit_code, output) = lease_pick(&fixture, &path, &[]);
