@@ -2765,8 +2765,11 @@ held, not built or asking first, refuses it; the commit is frozen instead of the
 is witnessed); and the subject `WholeStack { root }` alone is the stack branch of the whole stack (the build of the last
 sync while its remote lacks it; what holds its push refuses it, `StackLanding::hold`). One atomic `Push` effect names
 what goes, root first (the stack branch by its key, `stack:<root>`); each branch it sends that drops remote commits asks
-first (`ForcePushDrops`) unless the intent forces it, and the page's surfaces that described each drop run with them
-accepted. Every ref leases on the remote head the session has, the subject on the one its row showed. The view tells
+first (`ForcePushDrops`) unless the intent forces it (Push Stack, whose description named each drop): the page runs
+nothing it asks, the push button of the branch that drops opens its description, whose Force Push runs the push again
+forced (`askStackPush` of `src/lib/push-run.ts`; a plan that asks of more than one branch is refused, D12). The status a
+push leaves counts the commits of the branch's author as the user's, as a sync does (`PushedRef::my_email`,
+`LeasedBranch::my_email`). Every ref leases on the remote head the session has, the subject on the one its row showed. The view tells
 the page what Push Up to Here offers (`BranchPush::up_to`, only where it differs from the common answer: every commit
 the remote lacks, after the branches of Push Stack, nothing stopping it), so the arrow, the menu item and the popover
 of a commit read Rust's answer. `operations/src/push_test.rs` (`a_push_of_a_stack_is_one_push_of_the_branches_it_covers`,
@@ -2811,7 +2814,12 @@ wait for the lock is for go on the channel of the caller (`OperationEvent::Progr
 Its effects each have a status in the outcome (`Done`, `Failed`, `Skipped` with the reason, `Unknown` for a comment the
 bot didn't answer within the minute). A start of the app reserves what its plan lands (`Resource::Lands`), the refs it
 pushes and the robot it cancels in the registry: the same start again joins it, one that lands a part of it waits for
-it and is decided again. `operations/src/land_execute_test.rs` pins the order of the effects, the lock free while the
+it and is decided again. An operation of any family that waited in the queue runs on the plan the operations it waited
+for left, while the user accepted every confirmation of it (`Accepted::decided_again`): a Safe Push, a restart, a
+creation of a pull request or a review request pressed while the push of its branch sends is one push, then its last
+effect; a plan that changed under a click without a wait is `plan_changed`, worded by what the user asked
+(`witness::plan_changed`: "What the push of auth was decided on changed before it began; nothing was done: push
+again"). `operations/src/land_execute_test.rs` pins the order of the effects, the lock free while the
 push sends, the first failure stopping the start, a rewrite while the push sends, and the refusals before the first
 effect; `remote_fixtures_test.rs` (`a_start_through_execute_asks_no_list_of_its_own`) that a start asks Patronus no list
 of its own (C2).
@@ -2826,7 +2834,10 @@ Code: `crates/operations/src/push.rs`, `crates/operations/src/pull_request.rs`, 
 `bd push` syncs and fixes the commits and leases of its push under the repository lock (`plan_push`), so the refs it
 pushes are the ones it just built, and releases the lock before the retargets and the network push
 (`PlannedPush::send`, "Push and land"), which sends those commits; the cancel and the restart of a robot and the texts
-of the pull requests come after the lock too. It reads
+of the pull requests come after the lock too. Its requests come before the lock, side by side (`read_remote`): the
+user's robots of the holds and the pull requests of the branches (one search, whenever the branches have a GitHub
+repository), so another writer never waits for Patronus or GitHub (`push_test.rs`,
+`the_robot_list_of_a_push_is_read_before_the_repository_lock`). It reads
 nothing the sync read again: the stack (`GroupedBranchInfo::stack`, `StackForest::order`), the tips the sync left,
 the remote tips of `origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push it reads
 only the push URL of `origin`, once per command (`RepoContext::origin_url`: the Space repository of the holds, the
@@ -2844,12 +2855,12 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    branch that didn't sync; a named root of a stack that forks adds its stack branch after the branches, from the
    `StackBranchUpdate` of the report (its tip, its remote status and so its lease: no process), as the app's Push
    with Children does: once it is on the remote or the pull request of the whole stack is open, only when the sync
-   built it and the remote lacks it, and only to `origin`, which its remote status compares with ("Stack branch"). A
-   stack branch the remote lacks costs one GitHub search under the lock (`list_pull_requests`), whose listing the
-   retargets after the push reuse: the search moves, none is added.
-   On Space it then reads the user's robots once, as the app's session reads them (one list through
-   `ServiceFactSources` into a one-shot session of the sync's table, the Patronus view derived over it; best effort:
-   off Space, without a token or an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it, or one of a
+   built it and the remote lacks it, and only to `origin`, which its remote status compares with ("Stack branch"). The
+   open pull request of a whole stack is of the search before the lock (`list_pull_requests`), whose listing the
+   retargets after the push read too.
+   On Space it decides the holds over the user's robots it read before the lock once, as the app's session reads them
+   (one list through `ServiceFactSources`, put into a one-shot session of the sync's table, the Patronus view derived
+   over it; best effort: off Space, without a token or an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it, or one of a
    branch built on it or of the stack branch of its stack whose commit has commits of it ("Robot span": no process for
    a robot at the tip the sync left), naming the branch the push moves or the commits the robot lands; an ancestor such
    a robot lands stays out of the push, and so does the stack branch of `--with-children` while the Safe Push of the

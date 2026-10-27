@@ -646,7 +646,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       confirmations: plan.planned.plan.confirmations.clone(),
     };
     let steps = Steps::none();
-    let execute = execute(&start, &services, &steps, op, &plan.land, &accepted);
+    let execute = execute(&start, &services, &steps, op, &plan.land, &accepted, false);
     runtime.block_on(execute).map_err(|error| start_error(context, args, &plan, error))?
   };
   tell(context, args, &synced, &plan, started, &mut output, &youtrack)?;

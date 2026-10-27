@@ -373,8 +373,9 @@ fn remote_commits(git_executor: &GitCommandExecutor, target: &str, baseline: Opt
       base,
       ancestors: AncestorCommits::ReadWhenNeeded,
     }),
+    my_email: remote.my_email.as_deref(),
   };
-  let behind = dropped_commits(git_executor, target, REMOTE, branch, remote.my_email.as_deref(), baseline)?;
+  let behind = dropped_commits(git_executor, target, REMOTE, branch, baseline)?;
   if let Some(expected) = &remote.expected_remote
     && behind.remote_tip.as_ref() != Some(expected)
   {

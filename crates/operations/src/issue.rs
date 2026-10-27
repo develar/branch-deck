@@ -5,12 +5,11 @@
 //! (`Resource::Issue`), so a second click joins it and its undo waits for it. Its outcome tells the event of the issue
 //! (`NewsKey::Issue`): the toast of the change and of its undo is one.
 
-use crate::engine::{outcome_of, run};
+use crate::engine::{check_admitted, outcome_of, run};
 use crate::events::EventSink;
 use crate::land_execute::Accepted;
 use crate::pull_request::write_plan;
 use crate::registry::{Answer, OperationRequest, Registry};
-use crate::witness::check;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, NewsKey, OperationResult, OperationStep, Plan, Resource};
@@ -54,7 +53,7 @@ pub async fn execute_issue(registry: &Registry, key: &SessionKey, intent: Intent
   };
   run(registry, key, request, events, async |guard| {
     let began = std::time::Instant::now();
-    check(&accepted.fingerprint, &plan.fingerprint)?;
+    check_admitted(guard, &accepted, &plan)?;
     let youtrack = services.youtrack(key)?;
     let (status, result) = match youtrack.set_state(issue, state, expected.as_deref()).await {
       Ok(change) => (EffectStatus::Done, OperationResult::Issue(Box::new(change))),

@@ -9,13 +9,12 @@
 //! comment, a merged one can't be closed), goes into the session at once (`PullRequestWrite::Closed`), and one GitHub
 //! refuses stops none of the others. `bd` closes none: `bd robot` lists them (`closes`).
 
-use crate::engine::{outcome_of, run};
+use crate::engine::{check_admitted, outcome_of, run};
 use crate::events::EventSink;
 use crate::land_execute::Accepted;
 use crate::pull_request::{find, github_of, write_plan};
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
-use crate::witness::check;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{LandedPullRequest, PlannedEffect, Subject};
@@ -158,7 +157,7 @@ pub async fn execute_close(registry: &Registry, key: &SessionKey, intent: Intent
     if let Some(Reason::PullRequestMerged { number }) = plan.blockers.first() {
       return Err(ApiError::new(ErrorCode::Landed, format!("Nothing was closed: pull request #{number} is merged")));
     }
-    check(&accepted.fingerprint, &plan.fingerprint)?;
+    check_admitted(guard, &accepted, &plan)?;
     let mut version = None;
     let mut records = Vec::with_capacity(plan.effects.len());
     for effect in plan.effects {

@@ -29,7 +29,7 @@ fn a_fingerprint_changes_with_any_fact_the_plan_read_and_the_check_refuses_it() 
   let witness = Witness::of(refs.clone(), &pull_requests, &robots);
   let planned = witness.fingerprint(&push("auth"));
   assert_eq!(Witness::of(refs.clone(), &pull_requests, &robots).fingerprint(&push("auth")), planned);
-  assert_eq!(check(&planned, &planned), Ok(()));
+  assert_eq!(check(&planned, &planned, &push("auth")), Ok(()));
 
   let moved = Witness::of(
     BTreeMap::from([("refs/heads/user/virtual/auth".to_string(), Some("a2".to_string()))]),
@@ -47,8 +47,10 @@ fn a_fingerprint_changes_with_any_fact_the_plan_read_and_the_check_refuses_it() 
     Witness::of(refs.clone(), &draft, &robots),
     Witness::of(refs, &pull_requests, &finished),
   ] {
-    let error = check(&planned, &changed.fingerprint(&push("auth"))).unwrap_err();
+    let error = check(&planned, &changed.fingerprint(&push("auth")), &push("auth")).unwrap_err();
     assert_eq!(error.code, ErrorCode::PlanChanged);
+    // after "Cannot push auth": what the user asked, and to ask it again
+    assert_eq!(error.message, "What the push of auth was decided on changed before it began; nothing was done: push again");
   }
   // another intent on the same facts is another plan
   assert_ne!(witness.fingerprint(&push("login")), planned);

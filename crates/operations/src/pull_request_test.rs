@@ -299,6 +299,7 @@ fn alpha_planned(fixture: &Fixture, intent: Intent, effects: Vec<PlannedEffect>)
         unapplied: false,
         up_to: None,
         lease: PushLease::Frozen,
+        my_email: None,
       })
       .into_iter()
       .collect(),

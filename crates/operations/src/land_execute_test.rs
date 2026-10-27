@@ -122,7 +122,6 @@ pub(crate) async fn fixture() -> Fixture {
     push: PushSettings {
       remote: "origin".to_string(),
       baseline: "origin/master".to_string(),
-      my_email: None,
       size_limit: None,
     },
     lock,
@@ -153,6 +152,7 @@ impl Fixture {
       unapplied: false,
       up_to: None,
       lease: PushLease::Frozen,
+      my_email: None,
     });
     Planned {
       plan: Plan {
@@ -193,7 +193,7 @@ impl Fixture {
       fingerprint: Fingerprint("planned".to_string()),
       confirmations: host.planned.plan.confirmations.clone(),
     };
-    execute(host, &self.services, steps, OperationId("op".to_string()), &alpha(), &accepted).await
+    execute(host, &self.services, steps, OperationId("op".to_string()), &alpha(), &accepted, false).await
   }
 
   /// The commit of `alpha` on the bare origin; `None` while it has none
@@ -367,7 +367,7 @@ async fn a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothi
     fingerprint: Fingerprint("older".into()),
     confirmations: Vec::new(),
   };
-  let other = execute(&host, &fixture.services, &Steps::none(), OperationId("op".into()), &alpha(), &older).await;
+  let other = execute(&host, &fixture.services, &Steps::none(), OperationId("op".into()), &alpha(), &older, false).await;
   assert_eq!(other.unwrap_err().code, ErrorCode::PlanChanged);
 
   let moved = Fixture::host(fixture.planned(replace_and_start()));
@@ -394,10 +394,45 @@ async fn a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothi
     fingerprint: Fingerprint("planned".into()),
     confirmations: Vec::new(),
   };
-  let unaccepted = execute(&host, &fixture.services, &Steps::none(), OperationId("op".into()), &alpha(), &none).await;
+  let unaccepted = execute(&host, &fixture.services, &Steps::none(), OperationId("op".into()), &alpha(), &none, false).await;
   assert_eq!(unaccepted.unwrap_err().code, ErrorCode::PlanChanged);
 
   assert_eq!((fixture.canceled().len(), fixture.starts(), fixture.remote_alpha()), (0, 0, None));
+}
+
+/// A start that waited in the queue of the session (behind the push of its branch pressed just before it) runs on the
+/// plan the wait left, not on the one its click accepted: the push went, so the start pushes nothing more and starts
+/// the robot. What the plan after the wait asks that the user did not accept refuses it, in the words of the start
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_that_waited_runs_on_the_plan_the_wait_left_while_the_user_accepted_what_it_asks() {
+  let fixture = fixture().await;
+  let start = vec![PlannedEffect::StartRobot {
+    route: StartRoute::Api { profile: None },
+  }];
+  // the click accepted the plan with the push, before the push it waited for went
+  let before_the_push = Accepted {
+    fingerprint: Fingerprint("with the push".into()),
+    confirmations: Vec::new(),
+  };
+  let host = Fixture::host(fixture.planned(start.clone()));
+  let started = execute(&host, &fixture.services, &Steps::none(), OperationId("op".into()), &alpha(), &before_the_push, true)
+    .await
+    .unwrap();
+  assert_eq!(statuses(&started), [&EffectStatus::Done]);
+  assert_eq!((fixture.starts(), fixture.remote_alpha()), (1, None), "one start, no push of its own");
+
+  let mut asks = fixture.planned(start);
+  asks.plan.confirmations.push(Confirmation::CancelsRobot { robot_id: "r1".to_string() });
+  let host = Fixture::host(asks);
+  let error = execute(&host, &fixture.services, &Steps::none(), OperationId("op".into()), &alpha(), &before_the_push, true)
+    .await
+    .unwrap_err();
+  assert_eq!(error.code, ErrorCode::PlanChanged);
+  assert_eq!(
+    error.message,
+    "What the Safe Push of alpha was decided on changed before it began (it asks to accept more than was accepted); nothing was done: start it again"
+  );
+  assert_eq!(fixture.starts(), 1);
 }
 
 /// A Safe Push of what the start lands that another process started while the push sent (one the facts had not listed

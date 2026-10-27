@@ -279,6 +279,28 @@ async fn a_push_queued_behind_a_push_of_its_ref_is_decided_again_on_what_that_on
   assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/alpha");
 }
 
+/// A push whose facts changed between its plan and its click (another plan than the one the click accepted, no wait
+/// between them) pushes nothing, and says so in the words of the push: what the user asked, and to push again
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_on_a_plan_that_changed_under_the_click_is_refused_in_the_words_of_the_push() {
+  let fixture = fixture(true).await;
+  let accepted = Accepted {
+    fingerprint: domain_types::operation::Fingerprint("another plan".to_string()),
+    confirmations: Vec::new(),
+  };
+  let refused = execute_push(&fixture.registry, &fixture.key, alone("beta", None), accepted, &OFFLINE, Arc::new(NoEvents))
+    .await
+    .unwrap_err();
+  assert_eq!(
+    (refused.code, refused.message.as_str()),
+    (
+      ErrorCode::PlanChanged,
+      "What the push of beta was decided on changed before it began; nothing was done: push again"
+    )
+  );
+  assert_eq!(fixture.remote_branches(), "", "nothing was pushed");
+}
+
 /// A push leases on the remote head the row showed, also when the remote-tracking ref says another one (a push from a
 /// terminal, a fetch the session has not synced yet): no witness refuses it before the push, the remote refuses the
 /// lease, the push fetches what it has and goes again over it, once, as nothing of it is lost
@@ -417,7 +439,8 @@ async fn a_push_of_a_stack_leaves_an_ancestor_that_asks_first_unless_forced() {
 }
 
 /// Push Up to Here pushes the branches the commit is built on that have work, whole, then its branch up to the commit:
-/// the commits after it stay unpushed. A commit no Push Up to Here is offered of (the remote has it, a sync rebuilt the
+/// the commits after it stay unpushed, and the status the push left counts them as the user's, as a sync does (the
+/// author of the branch's commits). A commit no Push Up to Here is offered of (the remote has it, a sync rebuilt the
 /// branch) has no plan, and a run of it pushes nothing
 #[tokio::test(flavor = "multi_thread")]
 async fn push_up_to_here_pushes_the_branch_up_to_the_commit_after_what_it_is_built_on() {
@@ -427,8 +450,9 @@ async fn push_up_to_here_pushes_the_branch_up_to_the_commit_after_what_it_is_bui
   // the common answer, which the view sends as none: every commit the remote lacks offers it, after alpha
   let view = fixture.registry.sessions().get_snapshot(&fixture.key).await.unwrap();
   assert_eq!(view.pushes.get("beta").and_then(|push| push.up_to.clone()), None);
-  let unpushed = view.branches["beta"].remote.status.as_ref().unwrap().unpushed_commits.clone();
-  assert_eq!(unpushed.len(), 2);
+  let status = view.branches["beta"].remote.status.as_ref().unwrap();
+  let unpushed = status.unpushed_commits.clone();
+  assert_eq!((unpushed.len(), status.my_unpushed_count), (2, 2), "the user authored both");
   let first = unpushed[0].clone();
   let push = scoped("beta", PushScope::UpTo { commit: first.clone() });
   assert_eq!(pushed_by(&fixture.plan(&push).await), Some((names(&["alpha", "beta"]), false)));
@@ -437,8 +461,9 @@ async fn push_up_to_here_pushes_the_branch_up_to_the_commit_after_what_it_is_bui
   assert_eq!(fixture.remote_tip("beta"), first, "the branch up to the commit");
   assert_eq!(fixture.remote_tip("alpha"), fixture.repo.rev_parse("test/virtual/alpha").unwrap());
   let view = fixture.registry.sessions().get_snapshot(&fixture.key).await.unwrap();
-  let left = &view.branches["beta"].remote.status.as_ref().unwrap().unpushed_commits;
-  assert_eq!(left, &unpushed[1..], "the commit after it stays unpushed");
+  let left = view.branches["beta"].remote.status.as_ref().unwrap();
+  assert_eq!(left.unpushed_commits, &unpushed[1..], "the commit after it stays unpushed");
+  assert_eq!(left.my_unpushed_count, 1, "a commit of the user to push, not of someone else");
 
   assert!(prepare_push(fixture.registry.sessions(), &fixture.key, &push).await.is_none(), "the remote has it now");
   let accepted = Accepted {
@@ -482,7 +507,11 @@ async fn the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_o
   fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
   let children = scoped("alpha", PushScope::WithChildren);
   let plan = fixture.plan(&children).await;
-  assert_eq!(pushed_by(&plan), Some((names(&["alpha", "gamma", "beta", "stack:alpha"]), false)));
+  let (mut sent, force) = pushed_by(&plan).unwrap();
+  // the root first and the stack branch last; the siblings in the order of the table, which the times of their commits
+  // decide (the same second in a quick run)
+  sent[1..3].sort();
+  assert_eq!((sent, force), (names(&["alpha", "beta", "gamma", "stack:alpha"]), false));
   let outcome = fixture.execute(&children, Vec::new()).await.unwrap();
   assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
   assert_eq!(fixture.plan(&whole).await.effects, Vec::new(), "the stack branch went along");

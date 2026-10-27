@@ -1168,17 +1168,10 @@ fn the_statuses_of_an_operation_read_the_push_times_of_existing_remote_branches_
       local_ref,
       branch_name: name,
       parent: None,
+      my_email: Some(&scenario.user_email),
     })
     .collect();
-  let statuses = compute_remote_statuses(
-    &git_executor,
-    scenario.local_repo.path_str(),
-    "origin",
-    &branches,
-    Some(&scenario.user_email),
-    "origin/main",
-  )
-  .unwrap();
+  let statuses = compute_remote_statuses(&git_executor, scenario.local_repo.path_str(), "origin", &branches, "origin/main").unwrap();
 
   let times: Vec<u32> = statuses.iter().map(|status| status.last_push_time).collect();
   assert_eq!(times, [1_700_000_000, 0, 1_700_000_100]);

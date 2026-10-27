@@ -392,17 +392,26 @@ pub fn compute_remote_status_for_branch(
   baseline_branch: &str,
   parent: Option<StackParent<'_>>,
 ) -> Result<RemoteStatusUpdate> {
-  let branch = StatusBranch { local_ref, branch_name, parent };
-  let mut statuses = compute_remote_statuses(git_executor, repository_path, remote, &[branch], my_email, baseline_branch)?;
+  let branch = StatusBranch {
+    local_ref,
+    branch_name,
+    parent,
+    my_email,
+  };
+  let mut statuses = compute_remote_statuses(git_executor, repository_path, remote, &[branch], baseline_branch)?;
   Ok(statuses.remove(0))
 }
 
-/// A branch of `compute_remote_statuses`: its ref (`{prefix}/virtual/{name}`), its name, and the branch it is built on
+/// A branch of `compute_remote_statuses`: its ref (`{prefix}/virtual/{name}`), its name, the branch it is built on, and
+/// its author
 #[derive(Clone, Copy)]
 pub struct StatusBranch<'a> {
   pub local_ref: &'a str,
   pub branch_name: &'a str,
   pub parent: Option<StackParent<'a>>,
+  /// The author whose commits are the user's (`GroupedBranchInfo::my_email`, the branch's): the status counts them as
+  /// the user's (`my_unpushed_count`); `None` counts none
+  pub my_email: Option<&'a str>,
 }
 
 /// `compute_remote_status_for_branch` of the branches of one operation (a push of a stack, its rejection), in their
@@ -414,7 +423,6 @@ pub fn compute_remote_statuses(
   repository_path: &str,
   remote: &str,
   branches: &[StatusBranch<'_>],
-  my_email: Option<&str>,
   baseline_branch: &str,
 ) -> Result<Vec<RemoteStatusUpdate>> {
   // one process for the tips of all: whether each remote branch exists, its commit and the branch's. The walks below
@@ -440,7 +448,7 @@ pub fn compute_remote_statuses(
         baseline: baseline_branch,
         remote_tip: tip_of(remote_ref),
       };
-      let status = compute(git_executor, repository_path, &commits, my_email, branch.parent)?;
+      let status = compute(git_executor, repository_path, &commits, branch.my_email, branch.parent)?;
       let last_push_time = match (&status.remote_tip, &push_times) {
         (None, _) => 0,
         (Some(_), Some(push_times)) => push_times.of(git_executor, repository_path, remote_ref),
@@ -726,14 +734,7 @@ pub struct RemoteDropped {
 /// The commits the remote branch of `branch` has that the branch lacks and a push would drop, by the walks of its
 /// status (amended, restacked, reworded and landed ones are not among them), all of them: what `bd pick --remote`
 /// takes in. One `for-each-ref` of the tips, then the walks of `compute`
-pub fn dropped_commits(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  remote: &str,
-  branch: StatusBranch<'_>,
-  my_email: Option<&str>,
-  baseline_branch: &str,
-) -> Result<RemoteDropped> {
+pub fn dropped_commits(git_executor: &GitCommandExecutor, repository_path: &str, remote: &str, branch: StatusBranch<'_>, baseline_branch: &str) -> Result<RemoteDropped> {
   let remote_ref = format!("refs/remotes/{remote}/{}", branch.local_ref);
   let branch_ref = format!("refs/heads/{}", branch.local_ref);
   let tips = ref_tips(git_executor, repository_path, &[remote_ref.as_str(), branch_ref.as_str()])?;
@@ -742,7 +743,7 @@ pub fn dropped_commits(
     baseline: baseline_branch,
     remote_tip: tips.get(&remote_ref).map(String::as_str),
   };
-  let status = compute_listing(git_executor, repository_path, &commits, my_email, branch.parent, usize::MAX)?;
+  let status = compute_listing(git_executor, repository_path, &commits, branch.my_email, branch.parent, usize::MAX)?;
   Ok(RemoteDropped {
     remote_tip: status.remote_tip,
     commits: status.dropped_commits.into_iter().rev().map(CachedDroppedCommit::into_dropped).collect(),

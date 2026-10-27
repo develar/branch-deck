@@ -46,7 +46,6 @@ pub fn not_synced_refusal(name: &str, reason: BlockReason) -> String {
 pub struct PreparedPush {
   repository_path: String,
   baseline: String,
-  my_email: Option<String>,
   /// `branchdeck.pushSizeLimit` as the push was prepared; `None` for no check
   size_limit: Option<u64>,
   remote: String,
@@ -63,7 +62,6 @@ impl PreparedPush {
     Self {
       repository_path: target.repository_path.to_string(),
       baseline: target.baseline.to_string(),
-      my_email: target.my_email.map(str::to_string),
       size_limit: target.size_limit,
       remote: target.remote.to_string(),
       options,
@@ -82,7 +80,6 @@ impl PreparedPush {
       repository_path: &self.repository_path,
       remote: &self.remote,
       baseline: &self.baseline,
-      my_email: self.my_email.as_deref(),
       size_limit: self.size_limit,
     }
   }
@@ -143,6 +140,9 @@ pub struct LeasedBranch {
   pub push: PushRef,
   /// `{prefix}/virtual/<parent>` of a stacked branch: the commits up to it are the parent's, not the branch's
   pub parent_ref: Option<String>,
+  /// The branch's author (`GroupedBranchInfo::my_email`): its remote status after the push counts that author's
+  /// commits as the user's, as a sync does; `None` counts none
+  pub my_email: Option<String>,
 }
 
 /// Where a leased push goes, and what the remote statuses after it compare with
@@ -152,8 +152,6 @@ pub struct PushTarget<'a> {
   pub remote: &'a str,
   /// The baseline of the remote statuses ("origin/master")
   pub baseline: &'a str,
-  /// The user's email: the statuses count the user's own commits; `None` counts none
-  pub my_email: Option<&'a str>,
   /// The bytes the push may add (`branchdeck.pushSizeLimit`, `ConfigSnapshot::push_size_limit`); `None` for no check
   pub size_limit: Option<u64>,
 }
@@ -249,7 +247,8 @@ fn leased_statuses(git_executor: &GitCommandExecutor, target: &PushTarget<'_>, b
         base,
         ancestors: AncestorCommits::ReadWhenNeeded,
       }),
+      my_email: branch.my_email.as_deref(),
     })
     .collect();
-  compute_remote_statuses(git_executor, target.repository_path, target.remote, &statuses, target.my_email, target.baseline)
+  compute_remote_statuses(git_executor, target.repository_path, target.remote, &statuses, target.baseline)
 }

@@ -6,8 +6,10 @@
 //! whose base is a virtual branch is retargeted to the baseline (`pull_request_retarget`, D3a).
 //!
 //! The repository lock is held for the sync and the plan of the push (`plan_push`: which refs, their commits and leases
-//! fixed on the tips the sync left); the retargets, the cancel and the restart of `--restart-running` and the network push
-//! run after it (`PlannedPush::send`, `operations::push`, the core the app's push runs too).
+//! fixed on the tips the sync left), never across HTTP: the robots the holds are decided on and the pull requests of the
+//! branches are asked before it, side by side (`read_remote`); the retargets, the cancel and the restart of
+//! `--restart-running` and the network push run after it (`PlannedPush::send`, `operations::push`, the core the app's
+//! push runs too).
 //!
 //! The lease is the one the app's push button uses too (`sync_core::push_lease`): the remote head the sync in the same
 //! process compared with (`remote.head`), or the one `--expect-remote` names. The push replaces exactly that remote
@@ -17,7 +19,7 @@
 //! compares with, the remote status of the pushed branches is computed the same way against that remote.
 
 use crate::landed::{LandedBranch, LandedBySummary};
-use crate::pull_request_retarget::{RetargetedPullRequest, Retargets, retarget_listed, retarget_pull_requests_of};
+use crate::pull_request_retarget::{RetargetedPullRequest, Retargets, retarget_listed};
 use crate::push_hold::{PushHolds, push_holds, robot_command};
 use crate::safe_push_command::youtrack_service;
 use crate::session_facts::{SessionFacts, listed_robots};
@@ -25,7 +27,7 @@ use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep};
 use bd_core::output::{SchemaVersion, ShortIds};
-use bd_core::services::{BdServices, github_service, patronus_service};
+use bd_core::services::{BdServices, github_service, patronus_service, session_key};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_policy::facts::Repository;
 use domain_policy::parked::parked_state;
@@ -33,7 +35,7 @@ use domain_policy::push::{drops_remote_commits, stack_branch_along};
 use domain_policy::stack::descendants;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::ErrorCode;
-use domain_types::patronus::PatronusRobot;
+use domain_types::patronus::{PatronusRobot, PatronusRobotsResult};
 use domain_types::pull_request::{PullRequestState, PullRequestsResult};
 use domain_types::reason::Reason;
 use domain_types::session::StackBranchAlong;
@@ -42,9 +44,9 @@ use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
 use github::service::GitHubService;
 use history_rewrite::baseline::detect_baseline_branch;
-use operations::needs::FactNeed;
 use operations::push::{OverMoved, cancel_robots, restart_robots, send};
 use patronus::service::PatronusService;
+use remote_facts::fact_sources::FactSources;
 use remote_facts::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
 use remote_facts::pull_requests::list_pull_requests;
 use remote_facts::stack_pull_request::{StackMemberText, stack_pull_request_text};
@@ -58,7 +60,6 @@ use std::sync::Arc;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use sync_core::issue_navigation::load_issue_navigation_config;
-use sync_core::patronus::target_branch_of;
 use sync_core::push::{LeasedBranch, LeasedPush, PreparedPush, PushTarget, not_built_reason};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
@@ -243,34 +244,29 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     return push_unapplied(context, args);
   }
 
+  // what the push decides on of Patronus and GitHub is asked first: the lock holds the sync, the plan and the freeze,
+  // never a request
+  let github = Arc::new(github_service(context, environment));
+  let remote = read_remote(context, environment, &github)?;
   let repository_lock = lock(context)?;
   let synced = sync_locked(context)?;
-  let github = Arc::new(github_service(context, environment));
-  let holds = read_holds(context, environment, &synced, &github)?;
-  // the stack branch of a whole stack goes along once it is on the remote or its pull request is open: GitHub is asked
-  // (one search, under the lock) only for one the remote lacks, and the listing serves the retargets below too
-  let listed = match github_repository(context, &synced.report)? {
-    Some(repository) if args.with_children && stack_branches_off_the_remote(&synced.report, &args.branches) => {
-      Some(context.runtime()?.block_on(list_pull_requests(&github, &context.repository, &repository, &context.prefix)))
-    }
-    _ => None,
+  let holds = holds_of(context, &synced, remote.robots);
+  // the stack branch of a whole stack goes along once it is on the remote or its pull request is open
+  let open_stack_pull_requests = match &remote.pull_requests {
+    Some(listed) if args.with_children && stack_branches_off_the_remote(&synced.report, &args.branches) => open_stack_pull_requests(listed),
+    _ => HashSet::new(),
   };
-  let open_stack_pull_requests = listed.as_ref().map_or_default(open_stack_pull_requests);
   let planned = plan_push(context, args, &synced, &holds, &open_stack_pull_requests)?;
   // the commits and the leases are fixed: GitHub, Patronus and the network push hold no lock
   drop(repository_lock);
 
   // the pull requests of the branches it pushes go into the baseline first (D3a), so GitHub never compares the pushed
   // commits with a parent's branch; one GitHub refuses is a warning, and a refused push leaves the retargets done
-  let retargets = match github_repository(context, &synced.report)? {
-    Some(repository) if !planned.candidates.is_empty() => {
+  let retargets = match (github_repository(context, &synced.report)?, &remote.pull_requests) {
+    (Some(repository), Some(listed)) if !planned.candidates.is_empty() => {
       let names: Vec<&str> = planned.candidates.iter().map(|candidate| candidate.synced.name.as_str()).collect();
       let base = base_on_remote(&synced.baseline, &planned.remote);
-      let runtime = context.runtime()?;
-      match &listed {
-        Some(listed) => retarget_listed(context, &github, runtime, &repository, listed, (&names, base), args.dry_run),
-        None => retarget_pull_requests_of(context, &github, runtime, &repository, (&names, base), args.dry_run),
-      }
+      retarget_listed(context, &github, context.runtime()?, &repository, listed, (&names, base), args.dry_run)
     }
     _ => Retargets::default(),
   };
@@ -281,33 +277,75 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   Ok(output)
 }
 
-/// What holds the push of the synced branches: the user's robots that run on them, read as the app's session reads
-/// them (one list, the needs of a push: `operations::needs`), and what they land by content. Best effort: nothing holds
-/// a repository not on Space, without a Space token or without an answer of Patronus, and nothing cancels or restarts
-/// its robots then
-fn read_holds(context: &RepoContext, environment: &Environment, synced: &SyncOutput, github: &Arc<GitHubService>) -> Result<PushHolds, CliError> {
-  let table = synced.branch_table(&context.prefix);
+/// What `bd push` asks the remote services before its lock, side by side: the user's robots, read as the app's session
+/// reads them (one list, the needs of a push: `operations::needs`), and the pull requests of the branches (one search),
+/// which the retargets read, and `--with-children` for the stack branch of a whole stack
+struct RemoteReads {
+  /// `None` off Space or without a Space token
+  robots: Option<ListedRobots>,
+  /// `None` without a GitHub repository of the branches
+  pull_requests: Option<PullRequestsResult>,
+}
+
+/// The robots of the list, and the service and the reads they came through
+struct ListedRobots {
+  service: Arc<PatronusService>,
+  sources: Arc<dyn FactSources>,
+  result: PatronusRobotsResult,
+}
+
+/// The reads of `RemoteReads`, before the lock and the sync: the GitHub repository and the Space repository from the
+/// config and the push URL of `origin`, which the sync reads too
+fn read_remote(context: &RepoContext, environment: &Environment, github: &Arc<GitHubService>) -> Result<RemoteReads, CliError> {
+  let repository = github_repository_of(context, &context.config()?)?;
   let space = context.space_repository().ok().flatten();
   let service = space.as_ref().and_then(|_| patronus_service(environment).ok()).map(Arc::new);
-  let services = BdServices {
+  let sources = BdServices {
     patronus: service.clone(),
     space,
-    github_repository: github_repository(context, &synced.report)?,
-    target: target_branch_of(synced.report.upstream.as_ref()),
+    github_repository: repository.clone(),
     ..BdServices::new(context, Arc::clone(github))
-  };
-  let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), services.sources());
-  if service.is_some() {
-    facts.read(context, &[FactNeed::Robots])?;
-    facts.derive();
   }
-  Ok(match listed_robots(&facts.session) {
-    Ok(_) => push_holds(context, table, facts.session, service),
+  .sources();
+  let key = session_key(context);
+  let robots = async {
+    match &service {
+      Some(_) => Some(sources.robots(&key, None, false).await),
+      None => None,
+    }
+  };
+  let pull_requests = async {
+    match &repository {
+      Some(repository) => Some(list_pull_requests(github, &context.repository, repository, &context.prefix).await),
+      None => None,
+    }
+  };
+  let (robots, pull_requests) = context.runtime()?.block_on(async { tokio::join!(robots, pull_requests) });
+  let robots = service.zip(robots).map(|(service, result)| ListedRobots {
+    service,
+    sources: Arc::clone(&sources),
+    result,
+  });
+  Ok(RemoteReads { robots, pull_requests })
+}
+
+/// What holds the push of the synced branches: the user's robots of `robots` that run on them, and what they land by
+/// content (git, under the lock). Best effort: nothing holds a repository not on Space, without a Space token or without
+/// an answer of Patronus, and nothing cancels or restarts its robots then
+fn holds_of(context: &RepoContext, synced: &SyncOutput, robots: Option<ListedRobots>) -> PushHolds {
+  let table = synced.branch_table(&context.prefix);
+  let Some(robots) = robots else {
+    return push_holds(context, table, OneShot::default(), None);
+  };
+  let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), robots.sources);
+  facts.know_listed(robots.result);
+  match listed_robots(&facts.session) {
+    Ok(_) => push_holds(context, table, facts.session, Some(robots.service)),
     Err(error) => {
       tracing::debug!(error = %error.message, "no push holds of robots: Patronus is not available");
       push_holds(context, table, OneShot::default(), None)
     }
-  })
+  }
 }
 
 /// A named root of a stack that forks whose stack branch the remote lacks (`--with-children` takes it along only once it
@@ -621,6 +659,8 @@ pub(crate) fn plan_push<'a>(
         name: candidate.synced.name.clone(),
         push,
         parent_ref: candidate.parent.as_deref().map(|parent| final_name(context, parent)).transpose()?,
+        // `bd` counts no commits as the user's: its statuses say how many go, not whose
+        my_email: None,
       })
     })
     .collect::<Result<_, CliError>>()?;
@@ -636,6 +676,7 @@ pub(crate) fn plan_push<'a>(
         lease,
       },
       parent_ref: None,
+      my_email: None,
     })
   }));
   // what a refused push names: the branches, then the stack branches with their roots
@@ -657,7 +698,6 @@ pub(crate) fn plan_push<'a>(
     repository_path: &context.repository,
     remote: &remote,
     baseline: &synced.baseline,
-    my_email: None,
     size_limit: push_size_limit(context)?,
   };
   let options = PushOptions {
@@ -937,7 +977,6 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
     repository_path: &context.repository,
     remote: REMOTE,
     baseline: &baseline,
-    my_email: None,
     size_limit: push_size_limit(context)?,
   };
   // an unapplied branch is no group of HEAD: no sync built it; its commit and lease fixed here, under the lock
@@ -950,6 +989,7 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
       lease: expected,
     },
     parent_ref: None,
+    my_email: None,
   };
   let options = PushOptions { atomic: false, dry_run: false };
   let prepared = PreparedPush::leased(&target, vec![branch], options);

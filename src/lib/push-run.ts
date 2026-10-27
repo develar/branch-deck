@@ -5,12 +5,13 @@
 // spec/repository/outgoing.spec.md, "Push"; spec/branch/stacked-branches.spec.md). Its plan retargets each pull request
 // out of a virtual branch first (D3a), cancels and restarts the Safe Push of the branch when the push restarts it, and
 // asks first for a push that drops remote commits the branch lacks (`ForcePushDrops`): the push button of the surface
-// opens its description with the dropped commits, whose Force Push pushes; a push of a stack whose surface described
-// each drop runs with them accepted. The session admits it (the same push twice is one, another push of a ref waits),
+// opens its description with the dropped commits, whose Force Push pushes; of a push of a stack the push button of the
+// branch that drops, whose Force Push runs the push of the stack again forced (Push Stack is forced: its description
+// named each drop). The session admits it (the same push twice is one, another push of a ref waits),
 // waits for its sync, decides under the repository lock and pushes after it; the view shows it running
 // (`pushOperationIn`, `useStackPush`), the window that runs it how far it is. The page words the plan's refusal and the
 // outcome: the toast of the pushes, the remote that moved, why not.
-import type { ApiError, Intent, Outcome, PatronusRobot, PushScope, Reason } from "@/lib/bindings"
+import type { ApiError, Confirmation, Intent, Outcome, PatronusRobot, PushScope, Reason } from "@/lib/bindings"
 import { getErrorCode, notifyError } from "@/lib/errors"
 import type { EventToastAction } from "@/lib/event-toast"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
@@ -418,9 +419,9 @@ function remoteStatusOf(name: string): RemoteStatus | null {
 
 /**
  * Runs the push `intent` of a stack started from `startedFrom` in the repository the main window shows, after its
- * rewrites (their sync the session's: the push waits for it in Rust): its plan, refused by its first blocker, run with
- * what it asks accepted (the surface that offered it described each push that drops remote commits), its one atomic
- * push showing its progress on the push buttons of what it sends. What its outcome says: a retarget that failed, the
+ * rewrites (their sync the session's: the push waits for it in Rust): its plan, refused by its first blocker; one that
+ * asks first opens the push button of the branch that drops remote commits (`askStackPush`); else run on its
+ * fingerprint, its one atomic push showing its progress on the push buttons of what it sends. What its outcome says: a retarget that failed, the
  * remote that moved (its toast, or of a stack branch why it isn't pushed), the toast of what it pushed
  * (`showStackPushToast`, unless `announce` is false). Resolves to whether it pushed, true when nothing was left
  */
@@ -445,6 +446,12 @@ async function runStackPush(startedFrom: string, intent: Intent, options: StackP
   if (push?.kind !== "push") {
     return true
   }
+  // the plan asks first (`ForcePushDrops`: a branch it sends drops remote commits it lacks): the user decides, never this
+  // run (D12)
+  if (planned.plan.confirmations.length > 0) {
+    askStackPush(startedFrom, intent, options, planned.plan.confirmations)
+    return false
+  }
   const before = new Map(push.branches.map(name => [name, remoteStatusOf(name)] as const))
   const run = await executePlan(repositoryPath, planned.plan)
   if (run.kind !== "ran") {
@@ -456,6 +463,23 @@ async function runStackPush(startedFrom: string, intent: Intent, options: StackP
     return false
   }
   return await toldStackPush(startedFrom, repositoryPath, run.outcome, before, intent, options)
+}
+
+/**
+ * A push of a stack whose plan asks first (`confirmations`): the push button of the branch whose push drops remote
+ * commits opens its description with them, whose Force Push runs this push again forced; a plan that asks of more than
+ * one branch, or of the stack branch of a whole stack, is refused with each drop named, as the rows' buttons ask them
+ */
+function askStackPush(startedFrom: string, intent: Intent, options: StackPushOptions, confirmations: readonly Confirmation[]): void {
+  const drops = confirmations.flatMap(confirmation => (confirmation.kind === "forcePushDrops" ? [confirmation] : []))
+  const only = drops.length === 1 && confirmations.length === 1 ? drops[0]! : null
+  if (only !== null && stackRootOfReadinessKey(only.branch) === null && getBranch(only.branch) !== undefined) {
+    const forced: Intent = intent.kind === "push" ? { ...intent, force: true } : intent
+    requestPushConfirm(only.branch, "row", {}, () => void runStackPush(startedFrom, forced, options))
+    return
+  }
+  const named = drops.map(drop => `${formatReadinessSubject(drop.branch)} drops ${drop.commits === 1 ? "a commit" : `${drop.commits} commits`} of its remote branch it lacks`)
+  notifyError(`Cannot push ${formatReadinessSubject(startedFrom)}`, `${named.join("; ")}: nothing was pushed`)
 }
 
 /** What the outcome of a push of a stack says (`runStackPush`); whether it pushed */

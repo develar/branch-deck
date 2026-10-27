@@ -38,7 +38,7 @@ import {
   stepSessionClockUntil,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
-import { confirmForcePush, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, pushedToast, virtualBranch } from "../helpers/push-helpers"
+import { confirmForcePush, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
@@ -546,6 +546,29 @@ test.describe("Patronus actions", () => {
     await expect(preview).toHaveCount(0)
     await expect(chip(page, "feature-auth")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(await startedBranches(repo)).toEqual(["ABC-123", "feature-auth"])
+  })
+
+  test("should push once and start the Safe Push pressed while the push of its branch sends", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const held = await holdRemotePushes(repo)
+    const row = findBranchRow(page, "JIRA-456")
+    await row.focus()
+    await page.keyboard.press("p")
+    await held.arrived()
+
+    // S and Enter while the push sends: the session admits the start behind the push of the branch (its node lands from
+    // then on)
+    await page.keyboard.press("s")
+    await expect(popoverStart(page)).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(getLandingNode(row)).toHaveAttribute("data-kind", "landing")
+    await held.release()
+    // decided again on what the push left: nothing more to push, the robot starts
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+    expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
+    expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
+    await expect(toastWith(page, "Safe Push started")).toBeVisible()
+    await expect(toastWith(page, "Cannot start")).toHaveCount(0)
   })
 
   test("should cancel the robot for a new Safe Push from the popover, and not restart it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

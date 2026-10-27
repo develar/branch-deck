@@ -606,7 +606,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   (`operations::engine::execute_land`, the run `bd safe-push` runs, `operations::land_execute`), admitted over the
   operations that run there (a second start of the same subject joins it, one that lands a part of it waits for it),
   the plan prepared again from the facts now; a fingerprint or a confirmation the plan no longer has refuses it as
-  `plan_changed` before any effect. The operation is in the view from its admission on (`RepositoryView.operations`),
+  `plan_changed` before any effect, in the words of the start ("What the Safe Push of auth was decided on changed
+  before it began (…); nothing was done: start it again"). A start that waited in the queue (S right after P, while
+  the push of its branch sends) runs on the plan the wait left, while the user accepted every confirmation of it: one
+  push, then the robot. The operation is in the view from its admission on (`RepositoryView.operations`),
   so every window shows its step in the slot ("Checking…", "Waiting…" for another holder of the repository lock with
   Stop Waiting beside it, "Pushing 45%" with the progress its channel tells the window that asked, "Starting…") and the
   node of the row leaves the user's moves at once (`RunningMove::Starting`). Before the effects the engine checks what
@@ -617,7 +620,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   of its comment skip the start as `plan_changed`: the toast says what changed and what was done ("the Safe Push it
   replaced was canceled and the push stays"), with "Start Safe Push" (a new plan, without the push and the cancel it
   made) and Open in Patronus of the robot it canceled.
-  [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan`, `the_first_effect_that_fails_stops_the_start_and_the_ones_before_it_stay_done`, `a_rewrite_while_the_push_sends_skips_the_start_and_the_outcome_tells_what_was_done`, `a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothing`, `a_robot_of_what_it_lands_started_meanwhile_skips_the_start`)
+  [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan`, `the_first_effect_that_fails_stops_the_start_and_the_ones_before_it_stay_done`, `a_rewrite_while_the_push_sends_skips_the_start_and_the_outcome_tells_what_was_done`, `a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothing`, `a_robot_of_what_it_lands_started_meanwhile_skips_the_start`, `a_start_that_waited_runs_on_the_plan_the_wait_left_while_the_user_accepted_what_it_asks`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push once and start the Safe Push pressed while the push of its branch sends`)
   [@test] ../../src/presenters/outcome.test.ts (`says the robot it started with the profile of its plan, and the checks that ran on the last fetched target`, `offers the start again when the facts changed after the push, naming the robot it canceled; a failed effect says its error`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_its_plan_refuses_is_refused_before_patronus_or_github_is_asked`)
   [@test] ../../src/presenters/land.test.ts (`starts at once when Rust decided there is nothing to say, and waits for its decision before it`, `opens the popover for a key and for each confirmation of the decision: a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the facts Rust waits for, each saying what it waits for, and refuses with why a read failed`, `refuses with the words of the first blocker, offering the push or the object it names: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `lets a start without review wait for its profile, and confirm the one that skips the review`)

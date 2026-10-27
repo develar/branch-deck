@@ -1,7 +1,7 @@
 // @spec spec/branch/pull-requests.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
-import { expectNothingToPush, findBranchRow, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getLandingNode, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned, expectGap } from "../helpers/column-helpers"
 import {
@@ -16,7 +16,7 @@ import {
   reviewer,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
-import { expectPushedToast, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
+import { expectPushedToast, holdRemotePushes, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import {
   EARLIER_COMMIT,
   clickStatusChipAfterHover,
@@ -306,6 +306,34 @@ test.describe("Pull request chip", () => {
     await expect(getChip(page, "feature-auth")).toBeVisible()
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest("feature-auth", 900).url])
+  })
+
+  test("should create the pull request asked for while the push of its branch sends, on what that push left", async ({ page, repo }) => {
+    const held = await holdRemotePushes(repo)
+    const row = findBranchRow(page, "feature-auth")
+    await row.focus()
+    await page.keyboard.press("p")
+    await held.arrived()
+
+    // Create while the push sends: the session admits the creation behind the push of the branch (its node waits for
+    // GitHub from then on)
+    await row.click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(page)
+    const title = dialog.getByTestId("create-pull-request-title")
+    await expect(title).toHaveValue(AUTH_TITLE)
+    await title.press("ControlOrMeta+Enter")
+    await expect(getLandingNode(row)).toHaveAttribute("data-kind", "waiting")
+    await held.release()
+    // decided again on what the push left: one push, then the pull request
+    await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #900" })).toBeVisible()
+    expect(await remotePushes(repo)).toEqual([["feature-auth"]])
+    expect(gitHubWrites(await repo.getGitHubLog())[0]).toEqual([
+      "POST",
+      repoPath("pulls"),
+      { title: AUTH_TITLE, body: AUTH_BODY, head: "user-name/virtual/feature-auth", base: "master" },
+    ])
+    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot create" })).toHaveCount(0)
   })
 
   test("should say whom GitHub refused, and keep the dialog when GitHub creates nothing", async ({ page, repo }) => {

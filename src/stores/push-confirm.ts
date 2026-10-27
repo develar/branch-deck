@@ -15,6 +15,11 @@ export interface PushConfirmRequest {
   target: PushConfirmTarget
   /** The options of that push: the remote head it leases on, the Safe Push it restarts */
   options: PushBranchOptions
+  /**
+   * What the Force Push runs instead of the push of the branch alone: the push of a stack that asked first (Push with
+   * Children, the button's push of a stack), run again forced
+   */
+  forced?: () => void
 }
 
 interface PushConfirmState {
@@ -23,9 +28,12 @@ interface PushConfirmState {
 
 export const pushConfirmStore = createStore<PushConfirmState>(() => ({ request: null }))
 
-/** Opens the confirm of a push in the push button of `target`; a newer request replaces an unanswered one */
-export function requestPushConfirm(branchName: string, target: PushConfirmTarget, options: PushBranchOptions = {}): void {
-  pushConfirmStore.setState({ request: { branchName, target, options } })
+/**
+ * Opens the confirm of a push in the push button of `target`, whose Force Push runs `forced` when the push is of a stack;
+ * a newer request replaces an unanswered one
+ */
+export function requestPushConfirm(branchName: string, target: PushConfirmTarget, options: PushBranchOptions = {}, forced?: () => void): void {
+  pushConfirmStore.setState({ request: { branchName, target, options, ...(forced !== undefined && { forced }) } })
 }
 
 /** The request is answered or dismissed; a newer one stays */

@@ -8,12 +8,15 @@
 //! branch alone, of a stack, up to a commit, of an unapplied branch, of the stack branch of a whole stack). A start
 //! reserves what its plan lands (`Resource::Lands`), the refs
 //! it pushes and the robot it cancels: a second start of the same subject joins it, one that lands a part of it waits for
-//! it and is decided again.
+//! it and is decided again. An operation that waited in the queue runs on the plan the ones it waited for left, while
+//! the user accepted what it asks (`Accepted::decided_again`): a push and the Safe Push pressed right after it are one
+//! push and one start.
 
 use crate::events::EventSink;
 use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Steps};
 use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
+use crate::witness::check;
 use crate::{close, issue, land, pull_request, push, review, robot};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::ApiError;
@@ -92,6 +95,15 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
   }
 }
 
+/// Whether `plan`, decided again once the operation of `guard` was admitted, is the plan its caller accepted, or after a
+/// wait in the queue the one the operations it waited for left (`Accepted::decided_again`)
+///
+/// # Errors
+/// `plan_changed` of its intent
+pub(crate) fn check_admitted(guard: &RunningGuard, accepted: &Accepted, plan: &Plan) -> Result<(), ApiError> {
+  check(&accepted.decided_again(plan, guard.queued()).fingerprint, &plan.fingerprint, &plan.intent)
+}
+
 /// Where the steps of the operation of `guard` go: the view and its caller, the progress of its push to the caller, and
 /// whether the user stopped it
 pub(crate) fn steps_of(guard: &RunningGuard) -> Steps {
@@ -105,19 +117,29 @@ pub(crate) fn steps_of(guard: &RunningGuard) -> Steps {
 }
 
 /// Runs `planned`, decided again once its operation `guard` was admitted, on `start` (the host and the services of the
-/// session, `session_start` or `pull_request_start`) as a start runs (`land_execute::run_planned`), its steps in the view;
-/// answers its outcome
-pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, StartServices), planned: Planned, accepted: &Accepted, began: std::time::Instant) -> Answer {
+/// session, `session_start` or `pull_request_start`) as a start runs (`land_execute::run_planned`), its steps in the view:
+/// on the plan the wait left after it `waited` (in the queue, or for the sync of a push), on the one `accepted` names
+/// else (`Accepted::decided_again`); answers its outcome
+pub(crate) async fn run_planned_in(
+  guard: &RunningGuard,
+  start: (SessionStart, StartServices),
+  planned: Planned,
+  accepted: &Accepted,
+  waited: bool,
+  began: std::time::Instant,
+) -> Answer {
   let (host, services) = start;
   let steps = steps_of(guard);
+  let accepted = accepted.decided_again(&planned.plan, waited);
   // the run of a plan is a large future: on the heap
-  let started = Box::pin(land_execute::run_planned(&host, &services, &steps, guard.id().clone(), planned, accepted, began)).await?;
+  let started = Box::pin(land_execute::run_planned(&host, &services, &steps, guard.id().clone(), planned, &accepted, began)).await?;
   Ok(started.outcome)
 }
 
 /// Runs the start `land` of the app in the session of `key` on the plan its caller accepted (`accepted`):
 /// admitted over the operations of the session with what the plan as the session has it now reserves, then run
-/// (`land_execute::execute`) with its steps in the view and its progress and outcome to `events`; stopped by
+/// (`land_execute::execute`) with its steps in the view and its progress and outcome to `events`, on what the operations
+/// it queued behind left (the push of its branch pressed just before it: the start pushes nothing more); stopped by
 /// `Registry::cancel`. Answers the outcome
 ///
 /// # Errors
@@ -144,7 +166,7 @@ pub async fn execute_land(
   };
   run(registry, key, request, events, async |guard| {
     let steps = steps_of(guard);
-    let started = land_execute::execute(host, services, &steps, guard.id().clone(), &land, &accepted).await?;
+    let started = land_execute::execute(host, services, &steps, guard.id().clone(), &land, &accepted, guard.queued()).await?;
     Ok(started.outcome)
   })
   .await

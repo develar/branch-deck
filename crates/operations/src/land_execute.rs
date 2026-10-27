@@ -30,8 +30,9 @@
 
 use crate::push::{OverMoved, Sent, send};
 use crate::robot_start::{ApiStart, CommentStart, Commented, RobotWait, patronus_failure, start_by_comment, start_through_api};
-use crate::witness::{Witness, check, read_refs};
+use crate::witness::{Witness, check, plan_changed, read_refs};
 use domain_policy::holds::is_active;
+use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use domain_types::landing::{Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
 use domain_types::operation::{
@@ -44,7 +45,7 @@ use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::HoldKind;
 use domain_types::session::Version;
-use domain_types::stack::StackBranchState;
+use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLock, RepositoryLocked, lock_repository_in};
@@ -54,6 +55,7 @@ use remote_facts::pull_request_create::{CreatePullRequestParams, MIRROR_WAIT, cr
 use remote_facts::pull_request_writes::request_pull_request_reviewers;
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::pull_requests::failure_message;
+use repository_model::branch_table::BranchTable;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::ref_claims::claim_refs;
 use repository_model::refusal_words::start_refusal_text;
@@ -108,6 +110,9 @@ pub struct PushedRef {
   pub up_to: Option<String>,
   /// The remote head it leases on
   pub lease: PushLease,
+  /// The branch's author (`GroupedBranchInfo::my_email`; of a stack branch its root's): the remote status the push
+  /// leaves counts that author's commits as the user's, as a sync does; `None` counts none (an unapplied branch)
+  pub my_email: Option<String>,
 }
 
 /// The remote head a ref of a push leases on
@@ -122,6 +127,40 @@ pub enum PushLease {
 }
 
 impl PushedRef {
+  /// The virtual branch `name` of `table` as a push sends it: under `prefix`, built on the branch its stack names, by its
+  /// author, leased on `lease`; `None` for a branch the table lacks
+  #[must_use]
+  pub fn branch(table: &BranchTable, prefix: &str, name: &str, lease: PushLease) -> Option<Self> {
+    let full = |branch: &str| to_final_branch_name(prefix, branch).ok();
+    let info = table.branch(name)?;
+    Some(Self {
+      name: name.to_string(),
+      full_name: full(name)?,
+      parent_ref: info.stack.as_ref().and_then(|stack| stack.effective_base.as_deref()).and_then(full),
+      whole_stack: false,
+      unapplied: false,
+      up_to: None,
+      lease,
+      my_email: info.my_email.clone(),
+    })
+  }
+
+  /// The stack branch of the whole stack `stack` of `table` as a push sends it, by the author of its root, leased on
+  /// `lease`
+  #[must_use]
+  pub fn stack_branch(table: &BranchTable, stack: &StackBranchUpdate, lease: PushLease) -> Self {
+    Self {
+      name: stack.root.clone(),
+      full_name: stack.branch_name.clone(),
+      parent_ref: None,
+      whole_stack: true,
+      unapplied: false,
+      up_to: None,
+      lease,
+      my_email: table.branch(&stack.root).and_then(|root| root.my_email.clone()),
+    }
+  }
+
   fn subject(&self) -> RemoteSubject {
     if self.whole_stack {
       RemoteSubject::WholeStack(self.name.clone())
@@ -239,7 +278,6 @@ pub struct PushSettings {
   pub remote: String,
   /// "origin/master"
   pub baseline: String,
-  pub my_email: Option<String>,
   /// `branchdeck.pushSizeLimit`
   pub size_limit: Option<u64>,
 }
@@ -281,6 +319,24 @@ pub struct Accepted {
   pub confirmations: Vec<Confirmation>,
 }
 
+impl Accepted {
+  /// What the caller accepted, for `plan`, decided again once its operation was admitted. After a wait (`waited`: in
+  /// the queue behind the operations of the session it needs what they hold of, or for the sync a push waits for) the
+  /// request asked for this intent, and what it waited for changed the facts on purpose: it runs on the plan they left
+  /// (its fingerprint) while the user accepted every confirmation of it, and one that asks more refuses it
+  /// (`plan_changed`). Without a wait as the caller accepted it: a plan that changed under the click refuses it
+  #[must_use]
+  pub fn decided_again(&self, plan: &Plan, waited: bool) -> Self {
+    if !waited {
+      return self.clone();
+    }
+    Self {
+      fingerprint: plan.fingerprint.clone(),
+      confirmations: self.confirmations.clone(),
+    }
+  }
+}
+
 /// How a start ran: its plan as it ran, its outcome (each effect with its status), and what the effects answered
 #[derive(Debug)]
 pub struct Started {
@@ -303,19 +359,21 @@ pub struct Started {
 }
 
 /// Runs the start `land` as `op` on the plan its caller accepted (`fingerprint`, with `accepted` among the
-/// confirmations): prepared again from the facts of `host`, then the witness, the lock and the freeze, then its effects
-/// in the order of the plan (see the module)
+/// confirmations): prepared again from the facts of `host`, on what the operations it `waited` for left
+/// (`Accepted::decided_again`), then the witness, the lock and the freeze, then its effects in the order of the plan
+/// (see the module)
 ///
 /// # Errors
 /// Before any effect: a subject the table lacks, a fingerprint or a confirmation the plan no longer has
 /// (`plan_changed`), what refuses it (the code of its first blocker), a fact it still waits for, a lock another holds
 /// (`locked`), git failing. After the first effect a failure is the status of its effect in the outcome
 #[instrument(skip_all, fields(op = %op, subject = %land.subject.name()))]
-pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Steps, op: OperationId, land: &Land, accepted: &Accepted) -> Result<Started, ApiError> {
+pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Steps, op: OperationId, land: &Land, accepted: &Accepted, waited: bool) -> Result<Started, ApiError> {
   let began = std::time::Instant::now();
   steps.step(OperationStep::Checking);
   let planned = host.plan(land).await?.ok_or_else(|| unknown_subject(&land.subject))?;
-  run_planned(host, services, steps, op, planned, accepted, began).await
+  let accepted = accepted.decided_again(&planned.plan, waited);
+  run_planned(host, services, steps, op, planned, &accepted, began).await
 }
 
 /// Runs `planned`, a plan prepared again just now (a start, or a restart of a robot, `robot::execute_restart`), as `op`
@@ -337,12 +395,13 @@ pub async fn run_planned(
   if let Some(blocker) = planned.plan.blockers.first() {
     return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots));
   }
-  check(&accepted.fingerprint, &planned.plan.fingerprint)?;
+  let intent = &planned.plan.intent;
+  check(&accepted.fingerprint, &planned.plan.fingerprint, intent)?;
   if planned.plan.confirmations.iter().any(|confirmation| !accepted.confirmations.contains(confirmation)) {
-    return Err(plan_changed("the start asks the user to accept more than was accepted"));
+    return Err(plan_changed(intent, Some("it asks to accept more than was accepted")));
   }
   if !planned.plan.waits.is_empty() {
-    return Err(ApiError::new(ErrorCode::PlanChanged, "The start still waits for facts nobody answered; prepare it again"));
+    return Err(plan_changed(intent, Some("it waits for facts nobody answered yet")));
   }
   // a plan that moves and leases no ref (a restart on the remote branch as it is) has no witness to read, no lock
   let prepared = if planned.witness.refs.is_empty() {
@@ -352,9 +411,9 @@ pub async fn run_planned(
     let names: Vec<String> = planned.witness.refs.keys().cloned().collect();
     let (git, path) = (services.git.clone(), services.repository_path.clone());
     let cheap = blocking(move || read_refs(&git, &path, &names).map_err(git_failure)).await?;
-    witnessed(&planned.witness, &cheap)?;
+    witnessed(&planned.plan.intent, &planned.witness, &cheap)?;
     let frozen = frozen_under_lock(services, steps, &planned.witness).await?;
-    witnessed(&planned.witness, &frozen)?;
+    witnessed(&planned.plan.intent, &planned.witness, &frozen)?;
     freeze(services, &planned.pushes, &frozen)?
   };
   debug!(effects = planned.plan.effects.len(), "the witness holds: the effects run");
@@ -393,18 +452,19 @@ async fn frozen_under_lock(services: &StartServices, steps: &Steps, witness: &Wi
   .await
 }
 
-/// The witness holds when the refs read now are the ones the plan was decided on
-fn witnessed(witness: &Witness, read: &BTreeMap<String, Option<String>>) -> Result<(), ApiError> {
+/// The witness holds when the refs read now are the ones the plan of `intent` was decided on
+fn witnessed(intent: &Intent, witness: &Witness, read: &BTreeMap<String, Option<String>>) -> Result<(), ApiError> {
   if witness.refs == *read {
     return Ok(());
   }
   let moved: Vec<&str> = read
     .iter()
     .filter(|(name, tip)| witness.refs.get(*name) != Some(tip))
-    .map(|(name, _)| name.as_str())
+    // as git names a branch: "user/virtual/auth", "origin/user/virtual/auth"
+    .map(|(name, _)| name.strip_prefix("refs/heads/").or_else(|| name.strip_prefix("refs/remotes/")).unwrap_or(name))
     .collect();
   debug!(?moved, "a ref of the plan moved before its first effect");
-  Err(plan_changed(&format!("{} moved since the plan", moved.join(", "))))
+  Err(plan_changed(intent, Some(&format!("{} moved", moved.join(", ")))))
 }
 
 /// The push of the plan on the frozen tips and leases: one atomic push of every branch it sends; `None` without one
@@ -436,13 +496,13 @@ fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<Stri
         source,
       },
       parent_ref: pushed.parent_ref.clone(),
+      my_email: pushed.my_email.clone(),
     });
   }
   let target = PushTarget {
     repository_path: &services.repository_path,
     remote: &services.push.remote,
     baseline: &services.push.baseline,
-    my_email: services.push.my_email.as_deref(),
     size_limit: services.push.size_limit,
   };
   // one ref needs no `--atomic`, which a remote may not support
@@ -463,13 +523,6 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, ApiError> 
 #[expect(clippy::needless_pass_by_value, reason = "the error of a blocking step comes into `map_err` by value")]
 fn git_failure(error: anyhow::Error) -> ApiError {
   ApiError::new(ErrorCode::GitError, format!("{error:#}"))
-}
-
-fn plan_changed(what: &str) -> ApiError {
-  ApiError::new(
-    ErrorCode::PlanChanged,
-    format!("What the start was planned on changed before its first effect ({what}); nothing was done: prepare it again"),
-  )
 }
 
 fn unknown_subject(subject: &Subject) -> ApiError {

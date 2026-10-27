@@ -12,7 +12,7 @@ use domain_policy::pull_request::base_of;
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, ReviewerState};
 use github::service::GitHubService;
 use operations::pull_request::retarget_each;
-use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
+use remote_facts::pull_requests::{GitHubWriteError, failure_message};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -114,23 +114,9 @@ pub(crate) fn refusal_warning(retarget: &RetargetedPullRequest, repository: &Git
   )
 }
 
-/// Lists the pull requests of the branches (one search) and retargets the open ones of `names` into a virtual branch to
-/// `base`, before their push; with `dry_run`, only says which it would retarget. Without a GitHub token nothing is asked or said; another
-/// failure of the listing is a warning.
-pub(crate) fn retarget_pull_requests_of(
-  context: &RepoContext,
-  github: &GitHubService,
-  runtime: &Runtime,
-  repository: &GitHubRepository,
-  (names, base): (&[&str], &str),
-  dry_run: bool,
-) -> Retargets {
-  let listed = runtime.block_on(list_pull_requests(github, &context.repository, repository, &context.prefix));
-  retarget_listed(context, github, runtime, repository, &listed, (names, base), dry_run)
-}
-
-/// `retarget_pull_requests_of` on the pull requests a search of this command already listed (`bd push` lists them under
-/// its lock for the stack branch of a whole stack, `--with-children`)
+/// Retargets the open pull requests of `names` into a virtual branch to `base`, before their push, of the pull requests
+/// of the branches the command listed (one search; `bd push` lists them before its lock); with `dry_run`, only says
+/// which it would retarget. Without a GitHub token nothing is asked or said; another failure of the listing is a warning.
 pub(crate) fn retarget_listed(
   context: &RepoContext,
   github: &GitHubService,

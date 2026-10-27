@@ -3,11 +3,12 @@
 //! before the repository lock, which turns a stale plan away without a wait, and in full under the lock, before the first
 //! effect; both read the tips of the refs the plan moves and the remote branches it leases with one `for-each-ref`
 //! (`read_refs`) and take the pull requests and the robots it reads from the session, so no HTTP runs under the lock. A
-//! fingerprint that differs is `plan_changed`, and nothing was done.
+//! fingerprint that differs is `plan_changed`, and nothing was done; its words name what the user asked and say to ask
+//! it again (`plan_changed`).
 
 use anyhow::Result;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::operation::Fingerprint;
+use domain_types::operation::{Fingerprint, Intent};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -15,6 +16,7 @@ use git_ops::revs::ref_tips;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use sync_core::patronus_start::push_mode_name;
 
 /// What a plan was prepared on
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -90,19 +92,47 @@ pub fn read_refs(git: &GitCommandExecutor, repo_path: &str, refs: &[String]) -> 
   Ok(refs.iter().map(|name| (name.clone(), tips.remove(name))).collect())
 }
 
-/// Whether the facts still have the fingerprint `planned` a plan was prepared on (`now`, the fingerprint of the same
-/// intent on the witness read now)
+/// Whether the facts still have the fingerprint `planned` a plan of `intent` was prepared on (`now`, the fingerprint of
+/// the same intent on the witness read now)
 ///
 /// # Errors
 /// `plan_changed` when they differ: nothing of the plan may run
-pub fn check(planned: &Fingerprint, now: &Fingerprint) -> Result<(), ApiError> {
+pub fn check(planned: &Fingerprint, now: &Fingerprint, intent: &Intent) -> Result<(), ApiError> {
   if planned == now {
     return Ok(());
   }
-  Err(ApiError::new(
+  Err(plan_changed(intent, None))
+}
+
+/// `plan_changed` of `intent`: what its plan was decided on changed before its first effect (`why`, when it is known), so
+/// nothing was done. The page shows it after "Cannot push auth" and `bd` prints it, so it names what the user asked and
+/// says to ask it again: "What the push of auth was decided on changed before it began (auth moved); nothing was
+/// done: push again"
+#[must_use]
+pub fn plan_changed(intent: &Intent, why: Option<&str>) -> ApiError {
+  let (asked, again) = asked(intent);
+  let why = why.map_or_else(String::new, |why| format!(" ({why})"));
+  ApiError::new(
     ErrorCode::PlanChanged,
-    "What the operation was planned on changed before its first effect; nothing was done",
-  ))
+    format!("What {asked} was decided on changed before it began{why}; nothing was done: {again}"),
+  )
+}
+
+/// What the user asked of `intent`, and how to ask it again
+fn asked(intent: &Intent) -> (String, &'static str) {
+  match intent {
+    Intent::Land(land) => (format!("the {} of {}", push_mode_name(land.mode), land.subject.words()), "start it again"),
+    Intent::Push(push) => (format!("the push of {}", push.subject.words()), "push again"),
+    Intent::RestartRobot { .. } => ("the restart of the robot".to_string(), "restart it again"),
+    Intent::CancelRobot { .. } => ("the cancel of the robot".to_string(), "cancel it again"),
+    Intent::Retarget { number } => (format!("the retarget of pull request #{number}"), "retarget it again"),
+    Intent::CreatePullRequest(create) => (format!("the pull request of {}", create.subject.words()), "create it again"),
+    Intent::RequestReview { subject, .. } => (format!("the review request of {}", subject.words()), "request the review again"),
+    Intent::ClosePullRequest { number, .. } => (format!("the close of pull request #{number}"), "close it again"),
+    Intent::CloseLandedPullRequests { .. } => ("the closes of the landed pull requests".to_string(), "close them again"),
+    Intent::SubmitReview { number, .. } => (format!("the review of pull request #{number}"), "review it again"),
+    Intent::SetIssueState { key, .. } => (format!("the state of {key}"), "set it again"),
+  }
 }
 
 #[cfg(test)]

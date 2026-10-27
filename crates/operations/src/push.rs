@@ -39,7 +39,6 @@ use domain_types::pull_request::{PullRequest, PullRequestBase, PullRequestState}
 use domain_types::reason::Reason;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{StackBranchAlong, SyncReason, SyncState, stack_readiness_key};
-use domain_types::stack::StackBranchUpdate;
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use patronus::service::PatronusService;
@@ -349,15 +348,9 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
     };
     refs.insert(format!("refs/heads/{sent_full}"), sources.table.tips.get(&sent_full).cloned());
     leases.insert(format!("refs/remotes/{PUSH_REMOTE}/{sent_full}"), remote.clone());
-    let base = sources.table.branch(&sent.name)?.stack.as_ref().and_then(|stack| stack.effective_base.as_deref());
     pushes.push(PushedRef {
-      name: sent.name.clone(),
-      full_name: sent_full,
-      parent_ref: base.and_then(full),
-      whole_stack: false,
-      unapplied: false,
       up_to: if sent.name == name { covered.up_to.clone() } else { None },
-      lease: PushLease::Planned(remote),
+      ..PushedRef::branch(sources.table, sources.prefix, &sent.name, PushLease::Planned(remote))?
     });
   }
   let mut names: Vec<String> = sends.iter().map(|sent| sent.name.clone()).collect();
@@ -366,7 +359,7 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
     refs.insert(format!("refs/heads/{}", stack.branch_name), stack.tip.clone());
     let remote = sources.remote.stacks.get(name).and_then(|remote| remote.remote_tip.clone());
     leases.insert(format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote.clone());
-    pushes.push(stack_branch_ref(stack, remote));
+    pushes.push(PushedRef::stack_branch(sources.table, stack, PushLease::Planned(remote)));
     names.push(stack_readiness_key(name));
   }
   if !pushes.is_empty() {
@@ -445,22 +438,9 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
     effects,
     confirmations,
     Vec::new(),
-    vec![stack_branch_ref(stack, remote)],
+    vec![PushedRef::stack_branch(sources.table, stack, PushLease::Planned(remote))],
     source_ref,
   ))
-}
-
-/// The stack branch of a whole stack as a push sends it, leased on `remote`
-fn stack_branch_ref(stack: &StackBranchUpdate, remote: Option<String>) -> PushedRef {
-  PushedRef {
-    name: stack.root.clone(),
-    full_name: stack.branch_name.clone(),
-    parent_ref: None,
-    whole_stack: true,
-    unapplied: false,
-    up_to: None,
-    lease: PushLease::Planned(remote),
-  }
 }
 
 /// The open pull request of `branch` that goes into a virtual branch: a push retargets it into the target first, where
@@ -515,9 +495,8 @@ fn push_plan_of(
 /// branch lacks asks first (`Confirmation::ForcePushDrops`) unless the intent forces it; a branch that stays local, one a
 /// running Safe Push holds (or a merged one landed whole) and one the last sync did not build refuse it
 fn alone_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_>, holds: Holds<'_>, name: &str, push: &Push, expect: ExpectRemote) -> Option<Planned> {
-  let full = |branch: &str| to_final_branch_name(sources.prefix, branch).ok();
-  let full_name = full(name)?;
-  let info = sources.table.branch(name)?;
+  let full_name = to_final_branch_name(sources.prefix, name).ok()?;
+  sources.table.branch(name)?;
   // the Safe Push of the branch the push restarts on its commit, canceled first while it runs
   let robot = if push.restart_running {
     let id = holds.view.branches.get(name).and_then(|facts| facts.robot_id.as_deref());
@@ -549,15 +528,7 @@ fn alone_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       branches: vec![name.to_string()],
       force: alone.verdict == Verdict::AsksFirst,
     });
-    pushed.push(PushedRef {
-      name: name.to_string(),
-      full_name: full_name.clone(),
-      parent_ref: info.stack.as_ref().and_then(|stack| stack.effective_base.as_deref()).and_then(full),
-      whole_stack: false,
-      unapplied: false,
-      up_to: None,
-      lease: PushLease::Frozen,
-    });
+    pushed.push(PushedRef::branch(sources.table, sources.prefix, name, PushLease::Frozen)?);
   }
   if let Some(robot) = robot {
     effects.push(PlannedEffect::RestartRobot { robot_id: robot.id.clone() });
@@ -599,6 +570,8 @@ fn unapplied_planned(state: &TableState, name: &str, push: &Push, expect: Expect
       unapplied: true,
       up_to: None,
       lease: PushLease::Frozen,
+      // the branch it was: no sync counts whose its commits are
+      my_email: None,
     })
     .into_iter()
     .collect();
@@ -797,15 +770,7 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
     if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {
       return Err(refusal);
     }
-    let accepted = if waited {
-      Accepted {
-        fingerprint: planned.plan.fingerprint.clone(),
-        confirmations: accepted.confirmations.clone(),
-      }
-    } else {
-      accepted.clone()
-    };
-    run_planned_in(guard, push_start(services, sessions, key).await?, planned, &accepted, began).await
+    run_planned_in(guard, push_start(services, sessions, key).await?, planned, &accepted, waited, began).await
   })
   .await
 }

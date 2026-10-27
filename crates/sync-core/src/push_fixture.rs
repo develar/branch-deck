@@ -77,13 +77,13 @@ pub(crate) fn prepare_push_branches(git: &GitCommandExecutor, branch_prefix: &st
       name: branch.branch_name.clone(),
       push,
       parent_ref: branch.parent_branch.as_deref().map(full).transpose()?,
+      my_email: params.my_email.clone(),
     });
   }
   let target = PushTarget {
     repository_path: &params.repository_path,
     remote: PUSH_REMOTE,
     baseline: &params.baseline_branch,
-    my_email: params.my_email.as_deref(),
     size_limit: ConfigSnapshot::read(git, &params.repository_path)?.push_size_limit()?,
   };
   let options = PushOptions {

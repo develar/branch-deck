@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { EffectRecord, EffectStatus, ErrorCode, Intent, Outcome, PatronusRobot, Plan, PlannedEffect, PullRequest } from "@/lib/bindings"
 import { resetEventToasts } from "@/lib/event-toast"
-import { pushBranch } from "@/lib/push-run"
+import { pushBranch, pushWithChildren } from "@/lib/push-run"
 import type { Branch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { pullRequestsStore } from "@/stores/pull-requests"
@@ -249,6 +249,40 @@ describe("the plan of a push", () => {
     expect(await pushBranch("auth", { confirmAt: "preview" })).toBe(false)
     expect(engine.calls).toEqual(["prepare auth"])
     expect(pushConfirmStore.getState().request).toMatchObject({ branchName: "auth", target: "preview", options: { expectRemote: "theirs" } })
+  })
+
+  it("of a stack asks first in the push button of the branch that drops remote commits, whose Force Push runs it again forced", async () => {
+    addBranch("login", "auth")
+    const drops = { kind: "forcePushDrops", branch: "auth", commits: 1 } as const
+    engine.plan = intent => ({
+      effects: [{ kind: "push", branches: ["auth", "login"], force: true }],
+      confirmations: intent.kind === "push" && intent.force ? [] : [drops],
+    })
+    expect(await pushWithChildren("auth")).toBe(false)
+    // nothing ran: the user decides on the drop
+    expect(engine.calls).toEqual(["prepare auth"])
+    const request = pushConfirmStore.getState().request
+    expect(request).toMatchObject({ branchName: "auth", target: "row" })
+    request!.forced!()
+    await vi.waitFor(() => expect(engine.calls).toEqual(["prepare auth", "prepare auth", "execute auth"]))
+    expect(engine.intents.at(-1)).toMatchObject({ scope: { kind: "withChildren" }, force: true })
+  })
+
+  it("of a stack that drops remote commits of more than one branch is refused, each drop named", async () => {
+    addBranch("login", "auth")
+    engine.plan = () => ({
+      effects: [{ kind: "push", branches: ["auth", "login"], force: true }],
+      confirmations: [
+        { kind: "forcePushDrops", branch: "auth", commits: 1 },
+        { kind: "forcePushDrops", branch: "login", commits: 2 },
+      ],
+    })
+    expect(await pushWithChildren("auth")).toBe(false)
+    expect(engine.calls).toEqual(["prepare auth"])
+    expect(pushConfirmStore.getState().request).toBeNull()
+    const toast = toasts.at(-1)!
+    expect(toast.title).toBe("Cannot push auth")
+    expect(text(toast.description)).toBe("auth drops a commit of its remote branch it lacks; login drops 2 commits of its remote branch it lacks: nothing was pushed")
   })
 
   it("is refused in the words of its blocker, and the toast opens the Safe Push that holds the branch", async () => {

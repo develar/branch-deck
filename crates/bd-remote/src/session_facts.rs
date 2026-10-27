@@ -64,6 +64,16 @@ impl SessionFacts {
     self.session.derive_patronus(&self.git);
   }
 
+  /// The robots of a list the command read before its sync (`bd push`, before its lock), as `read` of the robots puts
+  /// them into the session, then the Patronus view over them
+  pub fn know_listed(&mut self, result: PatronusRobotsResult) {
+    self.session.apply(FactResult::Robots {
+      read: RobotsRead::List { full: true },
+      result,
+    });
+    self.derive();
+  }
+
   /// The robots `robots` as the session knows them now, then the Patronus view over them (`know_robots`)
   pub fn know_robots(&mut self, robots: Vec<PatronusRobot>) {
     know_robots(&mut self.session, &self.git, robots);

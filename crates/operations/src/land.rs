@@ -157,18 +157,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
   match &land.subject {
     Subject::WholeStack { root } => {
       let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root)?;
-      let pushes = pushed
-        .map(|_| PushedRef {
-          name: root.clone(),
-          full_name: stack.branch_name.clone(),
-          parent_ref: None,
-          whole_stack: true,
-          unapplied: false,
-          up_to: None,
-          lease: PushLease::Frozen,
-        })
-        .into_iter()
-        .collect();
+      let pushes = pushed.map(|_| PushedRef::stack_branch(sources.table, stack, PushLease::Frozen)).into_iter().collect();
       Some((pushes, format!("refs/heads/{}", stack.branch_name)))
     }
     Subject::Branch { name } => {
@@ -176,18 +165,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
       let pushes = pushed
         .unwrap_or_default()
         .iter()
-        .filter_map(|branch| {
-          let base = sources.table.branch(branch)?.stack.as_ref().and_then(|stack| stack.effective_base.as_deref());
-          Some(PushedRef {
-            name: branch.clone(),
-            full_name: full(branch)?,
-            parent_ref: base.and_then(full),
-            whole_stack: false,
-            unapplied: false,
-            up_to: None,
-            lease: PushLease::Frozen,
-          })
-        })
+        .filter_map(|branch| PushedRef::branch(sources.table, sources.prefix, branch, PushLease::Frozen))
         .collect();
       Some((pushes, format!("refs/heads/{}", full(name)?)))
     }

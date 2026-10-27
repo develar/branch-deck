@@ -1,6 +1,6 @@
 // @spec spec/branch/stacked-branches.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRows, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRows, getBranchDetailsRow, getPushButton } from "../helpers/branch-helpers"
 import { mergeRunningRobot, robot, setupRunningRobot } from "../helpers/patronus-helpers"
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
@@ -38,6 +38,10 @@ test.describe("Push Up to Here", () => {
     const remote = await repo.getRemoteBranches()
     expect(remote[virtualBranch("air")]).toBe(await repo.revision(virtualBranch("air")))
     expect(remote[virtualBranch("bazel")]).toBe(await repo.revision(`${virtualBranch("bazel")}~1`))
+    // bazel has its second commit to push, the user's, as the sync counts it: the status the push left says so
+    await page.keyboard.press("Escape")
+    await getPushButton(findBranchRow(page, "bazel")).hover()
+    await expect(page.getByTestId("push-description")).toContainText("1 commit to push.")
   })
 
   test("should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them", async ({ page, setupRepo, syncAndWaitForBranches }) => {

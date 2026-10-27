@@ -394,7 +394,6 @@ async fn start_of(
     push: PushSettings {
       remote: "origin".to_string(),
       baseline,
-      my_email: None,
       size_limit,
     },
     lock,

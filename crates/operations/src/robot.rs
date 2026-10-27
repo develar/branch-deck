@@ -19,16 +19,15 @@
 //! a restart and a cancel of one robot run one after the other, a second click of the same joins it; a restart holds
 //! what its robot lands too (`Resource::Lands`) and the ref it pushes (`Resource::Ref`).
 
-use crate::engine::{outcome_of, run, run_planned_in};
+use crate::engine::{check_admitted, outcome_of, run, run_planned_in};
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::session_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::patronus_failure;
-use crate::witness::{Witness, check};
+use crate::witness::Witness;
 use domain_policy::holds::is_active;
 use domain_policy::pull_request::base_of;
-use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
 use domain_types::operation::{
@@ -117,31 +116,13 @@ pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Plan
   if restart.action == RestartAction::PushAndRestart {
     let (pushed, tip, remote) = match &subject {
       Subject::Branch { name } => {
-        let full = |branch: &str| to_final_branch_name(sources.prefix, branch).ok();
-        let base = sources.table.branch(name)?.stack.as_ref().and_then(|stack| stack.effective_base.as_deref());
-        let pushed = PushedRef {
-          name: name.clone(),
-          full_name: full(name)?,
-          parent_ref: base.and_then(full),
-          whole_stack: false,
-          unapplied: false,
-          up_to: None,
-          lease: PushLease::Frozen,
-        };
+        let pushed = PushedRef::branch(sources.table, sources.prefix, name, PushLease::Frozen)?;
         let tip = sources.table.tips.get(&pushed.full_name).cloned();
         (pushed, tip, sources.remote.branches.get(name))
       }
       Subject::WholeStack { root } => {
         let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root)?;
-        let pushed = PushedRef {
-          name: root.clone(),
-          full_name: stack.branch_name.clone(),
-          parent_ref: None,
-          whole_stack: true,
-          unapplied: false,
-          up_to: None,
-          lease: PushLease::Frozen,
-        };
+        let pushed = PushedRef::stack_branch(sources.table, stack, PushLease::Frozen);
         (pushed, stack.tip.clone(), sources.remote.stacks.get(root))
       }
     };
@@ -321,7 +302,7 @@ pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &s
     let planned = prepare_restart(sessions, key, robot_id)
       .await
       .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
-    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, began).await
+    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, guard.queued(), began).await
   })
   .await
 }
@@ -339,7 +320,8 @@ pub async fn execute_cancel(registry: &Registry, key: &SessionKey, robot_id: &st
   run(registry, key, cancel_request(robot_id), events, async |guard| {
     let began = std::time::Instant::now();
     let (plan, robots) = prepare_cancel(sessions, key, robot_id).await.ok_or_else(|| unknown_robot(robot_id, "canceled", "cancel"))?;
-    check(&accepted.fingerprint, &plan.fingerprint)?;
+    // after the restart of the robot it waited for, the robot as that left it
+    check_admitted(guard, &accepted, &plan)?;
     let patronus = services.patronus(key)?;
     let write = |robot: PatronusRobot| sessions.write_robot(key, robot);
     let canceled = cancel(&patronus, &key.prefix, &robots, robot_id, &write).await;

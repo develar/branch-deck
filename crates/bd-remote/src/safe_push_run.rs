@@ -115,7 +115,6 @@ pub(crate) fn start_services(
     push: PushSettings {
       remote: STACK_REMOTE.to_string(),
       baseline: baseline.to_string(),
-      my_email: None,
       size_limit: push_size_limit(context)?,
     },
     lock: locker(context),

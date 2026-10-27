@@ -88,8 +88,9 @@ pub fn fetch_moved_remotes(git_executor: &GitCommandExecutor, repository_path: &
         local_ref: branch.full_name,
         branch_name: branch.branch_name,
         parent,
+        my_email: branch.my_email,
       };
-      let status = compute_remote_statuses(git_executor, repository_path, remote, &[status_branch], branch.my_email, baseline)?.remove(0);
+      let status = compute_remote_statuses(git_executor, repository_path, remote, &[status_branch], baseline)?.remove(0);
       let settled = match status.remote_tip.as_deref() {
         Some(tip) if tip == branch.head => true,
         Some(tip) => object_types(git_executor, repository_path, &[branch.head])?[0] == Some("commit") && is_ancestor(git_executor, repository_path, branch.head, tip)?,

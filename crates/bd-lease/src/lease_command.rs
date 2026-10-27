@@ -298,10 +298,13 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
       ),
     ));
   }
-  let home = slot.lease.as_ref().map_or(LeaseHome {
-    checkout: String::new(),
-    branch: None,
-  }, Lease::home);
+  let home = slot.lease.as_ref().map_or(
+    LeaseHome {
+      checkout: String::new(),
+      branch: None,
+    },
+    Lease::home,
+  );
   match home.branch {
     Some(branch) if !home.checkout.is_empty() => Ok((home.checkout, branch)),
     _ => Err(CliError::new(

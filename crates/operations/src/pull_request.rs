@@ -20,14 +20,14 @@
 //! request the reviewers of its pull request (`PullRequestField::Reviewers`), so a retarget of it runs beside, unless its
 //! push retargets the pull request too, which holds its base.
 
-use crate::engine::{outcome_of, run, run_planned_in};
+use crate::engine::{check_admitted, outcome_of, run, run_planned_in};
 use crate::events::EventSink;
 use crate::land::{LandHost, with_one_shot_sources};
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::pull_request_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
-use crate::witness::{Witness, check};
+use crate::witness::Witness;
 use domain_policy::pull_request::base_of;
 use domain_policy::reasons::stack_not_built;
 use domain_policy::review::{Candidates, candidates};
@@ -183,7 +183,7 @@ pub async fn execute_retarget(registry: &Registry, key: &SessionKey, number: u32
     if let Some(Reason::PullRequestMerged { .. }) = plan.blockers.first() {
       return Err(ApiError::new(ErrorCode::Landed, format!("Nothing was retargeted: pull request #{number} is merged")));
     }
-    check(&accepted.fingerprint, &plan.fingerprint)?;
+    check_admitted(guard, &accepted, &plan)?;
     let mut version = None;
     let mut records = Vec::with_capacity(plan.effects.len());
     for effect in plan.effects.clone() {
@@ -277,23 +277,10 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
       let head = full(name)?;
       let mut pushes = Vec::with_capacity(facts.push.branches.len());
       for branch in &facts.push.branches {
-        let full_name = full(branch)?;
-        let base = sources
-          .table
-          .branch(branch)
-          .and_then(|info| info.stack.as_ref())
-          .and_then(|stack| stack.effective_base.as_deref());
+        let pushed = PushedRef::branch(sources.table, sources.prefix, branch, PushLease::Frozen)?;
         let remote = sources.remote.branches.get(branch).and_then(|remote| remote.remote_tip.clone());
-        lease(&full_name, sources.table.tips.get(&full_name).cloned(), remote);
-        pushes.push(PushedRef {
-          name: branch.clone(),
-          full_name,
-          parent_ref: base.and_then(full),
-          whole_stack: false,
-          unapplied: false,
-          up_to: None,
-          lease: PushLease::Frozen,
-        });
+        lease(&pushed.full_name, sources.table.tips.get(&pushed.full_name).cloned(), remote);
+        pushes.push(pushed);
       }
       // the pull requests of what the push sends go into the target first, where every pull request of a virtual branch
       // goes (D3a): GitHub never compares the pushed commits with a branch the pull request no longer goes into
@@ -351,15 +338,7 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
         });
         blocker = blocker.or(held).or(drops);
         lease(&stack.branch_name, stack.tip.clone(), remote.and_then(|remote| remote.remote_tip.clone()));
-        pushes.push(PushedRef {
-          name: root.clone(),
-          full_name: stack.branch_name.clone(),
-          parent_ref: None,
-          whole_stack: true,
-          unapplied: false,
-          up_to: None,
-          lease: PushLease::Frozen,
-        });
+        pushes.push(PushedRef::stack_branch(sources.table, stack, PushLease::Frozen));
         effects.push(PlannedEffect::Push {
           branches: vec![root.clone()],
           force: false,
@@ -629,7 +608,7 @@ pub async fn execute_pull_request(registry: &Registry, key: &SessionKey, intent:
     let began = std::time::Instant::now();
     // decided again once admitted: an operation it waited for changed what it decides on
     let planned = prepare_planned(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
-    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, began).await
+    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, guard.queued(), began).await
   })
   .await
 }

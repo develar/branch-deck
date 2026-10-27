@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{PREFIX, assert_error, branch, commit_all, git, next_steps, run_in, write};
-use bd_cli::remote_fixture_test::{LANDED_SUBJECTS, auth_remote_moved_back, land_auth_by_content, push_from_elsewhere_to, remote_tip, repo_with_remote, their_change};
+use bd_cli::fixture_test::{PREFIX, assert_error, branch, commit_all, git, next_steps, run_in, run_json, write};
+use bd_cli::remote_fixture_test::{LANDED_SUBJECTS, Space, auth_remote_moved_back, land_auth_by_content, push_from_elsewhere_to, remote_tip, repo_with_remote, their_change};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -458,6 +458,25 @@ fn the_network_push_holds_no_repository_lock() {
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
+/// `bd push` asks Patronus for the robots that hold its branches before it takes the repository lock: while the list
+/// waits at Patronus, another writer of the repository (`bd park`) takes the lock at once instead of failing as `locked`
+/// after its wait, and the push syncs on what it left once Patronus answers
+#[test_log::test]
+fn the_robot_list_of_a_push_is_read_before_the_repository_lock() {
+  let space = Space::new(&["(auth) Add login", "(docs) Add docs"]);
+  let list = space.fake.hold("GET", "/app/rest/v1/robots");
+  let environment = space.environment();
+  let push = std::thread::spawn(move || run_json(&environment, &["--prefix", PREFIX, "push", "auth"]));
+  space.runtime.block_on(list.arrived());
+
+  let (exit_code, output) = run_json(&space.environment(), &["--prefix", PREFIX, "park", "docs"]);
+  assert_eq!(exit_code, 0, "{output}");
+  list.open();
+  let (exit_code, output) = push.join().unwrap();
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(space.remote_tip(AUTH), git(&space.repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
 /// A push whose commits add more than `branchdeck.pushSizeLimit` of files is `push_too_large` before bd asks the remote,
 /// a dry run too: the message names the directory that holds most of it, `paths` it and the largest files, the remote
 /// has nothing; an invalid limit refuses the push as a wrong argument
@@ -596,13 +615,13 @@ fn app_push(repo: &TestRepo, branch: &str) {
     repository_path: path,
     remote: "origin",
     baseline: "origin/master",
-    my_email: None,
     size_limit: None,
   };
   let leased = LeasedBranch {
     name: branch.to_string(),
     push,
     parent_ref: None,
+    my_email: None,
   };
   let prepared = PreparedPush::leased(&target, vec![leased], PushOptions { atomic: false, dry_run: false });
   assert!(matches!(prepared.push_leased(repo.git_executor(), &mut |_| {}).unwrap(), LeasedPush::Pushed(_)));

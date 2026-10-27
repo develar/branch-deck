@@ -910,9 +910,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   must need `--yes`. The lock covers only the sync and the plan of the push: its refs, their commits and leases, fixed
   on the tips the sync left. The retargets, the cancel and the restart of `--restart-running` and the network push run
   after it, through the one push core the app's push runs too (`operations::push`), and the network push sends exactly
-  the fixed commits (`<commit>:refs/heads/<name>`): no other writer waits for GitHub, Patronus or the network.
+  the fixed commits (`<commit>:refs/heads/<name>`); the user's robots of the holds and the pull requests of the
+  branches are asked before it, side by side: no other writer waits for GitHub, Patronus or the network.
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
-  [@test] ../../crates/bd-remote/src/push_test.rs (`the_network_push_holds_no_repository_lock`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_before_the_repository_lock`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
 - It must not read again what its sync read: the stack, the tips, the remote tips, the remotes, the descriptions and
   the push size limit come from the sync of the same run; besides the push only the push URL of `origin`, once, the

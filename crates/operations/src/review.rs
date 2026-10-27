@@ -11,14 +11,13 @@
 //! (`PullRequestField::Review`): a second write of the same pull request waits for it; the same one joins it. Nothing
 //! of it reads the facts of the session: its plan is the intent's.
 
-use crate::engine::{outcome_of, run};
+use crate::engine::{check_admitted, outcome_of, run};
 use crate::events::EventSink;
 use crate::land_execute::Accepted;
 use crate::land_session::robots_since;
 use crate::pull_request::{github_of, write_plan};
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard};
 use crate::robot_start::{CommentStart, RobotWait, github_request_failure, start_by_comment};
-use crate::witness::check;
 use domain_policy::refresh::PATRONUS_REVIEWED_ROBOT_WAIT;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, StartRoute};
@@ -98,7 +97,7 @@ pub async fn execute_review(registry: &Registry, key: &SessionKey, intent: Inten
   let sessions = registry.sessions();
   run(registry, key, review_request(&intent, number), events, async |guard| {
     let began = std::time::Instant::now();
-    check(&accepted.fingerprint, &plan.fingerprint)?;
+    check_admitted(guard, &accepted, &plan)?;
     let (github, repository) = review_github(sessions, services, key).await?;
     let mut review = Review {
       guard,
