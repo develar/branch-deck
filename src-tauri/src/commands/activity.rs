@@ -9,8 +9,9 @@ use crate::operation::{operation, run_blocking};
 use app_settings::journals::activity_projects;
 use domain_types::activity::{ActivityLog, ClearActivityParams, PageActivity, PageEntry};
 use domain_types::error::ApiError;
-use operations::journal::{ACTIVITY_READ_TIMEOUT, clear, read_activity as read_journals, record_page};
+use operations::journal::{ACTIVITY_READ_TIMEOUT, LateListener, clear, read_activity as read_journals, record_page};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Runtime};
 use tracing::{instrument, warn};
 
@@ -24,13 +25,18 @@ pub fn emit_activity_changed<R: Runtime>(app: &AppHandle<R>) {
   }
 }
 
-/// The log of Activity: the journals of the repositories of the recent projects, each once and each within
-/// `ACTIVITY_READ_TIMEOUT` (one that is not read by then is unavailable), and the journal of the page; no git process
+/// The log of Activity: the journals of the repositories of the recent projects, each once and each waited for within
+/// `ACTIVITY_READ_TIMEOUT` (one that is not read by then shows what it answered last, and tells every window
+/// `activity-changed` once it answered other entries), and the journal of the page; no git process
 #[tauri::command]
 #[instrument(skip_all)]
 #[specta::specta]
-pub async fn read_activity(settings: Settings<'_>) -> Result<ActivityLog, ApiError> {
-  operation(async move { Ok(read_journals(&activity_projects(&settings), settings.directory(), ACTIVITY_READ_TIMEOUT).await) }).await
+pub async fn read_activity(app: AppHandle, settings: Settings<'_>) -> Result<ActivityLog, ApiError> {
+  operation(async move {
+    let late: LateListener = Arc::new(move || emit_activity_changed(&app));
+    Ok(read_journals(&activity_projects(&settings), settings.directory(), ACTIVITY_READ_TIMEOUT, &late).await)
+  })
+  .await
 }
 
 /// Records what the page told of a repository in the journal of the page, and answers its entry

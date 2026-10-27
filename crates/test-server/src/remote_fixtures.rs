@@ -667,14 +667,23 @@ async fn session_of(state: &AppState, path: &str) -> Result<SessionKey, (StatusC
 /// `POST /repositories/{id}/foreign-operation`: the operation `intent` that `bd` of another process runs in the
 /// repository, holding what it lands and pushes (`resources`, by default the branch of a start or a push: what it lands
 /// and its ref); `unknown`: a start of it whose answer was lost, sent now on the clock of the sessions of the repository
-/// (`registry_now`) through the API, whose robot Patronus may run (`https://patronus.test/` its place); `null` ends the
-/// one before
+/// (`registry_now`) through the API, whose robot Patronus may run (`https://patronus.test/` its place), or as the
+/// `/patronus` comment `comment` on a pull request; `null` ends the one before
 #[derive(Deserialize)]
 pub struct ForeignOperationRequest {
   intent: Option<Intent>,
   resources: Option<Vec<Resource>>,
   #[serde(default)]
   unknown: bool,
+  #[serde(default)]
+  comment: Option<CommentStart>,
+}
+
+/// A start as a `/patronus` comment on the pull request `number`, which is at `url`
+#[derive(Deserialize)]
+pub struct CommentStart {
+  number: u32,
+  url: String,
 }
 
 /// What a start or a push of a branch holds under `prefix`: what it lands and the ref of the branch
@@ -728,6 +737,10 @@ pub async fn set_foreign_operation(
   let process = agent_process().map_err(|error| failed(format!("Cannot start the process of the agent: {error}")))?;
   let pid = process.id();
   let now = unix_now();
+  let (route, pr, url) = match request.comment {
+    Some(comment) => (StartRoute::Comment { number: comment.number }, Some(comment.number), comment.url),
+    None => (StartRoute::Api { profile: None }, None, "https://patronus.test/".to_string()),
+  };
   let external = request.unknown.then(|| External {
     pending_start: Some(PendingStart {
       source_ref: intent
@@ -735,11 +748,11 @@ pub async fn set_foreign_operation(
         .and_then(|subject| to_final_branch_name(&key.prefix, &subject).ok())
         .map_or_default(|name| format!("refs/heads/{name}")),
       tip: String::new(),
-      route: StartRoute::Api { profile: None },
-      pr: None,
+      route,
+      pr,
       comment_id: None,
       sent_at: crate::registry_now(&state.session_clocks, &path),
-      url: Some("https://patronus.test/".to_string()),
+      url: Some(url),
     }),
   });
   let record = Record {

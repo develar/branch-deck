@@ -10,7 +10,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use domain_types::activity::{ActivityLog, ClearActivityParams, PageActivity, PageEntry};
-use operations::journal::{ACTIVITY_READ_TIMEOUT, clear, read_activity as read_journals, record_page};
+use operations::journal::{ACTIVITY_READ_TIMEOUT, LateListener, clear, read_activity as read_journals, record_page};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,7 +20,9 @@ pub async fn read_activity(State(state): State<Arc<AppState>>, headers: HeaderMa
     let repository = requesting_repository(&state, &headers)?;
     (activity_projects(&repository.store), repository.store.directory().to_path_buf())
   };
-  Ok(Json(read_journals(&projects, &app_data, ACTIVITY_READ_TIMEOUT).await))
+  // the server tells the pages nothing: the page mock tells them `activity-changed` after the writes it routes
+  let late: LateListener = Arc::new(|| {});
+  Ok(Json(read_journals(&projects, &app_data, ACTIVITY_READ_TIMEOUT, &late).await))
 }
 
 /// `record_activity` of the app

@@ -3,8 +3,10 @@
 // pushed (`describePush` over the status the push found, `EffectRecord.remote`) or found moved on the remote, each pull
 // request it retargeted, the robot it started, restarted or canceled (`presentLandOutcome`), the pull request it
 // created, closed or reviewed; one that failed is an error entry unless the page recorded the error of its toast (an
-// entry of the page that names the operation). An operation of an agent (its worktree a slot of the lease pool) says so
-// (`agent`): Activity shows it behind its Agents chip. An entry the page recorded (`PageEntry`) is as the page worded it.
+// entry of the page that names the operation), which shows where the operation ran: in the projects of its journal,
+// whichever repository the main window showed when the toast came. An operation of an agent (its worktree a slot of the
+// lease pool) says so (`agent`): Activity shows it behind its Agents chip. An entry the page recorded (`PageEntry`) is as
+// the page worded it.
 import type { ActivityLog, EffectRecord, Intent, JournalEntry, PageEntry, RemoteStatusUpdate } from "@/lib/bindings"
 import { formatCreatedToast } from "@/lib/create-pull-request"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
@@ -22,13 +24,17 @@ type Said = Omit<ActivityEntry, "id" | "repositoryPath" | "time" | "operationId"
 /**
  * The entries of `log`, newest first (in one second the later line of a journal first, and an entry of the page before
  * an operation): each operation of a journal for each recent project whose repository it is the journal of, each entry of
- * the page in its repository. A pull request links in `github`, the GitHub repository of the selected repository
+ * the page in its repository, or one that names an operation of a journal in the projects of that journal. A pull
+ * request links in `github`, the GitHub repository of the selected repository
  */
 export function presentActivity(log: ActivityLog, github: GitHubRepository | null): ActivityEntry[] {
   const told = new Set(log.page.flatMap(entry => (entry.activity.operationId === null ? [] : [entry.activity.operationId])))
+  // the projects of each operation of a journal: where what the page told of it shows
+  const projectsOf = new Map<string, readonly string[]>()
   const entries: ActivityEntry[] = []
   for (const journal of log.journals) {
     for (const entry of journal.entries) {
+      projectsOf.set(entry.id, journal.repositories)
       const said = presentOperation(entry, github, told.has(entry.id))
       const agent = entry.leaseSlot ? { agent: { worktree: entry.worktree } } : {}
       for (const repositoryPath of journal.repositories) {
@@ -36,7 +42,9 @@ export function presentActivity(log: ActivityLog, github: GitHubRepository | nul
       }
     }
   }
-  entries.push(...log.page.map(pageEntry))
+  for (const page of log.page) {
+    entries.push(...placed(pageEntry(page), projectsOf))
+  }
   return entries
     .map((entry, at) => ({ entry, at }))
     .sort((a, b) => b.entry.time - a.entry.time || b.at - a.at)
@@ -56,6 +64,18 @@ function pageEntry({ id, endedAt, activity }: PageEntry): ActivityEntry {
     ...(activity.details !== null && { details: activity.details }),
     ...(activity.operationId !== null && { operationId: activity.operationId }),
   }
+}
+
+/**
+ * An entry of the page where it shows: in its repository, or, when it names an operation of a journal (the error of its
+ * toast), in the projects of that journal, each with an id of its own
+ */
+function placed(entry: ActivityEntry, projectsOf: ReadonlyMap<string, readonly string[]>): ActivityEntry[] {
+  const projects = entry.operationId === undefined ? undefined : projectsOf.get(entry.operationId)
+  if (projects === undefined) {
+    return [entry]
+  }
+  return projects.map((repositoryPath, at) => ({ ...entry, id: at === 0 ? entry.id : `${entry.id}/${at}`, repositoryPath }))
 }
 
 /** "https://github.com/acme/app/pull/12": a pull request of the repository on github.com */

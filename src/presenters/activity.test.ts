@@ -194,6 +194,26 @@ describe("presentActivity", () => {
     expect(said([failed], [toast])).toEqual([{ repositoryPath: "/a", kind: "error", title: "Cannot push auth", description: "hook" }])
   })
 
+  it("puts the error the page told of an operation where the operation ran, whichever repository the window showed then", () => {
+    const failed = operation("op1", PUSH, [pushed(["auth"], [null], { kind: "failed", error: apiError("push_refused", "The remote refused the push: hook") })])
+    const toast = (id: string, operationId: string): PageEntry => ({
+      id,
+      endedAt: 101,
+      activity: { repositoryPath: "/b", kind: "error", title: "Cannot push auth", description: "hook", warning: false, details: null, operationId },
+    })
+    const shown = said([failed], [toast("p1", "op1"), toast("p2", "sync-of-b")], ["/a", "/a-feature"])
+    expect(shown.map(it => [it.repositoryPath, it.title, it.description])).toEqual([
+      ["/b", "Cannot push auth", "hook"],
+      ["/a-feature", "Cannot push auth", "hook"],
+      ["/a", "Cannot push auth", "hook"],
+    ])
+    const ids = presentActivity(
+      { journals: [{ path: "/a/.git/branch-deck/journal.jsonl", repositories: ["/a", "/a-feature"], available: true, entries: [failed] }], page: [toast("p1", "op1")] },
+      GITHUB,
+    ).map(entry => entry.id)
+    expect(ids).toEqual(["p1/1", "p1"])
+  })
+
   it("says an operation of an agent as any other, with the worktree of its slot of the lease pool", () => {
     const agents = operation("op3", PUSH, [pushed(["auth"], [null])], { leaseSlot: true, worktree: "/pool/branch-deck-1/1/a", endedAt: 103 })
     const users = operation("op4", PUSH, [pushed(["docs"], [null])], { endedAt: 104 })

@@ -450,7 +450,9 @@ shows.
 - **Empty is free**: a track that no row of any card fills is 0 wide, and so is its gutter (`--bd-gap-<kind>`, 8px
   while the track has content): a view without Patronus has no step column, a pushed view no push column.
 - **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of
-  the steps fit (`next-step.spec.md`); the cap is a backstop.
+  the steps fit (`next-step.spec.md`); the cap is a backstop. A step with actions beside its slot (`data-beside-slot`:
+  Open in Patronus and Forget This Start of a start whose answer was lost, Stop Waiting of a wait for the lock) is as
+  wide as they are, as buttons don't truncate: capped, they lay over the "⋯" of the row, which took their clicks.
 - **Late facts move no column**: the answers of the remote come after the first rows (the pull request chips, the
   steps, the robots), so until they are in ([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer))
   each track is at least as wide as once they were in the last time (`ColumnRegistry.setFloors`, the `tracks` of

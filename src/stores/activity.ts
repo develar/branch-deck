@@ -372,8 +372,9 @@ export function recordApproval(repositoryPath: string, title: string, descriptio
   void recordActivity(repositoryPath, { kind: "review", title, description, details: { type: "pullRequest", url } })
 }
 
-// every error the user was told about (`notifyError`), in the repository the main window shows; errors.ts can't import
-// the store, which imports errors.ts
+// every error the user was told about (`notifyError`), in the repository the main window shows; one that names an
+// operation of a journal shows where that operation ran (`presentActivity`). errors.ts can't import the store, which
+// imports errors.ts
 setErrorRecorder((title, description, operationId) => {
   void recordActivity(getSelectedProject()?.path ?? "", { kind: "error", title, description, ...(operationId !== undefined && { operationId }) })
 })

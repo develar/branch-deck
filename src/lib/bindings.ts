@@ -7,8 +7,9 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  The log of Activity: the journals of the repositories of the recent projects, each once and each within
-	 *  `ACTIVITY_READ_TIMEOUT` (one that is not read by then is unavailable), and the journal of the page; no git process
+	 *  The log of Activity: the journals of the repositories of the recent projects, each once and each waited for within
+	 *  `ACTIVITY_READ_TIMEOUT` (one that is not read by then shows what it answered last, and tells every window
+	 *  `activity-changed` once it answered other entries), and the journal of the page; no git process
 	 */
 	readActivity: () => typedError<ActivityLog, ApiError>(__TAURI_INVOKE("read_activity")),
 	/**  Records what the page told of a repository in the journal of the page, and answers its entry */
@@ -4759,8 +4760,8 @@ export type RepositoryJournal = {
 	/**  The paths of the recent projects whose repository it is the journal of */
 	repositories: string[],
 	/**
-	 *  It was read within the bound (`ACTIVITY_READ_TIMEOUT`); false: its disk is gone or did not answer, `entries` is
-	 *  empty
+	 *  It answered, by the bound of the read (`ACTIVITY_READ_TIMEOUT`) or before it (`entries` its last answer then);
+	 *  false: its disk is gone, it can't be read or it never answered, `entries` is empty
 	 */
 	available: boolean,
 	/**  Oldest first, as the file has them */

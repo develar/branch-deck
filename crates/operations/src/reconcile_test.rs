@@ -2,20 +2,24 @@ use crate::engine::request_of;
 use crate::land_execute::land_execute_test::{ALPHA, Fixture as StartFixture, fixture as start_fixture, statuses};
 use crate::land_execute::{Accepted, Steps, execute};
 use crate::push::push_test::Services;
-use crate::reconcile::{ReconcileSources, Reconciled, SETTLED_AFTER, SettleWith, admit_settled, by_robots, reconcile, robot_of};
+use crate::reconcile::{Listed, ReconcileSources, Reconciled, SETTLED_AFTER, SettleWith, admit_settled, by_robots, reconcile, robot_of};
+use crate::registry::{ListedRobots, Registry, RegistryFiles};
 use crate::registry_file::{PendingStart, ProcessRegistry, Record, RecordStatus};
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool};
 use domain_types::fixtures::{land_intent, robot};
 use domain_types::landing::{PlannedEffect, StartRoute};
 use domain_types::operation::{EffectStatus, Fingerprint, Intent, OperationId, OperationResult, OperationStep};
-use domain_types::patronus::{PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use domain_types::patronus::{PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult};
+use domain_types::session::ViewPatch;
 use github::fake_github::{FakeAnswer, start_fake_service};
 use patronus::fake_patronus::robot_json;
 use pretty_assertions::assert_eq;
-use repository_model::session::SessionKey;
+use remote_facts::scheduler::FactsPort;
+use repository_model::facts::{FactResult, RobotsRead};
+use repository_model::session::{SessionKey, Subscriber, SubscriberGone};
 use serde_json::json;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use sync_core::github_repository::GitHubRepository;
 use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 
@@ -137,6 +141,15 @@ fn lost_record(start: PendingStart) -> Record {
 
 const COMMENTS: &str = "/repos/acme/monorepo/issues/7/comments";
 
+/// A list of the whole window without a robot, asked at `asked_at`
+const fn listed_none(asked_at: u32) -> Listed<'static> {
+  Listed {
+    robots: &[],
+    complete: true,
+    asked_at,
+  }
+}
+
 /// A comment whose post lost its answer is found by its text among the comments of its pull request since it was sent,
 /// a user's (the bot's quote of it is no start), and settled by the reply of the bot to it: 👍 started, 👎 failed. None
 /// found once it settled: the post never arrived; one found by its id is read at once
@@ -179,7 +192,7 @@ async fn a_lost_comment_is_found_by_its_text_and_settled_by_the_reply_of_the_bot
     "/repos/acme/monorepo/issues/comments/4402",
     FakeAnswer::ok(json!({"id": 4402, "reactions": {"+1": 1, "-1": 0}})),
   );
-  assert_eq!(reconcile(&record, &at(SENT + 5), Some((&[], true))).await, Reconciled::Started(None));
+  assert_eq!(reconcile(&record, &at(SENT + 5), Some(listed_none(SENT + 5))).await, Reconciled::Started(None));
   let since = fake.requests_to("GET", COMMENTS)[0].query.clone().unwrap_or_default();
   assert!(since.contains(&format_utc_timestamp(SENT - 120).replace(':', "%3A")), "{since}");
 
@@ -193,11 +206,14 @@ async fn a_lost_comment_is_found_by_its_text_and_settled_by_the_reply_of_the_bot
     COMMENTS,
     FakeAnswer::ok(json!([{"id": 4402, "body": "/patronus merge --keep-source-branch", "user": user, "created_at": created}])),
   );
-  assert_eq!(reconcile(&record, &at(SENT + 5), Some((&[], true))).await, Reconciled::Failed);
+  assert_eq!(reconcile(&record, &at(SENT + 5), Some(listed_none(SENT + 5))).await, Reconciled::Failed);
 
   fake.answer("GET", COMMENTS, FakeAnswer::ok(json!([])));
-  assert_eq!(reconcile(&record, &at(SENT + 5), Some((&[], true))).await, Reconciled::Unknown);
-  assert_eq!(reconcile(&record, &at(SENT + SETTLED_AFTER), Some((&[], true))).await, Reconciled::Failed);
+  assert_eq!(reconcile(&record, &at(SENT + 5), Some(listed_none(SENT + 5))).await, Reconciled::Unknown);
+  assert_eq!(
+    reconcile(&record, &at(SENT + SETTLED_AFTER), Some(listed_none(SENT + SETTLED_AFTER))).await,
+    Reconciled::Failed
+  );
 
   // its id known: its reactions are read, no search
   let searched = fake.requests_to("GET", COMMENTS).len();
@@ -208,7 +224,7 @@ async fn a_lost_comment_is_found_by_its_text_and_settled_by_the_reply_of_the_bot
     "/repos/acme/monorepo/issues/comments/4402",
     FakeAnswer::ok(json!({"id": 4402, "reactions": {"+1": 1, "-1": 0}})),
   );
-  assert_eq!(reconcile(&lost_record(known), &at(SENT + 5), Some((&[], true))).await, Reconciled::Started(None));
+  assert_eq!(reconcile(&lost_record(known), &at(SENT + 5), Some(listed_none(SENT + 5))).await, Reconciled::Started(None));
   assert_eq!(fake.requests_to("GET", COMMENTS).len(), searched);
 }
 
@@ -335,33 +351,97 @@ async fn a_lost_start_patronus_does_not_list_once_it_settled_leaves_and_the_admi
   assert_eq!(records.iter().map(|record| record.id.0.as_str()).collect::<Vec<_>>(), ["again"]);
 }
 
+/// The robots of a list of `alpha`'s session, of the whole window when `complete`, asked at `asked_at`
+fn listed(robots: Vec<PatronusRobot>, complete: bool, asked_at: u32) -> ListedRobots {
+  ListedRobots { robots, complete, asked_at }
+}
+
+/// The registry of the sessions of the tests over the registry in `directory`, settling with no service, its reconcile
+/// at the Unix seconds `now` holds; the key of `alpha`'s session
+fn settling_registry(directory: &std::path::Path, now: Arc<AtomicU32>) -> (Registry, SessionKey) {
+  let dir = directory.to_path_buf();
+  let services: Arc<dyn remote_facts::service_sources::ServiceHost> = Arc::new(Services { patronus: None, github: None });
+  let registry = Registry::new(
+    crate::registry::registry_test::sessions(),
+    RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone()))
+      .settled_with(services)
+      .at(move |_key| now.load(Ordering::SeqCst)),
+  );
+  let key = SessionKey {
+    worktree: "/repository".to_string(),
+    prefix: "test".to_string(),
+  };
+  (registry, key)
+}
+
 /// After a list of the robots of a session the registry settles the starts whose answer was lost of its prefix: one
 /// whose robot the list has is started, one a list of the whole window lacks once it settled started none; both leave.
 /// A list of a part of the window settles nothing
 #[tokio::test(flavor = "multi_thread")]
 async fn a_list_of_the_robots_of_a_session_settles_its_lost_starts() {
   let directory = tempfile::tempdir().unwrap();
-  let dir = directory.path().to_path_buf();
   let files = ProcessRegistry::of(directory.path());
-  let services: Arc<dyn remote_facts::service_sources::ServiceHost> = Arc::new(Services { patronus: None, github: None });
-  let registry = crate::registry::Registry::new(
-    crate::registry::registry_test::sessions(),
-    crate::registry::RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone()))
-      .settled_with(services)
-      .at(|_key| SENT + SETTLED_AFTER),
-  );
-  let key = SessionKey {
-    worktree: "/repository".to_string(),
-    prefix: "test".to_string(),
-  };
+  let (registry, key) = settling_registry(directory.path(), Arc::new(AtomicU32::new(SENT + SETTLED_AFTER)));
   files.insert_of_another_process(lost_record(api())).unwrap();
-  let listed = alpha_robot("listed", PatronusPushMode::RebaseAutosquash, SENT + 1, Some(TIP));
-  registry.reconcile_after_robots(&key, &[], false).await;
+  let robot = alpha_robot("listed", PatronusPushMode::RebaseAutosquash, SENT + 1, Some(TIP));
+  registry.reconcile_after_robots(&key, &listed(Vec::new(), false, SENT + SETTLED_AFTER)).await;
   assert_eq!(files.records().unwrap().map(|records| records.len()), Some(1));
-  registry.reconcile_after_robots(&key, &[listed], false).await;
+  registry.reconcile_after_robots(&key, &listed(vec![robot], false, SENT + SETTLED_AFTER)).await;
   assert_eq!(files.records().unwrap(), Some(Vec::new()));
 
   files.insert_of_another_process(lost_record(api())).unwrap();
-  registry.reconcile_after_robots(&key, &[], true).await;
+  registry.reconcile_after_robots(&key, &listed(Vec::new(), true, SENT + SETTLED_AFTER)).await;
+  assert_eq!(files.records().unwrap(), Some(Vec::new()));
+}
+
+/// A window that hears no patch: it keeps the session of a test open
+struct Unwatched;
+
+impl Subscriber for Unwatched {
+  fn send(&self, _patch: &ViewPatch) -> Result<(), SubscriberGone> {
+    Ok(())
+  }
+}
+
+/// A list of the whole window settles a start by the time its read began, as the port of the facts took it
+/// (`FactsPort::begin`), never by when its answer came: one asked before the start settled and answered after it proves
+/// nothing, as Patronus may have created the robot since; one asked once it settled proves it absent. A read that is no
+/// list settles nothing
+#[tokio::test(flavor = "multi_thread")]
+async fn a_list_asked_before_a_lost_start_settled_proves_nothing_however_late_it_came() {
+  let directory = tempfile::tempdir().unwrap();
+  let files = ProcessRegistry::of(directory.path());
+  let now = Arc::new(AtomicU32::new(SENT + 16));
+  let (registry, key) = settling_registry(directory.path(), Arc::clone(&now));
+  registry.sessions().subscribe(&key, Box::new(Unwatched)).await.unwrap();
+  files.insert_of_another_process(lost_record(api())).unwrap();
+  let whole_window = |robots: Vec<PatronusRobot>| FactResult::Robots {
+    read: RobotsRead::List { full: true },
+    result: PatronusRobotsResult {
+      availability: PatronusAvailability::Available,
+      robots,
+      github_repository: None,
+    },
+  };
+
+  let early = FactsPort::begin(&registry, &key).await.unwrap();
+  now.store(SENT + SETTLED_AFTER + 1, Ordering::SeqCst);
+  let late_answer = registry.listed_robots(&key, early, &whole_window(Vec::new())).unwrap();
+  assert_eq!((late_answer.complete, late_answer.asked_at), (true, SENT + 16));
+  registry.reconcile_after_robots(&key, &late_answer).await;
+  let records = files.records().unwrap().unwrap();
+  assert_eq!((records.len(), records[0].status), (1, RecordStatus::Unknown));
+
+  let poll = FactsPort::begin(&registry, &key).await.unwrap();
+  let polled = FactResult::Robots {
+    read: RobotsRead::Poll,
+    result: PatronusRobotsResult::from(PatronusAvailability::Available),
+  };
+  assert!(registry.listed_robots(&key, poll, &polled).is_none());
+
+  let settled = FactsPort::begin(&registry, &key).await.unwrap();
+  let answer = registry.listed_robots(&key, settled, &whole_window(Vec::new())).unwrap();
+  assert_eq!(answer.asked_at, SENT + SETTLED_AFTER + 1);
+  registry.reconcile_after_robots(&key, &answer).await;
   assert_eq!(files.records().unwrap(), Some(Vec::new()));
 }

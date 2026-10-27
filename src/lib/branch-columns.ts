@@ -29,14 +29,18 @@ export const TRACK_ITEM_CLASS: Readonly<Record<BranchTrack, string>> = {
   more: "min-w-(--bd-track-more)",
 }
 
-/** The caps of the tracks whose text truncates: the status text and the robot, what lands the branch, the step */
+/**
+ * The caps of the tracks whose text truncates: the status text and the robot, what lands the branch, the step; a step
+ * with actions beside its slot (a start whose answer was lost, a wait for the lock) is as wide as they are, as buttons
+ * don't truncate
+ */
 export const TRACK_CONTENT_CLASS: Readonly<Record<BranchTrack, string>> = {
   commits: "",
   state: "max-w-40",
   pr: "",
   landed: "max-w-48",
   push: "",
-  step: "max-w-40",
+  step: "max-w-40 has-[[data-beside-slot]]:max-w-none",
   more: "",
 }
 

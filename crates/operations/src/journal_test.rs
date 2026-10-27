@@ -1,6 +1,6 @@
 use crate::engine::run;
 use crate::events::EventSink;
-use crate::journal::{LIMIT, MAX_AGE, clear, journal_path, journal_path_in, kept, read, read_activity, read_page, record_page};
+use crate::journal::{LIMIT, LateListener, MAX_AGE, clear, journal_path, journal_path_in, kept, read, read_activity, read_page, record_page};
 use crate::registry::registry_test::sessions;
 use crate::registry::{Answer, Registry, RegistryFiles, RunningGuard};
 use crate::registry_file::ProcessRegistry;
@@ -289,6 +289,29 @@ fn the_page_records_into_its_journal_and_clear_log_forgets_the_log_of_a_reposito
   );
 }
 
+/// An error the page told of an operation shows where the operation ran, so Clear Log of the repository of its journal
+/// forgets it too, whichever repository the page recorded it in; an error of the page that names no operation of that
+/// journal stays
+#[test]
+fn clear_log_forgets_the_errors_the_page_told_of_the_operations_of_the_journal() {
+  let (common, app_data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  let registry = ProcessRegistry::of(common.path());
+  let failed = ApiError::new(ErrorCode::PushRefused, "the remote refused it");
+  finished(&registry, "failed", &session("user"), &safe_push("auth"), Err(&failed));
+  // the toast came while the main window showed /b
+  record_page(app_data.path(), told_error("/b", "Cannot push auth")).unwrap();
+  let of_b = PageActivity {
+    operation_id: Some(id("sync-of-b")),
+    ..told_error("/b", "Cannot sync docs")
+  };
+  record_page(app_data.path(), of_b).unwrap();
+
+  clear(Some(&journal_path_in(registry.dir())), app_data.path(), "/a").unwrap();
+  assert_eq!(read(common.path()).unwrap(), []);
+  let page = read_page(app_data.path()).unwrap();
+  assert_eq!(page.iter().map(|entry| entry.activity.title.as_str()).collect::<Vec<_>>(), ["Cannot sync docs"]);
+}
+
 /// Activity reads the journal of a repository once for the recent projects that share it (two worktrees), none for a
 /// project its journal was never remembered for, and lists a journal it can't read unavailable; the journal of the page
 /// comes with them
@@ -309,7 +332,7 @@ async fn activity_reads_the_journal_of_each_repository_once_and_lists_one_it_can
     ("/c".to_string(), Some(gone.to_string_lossy().into_owned())),
   ];
 
-  let log = read_activity(&projects, app_data.path(), Duration::from_mins(1)).await;
+  let log = read_activity(&projects, app_data.path(), Duration::from_mins(1), &unheard()).await;
   let journals: Vec<_> = log
     .journals
     .iter()
@@ -342,26 +365,56 @@ async fn the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_wri
     ("/gone".to_string(), Some(journal_path(&gone).to_string_lossy().into_owned())),
   ];
 
-  let log = read_activity(&projects, app_data.path(), Duration::from_mins(1)).await;
+  let log = read_activity(&projects, app_data.path(), Duration::from_mins(1), &unheard()).await;
   let available: Vec<_> = log.journals.iter().map(|journal| (journal.repositories.clone(), journal.available)).collect();
   assert_eq!(available, [(vec!["/new".to_string()], true), (vec!["/gone".to_string()], false)]);
   assert_eq!(journal_path(common.path()), journal_path_in(ProcessRegistry::of(common.path()).dir()));
 }
 
-/// A journal that does not answer within the bound (a disk that hangs: here a pipe nobody writes) is listed unavailable,
-/// and the read does not wait for it
+/// A late answer of a journal that nobody hears
+fn unheard() -> LateListener {
+  Arc::new(|| {})
+}
+
+/// A journal that does not answer within the bound (a disk that hangs or is slow: here a pipe the test writes to late)
+/// is unavailable while it never answered, and the read does not wait for it; a read meanwhile joins the read that runs.
+/// Once it answers other entries the windows hear it, and the next read shows them, as what it answered last, while the
+/// read it starts waits again
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_journal_that_does_not_answer_within_the_bound_is_unavailable() {
+async fn a_journal_that_answers_after_the_bound_shows_once_it_answered() {
   let directory = tempfile::tempdir().unwrap();
   let pipe = directory.path().join("journal.jsonl");
   let made = sync_utils::child_process::windowless_command("mkfifo").arg(&pipe).status().unwrap();
   assert!(made.success());
   let projects = [("/a".to_string(), Some(pipe.to_string_lossy().into_owned()))];
-
   let app_data = tempfile::tempdir().unwrap();
-  let log = read_activity(&projects, app_data.path(), Duration::from_millis(50)).await;
-  assert_eq!(log.journals.iter().map(|journal| journal.available).collect::<Vec<_>>(), [false]);
+  let (told, mut heard) = tokio::sync::mpsc::unbounded_channel();
+  // the test may stop hearing before a read it started answers
+  let late: LateListener = Arc::new(move || {
+    let _ = told.send(());
+  });
+  let shown = |log: &domain_types::activity::ActivityLog| {
+    log
+      .journals
+      .iter()
+      .map(|journal| (journal.available, journal.entries.iter().map(|entry| entry.id.0.clone()).collect::<Vec<_>>()))
+      .collect::<Vec<_>>()
+  };
+
+  let log = read_activity(&projects, app_data.path(), Duration::from_millis(50), &late).await;
+  assert_eq!(shown(&log), [(false, Vec::new())]);
+  let log = read_activity(&projects, app_data.path(), Duration::from_millis(50), &late).await;
+  assert_eq!(shown(&log), [(false, Vec::new())]);
+
+  // the disk answers the read that runs: the line of an operation of the repository
+  let common = tempfile::tempdir().unwrap();
+  let registry = ProcessRegistry::of(common.path());
+  finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
+  std::fs::write(&pipe, std::fs::read_to_string(journal_path_in(registry.dir())).unwrap()).unwrap();
+  heard.recv().await.unwrap();
+  let log = read_activity(&projects, app_data.path(), Duration::from_millis(50), &late).await;
+  assert_eq!(shown(&log), [(true, vec!["pushed".to_string()])]);
   // the read that still waits for a writer ends with one, so the runtime of the test can stop
   drop(std::fs::OpenOptions::new().write(true).open(&pipe).unwrap());
 }

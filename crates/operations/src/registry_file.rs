@@ -16,8 +16,10 @@
 //!   what it held;
 //! - the records of this process get their heartbeat every 30 s from one thread of the process while it has any, which
 //!   also takes out a record of it whose removal failed;
-//! - a file of another schema, or one that does not parse, is the registry of another Branch Deck: every admission is
-//!   busy and the file is never written.
+//! - a file of another schema, or of this schema whose records do not read, is the registry of another Branch Deck:
+//!   every admission is busy and the file is never written. Each write is on the disk before its rename, so a crash
+//!   leaves the old state or the new one; a file that is no JSON at all (cut short all the same, written by hand) tells
+//!   nothing, is read as empty and written whole by the next change.
 //!
 //! A record holds no token and no secret; the history of the operations is the journal beside it (`journal`), written
 //! under the same lock in the change that takes a record out: the end of an operation (`Entry::finish`), a settle, a
@@ -294,8 +296,21 @@ pub(crate) fn beat(file: &mut RegistryFile, this: &ProcessIdentity, live: &HashS
 /// What the file holds
 enum Content {
   Known(RegistryFile),
-  /// Another schema, or no JSON of a registry: never written
+  /// No JSON at all: nothing of it can be read, and the next change writes the file whole
+  Broken,
+  /// Another schema, or records of this schema that do not read: never written
   Foreign,
+}
+
+impl Content {
+  /// The records it has, as a read without the lock sees them: none of a broken file, `None` of another Branch Deck
+  fn records(self) -> Option<Vec<Record>> {
+    match self {
+      Self::Known(file) => Some(file.operations),
+      Self::Broken => Some(Vec::new()),
+      Self::Foreign => None,
+    }
+  }
 }
 
 /// The operations registry of the repository of a `$GIT_COMMON_DIR`
@@ -332,10 +347,7 @@ impl ProcessRegistry {
   /// # Errors
   /// The file can't be read
   pub fn records(&self) -> std::io::Result<Option<Vec<Record>>> {
-    Ok(match self.read()? {
-      Content::Known(file) => Some(file.operations),
-      Content::Foreign => None,
-    })
+    Ok(self.read()?.records())
   }
 
   /// The records of the other processes that hold what they hold now (`others`), read without the lock; none for the
@@ -371,11 +383,12 @@ impl ProcessRegistry {
       Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Content::Known(RegistryFile::default())),
       Err(error) => return Err(error),
     };
-    let schema = serde_json::from_slice::<serde_json::Value>(&bytes)
-      .ok()
-      .and_then(|value| value.get("schema").and_then(serde_json::Value::as_u64));
-    Ok(match schema {
-      Some(schema) if schema == u64::from(SCHEMA) => serde_json::from_slice(&bytes).map_or(Content::Foreign, Content::Known),
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+      debug!(path = %self.path().display(), "the operations registry is no JSON: it is read as empty");
+      return Ok(Content::Broken);
+    };
+    Ok(match value.get("schema").and_then(serde_json::Value::as_u64) {
+      Some(schema) if schema == u64::from(SCHEMA) => serde_json::from_value(value).map_or(Content::Foreign, Content::Known),
       _ => Content::Foreign,
     })
   }
@@ -402,17 +415,27 @@ impl ProcessRegistry {
     let io = |error: std::io::Error, what: &str| ApiError::new(ErrorCode::GitError, format!("Cannot {what} {}: {error}", self.path().display()));
     std::fs::create_dir_all(&self.dir).map_err(|error| io(error, "create the directory of"))?;
     let _lock = lock_file(self.dir.join(LOCK), LOCK_TIMEOUT, &|| debug!("waiting for the lock of the operations registry")).map_err(|error| lock_failure(&error))?;
-    let result = match self.read().map_err(|error| io(error, "read"))? {
-      Content::Known(mut file) => {
+    let (mut file, broken) = match self.read().map_err(|error| io(error, "read"))? {
+      Content::Known(file) => (Some(file), false),
+      Content::Broken => {
+        warn!(path = %self.path().display(), "the operations registry is no JSON (cut short, written by hand): it is written anew");
+        (Some(RegistryFile::default()), true)
+      }
+      Content::Foreign => (None, false),
+    };
+    let result = match &mut file {
+      Some(file) => {
         let before = file.clone();
-        let result = change(&mut file);
-        if file != before {
-          let json = serde_json::to_vec_pretty(&file).map_err(|error| ApiError::internal(format!("Cannot write the operations registry: {error}")))?;
-          write_atomically(&self.path(), &json, AtomicWrite::default()).map_err(|error| io(error, "write"))?;
+        let result = change(file);
+        if broken || *file != before {
+          let json = serde_json::to_vec_pretty(&*file).map_err(|error| ApiError::internal(format!("Cannot write the operations registry: {error}")))?;
+          // on the disk before the rename: a crash leaves the old state or the new one, never a file cut short
+          let durable = AtomicWrite { private: false, durable: true };
+          write_atomically(&self.path(), &json, durable).map_err(|error| io(error, "write"))?;
         }
         Some(result)
       }
-      Content::Foreign => None,
+      None => None,
     };
     if let Some(entry) = journal(result.as_ref())
       && let Err(error) = journal::append_locked(&self.dir, &entry, unix_now())
@@ -559,9 +582,12 @@ impl ProcessRegistry {
     ))
   }
 
-  /// The heartbeat of the records of this process (`beat`), with `live` its operations that run
-  fn beat(&self, live: &HashSet<OperationId>) -> Result<Option<()>, ApiError> {
-    self.change(|file| beat(file, ProcessIdentity::this(), live, unix_now()))
+  /// The heartbeat of the records of this process (`beat`), with its operations that run read under the lock of the
+  /// change: an admission enters them before its record goes into the file, and an end leaves them after its record
+  /// left, so a record of this process that runs and is not among them is one whose removal failed. Of every registry
+  /// of the process, as two spellings of one `$GIT_COMMON_DIR` (two worktrees of a repository) are one file
+  fn beat(&self) -> Result<Option<()>, ApiError> {
+    self.change(|file| beat(file, ProcessIdentity::this(), &keeper().live(), unix_now()))
   }
 }
 
@@ -816,27 +842,44 @@ impl Keeper {
     }
   }
 
-  /// Every `HEARTBEAT_INTERVAL` the heartbeat of each registry with a record of this process, until there is none
+  /// The operations of this process that run, in every registry: an id names one operation of the process
+  fn live(&self) -> HashSet<OperationId> {
+    self.state().live.values().flatten().cloned().collect()
+  }
+
+  /// The registries that get a heartbeat now: each with a record of this process, and each where the removal of one
+  /// failed; none once there is neither, and the thread of the heartbeat ends
+  fn due(&self) -> Option<Vec<ProcessRegistry>> {
+    let mut state = self.state();
+    if state.live.is_empty() && state.dirty.is_empty() {
+      state.running = false;
+      return None;
+    }
+    let KeeperState { live, dirty, .. } = &mut *state;
+    let mut due: Vec<_> = live.keys().cloned().collect();
+    due.extend(dirty.drain().filter(|registry| !live.contains_key(registry)));
+    Some(due)
+  }
+
+  /// The heartbeat of each of `registries` (`ProcessRegistry::beat`), each under the lock of its own change; one that
+  /// fails is due again
+  fn beat_each(&self, registries: Vec<ProcessRegistry>) {
+    for registry in registries {
+      if !matches!(registry.beat(), Ok(Some(()))) {
+        self.state().dirty.insert(registry);
+      }
+    }
+  }
+
+  /// Every `HEARTBEAT_INTERVAL` the heartbeat of each registry with a record of this process, until there is none; the
+  /// file is never written across the wait, and which operations run is read in each change, never before it
   fn run(&self) {
     loop {
-      let beats: Vec<(ProcessRegistry, HashSet<OperationId>)> = {
-        std::thread::sleep(HEARTBEAT_INTERVAL);
-        let mut state = self.state();
-        if state.live.is_empty() && state.dirty.is_empty() {
-          state.running = false;
-          return;
-        }
-        let KeeperState { live, dirty, .. } = &mut *state;
-        let mut beats: Vec<_> = live.iter().map(|(registry, ids)| (registry.clone(), ids.clone())).collect();
-        beats.extend(dirty.drain().filter(|registry| !live.contains_key(registry)).map(|registry| (registry, HashSet::new())));
-        beats
+      std::thread::sleep(HEARTBEAT_INTERVAL);
+      let Some(due) = self.due() else {
+        return;
       };
-      for (registry, live) in beats {
-        // the file is never written across the wait: each beat takes the lock of its registry for its own change
-        if !matches!(registry.beat(&live), Ok(Some(()))) {
-          self.state().dirty.insert(registry);
-        }
-      }
+      self.beat_each(due);
     }
   }
 }

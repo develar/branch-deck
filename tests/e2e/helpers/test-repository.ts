@@ -563,11 +563,16 @@ export class TestRepositoryBuilder {
    * registry of the repository, naming a child of the test server that runs until the next call; the app's sessions show
    * it from the watch of the registry and refuse what needs what it holds (by default what a start or a push of its branch
    * holds). `unknown`: a start of it whose answer was lost, sent now on the clock of the sessions of the repository, which
-   * no read of Patronus settles until the test moves that clock past it. `null` ends the one before. Answers its
-   * operation and pid
+   * no read of Patronus settles until the test moves that clock past it: through the API, or as the `/patronus` comment
+   * `comment` on the pull request `number` at `url`. `null` ends the one before. Answers its operation and pid
    */
-  async setForeignOperation(intent: Intent | null, resources?: Resource[], unknown = false): Promise<{ op: string; pid: number } | null> {
-    const response = await this.postFixture("foreign-operation", { intent, unknown, ...(resources !== undefined && { resources }) })
+  async setForeignOperation(
+    intent: Intent | null,
+    resources?: Resource[],
+    unknown = false,
+    comment?: { readonly number: number; readonly url: string },
+  ): Promise<{ op: string; pid: number } | null> {
+    const response = await this.postFixture("foreign-operation", { intent, unknown, ...(resources !== undefined && { resources }), ...(comment !== undefined && { comment }) })
     return (await response.json()) as { op: string; pid: number } | null
   }
 

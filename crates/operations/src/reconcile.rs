@@ -4,9 +4,9 @@
 //!
 //! - Through the API: its robot is one of the user's robots on its source ref (the virtual branch, the stack branch of a
 //!   whole stack) in its mode, started since it was sent (`PATRONUS_COMMENT_CLOCK_SLACK` for the clocks), on its commit
-//!   when Patronus names one. It is proven absent only by a list of the user's robots read `SETTLED_AFTER` after the
-//!   request at least, the time a start waits for its answer: Patronus may still create the robot of a request it
-//!   handles before then.
+//!   when Patronus names one. It is proven absent only by a list of the user's robots asked `SETTLED_AFTER` after the
+//!   request at least (the time a start waits for its answer, and as long again), never by when the answer of a list
+//!   came: Patronus may still create the robot of a request it handles before then.
 //! - As a `/patronus` comment: its robot is one of its pull request in its mode started since; else the reply of the bot
 //!   to its comment (one conditional request of its reactions) by its id, or, for a post whose answer was lost, the
 //!   comment of a user with its text on the pull request since it was sent. Accepted is started (its robot comes with a
@@ -39,8 +39,9 @@ use sync_utils::timestamp::unix_now;
 use tracing::{debug, instrument};
 
 /// Seconds after its request when the robot of a start is in the list of Patronus if it started: the time a start waits
-/// for its answer (`patronus::client::ACTION_TIMEOUT`)
-pub const SETTLED_AFTER: u32 = 30;
+/// for its answer (`patronus::client::ACTION_TIMEOUT`, 30 s), and as long again for a request that Patronus still
+/// handles after the client gave up on it
+pub const SETTLED_AFTER: u32 = 60;
 
 /// The starts whose answer was lost one admission settles before it gives up as `busy`
 const SETTLE_ROUNDS: usize = 4;
@@ -87,15 +88,15 @@ pub fn robot_of(start: &PendingStart, mode: PatronusPushMode, prefix: &str, robo
     .cloned()
 }
 
-/// Whether a read at `read_at` (Unix seconds) comes late enough after the request of `start` to prove a robot absent
+/// Whether a read asked at `read_at` (Unix seconds) comes late enough after the request of `start` to prove a robot absent
 #[must_use]
 pub const fn settled(start: &PendingStart, read_at: u32) -> bool {
   read_at >= start.sent_at.saturating_add(SETTLED_AFTER)
 }
 
-/// What the robots of the user tell of `start` in `mode` under `prefix`, listed at `read_at`: its robot started; through
-/// the API, a list of the whole window (`complete`) read once it settled without its robot proves that none started;
-/// else unknown (a comment the bot accepted may start a robot Patronus counts as someone else's)
+/// What the robots of the user tell of `start` in `mode` under `prefix`, listed by a request at `read_at`: its robot
+/// started; through the API, a list of the whole window (`complete`) asked once it settled without its robot proves that
+/// none started; else unknown (a comment the bot accepted may start a robot Patronus counts as someone else's)
 #[must_use]
 pub fn by_robots(start: &PendingStart, mode: PatronusPushMode, prefix: &str, robots: &[PatronusRobot], read_at: u32, complete: bool) -> Reconciled {
   if let Some(robot) = robot_of(start, mode, prefix, robots) {
@@ -156,11 +157,20 @@ pub enum SettleWith<'a> {
   Sources(ReconcileSources),
 }
 
-/// What the start of `record` did, read now: the user's robots since it was sent (`listed`: a list the caller has, read
-/// at `now`, of the whole window when `complete`; none: asked now), then for a comment the reply of the bot. A read that
-/// fails tells nothing: unknown
+/// A list of the user's robots that a caller has: of the whole window when `complete`, asked at `asked_at` (Unix
+/// seconds, on the clock of the sources). A robot Patronus created after the request is not in it, however late its
+/// answer came, so it proves a start absent only when it was asked once the start settled
+#[derive(Debug, Clone, Copy)]
+pub struct Listed<'a> {
+  pub robots: &'a [PatronusRobot],
+  pub complete: bool,
+  pub asked_at: u32,
+}
+
+/// What the start of `record` did, read now: the user's robots since it was sent (`listed`: a list the caller has; none:
+/// asked now, at `sources.now`), then for a comment the reply of the bot. A read that fails tells nothing: unknown
 #[instrument(skip_all, fields(op = %record.id))]
-pub async fn reconcile(record: &Record, sources: &ReconcileSources, listed: Option<(&[PatronusRobot], bool)>) -> Reconciled {
+pub async fn reconcile(record: &Record, sources: &ReconcileSources, listed: Option<Listed<'_>>) -> Reconciled {
   let Some(start) = record.pending_start() else {
     // nothing was sent: nothing can run
     return Reconciled::Failed;
@@ -171,10 +181,14 @@ pub async fn reconcile(record: &Record, sources: &ReconcileSources, listed: Opti
     Some(listed)
   } else {
     asked = list_robots(sources, start.sent_at.saturating_sub(PATRONUS_COMMENT_CLOCK_SLACK)).await;
-    asked.as_deref().map(|robots| (robots, true))
+    asked.as_deref().map(|robots| Listed {
+      robots,
+      complete: true,
+      asked_at: sources.now,
+    })
   };
-  if let Some((robots, complete)) = robots {
-    let told = by_robots(start, mode, prefix, robots, sources.now, complete);
+  if let Some(listed) = robots {
+    let told = by_robots(start, mode, prefix, listed.robots, listed.asked_at, listed.complete);
     if told != Reconciled::Unknown || matches!(start.route, StartRoute::Api { .. }) {
       return told;
     }

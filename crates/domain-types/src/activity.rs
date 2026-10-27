@@ -81,8 +81,8 @@ pub struct RepositoryJournal {
   pub path: String,
   /// The paths of the recent projects whose repository it is the journal of
   pub repositories: Vec<String>,
-  /// It was read within the bound (`ACTIVITY_READ_TIMEOUT`); false: its disk is gone or did not answer, `entries` is
-  /// empty
+  /// It answered, by the bound of the read (`ACTIVITY_READ_TIMEOUT`) or before it (`entries` its last answer then);
+  /// false: its disk is gone, it can't be read or it never answered, `entries` is empty
   pub available: bool,
   /// Oldest first, as the file has them
   pub entries: Vec<JournalEntry>,

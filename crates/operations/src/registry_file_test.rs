@@ -1,5 +1,7 @@
 use crate::registry::OperationRequest;
-use crate::registry_file::{External, GONE_AFTER, PendingStart, ProcessIdentity, ProcessRegistry, Record, RecordStatus, RegistryFile, SCHEMA, admit_into, beat, is_gone, others};
+use crate::registry_file::{
+  External, GONE_AFTER, PendingStart, ProcessIdentity, ProcessRegistry, Record, RecordStatus, RegistryFile, SCHEMA, admit_into, beat, is_gone, keeper, others,
+};
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, OperationHolder, OperationKind};
 use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::landing::StartRoute;
@@ -227,6 +229,33 @@ fn a_heartbeat_beats_the_live_records_of_this_process_and_takes_out_its_others()
   assert_eq!(registry.operations.iter().map(|record| record.heartbeat_at).collect::<Vec<_>>(), [NOW + 30, NOW]);
 }
 
+/// The heartbeat reads which operations of this process run in the change it makes, under the lock of the file: an
+/// operation admitted after the heartbeat chose its registries keeps its record, and so does one admitted through
+/// another spelling of the same directory (a second worktree of the repository); one whose removal failed leaves
+#[test]
+fn a_heartbeat_keeps_the_records_admitted_after_it_chose_its_registries() {
+  let directory = tempfile::tempdir().unwrap();
+  std::fs::create_dir_all(directory.path().join("worktree")).unwrap();
+  let registry = ProcessRegistry::of(directory.path());
+  let spelled_otherwise = ProcessRegistry::of(&directory.path().join("worktree").join(".."));
+  assert_ne!(registry, spelled_otherwise);
+  let first = registry.admit(&id("first"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap();
+  let this = ProcessIdentity::this();
+  let left = record("left", this, &safe_push("ui"), unix_now());
+  registry.change(|file| file.operations.push(left)).unwrap().unwrap();
+
+  let due = keeper().due().unwrap();
+  assert_eq!(due, std::slice::from_ref(&registry));
+  let second = registry.admit(&id("second"), HolderTool::App, &session("user"), &safe_push("docs")).unwrap();
+  let third = spelled_otherwise.admit(&id("third"), HolderTool::App, &session("user"), &safe_push("api")).unwrap();
+  keeper().beat_each(due);
+
+  let listed = registry.records().unwrap().unwrap().into_iter().map(|record| record.id.0).collect::<Vec<_>>();
+  assert_eq!(listed, ["first", "second", "third"]);
+  drop((first, second, third));
+  assert_eq!(registry.records().unwrap(), Some(Vec::new()));
+}
+
 /// A session shows the records of the other processes that hold what they hold: of a process that runs, and of one that
 /// is gone with a start in flight; never one of this process, and never one whose process is gone with nothing in flight
 #[test]
@@ -307,24 +336,46 @@ fn the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out() {
   assert_eq!(listed(&registry), Vec::<String>::new());
 }
 
-/// A registry of another schema, or one that does not parse, is of another Branch Deck: every admission is busy, with no
-/// holder it can name, and the file stays as it was
-#[test]
-fn a_registry_of_another_schema_is_busy_and_never_written() {
+/// `check` of a registry whose file has each of `contents` in turn
+fn with_file_of(contents: &[&str], check: impl Fn(&ProcessRegistry, &str)) {
   let directory = tempfile::tempdir().unwrap();
   let registry = ProcessRegistry::of(directory.path());
   std::fs::create_dir_all(registry.path().parent().unwrap()).unwrap();
-  for content in [
+  for content in contents {
+    std::fs::write(registry.path(), content).unwrap();
+    check(&registry, content);
+  }
+}
+
+/// A registry of another schema, or of this one with records it can't read, is of another Branch Deck: every admission
+/// is busy, with no holder it can name, and the file stays as it was
+#[test]
+fn a_registry_of_another_schema_is_busy_and_never_written() {
+  let contents = [
     r#"{"schema": 2, "operations": [{"id": "new"}]}"#,
     r#"{"schema": 1, "operations": [{"what": 1}]}"#,
-    "not json",
-  ] {
-    std::fs::write(registry.path(), content).unwrap();
+    r#"{"operations": []}"#,
+  ];
+  with_file_of(&contents, |registry, content| {
     let busy = registry.admit(&id("app"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap_err();
     assert_eq!((busy.code, busy.details), (ErrorCode::Busy, Some(ErrorDetails::Busy { holder: None })), "{content}");
     assert_eq!(std::fs::read_to_string(registry.path()).unwrap(), content);
     assert_eq!(registry.records().unwrap(), None);
-  }
+  });
+}
+
+/// A registry that is no JSON at all (cut short, empty) tells nothing: it reads as empty, the next admission goes in and
+/// writes it whole, and the operations of every process are admitted again from then on
+#[test]
+fn a_registry_that_is_no_json_reads_as_empty_and_the_next_change_heals_it() {
+  with_file_of(&["", r#"{"schema": 1, "operations": [{"id": "cut"#], |registry, content| {
+    assert_eq!(registry.records().unwrap(), Some(Vec::new()), "{content}");
+    let entry = registry.admit(&id("app"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap();
+    let written: RegistryFile = serde_json::from_slice(&std::fs::read(registry.path()).unwrap()).unwrap();
+    assert_eq!(ids(&written), ["app"], "{content}");
+    drop(entry);
+    assert_eq!(registry.records().unwrap(), Some(Vec::new()));
+  });
 }
 
 /// The start of `branch` through the API, sent at `sent_at`

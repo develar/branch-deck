@@ -4,6 +4,7 @@ import type { Intent } from "../../../src/lib/bindings"
 import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, pushFromRowMenu } from "../helpers/branch-helpers"
 import { setupRobots, startRequest } from "../helpers/patronus-helpers"
+import { GITHUB_REPOSITORY, getOpenedUrls } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, pushedBranches } from "../helpers/push-helpers"
 import { safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
@@ -66,11 +67,14 @@ test.describe("Operations of another process of the repository", () => {
     const slot = slotSafePush(page, "JIRA-456")
     // no process runs it any more, and Patronus can't tell yet whether its robot started: it holds the branch
     await expect(slot).toHaveText("Start Unknown")
+    // Open in Patronus opens where its robot would be
+    expect(await getOpenedUrls(page)).toEqual([])
+    await row.getByTestId("open-unknown-start").click()
+    await expect.poll(() => getOpenedUrls(page)).toEqual(["https://patronus.test/"])
     await slot.hover()
     await expect(page.getByRole("tooltip")).toHaveText(
       "Cannot tell whether the Safe Push of JIRA-456 started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it",
     )
-    await expect(row.getByTestId("open-unknown-start")).toHaveText("Open in Patronus")
 
     // S says why it can't start, and opens no popover
     await row.focus()
@@ -87,6 +91,17 @@ test.describe("Operations of another process of the repository", () => {
     await runAndWaitForAnswer(page, "execute", () => slot.click())
     await expect(row.getByTestId("patronus-chip")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
+  })
+
+  test("should open the pull request of a comment start whose answer was lost", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const url = `https://github.com/${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}/pull/7`
+    await repo.setForeignOperation(safePushOf("JIRA-456"), undefined, true, { number: 7, url })
+    const row = findBranchRow(page, "JIRA-456")
+    await expect(slotSafePush(page, "JIRA-456")).toHaveText("Start Unknown")
+    expect(await getOpenedUrls(page)).toEqual([])
+    await row.getByRole("button", { name: "Open Pull Request #7" }).click()
+    await expect.poll(() => getOpenedUrls(page)).toEqual([url])
   })
 
   test("should sync when bd touched the stamp of the repository after a mutation, without a focus", async ({ page, setupRepo, syncAndWaitForBranches }) => {

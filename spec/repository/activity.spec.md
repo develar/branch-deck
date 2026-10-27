@@ -97,7 +97,8 @@ tells the present, its line of the last day opens Activity at its Robots.
   `$GIT_COMMON_DIR/branch-deck/journal.jsonl`): an entry once it ended, with each effect and what it answered. What only
   the page knows (an error it told, an update, what landed, a rewrite, a review request, an approval, the news of a
   robot) the main window records in the journal of the app data directory (`record_activity`, the same writer), always
-  with its repository: an error in the repository the main window shows when it is told; a sub-window records nothing.
+  with its repository: an error in the repository the main window shows when it is told, but one that names an
+  operation of a journal shows where that operation ran, in the projects of its journal; a sub-window records nothing.
   [@test] ../../crates/operations/src/journal_test.rs (`the_page_records_into_its_journal_and_clear_log_forgets_the_log_of_a_repository_in_both`)
   [@test] ../../src/stores/activity.test.ts (`reads the journals of the repositories and the page's, each repository's log apart, newest first`, `records nothing without a repository`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should read the log from the journal of the repository after a reload`)
@@ -154,10 +155,15 @@ tells the present, its line of the last day opens Activity at its Robots.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
 - A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack, reword), in the
   repository it rewrote, and every error toast (`notifyError`, with its reason). An operation of the remote that failed
-  is the entry of its error toast, which names it (`operationId`); one no toast told (of `bd`) says what it was for and
-  why it failed ("Cannot push auth" / "The remote refused the push: …"); a canceled one is no entry.
+  is the entry of its error toast, which names it (`operationId`), in the projects of the journal of the operation,
+  whichever repository the main window showed when the toast came (a Safe Push of one repository that fails while
+  another is shown is in the log of the first only); one no toast told (of `bd`) says what it was for and why it failed
+  ("Cannot push auth" / "The remote refused the push: …"); a canceled one is no entry. Clear Log of a repository
+  forgets the errors the page told of the operations of its journal too.
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about, in the repository the main window shows`)
   [@test] ../../src/presenters/activity.test.ts (`says an operation that failed unless the page recorded the error of its toast, and leaves out the canceled`)
+  [@test] ../../src/presenters/activity.test.ts (`puts the error the page told of an operation where the operation ran, whichever repository the window showed then`)
+  [@test] ../../crates/operations/src/journal_test.rs (`clear_log_forgets_the_errors_the_page_told_of_the_operations_of_the_journal`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`)
 - The entry of an error a command returned keeps the operation it names as `operationId`, the key to the command's
   lines in the app's log: every command that can fail runs its body as an operation, the `operation{operation_id=…}`
@@ -201,15 +207,18 @@ tells the present, its line of the last day opens Activity at its Robots.
 - The main window reads the log (`read_activity`): the journal of the repository of each recent project, which
   `subscribe_view` remembered for the project when a window opened its session (`journalPaths` of the settings, by the
   path of the project, written by Rust; no window writes it), so the read runs no git process; each journal once for
-  the projects that share it (the worktrees of one repository), all in parallel on the blocking pool, each within
-  200 ms (`ACTIVITY_READ_TIMEOUT`): one that is not read by then (a disk that hangs), or whose repository is gone (its
-  `$GIT_COMMON_DIR` is not there: a removed disk, a deleted repository), is listed unavailable and the others show; a
-  journal its repository has not written yet is empty. The journal of the page comes with them. The main window and
+  the projects that share it (the worktrees of one repository), all in parallel on the blocking pool, each waited for
+  200 ms (`ACTIVITY_READ_TIMEOUT`), then shown as it answered last: one whose repository is gone (its
+  `$GIT_COMMON_DIR` is not there: a removed disk, a deleted repository), that can't be read or that never answered (a
+  disk that hangs) is listed unavailable and the others show; a journal its repository has not written yet is empty.
+  One read of a journal runs at a time, which the reads meanwhile join; one that answers after the wait with other
+  entries tells the windows (`activity-changed`), so a journal of a slow disk shows once it answered, never "unavailable"
+  for good because the machine was loaded. The journal of the page comes with them. The main window and
   the Activity window each read the log themselves (`useActivityReads`): when they open, and again when a journal
   changes (`activity-changed`: a write of the page, or the watch of the operations registry of a repository a window
   shows sees its journal change, an operation of the app or of `bd` ended); the main window also after each operation
   and each write of its own. The log of a settings file of before (the key `activity`) is dropped by the load.
-  [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_does_not_answer_within_the_bound_is_unavailable`, `the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_written_yet_is_empty`)
+  [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_answers_after_the_bound_shows_once_it_answered`, `the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_written_yet_is_empty`)
   [@test] ../../crates/app-settings/src/journals_test.rs (`the_recent_projects_have_the_journals_remembered_for_them_and_one_opened_before_has_none`, `no_recent_projects_have_no_journals`)
   [@test] ../../crates/app-settings/src/file_test.rs (`the_activity_log_of_a_file_of_before_is_dropped_by_the_load_and_the_next_save`)
   [@test] ../../src/lib/run-intent.test.ts (`runs the plan Rust prepared on its fingerprint, then waits for the view of what it changed; Activity reads the journal it ended in`)
@@ -359,7 +368,8 @@ tells the present, its line of the last day opens Activity at its Robots.
 - A journal is read whole at each read of Activity: 200 entries with landed reports stay small (a few hundred KB at
   worst), but a much larger cap would not. A line this version can't read (a newer version's) is skipped, never the
   journal.
-- A read of a journal that takes longer than 200 ms under load lists it unavailable for that read.
+- A read of a journal that takes longer than 200 ms under load shows what the journal answered before (unavailable
+  when it never answered) until its answer comes, which tells the windows to read again.
 - A cleared log records a still undismissed report again at the next sync, as "Found by a sync".
 
 ## References

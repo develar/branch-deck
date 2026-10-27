@@ -189,9 +189,10 @@ export function SafePushButton({
       </TooltipContent>
     </Tooltip>
   )
+  // the actions beside the slot are no label the cap of the step track truncates: the track takes their width
   if (lostItems.length > 0) {
     return (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center gap-1" data-beside-slot="">
         {button}
         {lostItems.map(lostItem => (
           <MenuItemButton key={lostItem.id} item={lostItem} variant="outline" data-testid={lostItem.id} />
@@ -203,7 +204,7 @@ export function SafePushButton({
     return button
   }
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex items-center gap-1" data-beside-slot="">
       {button}
       <MenuItemButton item={stopWaiting} variant="outline" data-testid="stop-waiting" />
     </span>

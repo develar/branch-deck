@@ -16,9 +16,12 @@
 //! The page has a journal of the same form in the app data directory (`PageEntry`, spec/repository/activity.spec.md):
 //! what only the page knows (an error it told, an update, what landed, a rewrite, the news of a review request, an
 //! approval or a robot), recorded through `record_page` under `journal.lock` beside it, within the same bounds.
-//! Activity reads both (`read_activity`): the journals of the recent projects in parallel on the blocking pool, each
-//! within `ACTIVITY_READ_TIMEOUT` (a journal of a removed disk, or of one that does not answer, is listed unavailable),
-//! and Clear Log forgets the log of a repository in both (`clear`).
+//! Activity reads both (`read_activity`): the journals of the recent projects in parallel on the blocking pool, one read
+//! of each journal at a time, which the reads of Activity meanwhile join (`JournalReads`). A read waits for each within
+//! `ACTIVITY_READ_TIMEOUT`, then shows what that journal answered last: a journal of a removed disk, or of one that never
+//! answered, is listed unavailable; a read that answers later with other entries tells the windows (`late`), so a slow
+//! disk shows once it answered and the wall clock never decides what shows. Clear Log forgets the log of a repository in
+//! both (`clear`).
 
 use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::activity::{ActivityLog, PageActivity, PageEntry, RepositoryJournal};
@@ -27,13 +30,16 @@ use domain_types::operation::{JournalEntry, JournalTransition, OperationResult, 
 use history_rewrite::repository_lock::lock_file;
 use lease_pool::lease::{Pool, canonical_path};
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::operation_id::OperationId as Ulid;
 use sync_utils::operation_tally::OperationTally;
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
+use tokio::sync::watch;
 use tracing::debug;
 
 const FILE: &str = "journal.jsonl";
@@ -45,8 +51,8 @@ pub const MAX_AGE: u32 = 30 * 24 * 60 * 60;
 const PAGE_LOCK: &str = "journal.lock";
 /// The bound of the wait for the lock of the journal of the page: a write holds it for a file operation only
 const PAGE_LOCK_TIMEOUT: Duration = Duration::from_secs(2);
-/// How long Activity waits for the journal of a repository: one of a removed disk, or a disk that does not answer, is
-/// listed unavailable after it
+/// How long Activity waits for the journal of a repository before it shows what the journal answered last (none yet:
+/// unavailable); a read that answers later with other entries tells the windows
 pub const ACTIVITY_READ_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// The journal file in the directory of the registry (`$GIT_COMMON_DIR/branch-deck`)
@@ -251,30 +257,136 @@ struct OfRepository {
 #[serde(rename_all = "camelCase")]
 struct RepositoryOf {
   repository_path: String,
+  #[serde(default)]
+  operation_id: Option<String>,
+}
+
+/// The part of a line of a journal that `clear` reads: the id of its operation
+#[derive(Deserialize)]
+struct OperationOf {
+  id: String,
 }
 
 /// Forgets the log of the recent project `repository` (Clear Log): its repository's journal at `journal` empties under
-/// `operations.lock`, and the entries of the page of `repository` leave the journal of the page in `app_data`
+/// `operations.lock`, and the entries of the page of `repository` leave the journal of the page in `app_data`, with the
+/// errors the page told of the operations of that journal in another repository (an entry of the page that names an
+/// operation shows where the operation ran)
 ///
 /// # Errors
 /// `locked` while another process keeps a lock, an error of a file that can't be written
 pub fn clear(journal: Option<&Path>, app_data: &Path, repository: &str) -> Result<(), ApiError> {
+  let mut operations = HashSet::new();
   if let Some(common_dir) = journal.and_then(Path::parent).and_then(Path::parent) {
-    ProcessRegistry::of(common_dir).locked(|dir| rewrite(&path(dir), |_| String::new()))?;
+    ProcessRegistry::of(common_dir).locked(|dir| {
+      rewrite(&path(dir), |text| {
+        operations.extend(text.lines().filter_map(|line| serde_json::from_str::<OperationOf>(line).ok()).map(|entry| entry.id));
+        String::new()
+      })
+    })?;
   }
   page_locked(app_data, |path| {
     rewrite(path, |text| {
-      let others = |line: &&str| serde_json::from_str::<OfRepository>(line).is_ok_and(|entry| entry.activity.repository_path != repository);
-      text.lines().filter(others).collect::<Vec<_>>().join("\n")
+      let kept = |line: &&str| {
+        serde_json::from_str::<OfRepository>(line)
+          .is_ok_and(|entry| entry.activity.repository_path != repository && entry.activity.operation_id.is_none_or(|op| !operations.contains(&op)))
+      };
+      text.lines().filter(kept).collect::<Vec<_>>().join("\n")
     })
   })
 }
 
+/// What hears that a journal answered after Activity stopped waiting for it, with entries other than it showed: the
+/// app tells its windows `activity-changed`
+pub type LateListener = Arc<dyn Fn() + Send + Sync>;
+
+/// The answer of a read of a journal: its entries, or why it can't be read
+type Answer = Result<Vec<JournalEntry>, String>;
+
+/// The reads of a journal in this process: one runs at a time, and the reads of Activity meanwhile join it, so a disk
+/// that hangs keeps one blocked thread, never one per read
+#[derive(Default)]
+struct JournalReads {
+  /// The answer of the read that runs, once it came
+  running: Option<watch::Receiver<Option<Answer>>>,
+  /// The entries of the last read that answered; none after one that failed
+  last: Option<Vec<JournalEntry>>,
+  /// Set once a read of Activity stopped waiting for the read that runs: told when its answer differs from `last`
+  late: Option<LateListener>,
+}
+
+/// The reads of the journals of this process, by path
+fn journal_reads() -> MutexGuard<'static, HashMap<PathBuf, JournalReads>> {
+  static READS: LazyLock<Mutex<HashMap<PathBuf, JournalReads>>> = LazyLock::new(Mutex::default);
+  READS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The answer of the read of the journal at `path` that runs, or of one started now on the blocking pool
+fn begin_read(path: &Path) -> watch::Receiver<Option<Answer>> {
+  let mut reads = journal_reads();
+  let state = reads.entry(path.to_path_buf()).or_default();
+  // a read whose thread is gone without an answer (a panic) is no read that runs
+  if let Some(running) = &state.running
+    && running.has_changed().is_ok()
+  {
+    return running.clone();
+  }
+  let (sender, receiver) = watch::channel(None);
+  state.running = Some(receiver.clone());
+  let path = path.to_path_buf();
+  drop(tokio::task::spawn_blocking(in_current_span(move || {
+    let answer = read_journal(&path).map_err(|error| error.to_string());
+    let late = {
+      let mut reads = journal_reads();
+      let state = reads.entry(path).or_default();
+      state.running = None;
+      let changed = answer.as_ref().ok() != state.last.as_ref();
+      state.last = answer.as_ref().ok().cloned();
+      let late = state.late.take();
+      // under the lock: a read of Activity that stops waiting sees either this answer or `late` taken after it
+      let _ = sender.send(Some(answer));
+      late.filter(|_| changed)
+    };
+    if let Some(late) = late {
+      late();
+    }
+  })));
+  receiver
+}
+
+/// The entries of the journal at `path` as Activity shows them: the answer of its read (`begin_read`) by `deadline`, else
+/// what it answered last, with `late` told once its read answers other entries; none when it can't be read, or never
+/// answered
+async fn shown(path: &Path, mut answer: watch::Receiver<Option<Answer>>, deadline: tokio::time::Instant, late: &LateListener) -> Option<Vec<JournalEntry>> {
+  if let Ok(waited) = tokio::time::timeout_at(deadline, answer.wait_for(Option::is_some)).await {
+    return match waited.as_deref() {
+      Ok(Some(Ok(entries))) => Some(entries.clone()),
+      Ok(Some(Err(error))) => {
+        debug!(journal = %path.display(), "cannot read the journal: {error}");
+        None
+      }
+      Ok(None) | Err(_) => {
+        debug!(journal = %path.display(), "the read of the journal ended without an answer");
+        None
+      }
+    };
+  }
+  let mut reads = journal_reads();
+  // it may have answered since the wait ended
+  if let Some(answered) = answer.borrow().as_ref() {
+    return answered.as_ref().ok().cloned();
+  }
+  let state = reads.entry(path.to_path_buf()).or_default();
+  state.late = Some(Arc::clone(late));
+  debug!(journal = %path.display(), "the journal did not answer within the bound: its last answer shows until it does");
+  state.last.clone()
+}
+
 /// What Activity shows (`read_activity`): the journals of `projects` (each recent project with the journal
 /// `subscribe_view` remembered for it; one never opened since has none), each read once for the projects that share
-/// it, in parallel on the blocking pool, each within `timeout` (one that is not read by then, or whose repository is
-/// gone, is unavailable), and the journal of the page in `app_data`
-pub async fn read_activity(projects: &[(String, Option<String>)], app_data: &Path, timeout: Duration) -> ActivityLog {
+/// it, in parallel on the blocking pool, each waited for within `timeout`, then shown as it answered last (`shown`;
+/// one that can't be read, whose repository is gone, or that never answered is unavailable, and `late` hears when one
+/// answers other entries later), and the journal of the page in `app_data`
+pub async fn read_activity(projects: &[(String, Option<String>)], app_data: &Path, timeout: Duration, late: &LateListener) -> ActivityLog {
   let mut journals: Vec<RepositoryJournal> = Vec::new();
   for (repository, journal) in projects {
     let Some(journal) = journal else { continue };
@@ -288,25 +400,15 @@ pub async fn read_activity(projects: &[(String, Option<String>)], app_data: &Pat
       }),
     }
   }
-  let reads: Vec<_> = journals
-    .iter()
-    .map(|journal| {
-      let path = PathBuf::from(&journal.path);
-      tokio::task::spawn_blocking(in_current_span(move || read_journal(&path)))
-    })
-    .collect();
   let app_data = app_data.to_path_buf();
   let page = tokio::task::spawn_blocking(in_current_span(move || read_page(&app_data)));
   let deadline = tokio::time::Instant::now() + timeout;
-  for (journal, read) in journals.iter_mut().zip(reads) {
-    match tokio::time::timeout_at(deadline, read).await {
-      Ok(Ok(Ok(entries))) => {
-        journal.available = true;
-        journal.entries = entries;
-      }
-      Ok(Ok(Err(error))) => debug!(journal = journal.path, "cannot read the journal: {error}"),
-      Ok(Err(error)) => debug!(journal = journal.path, "the read of the journal failed: {error}"),
-      Err(_) => debug!(journal = journal.path, "the journal did not answer within {timeout:?}"),
+  // every read runs before the first wait
+  let reads: Vec<_> = journals.iter().map(|journal| begin_read(Path::new(&journal.path))).collect();
+  for (journal, answer) in journals.iter_mut().zip(reads) {
+    if let Some(entries) = shown(Path::new(&journal.path), answer, deadline, late).await {
+      journal.available = true;
+      journal.entries = entries;
     }
   }
   let page = match page.await {

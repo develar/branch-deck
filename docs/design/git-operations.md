@@ -2828,9 +2828,15 @@ anywhere else):
   more or runs another process (another start time, `process_scan::is_running`), at once; of another host (a common
   dir on a shared disk), whose pids tell nothing here, once its heartbeat is older than 5 minutes. A record with an
   external effect in flight stays as `unknown` and holds what it held. One thread of a process gives the records of
-  the process their heartbeat every 30 s while it has any, and takes out a record of it whose removal failed.
-- **Versions**: a file of another schema, or one that does not parse, is the registry of another Branch Deck: every
-  admission is `busy` without a holder, and the file is never written until the operations of that version ended.
+  the process their heartbeat every 30 s while it has any, and takes out a record of it whose removal failed. Which
+  operations of the process run is read inside the change, under the lock, over all its registries (two spellings of
+  one common dir are one file): an admission counts its operation before its record is written and an end after its
+  record left, so a beat never takes out the record of an operation admitted while it waited for the lock.
+- **Versions**: a file of another schema, or of this schema with records this version can't read, is the registry of
+  another Branch Deck: every admission is `busy` without a holder, and the file is never written until the operations
+  of that version ended. Every write is on the disk before its rename (`AtomicWrite { durable }`), so a crash leaves
+  the state before or after it; a file that is no JSON at all (cut short all the same, emptied by hand) tells nothing:
+  it reads as empty, with a warning, and the next change writes it whole.
 - **No clean rule**: the lock is a `flock`, which the system releases with its holder, so `operations.lock` is never
   stale, and deleting a lock file another process still holds would let two holders in; the record of a process that
   is gone leaves at the next admission. The same holds for the fetch lock beside it (`fetch.lock`, "Update project"):
@@ -2882,8 +2888,11 @@ both ended; a mutation of `bd` touches the stamp, a read, a dry run and a failur
   stack branch of a whole stack) in its mode, started since `sentAt` (`PATRONUS_COMMENT_CLOCK_SLACK` for the clocks), on
   its commit when Patronus names one, or of its pull request for a comment: started, the record leaves (`settle`, a CAS
   on its id and its start), the robot goes into the facts, and the admission is refused as `plan_changed`, its plan made
-  without that robot. A list of the whole window read `SETTLED_AFTER` (30 s, the answer timeout of a start) after
-  `sentAt` without it proves that none started: the record leaves and the admission goes in. A comment is read by its
+  without that robot. A list of the whole window asked `SETTLED_AFTER` (60 s: the answer timeout of a start, 30 s,
+  and as long again for a request Patronus still handles after the client gave up) after `sentAt` without it proves
+  that none started: the record leaves and the admission goes in. A list of the session is dated by its request, not by
+  its answer: the registry, the port the scheduler applies the facts through, notes the time each read begins
+  (`FactsPort::begin`), and a list asked before the start settled proves nothing however late it came. A comment is read by its
   id (one conditional request of its reactions; a post that lost its answer is found by its text among the comments of
   its pull request since `sentAt`, a user's): accepted started, rejected failed, none found once settled failed (the
   post never arrived). Anything else, a read that fails included, stays `unknown`, and the admission is `busy` naming
@@ -2933,11 +2942,16 @@ Every operation of the remote that ended, of the app and of every `bd`, is one l
 - **Activity reads** (`journal::read_activity`, `read_activity`): the journal of the repository of each recent project,
   which `subscribe_view` remembered for the project (`app_settings::journals`, the key `journalPaths`, by the path of
   the project; Rust writes it before the subscription, no window does), each once for the projects that share it, all
-  in parallel on the blocking pool within 200 ms (`ACTIVITY_READ_TIMEOUT`; one not read by then, or whose repository is
-  gone, its `$GIT_COMMON_DIR` missing, is unavailable, while one not written yet is empty), and the journal of the page;
-  no git process. Clear Log (`journal::clear`, `clear_activity`) empties the journal of the
-  repository under `operations.lock` and takes the entries of the project out of the journal of the page under its
-  lock. The watch of the registry of a repository a window shows (`registry_watch`) sees its journal change and tells
+  in parallel on the blocking pool, one read of a journal at a time in the process (a read of Activity meanwhile joins
+  it, so a disk that hangs keeps one thread), each waited for 200 ms (`ACTIVITY_READ_TIMEOUT`), then shown as it
+  answered last: one whose repository is gone (its `$GIT_COMMON_DIR` missing), that can't be read or that never
+  answered is unavailable, one not written yet is empty; a read that answers after the wait with other entries than
+  its journal answered before tells the listener of the read (the app's windows hear `activity-changed`), so a slow
+  disk shows once it answered, and the load of the machine only delays it. The journal of the page comes with them; no
+  git process. Clear Log (`journal::clear`, `clear_activity`) empties the journal of the repository under
+  `operations.lock` and takes the entries of the project out of the journal of the page under its lock, with the
+  errors the page told of the operations of that journal (an entry of the page that names an operation of a journal
+  shows in the projects of that journal, whichever repository was shown when it was told). The watch of the registry of a repository a window shows (`registry_watch`) sees its journal change and tells
   the listener of the journal (`RegistryFiles::on_journal`): the app sends its windows `activity-changed`, and the main
   window and the Activity window read again, as the main window does after each operation and each write of its own.
 - **The cost** (`sync_utils::operation_tally`): the tally of an operation begins at its admission; its git processes
