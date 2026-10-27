@@ -1041,8 +1041,8 @@ async fn the_reads_of_the_facts_reach_the_windows_and_the_scheduler_hears_what_i
     vec!["auth-robot".to_owned()],
     "a running robot of the table, not known failing"
   );
-  let patch = window.take().pop().unwrap();
-  assert_eq!(patch.next, version);
+  // the view of the robots derives from the answer in the blocking pool: its patch may have come after this one already
+  let patch = window.take().into_iter().find(|patch| patch.next == version).expect("the patch of the answer");
   assert_eq!(patch.changes.facts.unwrap().robots.unwrap().robots.keys().collect::<Vec<_>>(), vec!["auth-robot"]);
 
   // a start's robot: newer than every read before, polled from now on
@@ -1122,7 +1122,7 @@ async fn the_readiness_a_window_needs_is_in_its_view_and_stale_in_the_patch_of_a
     .version()
     .await
     .unwrap();
-  sessions
+  let version = sessions
     .apply(&key, |state| {
       state.apply(SyncEvent::CommitSynced {
         branch_name: "auth".to_owned(),
@@ -1135,7 +1135,8 @@ async fn the_readiness_a_window_needs_is_in_its_view_and_stale_in_the_patch_of_a
     .version()
     .await
     .unwrap();
-  let patch = window.take().pop().unwrap();
+  // the view of the robots and its landing needs derive in the blocking pool: their patches may still come after it
+  let patch = window.take().into_iter().find(|patch| patch.next == version).expect("the patch of the new tip");
   assert!(patch.changes.branches.contains_key("auth"));
   assert_eq!(patch.changes.facts.unwrap().readiness["auth"].state, FactState::Stale { reason: None });
   drop(heard(&mut events));
