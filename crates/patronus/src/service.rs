@@ -251,10 +251,11 @@ impl PatronusService {
     }
   }
 
-  /// A start, a restart, a cancel or a poll changed the robots: the next full list of the page asks Patronus, and a list
-  /// in flight is not kept. A list reused within `FULL_LIST_REUSE` would show a robot the page just canceled, or one a
-  /// poll saw finish, running
-  pub(crate) fn forget_full_lists(&self) {
+  /// A start, a restart, a cancel or a poll changed the robots, or a reconcile found the robot of a start whose answer was
+  /// lost (`operations::reconcile`): the next full list of the page asks Patronus, and a list in flight is not kept. A
+  /// list reused within `FULL_LIST_REUSE` would show a robot the page just canceled, or one a poll saw finish, running,
+  /// and would hide the robot of a start that a list kept from before lacks
+  pub fn forget_full_lists(&self) {
     let mut state = self.lock();
     state.full_list_generation += 1;
     self.caches.full_lists.invalidate_all();

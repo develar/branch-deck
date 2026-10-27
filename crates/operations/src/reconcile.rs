@@ -8,7 +8,9 @@
 //!   reconcile asks itself `SETTLED_AFTER` after the request at least (the time a start waits for its answer, and as
 //!   long again): Patronus may still create the robot of a request it handles before then. A list a caller has (the
 //!   session's) proves only that it started: the service may answer it from a full list it kept (`FULL_LIST_REUSE`),
-//!   asked before the start settled however late it came, so without the robot the reconcile asks again.
+//!   asked before the start settled however late it came, so without the robot the reconcile asks again, one list for
+//!   all the starts it reconciles, since the oldest (`reconcile_all`). A robot that list finds is one a kept full list
+//!   may lack: the service drops its kept lists, as a start does, so no list of a window hides it from then on.
 //! - As a `/patronus` comment: its robot is one of its pull request in its mode started since; else the reply of the bot
 //!   to its comment (one conditional request of its reactions) by its id, or, for a post whose answer was lost, the
 //!   comment of a user with its text on the pull request since it was sent. Accepted is started (its robot comes with a
@@ -17,7 +19,9 @@
 //! `reconcile` runs at an admission that a start whose answer was lost refuses (`admit_settled`, the app's
 //! `registry::Registry::admit` and `bd`), and after each list of the robots of a session (`Registry::reconcile_after_robots`):
 //! settled, the record leaves the registry (`ProcessRegistry::settle`, while it is as it was read), and what it held is
-//! free. Started at an admission refuses that admission as `plan_changed`: its plan was made without that robot.
+//! free. Started at an admission refuses that admission as `plan_changed`: its plan was made without that robot. The
+//! robot of one that started goes into the facts of the session that settled it and of the session of its record
+//! (`StartedRobot`), so neither row offers to start it once more.
 
 use crate::land_execute::StartServices;
 use crate::land_session::robots_since;
@@ -159,12 +163,70 @@ pub enum SettleWith<'a> {
   Sources(ReconcileSources),
 }
 
-/// What the start of `record` did, read now: the user's robots, `listed` (a list the caller has, which proves only that
-/// it started) or asked now (at `sources.now`, since it was sent: through the API when no list tells yet, or once it
-/// settled, as only such a list proves it absent), then for a comment the reply of the bot. A read that fails tells
-/// nothing: unknown
-#[instrument(skip_all, fields(op = %record.id))]
+/// What the start of `record` did, read now: `reconcile_all` of it alone
 pub async fn reconcile(record: &Record, sources: &ReconcileSources, listed: Option<&[PatronusRobot]>) -> Reconciled {
+  reconcile_all(std::slice::from_ref(record), sources, listed).await.pop().unwrap_or(Reconciled::Unknown)
+}
+
+/// What the starts of `records` did, read now, one answer per record in their order: the user's robots, `listed` (a
+/// list the caller has, which proves only that one started) or one list asked now (at `sources.now`) since the oldest of
+/// the starts that need it (`asks_since`: through the API when no list tells yet, or once it settled, as only such a
+/// list proves it absent; a comment when no list tells yet), then for a comment the reply of the bot. A robot found by
+/// that list may be missing from a full list the service kept: its kept lists go. A read that fails tells nothing:
+/// unknown
+#[instrument(skip_all, fields(starts = records.len()))]
+pub async fn reconcile_all(records: &[Record], sources: &ReconcileSources, listed: Option<&[PatronusRobot]>) -> Vec<Reconciled> {
+  let asking: Vec<Option<u32>> = records.iter().map(|record| asks_since(record, listed, sources.now)).collect();
+  let robots = match asking.iter().flatten().min() {
+    Some(oldest) => list_robots(sources, oldest.saturating_sub(PATRONUS_COMMENT_CLOCK_SLACK)).await,
+    None => None,
+  };
+  let mut answers = Vec::with_capacity(records.len());
+  for (record, asks) in records.iter().zip(&asking) {
+    let asked = match (asks, &robots) {
+      (None, _) => Asked::Not,
+      (Some(_), Some(robots)) => Asked::Robots(robots),
+      (Some(_), None) => Asked::Failed,
+    };
+    answers.push(reconcile_one(record, sources, listed, asked).await);
+  }
+  // a robot of a start that `listed` lacks came with the list asked here
+  let found = asking
+    .iter()
+    .zip(&answers)
+    .any(|(asks, answer)| asks.is_some() && matches!(answer, Reconciled::Started(Some(_))));
+  if found && let Some((patronus, ..)) = &sources.patronus {
+    patronus.forget_full_lists();
+  }
+  answers
+}
+
+/// Since when the reconcile of `record` at `now` asks the robots itself: since its start was sent, when no list tells yet
+/// (`listed` none), or through the API once it settled and `listed` lacks its robot; none when it asks nothing (nothing
+/// was sent, its robot is listed, a start through the API not settled yet, a comment with a list: its bot tells)
+fn asks_since(record: &Record, listed: Option<&[PatronusRobot]>, now: u32) -> Option<u32> {
+  let start = record.pending_start()?;
+  let Some(listed) = listed else {
+    return Some(start.sent_at);
+  };
+  let api = matches!(start.route, StartRoute::Api { .. });
+  (api && settled(start, now) && robot_of(start, mode_of(record), &record.session.prefix, listed).is_none()).then_some(start.sent_at)
+}
+
+/// What the list of the robots that a reconcile asked itself tells of one start
+#[derive(Clone, Copy)]
+enum Asked<'a> {
+  /// None was asked for it
+  Not,
+  /// The read failed
+  Failed,
+  /// The user's robots since it was sent, or since an older start
+  Robots(&'a [PatronusRobot]),
+}
+
+/// What the start of `record` did by `listed`, by the list `asked` for it, then for a comment by the reply of the bot
+#[instrument(skip_all, fields(op = %record.id))]
+async fn reconcile_one(record: &Record, sources: &ReconcileSources, listed: Option<&[PatronusRobot]>, asked: Asked<'_>) -> Reconciled {
   let Some(start) = record.pending_start() else {
     // nothing was sent: nothing can run
     return Reconciled::Failed;
@@ -174,19 +236,16 @@ pub async fn reconcile(record: &Record, sources: &ReconcileSources, listed: Opti
     return Reconciled::Started(Some(Box::new(robot)));
   }
   let api = matches!(start.route, StartRoute::Api { .. });
-  if listed.is_none() || (api && settled(start, sources.now)) {
-    let asked = list_robots(sources, start.sent_at.saturating_sub(PATRONUS_COMMENT_CLOCK_SLACK)).await;
-    if let Some(robots) = asked {
-      let told = by_robots(start, mode, prefix, &robots, sources.now);
+  match asked {
+    Asked::Robots(robots) => {
+      let told = by_robots(start, mode, prefix, robots, sources.now);
       if told != Reconciled::Unknown || api {
         return told;
       }
-    } else if api {
-      return Reconciled::Unknown;
     }
-  } else if api {
-    // not settled yet: a list asked now could not prove it absent either
-    return Reconciled::Unknown;
+    // the read failed, or not settled yet: a list asked now could not prove it absent either
+    Asked::Failed | Asked::Not if api => return Reconciled::Unknown,
+    Asked::Failed | Asked::Not => {}
   }
   let StartRoute::Comment { number } = start.route else {
     return Reconciled::Unknown;
@@ -232,7 +291,16 @@ async fn by_comment(start: &PendingStart, number: u32, mode: PatronusPushMode, s
 /// of one that did start, which the caller writes into its facts
 pub struct SettledAdmission {
   pub entry: Result<Entry, ApiError>,
-  pub started: Option<PatronusRobot>,
+  pub started: Option<StartedRobot>,
+}
+
+/// The robot a start whose answer was lost started, found by a reconcile, with the session of its record: the session
+/// that settled it and that one (another worktree of the repository with the same prefix) both list the robots that
+/// hold its subject, and neither may offer to start it once more
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartedRobot {
+  pub session: SessionKey,
+  pub robot: PatronusRobot,
 }
 
 /// Admits the operation `id` of `tool` in the session `key` that asks `request` into `registry`, as
@@ -284,7 +352,12 @@ pub async fn admit_settled(
     }
     if let Reconciled::Started(robot) = reconciled {
       let robot = robot.map(|robot| *robot);
-      return admitted_with(Err(started_meanwhile(&holder, robot.as_ref(), sources.now)), robot);
+      let refused = started_meanwhile(&holder, robot.as_ref(), sources.now);
+      let started = robot.map(|robot| StartedRobot {
+        session: holder.session.clone(),
+        robot,
+      });
+      return admitted_with(Err(refused), started);
     }
     debug!(op = %holder.id, "the start whose answer was lost started no robot: it left the registry");
   }
@@ -294,7 +367,7 @@ pub async fn admit_settled(
   )
 }
 
-const fn admitted_with(entry: Result<Entry, ApiError>, started: Option<PatronusRobot>) -> SettledAdmission {
+const fn admitted_with(entry: Result<Entry, ApiError>, started: Option<StartedRobot>) -> SettledAdmission {
   SettledAdmission { entry, started }
 }
 

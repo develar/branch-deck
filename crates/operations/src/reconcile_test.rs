@@ -310,8 +310,8 @@ async fn a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_
   let admitted = admit_again(&fixture, &files, &key, unix_now()).await;
   let refused = admitted.entry.unwrap_err();
   assert_eq!(
-    (refused.code, admitted.started.map(|robot| robot.id)),
-    (ErrorCode::PlanChanged, Some("started-1".to_string()))
+    (refused.code, admitted.started.map(|started| (started.session == key, started.robot.id))),
+    (ErrorCode::PlanChanged, Some((true, "started-1".to_string())))
   );
   assert_eq!(files.records().unwrap(), Some(Vec::new()));
   assert_eq!(fixture.fake.starts.lock().unwrap().len(), 1);
@@ -420,10 +420,17 @@ async fn a_list_of_the_robots_of_a_session_settles_its_lost_starts() {
   assert_eq!(queries[0].get("start"), Some(&format_utc_timestamp(SENT - PATRONUS_COMMENT_CLOCK_SLACK)));
 }
 
+/// Whether the open session of `key` has the robot `id` among its robots
+async fn session_has_robot(registry: &Registry, key: &SessionKey, id: &'static str) -> Option<bool> {
+  registry.sessions().read(key, move |_state, facts| facts.robots.view().robots.contains_key(id)).await
+}
+
 /// A full list of the robots that the service kept for the windows (`FULL_LIST_REUSE`) answers a session after the start
 /// settled, but was asked before Patronus created the robot of a start whose answer was lost: it never proves the start
-/// absent. The reconcile asks the robots since the start was sent itself, finds the robot and settles it as started,
-/// so the row never offers to start it once more
+/// absent. The reconcile asks the robots since the start was sent itself, finds the robot and settles it as started;
+/// the robot goes into the session that settled it and into the session of the record (another worktree with the same
+/// prefix), and the service drops its kept list, so the next full list of a window asks Patronus and lists it: no row
+/// offers to start it once more
 #[tokio::test(flavor = "multi_thread")]
 async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_it_absent() {
   let directory = tempfile::tempdir().unwrap();
@@ -431,7 +438,11 @@ async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_i
   let (fake, patronus) = patronus_of_the_app().await;
   let now = Arc::new(AtomicU32::new(SENT + 55));
   let (registry, key) = settling_registry(directory.path(), Arc::clone(&now), Some(Arc::clone(&patronus)));
-  files.insert_of_another_process(lost_record(api())).unwrap();
+  let mut record = lost_record(api());
+  record.session.worktree = "/elsewhere".to_string();
+  let elsewhere = record.session.clone();
+  let _open = (registry.sessions().hold(&key), registry.sessions().hold(&elsewhere));
+  files.insert_of_another_process(record).unwrap();
   // the full list of a window (Refresh), asked before the start settled: kept by the service
   let first = patronus.robots("ultimate", "test", None, false, false).await;
   assert_eq!((first.availability.clone(), first.robots.len()), (PatronusAvailability::Available, 0));
@@ -443,9 +454,56 @@ async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_i
   now.store(SENT + SETTLED_AFTER + 1, Ordering::SeqCst);
   let kept = patronus.robots("ultimate", "test", None, false, false).await;
   assert_eq!((kept.robots.len(), fake.list_calls.load(Ordering::SeqCst)), (0, 1));
+  assert_eq!(session_has_robot(&registry, &key, "late").await, Some(false));
   registry.reconcile_after_robots(&key, &kept.robots).await;
 
   assert_eq!(files.records().unwrap(), Some(Vec::new()));
   assert_eq!(settled_as(directory.path()), [Some("late".to_string())]);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
+  assert_eq!(
+    (session_has_robot(&registry, &key, "late").await, session_has_robot(&registry, &elsewhere, "late").await),
+    (Some(true), Some(true))
+  );
+  let next = patronus.robots("ultimate", "test", None, false, false).await;
+  assert_eq!(
+    (
+      next.robots.iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>(),
+      fake.list_calls.load(Ordering::SeqCst)
+    ),
+    (vec!["late"], 3)
+  );
+}
+
+/// The lost starts of a prefix that a list of the session lacks are settled by one list of the robots since the oldest
+/// of them, and a list of another window that comes meanwhile waits for that reconcile, so it asks nothing for what that
+/// one settled: one request for two starts and two lists
+#[tokio::test(flavor = "multi_thread")]
+async fn the_lost_starts_of_a_prefix_settle_by_one_list_since_the_oldest() {
+  let directory = tempfile::tempdir().unwrap();
+  let files = ProcessRegistry::of(directory.path());
+  let (fake, patronus) = patronus_of_the_app().await;
+  let now = Arc::new(AtomicU32::new(SENT + 5 + SETTLED_AFTER));
+  let (registry, key) = settling_registry(directory.path(), now, Some(patronus));
+  files.insert_of_another_process(lost_record(api())).unwrap();
+  let mut beta = lost_record(PendingStart {
+    source_ref: "refs/heads/test/virtual/beta".to_string(),
+    sent_at: SENT + 5,
+    ..api()
+  });
+  beta.id = OperationId("lost-beta".to_string());
+  beta.intent = land_intent("beta", PatronusPushMode::RebaseAutosquash);
+  files.insert_of_another_process(beta).unwrap();
+  *fake.robots.lock().unwrap() = Some(vec![listed_robot("late", SENT + 59)]);
+
+  tokio::join!(registry.reconcile_after_robots(&key, &[]), registry.reconcile_after_robots(&key, &[]));
+
+  assert_eq!(files.records().unwrap(), Some(Vec::new()));
+  let mut settled = settled_as(directory.path());
+  settled.sort();
+  assert_eq!(settled, [None, Some("late".to_string())]);
+  let queries = fake.list_queries.lock().unwrap().clone();
+  assert_eq!(
+    queries.iter().map(|query| query.get("start").cloned()).collect::<Vec<_>>(),
+    [Some(format_utc_timestamp(SENT - PATRONUS_COMMENT_CLOCK_SLACK))]
+  );
 }

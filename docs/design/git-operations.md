@@ -2887,14 +2887,19 @@ both ended; a mutation of `bd` touches the stamp, a read, a dry run and a failur
   `FactsPort`, on a task of its own). Its robot is one of the user's robots of its source ref (the virtual branch, the
   stack branch of a whole stack) in its mode, started since `sentAt` (`PATRONUS_COMMENT_CLOCK_SLACK` for the clocks), on
   its commit when Patronus names one, or of its pull request for a comment: started, the record leaves (`settle`, a CAS
-  on its id and its start), the robot goes into the facts, and the admission is refused as `plan_changed`, its plan made
-  without that robot. A list of the robots since `sentAt` that the reconcile asks itself `SETTLED_AFTER` (60 s: the
+  on its id and its start), the robot goes into the facts of the session that settled it and of the session of the
+  record when that is another worktree with the same prefix (`write_started`: newer than every read that began before,
+  so a list that lacks it never takes it out), and the admission is refused as `plan_changed`, its plan made without
+  that robot. A list of the robots since `sentAt` that the reconcile asks itself `SETTLED_AFTER` (60 s: the
   answer timeout of a start, 30 s, and as long again for a request Patronus still handles after the client gave up)
   after `sentAt` at least without it proves that none started: the record leaves and the admission goes in. A list of
   the session proves only that it started: the service may answer it from the full list it kept for the windows
   (`FULL_LIST_REUSE`, 10 s, shared by the sessions of a Space repository), asked before the start settled however late
-  it came; without the robot, a start that settled is asked again by that list of the reconcile (one request, never
-  before it settled). A comment is read by its
+  it came; without the robot, a start that settled is asked again by that list of the reconcile, never before it
+  settled: one request for all such starts of the prefix, since the oldest (`reconcile_all`), and one reconcile of a
+  repository at a time, so the list of another window meanwhile reads the records it settled and asks nothing for them.
+  A robot that list finds is one a kept full list lacks: the service drops its kept lists (`forget_full_lists`, as a
+  start does), so the next list of a window asks Patronus. A comment is read by its
   id (one conditional request of its reactions; a post that lost its answer is found by its text among the comments of
   its pull request since `sentAt`, a user's): accepted started, rejected failed, none found once settled failed (the
   post never arrived). Anything else, a read that fails included, stays `unknown`, and the admission is `busy` naming
@@ -2906,8 +2911,9 @@ both ended; a mutation of `bd` touches the stamp, a read, a dry run and a failur
 `operations/src/reconcile_test.rs` pins the reconcile (a lost answer of the fake Patronus, which drops the connection
 after it took the start: unknown, one `POST`, the record with the pushed commit, `busy` for its own process too, settled
 once the fake lists its robot; a start the fake doesn't list once settled leaves; a comment found by its text and
-settled by the bot's reply; a list of the robots of a session settles its starts, and a full list the service kept from
-before a start settled never proves it absent), `registry_file_test.rs` and `forget_test.rs` the record and its forget, and
+settled by the bot's reply; a list of the robots of a session settles its starts, a full list the service kept from
+before a start settled never proves it absent and its robot goes into both sessions, and two starts and two lists cost
+one request), `registry_file_test.rs` and `forget_test.rs` the record and its forget, and
 `bd-cli/src/cross_process_test.rs` a `bd safe-push auth` killed between its push and its start (the app settles it and
 starts once, pushing nothing more) and `bd operation forget`.
 

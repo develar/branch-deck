@@ -26,7 +26,7 @@
 
 use crate::events::EventSink;
 use crate::journal::stats_of;
-use crate::reconcile::{ReconcileSources, Reconciled, SettleWith, admit_settled, reconcile};
+use crate::reconcile::{ReconcileSources, Reconciled, SettleWith, StartedRobot, admit_settled, reconcile_all};
 use crate::registry_file::{Entry, ProcessRegistry, RecordHandle, RecordStatus};
 use crate::registry_watch::{SessionWatch, Watches};
 use domain_policy::admission::admit;
@@ -80,7 +80,12 @@ pub struct Registry {
   channels: Arc<Mutex<HashMap<OperationId, Channel>>>,
   /// The watches of the registries of the repositories whose sessions a window shows
   watches: Watches,
+  /// One reconcile after a list at a time per registry file (`reconcile_after_robots`)
+  reconciling: Arc<Turns>,
 }
+
+/// The turn of each registry file, by its directory, which a reconcile after a list waits for
+type Turns = Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>;
 
 /// Where the operations of the sessions of a registry are recorded for the other processes of their repositories
 /// (`registry_file::ProcessRegistry` of the `$GIT_COMMON_DIR` of each), and as which program
@@ -156,16 +161,15 @@ impl RegistryFiles {
 
   /// The record of the operation `id` of the session of `key` that asks `request`, in the registry of its repository,
   /// a start whose answer was lost in its way settled first (`reconcile::admit_settled`); none when nothing is
-  /// recorded. A start that did start goes into the session before the admission is refused
+  /// recorded. A start that did start goes into the sessions (`write_started`) before the admission is refused
   async fn enter(&self, sessions: &Sessions, key: &SessionKey, id: &OperationId, request: &OperationRequest) -> Result<Option<Entry>, ApiError> {
     let Some(registry) = self.registry_of(key).await else {
       return Ok(None);
     };
     let settle = self.settle.as_deref().map(|host| SettleWith::Host(host, (self.now)(key)));
     let admitted = admit_settled(&registry, id, self.tool, key, request, settle).await;
-    if let Some(robot) = admitted.started {
-      // a session not open keeps no robots
-      let _ = sessions.write_robot(key, robot).await;
+    if let Some(started) = admitted.started {
+      write_started(sessions, key, started).await;
     }
     admitted.entry.map(Some)
   }
@@ -231,6 +235,7 @@ impl Registry {
       watches: Watches::new(files.journaled.clone()),
       files,
       channels: Arc::new(Mutex::new(HashMap::new())),
+      reconciling: Arc::new(Mutex::new(HashMap::new())),
     }
   }
 
@@ -286,14 +291,26 @@ impl Registry {
   }
 
   /// Settles the starts whose answer was lost of the prefix of `key` in the registry of its repository after a list of
-  /// the session brought `listed`, the user's robots, over the services of the files (`reconcile`): one whose robot it
-  /// has started; else through the API a list the reconcile asks once the start settled tells (the list of the session
-  /// may be one the service kept from before), and for a comment the reply of the bot. A settled one leaves the
-  /// registry and the windows read it again. Nothing without such a start, or without the services
+  /// the session brought `listed`, the user's robots, over the services of the files (`reconcile::reconcile_all`): one
+  /// whose robot it has started; else through the API one list the reconcile asks for all of them once they settled
+  /// tells (the list of the session may be one the service kept from before), and for a comment the reply of the bot.
+  /// A settled one leaves the registry and the windows read it again; the robot of one that started goes into the
+  /// sessions (`write_started`). One such reconcile of a repository runs at a time: the next (the list of another
+  /// window) reads the records once it ended, so it asks nothing for what that one settled. Nothing without such a
+  /// start, or without the services
   pub async fn reconcile_after_robots(&self, key: &SessionKey, listed: &[domain_types::patronus::PatronusRobot]) {
     let (Some(host), Some(registry)) = (self.files.settle.as_deref(), self.files.registry_of(key).await) else {
       return;
     };
+    let turn = Arc::clone(
+      self
+        .reconciling
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(registry.dir().to_path_buf())
+        .or_default(),
+    );
+    let _turn = turn.lock().await;
     let reading = registry.clone();
     let records = tokio::task::spawn_blocking(in_current_span(move || reading.of_other_processes())).await;
     let unknown: Vec<_> = match records {
@@ -303,17 +320,25 @@ impl Registry {
         .collect(),
       _ => return,
     };
+    if unknown.is_empty() {
+      return;
+    }
     let sources = ReconcileSources::of(host, key, (self.files.now)(key)).await;
+    let reconciled = reconcile_all(&unknown, &sources, Some(listed)).await;
     let mut settled = false;
-    for record in unknown {
-      let transition = match reconcile(&record, &sources, Some(listed)).await {
+    for (record, reconciled) in unknown.into_iter().zip(reconciled) {
+      let transition = match &reconciled {
         Reconciled::Unknown => continue,
-        Reconciled::Started(robot) => JournalTransition::Started { robot },
+        Reconciled::Started(robot) => JournalTransition::Started { robot: robot.clone() },
         Reconciled::Failed => JournalTransition::NotStarted,
       };
+      let session = record.session.clone();
       let settling = registry.clone();
       let removed = tokio::task::spawn_blocking(in_current_span(move || settling.settle(&record, transition))).await;
       settled |= matches!(removed, Ok(Ok(true)));
+      if let Reconciled::Started(Some(robot)) = reconciled {
+        write_started(&self.sessions, key, StartedRobot { session, robot: *robot }).await;
+      }
     }
     if settled {
       debug!("a list of the robots settled a start whose answer was lost");
@@ -419,6 +444,17 @@ impl FactsPort for Registry {
       applied
     })
   }
+}
+
+/// The robot that a start whose answer was lost started, found by a reconcile, goes into the robots of the open session
+/// of `key`, which settled it, and of the session of its record when that is another (a worktree of the repository with
+/// the same prefix): newer than every read that began before, so a list that lacks it (one the service kept from
+/// before) never takes it out, and neither row offers to start it once more. A session not open keeps no robots
+async fn write_started(sessions: &Sessions, key: &SessionKey, started: StartedRobot) {
+  if started.session != *key {
+    let _ = sessions.write_robot(&started.session, started.robot.clone()).await;
+  }
+  let _ = sessions.write_robot(key, started.robot).await;
 }
 
 /// The session closed before the operation could run

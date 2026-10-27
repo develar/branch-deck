@@ -1304,7 +1304,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
     Роботов приложение читает `PatronusService::robots_for_checks` (полный список, запрошенный сейчас, никогда не из
     кеша страницы: робот, которого IDE или `bd` запустили после списка страницы, должен держать; фоновый запрос: backoff и
     отклонённый токен — без запроса). Кешированный полный список (`FULL_LIST_REUSE` 10 с) служит только спискам страницы;
-    start, restart, cancel и poll, увидевший изменение, сбрасывают его и список в полёте (поколение `forget_full_lists`).
+    start, restart, cancel, poll, увидевший изменение, и reconcile, нашедший робота старта с потерянным ответом,
+    сбрасывают его и список в полёте (поколение `forget_full_lists`).
     Занятый lock: «Nothing was pushed: <держатель | another Branch Deck operation> holds the repository; try
     again when it is done». Проверка landing gate поповера (`check_landing_gate`) берёт landed-коммиты из того же
     представления на роботах Rust (`start_guard::check_landing`), а не от страницы (`getLandedCommits` удалён,

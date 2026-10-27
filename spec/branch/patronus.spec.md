@@ -1635,14 +1635,17 @@ explicit choice of the user, offered only where the approvals count in a pull re
   A read of Patronus settles it: at an admission it holds back, and after each list of the robots of the session. Its
   robot is one of the user's robots of its source ref in its mode started since it was sent (on its commit when
   Patronus names one), or of its pull request; found, it is started (the admission is refused as `plan_changed`, the
-  robot in the facts); a list of the whole window asked 60 s after it was sent at least (the 30 s a start waits for its
+  robot in the facts of the session that settled it and of the worktree that sent it, so neither row offers Safe Push
+  of it again); a list of the whole window asked 60 s after it was sent at least (the 30 s a start waits for its
   answer, and as long again for a request Patronus still handles) without it means none started (the record leaves,
   and the start goes as planned, without the push that went before); a list asked earlier proves nothing, however late
   its answer came, so a list of the session (which may be one kept for the windows from before) proves only that it
-  started, and without its robot a start that settled is asked once more since it was sent. A comment is settled by the
-  reply of the bot to it (found by its text among the comments of its pull request since it was sent when its post
-  lost its answer): accepted started, rejected or never posted failed. Forget This Start (and `bd operation forget`)
-  takes the record out without asking Patronus: the toast "Forgot the start of auth" says Patronus may still run it.
+  started, and without its robot a start that settled is asked once more since it was sent (one request for all such
+  starts of the prefix, since the oldest), and no list kept from before hides the robot it finds. A comment is settled
+  by the reply of the bot to it (found by its text among the comments of its pull request since it was sent when its
+  post lost its answer): accepted started, rejected or never posted failed. Forget This Start (and
+  `bd operation forget`) takes the record out without asking Patronus: the toast "Forgot the start of auth" says
+  Patronus may still run it.
   [@test] ../../crates/patronus/src/actions_test.rs (`a_start_whose_answer_was_lost_is_lost_and_sent_once`)
   [@test] ../../crates/operations/src/reconcile_test.rs (`a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_lists_its_robot`)
   [@test] ../../crates/operations/src/reconcile_test.rs (`a_lost_start_patronus_does_not_list_once_it_settled_leaves_and_the_admission_goes_in`)
@@ -1661,6 +1664,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should show a start whose answer was lost on its row, refuse a start of it, and start again once it is forgotten`)
   [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should open the pull request of a comment start whose answer was lost`)
   [@test] ../../crates/operations/src/reconcile_test.rs (`a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_it_absent`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`the_lost_starts_of_a_prefix_settle_by_one_list_since_the_oldest`)
 - After a mutation of `bd` (an agent's `bd group`, `bd push`), the session a window shows must sync once what a sync
   reads changed, without a focus: `bd` touched the stamp of the repository, which the window watches.
   [@test] ../../crates/operations/src/registry_watch_test.rs (`a_stamp_of_bd_syncs_the_session_a_window_shows`)
