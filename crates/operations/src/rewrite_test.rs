@@ -1,10 +1,9 @@
 use crate::events::NoEvents;
 use crate::push::push_test::{Fixture, OFFLINE, fixture, waits_for_the_agent};
-use crate::registry::Admitted;
-use crate::rewrite::{execute_rewrite, rewrite_request};
+use crate::rewrite::execute_rewrite;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
-use domain_types::operation::{EffectStatus, Intent, OperationId, OperationResult, OperationStep, Outcome, RunningOperation};
+use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationStep, Outcome, RunningOperation};
 use domain_types::rewrite::{ParkBranchLine, RewriteIntent, RewriteResult, TableWitness, UndoKind};
 use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -108,39 +107,25 @@ async fn a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_u
   assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "HEAD is back");
 }
 
-/// Three clicks of Unstack of one branch, the second and the third from two other windows while the first waits for the
-/// lock another process holds, are one rewrite: they join the first, all three get its outcome, and HEAD moves once
+/// Three clicks of Unstack of one branch (from two windows too) while the first waits for the lock another process
+/// holds are one rewrite: the second and the third join the first (its record counts them), all three get its outcome,
+/// and HEAD moves once
 #[tokio::test(flavor = "multi_thread")]
 async fn a_triple_unstack_is_one_rewrite_with_one_outcome() {
   let fixture = fixture(true).await;
   let held = fixture.lock();
   let unstack = unstack(&fixture.witness().await);
-  let windows = async {
-    let operations = fixture.until(waits_with(1)).await;
+  let release = async {
+    let operations = fixture.until(|operations| waits_with(1)(operations) && operations[0].joined == 2).await;
     assert_eq!(operations[0].intent, Intent::Rewrite(Box::new(unstack.clone())));
-    let mut answers = Vec::new();
-    for _ in 0..2 {
-      let id = OperationId(sync_utils::operation_id::OperationId::new().to_string());
-      let admitted = fixture
-        .registry
-        .admit(&fixture.key, id, rewrite_request(&fixture.key.prefix, &unstack), Arc::new(NoEvents))
-        .await
-        .unwrap();
-      let Admitted::Joined(joined) = admitted else {
-        panic!("a second click runs a rewrite of its own")
-      };
-      answers.push(joined);
-    }
     drop(held);
-    let mut outcomes = Vec::new();
-    for joined in answers {
-      outcomes.push(joined.answer().await.unwrap());
-    }
-    outcomes
   };
-  let (first, others) = within_a_minute(Box::pin(async { tokio::join!(fixture.rewrite(&unstack), windows) })).await;
-  let first = first.unwrap();
-  assert_eq!(others.iter().map(|outcome| &outcome.op).collect::<Vec<_>>(), [&first.op, &first.op], "one rewrite");
+  let (first, second, third, ()) = within_a_minute(Box::pin(async {
+    tokio::join!(fixture.rewrite(&unstack), fixture.rewrite(&unstack), fixture.rewrite(&unstack), release)
+  }))
+  .await;
+  let (first, second, third) = (first.unwrap(), second.unwrap(), third.unwrap());
+  assert_eq!([&second.op, &third.op], [&first.op, &first.op], "one rewrite");
   assert_eq!(fixture.subjects(), ["(beta) Beta", "(alpha) Alpha"]);
   let rewrites = fixture
     .repo
