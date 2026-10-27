@@ -25,6 +25,7 @@ fn table() -> TableState {
     branch_name: "user/stack/auth".to_owned(),
     members: vec!["auth".to_owned(), "ui".to_owned()],
     commit_count: 3,
+    my_email: None,
     state: StackBranchState::Built,
     tip: Some("stack-tip".to_owned()),
     blocked_by: None,

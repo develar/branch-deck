@@ -122,7 +122,7 @@ pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Plan
       }
       Subject::WholeStack { root } => {
         let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root)?;
-        let pushed = PushedRef::stack_branch(sources.table, stack, PushLease::Frozen);
+        let pushed = PushedRef::stack_branch(stack, PushLease::Frozen);
         (pushed, stack.tip.clone(), sources.remote.stacks.get(root))
       }
     };

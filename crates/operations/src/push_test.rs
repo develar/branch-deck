@@ -438,6 +438,39 @@ async fn a_push_of_a_stack_leaves_an_ancestor_that_asks_first_unless_forced() {
   );
 }
 
+/// Push with Children of a branch whose own push drops remote commits asks of that drop alone: a child whose push drops
+/// remote commits too is left out unless forced. Run on the drop the user accepted, the intent as it was (what the Force
+/// Push of the push button of the page runs), it sends the branch over its remote and leaves the commit of someone else
+/// on the remote of the child, which nobody showed, where it is; forced, it would drop that one too
+#[tokio::test(flavor = "multi_thread")]
+async fn push_with_children_run_on_the_accepted_drop_leaves_a_child_that_drops_remote_commits_out() {
+  let fixture = fixture(true).await;
+  assert_done(&fixture.execute(&scoped("beta", PushScope::WithAncestors), Vec::new()).await);
+  fixture.someone_else_on("alpha").await;
+  fixture.someone_else_on("beta").await;
+  let theirs = fixture.remote_tip("beta");
+  let push = Push {
+    expect_remote: fixture.repo.rev_parse("refs/remotes/origin/test/virtual/alpha").ok(),
+    ..scoped("alpha", PushScope::WithChildren)
+  };
+  let plan = fixture.plan(&push).await;
+  let shown = [Confirmation::ForcePushDrops {
+    branch: "alpha".to_string(),
+    commits: 1,
+  }];
+  assert_eq!((pushed_by(&plan), plan.confirmations.as_slice()), (Some((names(&["alpha"]), true)), &shown[..]));
+  let forced = fixture.plan(&Push { force: true, ..push.clone() }).await;
+  assert_eq!(pushed_by(&forced), Some((names(&["alpha", "beta"]), true)), "forced, the drop of beta nobody saw goes too");
+
+  assert_done(&fixture.execute(&push, shown.to_vec()).await);
+  assert_eq!(
+    fixture.remote_tip("alpha"),
+    fixture.repo.rev_parse("test/virtual/alpha").unwrap(),
+    "the drop the user accepted"
+  );
+  assert_eq!(fixture.remote_tip("beta"), theirs, "the commit of someone else on the remote of beta stays");
+}
+
 /// Push Up to Here pushes the branches the commit is built on that have work, whole, then its branch up to the commit:
 /// the commits after it stay unpushed, and the status the push left counts them as the user's, as a sync does (the
 /// author of the branch's commits). A commit no Push Up to Here is offered of (the remote has it, a sync rebuilt the
@@ -515,6 +548,64 @@ async fn the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_o
   let outcome = fixture.execute(&children, Vec::new()).await.unwrap();
   assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
   assert_eq!(fixture.plan(&whole).await.effects, Vec::new(), "the stack branch went along");
+}
+
+impl Fixture {
+  /// A commit of Ann, who authored none of the commits of the fixture, adding `file`, and the session synced on it
+  async fn ann_commits(&self, message: &str, file: &str) {
+    std::fs::write(self.repo.path().join(file), format!("{file}\n")).unwrap();
+    self.repo.git(&["add", "--", file]);
+    self
+      .repo
+      .commit_with(&["-m", message], &[("GIT_AUTHOR_NAME", "Ann"), ("GIT_AUTHOR_EMAIL", "ann@example.com")]);
+    self.registry.sessions().sync(&self.key, SyncReason::Manual).wait().await.unwrap();
+  }
+}
+
+/// The remote status a push of the stack branch of a whole stack leaves counts the commits of the author of its
+/// members as the user's, as the sync does (`StackBranchUpdate::my_email`), not those of the author of its root: refused
+/// because someone else's commit is on its remote, the push leaves the status the next sync computes
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_of_a_stack_branch_counts_the_commits_of_its_members_author_as_the_sync_does() {
+  let fixture = fixture(true).await;
+  // alpha and beta are the fixture's; gamma, a second child of alpha, and the second commit of beta Ann's: she is the
+  // author of the stack, not of its root
+  fixture.ann_commits("(alpha/gamma) Gamma", "gamma.txt").await;
+  fixture.ann_commits("(alpha/gamma) Gamma, part 2", "gamma-2.txt").await;
+  fixture.ann_commits("(alpha/beta) Beta, part 2", "beta-2.txt").await;
+  let whole = Push {
+    subject: Subject::whole_stack("alpha"),
+    ..alone("alpha", None)
+  };
+  assert_done(&fixture.execute(&whole, Vec::new()).await);
+  let stack = "refs/heads/test/stack/alpha";
+  let pushed = fixture.repo.git(&["--git-dir", ".git/origin.git", "rev-parse", stack]);
+  fixture.ann_commits("(alpha/gamma) Gamma, part 3", "gamma-3.txt").await;
+  // someone else's commit on the remote stack branch, which the session has not fetched: the remote refuses the lease
+  let tree = fixture.repo.git(&["rev-parse", &format!("{pushed}^{{tree}}")]);
+  let theirs = fixture
+    .repo
+    .git(&["--git-dir", ".git/origin.git", "commit-tree", &tree, "-p", &pushed, "-m", "Someone else"]);
+  fixture.repo.git(&["--git-dir", ".git/origin.git", "update-ref", stack, &theirs]);
+
+  let refused = Push {
+    expect_remote: Some(pushed),
+    ..whole
+  };
+  let plan = fixture.plan(&refused).await;
+  let outcome = fixture.execute(&refused, plan.confirmations).await.unwrap();
+  let EffectStatus::Failed { error } = &outcome.effects[0].status else {
+    panic!("{outcome:?}")
+  };
+  assert_eq!(error.code, ErrorCode::LeaseRejected);
+  let status = |view: &domain_types::session::RepositoryView| {
+    let remote = view.stacks["alpha"].remote.clone().unwrap();
+    (remote.unpushed_commits, remote.my_unpushed_count)
+  };
+  let left = status(&fixture.registry.sessions().get_snapshot(&fixture.key).await.unwrap());
+  assert_eq!(left.1, 1, "the commit of Ann the remote lacks is the user's: {left:?}");
+  fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
+  assert_eq!(status(&fixture.registry.sessions().get_snapshot(&fixture.key).await.unwrap()), left);
 }
 
 /// Where a held push tells it holds (`held`): its first progress, the network push after the lock, waits until the

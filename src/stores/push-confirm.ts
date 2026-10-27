@@ -17,9 +17,9 @@ export interface PushConfirmRequest {
   options: PushBranchOptions
   /**
    * What the Force Push runs instead of the push of the branch alone: the push of a stack that asked first (Push with
-   * Children, the button's push of a stack), run again forced
+   * Children, the button's push of a stack), run again with the drop of this branch accepted
    */
-  forced?: () => void
+  accept?: () => void
 }
 
 interface PushConfirmState {
@@ -29,11 +29,11 @@ interface PushConfirmState {
 export const pushConfirmStore = createStore<PushConfirmState>(() => ({ request: null }))
 
 /**
- * Opens the confirm of a push in the push button of `target`, whose Force Push runs `forced` when the push is of a stack;
+ * Opens the confirm of a push in the push button of `target`, whose Force Push runs `accept` when the push is of a stack;
  * a newer request replaces an unanswered one
  */
-export function requestPushConfirm(branchName: string, target: PushConfirmTarget, options: PushBranchOptions = {}, forced?: () => void): void {
-  pushConfirmStore.setState({ request: { branchName, target, options, ...(forced !== undefined && { forced }) } })
+export function requestPushConfirm(branchName: string, target: PushConfirmTarget, options: PushBranchOptions = {}, accept?: () => void): void {
+  pushConfirmStore.setState({ request: { branchName, target, options, ...(accept !== undefined && { accept }) } })
 }
 
 /** The request is answered or dismissed; a newer one stays */

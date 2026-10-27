@@ -5,7 +5,7 @@ import { createElement, Fragment } from "react"
 import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { EffectRecord, EffectStatus, ErrorCode, Intent, Outcome, PatronusRobot, Plan, PlannedEffect, PullRequest } from "@/lib/bindings"
+import type { Confirmation, EffectRecord, EffectStatus, ErrorCode, Intent, Outcome, PatronusRobot, Plan, PlannedEffect, PullRequest } from "@/lib/bindings"
 import { resetEventToasts } from "@/lib/event-toast"
 import { pushBranch, pushWithChildren } from "@/lib/push-run"
 import type { Branch } from "@/stores/branch-sync"
@@ -30,6 +30,8 @@ const { engine, stores } = vi.hoisted(() => ({
     restarted: null as PatronusRobot | null,
     /** The intents `prepare` was asked */
     intents: [] as Intent[],
+    /** The confirmations each `execute` said the user accepted */
+    accepted: [] as Confirmation[][],
   },
   stores: {
     branches: {} as Record<string, Branch>,
@@ -66,9 +68,10 @@ vi.mock("@/lib/bindings", () => ({
       }
       return { status: "ok", data: plan }
     },
-    execute: async ({ intent }: { intent: Intent }) => {
+    execute: async ({ intent, accepted }: { intent: Intent; accepted: Confirmation[] }) => {
       const name = intent.kind === "push" && intent.subject.kind === "branch" ? intent.subject.name : ""
       engine.calls.push(`execute ${name}`)
+      engine.accepted.push(accepted)
       const plan = (await (await import("@/lib/bindings")).commands.prepare({ repositoryPath: "", intent })) as { data: Plan }
       engine.calls.pop()
       engine.intents.pop()
@@ -143,6 +146,7 @@ beforeEach(() => {
   engine.calls.length = 0
   engine.records = []
   engine.intents = []
+  engine.accepted = []
   engine.plan = () => ({})
   engine.run = plan => plan.effects.map(effect => ({ effect, status: { kind: "done" } }))
   engine.restarted = null
@@ -251,11 +255,12 @@ describe("the plan of a push", () => {
     expect(pushConfirmStore.getState().request).toMatchObject({ branchName: "auth", target: "preview", options: { expectRemote: "theirs" } })
   })
 
-  it("of a stack asks first in the push button of the branch that drops remote commits, whose Force Push runs it again forced", async () => {
+  it("of a stack asks first in the push button of the branch that drops remote commits, whose Force Push runs it again with that drop accepted", async () => {
     addBranch("login", "auth")
     const drops = { kind: "forcePushDrops", branch: "auth", commits: 1 } as const
+    // login drops remote commits too: Rust leaves it out of the plan unless the intent forces it
     engine.plan = intent => ({
-      effects: [{ kind: "push", branches: ["auth", "login"], force: true }],
+      effects: [{ kind: "push", branches: intent.kind === "push" && intent.force ? ["auth", "login"] : ["auth"], force: true }],
       confirmations: intent.kind === "push" && intent.force ? [] : [drops],
     })
     expect(await pushWithChildren("auth")).toBe(false)
@@ -263,9 +268,27 @@ describe("the plan of a push", () => {
     expect(engine.calls).toEqual(["prepare auth"])
     const request = pushConfirmStore.getState().request
     expect(request).toMatchObject({ branchName: "auth", target: "row" })
-    request!.forced!()
+    request!.accept!()
     await vi.waitFor(() => expect(engine.calls).toEqual(["prepare auth", "prepare auth", "execute auth"]))
-    expect(engine.intents.at(-1)).toMatchObject({ scope: { kind: "withChildren" }, force: true })
+    // the same intent, unforced, on the drop the description showed: login's drop, which nobody showed, stays out
+    expect(engine.intents.at(-1)).toMatchObject({ scope: { kind: "withChildren" }, force: false })
+    expect(engine.accepted).toEqual([[drops]])
+  })
+
+  it("of a stack whose plan asks more after the Force Push than its description showed asks again, nothing pushed", async () => {
+    addBranch("login", "auth")
+    let commits = 0
+    engine.plan = () => ({
+      effects: [{ kind: "push", branches: ["auth"], force: true }],
+      confirmations: [{ kind: "forcePushDrops", branch: "auth", commits: ++commits }],
+    })
+    expect(await pushWithChildren("auth")).toBe(false)
+    const shown = pushConfirmStore.getState().request!
+    shown.accept!()
+    // the remote got another commit meanwhile: the description asks of both
+    await vi.waitFor(() => expect(pushConfirmStore.getState().request).not.toBe(shown))
+    expect(pushConfirmStore.getState().request).toMatchObject({ branchName: "auth", target: "row" })
+    expect(engine.calls).toEqual(["prepare auth", "prepare auth"])
   })
 
   it("of a stack that drops remote commits of more than one branch is refused, each drop named", async () => {

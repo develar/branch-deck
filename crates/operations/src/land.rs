@@ -157,7 +157,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
   match &land.subject {
     Subject::WholeStack { root } => {
       let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root)?;
-      let pushes = pushed.map(|_| PushedRef::stack_branch(sources.table, stack, PushLease::Frozen)).into_iter().collect();
+      let pushes = pushed.map(|_| PushedRef::stack_branch(stack, PushLease::Frozen)).into_iter().collect();
       Some((pushes, format!("refs/heads/{}", stack.branch_name)))
     }
     Subject::Branch { name } => {

@@ -60,12 +60,14 @@ fn a_branch_is_held_by_what_landed_it_whole_then_its_own_safe_push_then_one_that
   assert_eq!(branch_hold("auth", None, None, Some(&by_span)).and_then(|hold| hold.carried), by_span.carried);
 }
 
-fn stack(state: StackBranchState, tip: Option<&str>) -> StackBranchUpdate {
+/// The stack branch of auth and login in `state` at `tip`, on no remote (also of `land_test`)
+pub(crate) fn stack(state: StackBranchState, tip: Option<&str>) -> StackBranchUpdate {
   StackBranchUpdate {
     root: "auth".to_string(),
     branch_name: "user/stack/auth".to_string(),
     members: vec!["auth".to_string(), "login".to_string()],
     commit_count: 2,
+    my_email: None,
     state,
     tip: tip.map(str::to_string),
     blocked_by: None,

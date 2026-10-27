@@ -55,6 +55,7 @@ fn stack_branch(root: &str, members: &[&str]) -> SyncEvent {
     branch_name: format!("test/stack/{root}"),
     members: members.iter().map(ToString::to_string).collect(),
     commit_count: 3,
+    my_email: None,
     state: StackBranchState::Built,
     tip: Some("stack-tip".to_string()),
     blocked_by: None,

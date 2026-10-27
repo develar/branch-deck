@@ -296,6 +296,7 @@ fn forked_stack() -> BranchTable {
     branch_name: "test/stack/auth".to_string(),
     members: vec!["auth".to_string(), "login".to_string(), "session".to_string()],
     commit_count: 3,
+    my_email: None,
     state: StackBranchState::Built,
     tip: Some("stack-tip".to_string()),
     blocked_by: None,

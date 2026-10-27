@@ -162,6 +162,11 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/sync-core/src/stack_branch_test.rs (`another_process_moving_the_stack_branch_keeps_its_tip_stale`)
 - Its remote status must be by content, as a virtual branch's, against its remote branch on `origin`.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_stack_that_no_longer_forks_loses_its_stack_branch_unless_it_is_on_the_remote`)
+- Its remote status must count the commits of the most frequent author of the commits of all its members as the
+  user's, of a tie the author seen first in history; the status a push of it leaves counts the same ones, whoever
+  authored its root.
+  [@test] ../../crates/sync-core/src/stack_branch_test.rs (`the_email_of_a_stack_branch_is_its_most_frequent_author`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_of_a_stack_branch_counts_the_commits_of_its_members_author_as_the_sync_does`)
 - A stack branch whose stack no longer forks (or whose root is gone, or with stacked branches off) must be deleted in
   one transaction with compare-and-swap, but only while it has no remote branch and no worktree has it checked out;
   one with a remote branch stays, `Stale` without members, for the user to decide on.

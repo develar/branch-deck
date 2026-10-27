@@ -2766,16 +2766,22 @@ is witnessed); and the subject `WholeStack { root }` alone is the stack branch o
 sync while its remote lacks it; what holds its push refuses it, `StackLanding::hold`). One atomic `Push` effect names
 what goes, root first (the stack branch by its key, `stack:<root>`); each branch it sends that drops remote commits asks
 first (`ForcePushDrops`) unless the intent forces it (Push Stack, whose description named each drop): the page runs
-nothing it asks, the push button of the branch that drops opens its description, whose Force Push runs the push again
-forced (`askStackPush` of `src/lib/push-run.ts`; a plan that asks of more than one branch is refused, D12). The status a
-push leaves counts the commits of the branch's author as the user's, as a sync does (`PushedRef::my_email`,
-`LeasedBranch::my_email`). Every ref leases on the remote head the session has, the subject on the one its row showed. The view tells
-the page what Push Up to Here offers (`BranchPush::up_to`, only where it differs from the common answer: every commit
-the remote lacks, after the branches of Push Stack, nothing stopping it), so the arrow, the menu item and the popover
-of a commit read Rust's answer. `operations/src/push_test.rs` (`a_push_of_a_stack_is_one_push_of_the_branches_it_covers`,
+nothing it asks, the push button of the branch that drops opens its description, whose Force Push runs the same
+intent again with that drop accepted (`Accepted::confirmations`), never forced: a forced push of a stack sends every
+branch that asks first, so a descendant whose drop nobody showed would go too; a plan that asks more by then asks again
+(`askStackPush` of `src/lib/push-run.ts`; a plan that asks of more than one branch is refused, D12). The status a push
+leaves counts the commits of the branch's author as the user's, as a sync does (`PushedRef::my_email`,
+`LeasedBranch::my_email`); of a stack branch the author the sync found of the commits of all its members
+(`StackBranchUpdate::my_email`), not its root's. Every ref leases on the remote head the session has, the subject on
+the one its row showed. The view tells the page what Push Up to Here offers (`BranchPush::up_to`, only where it differs
+from the common answer: every commit the remote lacks, after the branches of Push Stack, nothing stopping it), so the
+arrow, the menu item and the popover of a commit read Rust's answer. `operations/src/push_test.rs`
+(`a_push_of_a_stack_is_one_push_of_the_branches_it_covers`,
 `a_push_of_a_stack_leaves_an_ancestor_that_asks_first_unless_forced`,
+`push_with_children_run_on_the_accepted_drop_leaves_a_child_that_drops_remote_commits_out`,
 `push_up_to_here_pushes_the_branch_up_to_the_commit_after_what_it_is_built_on`,
-`the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_on_the_remote`) pins them.
+`the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_on_the_remote`,
+`a_push_of_a_stack_branch_counts_the_commits_of_its_members_author_as_the_sync_does`) pins them.
 
 A start of a Safe Push or a Dry Run (`execute` of `Intent::Land`, `operations::land_execute`) is one run for the app
 and `bd` too, its push this core's `send`. Its plan is prepared again from the facts now (`StartHost::plan`: the

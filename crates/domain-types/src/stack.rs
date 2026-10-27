@@ -184,6 +184,10 @@ pub struct StackBranchUpdate {
   pub members: Vec<String>,
   /// The commits of the stack: every commit of its members
   pub commit_count: u32,
+  /// The most frequent author email of those commits, of a tie the author seen first in history: the commits its
+  /// remote status counts as the user's, as `GroupedBranchInfo::my_email` of a branch; a push of it counts them the same
+  /// way. `None` for one kept without members
+  pub my_email: Option<String>,
   pub state: StackBranchState,
   /// The tip of the ref after the sync: the build for `Built`, else the tip the ref kept, which no push may send; `None`
   /// without a ref

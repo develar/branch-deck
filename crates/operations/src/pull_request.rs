@@ -338,7 +338,7 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
         });
         blocker = blocker.or(held).or(drops);
         lease(&stack.branch_name, stack.tip.clone(), remote.and_then(|remote| remote.remote_tip.clone()));
-        pushes.push(PushedRef::stack_branch(sources.table, stack, PushLease::Frozen));
+        pushes.push(PushedRef::stack_branch(stack, PushLease::Frozen));
         effects.push(PlannedEffect::Push {
           branches: vec![root.clone()],
           force: false,

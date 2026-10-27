@@ -359,7 +359,7 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
     refs.insert(format!("refs/heads/{}", stack.branch_name), stack.tip.clone());
     let remote = sources.remote.stacks.get(name).and_then(|remote| remote.remote_tip.clone());
     leases.insert(format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote.clone());
-    pushes.push(PushedRef::stack_branch(sources.table, stack, PushLease::Planned(remote)));
+    pushes.push(PushedRef::stack_branch(stack, PushLease::Planned(remote)));
     names.push(stack_readiness_key(name));
   }
   if !pushes.is_empty() {
@@ -438,7 +438,7 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
     effects,
     confirmations,
     Vec::new(),
-    vec![PushedRef::stack_branch(sources.table, stack, PushLease::Planned(remote))],
+    vec![PushedRef::stack_branch(stack, PushLease::Planned(remote))],
     source_ref,
   ))
 }

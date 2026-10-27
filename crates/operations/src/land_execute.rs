@@ -110,8 +110,9 @@ pub struct PushedRef {
   pub up_to: Option<String>,
   /// The remote head it leases on
   pub lease: PushLease,
-  /// The branch's author (`GroupedBranchInfo::my_email`; of a stack branch its root's): the remote status the push
-  /// leaves counts that author's commits as the user's, as a sync does; `None` counts none (an unapplied branch)
+  /// The branch's author (`GroupedBranchInfo::my_email`; of a stack branch the author of the commits of all its members,
+  /// `StackBranchUpdate::my_email`): the remote status the push leaves counts that author's commits as the user's, as a
+  /// sync does; `None` counts none (an unapplied branch)
   pub my_email: Option<String>,
 }
 
@@ -145,10 +146,10 @@ impl PushedRef {
     })
   }
 
-  /// The stack branch of the whole stack `stack` of `table` as a push sends it, by the author of its root, leased on
-  /// `lease`
+  /// The stack branch of the whole stack `stack` as a push sends it, by the author the sync found of the commits of its
+  /// members, leased on `lease`
   #[must_use]
-  pub fn stack_branch(table: &BranchTable, stack: &StackBranchUpdate, lease: PushLease) -> Self {
+  pub fn stack_branch(stack: &StackBranchUpdate, lease: PushLease) -> Self {
     Self {
       name: stack.root.clone(),
       full_name: stack.branch_name.clone(),
@@ -157,7 +158,7 @@ impl PushedRef {
       unapplied: false,
       up_to: None,
       lease,
-      my_email: table.branch(&stack.root).and_then(|root| root.my_email.clone()),
+      my_email: stack.my_email.clone(),
     }
   }
 

@@ -126,11 +126,11 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
       clearPushConfirm(request)
     }
     // the description stays open and shows the progress, as after the click on a safe push; the user accepted the drop:
-    // the push of a stack that asked runs again forced, else the branch's own push
-    if (request?.forced === undefined) {
+    // the push of a stack that asked runs again with it accepted, else the branch's own push, forced
+    if (request?.accept === undefined) {
       void pushBranch(branch.name, { ...request?.options, force: true, confirmAt: confirmTarget ?? "row" })
     } else {
-      request.forced()
+      request.accept()
     }
   }
 

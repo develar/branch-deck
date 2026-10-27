@@ -181,19 +181,9 @@ fn a_dry_run_waits_for_the_last_commit_and_for_the_span_hold_of_the_push_it_make
   assert_eq!(start_refusal(&Start::Branch(BranchStart { hold: Some(&own), ..held }), DRY_RUN, &robots), None);
 }
 
+/// The stack branch of auth and login in `state`, built at `stack-tip`
 fn stack(state: StackBranchState) -> StackBranchUpdate {
-  StackBranchUpdate {
-    root: "auth".to_string(),
-    branch_name: "user/stack/auth".to_string(),
-    members: vec!["auth".to_string(), "login".to_string()],
-    commit_count: 2,
-    state,
-    tip: Some("stack-tip".to_string()),
-    blocked_by: None,
-    conflict: None,
-    error: None,
-    remote: None,
-  }
+  crate::holds_test::stack(state, Some("stack-tip"))
 }
 
 /// A start of the whole stack: a stack branch the sync did not build, the robot on its commit, then for a Safe Push the

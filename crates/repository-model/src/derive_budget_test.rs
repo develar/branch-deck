@@ -68,6 +68,7 @@ fn branches() -> (Vec<GroupedBranchInfo>, Vec<StackBranchUpdate>) {
       branch_name: format!("user/stack/{root}"),
       members,
       commit_count: 14,
+      my_email: None,
       state: StackBranchState::Built,
       tip: Some(format!("{root}-stack-tip")),
       blocked_by: None,

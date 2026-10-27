@@ -708,6 +708,44 @@ test.describe("Stacked branches", () => {
     await expectNothingToPush(findBranchRow(page, "auth"))
   })
 
+  test("should ask in the row of the branch before Push with Children drops its remote commits, and leave out a child whose drop nobody showed", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    // Ann pushed a fix onto the remote branch of auth and Bob one onto login's, both on master; a fetch brought them
+    const theirs: Record<string, string> = {}
+    for (const [name, author] of [
+      ["auth", "Ann <ann@example.com>"],
+      ["login", "Bob <bob@example.com>"],
+    ] as const) {
+      await repo.pushInTerminal(virtualBranch(name), { revision: "origin/master" })
+      theirs[name] = await repo.commitOnRemote(virtualBranch(name), { subject: `Fix ${name}`, author, timestamp: 1704139200, files: { [`${name}-fix.txt`]: "fix\n" } })
+    }
+    await repo.fetchInTerminal()
+    await syncFromMenu(page)
+    const auth = findBranchRow(page, "auth")
+
+    // Push with Children asks first in the push button of auth, which lists Ann's commit; nothing went yet
+    await openContextMenu(page, auth)
+    await page.getByRole("menuitem", { name: /^Push with Children/ }).click()
+    await expect(getPushButton(auth)).toHaveAttribute("aria-expanded", "true")
+    const description = page.getByTestId("push-description").filter({ has: page.getByTestId("push-confirm") })
+    await expect(description.getByTestId("dropped-commits")).toContainText("Fix auth")
+    await expect(description.getByTestId("dropped-commits")).not.toContainText("Fix login")
+    expect(await remotePushes(repo)).toEqual([])
+
+    // its Force Push runs Push with Children on that drop: one push of auth over Ann's commit and of the children that
+    // drop nothing; login, whose drop nobody showed, keeps Bob's commit and asks in its own row
+    await confirmForcePush(page, "Force Push (1)")
+    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "oauth", "session"]])
+    await expectPushedToRemote(repo, ["auth", "oauth", "session"])
+    expect((await repo.getRemoteBranches())[virtualBranch("login")]).toBe(theirs.login)
+    await expect(getPushButton(findBranchRow(page, "login"))).toHaveAccessibleName("Force Push (1)")
+  })
+
   test("should offer Push with Children while a sync runs and when the root is pushed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()

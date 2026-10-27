@@ -518,6 +518,7 @@ fn forking(state: StackBranchState, remote: Option<RemoteStatusUpdate>) -> Stack
     branch_name: "user/stack/auth".to_string(),
     members: vec!["auth".to_string(), "login".to_string(), "session".to_string()],
     commit_count: 3,
+    my_email: None,
     state,
     tip: Some("tip".to_string()),
     blocked_by: None,
