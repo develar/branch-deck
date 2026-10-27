@@ -1,8 +1,9 @@
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use domain_types::error::ApiError;
+use domain_types::rewrite::SquashCommitsResult;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
-use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
+use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use tauri::State;
 use tracing::instrument;
 

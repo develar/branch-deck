@@ -23,6 +23,7 @@ use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, fo
 use domain_types::branch_names::sanitize_branch_name;
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
+use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::{StackProblem, StackProblemView, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{StoreUpdate, WrittenStore, write_store_commits, write_store_updates};
@@ -30,37 +31,10 @@ use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{checked_out_branch, is_object_id, read_head, short_id, with_dirs_of};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::restore_branch_head_with;
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_utils::commit_subject::parse_subject;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::{info, instrument};
-
-/// Where commits go: `{"branches": {"auth/login": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]},
-/// "ungroup_issues": [keys], "unstack": [branches]}`
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(deny_unknown_fields)]
-pub struct RegroupPlan {
-  /// Branch path -> commits: a flat name, or `parent/leaf` with stacked branches on, which stacks `leaf` on `parent` in
-  /// the stack parents and gives a commit that needs a prefix the bare `(leaf)`. Ids may be abbreviated
-  #[serde(default)]
-  pub branches: BTreeMap<String, Vec<String>>,
-  /// Commits whose prefix is removed: they fall back to their issue group or issue branch, or become unassigned
-  #[serde(default)]
-  pub unassign: Vec<String>,
-  /// Issue group name (a branch name without `/`) -> issue keys: the commits without a prefix that carry one of the
-  /// keys are grouped into the name, without a rewrite
-  #[serde(default)]
-  pub issue_groups: BTreeMap<String, Vec<String>>,
-  /// Issue keys whose issue group is removed: their commits fall back to the issue branch of the key
-  #[serde(default)]
-  pub ungroup_issues: Vec<String>,
-  /// Branches made roots: their stack parent is removed, and their commits whose prefix declares a parent get the bare
-  /// `(leaf)`. Needs stacked branches on
-  #[serde(default)]
-  pub unstack: Vec<String>,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct RegroupOptions<'a> {

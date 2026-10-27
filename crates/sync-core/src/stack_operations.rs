@@ -4,8 +4,9 @@
 //! unstack, is a trial build (`check::get_stack_independence`).
 
 use anyhow::{Context, Result};
+use domain_types::rewrite::MoveCommitsResult;
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::move_commits::{MoveCommitsResult, move_result};
+use history_rewrite::move_commits::move_result;
 use history_rewrite::regroup::{RegroupOptions, UndoToken, rename_branch_core, restack_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use serde::Deserialize;

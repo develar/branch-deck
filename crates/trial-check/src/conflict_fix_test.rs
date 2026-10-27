@@ -1,7 +1,7 @@
 use crate::check::{CheckOutcome, CheckSession};
 use crate::conflict_fix::{ConflictFix, FixBudget, FixRun, FixStep, FixStepKind, SearchState};
+use domain_types::rewrite::RegroupPlan;
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::regroup::RegroupPlan;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::sync::atomic::AtomicBool;

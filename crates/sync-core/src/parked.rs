@@ -2,22 +2,12 @@
 //! `history_rewrite::parked`. Whether a branch is parked as a sync places it is the rule `domain_policy::parked`.
 
 use anyhow::Result;
+use domain_types::rewrite::{ParkBranchLine, ParkResult, ParkedBranchChange};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::parked::{ParkLine, ParkOutcome, park_core, unpark_core};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::instrument;
-
-/// A branch to park and its note
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ParkBranchLine {
-  /// The branch (a leaf with stacked branches on)
-  pub branch_name: String,
-  /// Why it is parked, one line; empty for none. Parking a parked branch changes its note
-  pub note: String,
-}
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -37,43 +27,19 @@ pub struct UnparkBranchesParams {
   pub branch_names: Vec<String>,
 }
 
-/// What a park or an unpark did to one branch
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ParkedBranchChange {
-  pub branch_name: String,
-  /// The note afterwards; `None` when the branch is not parked any more
-  pub note: Option<String>,
-  /// The note before; `None` when it was not parked
-  pub previous_note: Option<String>,
-}
-
-/// What a park or an unpark did
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ParkResult {
-  /// One per branch named, in the order named
-  pub branches: Vec<ParkedBranchChange>,
-  /// Whether the store changed
-  pub changed: bool,
-}
-
-impl From<ParkOutcome> for ParkResult {
-  fn from(outcome: ParkOutcome) -> Self {
-    Self {
-      changed: outcome.new_commit.is_some(),
-      branches: outcome
-        .branches
-        .into_iter()
-        .map(|change| ParkedBranchChange {
-          branch_name: change.branch,
-          note: change.note,
-          previous_note: change.previous_note,
-        })
-        .collect(),
-    }
+/// What a park or an unpark that wrote `outcome` did
+pub fn park_result(outcome: ParkOutcome) -> ParkResult {
+  ParkResult {
+    changed: outcome.new_commit.is_some(),
+    branches: outcome
+      .branches
+      .into_iter()
+      .map(|change| ParkedBranchChange {
+        branch_name: change.branch,
+        note: change.note,
+        previous_note: change.previous_note,
+      })
+      .collect(),
   }
 }
 
@@ -93,7 +59,7 @@ pub fn park_branches(git_executor: &GitCommandExecutor, params: &ParkBranchesPar
     lock_wait,
     ..RewriteOptions::default()
   };
-  Ok(park_core(git_executor, &params.repository_path, &lines, &options)?.into())
+  Ok(park_result(park_core(git_executor, &params.repository_path, &lines, &options)?))
 }
 
 /// Unpark branches under the repository lock (`unpark_core`), waited for as `lock_wait` says
@@ -104,5 +70,5 @@ pub fn unpark_branches(git_executor: &GitCommandExecutor, params: &UnparkBranche
     lock_wait,
     ..RewriteOptions::default()
   };
-  Ok(unpark_core(git_executor, &params.repository_path, &branches, &options)?.into())
+  Ok(park_result(unpark_core(git_executor, &params.repository_path, &branches, &options)?))
 }

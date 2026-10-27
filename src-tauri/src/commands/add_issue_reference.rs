@@ -1,8 +1,9 @@
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use domain_types::error::ApiError;
+use domain_types::rewrite::AddIssueReferenceResult;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
-use sync_core::add_issue_reference::{AddIssueReferenceParams, AddIssueReferenceResult, add_issue_reference_to_commits_core};
+use sync_core::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use tauri::State;
 use tracing::instrument;
 

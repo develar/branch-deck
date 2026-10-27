@@ -1,11 +1,11 @@
 use crate::autosquash::{
-  AutosquashPlan, AutosquashScope, FixupKind, OrphanFixup, PlannedFixup, PlannedGroup, SquashFixupsParams, SquashFixupsResult, build_fixup_message, get_autosquash_plan_core,
-  plan_autosquash, squash_fixup_commits_core,
+  AutosquashPlan, FixupKind, PlannedFixup, PlannedGroup, SquashFixupsParams, build_fixup_message, get_autosquash_plan_core, plan_autosquash, squash_fixup_commits_core,
 };
 use crate::commit_grouper::GroupingInputs;
 use crate::repository_lock::RewriteOptions;
 use crate::test_commit::commit;
 use domain_types::commit::Commit;
+use domain_types::rewrite::{AutosquashScope, OrphanFixup, SquashFixupsResult};
 use git_ops::rewrite_guard::HeadMoved;
 use pretty_assertions::assert_eq;
 use test_log::test;

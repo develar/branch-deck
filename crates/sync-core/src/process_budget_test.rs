@@ -3,25 +3,26 @@
 //! assert shows which process went away; one that runs more has to say why. One test per operation, on a small fixed
 //! repository, so the counts are the same on every run.
 
-use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
+use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::baseline::check_baseline_update;
 use crate::moved_remote::{MovedBranch, fetch_moved_remotes};
 use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
-use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
+use crate::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
 use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
 use crate::sync::{SyncOptions, sync_branches};
 use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
-use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
+use crate::unapply_branch::{UnapplyBranchParams, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
+use domain_types::rewrite::{AmendCommandResult, AutosquashScope, CommitReword, ReapplyBranchResult, RewordText, UnapplyBranchResult};
 use domain_types::robot_landing::RobotLandingRequest;
 use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
+use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::parked::{ParkLine, park_core, unpark_core};
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
-use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
+use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;

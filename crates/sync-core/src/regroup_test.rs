@@ -1,8 +1,7 @@
 use crate::sync::{SyncOptions, sync_branches};
+use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::StackProblem;
-use history_rewrite::regroup::{
-  RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core,
-};
+use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::{LockWait, lock_repository_as_another_process};
 use history_rewrite::store_lines::LineStore;
 use history_rewrite::test_commit::plan;

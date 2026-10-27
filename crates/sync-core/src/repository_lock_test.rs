@@ -8,13 +8,14 @@ use crate::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use domain_types::commit::CommitInfo;
+use domain_types::rewrite::{AutosquashScope, CommitReword, RewordText};
 use git_ops::rewrite_guard::HeadMoved;
-use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
+use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{
   LockHolder, LockWait, LockWaitCanceled, LockWaiter, RepositoryLocked, RewriteOptions, lock_repository_as_another_process, lock_repository_in, lock_repository_while_held,
 };
-use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
+use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use pretty_assertions::assert_eq;
 use std::time::{Duration, Instant};

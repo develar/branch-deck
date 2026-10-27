@@ -7,6 +7,7 @@
 use anyhow::{Result, anyhow};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
+use domain_types::rewrite::{PickRemoteCommitsResult, PickedRemoteCommit};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list_at;
@@ -254,28 +255,6 @@ pub struct PickRemoteCommitsParams {
   pub my_email: Option<String>,
   /// The remote tip of the row's status: a fetch that finds another one picks nothing
   pub expected_remote: Option<String>,
-}
-
-/// A commit Pick Remote Commits took in: the remote commit and its copy on the checked out branch
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PickedRemoteCommit {
-  pub commit: String,
-  pub new_id: String,
-  /// The subject of the copy, with the prefix of the branch
-  pub subject: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PickRemoteCommitsResult {
-  pub previous_head: String,
-  pub new_head: String,
-  pub picked: Vec<PickedRemoteCommit>,
-  /// `pick:<previous>..<new>` (`bd undo`); none when nothing moved
-  pub undo_token: Option<String>,
 }
 
 /// A commit of a remote pick that conflicts with the checked out branch: nothing was changed

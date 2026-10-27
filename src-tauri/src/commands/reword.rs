@@ -1,8 +1,9 @@
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use domain_types::error::ApiError;
+use domain_types::rewrite::RewordResult;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupOptions;
-use history_rewrite::reword::{RewordRequest, RewordResult, reword_request_core};
+use history_rewrite::reword::{RewordRequest, reword_request_core};
 use tauri::State;
 use tracing::instrument;
 

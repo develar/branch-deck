@@ -8,6 +8,7 @@ use anyhow::Result;
 use branch_integration::archive::own_commits_start;
 use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use domain_types::error::ErrorCode;
+use domain_types::rewrite::{ReappliedCommit, ReapplyBranchResult, UndoneReapply};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::pick::{PickRequest, PickSource, PickState, check_pick};
 use git_ops::reapply::{UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
@@ -30,39 +31,6 @@ pub struct ReapplyBranchParams {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub dry_run: bool,
-}
-
-/// A commit of the unapplied branch that the reapply put on top of HEAD
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ReappliedCommit {
-  /// The commit of the unapplied branch (or of its restored chain)
-  pub commit: String,
-  /// Its copy on HEAD (with a dry run: the one the reapply writes)
-  pub new_id: String,
-  pub subject: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ReapplyBranchResult {
-  /// `{prefix}/unapplied/<name>`, deleted now (with a dry run: would be)
-  pub unapplied_branch_name: String,
-  /// The branch its commits group into again
-  pub branch: String,
-  /// Oldest first
-  pub reapplied: Vec<ReappliedCommit>,
-  /// The commits HEAD has already, by their patch or their content: left out
-  pub present: Vec<String>,
-  /// How many messages got the grouping prefix back (`(<name>) `): a virtual branch keeps none, so a commit whose
-  /// subject groups elsewhere gets it
-  pub prefix_restored: u32,
-  pub previous_head: String,
-  pub new_head: String,
-  /// `ReapplyUndoToken` as it prints; `None` for a dry run
-  pub undo_token: Option<String>,
 }
 
 /// A reapply refused before anything was written but git objects
@@ -248,15 +216,6 @@ pub struct UndoReapplyParams {
   pub repository_path: String,
   /// The `undoToken` of the reapply
   pub undo_token: String,
-}
-
-/// What the undo of a reapply did
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct UndoneReapply {
-  /// It was undone before: nothing changed now
-  pub already_undone: bool,
 }
 
 /// Undo a reapply, under the repository lock: HEAD moves back with the files and the unapplied branch is created again

@@ -1,9 +1,10 @@
 use crate::check::{CheckOutcome, CheckReport, CheckSession, Planned, StackIndependence, StackUse, check_plan, run_builds, stack_independence};
 use domain_types::fixtures::stack_commit as commit;
+use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::BlockReason;
 use git_ops::merge_memo::{MergeMemo, MergeOutcome, MergeTrees};
 use history_rewrite::issue_groups::ISSUE_GROUPS;
-use history_rewrite::regroup::{RegroupError, RegroupPlan};
+use history_rewrite::regroup::RegroupError;
 use history_rewrite::test_commit;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::merge_result::{MergeKey, MergeResult};

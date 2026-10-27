@@ -2,12 +2,13 @@ use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::operation::run_blocking;
 use domain_types::error::ApiError;
+use domain_types::rewrite::AppliedConflictFix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 use tracing::instrument;
-use trial_check::conflict_fix::{AppliedConflictFix, ApplyConflictFixParams, ConflictFix, FindConflictFixParams, apply_conflict_fix_core, find_conflict_fix_core};
+use trial_check::conflict_fix::{ApplyConflictFixParams, ConflictFix, FindConflictFixParams, apply_conflict_fix_core, find_conflict_fix_core};
 
 /// The cancel flag of the running search; a new search or `cancel_conflict_fix` sets it
 static RUNNING: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);

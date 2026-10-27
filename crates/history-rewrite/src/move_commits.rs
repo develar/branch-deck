@@ -6,8 +6,9 @@ use crate::regroup::{RegroupOptions, RegroupOutcome, RegroupedCommit, UndoToken,
 use crate::repository_lock::LockWait;
 use anyhow::{Result, ensure};
 use domain_types::branch_names::sanitize_branch_name;
+use domain_types::rewrite::{MoveChange, MoveCommitsResult, MovedCommit};
 use git_executor::git_command_executor::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::BTreeSet;
 use sync_utils::commit_subject::parse_subject;
 use tracing::{info, instrument};
@@ -42,62 +43,6 @@ impl MoveCommitsParams {
       dry_run: false,
       expect_head: None,
     }
-  }
-}
-
-/// How a move changes a commit
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-pub enum MoveChange {
-  /// Its message got the prefix of the target
-  Prefixed,
-  /// Its message lost its prefix: its issue key puts it where it goes
-  PrefixRemoved,
-  /// The issue groups moved it, its message stays
-  Regrouped,
-  /// It is where it goes already
-  Unchanged,
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct MovedCommit {
-  /// The request commit id
-  pub old_id: String,
-  /// The id after the rewrite; `old_id` for a commit older than every rewritten one and for a dry run
-  pub new_id: String,
-  pub change: MoveChange,
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct MoveCommitsResult {
-  /// The requested commits in request order, then the other commits that moved: the fixups that followed them, the
-  /// commits of a renamed branch
-  pub commits: Vec<MovedCommit>,
-  /// The issue keys whose commits the issue groups now put into another branch, without a rewrite
-  pub grouped_issues: Vec<String>,
-  /// The issue keys whose issue group was removed: their commits are in the issue branch of the key again
-  pub ungrouped_issues: Vec<String>,
-  /// The branch the commits are in afterwards (the leaf with stacked branches on); `None` for a move back
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub target: Option<String>,
-  /// HEAD afterwards
-  pub head: String,
-  /// With stacked branches on, the branches whose parent the operation emptied: they stay stacked on it and are built on
-  /// the nearest ancestor with commits, or the baseline, until it has commits again
-  pub orphaned_children: Vec<String>,
-  /// What `undo_regroup` moves back; `None` for a dry run and when nothing changed
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub undo_token: Option<String>,
-}
-
-impl MoveCommitsResult {
-  /// Whether the operation moves anything
-  pub fn moves(&self) -> bool {
-    self.commits.iter().any(|commit| commit.change != MoveChange::Unchanged)
   }
 }
 

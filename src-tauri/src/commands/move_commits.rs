@@ -1,7 +1,8 @@
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use domain_types::error::ApiError;
+use domain_types::rewrite::MoveCommitsResult;
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::move_commits::{MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core};
+use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
 use tauri::State;
 use tracing::instrument;
 

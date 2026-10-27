@@ -1,8 +1,9 @@
 use crate::regroup_test::{commits, path, regroup};
 use crate::stack_operations::{UndoRegroupParams, undo_regroup};
+use domain_types::rewrite::{MoveChange, MoveCommitsResult};
 use domain_types::{BranchOrigin, GroupedBranchInfo, SyncEvent};
 use history_rewrite::issue_groups::ISSUE_GROUPS;
-use history_rewrite::move_commits::{MoveChange, MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
+use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::test_commit::issue_group_plan;

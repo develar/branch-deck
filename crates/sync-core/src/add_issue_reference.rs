@@ -2,13 +2,14 @@
 //! one reword of the checked out branch under the repository lock.
 
 use domain_types::commit::CommitInfo;
+use domain_types::rewrite::AddIssueReferenceResult;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::with_dirs_of;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::keeps_virtual_commit;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sync_utils::issue_pattern::has_issue_reference;
 use tracing::info;
 
@@ -20,15 +21,6 @@ pub struct AddIssueReferenceParams {
   pub branch_name: String,
   pub commits: Vec<CommitInfo>,
   pub issue_reference: String,
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct AddIssueReferenceResult {
-  pub success: bool,
-  pub updated_count: u32,
-  pub skipped_count: u32,
 }
 
 /// Core function that adds an issue reference to commits in a branch, under the repository lock.

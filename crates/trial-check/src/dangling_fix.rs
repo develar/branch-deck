@@ -11,8 +11,8 @@
 use crate::check::{BranchCheck, CheckReport, CheckSession};
 use crate::dangling_references::DanglingReference;
 use crate::move_hunk::{MoveHunkOptions, MoveHunkParams, move_hunk_core};
+use domain_types::rewrite::RegroupPlan;
 use git_ops::move_hunk::MoveHunkMode;
-use history_rewrite::regroup::RegroupPlan;
 use object_cache::cache::ObjectCache;
 use std::collections::{HashMap, HashSet};
 use tracing::debug;

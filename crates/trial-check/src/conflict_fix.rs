@@ -28,10 +28,11 @@ use crate::dangling_references::uses_added_declarations;
 use crate::missing_commits::{changed_files, missing_commits};
 use anyhow::{Result, anyhow};
 use code_symbols::language::language_of as symbols_language_of;
+use domain_types::rewrite::{AppliedConflictFix, RegroupPlan};
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::move_commits::{MoveCommitsResult, move_result};
+use history_rewrite::move_commits::move_result;
 use history_rewrite::move_plan::plan_move;
-use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupPlan, regroup_planned};
+use history_rewrite::regroup::{RegroupError, RegroupOptions, regroup_planned};
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::snapshot::Snapshot;
 use history_rewrite::stack::stack_top;
@@ -1245,16 +1246,6 @@ pub struct ApplyConflictFixParams {
   pub fingerprint: String,
   /// The plan of a component of the fix
   pub plan: RegroupPlan,
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum AppliedConflictFix {
-  /// The regroup is written; `result` as a move reports it, with the commits that changed
-  Applied { result: MoveCommitsResult },
-  /// HEAD, the issue groups or the stack parents moved since the fix was found: look for it again
-  Stale,
 }
 
 /// The fix marker of a regroup refused for another fingerprint

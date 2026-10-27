@@ -1,7 +1,7 @@
 //! The commits and the regroup plans of the unit tests of the crates that build on this one
 
-use crate::regroup::RegroupPlan;
 use domain_types::commit::Commit;
+use domain_types::rewrite::RegroupPlan;
 use std::collections::BTreeMap;
 
 /// A commit as the commit list reads it, with fixed metadata; the subject is the first line of `message`

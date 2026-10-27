@@ -2,6 +2,7 @@ use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltB
 use crate::commit_owners::CommitOwners;
 use crate::sync::{SyncOptions, sync_branches};
 use domain_types::commit::Commit;
+use domain_types::rewrite::{CommitReword, RewordText};
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
@@ -12,7 +13,7 @@ use history_rewrite::commit_grouper::CommitGrouper;
 use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::LockWait;
-use history_rewrite::reword::{CommitReword, RewordText, reword_core};
+use history_rewrite::reword::reword_core;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::collections::HashMap;

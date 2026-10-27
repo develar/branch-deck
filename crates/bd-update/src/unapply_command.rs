@@ -9,12 +9,13 @@ use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
 use domain_types::error::ErrorCode;
+use domain_types::rewrite::{UndoneReapply, UndoneUnapply};
 use git_ops::unapply::DropRefused;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyRefusal, ReapplyUndoToken, UndoneReapply, reapply_branch_core, undo_reapply_core};
-use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyRefusal, UnapplyUndoToken, UndoneUnapply, unapply_branch_core, undo_unapply_core};
+use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyRefusal, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
+use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyRefusal, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
 
 #[derive(Debug, clap::Args)]
 pub struct UnapplyArgs {

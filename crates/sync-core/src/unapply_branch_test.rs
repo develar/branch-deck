@@ -1,7 +1,8 @@
 use crate::regroup_test::{commits, path, sync};
 use crate::sync::{SyncOptions, sync_branches};
-use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyRefusal, UnapplyUndoToken, UndoneUnapply, unapply_branch_core, undo_unapply_core};
+use crate::unapply_branch::{UnapplyBranchParams, UnapplyRefusal, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
 use anyhow::Result;
+use domain_types::rewrite::{UnapplyBranchResult, UndoneUnapply};
 use domain_types::{SyncEvent, UnappliedBranchInfo};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;

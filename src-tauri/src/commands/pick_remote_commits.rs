@@ -3,12 +3,13 @@ use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::undo_error;
 use domain_types::error::ApiError;
+use domain_types::rewrite::PickRemoteCommitsResult;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use tauri::State;
 use tracing::instrument;
-use update_core::pick::{PickRemoteCommitsParams, PickRemoteCommitsResult, UndoPickRemoteCommitsParams, pick_remote_commits_core, undo_pick_remote_commits_core};
+use update_core::pick::{PickRemoteCommitsParams, UndoPickRemoteCommitsParams, pick_remote_commits_core, undo_pick_remote_commits_core};
 
 /// Pick Remote Commits: fetches the remote branch of a virtual branch someone else pushed to and picks the commits a
 /// push would drop onto the checked out branch, with the prefix of the branch (`bd pick --remote`); the branch is named

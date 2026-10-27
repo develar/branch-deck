@@ -20,8 +20,8 @@ use commit_clustering::clustering::{
 use commit_clustering::generated::is_hub_file;
 use domain_types::branch_names::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use domain_types::commit::Commit;
+use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::stack_path;
-use history_rewrite::regroup::RegroupPlan;
 use history_rewrite::snapshot::Snapshot;
 use history_rewrite::stack::STACKS_CONFIG_KEY;
 use schemars::JsonSchema;

@@ -7,6 +7,7 @@ use crate::repository_lock::RewriteOptions;
 use crate::snapshot::{CommitsAhead, read_grouping_inputs};
 use anyhow::{Result, anyhow, bail};
 use domain_types::commit::Commit;
+use domain_types::rewrite::{AutosquashScope, OrphanFixup, SquashFixupsResult, SquashedTarget};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::autosquash_targets::{FixupTarget, fixup_targets};
 use git_ops::commit_writer::read_raw_commits;
@@ -58,17 +59,6 @@ pub struct PlannedGroup {
   /// The virtual branch the target is grouped into; `None` for an unassigned target
   pub branch: Option<String>,
   pub folded: Vec<PlannedFixup>,
-}
-
-/// A fixup without a target among the older commits of the range: it is not squashed
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct OrphanFixup {
-  pub commit_id: String,
-  pub subject: String,
-  /// The virtual branch the fixup itself is grouped into; `None` if it is unassigned
-  pub branch: Option<String>,
 }
 
 /// What squashing the fixups of a range does, with the HEAD it was computed for
@@ -161,20 +151,6 @@ fn message_body(message: &str) -> &str {
   body.trim_end()
 }
 
-/// Which planned groups a squash takes
-#[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "type", content = "value", rename_all = "camelCase")]
-pub enum AutosquashScope {
-  All,
-  /// The fixups whose target is grouped into this virtual branch
-  Branch(String),
-  /// The fixups whose target is unassigned
-  Unassigned,
-  /// Only this fixup commit, into its target
-  Fixup(String),
-}
-
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -190,29 +166,6 @@ pub struct SquashFixupsParams {
   /// HEAD of the plan the user confirmed; the squash is refused if the branch moved since
   pub expected_head: String,
   pub scope: AutosquashScope,
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct SquashedTarget {
-  pub target: String,
-  pub new_id: String,
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct SquashFixupsResult {
-  /// One entry per target, oldest first
-  pub squashed: Vec<SquashedTarget>,
-  /// Number of fixup commits folded into their targets
-  pub squashed_count: u32,
-  /// Fixups of the scope left as they are: no target in this range
-  pub orphans: Vec<OrphanFixup>,
-  /// HEAD after the squash and before it, for an undo
-  pub new_head: String,
-  pub previous_head: String,
 }
 
 /// The commits ahead of the baseline (oldest first), HEAD, the stack setting and the issue groups, as the sync reads them

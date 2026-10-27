@@ -13,35 +13,17 @@ use crate::regroup::{Assignment, Change, FixupRefusal, RegroupError, RegroupOpti
 use crate::snapshot::Snapshot;
 use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
+use domain_types::rewrite::{CommitReword, RewordResult, RewordText};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_utils::find_commit;
 use git_ops::commit_writer::{StoreUpdate, write_store_updates};
 use git_ops::revs::{checked_out_branch, short_id};
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use sync_utils::commit_subject::{parse_subject, stripped_subject};
 use tracing::{info, instrument};
-
-/// The new text of a commit; `{"message": …}` or `{"subject": …}` in the app's request
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub enum RewordText {
-  /// The whole message, the `(prefix)` of the subject included
-  Message(String),
-  /// The subject line, the `(prefix)` included; the body stays
-  Subject(String),
-}
-
-/// A commit ahead of the baseline (abbreviated ids are fine) and its new text
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-pub struct CommitReword {
-  pub commit: String,
-  pub text: RewordText,
-}
 
 /// Rewords commits ahead of the baseline in one history rewrite, computed for the HEAD it rewrites, under the
 /// repository lock (`RegroupOptions`). Refuses an id that names no commit ahead of the baseline (`NotAheadOfBaseline`),
@@ -60,36 +42,21 @@ pub struct RewordRequest {
   pub rewords: Vec<CommitReword>,
 }
 
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct RewordResult {
-  /// Request commit id -> new commit id; a commit that was not recreated maps to its own (full) id
-  pub new_commit_ids: HashMap<String, String>,
-  pub previous_head: String,
-  /// `previous_head` when no message changed
-  pub new_head: String,
-  /// The token of `undo_regroup` (`UndoToken`); `None` when nothing changed
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub undo_token: Option<String>,
-}
-
-impl RewordResult {
-  pub fn of(outcome: &RegroupOutcome, request: &RewordRequest) -> Self {
-    let new_commit_ids = request
-      .rewords
-      .iter()
-      .filter_map(|reword| {
-        let commit = outcome.commits.iter().find(|commit| commit.id.starts_with(reword.commit.as_str()))?;
-        Some((reword.commit.clone(), commit.new_id.clone()))
-      })
-      .collect();
-    Self {
-      new_commit_ids,
-      previous_head: outcome.previous_head.clone(),
-      new_head: outcome.new_head.clone(),
-      undo_token: UndoToken::of(outcome).map(|token| token.to_string()),
-    }
+/// The answer of the reword `request` that wrote `outcome`: the new id of each commit it named and the undo token
+pub fn reword_result(outcome: &RegroupOutcome, request: &RewordRequest) -> RewordResult {
+  let new_commit_ids = request
+    .rewords
+    .iter()
+    .filter_map(|reword| {
+      let commit = outcome.commits.iter().find(|commit| commit.id.starts_with(reword.commit.as_str()))?;
+      Some((reword.commit.clone(), commit.new_id.clone()))
+    })
+    .collect();
+  RewordResult {
+    new_commit_ids,
+    previous_head: outcome.previous_head.clone(),
+    new_head: outcome.new_head.clone(),
+    undo_token: UndoToken::of(outcome).map(|token| token.to_string()),
   }
 }
 
@@ -97,7 +64,7 @@ impl RewordResult {
 /// refusals told as the app's user can act on them
 pub fn reword_request_core(git_executor: &GitCommandExecutor, request: &RewordRequest, options: &RegroupOptions) -> Result<RewordResult> {
   let outcome = reword_core(git_executor, &request.repository_path, &request.rewords, options).map_err(app_error)?;
-  Ok(RewordResult::of(&outcome, request))
+  Ok(reword_result(&outcome, request))
 }
 
 /// A refusal of `reword_core` with what the app offers: a commit gone from the list it showed is a stale view, and a

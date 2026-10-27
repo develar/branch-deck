@@ -1,7 +1,8 @@
-use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyRefusal, ReapplyUndoToken, UndoneReapply, reapply_branch_core, undo_reapply_core};
+use crate::reapply_branch::{ReapplyBranchParams, ReapplyRefusal, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::regroup_test::{commits, path, sync};
 use crate::unapply_branch_test::{PREFIX, unapply};
 use anyhow::Result;
+use domain_types::rewrite::{ReapplyBranchResult, UndoneReapply};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository_as_another_process};

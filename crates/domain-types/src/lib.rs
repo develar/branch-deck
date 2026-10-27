@@ -74,6 +74,7 @@ pub mod pull_request;
 pub mod reason;
 pub mod repository_view;
 pub mod review_request;
+pub mod rewrite;
 pub mod robot_failure;
 pub mod robot_landing;
 pub mod robot_stats;

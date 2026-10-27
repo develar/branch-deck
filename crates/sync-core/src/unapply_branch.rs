@@ -7,6 +7,7 @@ use branch_integration::archive::{REF_RENAME_MUTEX, own_commits_start, unique_br
 use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
+use domain_types::rewrite::{UnapplyBranchResult, UndoneUnapply};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{is_object_id, with_dirs_of};
 use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
@@ -30,22 +31,6 @@ pub struct UnapplyBranchParams {
   /// takes the commits as they group now
   #[serde(default)]
   pub original_commit_ids: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct UnapplyBranchResult {
-  /// The full name of the unapplied branch: `{prefix}/unapplied/<name>`, with a `-N` suffix when the name is taken
-  pub unapplied_branch_name: String,
-  /// The original commits that left HEAD, oldest first
-  pub commits_removed: Vec<String>,
-  /// HEAD before the unapply
-  pub previous_head: String,
-  /// HEAD after it
-  pub new_head: String,
-  /// The undo: `UnapplyUndoToken` as it prints
-  pub undo_token: String,
 }
 
 /// An unapply refused before anything was written but git objects
@@ -282,15 +267,6 @@ pub struct UndoUnapplyParams {
   pub repository_path: String,
   /// The `undo_token` of the unapply
   pub undo_token: String,
-}
-
-/// What the undo of an unapply did
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct UndoneUnapply {
-  /// It was undone before: nothing changed now
-  pub already_undone: bool,
 }
 
 /// Undo an unapply, under the repository lock: HEAD moves back from the token's new head to its previous head with the

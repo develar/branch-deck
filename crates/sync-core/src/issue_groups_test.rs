@@ -1,10 +1,11 @@
 use crate::grouping::group_commits_ahead_of_baseline;
 use crate::regroup_test::{commits, entries, groups, other_worktree, path, plant_store, regroup, sync};
 use domain_types::BranchOrigin;
+use domain_types::rewrite::RegroupPlan;
 use git_ops::commit_writer::write_store_updates;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_REF};
-use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
+use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::store_lines::{StoreLineProblem, StoreLines, format_store_lines};
 use history_rewrite::test_commit::commit;

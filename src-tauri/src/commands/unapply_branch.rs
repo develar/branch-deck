@@ -2,10 +2,11 @@ use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings, run_waiti
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use app_api::api_error::undo_error;
 use domain_types::error::ApiError;
+use domain_types::rewrite::{ReapplyBranchResult, UnapplyBranchResult, UndoneReapply, UndoneUnapply};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
-use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, UndoReapplyParams, UndoneReapply, reapply_branch_core, undo_reapply_core};
-use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, UndoUnapplyParams, UndoneUnapply, unapply_branch_core, undo_unapply_core};
+use sync_core::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, UndoReapplyParams, reapply_branch_core, undo_reapply_core};
+use sync_core::unapply_branch::{UnapplyBranchParams, UnapplyUndoToken, UndoUnapplyParams, unapply_branch_core, undo_unapply_core};
 use tauri::State;
 use tracing::instrument;
 

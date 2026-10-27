@@ -6,7 +6,7 @@ use crate::bd_command::shell_word;
 use crate::context::RepoContext;
 use crate::error::{CliError, regroup_error};
 use crate::output::ShortIds;
-use history_rewrite::regroup::RegroupPlan;
+use domain_types::rewrite::RegroupPlan;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};

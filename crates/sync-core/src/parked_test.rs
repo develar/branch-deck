@@ -1,5 +1,6 @@
-use crate::parked::{ParkBranchLine, ParkBranchesParams, UnparkBranchesParams, park_branches, unpark_branches};
+use crate::parked::{ParkBranchesParams, UnparkBranchesParams, park_branches, unpark_branches};
 use crate::regroup_test::{commits, entries, path, plant_store, sync};
+use domain_types::rewrite::ParkBranchLine;
 use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository_as_another_process};

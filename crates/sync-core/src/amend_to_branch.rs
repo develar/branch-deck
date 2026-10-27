@@ -1,13 +1,13 @@
 //! The app's amend of uncommitted changes into a commit of the checked out branch (`git_ops::amend_operations`), under
 //! the repository lock; a refusal of the rewrite is a `BranchError` that the app shows.
 
-use domain_types::BranchError;
+use domain_types::rewrite::{AmendCommandResult, AmendResult};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::amend_operations::{AmendToCommitParams, apply_amend, prepare_amend};
 use git_ops::copy_commit::CopyCommitError;
 use git_ops::revs::with_dirs_of;
 use history_rewrite::repository_lock::RewriteOptions;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -17,23 +17,6 @@ pub struct AmendUncommittedToBranchParams {
   pub branch_name: String,
   pub original_commit_id: String,
   pub files: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct AmendResult {
-  pub amended_commit_id: String,
-  pub rebased_to_commit: String,
-}
-
-/// Result type for amend command that can be properly serialized by Tauri
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "status", content = "data", rename_all = "camelCase")]
-pub enum AmendCommandResult {
-  Ok(AmendResult),
-  BranchError(BranchError),
 }
 
 /// Amends uncommitted changes into a commit of the checked out branch (`amend_to_commit_in_main`), under the repository

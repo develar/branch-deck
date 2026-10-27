@@ -1,5 +1,6 @@
 use crate::repository_lock::{LockWait, RewriteOptions};
-use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
+use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
+use domain_types::rewrite::SquashCommitsResult;
 use git_ops::rewrite_guard::HeadMoved;
 use pretty_assertions::assert_eq;
 use test_log::test;

@@ -4,13 +4,14 @@
 use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::reword::normalize_message;
 use anyhow::{Result, ensure};
+use domain_types::rewrite::SquashCommitsResult;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::copy_commit::CopyCommitError;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::with_dirs_of;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashSet;
 use tracing::{info, instrument};
 
@@ -23,18 +24,6 @@ pub struct SquashCommitsParams {
   pub commit_ids: Vec<String>,
   /// The whole message of the squashed commit, the grouping prefix `(branch)` included
   pub message: String,
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct SquashCommitsResult {
-  /// The squashed commit, in place of the oldest selected one
-  pub new_commit_id: String,
-  /// HEAD after the squash and before it, for an undo
-  pub new_head: String,
-  pub previous_head: String,
-  pub squashed_count: u32,
 }
 
 #[derive(Debug, Deserialize)]

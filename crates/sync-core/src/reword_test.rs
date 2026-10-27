@@ -1,9 +1,10 @@
 use crate::regroup_test::{commits, groups, path, regroup, subjects, sync};
 use crate::stack_operations::{UndoRegroupParams, undo_regroup};
+use domain_types::rewrite::{CommitReword, RewordResult, RewordText};
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
 use history_rewrite::regroup::{FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, restack_branch_core};
 use history_rewrite::repository_lock::LockWait;
-use history_rewrite::reword::{CommitReword, RewordRequest, RewordResult, RewordText, reword_core, reword_request_core};
+use history_rewrite::reword::{RewordRequest, reword_core, reword_request_core};
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use history_rewrite::test_commit::{issue_group_plan, plan};
 use pretty_assertions::assert_eq;

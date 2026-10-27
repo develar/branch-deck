@@ -1,7 +1,8 @@
 use crate::lock_wait::{WaitChannel, Waits, run_waiting};
 use domain_types::error::ApiError;
+use domain_types::rewrite::ParkResult;
 use git_executor::git_command_executor::GitCommandExecutor;
-use sync_core::parked::{ParkBranchesParams, ParkResult, UnparkBranchesParams, park_branches as park_branches_core, unpark_branches as unpark_branches_core};
+use sync_core::parked::{ParkBranchesParams, UnparkBranchesParams, park_branches as park_branches_core, unpark_branches as unpark_branches_core};
 use tauri::State;
 use tracing::instrument;
 

@@ -4,8 +4,8 @@ use bd_cli::fixture_test::{
 };
 use bd_core::suggest_plan::SuggestPlan;
 use commit_clustering::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
+use domain_types::rewrite::RegroupPlan;
 use git_ops::revs::short_id;
-use history_rewrite::regroup::RegroupPlan;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
