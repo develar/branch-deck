@@ -6,7 +6,8 @@ use crate::repository_config::{
 };
 use pretty_assertions::assert_eq;
 use sync_utils::git_bool::parse_git_bool;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::process_budget::{counting, processes};
 
 fn entry(scope: ConfigScope, key: &str, value: Option<&str>) -> ConfigEntry {
   ConfigEntry {
@@ -502,17 +503,25 @@ fn two_writes_at_once_both_succeed() {
 #[test]
 fn a_write_waits_for_a_config_lock_another_process_holds() {
   let test_repo = TestRepo::new();
-  let git = test_repo.git_executor();
+  // a git that refuses a locked config at once, as 2.54 and 2.55 do: the wait is the write's own (2.56 waits a second
+  // itself, the default of `core.configLockTimeout`)
+  append_config(test_repo.path(), &[("core.configLockTimeout", "0")]);
+  let git = counting();
   let path = test_repo.path_str();
   let lock = test_repo.path().join(".git").join("config.lock");
   std::fs::write(&lock, "").unwrap();
 
   std::thread::scope(|scope| {
+    // the other process lets go once git refused the write: the read of the scopes and the first write have ended
     let release = scope.spawn(|| {
-      std::thread::sleep(std::time::Duration::from_millis(200));
+      let deadline = std::time::Instant::now() + std::time::Duration::from_mins(1);
+      while processes(&git).iter().find(|(subcommand, _)| subcommand == "config").map_or(0, |(_, count)| *count) < 2 {
+        assert!(std::time::Instant::now() < deadline, "the write never ran");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+      }
       std::fs::remove_file(&lock).unwrap();
     });
-    let config = set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(true))).unwrap();
+    let config = set_repository_config(&git, path, &RepositoryConfigChange::Stacks(Some(true))).unwrap();
     assert!(config.stacks.value);
     release.join().unwrap();
   });

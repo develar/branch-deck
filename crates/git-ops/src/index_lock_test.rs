@@ -67,10 +67,11 @@ fn a_step_that_fails_on_its_own_returns_its_error_after_one_run_although_a_young
   let path = lock_path(&repo);
   let runs = Cell::new(0);
   let error = lock_of(&repo)
+    // the step started a minute before the lock appeared: a peer took the lock well after it, and the step refused for a
+    // reason of its own
+    .with_clock(|| SystemTime::now() - Duration::from_mins(1))
     .retry(Duration::from_secs(5), || -> Result<()> {
       runs.set(runs.get() + 1);
-      // a peer took the lock well after this step started, and the step refused for a reason of its own
-      std::thread::sleep(Duration::from_millis(300));
       std::fs::write(&path, "").unwrap();
       bail!("own refusal")
     })
@@ -141,11 +142,12 @@ fn a_lock_file_that_took_the_place_of_the_checked_one_is_not_removed() {
   assert!(!path.exists());
 }
 
-/// Another file at `path`: another inode, and a later change
+/// Another file at `path`: another inode, and a later change (a minute on, so no clock has to tick for it)
 fn replace(path: &Path) {
   let other = path.with_extension("other");
-  std::thread::sleep(Duration::from_millis(20));
   std::fs::write(&other, "x").unwrap();
+  let later = std::fs::metadata(path).unwrap().modified().unwrap() + Duration::from_mins(1);
+  std::fs::File::options().write(true).open(&other).unwrap().set_modified(later).unwrap();
   std::fs::remove_file(path).unwrap();
   std::fs::rename(&other, path).unwrap();
 }

@@ -1,6 +1,7 @@
 use crate::child_process::{ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines};
+#[cfg(unix)]
+use crate::process_scan::is_running;
 use std::process::Command;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use test_utils::fake_executable::fake_executable;
@@ -44,14 +45,9 @@ fn kills_the_child_after_the_timeout() {
 fn kills_the_child_when_superseded() {
   let dir = tempfile::tempdir().unwrap();
   let mut hang = Command::new(fake(&dir, "exec sleep 30"));
-  let superseded = Arc::new(AtomicBool::new(false));
-  let flag = Arc::clone(&superseded);
-  std::thread::spawn(move || {
-    std::thread::sleep(Duration::from_millis(100));
-    flag.store(true, Ordering::SeqCst);
-  });
   let started = Instant::now();
-  let result = run_child(&mut hang, None, TIMEOUT, &|| superseded.load(Ordering::SeqCst));
+  // a newer request came before the child ended
+  let result = run_child(&mut hang, None, TIMEOUT, &|| true);
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
   assert!(started.elapsed() < Duration::from_secs(5));
 }
@@ -122,9 +118,9 @@ fn hands_over_each_line_as_it_comes_and_returns_the_output() {
 #[test]
 fn a_cancel_ends_the_whole_process_group() {
   let dir = tempfile::tempdir().unwrap();
-  let marker = dir.path().join("grandchild-lived");
-  // the grandchild outlives a kill of the child alone and would write the marker
-  let child = fake(&dir, &format!("(sleep 2; touch {}) & echo started; sleep 30", marker.display()));
+  let grandchild_pid = dir.path().join("grandchild-pid");
+  // the grandchild outlives a kill of the child alone, by half a minute
+  let child = fake(&dir, &format!("(sleep 30; :) & echo $! > {}; echo started; sleep 30", grandchild_pid.display()));
   let canceled = AtomicBool::new(false);
   let started = Instant::now();
   let result = run_child_lines(
@@ -139,8 +135,13 @@ fn a_cancel_ends_the_whole_process_group() {
   );
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
   assert!(started.elapsed() < Duration::from_secs(10));
-  std::thread::sleep(Duration::from_secs(3));
-  assert!(!marker.exists(), "the grandchild survived the cancel");
+  // the group got its signals before the cancel returned: the grandchild ends within moments, never after its sleep
+  let pid: u32 = std::fs::read_to_string(&grandchild_pid).unwrap().trim().parse().unwrap();
+  let deadline = Instant::now() + Duration::from_secs(10);
+  while is_running(pid, None) {
+    assert!(Instant::now() < deadline, "the grandchild {pid} survived the cancel");
+    std::thread::sleep(Duration::from_millis(5));
+  }
 }
 
 /// A long child spawned beside a short one may inherit its pipes: the short one ends when it exits, not with the long one
@@ -149,27 +150,32 @@ fn a_cancel_ends_the_whole_process_group() {
 fn a_child_that_exited_does_not_wait_for_a_neighbour_that_holds_its_pipes() {
   let dir = tempfile::tempdir().unwrap();
   let short = fake(&dir, "echo hi");
-  let long = fake_executable(dir.path(), "long", "sleep 4");
-  let worst = std::sync::Mutex::new(Duration::ZERO);
+  let go = dir.path().join("go");
+  // the long children end only once every short one ended: a short one that waited for them would run into its timeout
+  let long = fake_executable(dir.path(), "long", &format!("while [ ! -e {} ]; do sleep 0.01; done", go.display()));
   std::thread::scope(|scope| {
     for _ in 0..4 {
-      scope.spawn(|| {
-        let _ = run_child_lines(&mut Command::new(&long), TIMEOUT, &|_| {}, &|| false);
-      });
+      scope.spawn(|| run_child_lines(&mut Command::new(&long), Duration::from_mins(1), &|_| {}, &|| false));
     }
-    for _ in 0..8 {
-      scope.spawn(|| {
-        for _ in 0..30 {
-          let started = Instant::now();
-          let output = run_child_lines(&mut Command::new(&short), TIMEOUT, &|_| {}, &|| false).unwrap();
-          assert_eq!(String::from_utf8_lossy(&output.stdout), "hi\n");
-          let took = started.elapsed();
-          let mut worst = worst.lock().unwrap();
-          *worst = (*worst).max(took);
-        }
-      });
+    let shorts: Vec<_> = (0..8)
+      .map(|_| {
+        scope.spawn(|| {
+          for _ in 0..30 {
+            let output = run_child_lines(&mut Command::new(&short), TIMEOUT, &|_| {}, &|| false).unwrap();
+            assert_eq!(String::from_utf8_lossy(&output.stdout), "hi\n");
+          }
+        })
+      })
+      .collect();
+    let mut failed = None;
+    for short in shorts {
+      if let Err(panic) = short.join() {
+        failed.get_or_insert(panic);
+      }
+    }
+    std::fs::write(&go, "").unwrap();
+    if let Some(panic) = failed {
+      std::panic::resume_unwind(panic);
     }
   });
-  let worst = *worst.lock().unwrap();
-  assert!(worst < Duration::from_secs(2), "a short child took {worst:?}");
 }

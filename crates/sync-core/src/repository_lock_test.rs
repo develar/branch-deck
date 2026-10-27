@@ -176,6 +176,8 @@ fn every_rewrite_fails_with_locked_while_another_holds_the_lock() {
 fn a_rewrite_waits_for_the_holder() {
   let (repo, [a1, _, a2, _]) = repo();
   let repository_path = path(&repo);
+  // the holder lets go after a time: the bounded wait polls the lock on the system clock and tells no one through
+  // `RewriteOptions` that it waits (only `LockWait::lock_with` takes an `on_wait`), so no event could time the release
   let hold = |repository_path: String| {
     let held = lock_repository(repo.git_executor(), &repository_path, Duration::from_secs(1)).unwrap();
     let started = Instant::now();
@@ -421,7 +423,8 @@ fn a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after(
   let squashed = std::thread::scope(|scope| {
     let squash = scope.spawn(|| squash_commits_core(git, &params, &options));
     waiter.wait_told();
-    // past the bound for a holder no record names: the named one keeps it waiting, nothing is written meanwhile
+    // past the bound for a holder no record names: the named one keeps it waiting, nothing is written meanwhile. The
+    // bound runs on the system clock of the wait, which takes no other, so the test lets it pass
     std::thread::sleep(Duration::from_millis(300));
     assert!(!squash.is_finished());
     assert_eq!(repo.head(), before);

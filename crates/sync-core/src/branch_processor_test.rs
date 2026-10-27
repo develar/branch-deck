@@ -271,18 +271,22 @@ fn a_new_base_recopies_the_commits_whose_mapped_commits_still_exist() {
 
 #[tokio::test]
 async fn a_rebuild_without_notes_writes_the_same_commits() {
+  const BASE: i64 = 1_700_000_000;
   let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
-  test_repo.create_commit("(cache) Add cache", "cache.rs", "// cache");
-  test_repo.create_commit("(auth) Add logout\n\nClears the session.", "logout.rs", "// logout");
+  test_repo.create_commit_with_timestamp("Initial commit", "README.md", "# Test", Some(BASE));
+  test_repo.create_commit_with_timestamp("(auth) Add login", "login.rs", "// login", Some(BASE + 1));
+  test_repo.create_commit_with_timestamp("(cache) Add cache", "cache.rs", "// cache", Some(BASE + 2));
+  test_repo.create_commit_with_timestamp("(auth) Add logout\n\nClears the session.", "logout.rs", "// logout", Some(BASE + 3));
 
   sync(&test_repo).await;
   let auth = virtual_commits(&test_repo, "auth");
   let cache = virtual_commits(&test_repo, "cache");
+  // the copies take their committer times from the history, never from the clock: the newest of their originals' and
+  // their parents', so a rebuild in any later second writes the same ids
+  let committer_times = |branch: &str| test_repo.log(&["--reverse", "--format=%ct", &format!("master..test/virtual/{branch}")]).unwrap();
+  assert_eq!(committer_times("auth"), format!("{}\n{}", BASE + 1, BASE + 3));
+  assert_eq!(committer_times("cache"), format!("{}", BASE + 2));
 
-  // a later second, so a committer date of "now" would change the ids
-  std::thread::sleep(std::time::Duration::from_millis(1100));
   test_repo
     .git_executor()
     .execute_command(&["update-ref", "-d", "refs/notes/commits"], repo_path(&test_repo))

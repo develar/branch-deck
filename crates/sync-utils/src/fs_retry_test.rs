@@ -36,27 +36,28 @@ fn held_open(path: &Path) -> std::fs::File {
 /// waits it out and then removes the rest; elsewhere it removes the directory under the process at once
 #[test]
 fn a_process_whose_current_directory_is_in_the_directory_delays_its_removal_until_it_exits() {
-  /// How long the git lives once it runs
-  const LIFE: Duration = Duration::from_millis(500);
   let dir = tempfile::tempdir().unwrap();
   let (removed, _) = tree(&dir);
   let git = GitInDirectory::start(&removed.join("nested"));
-  let started = Instant::now();
-  let exit = std::thread::spawn(move || {
-    std::thread::sleep(LIFE);
-    drop(git);
-  });
-
-  remove_dir_all(&removed).unwrap();
-
-  let waited = started.elapsed();
-  assert!(!removed.exists());
   if cfg!(windows) {
+    /// How long the git lives once it runs: the removal retries while it lives, and tells no one that it does, so the
+    /// git exits after a time instead of on an event
+    const LIFE: Duration = Duration::from_millis(500);
+    let started = Instant::now();
+    let exit = std::thread::spawn(move || {
+      std::thread::sleep(LIFE);
+      drop(git);
+    });
+    remove_dir_all(&removed).unwrap();
+    let waited = started.elapsed();
     assert!(waited >= LIFE, "removed while the process lived: {waited:?}");
+    exit.join().unwrap();
   } else {
-    assert!(waited < LIFE, "the removal waited for the process: {waited:?}");
+    // the git exits only after the removal: a removal that waited for it would give up and fail
+    remove_dir_all(&removed).unwrap();
+    drop(git);
   }
-  exit.join().unwrap();
+  assert!(!removed.exists());
 }
 
 /// A program that keeps a file of the directory open without sharing delete fails its removal on Windows after about a

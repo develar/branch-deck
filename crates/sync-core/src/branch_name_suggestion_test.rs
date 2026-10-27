@@ -4,13 +4,11 @@ use domain_types::commit::CommitInfo;
 use pretty_assertions::assert_eq;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use sync_utils::child_process::find_tool_in;
 use sync_utils::known_tools::CLAUDE;
 use test_log::test;
-use test_utils::fake_executable::fake_executable;
+use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::TestRepo;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -226,15 +224,11 @@ fn kills_claude_after_the_timeout() {
 fn a_newer_request_kills_the_running_one() {
   let (repo, params) = repo_with_commits();
   let dir = tempfile::tempdir().unwrap();
-  let claude = fake_executable(dir.path(), "claude", "exec sleep 30");
-  let superseded = Arc::new(AtomicBool::new(false));
-  let flag = Arc::clone(&superseded);
-  std::thread::spawn(move || {
-    std::thread::sleep(Duration::from_millis(200));
-    flag.store(true, Ordering::SeqCst);
-  });
+  let running = dir.path().join("running");
+  let claude = fake_executable(dir.path(), "claude", &format!(": > '{}'\nexec sleep 30", shell_path(&running)));
   let started = Instant::now();
-  let outcome = suggest_branch_names_with(repo.git_executor(), &params, Some(&claude), TIMEOUT, &|| superseded.load(Ordering::SeqCst));
+  // the newer request comes while claude runs
+  let outcome = suggest_branch_names_with(repo.git_executor(), &params, Some(&claude), TIMEOUT, &|| running.exists());
   assert_eq!(outcome, BranchNameSuggestionOutcome::Superseded);
   assert!(started.elapsed() < Duration::from_secs(5));
 }

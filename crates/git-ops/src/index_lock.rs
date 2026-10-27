@@ -45,6 +45,8 @@ pub struct IndexLock<'a> {
   /// Known up front, or read once (`rev-parse --git-path index.lock`) when a step failed
   path: OnceCell<PathBuf>,
   owner_check: Duration,
+  /// When a step starts (`retry`): the system clock, another one in tests
+  clock: fn() -> SystemTime,
 }
 
 /// A process that may own the lock: it has the file open, or it is a git of the worktree that started before the lock
@@ -118,6 +120,7 @@ impl<'a> IndexLock<'a> {
       worktree,
       path: OnceCell::new(),
       owner_check: OWNER_CHECK,
+      clock: SystemTime::now,
     }
   }
 
@@ -132,6 +135,13 @@ impl<'a> IndexLock<'a> {
   #[must_use]
   pub const fn with_owner_check(mut self, owner_check: Duration) -> Self {
     self.owner_check = owner_check;
+    self
+  }
+
+  /// Read the start of a step from `clock` instead of the system clock; for tests, which date a lock against it
+  #[must_use]
+  pub const fn with_clock(mut self, clock: fn() -> SystemTime) -> Self {
+    self.clock = clock;
     self
   }
 
@@ -157,7 +167,7 @@ impl<'a> IndexLock<'a> {
   pub fn retry<T>(&self, wait: Duration, mut step: impl FnMut() -> Result<T>) -> Result<T> {
     let deadline = Instant::now() + wait;
     loop {
-      let started = SystemTime::now();
+      let started = (self.clock)();
       let error = match step() {
         Ok(value) => return Ok(value),
         Err(error) => error,

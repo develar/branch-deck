@@ -2,7 +2,6 @@ use crate::review_fetch::{GitHubCredentials, NoCommonHistory, fetch_review_head,
 use domain_types::review_request::{FetchReviewHeadParams, ReviewHeadState, ReviewRange, ReviewSource};
 use git_executor::git_command_executor::{ProgressStop, StoppedCommand};
 use pretty_assertions::assert_eq;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use test_log::test;
 use test_utils::fake_executable::{fake_executable, shell_path};
@@ -287,11 +286,15 @@ fn refused_github_credentials_are_told_how_to_fix() {
   );
 }
 
-/// A fixture whose origin is an ssh remote that never answers
+/// The file the ssh of `hanging_fixture` writes in its directory once the fetch started it
+const SSH_STARTED: &str = "ssh-started";
+
+/// A fixture whose origin is an ssh remote that never answers, once it wrote `SSH_STARTED`
 fn hanging_fixture() -> (Fixture, tempfile::TempDir) {
   let fixture = fixture();
   let dir = tempfile::tempdir().unwrap();
-  let ssh = fake_executable(dir.path(), "ssh", "exec sleep 30");
+  let started = shell_path(&dir.path().join(SSH_STARTED));
+  let ssh = fake_executable(dir.path(), "ssh", &format!(": > '{started}'\nexec sleep 30"));
   fixture.local.set_config("core.sshCommand", &shell_path(&ssh)).unwrap();
   git(&fixture.local, &["remote", "set-url", "origin", "ssh://git@git.example.com/team/monorepo.git"]);
   (fixture, dir)
@@ -299,16 +302,11 @@ fn hanging_fixture() -> (Fixture, tempfile::TempDir) {
 
 #[test]
 fn a_cancel_kills_the_fetch() {
-  let (fixture, _dir) = hanging_fixture();
-  let cancelled = AtomicBool::new(false);
+  let (fixture, dir) = hanging_fixture();
+  let ssh_started = dir.path().join(SSH_STARTED);
   let started = Instant::now();
-  let result = std::thread::scope(|scope| {
-    scope.spawn(|| {
-      std::thread::sleep(Duration::from_millis(300));
-      cancelled.store(true, Ordering::SeqCst);
-    });
-    fetch_review_head(fixture.local.git_executor(), &fixture.params(), &mut |_| {}, &|| cancelled.load(Ordering::SeqCst))
-  });
+  // the user cancels while the fetch waits for the remote
+  let result = fetch_review_head(fixture.local.git_executor(), &fixture.params(), &mut |_| {}, &|| ssh_started.exists());
   let error = result.unwrap_err();
   assert_eq!(error.downcast_ref::<StoppedCommand>(), Some(&StoppedCommand::Cancelled), "{error:#}");
   assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());

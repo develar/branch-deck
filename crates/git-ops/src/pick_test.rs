@@ -566,7 +566,9 @@ fn a_pick_waits_for_the_index_lock_of_another_process_and_then_lands_with_its_fi
   worktree.commit("(lane) change", "b.txt", "b\n");
   repo.create_commit("(own) other", "own.txt", "own\n");
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
-  // an IDE's `git status` holds the lock of the target for a while
+  // an IDE's `git status` holds the lock of the target for a while. The wait of the pick polls the lock file on the
+  // system clock and tells no one that it waits (`IndexLock::wait_while_locked`, which the plan builds itself), so the
+  // lock goes after a time long enough for the wait to have seen it, not on an event
   let lock = repo.path().join(".git").join("index.lock");
   std::fs::write(&lock, "").unwrap();
   let release = std::thread::spawn(move || {

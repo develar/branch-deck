@@ -93,6 +93,8 @@ fn a_program_that_holds_the_file_without_sharing_delete_delays_the_write_until_i
   write_atomically(&path, b"old", AtomicWrite::default()).unwrap();
   let holder = held_without_sharing_delete(&path, true);
   let started = Instant::now();
+  // the write retries the rename on the system clock and tells no one that it does: the program closes the file after
+  // a time, not on an event
   let closer = std::thread::spawn(move || {
     std::thread::sleep(Duration::from_millis(200));
     drop(holder);

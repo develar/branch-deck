@@ -44,6 +44,10 @@ state and never for time, and a change that adds processes to many tests is meas
 - **No sleep to wait**: wait for the state (a file a fake writes, a channel, `held`/`go` marks of a wrapped git as in
   `update_held_in_its_replay`). A wait of the code under test is a value of the test's environment
   (`Environment::lock_timeout` of the bd tests is 200 ms, the app's 10 s).
+- **Commit times are the fixture's**: commits that must fall into different seconds, or a rewrite that must have a
+  later committer time, get their dates (`create_commit_with_timestamp`, `GIT_COMMITTER_DATE` of the rewrite's git)
+  instead of a wait for the clock. Two commits of one author with one subject share a `CommitKey` only within one
+  second, so a fixture gives them subjects of their own unless the pairing is what it tests
 - **A remote failure is asked again at once**: the clients of GitHub and Patronus wait a second before they ask again
   after a transient failure, and bd's environment of the tests sets no wait (`Environment::remote_retry_delay`); a test
   that fakes a 5xx still sees the retry.

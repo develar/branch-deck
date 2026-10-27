@@ -13,6 +13,7 @@ fn two_parts_share_the_slots() {
         let _permit = permits.acquire();
         let now = running.fetch_add(1, Ordering::SeqCst) + 1;
         most.fetch_max(now, Ordering::SeqCst);
+        // the work of a task, which holds its slot while the others ask for one; nothing waits for it to end
         std::thread::sleep(std::time::Duration::from_millis(5));
         running.fetch_sub(1, Ordering::SeqCst);
       });

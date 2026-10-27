@@ -301,9 +301,6 @@ fn test_integration_timestamp_accuracy() {
 
   // Don't delete the virtual branch yet - we need it to exist for detection
 
-  // Wait a moment to ensure timestamps are different
-  std::thread::sleep(std::time::Duration::from_secs(2));
-
   // Run sync again - should detect integration with correct timestamp
   let progress_reporter2 = TestReporter::new();
   let result = rt.block_on(async { sync_branches(&git_executor, repo.path().to_str().unwrap(), "user", progress_reporter2.clone(), SyncOptions::default()).await });
