@@ -8,6 +8,8 @@
 //! - `actions`: the actions a branch, a whole stack, a robot or a pull request to review offers and whether each can run
 //!   now, disabled with the reason (`branch_actions`, `stack_actions`, `robot_actions`, `review_actions`), for every
 //!   surface of the app
+//! - `attention`: the robot that needs the user, the failed robot of a branch or a whole stack as it is that nothing else
+//!   holds (`branch_attention`, `stack_attention`), which the landing overview, Attention and the Dock badge count
 //! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
 //!   session or from the grouped branches of a sync, the robots of the user by id (`Robots`) and what is known of a
 //!   remote branch (`RemoteBranch`)
@@ -61,6 +63,7 @@
 
 pub mod actions;
 pub mod admission;
+pub mod attention;
 pub mod facts;
 pub mod holds;
 pub mod land;
@@ -84,6 +87,8 @@ pub mod stack;
 mod action_catalog_test;
 #[cfg(test)]
 mod actions_test;
+#[cfg(test)]
+mod attention_test;
 #[cfg(test)]
 mod catalog_test;
 #[cfg(test)]

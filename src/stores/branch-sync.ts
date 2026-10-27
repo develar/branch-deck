@@ -20,6 +20,7 @@ import type {
   PullRequestView,
   PushAction,
   Reason,
+  RobotAttention,
   RunningOperation,
   StackBranchAlong,
   StackBranchConflict,
@@ -267,6 +268,12 @@ export interface BranchSyncState {
    */
   actions: Readonly<Record<string, readonly ActionState[]>>
   /**
+   * The subjects (a branch, `stack:<root>` the whole stack) whose robot needs the user, as Rust decides it
+   * (`RepositoryView.attention`, `domain_policy::attention`): the landing overview, Attention and the Dock badge list
+   * them (`collectRobotOverview`)
+   */
+  attention: Readonly<Record<string, RobotAttention>>
+  /**
    * The operations of the remote that run or wait in the session, by id (`RepositoryView.operations`, written by
    * `operations::registry`): the moves of rows they make are laid over the nodes (`src/presenters/running-move.ts`)
    */
@@ -275,15 +282,16 @@ export interface BranchSyncState {
 
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
- * `nextSteps`, `actions`), and its operations
+ * `nextSteps`, `actions`, `attention`), and its operations
  */
-export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "operations"> = {
+export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "operations"> = {
   pushes: {},
   openPullRequests: {},
   lands: {},
   landedStates: {},
   nextSteps: {},
   actions: {},
+  attention: {},
   operations: {},
 }
 
@@ -821,6 +829,14 @@ export function getLands(subject: string): LandDecisions | undefined {
 /** What landed `subject` (a branch, `stackReadinessKey(root)`) as Rust decides it; undefined while nothing did */
 export function getLandedState(subject: string): Landed | undefined {
   return branchSyncStore.getState().landedStates[subject]
+}
+
+/**
+ * The subjects whose robot needs the user, as Rust decides it (`RepositoryView.attention`); the same object while no
+ * patch changes it
+ */
+export function useRobotAttention(): Readonly<Record<string, RobotAttention>> {
+  return useStore(branchSyncStore, state => state.attention)
 }
 
 /** The branches stacked directly on `name`, newest first */

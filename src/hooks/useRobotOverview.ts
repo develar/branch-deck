@@ -1,20 +1,10 @@
 import { useMemo } from "react"
-import { useIsFullyLanded } from "@/hooks/useLandedIn"
 import { useNow } from "@/hooks/useNow"
 import type { RobotOverview } from "@/lib/robot-overview"
 import { collectRobotOverview } from "@/lib/robot-overview"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
-import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
-import {
-  getLandingAncestor,
-  getStackLandingMember,
-  useFailingRobots,
-  usePushHolds,
-  useRepositoryRobots,
-  useRobotsNeedingReview,
-  useRowRobots,
-  useWatchedRobots,
-} from "@/stores/patronus"
+import { useBranchSync, useBranchTableRows, useRobotAttention } from "@/stores/branch-sync"
+import { useFailingRobots, useRepositoryRobots, useRobotsNeedingReview, useRowRobots, useWatchedRobots } from "@/stores/patronus"
 
 /** The last day of finished robots moves on by the minute: a robot that finished 24 hours ago drops out within one */
 const FINISHED_TICK_MS = 60_000
@@ -24,7 +14,7 @@ const noStacks: Readonly<Record<string, StackBranch>> = {}
 
 /**
  * The robots of the selected repository's branches, of its whole stacks and the watched ones (`collectRobotOverview`),
- * for the landing overview and the Dock
+ * for the landing overview and the Dock; the ones that need the user as the view says it (`RepositoryView.attention`)
  */
 export function useRobotOverview(): RobotOverview {
   const rows = useBranchTableRows()
@@ -36,15 +26,10 @@ export function useRobotOverview(): RobotOverview {
   const needsReview = useRobotsNeedingReview()
   const watched = useWatchedRobots()
   const failing = useFailingRobots()
-  const holds = usePushHolds()
-  const isLanded = useIsFullyLanded()
+  const attention = useRobotAttention()
   const now = useNow(FINISHED_TICK_MS)
   return useMemo(() => {
     const order = rows.flatMap(row => (row.kind === "branch" ? [row.name] : []))
-    // another robot holds, lands a part of or landed it, or the baseline has it: its old failure asks for nothing. The
-    // robots and the branches the landing ones are found by are deps of this memo
-    const isCarried = (name: string) => holds.has(name) || isLanded(name) || getLandingAncestor(name) !== null
-    const isStackCarried = (root: string) => getStackLandingMember(root) !== null
-    return collectRobotOverview(order, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, isCarried, isStackCarried)
-  }, [rows, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, holds, isLanded])
+    return collectRobotOverview(order, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, attention)
+  }, [rows, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, attention])
 }

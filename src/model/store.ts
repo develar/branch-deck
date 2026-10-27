@@ -412,6 +412,9 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (changes === null || Object.keys(changes.actions ?? {}).length > 0 || (changes.removedActions?.length ?? 0) > 0) {
     update.actions = next.actions
   }
+  if (changes === null || Object.keys(changes.attention ?? {}).length > 0 || (changes.removedAttention?.length ?? 0) > 0) {
+    update.attention = next.attention
+  }
   if (changes === null || Object.keys(changes.operations ?? {}).length > 0 || (changes.removedOperations?.length ?? 0) > 0) {
     update.operations = next.operations
   }

@@ -1,8 +1,8 @@
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, RobotAttention } from "@/lib/bindings"
 import type { PatronusChipState } from "@/lib/patronus"
-import { getPatronusChipState, isFailingChip, isRobotActive, needsBranchRobotAttention, needsStackRobotAttention } from "@/lib/patronus"
+import { getPatronusChipState, isFailingChip, isRobotActive } from "@/lib/patronus"
 import type { RobotTiming } from "@/lib/robot-eta"
-import { formatWholeStackStart } from "@/lib/whole-stack"
+import { formatWholeStackStart, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 
 /** The landing overview lists the robots that finished this long before now */
@@ -31,8 +31,9 @@ export interface RobotOverview {
   /** The active robots of the branches (running or canceling), in the table order; the failing ones among them */
   readonly running: readonly RobotOverviewEntry[]
   /**
-   * The robots that failed on the branch as it is (`needsRobotAttention`), also for missing code-owner approvals
-   * ("Needs review"), however long ago, in the table order: the user has to act
+   * The robots that need the user (`RepositoryView.attention`: failed on the branch or the whole stack as it is, also for
+   * missing code-owner approvals, "Needs review", however long ago, and nothing else holds it), in the table order, then
+   * the failed watched robots: the user has to act
    */
   readonly attention: readonly RobotOverviewEntry[]
   /** The other robots that finished in the last day, the newest of each branch, newest first */
@@ -60,10 +61,10 @@ export const NO_ROW_ROBOTS: RowRobots = { branches: {}, stacks: {} }
  * reviewed pull request, listed by what it tests, after the branches; a failure only of the newest of a label). The robot of the whole stack of a stack branch
  * (`stacks`, by root) comes after the branches, as "Whole air stack", on its stack branch as it is. `order` is the table
  * order, `rowRobots` the robot of each branch and whole stack as the session matched it, `needsReview` the robots that
- * failed for missing approvals, `failing` the running ones that will fail,
- * `isCarried` the branches another robot holds, lands a part of or landed, or the baseline has
- * (`needsBranchRobotAttention`), `isStackCarried` the roots of the stacks a robot of one of their branches lands a part
- * of (`needsStackRobotAttention`).
+ * failed for missing approvals, `failing` the running ones that will fail, `needsUser` the subjects whose robot needs
+ * the user as Rust decides it (`RepositoryView.attention`, `domain_policy::attention`): a failure it doesn't name (on a
+ * branch changed since, one another robot holds, lands a part of or landed, one the baseline has, a stack branch not
+ * built) is in the line of the last day.
  */
 export function collectRobotOverview(
   order: readonly string[],
@@ -75,8 +76,7 @@ export function collectRobotOverview(
   watched: Readonly<Record<string, string>> = {},
   failing: Readonly<Record<string, true>> = {},
   stacks: Readonly<Record<string, StackBranch>> = {},
-  isCarried: (name: string) => boolean = () => false,
-  isStackCarried: (root: string) => boolean = () => false,
+  needsUser: Readonly<Record<string, RobotAttention>> = {},
 ): RobotOverview {
   if (robots === undefined) {
     return EMPTY_ROBOT_OVERVIEW
@@ -112,13 +112,13 @@ export function collectRobotOverview(
     }
     if (isRobotActive(robot)) {
       running.push(entry(name, robot))
-    } else if (needsBranchRobotAttention(robot, localTip, remote, isCarried(name))) {
+    } else if (needsUser[name]?.robotId === robot.id) {
       attention.push(entry(name, robot))
     }
   }
 
   const since = (now - FINISHED_ROBOTS_MS) / 1000
-  // the whole stack: its robot on its stack branch as it is, its failure only on one the sync built; a click shows the root
+  // the whole stack: its robot on its stack branch as it is, its failure as Rust says it; a click shows the root
   const stackFinished: RobotOverviewEntry[] = []
   for (const stack of Object.values(stacks)) {
     const id = rowRobots.stacks[stack.root]
@@ -136,7 +136,7 @@ export function collectRobotOverview(
     }
     if (isRobotActive(robot)) {
       running.push(stackEntry)
-    } else if (needsStackRobotAttention(robot, stack, isStackCarried(stack.root))) {
+    } else if (needsUser[stackReadinessKey(stack.root)]?.robotId === robot.id) {
       attention.push(stackEntry)
     } else if (robot.finishTime !== null && robot.finishTime >= since) {
       stackFinished.push(stackEntry)

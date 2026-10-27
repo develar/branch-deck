@@ -42,11 +42,6 @@ export function isFullyLanded(branch: LandedBranch, incoming: boolean): boolean 
   return incoming && branch.remaining === 0
 }
 
-/** The names of the branches of the landing (`BaselineStatus.landing`) that the fetched baseline has all of */
-export function fullyLandedNames(landing: readonly LandedBranch[]): ReadonlySet<string> {
-  return new Set(landing.flatMap(branch => (branch.name !== null && isFullyLanded(branch, true) ? [branch.name] : [])))
-}
-
 /** The description of the status and of the push button of a fully landed branch */
 export function landedBranchDescription(upstream: string): string {
   return `Already in ${upstream}. Update to archive the branch.`

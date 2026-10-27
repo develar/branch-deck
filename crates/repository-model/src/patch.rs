@@ -94,6 +94,8 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     removed_next_steps,
     actions,
     removed_actions,
+    attention,
+    removed_attention,
     operations,
     removed_operations,
     unassigned,
@@ -151,6 +153,10 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     view.actions.remove(key);
   }
   view.actions.extend(actions);
+  for key in &removed_attention {
+    view.attention.remove(key);
+  }
+  view.attention.extend(attention);
   for id in &removed_operations {
     view.operations.remove(id);
   }

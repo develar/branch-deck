@@ -5,7 +5,6 @@ import {
   appliedUpdateToast,
   describeLanding,
   formatStayLocal,
-  fullyLandedNames,
   isFullyLanded,
   landedBranchDescription,
   landedChipLabel,
@@ -67,7 +66,6 @@ describe("landedCountLabel", () => {
     expect(isFullyLanded(branch("wsm", 40, 12), true)).toBe(false)
     // after the update a branch still in the table has new commits
     expect(isFullyLanded(branch("wsm", 5), false)).toBe(false)
-    expect([...fullyLandedNames([branch("wsm", 5), branch("IJPL-257337", 3, 9), branch(null, 2)])]).toEqual(["wsm"])
     expect(landedBranchDescription("origin/master")).toBe("Already in origin/master. Update to archive the branch.")
   })
 

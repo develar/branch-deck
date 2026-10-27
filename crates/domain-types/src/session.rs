@@ -372,6 +372,10 @@ pub struct RepositoryView {
   /// and whether each can run now, as `domain_policy::actions` decides them over the table, its next steps and the facts;
   /// none before the first sync
   pub actions: BTreeMap<String, Vec<ActionState>>,
+  /// The subjects (a branch, `stack:<root>` the whole stack) whose robot needs the user, as `domain_policy::attention`
+  /// decides it over the rows as they are and the robots: it failed on the subject as it is and nothing else holds the
+  /// subject. The landing overview, Attention and the Dock badge count them; none before the first sync
+  pub attention: BTreeMap<String, RobotAttention>,
   /// The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them
   pub operations: BTreeMap<OperationId, RunningOperation>,
   pub sections: TableSections,
@@ -385,6 +389,15 @@ pub struct RepositoryView {
   /// The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
   /// that its first view had already
   pub news: Vec<News>,
+}
+
+/// The robot of a subject that needs the user (`RepositoryView::attention`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RobotAttention {
+  /// The robot of the subject's row (`robotId` of the Patronus view), by id
+  pub robot_id: String,
 }
 
 /// How many news a view keeps, for a window that lost a patch and asks a snapshot
@@ -1096,6 +1109,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_actions: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub attention: BTreeMap<String, RobotAttention>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_attention: Vec<String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub operations: BTreeMap<OperationId, RunningOperation>,

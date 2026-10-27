@@ -4006,13 +4006,15 @@ Patronus view's, the landing needs the host's.
   actions): the push orders (`pushes`, `domain_policy::push::branch_push`), the open pull request with its base and the
   code owners Request Review offers (`openPullRequests`), the decisions of the default starts (`lands`: the Safe Push
   with the default profile and the Dry Run, `domain_policy::land::decide` over `LandSources`), what landed
-  (`landedStates`), the next step and the node (`nextSteps`) and the actions with the reason of each disabled one
-  (`actions`, over the steps just derived, the pushes, the lands, the pull requests and what landed). The pushes, the
-  lands and what landed wait while a sync runs (its remote statuses come one by one; the patch of its end carries
-  them); the steps and the actions don't (a branch that syncs is row 1), and the page lays the sync and its running
-  operations over the actions it presents (`whileSyncing`, `operationItem`) until the session has its operations. A
-  part equal to the one sent last is not sent again (`diff_keyed`, `PartialEq`), so a patch carries only the subjects
-  whose answer changed; all of them for the 141 branches of `branch_table_large` take about 2 ms in a release build
+  (`landedStates`), the next step and the node (`nextSteps`), the actions with the reason of each disabled one
+  (`actions`, over the steps just derived, the pushes, the lands, the pull requests and what landed) and the robots
+  that need the user (`attention`, `domain_policy::attention` over the rows as they are: the robot of the row failed on
+  the subject as it is, and nothing else holds the subject; the landing overview, Attention and the Dock badge list
+  them). The pushes, the lands and what landed wait while a sync runs (its remote statuses come one by one; the patch
+  of its end carries them); the steps, the actions and the attention don't (a branch that syncs is row 1), and the page
+  lays the sync and its running operations over the actions it presents (`whileSyncing`, `operationItem`) until the
+  session has its operations. A part equal to the one sent last is not sent again (`diff_keyed`, `PartialEq`), so a
+  patch carries only the subjects whose answer changed; all of them for the 141 branches of `branch_table_large` take about 2 ms in a release build
   (`derive_budget_test.rs`, [Rendering Performance](rendering-performance.md#the-main-thread-of-a-sync)).
 - **The plan of a start** (a click, its popover, any profile, a start without approvals): `prepare { repositoryPath,
   intent }` answers the `Plan` of a `Land` over the facts the session holds now, on its actor (`Sessions::read`,

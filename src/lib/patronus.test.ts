@@ -17,10 +17,9 @@ import {
   getRowRobotChip,
   getSafePushSlot,
   isHoldingRobot,
-  needsRobotAttention,
 } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
+import { PUSH, testRemoteStatus } from "@/stores/test-branch"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -115,9 +114,6 @@ describe("formatRobotCommitNotice", () => {
     expect(notice(failed, pushedSince, "restart")).toBe(`${changed} Restart Safe Push to test the current branch.`)
     // the restart pushes first: it has the same name
     expect(notice(failed, unpushed, "pushAndRestart")).toBe(`${changed} Restart Safe Push to test the current branch.`)
-    // the parent got a new commit since the push of the branch: the remote branch is an older piece
-    const olderPiece = testRemoteStatus({ remoteTip: started.sourceRevision, ancestorCommitsAhead: 1, fastForward: false, action: forcePush({ replaces: true }) })
-    expect(needsRobotAttention(failed, localTip, olderPiece)).toBe(false)
   })
 
   it("asks to cancel a running robot the remote moved past, and offers nothing for a robot of a temporary ref", () => {
@@ -133,20 +129,6 @@ describe("formatRobotCommitNotice", () => {
     expect(notice(robot(started), testRemoteStatus({ remoteTip: started.sourceRevision }), null)).toBe("Started on an earlier build of the same commits.")
     expect(notice(robot({ sourceRevision: localTip }), unpushed, null)).toBeNull()
     expect(notice(robot({ sourceRevision: null }), unpushed, null)).toBeNull()
-  })
-})
-
-describe("needsRobotAttention", () => {
-  it("needs the user for a failed robot of the branch as it is, also after a sync rebuilt the branch", () => {
-    expect(needsRobotAttention(robot({ status: "failure" }), "tip", null)).toBe(true)
-    expect(needsRobotAttention(robot({ status: "failure", pushMode: "dryRun" }), "tip", null)).toBe(true)
-    expect(needsRobotAttention(robot({ status: "failure" }), "rebuilt", rebuiltOnRobot)).toBe(true)
-    // fixed since: the branch changed
-    expect(needsRobotAttention(robot({ status: "failure" }), "fixed", unpushedOnRobot)).toBe(false)
-    expect(needsRobotAttention(robot({ status: "failure" }), "fixed", testRemoteStatus({ remoteTip: "fixed" }))).toBe(false)
-    // the remote status is not loaded yet
-    expect(needsRobotAttention(robot({ status: "failure" }), "fixed", null)).toBe(false)
-    expect(needsRobotAttention(robot({ status: "running" }), "tip", null)).toBe(false)
   })
 })
 

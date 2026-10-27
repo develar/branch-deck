@@ -341,6 +341,7 @@ flowchart TD
 | Landing node | `domain-policy/src/landing_node.rs` (s8-9) | `landing-node.ts` удалён (s8-10): узел — `view.node`, слова и наложение идущего хода — `src/presenters/landing-node.ts` |
 | Что перенесено и какие PR закрыть | `domain-policy/src/landed.rs` | `landed-stack.ts`, `landed_by` (D7) |
 | Доступность каждого действия (disabled с причиной) | `domain-policy/src/actions.rs` (s8-12; PR к ревью — `review_actions`, ключ `pull:<number>`), раскладка в вид — `repository-model/src/action_view.rs` и `review_view.rs` (`RepositoryView.actions`), слова — `src/presenters/actions.ts` | предметная половина `useBranchContextActions.ts` (860 строк), `getRobotActions`; палитра ⌘K показывает действия ветки в фокусе из того же строителя меню (`spec/repository/command-palette.spec.md`) |
+| Робот, которому нужен пользователь: упавший робот ветки или whole stack как есть, которого ничто другое не несёт | `domain-policy/src/attention.rs` (s10-9), раскладка в вид — `repository-model/src/derive.rs` (`attention_of` → `RepositoryView.attention`) | `needsRobotAttention`, `needsBranchRobotAttention`, `needsStackRobotAttention` (`src/lib/patronus.ts`), предикаты «несёт» `useRobotOverview.ts` (`getLandingAncestor`, `getStackLandingMember`, `useIsFullyLanded`), строка ALLOWLIST `lint:arch` |
 | Допуск операции (join, wait, side by side) | `domain-policy/src/admission.rs` | `getOperationBlocker` (`src/stores/operations.ts:87`) |
 | Когда обновлять факт (каденция, demand, батчи) | `domain-policy/src/refresh.rs` | константы и таймеры `patronus.ts:56-72`, `pull-requests.ts`, `review-readiness.ts`, `review-requests.ts` |
 | PR, с которого стартует Safe Push; пришли ли approvals; ждёт ли subject approvals; у каких показанных subject спрашивать readiness | `domain-policy/src/readiness.rs` (s7; `wanted` — s8-9) | `findApprovalNews`, правило `getPullRequestStart` для readiness сессии (страница держит своё до s8) |
@@ -2145,7 +2146,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
      «Close Pull Request #12…» осиротевшего PR whole stack (память `landed-stacks`, s9). Палитра ⌘K показывает действия
      ветки в фокусе из того же строителя меню; drop-цели drag читают те же действия. `lint:arch` ограждает правила:
      удалённые модули не возвращаются, экспорт `can…`/`needs…`/`allows…`/`…Blocker`/`…Decision`/`is…Blocked` в
-     `src/lib`/`src/hooks` — только записью `ALLOWLIST` (`needsRobotAttention` до s9, `commitReviewBlocker` выделения).
+     `src/lib`/`src/hooks` — только записью `ALLOWLIST` (`commitReviewBlocker` выделения; `needsRobotAttention` стоял в
+     нём до s10-9, теперь это правило `domain_policy::attention` и часть вида `attention`).
      `bd` ничего не получает (действия `bd` — intents s9).
 
 ### s9-engine-remote

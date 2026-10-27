@@ -12,6 +12,7 @@ targets:
   - ../../src/hooks/useLandingNode.ts
   - ../../crates/domain-policy/src/landing_node.rs
   - ../../crates/domain-policy/src/next_step.rs
+  - ../../crates/domain-policy/src/attention.rs
   - ../../src/hooks/useRobotOverview.ts
   - ../../src/lib/landing-overview.ts
   - ../../src/presenters/landing-node.ts
@@ -107,9 +108,11 @@ indicator, whose states were the same story told twice.
 
 - Hovering (after a short delay) or a click opens the overview; it is loaded while the delay runs. Its sections, each
   hidden while empty, titled with their count:
-  - **Your move**: the units with a fix first, then the user's step, then the ready ones; a branch whose robot failed
-    on it as it is is the robot's row, with its actions; then the failed robots of no row and the running robots that
-    will fail (a required check failed: no use waiting, the user cancels or restarts them), each a move;
+  - **Your move**: the units with a fix first, then the user's step, then the ready ones; a branch whose robot needs
+    the user (it failed on the branch as it is and nothing else holds it, the view's `attention`,
+    [Patronus](../branch/patronus.spec.md#landing-overview)) is the robot's row, with its actions; then the failed
+    robots of no row and the running robots that will fail (a required check failed: no use waiting, the user cancels
+    or restarts them), each a move;
   - **Landing** ("Landing · 5", "Landing · 5 · 1 dry run"): the other running robots of the branches, the whole stacks
     and the watched pull requests, as a queue: the Safe Pushes nearest to finishing first, by the time left as the Dock
     picks its robot (`compareByFinish`; one without an estimate last), then the Dry Runs, which land nothing, the same
@@ -121,6 +124,8 @@ indicator, whose states were the same story told twice.
   - **In master**: the units the baseline or a merge has, until the update archives them.
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`, `should queue the robots nearest to finishing first, and fit the window`, `should wait for the Safe Push of the root instead of the failure of the whole straight stack, once it runs`)
   [@test] ../../src/lib/robot-overview.test.ts (`queues the Safe Pushes nearest to finishing first, those without an estimate last, then the Dry Runs`)
+  [@test] ../../src/lib/robot-overview.test.ts (`lists the running robots of the branches in the table order, and the branches whose robot needs the user as the view names them`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are`)
   [@test] ../../src/lib/landing-overview.test.ts (`is empty with nothing on the way, nothing in master and no robot of the last day`)
 - The robots of the last day are one line below the sections, not a list: "auth, login, oauth and 6 more merged · ui
   failed · 1 canceled · 2 dry runs passed in the last 24 hours" (`formatFinishedSummary`, the parts that apply; the

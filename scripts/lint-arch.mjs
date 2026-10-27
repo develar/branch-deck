@@ -42,12 +42,6 @@ export const ALLOWLIST = [
   { file: "src/hooks/useAutoUpdate.ts", rule: "poll-timer", reason: "one check for updates shortly after the start of the app, never again by a timer" },
   { file: "src/hooks/useMovePreview.ts", rule: "poll-timer", reason: "the dry run of a move waits for the selection to rest: a debounce" },
   {
-    file: "src/lib/patronus.ts",
-    rule: "rule-module",
-    reason:
-      "needsRobotAttention and its branch and stack forms: the failed robots the landing overview, Attention and the Dock badge count, until the robots overview is a part of the view (s10-registry-journal)",
-  },
-  {
     file: "src/hooks/useCommitReviewActions.ts",
     rule: "rule-module",
     reason: "commitReviewBlocker: the review of the commit rows the user selected, a selection of the page and no action of a subject Rust offers",

@@ -63,6 +63,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
   if (Object.keys(changes.actions ?? {}).length > 0 || (changes.removedActions?.length ?? 0) > 0) {
     actions = { ...withoutKeys(actions, changes.removedActions ?? []), ...changes.actions }
   }
+  const attention = keyed(view.attention, changes.attention, changes.removedAttention)
   const operations = keyed(view.operations, changes.operations, changes.removedOperations)
   const sections = view.sections
   const archived = changes.archived
@@ -79,6 +80,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     landedStates,
     nextSteps,
     actions,
+    attention,
     operations,
     sections: {
       unassigned: changes.unassigned ?? sections.unassigned,

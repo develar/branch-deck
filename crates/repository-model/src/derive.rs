@@ -37,10 +37,15 @@
 //! every patch, a sync of a branch included (row 1), and `bd status` and `bd safe-push --check` over what they read
 //! (`grouped_rows`); `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
 //! session asks it of.
+//!
+//! `attention_of` is the robot of each subject that needs the user (`domain_policy::attention`: it failed on the subject
+//! as its row shows it, and nothing else holds the subject), which the view derives with every patch over the rows as
+//! they are, so the landing overview, Attention and the Dock badge list what the view says.
 
-use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
+use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline, remote_fact};
 use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::table::{TableParts, TableState};
+use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, branch_attention, stack_attention};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, is_pushing, push_blocker, restart_action, stack_branch_hold};
 use domain_policy::land::{
@@ -67,10 +72,10 @@ use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailabili
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, RobotsView,
-  StackBranchAlong, SubjectReadiness, WholeStackView, stack_readiness_key,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, RobotAttention,
+  RobotsView, StackBranchAlong, SubjectReadiness, WholeStackView, stack_readiness_key,
 };
-use domain_types::stack::{BranchStack, StackBranchUpdate};
+use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, PushAction};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -1507,6 +1512,73 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
     view_stacks: Some(&parts.stacks),
   };
   next_steps(&sources)
+}
+
+/// The subjects of `state` whose robot needs the user (`domain_policy::attention`), by subject key: each branch of the
+/// rows and each stack branch over its tip and its remote status as its row shows them (the parts of the view, a sync
+/// included), its robot of the Patronus view and what else holds it there (a hold whose robot still holds, a running
+/// robot of a branch it is built on or of a branch of the stack), the landing section (all of it in the fetched
+/// baseline) and its structure (parked); none before the first sync
+#[must_use]
+pub fn attention_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, RobotAttention> {
+  let parts = &state.parts;
+  let view = &facts.patronus.part().view;
+  let robots = facts.robots.view();
+  let robot_of = |id: Option<&String>| robots.robots.get(id?.as_str());
+  let active = |of: Option<&RobotOf>| of.and_then(|of| robots.robots.get(&of.robot_id)).is_some_and(is_active);
+  let attention = |robot: &PatronusRobot| RobotAttention { robot_id: robot.id.clone() };
+  let landed: HashSet<&str> = in_baseline(&parts.sections.landed.landing).collect();
+  let mut needs = BTreeMap::new();
+  for (name, branch) in &parts.branches {
+    let Some(patronus) = view.branches.get(name) else {
+      continue;
+    };
+    let Some(robot) = robot_of(patronus.robot_id.as_ref()) else {
+      continue;
+    };
+    let remote = branch.remote.status.as_ref().map(remote_fact);
+    let on = RobotOnSubject {
+      robot,
+      tip: shown_tip(branch.copies.first().and_then(|copy| copy.hash.as_deref())),
+      remote: remote.as_ref().and_then(RemoteFact::branch),
+    };
+    let carriers = BranchCarriers {
+      parked: branch.structure.parked.is_some(),
+      held: live_hold(patronus, robots).is_some(),
+      in_baseline: landed.contains(name.as_str()),
+      landing_part: active(patronus.landing_ancestor.as_ref()),
+    };
+    if branch_attention(&on, carriers) {
+      needs.insert(name.clone(), attention(robot));
+    }
+  }
+  for (root, stack) in &parts.stacks {
+    let Some(patronus) = view.stacks.get(root) else {
+      continue;
+    };
+    let Some(robot) = robot_of(patronus.robot_id.as_ref()) else {
+      continue;
+    };
+    let remote = stack.remote.as_ref().map(remote_fact);
+    let on = RobotOnSubject {
+      robot,
+      tip: shown_tip(stack.tip.as_deref()),
+      remote: remote.as_ref().and_then(RemoteFact::branch),
+    };
+    let carriers = StackCarriers {
+      built: stack.state == StackBranchState::Built,
+      landing_part: active(patronus.landing_member.as_ref()),
+    };
+    if stack_attention(&on, carriers) {
+      needs.insert(stack_readiness_key(root), attention(robot));
+    }
+  }
+  needs
+}
+
+/// A tip a row shows; an empty one is none
+fn shown_tip(tip: Option<&str>) -> Option<&str> {
+  tip.filter(|tip| !tip.is_empty())
 }
 
 /// The subjects a window shows (`Demand::visible_branches`, `visible_stacks` by root) whose next step waits for the

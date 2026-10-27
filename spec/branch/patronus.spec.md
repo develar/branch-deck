@@ -37,6 +37,7 @@ targets:
   - ../../crates/remote-facts/src/fact_sources.rs
   - ../../crates/repository-model/src/facts.rs
   - ../../src/lib/patronus.ts
+  - ../../crates/domain-policy/src/attention.rs
   - ../../src/lib/review-commit.ts
   - ../../src/lib/robot-coverage.ts
   - ../../src/stores/robot-coverage.ts
@@ -1705,14 +1706,18 @@ explicit choice of the user, offered only where the approvals count in a pull re
   baseline, [above](#robot-of-a-row)) needs the user: the [landing indicator](../repository/landing-overview.spec.md#indicator) counts it as a move, the
   overview shows it once, as the move of its row with the robot's actions, the Dock its badge
   ([Robots in the Dock](../repository/robots-indicator.spec.md#dock)). A branch changed since (a fix) needs no attention,
-  nor one that something else carries (`needsBranchRobotAttention`): a running Safe Push of a branch built on it or of
-  the whole stack holds it, a merged one landed it whole (`PushHold`), the baseline has all of it, or a running Safe
-  Push of a branch it is built on lands a part of it (a Dry Run lands nothing; a canceling one still counts, as for the
-  start), and the whole stack while one of a branch of it does (`needsStackRobotAttention`); its row waits
-  ([Next Step](next-step.spec.md)), and the old failure is in the line of the last day of the landing overview. Once
-  that robot merged or failed, the failure is judged by content again.
-  [@test] ../../src/lib/patronus.test.ts (`needs the user for a failed robot of the branch as it is, also after a sync rebuilt the branch`)
-  [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for the failure of a branch another robot holds, lands a part of or landed, or the baseline has: it is finished history`)
+  nor one that something else holds: a running Safe Push of a branch built on it or of the whole stack holds it, a
+  merged one landed it whole (the hold of the view), the baseline has all of it, a running Safe Push of a branch it is
+  built on lands a part of it (a Dry Run lands nothing; a canceling one still counts, as for the start), or it is parked;
+  nor the whole stack while one of a branch of it does; its row waits ([Next Step](next-step.spec.md)), and the old
+  failure is in the line of the last day of the landing overview. Once that robot merged or failed, the failure is
+  judged by content again. Rust decides it (`domain_policy::attention`), the view names each subject whose robot needs
+  the user (`attention`, derived with every patch over the rows as they are, `derive::attention_of`), and the page lists
+  what the view names.
+  [@test] ../../crates/domain-policy/src/attention_test.rs (`a_robot_failed_on_the_subject_as_it_is_only_on_its_tip_or_on_the_same_commits_rebuilt`)
+  [@test] ../../crates/domain-policy/src/attention_test.rs (`the_failed_robot_of_a_branch_needs_the_user_unless_something_else_holds_the_branch`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are`)
+  [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for a failure the view does not name, nor for one it names of another robot than the row's: it is finished history`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should not count the failed robot of a branch while the Safe Push of a branch built on it lands it`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show a robot that failed on the branch tip once, as the move it is, with the chips of the other rows`)
 - The footer has a line "Patronus checked just now" (it ages while shown, as every relative time:

@@ -28,6 +28,7 @@ targets:
   - ../../crates/patronus/src/service.rs
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../crates/domain-policy/src/robot_match.rs
+  - ../../crates/domain-policy/src/attention.rs
   - ../../crates/remote-facts/src/pull_requests.rs
   - ../../crates/remote-facts/src/pull_request_create.rs
   - ../../crates/remote-facts/src/review_readiness.rs
@@ -250,14 +251,16 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   review) or will fail, listed in the landing overview as "Whole air stack", a click showing the root, and counted in
   the header of its island as the root's ("1 running" with its ring, [Stack Island](stack-island.spec.md#header)).
   Its failure asks for the user (the landing overview's attention, "1 failed" of the island, the Dock badge) only on a
-  stack branch the sync built (`needsStackRobotAttention`): on one not rebuilt (`Stale`, kept for its remote branch
-  once the stack no longer forks; `Blocked`; `Conflict`) its restart is refused and the stack lands in pieces, so the
-  overview lists it as finished, and the island and the badge count nothing for it.
+  stack branch the sync built (`domain_policy::attention::stack_attention`, the view's `attention` of `stack:<root>`):
+  on one not rebuilt (`Stale`, kept for its remote branch once the stack no longer forks; `Blocked`; `Conflict`) its
+  restart is refused and the stack lands in pieces, so the overview lists it as finished, and the island and the badge
+  count nothing for it.
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should count the failed robot of the whole stack only while the sync built its stack branch`)
   [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the robot of the whole stack in the header of its island, a click on it showing the root`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
-  [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root, its failure on one not built as finished`)
+  [@test] ../../crates/domain-policy/src/attention_test.rs (`the_failed_robot_of_a_whole_stack_needs_the_user_only_on_a_built_stack_branch_no_robot_of_a_branch_lands`)
+  [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, a click showing the root, its failure as the move the view names, any other as finished`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the robot of the whole stack on the rows of a small stack, hold their pushes and cancel it from the root's menu`)
 - While it runs and pushes into the target, it must hold every branch of the stack its commit has (`PushHold.wholeStack`,
   by the source ref: its stack branch, not by a branch's revision; after a change of the stack the content tells,

@@ -5,7 +5,7 @@
 //! identity of every part a patch does not carry.
 
 use crate::action_view::{ActionSources, actions_of};
-use crate::derive::{landed_states_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
+use crate::derive::{attention_of, landed_states_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::review_view::{review_actions_of, reviews_view};
@@ -95,6 +95,9 @@ impl View {
     let mut actions_now = actions_of(state, facts, &sources);
     actions_now.extend(review_actions_of(state, facts, &reviews));
     let (actions, removed_actions) = diff_keyed(&last.actions, &actions_now);
+    // the robots that need the user, over the rows as they are and the robots, a sync included (a row it builds has no
+    // tip, so its robot asks nothing until it is built)
+    let (attention, removed_attention) = diff_keyed(&last.attention, &attention_of(state, facts));
     let (operations, removed_operations) = operations_change(&last.operations, state.operations());
     let (last_archived, archived) = (&last.sections.archived, &parts.sections.archived);
     let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
@@ -124,6 +127,8 @@ impl View {
       removed_next_steps,
       actions,
       removed_actions,
+      attention,
+      removed_attention,
       operations,
       removed_operations,
       unassigned: changed_commits(&last.sections.unassigned, &parts.sections.unassigned),

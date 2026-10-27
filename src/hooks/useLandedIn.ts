@@ -1,8 +1,5 @@
-import { useMemo } from "react"
-import { fullyLandedNames } from "@/lib/landed"
 import { useRowPart } from "@/model/store"
 import { useBaselineStatus } from "@/stores/branch-sync"
-import { useLanding } from "@/stores/landed"
 
 /** The baseline the update brings in, as the remote names it: "origin/master" */
 export function useUpstreamName(): string {
@@ -27,13 +24,4 @@ export function useLandedIn(name: string): string | null {
     default:
       return null
   }
-}
-
-/** Whether the fetched baseline has every commit of a branch, for the push summary */
-export function useIsFullyLanded(): (name: string) => boolean {
-  const landing = useLanding()
-  return useMemo(() => {
-    const names = fullyLandedNames(landing)
-    return (name: string) => names.has(name)
-  }, [landing])
 }

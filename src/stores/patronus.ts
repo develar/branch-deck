@@ -232,8 +232,6 @@ interface PatronusFacts {
   readonly landed: ReadonlyMap<string, LandedBy>
   readonly ancestors: ReadonlyMap<string, LandingAncestor>
   readonly holds: ReadonlyMap<string, PushHold>
-  /** By root, the first branch of the stack whose robot lands a part of it */
-  readonly members: ReadonlyMap<string, LandingAncestor>
   /** By root, the robot of the whole stack that runs on its stack branch */
   readonly stackHolds: ReadonlyMap<string, PushHold>
 }
@@ -243,7 +241,6 @@ const NO_FACTS: PatronusFacts = {
   landed: new Map(),
   ancestors: new Map(),
   holds: new Map(),
-  members: new Map(),
   stackHolds: new Map(),
 }
 
@@ -313,13 +310,8 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
       holds.set(name, { kind: hold.kind, ...by(hold.by, holdRobot), ...(commits !== undefined && { commits }) })
     }
   }
-  const members = new Map<string, LandingAncestor>()
   const stackHolds = new Map<string, PushHold>()
   for (const [root, facts] of Object.entries(view.stacks)) {
-    const memberRobot = facts.landingMember === null ? undefined : robotOf(facts.landingMember.robotId)
-    if (facts.landingMember !== null && memberRobot !== undefined && isRobotActive(memberRobot)) {
-      members.set(root, by(facts.landingMember, memberRobot))
-    }
     const stackHold = facts.landing.hold
     const stackRobot = stackHold?.code === "stackHeld" ? robotOf(stackHold.robotId) : undefined
     if (stackRobot !== undefined && isHoldingRobot(stackRobot)) {
@@ -331,7 +323,6 @@ function factsOf(repository: RepositoryPatronus | undefined): PatronusFacts {
     landed: keptFacts(last.landed, landed),
     ancestors: keptFacts(last.ancestors, ancestors),
     holds: keptFacts(last.holds, holds),
-    members: keptFacts(last.members, members),
     stackHolds: keptFacts(last.stackHolds, stackHolds),
   }
   // the same facts (another robot changed, a view equal by content): the same object, no hook renders again
@@ -352,14 +343,6 @@ function currentFacts(): PatronusFacts {
 }
 
 /**
- * The first branch of the stack of `root` whose own robot lands a part of it: the robot of the whole stack waits for
- * it; null while none runs. For menus built on open.
- */
-export function getStackLandingMember(root: string): LandingAncestor | null {
-  return currentFacts().members.get(root) ?? null
-}
-
-/**
  * The hold of the stack branch of `root`: its own robot runs and pushes into the target, so a push of the stack branch
  * makes it fail at the end; its restart, which cancels it first, is the way through. Null while none holds it.
  */
@@ -374,11 +357,6 @@ export function getStackPushHold(root: string): PushHold | null {
  */
 export function useLandingAncestor(branchName: string): LandingAncestor | null {
   return useRepositoryFacts().ancestors.get(branchName) ?? null
-}
-
-/** Non-hook variant of `useLandingAncestor`, for menus built on open */
-export function getLandingAncestor(branchName: string): LandingAncestor | null {
-  return currentFacts().ancestors.get(branchName) ?? null
 }
 
 /**

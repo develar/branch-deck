@@ -85,8 +85,9 @@ flowchart LR
 - **Landing.** What the rules decide for each subject (a branch, `stack:<root>` the whole stack) is Rust's too, a part
   of the view by the subject's key ([Session facts](git-operations.md#the-landing-of-a-session)): the next step and
   the node (`nextSteps`), the actions with their reasons (`actions`, `robot:<id>` a robot's), the decisions of the
-  default starts (`lands`), the push orders (`pushes`), the open pull request (`openPullRequests`) and what landed it
-  (`landedStates`). `View::diff` derives them on every patch over the table and the facts (the pushes, the lands and
+  default starts (`lands`), the push orders (`pushes`), the open pull request (`openPullRequests`), what landed it
+  (`landedStates`) and whether its robot needs the user (`attention`, which the landing overview and the Dock list).
+  `View::diff` derives them on every patch over the table and the facts (the pushes, the lands and
   what landed not while a sync runs) and sends only the keys whose value changed (`diff_keyed`, by `PartialEq`) and
   those removed, so a patch that moves one branch carries the parts of that branch and of what its change decides, and
   `applyViewPatch` replaces only those records. A row reads its part with one kept reference (`useRowPart(name,

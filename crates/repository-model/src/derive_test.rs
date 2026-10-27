@@ -1,30 +1,34 @@
-use crate::branch_table::{RemoteFact, RemoteFacts};
-use crate::derive::{LandSources, blocking_parent, decide_lands, land_decision, open_pull_requests_view, repository};
-use crate::facts::FactStore;
+use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
+use crate::derive::derive_budget_test::at;
+use crate::derive::{LandSources, attention_of, blocking_parent, decide_lands, land_decision, open_pull_requests_view, repository};
+use crate::facts::{FactResult, FactStore, RobotsRead};
 use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
 use crate::table::TableState;
-use crate::table::table_test::{grouped, remote_status};
+use crate::table::table_test::{branch_status, grouped, remote_status, run_sync, synced};
 use domain_policy::parked::parked_state;
 use domain_types::actions::{ActionId, Availability};
 use domain_types::error::ApiError;
-use domain_types::fixtures::pull_request;
+use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot};
+use domain_types::landed::LandedBranch;
 use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, PlannedEffect, ProfileChoice, StartRoute, Subject};
 use domain_types::next_step::{LandingNodeKind, StepKind, StepRow};
 use domain_types::patronus::{
-  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusProfile, PatronusPushMode, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch,
+  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult,
+  PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ReviewCandidate};
 use domain_types::reason::Reason;
-use domain_types::repository_view::PatronusView;
+use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, PatronusView, StackPatronus};
 use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, StackBranchAlong,
   SubjectReadiness, WholeStackView,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
-use domain_types::{GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
+use domain_types::{BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 fn on(name: &str, parent: Option<&str>) -> GroupedBranchInfo {
   GroupedBranchInfo {
@@ -590,10 +594,10 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
     landed: Vec::new(),
   });
   let mut state = TableState::new();
-  crate::table::table_test::run_sync(&mut state, events);
+  run_sync(&mut state, events);
 
   // the table of the sync with its landing report (`BranchTable::from_report`)
-  let table = crate::branch_table::BranchTable {
+  let table = BranchTable {
     prefix: "user".to_string(),
     baseline: "origin/master".to_string(),
     tips: branches
@@ -602,7 +606,7 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
       .collect(),
     branches,
     in_baseline: crate::branch_table::in_baseline(&whole(in_baseline)).map(str::to_string).collect(),
-    ..crate::branch_table::BranchTable::default()
+    ..BranchTable::default()
   };
   let mut facts = FactStore::new();
   let _ = facts.table.answer(at(1), Ok(Arc::new(table.clone())));
@@ -638,7 +642,7 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
   }
   // what the rules decide over these facts, as the session's derivation writes it into the view
   decide_landing(&mut view, &table, &session_remote(&table, &state), &robots, &HashMap::new(), &BTreeMap::new());
-  assert!(facts.patronus.begin(3, std::time::Duration::from_secs(3)));
+  assert!(facts.patronus.begin(3, Duration::from_secs(3)));
   facts.patronus.answer(at(3), Ok(view));
   if let Some((inputs, _)) = facts.patronus.publish(&table) {
     let _ = facts.patronus.needs_answer(inputs, Ok(BTreeMap::new()));
@@ -729,13 +733,13 @@ fn finish_merged(facts: &mut FactStore) -> String {
   let robot = facts.robots.view().robots["r0"].clone();
   let branch = robot.branch_name.clone().unwrap();
   facts.apply(
-    crate::derive::derive_budget_test::at(9),
-    crate::facts::FactResult::Robots {
-      read: crate::facts::RobotsRead::Poll,
-      result: domain_types::patronus::PatronusRobotsResult {
-        availability: domain_types::patronus::PatronusAvailability::Available,
-        robots: vec![domain_types::patronus::PatronusRobot {
-          status: domain_types::patronus::PatronusRobotStatus::Success,
+    at(9),
+    FactResult::Robots {
+      read: RobotsRead::Poll,
+      result: PatronusRobotsResult {
+        availability: PatronusAvailability::Available,
+        robots: vec![PatronusRobot {
+          status: PatronusRobotStatus::Success,
           ..robot
         }],
         github_repository: None,
@@ -788,4 +792,155 @@ fn a_blocked_row_names_the_parent_it_waits_for() {
   assert_eq!(blocking_parent(BranchStatus::Blocked, Some(&declared)), Some("core".to_string()));
   assert_eq!(blocking_parent(BranchStatus::Unchanged, Some(&built_on)), None);
   assert_eq!(blocking_parent(BranchStatus::Blocked, None), None);
+}
+
+/// The robot of a subject needs the user (`domain_policy::attention`) while it failed on its row as it is and nothing
+/// else holds the subject: a lone branch, a branch once the Safe Push of a branch built on it no longer holds it, the
+/// whole stack on its stack branch the sync built while no robot of a branch of it lands a part of it; never a branch
+/// fixed since, a parked one, one the fetched baseline has whole or a stack branch not rebuilt. A patch carries only the
+/// subjects whose answer changed
+#[test]
+fn the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are() {
+  let names = ["login", "auth", "docs", "cache", "notes"];
+  let mut events = vec![grouping(
+    vec![on("login", Some("auth")), on("auth", None), on("docs", None), on("cache", None), on("notes", None)],
+    &[("notes", "later")],
+    &["auth"],
+  )];
+  for name in names {
+    events.push(synced(name, &format!("{name}-1"), CommitSyncStatus::Created));
+    events.push(branch_status(name, BranchSyncStatus::Created));
+  }
+  events.push(stack_branch("auth", &["auth", "login"]));
+  let mut state = TableState::new();
+  run_sync(&mut state, events);
+
+  let failed = |id: &str, branch: &str, source: &str| PatronusRobot {
+    source_revision: Some(source.to_string()),
+    finish_time: Some(20),
+    ..robot(id, Some(branch), PatronusRobotStatus::Failure, 10)
+  };
+  let login_run = PatronusRobot {
+    source_revision: Some("copy-login-1".to_string()),
+    ..robot("login-run", Some("login"), PatronusRobotStatus::Running, 11)
+  };
+  let robots = |robots: Vec<PatronusRobot>, read: RobotsRead| FactResult::Robots {
+    read,
+    result: PatronusRobotsResult {
+      availability: PatronusAvailability::Available,
+      robots,
+      github_repository: None,
+    },
+  };
+  let mut facts = FactStore::new();
+  facts.apply(
+    at(1),
+    robots(
+      vec![
+        failed("docs-failed", "docs", "copy-docs-1"),
+        // failed on a commit the branch no longer is at: fixed since
+        failed("cache-failed", "cache", "old"),
+        failed("notes-failed", "notes", "copy-notes-1"),
+        failed("auth-failed", "auth", "copy-auth-1"),
+        login_run.clone(),
+        stack_robot("whole", "auth", PatronusRobotStatus::Failure, "stack-tip"),
+      ],
+      RobotsRead::List { full: true },
+    ),
+  );
+  let row = |robot_id: &str| BranchPatronus {
+    robot_id: Some(robot_id.to_string()),
+    ..BranchPatronus::default()
+  };
+  // the Safe Push of login lands auth, built under it, and a part of the whole stack
+  let held = BranchLanding {
+    hold: Some(HoldView {
+      kind: HoldKind::Span,
+      by: robot_of("login", "login-run"),
+      carried: None,
+    }),
+    ..BranchLanding::default()
+  };
+  let view = PatronusView {
+    branches: BTreeMap::from([
+      ("docs".to_string(), row("docs-failed")),
+      ("cache".to_string(), row("cache-failed")),
+      ("notes".to_string(), row("notes-failed")),
+      (
+        "auth".to_string(),
+        BranchPatronus {
+          landing: held,
+          ..row("auth-failed")
+        },
+      ),
+      ("login".to_string(), row("login-run")),
+    ]),
+    stacks: BTreeMap::from([(
+      "auth".to_string(),
+      StackPatronus {
+        robot_id: Some("whole".to_string()),
+        landing_member: Some(robot_of("login", "login-run")),
+        ..StackPatronus::default()
+      },
+    )]),
+    ..PatronusView::default()
+  };
+  assert!(facts.patronus.begin(2, Duration::from_secs(2)));
+  facts.patronus.answer(at(2), Ok(view));
+  // the part of the view, as the session publishes it after the derivation
+  let _ = facts.patronus.publish(&BranchTable::default());
+  let needs = |facts: &FactStore, state: &TableState| attention_of(state, facts).into_iter().map(|(key, attention)| (key, attention.robot_id)).collect::<Vec<_>>();
+  let pair = |key: &str, robot_id: &str| (key.to_string(), robot_id.to_string());
+  assert_eq!(needs(&facts, &state), [pair("docs", "docs-failed")], "fixed, parked, held: only docs");
+  let mut window = View::new(1, "user");
+  let _ = window.diff(&state, &facts);
+
+  // the Safe Push of login is canceled: it holds and lands nothing, the failures of auth and of the whole stack count
+  facts.apply(
+    at(3),
+    robots(
+      vec![PatronusRobot {
+        status: PatronusRobotStatus::Canceled,
+        finish_time: Some(30),
+        ..login_run
+      }],
+      RobotsRead::Poll,
+    ),
+  );
+  assert_eq!(
+    needs(&facts, &state),
+    [pair("auth", "auth-failed"), pair("docs", "docs-failed"), pair("stack:auth", "whole")]
+  );
+  let patch = window.diff(&state, &facts).unwrap();
+  assert_eq!(patch.changes.attention.keys().collect::<Vec<_>>(), ["auth", "stack:auth"], "docs did not change");
+
+  // the fetched baseline has all of docs, and the stack branch is no longer rebuilt: the stack lands in pieces
+  state.apply(SyncEvent::BaselineStatus {
+    baseline_branch: "origin/master".to_string(),
+    update: None,
+    check_error: None,
+    landing: vec![LandedBranch {
+      name: Some("docs".to_string()),
+      commits: Vec::new(),
+      remaining: 0,
+      landed_at: 1,
+    }],
+    landed: Vec::new(),
+  });
+  state.apply(SyncEvent::StackBranchUpdate(Box::new(StackBranchUpdate {
+    root: "auth".to_string(),
+    branch_name: "test/stack/auth".to_string(),
+    members: Vec::new(),
+    commit_count: 0,
+    my_email: None,
+    state: StackBranchState::Stale,
+    tip: Some("stack-tip".to_string()),
+    blocked_by: None,
+    conflict: None,
+    error: Some("Not rebuilt: auth heads no stack that forks".to_string()),
+    remote: None,
+  })));
+  assert_eq!(needs(&facts, &state), [pair("auth", "auth-failed")]);
+  let patch = window.diff(&state, &facts).unwrap();
+  assert_eq!(patch.changes.removed_attention, ["docs", "stack:auth"]);
 }

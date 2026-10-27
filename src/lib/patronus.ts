@@ -9,7 +9,7 @@ import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commi
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { formatWholeStack, formatWholeStackStart } from "@/lib/whole-stack"
-import type { RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { RemoteStatus } from "@/stores/branch-sync"
 
 /** What the chip shows of a robot */
 export type PatronusChipKind = "running" | "failed" | "needsReview" | "merged" | "passed" | "canceled" | "unknown"
@@ -116,37 +116,6 @@ function describeStatus(robot: PatronusRobot): Pick<PatronusChipState, "kind" | 
     case "unknown":
       return { kind: "unknown", color: "neutral", label: "Unknown status" }
   }
-}
-
-/**
- * A failed robot (also for missing approvals) of the branch as it is: the user has to act, the landing overview (a move)
- * and the Dock badge count it. The branch as it is: the robot took the local tip, or the same commits before a sync rebuilt them
- * on a newer baseline. A branch changed since (a fix) needs nothing.
- */
-export function needsRobotAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null): boolean {
-  const onBranch = robot.sourceRevision !== null && (robot.sourceRevision === localTip || getReviewCommitState(robot.sourceRevision, localTip, remote) === "rebased")
-  return robot.status === "failure" && onBranch
-}
-
-/**
- * A failed robot of the branch as it is (`needsRobotAttention`) that nothing else carries: once a running Safe Push of a
- * branch built on it or of the whole stack holds the branch, a merged one landed it whole (`PushHold`), the baseline
- * has all of it, or a running Safe Push of a branch it is built on lands a part of it (`carried`), its row waits (`isSettled` of the next step), and so the landing overview, the island,
- * Attention and the Dock badge ask nothing for its old failure.
- */
-export function needsBranchRobotAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null, carried: boolean): boolean {
-  return !carried && needsRobotAttention(robot, localTip, remote)
-}
-
-/**
- * A failed robot of the whole stack on its stack branch as it is (`needsRobotAttention`), only while the sync built it:
- * a stack branch not rebuilt (kept for its remote branch once the stack no longer forks, blocked, a conflict) is not the
- * stack's commits, its restart is refused (`getStackNotBuilt`) and the stack lands in pieces, so its old failure
- * asks for nothing; nor while a running Safe Push of a branch of it lands a part of it (`carried`, `getStackLandingMember`: the `landingMember` of the repository view):
- * its restart waits for that robot.
- */
-export function needsStackRobotAttention(robot: PatronusRobot, stack: Pick<StackBranch, "state" | "tip" | "remoteStatus">, carried = false): boolean {
-  return !carried && stack.state === "Built" && needsRobotAttention(robot, stack.tip ?? undefined, stack.remoteStatus)
 }
 
 const pushModeNames: Readonly<Record<PatronusPushMode, string>> = {

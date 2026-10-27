@@ -4818,6 +4818,12 @@ export type RepositoryView = {
 	 *  none before the first sync
 	 */
 	actions: { [key in string]: ActionState[] },
+	/**
+	 *  The subjects (a branch, `stack:<root>` the whole stack) whose robot needs the user, as `domain_policy::attention`
+	 *  decides it over the rows as they are and the robots: it failed on the subject as it is and nothing else holds the
+	 *  subject. The landing overview, Attention and the Dock badge count them; none before the first sync
+	 */
+	attention: { [key in string]: RobotAttention },
 	/**  The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them */
 	operations: { [key in OperationId]: RunningOperation },
 	sections: TableSections,
@@ -5226,6 +5232,12 @@ export type RewordText =
 ({ message: string }) & { subject?: never } | 
 /**  The subject line, the `(prefix)` included; the body stays */
 ({ subject: string }) & { message?: never };
+
+/**  The robot of a subject that needs the user (`RepositoryView::attention`) */
+export type RobotAttention = {
+	/**  The robot of the subject's row (`robotId` of the Patronus view), by id */
+	robotId: string,
+};
 
 export type RobotCommit = {
 	/**  The commit of the checked-out branch; null for a commit only the robot had (`removed`, `landed`) */
@@ -6247,6 +6259,8 @@ export type TableChanges = {
 	removedNextSteps?: string[],
 	actions?: { [key in string]: ActionState[] },
 	removedActions?: string[],
+	attention?: { [key in string]: RobotAttention },
+	removedAttention?: string[],
 	operations?: { [key in OperationId]: RunningOperation },
 	removedOperations?: OperationId[],
 	unassigned?: Commit[] | null,

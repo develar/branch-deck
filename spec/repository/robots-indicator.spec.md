@@ -10,6 +10,7 @@ targets:
   - ../../src/lib/dock.ts
   - ../../src/stores/settings/appSettings.ts
   - ../../src/lib/robot-overview.ts
+  - ../../crates/domain-policy/src/attention.rs
   - ../../src/lib/platform.ts
   - ../../src-tauri/capabilities/default.json
   - ../../tests/e2e/setup/tauri-mocks.ts
@@ -55,7 +56,8 @@ the [Landing Overview](landing-overview.spec.md) in the order the Dock picks its
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
 - The badge counts what needs the user: the robots that failed on the branch as it is, "Needs review" too, unless
   another robot holds or landed the branch or the baseline has it ([Patronus](../branch/patronus.spec.md)), the robot
-  of the whole stack only on a stack branch the sync built ([Whole Stack](../branch/whole-stack.spec.md#the-whole-stack-in-the-app)), the running
+  of the whole stack only on a stack branch the sync built ([Whole Stack](../branch/whole-stack.spec.md#the-whole-stack-in-the-app)),
+  as Rust names them in the view (`attention`, `domain_policy::attention`), the running
   robots that will fail (failing: cancel one, or wait for its failure, which keeps the count), and the
   branches the last sync left with a conflict ("Count failed robots and conflicts", `attentionBadge`), plus the pull
   requests that wait for the user's review ("Count review requests", `reviewBadge`,
@@ -65,7 +67,8 @@ the [Landing Overview](landing-overview.spec.md) in the order the Dock picks its
   as they are (`useRepositoryViewCurrent`, the part not `stale` while it is derived): what another robot holds or landed
   is known only then, so no badge comes and goes before it. Windows has no badge count: it is left out there, and so is the Dock group of Settings → Notifications.
   [@test] ../../src/lib/robot-overview.test.ts (`counts the conflicts of the last sync for the badge`)
-  [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root, its failure on one not built as finished`, `asks nothing for the failure of a branch another robot holds, lands a part of or landed, or the baseline has: it is finished history`)
+  [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, a click showing the root, its failure as the move the view names, any other as finished`, `asks nothing for a failure the view does not name, nor for one it names of another robot than the row's: it is finished history`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are`)
   [@test] ../../src/lib/dock.test.ts (`shows the sum of its sources, set only on a change, none at 0`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the review requests, behind its switch`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should show the progress, without a badge on Windows`)
