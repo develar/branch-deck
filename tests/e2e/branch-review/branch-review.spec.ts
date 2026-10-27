@@ -424,10 +424,16 @@ test.describe("Branch review window", () => {
     const window = await openLinkedSubWindow(page, opened)
     const segments = window.getByTestId("branch-review-segment")
     await expect(segments).toHaveText(["auth1", "login2"])
-    // the window holds the view of its own subscription to the session: the version the main window holds
+    // the window holds the view of its own subscription to the session: the version the main window holds. Each window
+    // hears a patch on its own channel, either one first (a fact the remote answers after the sync): both are read
+    // until they agree
     const review = window.getByTestId("branch-review")
-    const mainVersion = async () => (await page.getByTestId("sync-button").getAttribute("data-view-version"))!
-    await expect(review).toHaveAttribute("data-view-version", await mainVersion())
+    const sameVersion = async () => {
+      const shown = await review.getAttribute("data-view-version")
+      return shown !== null && shown === (await page.getByTestId("sync-button").getAttribute("data-view-version"))
+    }
+    const expectMainVersion = () => expect.poll(sameVersion, { message: "the review window holds the version of the main window" }).toBe(true)
+    await expectMainVersion()
     let reads = 0
     window.on("request", request => {
       if (request.url().endsWith("/invoke/get_branch_review")) {
@@ -438,7 +444,7 @@ test.describe("Branch review window", () => {
     // a commit of login in a terminal, then Sync of the main window: its patches reach the window on its own channel
     await repo.commit("(login) Add the logout link", { "ui/logout.js": "export function logout() {}\n" }, 1704124800)
     await syncAndWaitForBranches()
-    await expect(review).toHaveAttribute("data-view-version", await mainVersion())
+    await expectMainVersion()
     // the stack read again once, at the new head of login; the part stays: the reviewed branch on its parent
     await expect(segments).toHaveText(["auth1", "login3"])
     await expect.poll(() => reviewedPaths(window)).toContain("ui/logout.js")
@@ -454,7 +460,7 @@ test.describe("Branch review window", () => {
     await input.fill("signin")
     await runAndWaitForSync(page, () => input.press("Enter"))
     await expect(findBranchRow(page, "signin")).toBeVisible()
-    await expect(review).toHaveAttribute("data-view-version", await mainVersion())
+    await expectMainVersion()
     // the review keeps its last view, says why, and is not read again
     await expect(window.getByTestId("branch-review-gone")).toHaveText("login is no longer a branch: it landed or was renamed")
     await expect(window.getByTestId("review-file-header").first()).toBeVisible()
