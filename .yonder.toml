@@ -1,6 +1,5 @@
-# A run of this repository on another machine of the user: `bd-host run studio -- <command>`, or `yonder run studio`
-# during the migration (docs/guidelines/studio-runs.md). bd-host reads this file while `.branchdeck.toml` has no `[host]`
-# table (spec/cli/host.spec.md, "The environment of a run and `[host]`"); yonderd reads only this file.
+# Only yonderd reads this file: bd-host reads `[host]` of `.branchdeck.toml`, which has the same content. The file goes
+# when `bd-host setup --retire-yonderd` retires yonderd on the hosts.
 
 # What a run makes and brings back into the same paths here
 outputs = ["tests/results", "playwright-report", "target/nextest/ci/junit.xml"]

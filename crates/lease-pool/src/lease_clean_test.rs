@@ -419,3 +419,9 @@ fn a_held_unit_and_a_held_entry_stay_whole_and_the_next_clean_takes_them() {
   }
   assert!(cleaned.iter().all(|rule| rule.freed_bytes > 0), "{cleaned:?}");
 }
+
+/// The `.branchdeck.toml` of this repository, with its `[host]` table, gives its clean rules
+#[test]
+fn the_rules_of_this_repository_parse() {
+  assert_eq!(parse_clean_rules(include_str!("../../../.branchdeck.toml")).unwrap().len(), 3);
+}

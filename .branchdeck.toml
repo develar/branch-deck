@@ -9,3 +9,20 @@ clean = [
   { delete = "tests/results" },
   { delete = "playwright-report" },
 ]
+
+# A run of this repository on another machine of the user: `bd-host run studio -- <command>`
+# (docs/guidelines/studio-runs.md, spec/cli/host.spec.md "The environment of a run and `[host]`"). A bd built before
+# this table was allowed refuses the whole file and then applies no clean rule.
+[host]
+# What a run makes and brings back into the same paths here
+outputs = ["tests/results", "playwright-report", "target/nextest/ci/junit.xml"]
+
+[host.env]
+# the mock server of the E2E suite: one port per slot, so two slots of the host never meet
+E2E_PORT = { port = 3100 }
+
+[[host.prepare]]
+name = "pnpm install"
+run = ["pnpm", "install", "--frozen-lockfile", "--config.confirm-modules-purge=false"]
+inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
+creates = ["node_modules"]

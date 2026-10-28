@@ -151,3 +151,12 @@ fn an_inner_path_stays_inside_its_base() {
   assert!(!is_inner_path("out/../.."));
   assert!(!is_inner_path("./out"));
 }
+
+/// The `[host]` of this repository parses, and it says what its `.yonder.toml` says while yonderd still reads that file
+#[test]
+fn the_host_table_of_this_repository_is_its_yonder_toml() {
+  let host = parse_branchdeck(include_str!("../../../.branchdeck.toml"))
+    .expect("the .branchdeck.toml of the repository")
+    .expect("a [host] table");
+  assert_eq!(host, parse_yonder(include_str!("../../../.yonder.toml")).expect("the .yonder.toml of the repository"));
+}
