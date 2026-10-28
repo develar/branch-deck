@@ -28,7 +28,8 @@ export type PatronusCommandReply = { readonly status: "pending" } | { readonly s
  * profiles of the target, the view of the robots, the status of the sign-ins (the read of the sessions and of
  * Settings), the tools of Settings, a push to the remote of the repository (which has its pack then, and moves no ref until the release), the
  * creation of a pull request and a review request on GitHub, a sync run of the session (it runs until the release,
- * what waits for it is seen waiting)
+ * what waits for it is seen waiting), the configuration of the YouTrack that names its Hub (a sign-in in the browser
+ * asks it first)
  */
 export type HeldAnswer =
   | "pullRequests"
@@ -50,6 +51,7 @@ export type HeldAnswer =
   | "requestReviewers"
   | "submitReview"
   | "sync"
+  | "youTrackConfig"
 
 /** A commit someone else pushed onto a branch of the remote: its author (`Name <email>`), time and files */
 export interface RemoteCommit {

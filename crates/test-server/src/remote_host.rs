@@ -71,7 +71,8 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::CreatePullRequest
     | HeldAnswer::RequestReviewers
     | HeldAnswer::SubmitReview
-    | HeldAnswer::Sync => None,
+    | HeldAnswer::Sync
+    | HeldAnswer::YouTrackConfig => None,
   }
 }
 
@@ -171,6 +172,9 @@ pub enum HeldAnswer {
   /// A sync run of the session of the repository (`TestSessionEnvironment::run_setup`, before it reads anything): the
   /// session's sync runs until the release, so what waits for it (a push, `WaitingForSync`) is seen waiting
   Sync,
+  /// The configuration of the fake YouTrack (`GET /api/config`), which names its Hub: the sign-in in the browser asks
+  /// it first, so the page is seen while that sign-in starts
+  YouTrackConfig,
 }
 
 /// The route of the fake GitHub that gives `answer`: held there
@@ -194,7 +198,8 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
     | HeldAnswer::AuthStatus
     | HeldAnswer::CliTools
     | HeldAnswer::Push
-    | HeldAnswer::Sync => None,
+    | HeldAnswer::Sync
+    | HeldAnswer::YouTrackConfig => None,
   }
 }
 
@@ -456,6 +461,7 @@ impl RemoteHost {
           let (method, path) = patronus_route(*answer).expect("a route of the fake Patronus");
           self.patronus.hold(method, path)
         }
+        HeldAnswer::YouTrackConfig => self.youtrack.hold("GET", "/api/config"),
         HeldAnswer::ReviewRequests
         | HeldAnswer::LandingNeeds
         | HeldAnswer::BranchRules

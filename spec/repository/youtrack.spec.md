@@ -143,8 +143,9 @@ client takes a pasted token.
   `GET /api/users/me` accepted it; a refused token is "Cannot sign in to YouTrack" with the reason, and the field stays.
   The token lives only in the field until then: never in a persisted store, a log or an error text. Save Token is the
   sign-in of YouTrack with the token (`sign_in({ provider: "youTrack", url, token })`): one at a time with the browser
-  sign-in (Save Token is disabled while the browser sign-in asks the YouTrack for its Hub, and the form hides while it
-  waits for the browser), and the same tells of a changed account.
+  sign-in (Save Token is disabled while the browser sign-in asks the YouTrack for its Hub, its hover saying why, and
+  the form hides while it waits for the browser, the typed token kept for after a cancel), and the same tells of a
+  changed account.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should cancel the browser sign-in, and paste a token instead`)
   [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
   [@test] ../../src/stores/auth.test.ts (`says why YouTrack refused a pasted token, and answers null, so the field keeps it`)

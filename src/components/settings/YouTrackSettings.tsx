@@ -1,9 +1,11 @@
 import { useId, useState } from "react"
 import { openUrl } from "@tauri-apps/plugin-opener"
+import { cn } from "cn"
 import { ExternalLinkIcon, KeyRoundIcon, LogInIcon, LogOutIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ReadFailure } from "@/components/settings/SettingRow"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { YouTrackAuthStatus } from "@/lib/bindings"
@@ -114,6 +116,7 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: Sign
   }
   // asking the YouTrack for its Hub, before the page opens
   const starting = phase === "waiting" && !saving
+  const saveBlocker = whySaveWaits(starting, noUrl, token)
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="youtrack-auth" data-status={status.problem ?? "signedOut"}>
       {status.problem !== null && (
@@ -182,11 +185,24 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: Sign
               <Input id={tokenId} type="password" value={token} autoComplete="off" spellCheck={false} placeholder="perm-…" onChange={event => setToken(event.target.value)} />
             </div>
             <div className="flex flex-wrap gap-2">
-              {/* one sign-in at a time: not while the browser sign-in asks the YouTrack for its Hub */}
-              <Button size="xs" disabled={phase !== "idle" || token.trim() === "" || noUrl} onClick={save}>
-                {saving && <Spinner data-icon="inline-start" />}
-                Save Token
-              </Button>
+              <Tooltip disabled={saveBlocker === null}>
+                <TooltipTrigger
+                  render={
+                    // the hover says why; Base UI keeps the button focusable, so the dimming is ours
+                    <Button
+                      size="xs"
+                      disabled={saving || saveBlocker !== null}
+                      focusableWhenDisabled
+                      className={cn((saving || saveBlocker !== null) && "opacity-50")}
+                      onClick={save}
+                    />
+                  }
+                >
+                  {saving && <Spinner data-icon="inline-start" />}
+                  Save Token
+                </TooltipTrigger>
+                <TooltipContent>{saveBlocker}</TooltipContent>
+              </Tooltip>
               <Button size="xs" variant="ghost" onClick={() => setPasting(false)}>
                 Cancel
               </Button>
@@ -203,6 +219,17 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: Sign
         ))}
     </div>
   )
+}
+
+/** Why Save Token is disabled, or null when it goes: one sign-in at a time, so not while the browser sign-in starts */
+function whySaveWaits(starting: boolean, noUrl: boolean, token: string): string | null {
+  if (starting) {
+    return "The sign-in in the browser is starting: cancel it to save a token instead"
+  }
+  if (noUrl) {
+    return "Enter the YouTrack URL first"
+  }
+  return token.trim() === "" ? "Paste the token first" : null
 }
 
 function WaitingForBrowser() {

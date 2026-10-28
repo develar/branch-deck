@@ -4,7 +4,7 @@
 //! before); the code traded for an access and a refresh token with the PKCE verifier of its challenge, and the refresh
 //! grant; the user of a token; issues with a state field, its values, and the command that sets it. A token is
 //! accepted only when the fake issued it or a test added it (`accept_token`, a token pasted from Account Security).
-//! Every request is logged.
+//! Every request is logged; a route a test holds (`hold`) answers once its gate opens.
 
 use crate::sign_in::{CLIENT_ID, HUB_SERVICE_ID, TokenAnswer, challenge_of};
 use axum::body::Bytes;
@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use sync_utils::timestamp::unix_now;
+use test_utils::fake_server::{FakeGate, route_matches};
 
 /// The id of the YouTrack service in its Hub: the scope of a token
 pub const FAKE_SERVICE_ID: &str = "fake-youtrack-service";
@@ -147,9 +148,28 @@ impl Data {
 pub struct FakeYouTrack {
   data: Mutex<Data>,
   requests: Mutex<Vec<FakeRequest>>,
+  /// The routes a test holds (`method path`, a `*` segment for any one) and their gates
+  holds: Mutex<Vec<(String, Arc<FakeGate>)>>,
 }
 
 impl FakeYouTrack {
+  /// Holds the requests to `method path` (without the query; a `*` segment matches any one) until the gate it returns
+  /// opens: the page shows what it shows before the answer
+  pub fn hold(&self, method: &str, path: &str) -> Arc<FakeGate> {
+    let (key, gate) = (format!("{method} {path}"), Arc::new(FakeGate::default()));
+    let mut holds = self.holds.lock().unwrap();
+    holds.retain(|(held, _)| *held != key);
+    holds.push((key, Arc::clone(&gate)));
+    gate
+  }
+
+  /// The gate of a request to `method uri`, when a test holds its route
+  fn gate(&self, method: &Method, uri: &Uri) -> Option<Arc<FakeGate>> {
+    let route = format!("{method} {}", uri.path());
+    let holds = self.holds.lock().unwrap();
+    holds.iter().find(|(key, _)| route_matches(key, &route)).map(|(_, gate)| Arc::clone(gate))
+  }
+
   /// The user of every token from now on
   pub fn set_user(&self, user: YouTrackUser) {
     self.data.lock().unwrap().user = user;
@@ -431,6 +451,9 @@ pub fn router(fake: Arc<FakeYouTrack>) -> axum::Router {
 }
 
 async fn answer(State(fake): State<Arc<FakeYouTrack>>, method: Method, uri: Uri, headers: HeaderMap, body: Bytes) -> Response {
+  if let Some(gate) = fake.gate(&method, &uri) {
+    gate.pass().await;
+  }
   fake.respond(&method, &uri, &headers, &body)
 }
 

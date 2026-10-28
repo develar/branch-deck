@@ -61,9 +61,23 @@ test.describe("YouTrack sign-in", () => {
     await expect(auth.getByRole("button", { name: "Sign In to YouTrack" })).toBeDisabled()
     await auth.getByLabel("YouTrack URL").fill(`${url}/issue/ABC-1`)
 
+    // the sign-in asks the YouTrack for its Hub first: one sign-in at a time, so a token typed meanwhile waits, and
+    // the hover of Save Token says why
+    await repo.holdRemoteAnswers({ hold: ["youTrackConfig"] })
     await auth.getByRole("button", { name: "Sign In to YouTrack" }).click()
+    await expect.poll(() => repo.getArrivedAnswers()).toEqual(["youTrackConfig"])
+    await auth.getByRole("button", { name: "Use a Token Instead" }).click()
+    const form = auth.getByTestId("youtrack-token-form")
+    const save = form.getByRole("button", { name: "Save Token" })
+    await form.getByLabel("Token", { exact: true }).fill("perm-wrong")
+    await expect(save).toBeDisabled()
+    await save.hover()
+    await expect(settings.getByRole("tooltip")).toHaveText("The sign-in in the browser is starting: cancel it to save a token instead")
+    await repo.holdRemoteAnswers({ release: ["youTrackConfig"] })
+
     const waiting = youtrack.getByTestId("youtrack-sign-in-waiting")
     await expect(waiting).toContainText("Waiting for the browser…")
+    await expect(form).toBeHidden()
     await expect.poll(async () => (await repo.getYouTrack()).pending).toBe(true)
     await waiting.getByRole("button", { name: "Cancel" }).click()
     await expect(auth.getByRole("button", { name: "Sign In to YouTrack" })).toBeEnabled()
@@ -72,18 +86,18 @@ test.describe("YouTrack sign-in", () => {
     expect((await repo.getYouTrack()).pending).toBe(false)
     await expect(settings.locator("[data-slot=toast]")).toHaveCount(0)
 
-    await auth.getByRole("button", { name: "Use a Token Instead" }).click()
-    const form = auth.getByTestId("youtrack-token-form")
+    // the form comes back with the token typed, and Save Token goes now
+    await expect(form.getByLabel("Token", { exact: true })).toHaveValue("perm-wrong")
+    await expect(save).toBeEnabled()
     await form.getByRole("button", { name: "Create Token…" }).click()
     await expect.poll(async () => (await getOpenedUrls(settings)).at(-1)).toBe(`${url}/issue/ABC-1/users/me?tab=account-security`)
     // the backend cuts the URL to the YouTrack; a token YouTrack does not know is refused before it is kept
-    await form.getByLabel("Token", { exact: true }).fill("perm-wrong")
-    await form.getByRole("button", { name: "Save Token" }).click()
+    await save.click()
     await expect(settings.locator("[data-slot=toast]").filter({ hasText: "Cannot sign in to YouTrack" })).toContainText("YouTrack rejected the token")
     await expect(form).toBeVisible()
 
     await form.getByLabel("Token", { exact: true }).fill("perm-right")
-    await form.getByRole("button", { name: "Save Token" }).click()
+    await save.click()
     await expect(auth).toHaveAttribute("data-status", "signedIn")
     expect((await repo.getYouTrack()).meTokens).toEqual(["perm-wrong", "perm-right"])
     await expect(auth.getByTestId("youtrack-auth-detail")).toContainText("With a pasted token")

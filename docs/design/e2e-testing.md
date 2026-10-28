@@ -584,8 +584,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `requestReviewers` (`POST /repos/*/*/pulls/*/requested_reviewers`), the writes the engine's creation and review
   request end with (`FakeGitHub::hold`), `robots` (the list of Patronus, `GET /app/rest/v1/robots`),
   `readiness` (the pre-check, `POST /app/rest/v1/pre-merge-approval-required-check`), `robotProblems` (why a robot
-  failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold` and `FakeGitHub::hold`
-  matches any one, `test_utils::fake_server::route_matches`) and
+  failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold`, `FakeGitHub::hold`
+  and `FakeYouTrack::hold` matches any one, `test_utils::fake_server::route_matches`), `youTrackConfig` (the
+  configuration of the fake YouTrack that names its Hub, `GET /api/config`, which a sign-in in the browser asks first) and
   the answers the server gives itself, which wait in their read: `reviewRequests` (the session's list, from their
   fixture, `review_requests_of`), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
