@@ -47,7 +47,8 @@ export interface BranchReviewGroup {
 
 /**
  * An action on a branch of the stack, as the main window offers it (`getBranchReviewItems`): "Open Pull Request" (O)
- * or "Create Pull Request…", "Safe Push" (S), "Push"; disabled with the reason as its description
+ * or "Create Pull Request…", "Safe Push" (S), "Push to master" (S) or "Merge #7" (S) in its place by the route of the
+ * repository, "Push Branch"; disabled with the reason as its description
  */
 export interface BranchReviewItem {
   /** The branch's, or of the review of the whole stack the actions of the whole stack (`getWholeStackReviewItems`) */
@@ -56,6 +57,7 @@ export interface BranchReviewItem {
     | "create-pull-request"
     | "safe-push"
     | "push-to-baseline"
+    | "merge-pull-request"
     | "push"
     | "open-stack-pull-request"
     | "create-stack-pull-request"
@@ -129,6 +131,9 @@ export interface BranchReviewWindowState {
   readonly groups: readonly BranchReviewGroup[] | null
 }
 
+/** The actions of the title bar the review window asks the main window for: all but those it opens itself */
+export type BranchReviewRequestItem = Exclude<BranchReviewItem["id"], "open-pull-request" | "create-pull-request" | "open-stack-pull-request" | "create-stack-pull-request">
+
 /**
  * A request of the review window: the main window runs the action on the branch as its row would (`itemId`), or what
  * the window's "Create pull request" dialog asks (`dialog`): its context while it is open, the creation, the Safe Push
@@ -141,7 +146,7 @@ export type BranchReviewRequest = {
   /** Of the whole stack of `branchName`, its root: the actions, the menu and the dialog of the whole stack */
   readonly wholeStack?: boolean
 } & (
-  | { readonly itemId: "safe-push" | "push-to-baseline" | "push" | "safe-push-whole-stack" | "push-with-children" }
+  | { readonly itemId: BranchReviewRequestItem }
   | { readonly menuItemId: string }
   | { readonly dialog: "open" | "close" | "safePushWithoutReview" }
   | { readonly dialog: "create"; readonly input: CreatePullRequestInput }

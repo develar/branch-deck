@@ -71,7 +71,9 @@ each of its commits names its branch, and the segments of the chain it came from
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
 reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push popover names the files each
 group has to review, and its "Review Changes" opens the review on them. The title bar of the window holds the stack, the diff view and the
-actions on the branch: Open Pull Request, Safe Push and Push Branch, which the main window runs; the footer holds the keys.
+actions on the branch: Open Pull Request, Safe Push (Push to master or Merge #7 in its place, by the route of the
+repository, [Landing Routes](landing-routes.spec.md)) and Push Branch, which the main window runs; the footer holds the
+keys.
 
 ## Goals
 

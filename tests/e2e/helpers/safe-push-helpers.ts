@@ -2,6 +2,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
+import { openBranchPreview } from "./review-status-helpers"
 import { closeMenus, openSubmenu } from "./selection-helpers"
 import { closeToast } from "./toast-helpers"
 import { animationsEnded } from "./wait-helpers"
@@ -149,4 +150,14 @@ export async function expectDisabledItems(page: Page, items: readonly (readonly 
     // the description of the item before may still be fading out
     await expect(page.getByRole("tooltip").filter({ hasText: expected }).last()).toHaveText(expected)
   }
+}
+
+/**
+ * Presses the start `label` ("Push to master", "Merge #7") in the footer of the preview of `branchName`: the start is
+ * the row's, so the preview closes for its popover at the slot of the row
+ */
+export async function startFromPreviewFooter(page: Page, branchName: string, label: string): Promise<void> {
+  const preview = await openBranchPreview(page, branchName)
+  await preview.getByRole("button", { name: `S ${label}` }).click()
+  await expect(preview).toHaveCount(0)
 }

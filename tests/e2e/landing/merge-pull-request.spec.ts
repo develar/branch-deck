@@ -1,12 +1,15 @@
 // @spec spec/branch/landing-routes.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { ChecksSummary, PullRequest } from "../../../src/lib/bindings"
+import type { BranchReviewRequest } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { availablePullRequests, gitHubMutations, pullRequest } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
-import { openSafePushWithKey, popoverStart, waitForStepFacts } from "../helpers/safe-push-helpers"
+import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter, waitForStepFacts } from "../helpers/safe-push-helpers"
+import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
+import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `issue_links` template: 7 branches off Space, none pushed; JIRA-456 has 3 commits. The repository lands by a merge
@@ -25,6 +28,47 @@ function seven(patch: Partial<PullRequest> = {}): PullRequest {
 /** The GitHub of the pull request `pull` of a repository that allows every merge method and auto-merge */
 function merging(pull: PullRequest) {
   return { ...availablePullRequests(pull), mergeMethods: { rebase: true, merge: true, squash: true, autoMerge: true } }
+}
+
+/**
+ * The GitHub of a repository that allows every merge method, with the open pull request #12 of the stack branch of the
+ * whole stack of `root`, approved and green; its empty head is the stack branch the sync built
+ */
+function mergingStack(root: string) {
+  const stack = pullRequest(root, 12, {
+    title: `The whole ${root} stack`,
+    headRefName: `user-name/stack/${root}`,
+    baseRefName: "master",
+    reviewDecision: "approved",
+    checks: PASSING,
+    mergeState: "clean",
+  })
+  return { ...availablePullRequests(), mergeMethods: { rebase: true, merge: true, squash: true, autoMerge: true }, stackPullRequests: { [root]: stack } }
+}
+
+/**
+ * The merge of a whole stack always asks first, at the start of its island: what it lands, the push of its stack branch
+ * the remote lacks before it; Enter merges
+ */
+async function confirmStackMerge(page: Page): Promise<void> {
+  const popover = safePushPopover(page)
+  await expect(popover).toHaveAttribute("data-decision", "confirm")
+  await expect(popover.getByTestId("safe-push-lands")).toHaveText("GitHub merges #12 of the whole air stack with the 6 branches it is built on into master by rebase: 14 commits.")
+  await expect(popover.getByTestId("safe-push-stack-branch")).toHaveText("Pushes its stack branch user-name/stack/air.")
+  await expect(popoverStart(page)).toHaveText("Merge #12")
+  await expect(popoverStart(page)).toBeFocused()
+  await page.keyboard.press("Enter")
+}
+
+/**
+ * GitHub merged #12 of the whole stack of `root` on its stack branch by rebase: the remote's master is the stack branch,
+ * and the update that follows drops the originals, the stack with them
+ */
+async function expectStackMerged(page: Page, repo: TestRepositoryBuilder, root: string, copy: string): Promise<void> {
+  await expect.poll(async () => gitHubMutations(await repo.getGitHubLog())).toEqual([["mergePullRequest", { id: "PR_12", method: "REBASE", head: copy }]])
+  await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
+  await expect(findBranchRow(page, root)).toHaveCount(0)
+  await expect(findBranchRow(page, "docs")).toBeVisible()
 }
 
 /** The repository of `issue_links` that lands by a merge of the pull request `pull`, synced, the facts of the steps in */
@@ -92,6 +136,46 @@ test.describe("Merge #7", () => {
     await findBranchRow(page, BRANCH).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Merge #7" }).click()
     await expectMerged(page, repo, copy)
+  })
+
+  test("should merge from the footer of the branch preview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    const copy = await repo.revision(virtualBranch(BRANCH))
+    // the start is the row's: the preview closes, the merge asks nothing
+    await startFromPreviewFooter(page, BRANCH, "Merge #7")
+    await expectMerged(page, repo, copy)
+  })
+
+  test("should merge when the review window asks the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    const copy = await repo.revision(virtualBranch(BRANCH))
+    // the button of the title bar of the review window, asked of the main window over the link of the window
+    await emitTauriEvent(page, "branch-review/request", { id: "merge", repositoryPath: repo.path, branchName: BRANCH, itemId: "merge-pull-request" } satisfies BranchReviewRequest)
+    await expectMerged(page, repo, copy)
+  })
+
+  test("should merge the pull request of the stack branch of a whole stack from the header of its island", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stack_island", { pullRequests: mergingStack("air"), landing: { setting: "pull-request", gitHub: "acme/monorepo" } })
+    await syncAndWaitForBranches()
+    await waitForStepFacts(findBranchRow(page, "air").getByTestId("next-step-slot"))
+    const start = page.getByTestId("stack-island-actions").getByTestId("safe-push-button")
+    await expect(start).toHaveText("Merge #12")
+    const copy = await repo.revision("user-name/stack/air")
+    await start.click()
+    await confirmStackMerge(page)
+    await expectStackMerged(page, repo, "air", copy)
+  })
+
+  test("should merge a whole stack from Whole Stack of the menu of its root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stack_island", { pullRequests: mergingStack("air"), landing: { setting: "pull-request", gitHub: "acme/monorepo" } })
+    await syncAndWaitForBranches()
+    await waitForStepFacts(findBranchRow(page, "air").getByTestId("next-step-slot"))
+    const copy = await repo.revision("user-name/stack/air")
+    await findBranchRow(page, "air").click({ button: "right" })
+    await openSubmenu(page, "Whole Stack")
+    await page.getByRole("menuitem", { name: "Merge #12" }).click()
+    await confirmStackMerge(page)
+    await expectStackMerged(page, repo, "air", copy)
   })
 
   test("should enable the auto-merge while the required checks run, and offer Update Project once GitHub merged it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -439,3 +439,40 @@ async fn a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_t
   assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), copy, "the update fetched it");
   assert_eq!(repo.git(&["log", "--format=%s", "origin/master..HEAD"]), "(alpha/beta) Beta");
 }
+
+/// Merge #7 by rebase: GitHub writes the copy of the piece onto the target again, its author, time and message kept and
+/// itself the committer, so the merged commit is another one than the copy. The update that follows the merge drops the
+/// original whose copy landed all the same (its change is empty on the new baseline) and names it as landed; the branch
+/// keeps only what is built on it
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_by_rebase_is_followed_by_an_update_that_drops_the_original_whose_copy_github_wrote_again() {
+  let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (registry, key) = registry_of(&repo, true).await;
+  let copy = repo.rev_parse("test/virtual/alpha").unwrap();
+  // the head of the pull request, which the push of the branch sent
+  repo.git(&["push", "-q", "origin", "test/virtual/alpha"]);
+  // the rebase merge of GitHub in the remote: the tree, the author and the message of the copy, GitHub the committer
+  let origin = repo.path().join(".git/origin.git");
+  let field = |format: &str| repo.git(&["log", "-1", &format!("--format={format}"), &copy]);
+  let output = test_utils::git_test_utils::git_command()
+    .current_dir(&origin)
+    .args(["commit-tree", &format!("{copy}^{{tree}}"), "-p", "master", "-m", &field("%B")])
+    .env("GIT_AUTHOR_NAME", field("%an"))
+    .env("GIT_AUTHOR_EMAIL", field("%ae"))
+    .env("GIT_AUTHOR_DATE", field("%ad"))
+    .env("GIT_COMMITTER_NAME", "GitHub")
+    .env("GIT_COMMITTER_EMAIL", "noreply@github.com")
+    .output()
+    .unwrap();
+  assert!(output.status.success(), "{output:?}");
+  let merged = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+  repo.git(&["--git-dir", ".git/origin.git", "update-ref", "refs/heads/master", &merged]);
+  assert_ne!(merged, copy, "a rebase merge writes another commit");
+  let heard: Arc<dyn EventSink> = Arc::new(Heard::default());
+  let outcome = within_a_minute(Box::pin(execute_update(&registry, &key, true, OFFLINE.hosts(), heard))).await.unwrap();
+  let OperationResult::Update(result) = &outcome.result else { panic!("{outcome:?}") };
+  assert_eq!(result.landed.iter().map(|branch| branch.name.clone()).collect::<Vec<_>>(), [Some("alpha".to_owned())]);
+  assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), merged);
+  assert_eq!(repo.git(&["log", "--format=%s", "origin/master..HEAD"]), "(alpha/beta) Beta");
+}

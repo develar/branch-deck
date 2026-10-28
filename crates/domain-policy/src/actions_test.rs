@@ -1279,3 +1279,133 @@ fn a_merge_of_the_pull_request_offers_its_merge_and_cancel_auto_merge_while_gith
   };
   assert_eq!(ids(&stack_actions(&stack))[..1], [MergePullRequest]);
 }
+
+/// The start of a whole stack on a route without a robot, in the header of its island and in Whole Stack › of the menu
+/// of its root (both read `stack_actions`): of a stack that forks the push of its stack branch into the target, or the
+/// merge of the pull request of its stack branch, with the reason of its step; while GitHub merges it Cancel Auto-Merge;
+/// never a start of the robot, also on Space, nor the Safe Push of the main line of a stack branch the sync did not
+/// build; a chain lands by its last branch, so its header offers no start of its own
+#[test]
+fn a_whole_stack_off_the_robot_offers_the_push_or_the_merge_of_its_stack_branch_with_the_reason_of_its_step() {
+  use domain_types::pull_request::MergeMethod;
+  let built = StackShape::Forking {
+    not_built: None,
+    tip: true,
+    main_line: None,
+  };
+  let leaf = ready_step();
+  let not_built = Reason::StackNotBuilt {
+    root: "air".to_string(),
+    state: StackBranchState::Blocked,
+    blocked_by: Some("deploy".to_string()),
+    conflict: None,
+    error: None,
+  };
+  let blocked = StackShape::Forking {
+    not_built: Some(&not_built),
+    tip: false,
+    main_line: Some(&leaf),
+  };
+  let chain = StackShape::Chain { length: 2, review: None };
+  let no_access = Reason::NoWriteAccess {
+    repository: "acme/monorepo".to_string(),
+    target: "master".to_string(),
+  };
+  let refused = |step: &NextStep| NextStep {
+    safe_push: Some(StepBlocker::Rule { reason: no_access.clone() }),
+    ..step.clone()
+  };
+  let starts = |actions: &[ActionState]| {
+    actions
+      .iter()
+      .filter(|action| {
+        matches!(
+          action.id,
+          PushToBaseline | MergePullRequest | CancelAutoMerge | SafePushWholeStack | DryRunWholeStack | SafePushMainLine
+        )
+      })
+      .map(|action| (action.id, reason_of(actions, action.id)))
+      .collect::<Vec<_>>()
+  };
+
+  let push = NextStep {
+    row: StepRow::Push,
+    kind: StepKind::PushToBaseline { target: "master".to_string() },
+    ..ready_step()
+  };
+  let push_route = |shape, step, patronus| StackFacts {
+    patronus,
+    push_route: true,
+    ..stack_facts(shape, Some(step))
+  };
+  for patronus in [PatronusAnswer::NotOnSpace, PatronusAnswer::Answers { failure: None }] {
+    assert_eq!(starts(&stack_actions(&push_route(built, &push, patronus))), [(PushToBaseline, None)]);
+  }
+  let push_refused = refused(&push);
+  assert_eq!(
+    starts(&stack_actions(&push_route(built, &push_refused, PatronusAnswer::NotOnSpace))),
+    [(
+      PushToBaseline,
+      Some(ActionBlocker::Step {
+        blocker: StepBlocker::Rule { reason: no_access.clone() }
+      })
+    )]
+  );
+  assert_eq!(starts(&stack_actions(&push_route(blocked, &push, PatronusAnswer::NotOnSpace))), [(PushToBaseline, None)]);
+  assert_eq!(starts(&stack_actions(&push_route(chain, &push, PatronusAnswer::NotOnSpace))), []);
+
+  let merge = NextStep {
+    row: StepRow::Merge,
+    kind: StepKind::MergePullRequest {
+      number: 12,
+      auto: false,
+      method: MergeMethod::Rebase,
+    },
+    ..ready_step()
+  };
+  let merge_route = |shape, step, patronus| StackFacts {
+    patronus,
+    merge_route: true,
+    ..stack_facts(shape, Some(step))
+  };
+  for patronus in [PatronusAnswer::NotOnSpace, PatronusAnswer::Answers { failure: None }] {
+    assert_eq!(starts(&stack_actions(&merge_route(built, &merge, patronus))), [(MergePullRequest, None)]);
+  }
+  let approvals = NextStep {
+    row: StepRow::MergeDoublePrime,
+    kind: StepKind::MergeHeld { number: 12 },
+    safe_push: Some(StepBlocker::Rule {
+      reason: Reason::MergeNeedsApprovals { number: 12 },
+    }),
+    ..merge.clone()
+  };
+  assert_eq!(
+    starts(&stack_actions(&merge_route(built, &approvals, PatronusAnswer::NotOnSpace))),
+    [(
+      MergePullRequest,
+      Some(ActionBlocker::Step {
+        blocker: StepBlocker::Rule {
+          reason: Reason::MergeNeedsApprovals { number: 12 }
+        }
+      })
+    )]
+  );
+  let auto_merging = NextStep {
+    row: StepRow::MergePrime,
+    kind: StepKind::AutoMerging {
+      number: 12,
+      method: MergeMethod::Rebase,
+    },
+    safe_push: Some(StepBlocker::Step),
+    ..merge.clone()
+  };
+  assert_eq!(
+    starts(&stack_actions(&merge_route(built, &auto_merging, PatronusAnswer::NotOnSpace))),
+    [(CancelAutoMerge, None)]
+  );
+  assert_eq!(
+    starts(&stack_actions(&merge_route(blocked, &merge, PatronusAnswer::NotOnSpace))),
+    [(MergePullRequest, None)]
+  );
+  assert_eq!(starts(&stack_actions(&merge_route(chain, &merge, PatronusAnswer::NotOnSpace))), []);
+}

@@ -169,6 +169,7 @@ const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   "create-pull-request": GitPullRequestCreateIcon,
   "safe-push": ShieldCheckIcon,
   "push-to-baseline": GitMergeIcon,
+  "merge-pull-request": GitMergeIcon,
   push: UploadIcon,
   "open-stack-pull-request": GitPullRequestIcon,
   "create-stack-pull-request": GitPullRequestCreateIcon,

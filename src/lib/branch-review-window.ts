@@ -25,6 +25,8 @@ import { showToast } from "@/lib/toast-message"
 import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
 import { demandReviewReadiness, showReviewReadiness } from "@/model/demand"
+import { getRowPart } from "@/model/store"
+import { findAction } from "@/presenters/actions"
 import { formatReasonOrNull } from "@/presenters/reasons"
 import { branchSyncStore, getBranch, getStackAncestors, getStackBranch, getStackDescendants, getStackNotBuilt, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
@@ -309,14 +311,15 @@ function wholeStackMenu(root: string): MenuItem[] {
 
 /**
  * The actions of the whole stack in the title bar of its review, as a branch's: O its pull request (opened by the
- * window) or "Create Pull Request of the Stack…" (its dialog in the window), S "Safe Push Whole Stack", Push with
+ * window) or "Create Pull Request of the Stack…" (its dialog in the window), S "Safe Push Whole Stack" (Push to master,
+ * Merge #7 of the pull request of its stack branch by the route of the repository), Push with
  * Children of the root (no key: P is the previous change)
  */
 function getWholeStackReviewItems(root: string): BranchActionItem[] {
   const pullRequest = getStackPullRequest(root)
-  const keys: Readonly<Record<string, string[]>> = { "open-stack-pull-request": ["o"], "safe-push-whole-stack": ["s"], "push-to-baseline": ["s"] }
-  // in the order of a branch's: its pull request, its Safe Push (or Push to master), its push
-  const order = ["open-stack-pull-request", "create-stack-pull-request", "safe-push-whole-stack", "push-to-baseline", "push-with-children"]
+  const keys: Readonly<Record<string, string[]>> = { "open-stack-pull-request": ["o"], "safe-push-whole-stack": ["s"], "push-to-baseline": ["s"], "merge-pull-request": ["s"] }
+  // in the order of a branch's: its pull request, its Safe Push (or Push to master, or Merge #7), its push
+  const order = ["open-stack-pull-request", "create-stack-pull-request", "safe-push-whole-stack", "push-to-baseline", "merge-pull-request", "push-with-children"]
   const menu = wholeStackMenu(root)
   return order
     .flatMap(id => menu.filter(item => item.id === id))
@@ -658,7 +661,7 @@ function findBranchMenuItem(branchName: string, id: string): MenuItem | undefine
 }
 
 /** Why the main window doesn't offer the action of a request on the branch */
-function unavailableReason(itemId: "safe-push" | "push-to-baseline" | "push" | "safe-push-without-review", branch: Branch): string {
+function unavailableReason(itemId: "safe-push" | "push-to-baseline" | "merge-pull-request" | "push" | "safe-push-without-review", branch: Branch): string {
   switch (itemId) {
     case "push":
       return `${branch.name} has nothing to push`
@@ -666,6 +669,11 @@ function unavailableReason(itemId: "safe-push" | "push-to-baseline" | "push" | "
       return "Patronus is not available for the repository"
     case "push-to-baseline":
       return "The repository doesn't land by a push into the target"
+    case "merge-pull-request":
+      // the merge route offers Cancel Auto-Merge in its place while GitHub merges it once the checks pass
+      return findAction(getRowPart(branch.name, "actions"), "cancel-auto-merge") !== undefined
+        ? `GitHub merges the pull request of ${branch.name} once its checks pass`
+        : "The repository doesn't land by a merge of the pull request"
     case "safe-push-without-review": {
       // the step says why it offers no start without review: what it waits for, a reason of the branch, or approvals
       // that don't wait for a pull request

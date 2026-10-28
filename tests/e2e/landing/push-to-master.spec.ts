@@ -6,7 +6,7 @@ import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { availablePullRequests, gitHubWrites, pullRequest, repoPath } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { openSafePushWithKey, popoverStart, safePushPopover, waitForStepFacts } from "../helpers/safe-push-helpers"
+import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter, waitForStepFacts } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
@@ -98,10 +98,8 @@ test.describe("Push to master", () => {
   test("should push into master from the footer of the branch preview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const copy = await repo.revision(virtualBranch(BRANCH))
-    const preview = await openBranchPreview(page, BRANCH)
     // the start is the row's: the preview closes, the popover opens at the slot of the row
-    await preview.getByRole("button", { name: "S Push to master" }).click()
-    await expect(preview).toHaveCount(0)
+    await startFromPreviewFooter(page, BRANCH, "Push to master")
     await confirmAndExpectLanded(page, repo, safePushPopover(page), copy)
   })
 

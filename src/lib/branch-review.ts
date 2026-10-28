@@ -74,7 +74,7 @@ export function branchGoneReason(branchName: string): string {
 
 /** What a request of the review window does, for "Cannot …": "push auth", "create the pull request of auth" */
 export function requestAction(
-  itemId: "safe-push" | "push-to-baseline" | "push" | "create-pull-request" | "safe-push-without-review" | "continue-on-github" | { menuLabel: string },
+  itemId: "safe-push" | "push-to-baseline" | "merge-pull-request" | "push" | "create-pull-request" | "safe-push-without-review" | "continue-on-github" | { menuLabel: string },
   branchName: string,
 ): string {
   if (typeof itemId === "object") {
@@ -90,6 +90,8 @@ export function requestAction(
       return `start the Safe Push of ${branchName}`
     case "push-to-baseline":
       return `push ${branchName} into the target`
+    case "merge-pull-request":
+      return `merge the pull request of ${branchName}`
     case "create-pull-request":
       return `create the pull request of ${branchName}`
   }

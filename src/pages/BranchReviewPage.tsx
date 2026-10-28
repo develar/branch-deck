@@ -25,7 +25,7 @@ import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
 import { ensureSession, viewVersionKey } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { BranchSyncState } from "@/stores/branch-sync"
-import type { BranchReviewFeedback, BranchReviewItem, BranchReviewMenuItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
+import type { BranchReviewFeedback, BranchReviewItem, BranchReviewMenuItem, BranchReviewRequest, BranchReviewRequestItem, BranchReviewWindowData } from "@/types/sub-window"
 
 const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/WindowCreatePullRequestDialog").then(it => ({ default: it.WindowCreatePullRequestDialog })))
 
@@ -281,7 +281,8 @@ function shownItems(
 
 /**
  * The actions on the branch in the title bar, the items of its menu: O opens its pull request, Create Pull Request…
- * opens its dialog in this window, S asks the main window for its Safe Push, "Push" to push it, without a key
+ * opens its dialog in this window, S asks the main window for its Safe Push (Push to master, Merge #7 by the route of
+ * the repository), "Push Branch" to push it, without a key
  * (P is the previous change). Their keys work in the whole window, not while the dialog is open. The window doesn't
  * own the branches: the main window runs what it asks for and says why it can't.
  */
@@ -291,7 +292,7 @@ function useBranchReviewActions(
   items: readonly BranchReviewItem[],
   { openCreatePullRequest, keysSuspended, wholeStack }: { openCreatePullRequest: (branchName: string) => void; keysSuspended: boolean; wholeStack: boolean },
 ) {
-  const ask = (itemId: "safe-push" | "push-to-baseline" | "push" | "safe-push-whole-stack" | "push-with-children") =>
+  const ask = (itemId: BranchReviewRequestItem) =>
     void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), itemId })
   const run = (item: BranchReviewItem) => {
     if (item.url !== undefined) {

@@ -65,6 +65,8 @@ targets:
   - ../../src/lib/push-to-baseline.ts
   - ../../src/lib/landed-closes.ts
   - ../../src/lib/branch-review-window.ts
+  - ../../src/lib/branch-review.ts
+  - ../../src/types/sub-window.ts
   - ../../src/stores/update-project.ts
   - ../../crates/remote-facts/src/pull_request_writes.rs
   - ../../crates/github/src/client.rs
@@ -384,6 +386,7 @@ target, read before anything is pushed.
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push into master when the review window asks the main window`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push the stack branch of a whole stack into master from the header of its island`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push a whole stack into master from Whole Stack of the menu of its root`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_whole_stack_off_the_robot_offers_the_push_or_the_merge_of_its_stack_branch_with_the_reason_of_its_step`)
 - The popover of a push must say what one push lands: "Pushes host-git into master: 3 commits.", a piece of a stack
   "Pushes oauth with auth and login, which it is built on: 3 branches · 12 commits into master.", a whole stack
   "Pushes 7 branches · 14 commits into master in one push: …" with the stack branch it pushes; then a line per
@@ -411,17 +414,28 @@ target, read before anything is pushed.
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should disable Push to master with the reason when the token has no write access to the repository`)
 - Merge #7 must be one start on the surfaces of the row: the slot (a click merges at once when the plan asks nothing),
   S on the row (its popover: "GitHub merges #7 of JIRA-456 into master by rebase: 3 commits.", what it asks, its start
-  "Merge #7"), the "⋯" and right-click menus, the footer of the branch preview, and of a whole stack the header of its
-  island and "Whole Stack ›" (`merge-pull-request`); "Auto-Merge #7" the same while required checks run. A merge is one
+  "Merge #7"), the "⋯" and right-click menus, the footer of the branch preview, the title bar of the review window
+  (asked of the main window, `merge-pull-request`; "GitHub merges the pull request of JIRA-456 once its checks pass"
+  while its auto-merge is on), and of a whole stack the header of its island and "Whole Stack ›" of the menu of its
+  root, the merge of the pull request of its stack branch, which always asks first ("GitHub merges #12 of the whole air
+  stack with the 6 branches it is built on into master by rebase: 14 commits.", the push of its stack branch the remote
+  lacks); "Auto-Merge #7" the same while required checks run. A merge is one
   toast that follows the update after it in place, as a push's: "Merged #7 of JIRA-456 into master · 3 commits", then
   what the update did; an auto-merge "Auto-Merge of #7 is on", its slot "Merges when checks pass", its node landing,
   Cancel Auto-Merge in the menus ("Canceled the auto-merge of #7"); once GitHub merged it the same toast says "Merged #7
   into master" with Update Project. What holds the merge back disables Merge with its reason, the slot naming it
   ("Awaiting Approval", "Conflict", "Update Needed"). The fake GitHub of the tests merges a pull request as a
-  fast-forward of the remote (`Merger`), so the update after a merge drops the originals as GitHub's would.
+  fast-forward of the remote (`Merger`); a rebase merge of GitHub writes the copy again (its author, time and message
+  kept, GitHub the committer), and the update after it drops the originals all the same, naming them as landed.
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge the approved green pull request from the slot of the row by rebase, and update after it`)
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should open the popover of Merge #7 with S on the row, naming the method`)
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge from the menu of the row`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge from the footer of the branch preview`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge when the review window asks the main window`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge the pull request of the stack branch of a whole stack from the header of its island`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge a whole stack from Whole Stack of the menu of its root`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_whole_stack_off_the_robot_offers_the_push_or_the_merge_of_its_stack_branch_with_the_reason_of_its_step`)
+  [@test] ../../crates/operations/src/update_test.rs (`a_merge_by_rebase_is_followed_by_an_update_that_drops_the_original_whose_copy_github_wrote_again`)
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should enable the auto-merge while the required checks run, and offer Update Project once GitHub merged it`)
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should cancel the auto-merge from the menu of the row`)
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should disable Merge with the reason while the pull request waits for the approvals its base requires`)
