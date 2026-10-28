@@ -40,7 +40,7 @@ bd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--nice 
 - `--apply` brings back the changes that the command made to tracked files, such as `cargo fmt` or new snapshots, and
   applies them to the working tree, not to the index. A patch that does not apply refuses with `apply_failed` and keeps
   the patch in `<git dir>/branch-deck/host/runs/<run>.patch`.
-- `--nice` is 10 by default, so the runs of `bt --host` go first.
+- `--nice` is 10 by default, so the runs of `bt --host` go first. bt passes `--nice 0 --no-outputs`.
 - The run goes to the repository of the same name as this one on the host, beside the main repository of the host
   file. `--repo` names another one.
 - `--report-fd <n>` writes one JSON report of the run to the descriptor `n` on every way out. stdout then holds only

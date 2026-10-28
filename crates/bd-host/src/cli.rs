@@ -313,6 +313,17 @@ fn client<'a>(out: &'a (dyn Fn(&str) + Sync), say: &'a (dyn Fn(&str) + Sync)) ->
   Ok(Client::new(config, this_build(), &OsProcesses, say, &interrupt::presses).with_stdout(out))
 }
 
+/// The options of a run from its command line
+const fn run_options(args: &RunArgs) -> RunOptions {
+  RunOptions {
+    working_tree: !args.head,
+    nice: Some(args.nice),
+    outputs: !args.no_outputs,
+    apply: args.apply,
+    repo_by_name: args.repo.is_none(),
+  }
+}
+
 /// `bd-host run`: the report goes to `--report-fd` on every way out after the parse
 fn run_command(args: &RunArgs, out: &Out) -> u8 {
   let mut report_file = match args.report_fd.map(report_fd::open).transpose() {
@@ -355,14 +366,7 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     command: &args.command,
     fetch: &args.fetch,
   };
-  let options = RunOptions {
-    working_tree,
-    nice: Some(args.nice),
-    outputs: !args.no_outputs,
-    apply: args.apply,
-    repo_by_name: args.repo.is_none(),
-  };
-  let report = match client.run(&args.alias, &request, options) {
+  let report = match client.run(&args.alias, &request, run_options(args)) {
     Ok(outcome) => {
       let facts = &outcome.facts;
       if !facts.fetched.is_empty() {
@@ -749,3 +753,7 @@ fn local_name(processes: &dyn Processes) -> String {
   let name = ran.stdout_text().trim().to_owned();
   if ran.ok() && !name.is_empty() { name } else { "client".to_owned() }
 }
+
+#[cfg(test)]
+#[path = "cli_test.rs"]
+mod cli_test;

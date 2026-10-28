@@ -210,6 +210,12 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   closes the descriptor after the object. A descriptor that is not open refuses with `usage` (exit 2) before anything
   runs.
   [@test] ../../crates/bd-host/tests/cli.rs (`the_report_goes_to_its_descriptor_on_every_way_out`)
+- A machine caller such as bt must name its run options in full, because the defaults of `run` are the ones of a
+  person: `bd-host run <alias> --head --nice 0 --no-outputs --fetch out/bt-runs --report-fd 3 -- <command…>`, with
+  `--repo <path>` when it names a repository. Niceness 0 keeps the CPU for the run. Without `--no-outputs`, an output
+  of `[host]` replaces its local copy. The caller reads `command_exit` of the report, because a failed fetch exits
+  255 after the command ran.
+  [@test] ../../crates/bd-host/src/cli_test.rs (`the_command_line_of_bt_gives_niceness_0_and_no_outputs`)
 - The report must have the shape of the golden JSON below. `exit` is the exit code of `bd-host`. `command_exit` is the
   exit code of the command, `null` when it did not run or its end is unknown; a command that a signal ended answers
   128 plus the signal number. `refusal` is `null`, or `{"code", "message"}` with a code of the table below. `run`,
