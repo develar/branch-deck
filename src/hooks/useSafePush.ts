@@ -401,7 +401,7 @@ function showStartToast(branchName: string, mode: SafePushMode, title: string, d
 function tellRefusal(branchName: string, mode: SafePushMode, reason: string, offersPush: boolean, opens?: "pullRequest" | "robot"): void {
   let action: ToastActionProps | undefined
   if (offersPush) {
-    action = { children: "Push", onClick: () => void pushAlone(branchName) }
+    action = { children: "Push Branch", onClick: () => void pushAlone(branchName) }
   } else if (opens !== undefined) {
     action = refusalObjectAction(branchName, opens)
   }

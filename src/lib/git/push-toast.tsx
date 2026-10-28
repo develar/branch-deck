@@ -6,7 +6,7 @@ import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { formatPushMode, openRobot } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import type { BranchPush, PushNews } from "@/lib/push-summary"
-import { describePush, describeStackPush } from "@/lib/push-summary"
+import { describePush, describeStackPush, formatPushedBranch } from "@/lib/push-summary"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import type { Retargeted } from "@/presenters/pull-request-url"
@@ -148,7 +148,7 @@ export interface StackBranchPushed {
 }
 
 /**
- * The one toast of a push of several branches of a stack, "Pushed auth, login and oauth" (Activity has an entry per
+ * The one toast of a push of several branches of a stack, "Pushed branches auth, login and oauth" (Activity has an entry per
  * branch): what the pushes did, a pull request of them that needs a retarget, the robots they restarted; the pull
  * request action is of `startedFrom`, the branch the user pushed the stack from, unless a retarget comes first. The
  * stack branch of the whole stack that went along (`wholeStack`) is "pushed the whole stack branch"; pushed alone, the
@@ -168,7 +168,7 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
     return
   }
   if (pushes.length === 1 && wholeStack === null) {
-    showPushToast(first.name, repositoryPath, describePush(first.name, first.before), first.restarted, first.retargeted)
+    showPushToast(first.name, repositoryPath, describePush(formatPushedBranch(first.name), first.before), first.restarted, first.retargeted)
     return
   }
 

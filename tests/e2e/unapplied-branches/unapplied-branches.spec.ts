@@ -147,8 +147,8 @@ test.describe("Unapplied branches", () => {
     await expect(safePush).toHaveAttribute("aria-disabled", "true")
     await safePush.hover()
     await expect(page.getByRole("tooltip")).toHaveText("Not in master: Reapply it to land it")
-    await page.getByRole("menuitem", { name: "Push", exact: true }).click()
-    await expect(toast(page, "Pushed docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
+    await page.getByRole("menuitem", { name: "Push Branch", exact: true }).click()
+    await expect(toast(page, "Pushed branch docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
     await expectPushedToRemote(repo, ["unapplied:docs"])
     expect(await remotePushes(repo)).toEqual([["unapplied:docs"]])
     // the session shows the status the push left: no sync runs for it
@@ -159,7 +159,7 @@ test.describe("Unapplied branches", () => {
     // the "⋯" menu: the remote has it as it is, so its Push is disabled until a sync finds otherwise
     await row.hover()
     await row.getByRole("button", { name: "More actions for docs" }).click()
-    await expect(page.getByRole("menuitem", { name: "Push", exact: true })).toHaveAttribute("aria-disabled", "true")
+    await expect(page.getByRole("menuitem", { name: "Push Branch", exact: true })).toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
     // its remote branch set back to master in a terminal: the next sync finds its commit to push
     await repo.pushInTerminal(branchOf("unapplied:docs"), { revision: "origin/master" })
@@ -167,7 +167,7 @@ test.describe("Unapplied branches", () => {
     await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("1 commit to push")
     await row.hover()
     await row.getByRole("button", { name: "More actions for docs" }).click()
-    await page.getByRole("menuitem", { name: "Push", exact: true }).click()
+    await page.getByRole("menuitem", { name: "Push Branch", exact: true }).click()
     await expect.poll(() => remotePushes(repo)).toEqual([["unapplied:docs"], ["unapplied:docs"]])
     await expectPushedToRemote(repo, ["unapplied:docs"])
   })

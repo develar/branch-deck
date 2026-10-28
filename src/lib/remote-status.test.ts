@@ -175,7 +175,7 @@ describe("buildRemoteMovedTexts", () => {
     expect(buildRemoteMovedTexts("login", remote)).toEqual({
       title: "login changed on the remote",
       description: "12 commits you don't have (by Ann and Bob). Nothing was pushed.",
-      action: "Force Push",
+      action: "Force Push Branch",
     })
     expect(buildRemoteMovedTexts("login", testRemoteStatus({ commitsBehind: 1, droppedCommits: dropped("Ann"), action: forcePush({ drops: true }) })).description).toBe(
       "1 commit you don't have (by Ann). Nothing was pushed.",
@@ -186,7 +186,7 @@ describe("buildRemoteMovedTexts", () => {
     expect(buildRemoteMovedTexts("login", testRemoteStatus({ commitsAhead: 2, myCommitsAhead: 2, action: PUSH }))).toEqual({
       title: "login changed on the remote",
       description: "The remote has no commits the branch lacks. Nothing was pushed.",
-      action: "Push",
+      action: "Push Branch",
     })
     expect(buildRemoteMovedTexts("login", testRemoteStatus())).toEqual({
       title: "login changed on the remote",
@@ -196,7 +196,7 @@ describe("buildRemoteMovedTexts", () => {
     expect(buildRemoteMovedTexts("login", testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false, action: forcePush({ replaces: true }) }))).toEqual({
       title: "login changed on the remote",
       description: "The remote has older versions of the branch's commits. Nothing was pushed.",
-      action: "Force Push",
+      action: "Force Push Branch",
     })
   })
 
@@ -204,7 +204,7 @@ describe("buildRemoteMovedTexts", () => {
     expect(buildRemoteMovedTexts("login", testRemoteStatus({ exists: false, commitsAhead: 1, action: CREATE }))).toEqual({
       title: "login was deleted on the remote",
       description: "Nothing was pushed.",
-      action: "Push",
+      action: "Push Branch",
     })
   })
 })

@@ -111,7 +111,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   the merge, then the landing; the failure of a robot, then its restart) leaves an entry per state: Activity is the log
   of the events, the toasts are one per event.
   [@test] ../../src/presenters/activity.test.ts (`puts the operations of a journal in every project of its repository, and the page's entries in theirs, newest first`)
-- A push: "Pushed feature-auth" / "3 commits", "4 commits · created the remote branch"; a force push "Force pushed
+- A push: "Pushed branch feature-auth" / "3 commits", "4 commits · created the remote branch"; a force push "Force pushed
   ABC-123" / "1 commit · dropped 1 remote commit" with the dropped remote commits (`DroppedCommitList`), or "replaced the
   rebased copies", "replaced 1 amended commit", "replaced the parent's older commits"; a remote that moved since its
   status says so ("auth changed on the remote" / "… Nothing was pushed."). The words come from the remote status the
@@ -158,7 +158,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   is the entry of its error toast, which names it (`operationId`), in the projects of the journal of the operation,
   whichever repository the main window showed when the toast came (a Safe Push of one repository that fails while
   another is shown is in the log of the first only); one no toast told (of `bd`) says what it was for and why it failed
-  ("Cannot push auth" / "The remote refused the push: …"); a canceled one is no entry. A rewrite or a pick of `bd`
+  ("Cannot push branch auth" / "The remote refused the push: …"); a canceled one is no entry. A rewrite or a pick of `bd`
   (its journal entry, `tool: bd`), which no toast told, is an entry of kind `rewrite` in the words of the rewrite
   ("Unstacked beta", "Picked commits"; `presentRewrite`), an agent's marked as any other; an update of `bd` tells
   nothing of what it moved and is no entry. Clear Log of a repository forgets the errors the page told of the

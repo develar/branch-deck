@@ -241,7 +241,7 @@ export interface RemoteMovedTexts {
  */
 export function buildRemoteMovedTexts(branchName: string, remote: RemoteStatus): RemoteMovedTexts {
   const pushAction = remote.action
-  const action = pushAction.kind === "force" ? "Force Push" : pushAction.kind === "upToDate" ? null : "Push"
+  const action = pushAction.kind === "force" ? "Force Push Branch" : pushAction.kind === "upToDate" ? null : "Push Branch"
   if (!remote.exists) {
     return { title: `${branchName} was deleted on the remote`, description: "Nothing was pushed.", action }
   }

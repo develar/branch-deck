@@ -187,8 +187,8 @@ test.describe("Branch filter", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const row = findBranchRow(page, "docs")
     // named as the push button of the row, then the key of the focused row
-    const create = page.getByRole("menuitem", { name: /^Push \(1\) ?P?$/ })
-    await expect(getPushButton(row)).toHaveAccessibleName("Push (1)")
+    const create = page.getByRole("menuitem", { name: /^Push Branch \(1\) ?P?$/ })
+    await expect(getPushButton(row)).toHaveAccessibleName("Push Branch (1)")
 
     await row.click({ button: "right" })
     await expect(create.locator("[data-slot=kbd]")).toHaveText("P")
@@ -197,7 +197,7 @@ test.describe("Branch filter", () => {
     expect(await remotePushes(repo)).toEqual([["docs"]])
 
     await row.click({ button: "right" })
-    const push = page.getByRole("menuitem", { name: /^Push ?P?$/ })
+    const push = page.getByRole("menuitem", { name: /^Push Branch ?P?$/ })
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await push.hover()
     await expect(page.getByRole("tooltip").filter({ hasText: "up to date" })).toHaveText("The remote branch is up to date")

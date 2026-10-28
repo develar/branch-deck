@@ -56,6 +56,14 @@ function subjectName(subject: Subject): string {
 }
 
 /**
+ * What a push sends to its remote branches, beside a push into the target: "branch auth", "the whole stack of auth"
+ * (spec/repository/outgoing.spec.md, "Push")
+ */
+function pushedSubject(subject: Subject): string {
+  return subject.kind === "branch" ? `branch ${subject.name}` : `the whole stack of ${subject.root}`
+}
+
+/**
  * The target a start pushes into (`refs/remotes/origin/master` it reserves: a push of the copy into the target, Push to
  * master), "master"; null for a start of a robot
  */
@@ -69,7 +77,7 @@ function pushedInto(resources: readonly Resource[]): string | null {
 }
 
 /**
- * What `intent` does as the row of a running operation says it ("Safe Push of auth", "Pushing auth"), and in a sentence
+ * What `intent` does as the row of a running operation says it ("Safe Push of auth", "Pushing branch auth"), and in a sentence
  * ("the Safe Push of auth"), by what it holds (`resources`)
  */
 function runningWords(intent: Intent, resources: readonly Resource[] = []): readonly [label: string, phrase: string] {
@@ -84,7 +92,7 @@ function runningWords(intent: Intent, resources: readonly Resource[] = []): read
       return [what, `the ${what}`]
     }
     case "push":
-      return [`Pushing ${subjectName(intent.subject)}`, `a push of ${subjectName(intent.subject)}`]
+      return [`Pushing ${pushedSubject(intent.subject)}`, `a push of ${pushedSubject(intent.subject)}`]
     case "restartRobot":
       return [`Restarting robot ${intent.robotId}`, `a restart of robot ${intent.robotId}`]
     case "cancelRobot":

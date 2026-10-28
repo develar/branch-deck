@@ -2,6 +2,7 @@ import type { PushAction } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
+import { formatWholeStack, formatWholeStackBranch, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
 type RemoteStatusInput = Pick<Branch, "remoteStatus">
@@ -21,9 +22,25 @@ export function getPushHue(action: PushAction): PushHue {
   return action.kind === "force" && action.drops ? "warning" : "primary"
 }
 
+/**
+ * What a push of `key` sends to its remote branch, as its toast, its failure and its Activity entry name it beside a push
+ * into the target ("Pushed auth into master"): "branch auth", of a whole stack its stack branch ("the whole stack branch
+ * of air")
+ */
+export function formatPushedBranch(key: string): string {
+  const root = stackRootOfReadinessKey(key)
+  return root === null ? `branch ${key}` : formatWholeStackBranch(root)
+}
+
+/** "Cannot push branch auth", "Cannot push the whole air stack": the failure of a push started from `key` */
+export function formatPushFailure(key: string): string {
+  const root = stackRootOfReadinessKey(key)
+  return `Cannot push ${root === null ? `branch ${key}` : formatWholeStack(root)}`
+}
+
 /** What a push did, as its toast and its Activity entry say it */
 export interface PushNews {
-  /** "Pushed feature-auth", "Force pushed feature-auth" */
+  /** "Pushed branch feature-auth", "Force pushed branch feature-auth" */
   title: string
   /** "3 commits · created the remote branch", "1 commit · dropped 2 remote commits" */
   description?: string
@@ -31,11 +48,14 @@ export interface PushNews {
   warning?: true
 }
 
-/** What a push did, from the remote status it was made against (`null`: not loaded, nothing to say but the push) */
-export function describePush(branchName: string, before: RemoteStatus | null): PushNews {
+/**
+ * What a push of `pushed` (`formatPushedBranch`) did, from the remote status it was made against (`null`: not loaded,
+ * nothing to say but the push)
+ */
+export function describePush(pushed: string, before: RemoteStatus | null): PushNews {
   const action = before?.action.kind
   if (before === null || action === undefined || action === "upToDate") {
-    return { title: `Pushed ${branchName}` }
+    return { title: `Pushed ${pushed}` }
   }
   // a force push may only replace or drop remote commits
   const parts = before.commitsAhead === 0 ? [] : [formatCommitCount(before.commitsAhead)]
@@ -43,22 +63,22 @@ export function describePush(branchName: string, before: RemoteStatus | null): P
     parts.push(plural(before.ancestorCommitsAhead, "new commit of the parent", "new commits of the parent"))
   }
   if (action === "create") {
-    return { title: `Pushed ${branchName}`, description: [...parts, "created the remote branch"].join(" · ") }
+    return { title: `Pushed ${pushed}`, description: [...parts, "created the remote branch"].join(" · ") }
   }
   if (action === "push") {
-    return { title: `Pushed ${branchName}`, description: parts[0] }
+    return { title: `Pushed ${pushed}`, description: parts[0] }
   }
   const behind = before.commitsBehind
   const replaced = formatReplaced(before)
   if (behind === 0) {
     const rest = replaced ?? (parts.length > 0 && before.ancestorCommitsAhead > 0 ? null : "replaced the rebased copies")
-    return { title: `Force pushed ${branchName}`, description: [...parts, ...(rest === null ? [] : [rest])].join(" · ") }
+    return { title: `Force pushed ${pushed}`, description: [...parts, ...(rest === null ? [] : [rest])].join(" · ") }
   }
   if (replaced !== null) {
     parts.push(replaced)
   }
   return {
-    title: `Force pushed ${branchName}`,
+    title: `Force pushed ${pushed}`,
     description: [...parts, `dropped ${behind === 1 ? "1 remote commit" : `${behind} remote commits`}`].join(" · "),
     warning: true,
   }
@@ -92,7 +112,7 @@ export interface BranchPush {
 }
 
 /**
- * What a push of several branches of a stack did, as one toast says it: "Pushed auth, login and oauth" / "7 commits ·
+ * What a push of several branches of a stack did, as one toast says it: "Pushed branches auth, login and oauth" / "7 commits ·
  * created 2 remote branches · force pushed auth"; a push that dropped remote commits says how many. `withStackBranch`:
  * the stack branch of the whole stack went along (Push with Children of the root), "· pushed the whole stack branch"
  */
@@ -131,7 +151,8 @@ export function describeStackPush(pushes: readonly BranchPush[], withStackBranch
     parts.push("pushed the whole stack branch")
   }
   return {
-    title: `Pushed ${joinNames(pushes.map(push => push.name))}`,
+    // one branch with the whole stack branch along is one branch of the user's
+    title: `Pushed ${pushes.length === 1 ? "branch" : "branches"} ${joinNames(pushes.map(push => push.name))}`,
     ...(parts.length > 0 && { description: parts.join(" · ") }),
     ...(dropped > 0 && { warning: true as const }),
   }

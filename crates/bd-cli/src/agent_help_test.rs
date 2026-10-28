@@ -1,5 +1,5 @@
 use crate::Cli;
-use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
+use crate::agent_help::{AGENT_HELP, PUSH_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
 use crate::fixture_test::writable_state;
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
 use clap::CommandFactory;
@@ -442,6 +442,17 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() 
   let enter = skill.find("`EnterWorktree` with that\n  `path` moves the session there").unwrap();
   assert!(cd < enter, "{skill}");
   assert!(skill.contains("`permissions.additionalDirectories`"), "{skill}");
+}
+
+/// `bd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into
+/// master, which is `bd land` (spec/cli/agent-cli.spec.md, `bd push`)
+#[test]
+fn the_help_of_bd_push_says_it_pushes_the_virtual_branches_never_into_master() {
+  assert!(AGENT_HELP.contains("4. Push the branches, never into master (`bd land`)."));
+  assert!(PUSH_HELP.starts_with("`bd push` pushes virtual branches, each to its own remote branch (the app's Push Branch), never into master: `bd land`\nlands a branch there."));
+  let command = Cli::command();
+  let about = command.find_subcommand("push").and_then(clap::Command::get_about).map_or_default(ToString::to_string);
+  assert!(about.contains("never into master: `bd land`"), "{about}");
 }
 
 /// `bd help agent` is what every agent reads before grouping or pushing, so it stays a core of at most 10 KB; the

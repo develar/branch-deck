@@ -18,7 +18,7 @@ import type { EventToastAction } from "@/lib/event-toast"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { showPushToast, showStackPushToast } from "@/lib/git/push-toast"
 import { formatPushMode, openRobot } from "@/lib/patronus"
-import { describePush } from "@/lib/push-summary"
+import { describePush, formatPushFailure, formatPushedBranch } from "@/lib/push-summary"
 import { buildRemoteMovedTexts, toRemoteStatus } from "@/lib/remote-status"
 import { showRobotToast } from "@/lib/robot-toast"
 import { executePlan, planIntent, runFailure, skippedReason } from "@/lib/run-intent"
@@ -86,10 +86,10 @@ export async function pushBranch(branchName: string, options: PushBranchOptions 
       announcePush(branchName, repositoryPath, run, options.announce !== false)
       return true
     case "failed":
-      notifyError(`Cannot push ${branchName}`, run.error, run.action)
+      notifyError(formatPushFailure(branchName), run.error, run.action)
       return false
     case "canceled":
-      showToast(canceledBeforeStart(`the push of ${branchName}`, "Nothing was pushed"))
+      showToast(canceledBeforeStart(`the push of branch ${branchName}`, "Nothing was pushed"))
       return false
     case "confirm":
     case "moved":
@@ -200,7 +200,7 @@ function announcePush(branchName: string, repositoryPath: string, run: Extract<P
     }
     return
   }
-  showPushToast(branchName, repositoryPath, describePush(branchName, run.before), restarted, retargetedOf(outcome))
+  showPushToast(branchName, repositoryPath, describePush(formatPushedBranch(branchName), run.before), restarted, retargetedOf(outcome))
 }
 
 /** The Safe Push the push restarted on the pushed commit; undefined for none */
@@ -240,15 +240,15 @@ export async function pushUnappliedBranch(name: string): Promise<void> {
   }
   const run = await runPush(repositoryPath, branch.branch, intent, {}, branch.remoteStatus)
   if (run.kind === "pushed") {
-    showToast({ title: `Pushed ${branch.branch}`, description: `The remote keeps it as ${name}` })
+    showToast({ title: `Pushed branch ${branch.branch}`, description: `The remote keeps it as ${name}` })
   } else if (run.kind === "failed") {
     const moved = typeof run.error !== "string" && getErrorCode(run.error) === "lease_rejected"
     notifyError(
-      `Cannot push ${branch.branch}`,
+      `Cannot push branch ${branch.branch}`,
       moved ? `The remote branch ${name} changed since the last fetch: nothing was pushed. Its status shows it now; a push again replaces it` : run.error,
     )
   } else if (run.kind === "canceled") {
-    showToast(canceledBeforeStart(`the push of ${branch.branch}`, "Nothing was pushed"))
+    showToast(canceledBeforeStart(`the push of branch ${branch.branch}`, "Nothing was pushed"))
   }
 }
 
@@ -289,7 +289,7 @@ export async function showRemoteMovedToast(repositoryPath: string, branchName: s
         if (switched === null) {
           void pushBranch(branchName, { expectRemote: remoteStatus.remoteTip, restartRunning, confirmAt: "row" })
         } else {
-          notifyError(`Cannot push ${branchName}`, switched)
+          notifyError(formatPushFailure(branchName), switched)
         }
       },
     }
@@ -383,7 +383,7 @@ export function pushWholeStack(root: string): Promise<boolean> {
 export async function pushForAction(branchName: string): Promise<boolean> {
   const blocker = formatReasonOrNull(getBranchLanding(branchName).push, name => getBranch(name)?.statusText ?? "")
   if (blocker !== null) {
-    notifyError(`Cannot push ${branchName}`, blocker)
+    notifyError(formatPushFailure(branchName), blocker)
     return false
   }
   return getPushOrders(branchName).button.length > 0
@@ -415,7 +415,7 @@ function stackIntent(branchName: string, scope: PushScope, force: boolean): Inte
  */
 async function runStackPush(startedFrom: string, intent: Intent, options: StackPushOptions, accepted: readonly Confirmation[] = []): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
-  const failure = `Cannot push ${formatReadinessSubject(startedFrom)}`
+  const failure = formatPushFailure(startedFrom)
   const switched = getRepositorySwitchReason(repositoryPath)
   if (switched !== null) {
     notifyError(failure, switched)
@@ -465,7 +465,7 @@ function askStackPush(startedFrom: string, intent: Intent, options: StackPushOpt
     return
   }
   const named = drops.map(drop => `${formatReadinessSubject(drop.branch)} drops ${drop.commits === 1 ? "a commit" : `${drop.commits} commits`} of its remote branch it lacks`)
-  notifyError(`Cannot push ${formatReadinessSubject(startedFrom)}`, `${named.join("; ")}: nothing was pushed`)
+  notifyError(formatPushFailure(startedFrom), `${named.join("; ")}: nothing was pushed`)
 }
 
 /**
@@ -489,7 +489,7 @@ function isAccepted(confirmation: Confirmation, accepted: readonly Confirmation[
 
 /** What the outcome of a push of a stack says (`runStackPush`); whether it pushed */
 async function toldStackPush(startedFrom: string, repositoryPath: string, outcome: Outcome, options: StackPushOptions): Promise<boolean> {
-  const failure = `Cannot push ${formatReadinessSubject(startedFrom)}`
+  const failure = formatPushFailure(startedFrom)
   for (const { effect, status } of outcome.effects) {
     if (effect.kind === "retarget" && status.kind === "failed") {
       // the push went on without it: its toast offers the command

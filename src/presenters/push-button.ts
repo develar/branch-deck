@@ -1,9 +1,10 @@
 // The push button of a branch (its row, its preview, its review window) and the items that push it, in words: what the
-// push sends ("Push (2)", "Force Push (1)", "Push Stack (3 branches)"), what it replaces and drops, the other pushes its
-// description offers, and why it can't push. Rust decides whether it can (the `push` and `push-with-children` actions of
-// the row, `domain_policy::actions`), what each push sends (`RepositoryView.pushes`, `domain_policy::push`) and what a
-// press does (`prepare` of the intent `Push`, `operations::push`); the page words the remote status of the row and those
-// answers (spec/repository/outgoing.spec.md, "Push").
+// push sends to the remote branch of the branch ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)"),
+// what it replaces and drops, the other pushes its description offers, and why it can't push. Rust decides whether it
+// can (the `push` and `push-with-children` actions of the row, `domain_policy::actions`), what each push sends
+// (`RepositoryView.pushes`, `domain_policy::push`) and what a press does (`prepare` of the intent `Push`,
+// `operations::push`); the page words the remote status of the row and those answers (spec/repository/outgoing.spec.md,
+// "Push").
 import type { ActionBlocker, ActionState, DroppedCommit } from "@/lib/bindings"
 import { landedBranchDescription } from "@/lib/landed"
 import { getPushColor } from "@/lib/push-summary"
@@ -12,7 +13,7 @@ import { formatPushStackLabel, formatPushWithChildrenLabel } from "@/lib/stack"
 import { cutList } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { getRowPart } from "@/model/store"
-import { findAction, formatActionBlocker } from "@/presenters/actions"
+import { ACTION_LOOKS, findAction, formatActionBlocker } from "@/presenters/actions"
 import type { PendingFact } from "@/presenters/next-step"
 import { formatPendingFact } from "@/presenters/next-step"
 import { getBranchesGitHubRepository, getPullRequestRetarget } from "@/presenters/pull-request-url"
@@ -34,7 +35,7 @@ export interface PushButtonRuns {
 
 export interface PushButtonState {
   text: string
-  /** The commits the push sends, the count of the label ("Force Push (1)", the sum of a Push Stack); 0 without one */
+  /** The commits the push sends, the count of the label ("Force Push Branch (1)", the sum of a Push Stack); 0 without one */
   count: number
   color: UIColor
   tooltip: string
@@ -132,12 +133,20 @@ export interface PushButtonContext {
   runs?: PushButtonRuns
 }
 
+/**
+ * The push of the branch to its own remote branch, named for what it pushes beside Push to master, which pushes the copy
+ * into the target (spec/repository/outgoing.spec.md, "Push")
+ */
+export const PUSH_BRANCH = ACTION_LOOKS.push.label
+/** The push of the branch that replaces commits of its remote branch */
+export const FORCE_PUSH_BRANCH = "Force Push Branch"
+
 const NO_RUNS: PushButtonRuns = { alone: () => {}, stack: () => {}, children: () => {} }
 
 /** The state of a button that can't push for a reason of the rules (`rule`) or of the sync: disabled, the reason its description */
 function disabledState(tooltip: string): PushButtonState {
   return {
-    text: "Push",
+    text: PUSH_BRANCH,
     count: 0,
     color: "neutral",
     tooltip,
@@ -224,9 +233,9 @@ export function getPushButtonState(
   const remoteAction = remoteStatus?.action ?? null
   const pushAction = remoteAction?.kind ?? null
 
-  let text = "Push"
+  let text: string = PUSH_BRANCH
   let count = 0
-  let tooltip = "Push branch to remote"
+  let tooltip = "Push the branch to its remote branch"
   let dropped: DroppedCommits | null = null
   if (remoteStatus != null && texts != null) {
     // a label counts the commits the push sends, whoever authored them; the description says how many are the user's
@@ -238,16 +247,16 @@ export function getPushButtonState(
     }
     if (pushAction === "create") {
       // one name for every push of the branch: that it creates the remote branch, the description says
-      text = withCount("Push")
+      text = withCount(PUSH_BRANCH)
     } else if (pushAction === "force") {
-      text = withCount("Force Push")
+      text = withCount(FORCE_PUSH_BRANCH)
       tooltip = buildRemoteStatusTexts(remoteStatus, parent, { forcePush: true }).tooltip
       const { commitsBehind, droppedCommits } = remoteStatus
       if (commitsBehind > 0 && droppedCommits.length > 0) {
         dropped = { commits: droppedCommits, more: Math.max(0, commitsBehind - droppedCommits.length) }
       }
     } else if (pushAction === "push") {
-      text = withCount("Push")
+      text = withCount(PUSH_BRANCH)
     }
   }
 
@@ -380,7 +389,7 @@ export function isLandingPushAvailable(branchName: string): boolean {
 
 /**
  * The push button of the branch as the stores have it now, for the surfaces that list it as a menu item (the branch
- * menu, the branch preview, the review): its label ("Push (2)", "Force Push (1)", "Push Stack (3 branches)") and what a
+ * menu, the branch preview, the review): its label ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)") and what a
  * click pushes, as the button renders it, its other pushes running `runs`
  */
 export function getPushButtonNow(branch: Branch, isPushing: boolean, runs: PushButtonRuns): PushButtonState {

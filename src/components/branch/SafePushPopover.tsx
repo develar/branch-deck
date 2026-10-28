@@ -783,7 +783,7 @@ function PushAlone({ branchName }: { branchName: string }) {
   return (
     <Button variant="outline" size="xs" className="w-fit" disabled={pushing} onClick={() => void push()} data-testid="safe-push-push-only">
       {pushing ? <Spinner data-icon="inline-start" /> : null}
-      Push
+      Push Branch
     </Button>
   )
 }

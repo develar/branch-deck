@@ -119,7 +119,7 @@ describe("the actions Rust offers", () => {
     const waits = item({ id: "rename", availability: { kind: "waits", op: "u1" } })
     expect(waits).toMatchObject({ description: "Waits for Unstacking oauth…" })
     expect(waits?.disabled).toBeUndefined()
-    expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op: "p1" } } })).toMatchObject({ disabled: true, description: "bd: Pushing auth…" })
+    expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op: "p1" } } })).toMatchObject({ disabled: true, description: "bd: Pushing branch auth…" })
   })
 })
 

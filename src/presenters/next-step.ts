@@ -461,7 +461,7 @@ function mergeHeld(step: NextStep, number: number, context: StepContext): Shown 
       case "mergeBehind":
         return ["Update Needed", RefreshCwIcon, false]
       case "mergeHeadBehind":
-        return ["Push First", RefreshCwIcon, false]
+        return ["Push Branch First", RefreshCwIcon, false]
       case "mergeDraft":
         return ["Draft", FileTextIcon, false]
       case "mergeNeedsApprovals":

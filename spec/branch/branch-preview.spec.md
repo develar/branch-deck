@@ -112,7 +112,7 @@ its row.
 ### Push
 
 - P or the push button in the footer must push the shown branch, as the push button of the row does, with the same
-  label ("Push (2)", "Force Push (1)"). A first push whose landing pushes the branch (`isFirstPushInLanding`,
+  label ("Push Branch (2)", "Force Push Branch (1)"). A first push whose landing pushes the branch (`isFirstPushInLanding`,
   [Branch Row](branch-row.spec.md#actions-cell)) is P and "⋯", beside Create Pull Request… and Safe Push: the footer
   keeps its button in place, disabled with why ("Safe Push and Create Pull Request… push JIRA-456 first: "⋯" pushes it
   alone"), and so does it while Patronus or GitHub haven't answered whether they push it ("Waits for the answer of
@@ -160,7 +160,7 @@ its row.
 - The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close`, a ghost `xs` button `D Review
   Changes` (disabled with the reason for a branch that can't be reviewed), `O Open Pull Request` and "Create Pull
   Request…" (which closes the preview for its dialog; both beside a closed pull request), `S Safe Push` where
-  Patronus answers (the key in place of the shield, as the other buttons show theirs), a ghost `xs` button `P Push`,
+  Patronus answers (the key in place of the shield, as the other buttons show theirs), a ghost `xs` button `P Push Branch`,
   the push in the text colour, not the push colour of the row. The header has "⋯" before the close button, the whole
   menu of the row (`getBranchContextMenuItems`, `BranchPreviewMenu`): the expanded form offers what the compact one
   does. Its key hints are only the keys

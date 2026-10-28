@@ -187,12 +187,12 @@ puts its commits back on top of the current branch, their files and their groupi
   "Pushed", "2 commits to push", "Remote differs"), and its commits below an expanded row; a help popover says what an
   unapplied branch is.
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should list an unapplied branch in its own card with its commits, out of the branch table`)
-- The menu of a row (right-click and "⋯") must offer Reapply, Push (Force Push when the remote has another history,
+- The menu of a row (right-click and "⋯") must offer Reapply, Push Branch (Force Push Branch when the remote has another history,
   disabled when it has it as it is), Safe Push disabled with "Not in master: Reapply it to land it", Copy, and Delete
   Unapplied Branch….
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why`)
 - Push must push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status, the
-  intent `Push` with the scope `unapplied` (`operations::push`): no robot read, no hold, no retarget (C3), "Force Push"
+  intent `Push` with the scope `unapplied` (`operations::push`): no robot read, no hold, no retarget (C3), "Force Push Branch"
   of its menu the user's choice to drop what the remote has; the
   toast "Pushed ‹branch›" says the remote keeps it, and its Remote cell shows the status the push left from the patch of
   the session, with no sync after it. A pull request of its virtual branch stays as it was.
@@ -259,7 +259,7 @@ puts its commits back on top of the current branch, their files and their groupi
 - Unapply… → the confirmation below the row ("This removes 2 commits and their changes from HEAD"), Enter → the row
   leaves the table, the files with it → toast "Unapplied docs" · "Removed 1 commit from HEAD · kept in
   jane/unapplied/docs" · Undo.
-- The Unapplied card: "Unapplied · 1 branch", the row "docs · Document the API · Not pushed"; Push → toast "Pushed docs"
+- The Unapplied card: "Unapplied · 1 branch", the row "docs · Document the API · Not pushed"; Push Branch → toast "Pushed branch docs"
   · "The remote keeps it as jane/unapplied/docs"; Reapply → the row back in the branch table → toast "Reapplied docs"
   · "1 commit back on top of HEAD" · Undo.
 - `bd unapply docs` → `{"unapplied_branch":"jane/unapplied/docs",…,"undo_token":"unapply:…"}`; `bd undo unapply:…`;

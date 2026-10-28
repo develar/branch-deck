@@ -99,7 +99,7 @@ describe("activity", () => {
     // the page's entries show at once, the journal's with the next read
     expect(entries("/a").map(entry => entry.title)).toEqual(["Updated master: fast-forwarded to origin/master"])
     await refreshActivity()
-    expect(entries("/a").map(entry => entry.title)).toEqual(["Updated master: fast-forwarded to origin/master", "Pushed auth"])
+    expect(entries("/a").map(entry => entry.title)).toEqual(["Updated master: fast-forwarded to origin/master", "Pushed branch auth"])
     expect(entries("/b").map(entry => entry.title)).toEqual(["Updated master: rebased 1 commit"])
     expect(fakeActivity.page.map(entry => entry.activity.repositoryPath)).toEqual(["/a", "/b"])
 
@@ -127,7 +127,7 @@ describe("activity", () => {
 
   it("gives the Activity window the Undo of the main window's rewrites by entry id", () => {
     const [kept, rewritten] = [
-      { id: "e1", repositoryPath: "/a", time: 0, kind: "push", title: "Pushed auth" },
+      { id: "e1", repositoryPath: "/a", time: 0, kind: "push", title: "Pushed branch auth" },
       { id: "e2", repositoryPath: "/a", time: 0, kind: "rewrite", title: "Squashed 2 commits" },
     ] as const
     expect(withUndo([kept, rewritten], { e2: { until: 10, undone: true } })).toEqual([kept, { ...rewritten, undo: { until: 10, undone: true } }])
@@ -204,8 +204,8 @@ describe("activity", () => {
   })
 
   it("keeps the operation a failed command names, for its lines in the log", async () => {
-    notifyError("Cannot push auth", { message: "rejected", kind: null, operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
-    await vi.waitFor(() => expect(entries()[0]).toMatchObject({ kind: "error", title: "Cannot push auth", operationId: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" }))
+    notifyError("Cannot push branch auth", { message: "rejected", kind: null, operation_id: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" })
+    await vi.waitFor(() => expect(entries()[0]).toMatchObject({ kind: "error", title: "Cannot push branch auth", operationId: "01K8ZQ3V6Y4M2N7P9R1S5T0W2X" }))
 
     // an error raised outside a command names none
     notifyError("Cannot open the review", new Error("closed"))
@@ -262,7 +262,7 @@ describe("groupActivityByDay", () => {
   it("groups by local day: today, yesterday, then the date", () => {
     const now = new Date(2026, 9, 14, 9, 0).getTime()
     const at = (day: number, hour: number) =>
-      ({ id: `${day}-${hour}`, repositoryPath: "/a", time: new Date(2026, 9, day, hour).getTime(), kind: "push", title: "Pushed auth" }) satisfies ActivityEntry
+      ({ id: `${day}-${hour}`, repositoryPath: "/a", time: new Date(2026, 9, day, hour).getTime(), kind: "push", title: "Pushed branch auth" }) satisfies ActivityEntry
     const days = groupActivityByDay([at(14, 8), at(14, 0), at(13, 23), at(10, 12)], now)
     expect(days.map(day => [day.label, day.entries.map(entry => entry.id)])).toEqual([
       ["Today", ["14-8", "14-0"]],

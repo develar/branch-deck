@@ -528,7 +528,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   review](patronus.spec.md#safe-push-without-review) in the "Create pull request" dialog (`BranchNextStep.withoutReview`),
   never on the Safe Push surfaces, which stay disabled. A push that the rules of the repository make dismiss the
   approvals Patronus counts (`approved`) would start the robot without them: the start is refused with "The push
-  dismisses the approvals of #7: push first, then ask for the review again", and the push alone is offered ("Push").
+  dismisses the approvals of #7: push first, then ask for the review again", and the push alone is offered ("Push Branch").
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should say in the popover that Patronus doesn't tell whose approvals count, and refuse the start once they are missing`, `should start with the profile of the last robot when its options said it skips the review`)
 
 ### The readiness store

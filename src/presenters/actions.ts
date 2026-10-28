@@ -62,7 +62,7 @@ import { formatLanded, formatReason, formatRobotsLanded, formatStackHold } from 
 import { branchSyncStore } from "@/stores/branch-sync"
 import { operationLabelOf } from "@/stores/indicators"
 
-/** How an action looks on every surface: its label where no fact names it ("Push (2)" does), its icon, its key */
+/** How an action looks on every surface: its label where no fact names it ("Push Branch (2)" does), its icon, its key */
 export interface ActionLook {
   readonly label: string
   readonly icon: LucideIcon
@@ -76,7 +76,7 @@ export const ACTION_LOOKS = {
   "dry-run": { label: "Dry Run", icon: FlaskConicalIcon },
   "check-approvals": { label: "Check Approvals Again", icon: RefreshCwIcon },
   "safe-push-without-review": { label: "Safe Push Without Review…", icon: ShieldOffIcon },
-  push: { label: "Push", icon: UploadIcon, kbds: ["p"] },
+  push: { label: "Push Branch", icon: UploadIcon, kbds: ["p"] },
   "push-with-children": { label: "Push with Children", icon: UploadIcon },
   "pick-remote-commits": { label: "Pick Remote Commits…", icon: DownloadIcon },
   // its label names the target of the baseline ("Push to main"), each surface by the facts
@@ -286,7 +286,7 @@ function runningWords(availability: Extract<Availability, { kind: "running" | "q
 /** What a surface gives an action beside its look: what it runs, and what the facts name of it */
 export interface ActionItem {
   readonly onSelect: MenuItem["onSelect"]
-  /** The label the facts name ("Push (2)", "Unstack from auth"); the look's otherwise */
+  /** The label the facts name ("Push Branch (2)", "Unstack from auth"); the look's otherwise */
   readonly label?: string
   /** What it does, shown while it can run */
   readonly description?: string

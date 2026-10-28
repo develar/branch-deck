@@ -215,7 +215,7 @@ describe("the push of the branch menu", () => {
     setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
     setPushes({ login: { button: true }, auth: { children: { offers: true } } })
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", label: "Push Stack (2 branches)", description: "Pushes auth and login, parents first" })])
-    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Push (1)" })])
+    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Push Branch (1)" })])
     expect(pushItems("auth")[0]?.disabled).toBeUndefined()
   })
 
@@ -234,17 +234,17 @@ describe("the push of the branch menu", () => {
     const dropping = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, unpushedCommits: ["c"], action: forcePush({ drops: true }) })
     setBranches(synced("auth", null, dropping), synced("login", "auth", unpushed))
     setPushes({ login: { action: [] } })
-    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", label: "Push (1)" })])
-    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Force Push (1)" })])
+    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", label: "Push Branch (1)" })])
+    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Force Push Branch (1)" })])
   })
 
   it("runs while its push of the stack runs in the session, and waits for another push that holds the branch", () => {
     setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
     setStackPush("login", ["auth", "login"])
     setBranchActions("login", { id: "push", availability: { kind: "running", op: "push" } })
-    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", running: true, disabled: true, description: "Pushing login…" })])
+    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", running: true, disabled: true, description: "Pushing branch login…" })])
     setBranchActions("auth", disabled("push", { code: "busy", op: "push" }))
-    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "Pushing login…" })])
+    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "Pushing branch login…" })])
   })
 
   it("is disabled with the reason Rust gives: a branch the last sync did not build names the status of its row, not up to date", () => {
@@ -306,7 +306,7 @@ describe("Push with Children in the branch menu", () => {
     expect(menuOf("login").some(item => item.id === "push-with-children")).toBe(false)
     setStackPush("login", ["login"])
     setBranchActions("auth", disabled("push-with-children", { code: "busy", op: "push" }))
-    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Pushing login…" })
+    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Pushing branch login…" })
   })
 })
 

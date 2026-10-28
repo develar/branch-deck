@@ -39,7 +39,7 @@ test.describe("Operations of another process of the repository", () => {
     // another branch pushes
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
     // as its button: disabled, named without what it would send
-    const push = page.getByRole("menuitem", { name: /^Push P$/ })
+    const push = page.getByRole("menuitem", { name: /^Push Branch P$/ })
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
     await findBranchRow(page, "JIRA-456").focus()

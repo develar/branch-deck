@@ -11,10 +11,10 @@ import type { ActivityLog, ApiError, EffectRecord, Intent, JournalEntry, PageEnt
 import { formatCreatedToast } from "@/lib/create-pull-request"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
 import type { GitHubRepository } from "@/lib/pull-request"
-import { describePush } from "@/lib/push-summary"
+import { describePush, formatPushFailure, formatPushedBranch } from "@/lib/push-summary"
 import { buildRemoteMovedTexts, toRemoteStatus } from "@/lib/remote-status"
 import { describeReview } from "@/lib/review-requests"
-import { formatReadinessSubject, formatWholeStackBranch, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { formatReadinessSubject } from "@/lib/whole-stack"
 import { presentLandOutcome, presentLandRefusal, pushTargetOf } from "@/presenters/outcome"
 import { presentRewrite } from "@/presenters/rewrite"
 import type { ActivityDetails, ActivityEntry } from "@/stores/activity"
@@ -101,12 +101,6 @@ function presentOperation(entry: JournalEntry, github: GitHubRepository | null, 
   return said
 }
 
-/** The branch a push sends as its toast names it: of a whole stack its stack branch */
-function pushedName(key: string): string {
-  const root = stackRootOfReadinessKey(key)
-  return root === null ? key : formatWholeStackBranch(root)
-}
-
 /** The push of `record`: each branch in the words of its toast, or the branch whose remote moved, nothing pushed */
 function pushSaid(record: EffectRecord, entry: JournalEntry): Said[] {
   if (record.effect.kind !== "push") {
@@ -127,7 +121,7 @@ function pushSaid(record: EffectRecord, entry: JournalEntry): Said[] {
   return record.effect.branches.map((key, at) => {
     const status = remote[at] ?? null
     const before = status === null ? null : toRemoteStatus(status)
-    const news = describePush(pushedName(key), before)
+    const news = describePush(formatPushedBranch(key), before)
     const dropped = before?.droppedCommits ?? []
     const details: ActivityDetails | undefined =
       news.warning !== true || before === null || dropped.length === 0
@@ -223,7 +217,11 @@ function resultSaid(entry: JournalEntry, github: GitHubRepository | null, told: 
   }
   const failure = told ? null : failureOf(entry)
   if (failure !== null) {
-    said.push({ kind: "error", title: failureTitle(intent, subjectOf(entry)), description: failure })
+    said.push({
+      kind: "error",
+      title: intent.kind === "push" && entry.subject !== null ? formatPushFailure(entry.subject) : failureTitle(intent, subjectOf(entry)),
+      description: failure,
+    })
   }
   return said
 }
@@ -320,7 +318,7 @@ function toldElsewhere(entry: JournalEntry, told: ReadonlySet<string>): boolean 
   return id != null && told.has(id)
 }
 
-/** "Cannot push auth", "Cannot restart the robot": what a failed operation was for */
+/** "Cannot push the branch", "Cannot restart the robot": what a failed operation was for (of a push `formatPushFailure`) */
 function failureTitle(intent: Intent, subject: string): string {
   switch (intent.kind) {
     case "push":

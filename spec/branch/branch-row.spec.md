@@ -435,7 +435,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should line up the columns of the table, the island and its header, whatever each card shows`)
 - The push button must follow [Outgoing Commits](../repository/outgoing.spec.md), compact: an up arrow and the count of
   the commits it sends ("↑ 3", the arrow alone without a count), "45%" after the spinner while it pushes. Its label
-  ("Push (2)", "Force Push (1)", "Push Stack (3 branches)", "Pushing 45%"; one name for the first push too, whose description
+  ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)", "Pushing 45%"; one name for the first push too, whose description
   says "The branch isn't on the remote yet: the push creates it.") is its accessible name and the
   first line of its description on hover, which shows also while it is disabled, with the remote commits a force push
   drops, the question before a push that drops them, and the progress of a running push. A click pushes and leaves
@@ -627,7 +627,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   the reason ("The branch failed to sync", the reason of a stack problem, "The branch has no commits", as Rust decides
   them), except the fixes of a stack problem, which run while it blocks the rest ([Stacked
   Branches](stacked-branches.spec.md#ui)); what rewrites nothing on the branch stays as it is: Review Changes, the pull
-  request and its review request, Push and Push with Children (they wait for the sync themselves), Safe Push, Safe Push
+  request and its review request, Push Branch and Push with Children (they wait for the sync themselves), Safe Push, Safe Push
   With Profile… and Dry Run (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions. A
   sync that runs disables no rewrite (C14): its start goes to the session at once, named on the table the window shows,
   and runs once HEAD is as the session knows it; its row shows the rewrite on its "⋯" meanwhile, no info toast refuses
@@ -653,7 +653,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   commit whose subject it changed; an unapply once the sync built their copies), in the repository of its start,
   whichever the window shows by then. A remote action whose
   resource an operation holds (a push of a branch a push of the stack sends, a cancel during a restart, an action
-  another process runs) is disabled with its busy state ("Pushing login…", "bd: Pushing auth…", `Busy`), and a key says
+  another process runs) is disabled with its busy state ("Pushing branch login…", "bd: Pushing branch auth…", `Busy`), and a key says
   so in an info toast; a retarget and a review request of one pull request write other fields of it and run side by
   side, unless the review request pushes first, which may retarget it too. A success toast with Undo comes after the
   sync.
@@ -685,13 +685,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   `id`, what the surfaces and the review window name it by.
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why an item doesn't apply in its description, never in its name, and names every item by a stable id`)
 - The push item must be the push button of the row as a menu item (`getPushButtonNow`), also where the row has no
-  button for a first push: its name ("Push (2)", "Force Push (1)", "Push Stack (3 branches)" with "Pushes auth, login and oauth, parents first" on
+  button for a first push: its name ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)" with "Pushes auth, login and oauth, parents first" on
   hover), what it pushes (`pushOrConfirm`: the stack only where the button pushes it, the question in the button's
   description before a push that drops remote commits), enabled as that button (the `push` Rust decides), else disabled with the
   reason ("The remote branch is up to date", the blocked parent, "The branch failed to sync: merge conflict" for a
   branch the last sync did not build, the running Safe Push that holds it, "Wait for the sync to finish" while a sync
-  rebuilds the branch), running while its push runs in the session ("Pushing login…"), disabled while another push
-  that sends the branch holds it ("Pushing login…" of the stack push of a branch built on it). It is the one push of the branch in the
+  rebuilds the branch), running while its push runs in the session ("Pushing branch login…"), disabled while another push
+  that sends the branch holds it ("Pushing branch login…" of the stack push of a branch built on it). It is the one push of the branch in the
   menu: no second "Push Stack" pushes an ancestor past the question its own push button asks. The branch preview and
   the review list the same item.
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `runs while its push of the stack runs in the session, and waits for another push that holds the branch`, `is disabled with the reason Rust gives: a branch the last sync did not build names the status of its row, not up to date`)

@@ -19,7 +19,7 @@ describe("presentOtherProcess", () => {
     })
     expect(presentOtherProcess(ofBd({ ...SAFE_PUSH, mode: "dryRun", subject: { kind: "wholeStack", root: "air" } }))?.label).toBe("bd: Dry Run of air")
     const push: Intent = { kind: "push", subject: { kind: "branch", name: "auth" }, scope: { kind: "alone" }, force: false, restartRunning: false, expectRemote: null }
-    expect(presentOtherProcess(ofBd(push))?.label).toBe("bd: Pushing auth")
+    expect(presentOtherProcess(ofBd(push))?.label).toBe("bd: Pushing branch auth")
     expect(presentOtherProcess({ ...ofBd({ kind: "retarget", number: 12 }), origin: { kind: "otherProcess", tool: "app", pid: 7 } })).toEqual({
       label: "Branch Deck: Retargeting #12",
       description: "Branch Deck (pid 7) runs a retarget of #12, which holds what it needs until it ends",

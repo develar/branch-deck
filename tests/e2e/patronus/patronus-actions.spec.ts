@@ -1210,7 +1210,7 @@ test.describe("Patronus actions", () => {
         // the robot would start without the approvals and fail: no start, the push is the step before it
         const refused = toastWith(page, "Safe Push of JIRA-456 can't start")
         await expect(refused).toContainText("The push dismisses the approvals of #7: push first, then ask for the review again")
-        await refused.getByRole("button", { name: "Push", exact: true }).click()
+        await refused.getByRole("button", { name: "Push Branch", exact: true }).click()
         await expectPushedToRemote(repo, ["JIRA-456"])
         // the push was the step it offered: no Push is left that pushes nothing
         await expect(refused).toHaveCount(0)
@@ -1397,7 +1397,7 @@ test.describe("Patronus actions", () => {
       await page.keyboard.press("p")
 
       await row.getByRole("button", { name: "More actions for JIRA-456" }).click()
-      const push = page.getByRole("menu", { name: "More actions for JIRA-456" }).getByRole("menuitem", { name: "Push P" })
+      const push = page.getByRole("menu", { name: "More actions for JIRA-456" }).getByRole("menuitem", { name: "Push Branch P" })
       await expect(push).toBeDisabled()
       await push.hover()
       await expect(page.getByRole("tooltip").filter({ hasText: "is running" })).toHaveText(
@@ -1454,8 +1454,8 @@ test.describe("Patronus actions", () => {
       await expect(toast).toContainText("The Safe Push is canceled: the push restarts it.")
       expect(await patronusActions(repo)).toEqual({ cancels: [OLDER.id], restarts: [], starts: [] })
 
-      await toast.getByRole("button", { name: "Force Push" }).click()
-      await confirmForcePush(page, "Force Push (3)")
+      await toast.getByRole("button", { name: "Force Push Branch" }).click()
+      await confirmForcePush(page, "Force Push Branch (3)")
 
       // canceled now: the restart takes the pushed commit, in the toast of the push
       await expect(pushedToast(page, "JIRA-456").locator("[data-slot=toast-description]")).toHaveText(/ · Safe Push restarted$/)
@@ -1481,7 +1481,7 @@ test.describe("Patronus actions", () => {
 
       // the push goes to the backend, which reads the user's robots itself before it pushes
       await pushFromRowMenu(page, "JIRA-456")
-      const toast = page.locator("[data-slot=toast]", { hasText: "Cannot push JIRA-456" })
+      const toast = page.locator("[data-slot=toast]", { hasText: "Cannot push branch JIRA-456" })
       await expect(toast).toContainText(
         "Nothing was pushed: A Safe Push of JIRA-456 is running: a push moves the branch it took its commit from, so it won't land and fails the Safe Push at the end. Wait until it merges, or restart it on the current branch",
       )

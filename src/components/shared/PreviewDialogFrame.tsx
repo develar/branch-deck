@@ -111,12 +111,14 @@ export function PreviewDialogBody({ ref, itemKey, fill = false, "data-testid": t
  * lays it out elsewhere: on the canvas of a window, below its islands.
  *
  * Where they don't fit in one line, a text `start` wraps beside the actions first (its basis is 0, so the actions
- * don't jump to the next line while a hint grows); only what can't wrap (a button) moves the actions below it.
+ * don't jump to the next line while a hint grows); only what can't wrap (a button) moves the actions below it. The
+ * actions keep to the bottom line: a `start` that wraps when an action comes (Create Pull Request… once its facts
+ * answer) grows the footer upwards, so a button at the bottom of a dialog as tall as it gets stays where it was.
  */
 export function PreviewDialogFooter({ start, className, children, "data-testid": testId }: { start?: ReactNode; className?: string; children: ReactNode; "data-testid"?: string }) {
   return (
-    <div data-testid={testId} className={cn("flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-6 py-2 text-xs text-muted-foreground", className)}>
-      {start !== undefined && start !== null && start !== false && <div className="flex flex-1 items-center">{start}</div>}
+    <div data-testid={testId} className={cn("flex flex-wrap items-end gap-x-4 gap-y-2 border-t border-border px-6 py-2 text-xs text-muted-foreground", className)}>
+      {start !== undefined && start !== null && start !== false && <div className="flex flex-1 items-center self-center">{start}</div>}
       <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">{children}</div>
     </div>
   )

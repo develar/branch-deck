@@ -578,8 +578,12 @@ test.describe("Branch review window", () => {
     expect(await getEmittedEvents(page, "branch-review/request")).toHaveLength(3)
 
     // a refusal of the main window shows where the user is
-    await emitTauriEvent(page, "branch-review/feedback", { kind: "error", title: "Cannot push login", message: "The remote branch is up to date" } satisfies BranchReviewFeedback)
-    await expect(page.getByText("Cannot push login")).toBeVisible()
+    await emitTauriEvent(page, "branch-review/feedback", {
+      kind: "error",
+      title: "Cannot push branch login",
+      message: "The remote branch is up to date",
+    } satisfies BranchReviewFeedback)
+    await expect(page.getByText("Cannot push branch login")).toBeVisible()
 
     // the main window, in the page again: its listener runs what the window asked for
     await page.goto(`/?repoId=${new URL(page.url()).searchParams.get("repoId")}`)
@@ -590,7 +594,7 @@ test.describe("Branch review window", () => {
     await emitTauriEvent(page, "branch-review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })
     await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "elsewhere", ok: false }])
     expect(await getEmittedEvents(page, "branch-review/feedback")).toEqual([
-      { kind: "error", title: "Cannot push login", message: "elsewhere is no longer among the repositories of the main window" },
+      { kind: "error", title: "Cannot push branch login", message: "elsewhere is no longer among the repositories of the main window" },
     ])
     await emitTauriEvent(page, "branch-review/request", requests[2])
     // the push of the row: the stack, in one push

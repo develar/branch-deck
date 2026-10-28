@@ -508,7 +508,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should disable Create Pull Request… of a branch a merged Safe Push landed, in its menu, its preview and its review window: nothing of it is left to review`)
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts`)
   [@test] ../../src/presenters/next-step.test.ts (`row 1: offers nothing, every surface says the reason of the subject: a sync, a failure, no commits, parked, landed`)
-- The toast of a push ("Pushed feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of any branch,
+- The toast of a push ("Pushed branch feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of any branch,
   stacked or not, with stacked branches on or off, has the action "Create Pull Request…" under the same conditions as
   the menu, else "Open Pull Request" when the branch has a pull request, and stays 10 s; off GitHub it has no action.
   "Create Pull Request…" closes the toast as it opens the dialog: a toast lies above the dialogs and would cover its

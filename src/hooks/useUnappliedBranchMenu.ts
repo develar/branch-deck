@@ -23,7 +23,7 @@ export function getUnappliedBranchMenu(name: string, branch: UnappliedBranch | u
   const action = branch?.remoteStatus?.action.kind ?? "create"
   const push: MenuItem = {
     id: "push",
-    label: action === "force" ? "Force Push" : "Push",
+    label: action === "force" ? "Force Push Branch" : "Push Branch",
     icon: CloudUploadIcon,
     disabled: action === "upToDate",
     description: action === "upToDate" ? "The remote has it as it is" : `Keeps a copy on the remote as ${name}`,

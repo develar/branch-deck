@@ -331,7 +331,7 @@ test.describe("Stacked branches", () => {
     await expect(loginRow.getByTestId("branch-status")).toHaveText("blocked by auth")
     await expect(findBranchRow(page, "auth").getByTestId("branch-status")).toHaveText("merge conflict")
     await expect(getPushButton(loginRow)).toBeDisabled()
-    await expect(getPushButton(loginRow)).toHaveAccessibleName("Push")
+    await expect(getPushButton(loginRow)).toHaveAccessibleName("Push Branch")
     const authRow = findBranchRow(page, "auth")
 
     // the hover of the node and the description of the push name the parent: both show it
@@ -630,7 +630,7 @@ test.describe("Stacked branches", () => {
       await expect(findBranchRow(page, name).getByTestId("branch-status")).toHaveCount(0)
     }
     // one toast for the stack, as Activity has an entry per branch; it creates the pull request of oauth
-    const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth, login and oauth" })
+    const toast = page.locator("[data-slot=toast]", { hasText: "Pushed branches auth, login and oauth" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("3 commits · created 3 remote branches")
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
     const texts = await recordCommand(page, "get_new_pull_request")
@@ -685,8 +685,8 @@ test.describe("Stacked branches", () => {
     expect(await pushedBranches(repo)).toEqual(["login"])
 
     // the toast pushes login alone over what its remote has now, after the row shows the commit the push drops
-    await toast.getByRole("button", { name: "Force Push" }).click()
-    await confirmForcePush(page, "Force Push (1)")
+    await toast.getByRole("button", { name: "Force Push Branch" }).click()
+    await confirmForcePush(page, "Force Push Branch (1)")
     await expectPushedToRemote(repo, ["login"])
     expect(await remotePushes(repo)).toEqual([["login"]])
     expect(await pushedBranches(repo)).toEqual(["login"])
@@ -703,7 +703,7 @@ test.describe("Stacked branches", () => {
     // oauth is on the remote: its menu pushes nothing more, as its button; login's pushes the parents
     await openContextMenu(page, findBranchRow(page, "oauth"))
     await expect(page.getByRole("menuitem", { name: /^Push Stack/ })).toHaveCount(0)
-    await expect(page.getByRole("menuitem", { name: "Push P" })).toHaveAttribute("aria-disabled", "true")
+    await expect(page.getByRole("menuitem", { name: "Push Branch P" })).toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
     await openContextMenu(page, findBranchRow(page, "login"))
     await expect(page.getByRole("menuitem", { name: "Push Stack (2 branches) P" })).toBeVisible()
@@ -726,7 +726,7 @@ test.describe("Stacked branches", () => {
 
     // auth alone may go; its description offers its children too
     const button = getPushButton(findBranchRow(page, "auth"))
-    await expect(button).toHaveAccessibleName("Push (1)")
+    await expect(button).toHaveAccessibleName("Push Branch (1)")
     await button.hover()
     const alternative = page.getByTestId("push-description").getByTestId("push-alternative")
     await expect(alternative).toHaveCount(1)
@@ -773,11 +773,11 @@ test.describe("Stacked branches", () => {
 
     // its Force Push runs Push with Children on that drop: one push of auth over Ann's commit and of the children that
     // drop nothing; login, whose drop nobody showed, keeps Bob's commit and asks in its own row
-    await confirmForcePush(page, "Force Push (1)")
+    await confirmForcePush(page, "Force Push Branch (1)")
     await expect.poll(() => remotePushes(repo)).toEqual([["auth", "oauth", "session"]])
     await expectPushedToRemote(repo, ["auth", "oauth", "session"])
     expect((await repo.getRemoteBranches())[virtualBranch("login")]).toBe(theirs.login)
-    await expect(getPushButton(findBranchRow(page, "login"))).toHaveAccessibleName("Force Push (1)")
+    await expect(getPushButton(findBranchRow(page, "login"))).toHaveAccessibleName("Force Push Branch (1)")
   })
 
   test("should ask in the row of a stacked branch whose push drops remote commits by the time its button's push of the stack is planned, and push the stack over the remote head the row shows", async ({
@@ -817,7 +817,7 @@ test.describe("Stacked branches", () => {
 
     // its Force Push runs the push of the stack again on that drop, over the remote head the row shows now (the one
     // the lease of the click predates): one push of auth and login
-    await confirmForcePush(page, "Force Push (1)")
+    await confirmForcePush(page, "Force Push Branch (1)")
     await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
     await expectPushedToRemote(repo, ["auth", "login"])
   })
@@ -855,7 +855,7 @@ test.describe("Stacked branches", () => {
     expect(await remotePushes(repo)).toEqual([["auth"]])
 
     releaseSync()
-    const pushedChildren = page.locator("[data-slot=toast]", { hasText: "Pushed session, login and oauth" })
+    const pushedChildren = page.locator("[data-slot=toast]", { hasText: "Pushed branches session, login and oauth" })
     await expect(pushedChildren).toBeVisible()
     expect(await remotePushes(repo)).toEqual([["auth"], ["login", "oauth", "session"]])
     await closeToast(pushedChildren)
@@ -876,7 +876,7 @@ test.describe("Stacked branches", () => {
     await expect(button).toHaveText(/with children/, { useInnerText: true })
     expect((await boxOf(track)).width).toBe(width)
     await held.release()
-    await expect(page.locator("[data-slot=toast]", { hasText: "Pushed session, login and oauth" })).toBeVisible()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Pushed branches session, login and oauth" })).toBeVisible()
     expect(await remotePushes(repo)).toEqual([["auth"], ["login", "oauth", "session"], ["login", "oauth", "session"]])
   })
 
@@ -901,7 +901,7 @@ test.describe("Stacked branches", () => {
     await expectPushedToRemote(repo, ["auth", "login", "oauth", "session", stackBranchOf("auth")])
     // one toast: the four branches named, the stack branch said
     const pushed = page.locator("[data-slot=toast]").filter({ hasText: "pushed the whole stack branch" })
-    await expect(pushed.locator("[data-slot=toast-title]")).toHaveText("Pushed auth, session, login and oauth")
+    await expect(pushed.locator("[data-slot=toast-title]")).toHaveText("Pushed branches auth, session, login and oauth")
     await expect(pushed.locator("[data-slot=toast-description]")).toHaveText("4 commits · created 4 remote branches · pushed the whole stack branch")
 
     // everything is on the remote now, the stack branch too: nothing to push
@@ -963,7 +963,7 @@ test.describe("Stacked branches", () => {
     )
     // the push retargets them first: every pull request of a virtual branch goes into master, with what it lands
     await button.click()
-    const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth and login" })
+    const toast = page.locator("[data-slot=toast]", { hasText: "Pushed branches auth and login" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
       "2 commits · created 2 remote branches · retargeted pull request #802 of auth to master · retargeted pull request #801 of login to master",
     )
@@ -1473,7 +1473,7 @@ test.describe("Stacked branches", () => {
       await expect(loginRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
       await expect(getPushButton(loginRow)).toHaveCount(0)
       await openContextMenu(page, loginRow)
-      for (const name of [/^Safe Push · 2/, /^Push P$/]) {
+      for (const name of [/^Safe Push · 2/, /^Push Branch P$/]) {
         const item = page.getByRole("menuitem", { name })
         await expect(item).toHaveAttribute("aria-disabled", "true")
         await item.hover()
@@ -1513,7 +1513,7 @@ test.describe("Stacked branches", () => {
       await expect(findBranchRow(page, "auth").getByTestId("landing-span")).toHaveText("lands with oauth")
       const authRow = findBranchRow(page, "auth")
       await openContextMenu(page, authRow)
-      const push = page.getByRole("menuitem", { name: /^Push P$/ })
+      const push = page.getByRole("menuitem", { name: /^Push Branch P$/ })
       await expect(push).toHaveAttribute("aria-disabled", "true")
       await push.hover()
       await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
@@ -1530,7 +1530,7 @@ test.describe("Stacked branches", () => {
         await syncFromMenu(page)
       }
       await openContextMenu(page, docsRow)
-      await page.getByRole("menuitem", { name: /^Push \(1\)/ }).click()
+      await page.getByRole("menuitem", { name: /^Push Branch \(1\)/ }).click()
       await expectPushedToast(page, "docs")
       await expect.poll(() => remotePushes(repo)).toEqual([["docs"]])
       await unpushed()
@@ -1638,7 +1638,7 @@ test.describe("Stacked branches", () => {
       await expect(slotSafePush(page, "auth")).toHaveText("Safe Push")
       await expect(getPushButton(authRow)).toHaveCount(0)
       await openContextMenu(page, authRow)
-      await expect(page.getByRole("menuitem", { name: "Push (2) P" })).toBeEnabled()
+      await expect(page.getByRole("menuitem", { name: "Push Branch (2) P" })).toBeEnabled()
       await page.keyboard.press("Escape")
       await authChip.hover()
       await expect(page.getByTestId("landed-with-after")).toHaveText("1 commit added since, not in master yet")

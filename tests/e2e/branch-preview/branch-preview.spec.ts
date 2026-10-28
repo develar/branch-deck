@@ -137,7 +137,7 @@ test.describe("Branch preview", () => {
 
   test("should push the branch with P", async ({ page, issueLinksRepo }) => {
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
-    const pushButton = preview.getByRole("button", { name: /Push \(\d+\)/ })
+    const pushButton = preview.getByRole("button", { name: /Push Branch \(\d+\)/ })
     await expect(pushButton).toBeEnabled()
 
     await page.keyboard.press("p")
@@ -158,13 +158,13 @@ test.describe("Branch preview", () => {
     await issueLinksRepo.fetchInTerminal()
     await syncFromMenu(page)
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
-    await expect(preview.getByRole("button", { name: /Force Push \(1\)/ })).toBeEnabled()
+    await expect(preview.getByRole("button", { name: /Force Push Branch \(1\)/ })).toBeEnabled()
 
     // the footer's push button opens its description with what the push drops
     await page.keyboard.press("p")
     await expect(page.getByTestId("push-description")).toContainText("Fix login")
     expect(await remotePushes(issueLinksRepo)).toEqual([])
-    await confirmForcePush(page, "Force Push (1)")
+    await confirmForcePush(page, "Force Push Branch (1)")
 
     // leased on what the remote has: it took the push over Ann's commit
     await expectPushedToRemote(issueLinksRepo, [BRANCH])

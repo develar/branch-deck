@@ -638,7 +638,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/operations/src/land_test.rs (`a_start_is_planned_over_what_the_session_holds_and_reads_the_review_its_first_decision_waits_for`, `the_fingerprint_of_a_plan_changes_with_its_intent_and_the_tips_it_was_decided_on`, `the_plan_of_a_session_waits_for_its_patronus_view`)
 - A click waits for the facts its plan needs, its button busy with "Checking…": the session answers each of them,
   a failure too (the review it asks at once, `unavailable` while Patronus can't be asked), so the wait ends; then it
-  starts at once, says the refusal in an `info` toast ("Push" its action where the push alone is the step), or opens
+  starts at once, says the refusal in an `info` toast ("Push Branch" its action where the push alone is the step), or opens
   the popover. The second click of
   a double click and a click on a button that just took the place of another step under a pointer that stayed (a poll
   changed the step, 700 ms) are ignored: they were meant for what was there before.
@@ -731,7 +731,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the session to read again the rules GitHub didn't give (`refresh_facts { branchRules, afterWrite }`), and the click
   waits for that answer. When the approvals the push dismisses are the ones Patronus counts (the readiness is
   `approved`), the robot would start without them: the start is refused with "The push dismisses the approvals of #7: push first, then
-  ask for the review again", and "Push" alone is offered (the action of the `info` toast, the button of the popover).
+  ask for the review again", and "Push Branch" alone is offered (the action of the `info` toast, the button of the popover).
   The toast of a start that can't run is of the robots of its subject: a later start takes its place, and its Push
   closes it when pressed (a step of the start, which the row shows, and no Push is left behind that pushes nothing).
   `bd safe-push` reads the same rules with the same function before the same start, refuses
@@ -1540,7 +1540,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`, `push_with_children_leaves_out_what_asks_first_is_held_or_landed`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer no push: it won't land, and the menu says why`)
 - A push that raced with a start (the IDE, `bd`, another window) goes to Rust, which reads the user's robots now
-  (below): still running, it pushes nothing and says why ("Cannot push auth", with "Open in Patronus" of the robot the
+  (below): still running, it pushes nothing and says why ("Cannot push branch auth", with "Open in Patronus" of the robot the
   view says holds it); finished meanwhile, it pushes. A branch a merged Safe Push landed is refused by the plan of the
   push (the hold `landed`): the robot finished, its commits are in the target. Nothing asks: no dialog.
   [@test] ../../src/lib/push-run.test.ts (`is refused in the words of its blocker, and the toast opens the Safe Push that holds the branch`)
@@ -1556,7 +1556,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   to push"), a branch whose own Safe Push runs, one a Safe Push of a branch built on it or of its whole stack lands,
   and the stack branch of a whole stack while its robot runs on it, every branch of it landed whole or it is not
   `built` (a sync since the page's decision left it conflicted or stale): "Nothing was pushed: …", shown in the error
-  toast of the push ("Cannot push auth"). The robots are the ones Rust read for the push, never the page's and never a
+  toast of the push ("Cannot push branch auth"). The robots are the ones Rust read for the push, never the page's and never a
   list kept before it: a robot the page canceled before its restart is canceling and holds nothing, a robot that
   finished holds nothing, and a robot the IDE or `bd` started since the page's list holds. A push raced with a start,
   or one that came by IPC without the page's checks, pushes nothing then.
@@ -1613,7 +1613,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   toast ("Safe Push of auth can't start" with those words) and open no popover; the push of the branch, which needs
   what it holds, is disabled with it before Rust is asked (`Busy`: "bd: Safe Push of auth…" on its item and its
   button, P says it in an info toast), and a push or a start of the app that reaches Rust all the same is refused as
-  `busy` before anything runs, its toast naming it ("Cannot push auth: `bd` (pid 4242) has run the Safe Push of auth
+  `busy` before anything runs, its toast naming it ("Cannot push branch auth: `bd` (pid 4242) has run the Safe Push of auth
   for 12 s"); another branch pushes and starts beside it. Once the other process
   ended (its record left the operations registry of the repository), the row offers the start again and it starts once.
   The other way round, `bd safe-push auth` beside the app's Safe Push of auth is `busy` naming the app's operation.

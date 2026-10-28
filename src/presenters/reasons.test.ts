@@ -58,14 +58,14 @@ describe("formatReason", () => {
       "auth has no open pull request: create one, GitHub merges it",
       "#7 is a draft: mark it ready for review on GitHub first",
       "#7 conflicts with its base: GitHub can't merge it",
-      "master requires #7 to be up to date with it: Update Project, then Push",
+      "master requires #7 to be up to date with it: Update Project, then Push Branch",
       "#7 waits for the approvals its base requires",
       "alice requested changes on #7",
       "Changes are requested on #7",
       "Required checks of #7 fail",
       "Required checks of #7 still run, and the repository allows no auto-merge",
       "The rules of its base hold the merge of #7 back",
-      "#7 shows an older commit, and the repository allows no auto-merge: Push first",
+      "#7 shows an older commit, and the repository allows no auto-merge: Push Branch first",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
     expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(49)

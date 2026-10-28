@@ -21,7 +21,7 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 
 ## Toasts
 
-- **The title says what happened**, in the past tense, with its object: "Pushed feature-ui", "Amended 3 files into
+- **The title says what happened**, in the past tense, with its object: "Pushed branch feature-ui", "Amended 3 files into
   feature-auth", "Updated master: rebased 2 commits onto origin/master", "Safe Push started", "auth merged into master".
 - **Never "Success" or "Error" as a title**: the icon already says it.
 - **The description is the detail**: what the push did ("1 commit · created the remote branch", "1 commit · dropped 2
@@ -97,7 +97,7 @@ states are that toast, not new ones.
   logged to the backend log and recorded in Activity. Never a hand-made `toast.add({ type: "error" })`;
   `runRewriteIntent` takes an error title and calls `notifyError` itself. The same error while its toast is open
   updates that toast, never a second copy.
-- **The title is "Cannot <verb> <object>"**: "Cannot push feature-ui", "Cannot start the Safe Push", "Cannot copy to the
+- **The title is "Cannot <verb> <object>"**: "Cannot push branch feature-ui", "Cannot start the Safe Push", "Cannot copy to the
   clipboard". One failure verb: not "Failed to …", "… Failed", "Can't …", "Couldn't …".
 - **The description is the reason**, the `message` of the error (`getErrorDetails`), never prefixed with "Error:".
 - The same words in a tooltip or an inline error: "Cannot check the update: <reason>".
@@ -196,8 +196,8 @@ indicator could cancel a robot but not restart it.
   "none".
 - **A step is not a button beside its action**: a surface that offers the action doesn't offer its step too. The row,
   the preview and the review window of a branch the remote lacks show Create Pull Request… and Safe Push, which push
-  it, and no "Push" of their own; the menu keeps the push, so it stays reachable. One name per action: the first push
-  is "Push (3)" like every other, its description says that it creates the remote branch.
+  it, and no "Push Branch" of their own; the menu keeps the push, so it stays reachable. One name per action: the first push
+  is "Push Branch (3)" like every other, its description says that it creates the remote branch.
 - **Never offer an action whose failure is known**: disable it with the reason; a wait is a quiet step that opens its
   object. "Safe Push" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
   Code Platform: Ilya Korennoy is requested on #1078", and the row shows the wait, not the doomed action
@@ -219,6 +219,11 @@ indicator could cancel a robot but not restart it.
   "{Action} {mode}" for a robot ("Restart Safe Push", also when it pushes first; "Cancel Dry Run"; a bare "Cancel"
   reads like closing the popover), "Safe Push" for the start. Advice in a sentence names the action as its button
   does ("Restart Safe Push to test the current branch.").
+- **A push names where it goes**: the push of a virtual branch to its own remote branch is "Push Branch" ("Push Branch
+  (2)", "Force Push Branch (1)"; "Push Stack", "Push with Children" and "Push Up to Here" name their scope), beside
+  "Push to master", which lands the copy in the target. With push rights a bare "Push" read as a push into master. The
+  toasts follow: "Pushed branch auth", "Pushed branches auth and login", "Cannot push branch auth", against "Pushed auth
+  into master · 3 commits".
 - **A column of steps says it short**: the Safe Push slot of a row and of an island header and the landing overview
   show a step in a column as wide as its widest step, so a step there has a `compactLabel` where its name holds a
   name or a target the place or the hover already says: "Retarget #7" (the menu "Retarget #7 to master"), "Awaiting

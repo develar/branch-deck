@@ -103,19 +103,19 @@ export function getStackChip(row: Locator): Locator {
   return row.getByTestId("stack-chip")
 }
 
-/** The push button of a branch row's actions cell: "↑ 3", named by its label ("Push (3)") */
+/** The push button of a branch row's actions cell: "↑ 3", named by its label ("Push Branch (3)") */
 export function getPushButton(branchRow: Locator): Locator {
   const { actions } = getBranchCells(branchRow)
   return actions.getByTestId("push-button")
 }
 
 /**
- * Pushes a branch with the push of its row's menu ("Push (2)"): the first push of a branch whose Safe Push or Create
+ * Pushes a branch with the push of its row's menu ("Push Branch (2)"): the first push of a branch whose Safe Push or Create
  * Pull Request pushes it has no button on the row, only this item
  */
 export async function pushFromRowMenu(page: Page, branchName: string): Promise<void> {
   await findBranchRow(page, branchName).click({ button: "right" })
-  await page.getByRole("menuitem", { name: /^Push \(\d+\)/ }).click()
+  await page.getByRole("menuitem", { name: /^Push Branch \(\d+\)/ }).click()
 }
 
 /** The "⋯" of a branch row's actions cell, the last of its actions */

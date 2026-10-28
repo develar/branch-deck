@@ -186,13 +186,13 @@ const words = {
   noPullRequestToMerge: ({ branch }) => `${branch} has no open pull request: create one, GitHub merges it`,
   mergeDraft: ({ number }) => `#${number} is a draft: mark it ready for review on GitHub first`,
   mergeConflict: ({ number }) => `#${number} conflicts with its base: GitHub can't merge it`,
-  mergeBehind: ({ number, target }) => `${target} requires #${number} to be up to date with it: Update Project, then Push`,
+  mergeBehind: ({ number, target }) => `${target} requires #${number} to be up to date with it: Update Project, then Push Branch`,
   mergeNeedsApprovals: ({ number }) => `#${number} waits for the approvals its base requires`,
   mergeChangesRequested: ({ number, by }) => (by.length === 0 ? `Changes are requested on #${number}` : `${joinNames(by)} requested changes on #${number}`),
   mergeChecksFail: ({ number }) => `Required checks of #${number} fail`,
   mergeChecksRunning: ({ number }) => `Required checks of #${number} still run, and the repository allows no auto-merge`,
   mergeBlocked: ({ number }) => `The rules of its base hold the merge of #${number} back`,
-  mergeHeadBehind: ({ number }) => `#${number} shows an older commit, and the repository allows no auto-merge: Push first`,
+  mergeHeadBehind: ({ number }) => `#${number} shows an older commit, and the repository allows no auto-merge: Push Branch first`,
 } satisfies Words as Words
 
 /**

@@ -286,7 +286,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it`)
 - A push of the stack branch alone (the push step of the restart, of Request Review… of its pull request, of the
-  creation of its pull request and of the start of its Safe Push; the "Push" of a refused start of the whole stack, the
+  creation of its pull request and of the start of its Safe Push; the "Push Branch" of a refused start of the whole stack, the
   intent `Push` of the subject `wholeStack`, `pushWholeStack`) must show where the pushes of the stack show, one indicator: the push of
   the header of its island ([Stack Island](stack-island.spec.md#header)), else the push button of the root's row of a
   small stack, "Pushing the whole stack 45%" with the line of git on hover, the branches of the stack not busy; the

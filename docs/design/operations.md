@@ -31,7 +31,7 @@ view (`RepositoryView.operations`), so every window and every surface reads the 
 - **queue**: a rewrite while another rewrite or Update Project holds HEAD waits for it and runs after it, in the order
   of the starts, never refused; its menu item stays enabled and says what its start waits behind ("Waits for Unstacking
   tool-events…"). A remote action whose resource an operation holds (a ref a push writes, a field of a pull request, a
-  robot) is disabled with that operation's busy state ("Pushing login…", "Restarting robot r1…");
+  robot) is disabled with that operation's busy state ("Pushing branch login…", "Restarting robot r1…");
 - **one indicator**: the surface that started it shows the spinner until its answer; a start from a menu, a key or a
   toast shows it on the "⋯" of the object's row;
 - **the whole action**: a rewrite ends once it asked the sync that shows its result, and its `execute` answers once

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
-import { describePush, describeStackPush, formatPushCount, getPushColor, getPushHue } from "@/lib/push-summary"
+import { describePush, describeStackPush, formatPushCount, formatPushedBranch, formatPushFailure, getPushColor, getPushHue } from "@/lib/push-summary"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { CREATE, forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
 
@@ -7,6 +8,16 @@ import { CREATE, forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
 const REBASED = forcePush()
 const REPLACES = forcePush({ replaces: true })
 const DROPS = forcePush({ drops: true })
+
+describe("formatPushedBranch", () => {
+  it("names the remote branch a push sends to, beside a push into the target", () => {
+    expect(formatPushedBranch("auth")).toBe("branch auth")
+    expect(formatPushedBranch(stackReadinessKey("air"))).toBe("the whole stack branch of air")
+    expect(describePush(formatPushedBranch("auth"), null)).toEqual({ title: "Pushed branch auth" })
+    expect(formatPushFailure("auth")).toBe("Cannot push branch auth")
+    expect(formatPushFailure(stackReadinessKey("air"))).toBe("Cannot push the whole air stack")
+  })
+})
 
 describe("describePush", () => {
   it("says what the push did from the status it was made against", () => {
@@ -79,7 +90,7 @@ describe("describeStackPush", () => {
         { name: "login", before: testRemoteStatus({ exists: false, commitsAhead: 3, action: CREATE }) },
         { name: "oauth", before: testRemoteStatus({ exists: false, commitsAhead: 1, action: CREATE }) },
       ]),
-    ).toEqual({ title: "Pushed auth, login and oauth", description: "6 commits · created 2 remote branches · force pushed auth" })
+    ).toEqual({ title: "Pushed branches auth, login and oauth", description: "6 commits · created 2 remote branches · force pushed auth" })
     expect(
       describeStackPush([
         { name: "auth", before: testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false, action: DROPS }) },
@@ -87,10 +98,11 @@ describe("describeStackPush", () => {
         { name: "oauth", before: testRemoteStatus({ commitsAhead: 1, action: PUSH }) },
         { name: "session", before: testRemoteStatus({ commitsAhead: 1, action: PUSH }) },
       ]),
-    ).toEqual({ title: "Pushed auth, login, oauth and session", description: "3 commits · force pushed auth · dropped 1 remote commit", warning: true })
+    ).toEqual({ title: "Pushed branches auth, login, oauth and session", description: "3 commits · force pushed auth · dropped 1 remote commit", warning: true })
     // from five on the first three and the count of the rest; the stack branch of the whole stack that went along
     const pushed = ["auth", "login", "oauth", "session", "device"].map(name => ({ name, before: testRemoteStatus({ commitsAhead: 1, action: PUSH }) }))
-    expect(describeStackPush(pushed, true)).toEqual({ title: "Pushed auth, login, oauth and 2 more", description: "5 commits · pushed the whole stack branch" })
+    expect(describeStackPush(pushed, true)).toEqual({ title: "Pushed branches auth, login, oauth and 2 more", description: "5 commits · pushed the whole stack branch" })
+    expect(describeStackPush(pushed.slice(0, 1), true)).toMatchObject({ title: "Pushed branch auth" })
   })
 })
 

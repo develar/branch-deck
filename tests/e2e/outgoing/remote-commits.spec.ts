@@ -53,7 +53,7 @@ test.describe("Remote commits of others", () => {
     await expect(newsToast(page)).toContainText("Your branch doesn't have it: a push drops it.")
     await expect(row).toContainText("1↓")
     // the push the row offers drops their commit, so it asks first
-    await expect(getPushButton(row)).toHaveAccessibleName("Force Push")
+    await expect(getPushButton(row)).toHaveAccessibleName("Force Push Branch")
     await getPushButton(row).hover()
     await expect(page.getByTestId("push-description")).toContainText("The remote has 1 commit your branch doesn't (by Lev Leontev).")
 

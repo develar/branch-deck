@@ -19,9 +19,9 @@ test.describe("Push progress", () => {
     const button = getPushButton(row)
     // the row shows the count, the label is its name and leads its description
     await expect(button).toHaveText("3")
-    await expect(button).toHaveAccessibleName("Push (3)")
+    await expect(button).toHaveAccessibleName("Push Branch (3)")
     await button.hover()
-    await expect(page.getByTestId("push-description")).toContainText("Push (3)")
+    await expect(page.getByTestId("push-description")).toContainText("Push Branch (3)")
 
     // read, then pushed: the click, later than half a second after the hover opened, leaves it open with the progress
     await page.clock.fastForward(1000)
@@ -58,7 +58,7 @@ test.describe("Force push", () => {
     await issueLinksRepo.fetchInTerminal()
     await syncFromMenu(page)
     const row = findBranchRow(page, "ABC-123")
-    const forcePush = row.getByRole("button", { name: "Force Push (1)" })
+    const forcePush = row.getByRole("button", { name: "Force Push Branch (1)" })
     await expect(forcePush).toBeEnabled()
     // the description says what the force push does, then lists what it drops
     await forcePush.hover()
@@ -73,7 +73,7 @@ test.describe("Force push", () => {
     await forcePush.click()
     await expect(forcePush).toHaveAttribute("aria-expanded", "true")
     expect(await remotePushes(issueLinksRepo)).toEqual([])
-    await confirmForcePush(page, "Force Push (1)")
+    await confirmForcePush(page, "Force Push Branch (1)")
 
     // one push, leased on the remote head the row shows: the remote took it over Ann's commit
     await expectPushedToRemote(issueLinksRepo, ["ABC-123"])
@@ -99,14 +99,14 @@ test.describe("Force push", () => {
     await expect(pushedToast(page, "JIRA-456")).toHaveCount(0)
     expect(await remotePushes(issueLinksRepo)).toEqual([])
     // the row shows the fetched remote: a force push that drops the 3 commits
-    await expect(row.getByRole("button", { name: "Force Push (3)" })).toBeEnabled()
+    await expect(row.getByRole("button", { name: "Force Push Branch (3)" })).toBeEnabled()
     await expect(row).toContainText("3↓")
 
     // the push drops the 3 commits: the toast opens the confirm of the row's push button
-    await toast.getByRole("button", { name: "Force Push" }).click()
+    await toast.getByRole("button", { name: "Force Push Branch" }).click()
     await expect(toast).toHaveCount(0)
     expect(await remotePushes(issueLinksRepo)).toEqual([])
-    await confirmForcePush(page, "Force Push (3)")
+    await confirmForcePush(page, "Force Push Branch (3)")
 
     await expectPushedToast(page, "JIRA-456")
     // leased on what the fetch brought: the remote took it over the 3 commits
@@ -118,7 +118,7 @@ test.describe("Force push", () => {
     // the remote has the commits of ABC-123 but its newest as an earlier build: the sync rebuilt them since
     await pushedBefore(page, issueLinksRepo, ["ABC-123"], { lacking: 1, earlierBuild: true })
     const row = findBranchRow(page, "ABC-123")
-    const forcePush = row.getByRole("button", { name: "Force Push (1)" })
+    const forcePush = row.getByRole("button", { name: "Force Push Branch (1)" })
     await expect(forcePush).toBeEnabled()
 
     await forcePush.click()
@@ -141,7 +141,7 @@ test.describe("Push toast", () => {
     // a commit of JIRA-456 made since, which the sync of the menu brings into the row: P on the focused row pushes it
     await issueLinksRepo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
     await syncFromMenu(page)
-    await expect(getPushButton(row)).toHaveAccessibleName("Push (1)")
+    await expect(getPushButton(row)).toHaveAccessibleName("Push Branch (1)")
     await row.focus()
     await page.keyboard.press("p")
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("1 commit")
@@ -152,7 +152,7 @@ test.describe("Push toast", () => {
 test.describe("Push button", () => {
   test("should keep the colour of the push while its description is open", async ({ page }) => {
     const button = getPushButton(findBranchRow(page, "JIRA-456"))
-    await expect(button).toHaveAccessibleName("Push (3)")
+    await expect(button).toHaveAccessibleName("Push Branch (3)")
     await button.hover()
     await expect(page.getByTestId("push-description")).toBeVisible()
     await expect(button).toHaveAttribute("aria-expanded", "true")
@@ -276,8 +276,8 @@ test.describe("Push size", () => {
     const row = findBranchRow(page, "feature-auth")
     const push = getPushButton(row)
     await push.click()
-    const toast = page.locator("[data-slot=toast]", { hasText: "Cannot push feature-auth" })
-    await expect(toast).toContainText(/^Cannot push feature-authThe push would add .+, over the push size limit of 1 B/)
+    const toast = page.locator("[data-slot=toast]", { hasText: "Cannot push branch feature-auth" })
+    await expect(toast).toContainText(/^Cannot push branch feature-authThe push would add .+, over the push size limit of 1 B/)
     await expect(toast).toContainText(
       "Nothing was pushed. Remove the files from the commits (build output?), or raise the push size limit (branchdeck.pushSizeLimit, Settings → Landing)",
     )

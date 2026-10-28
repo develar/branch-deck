@@ -180,7 +180,8 @@ enum Command {
   Suggest(SuggestArgs),
   /// Rebuild the virtual branches, as the app's sync does; exit code 1 when a branch is not built
   Sync,
-  /// Sync, then push branches with a lease per ref, parents first, and print a `gh pr create` for each
+  /// Sync, then push virtual branches to their remote branches (never into master: `bd land`) with a lease per ref,
+  /// parents first, and print a `gh pr create` for each
   #[command(after_help = "Outputs and refusals: `bd push --help`", after_long_help = PUSH_HELP)]
   Push(PushArgs),
   /// Start a Patronus Safe Push (or --patronus-dry-run) of a branch; --check starts nothing

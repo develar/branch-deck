@@ -65,7 +65,7 @@ async function settled(page: Page): Promise<void> {
 /** Pushes `branch` from its row menu, as the user does (a branch of a stack with its parents), and closes its toast */
 async function push(page: Page, branch: string): Promise<void> {
   await findBranchRow(page, branch).click({ button: "right" })
-  await page.getByRole("menuitem", { name: /^Push (\(\d+\)|Stack )/ }).click()
+  await page.getByRole("menuitem", { name: /^Push (Branch \(\d+\)|Stack )/ }).click()
   const toast = page.locator("[data-slot=toast]").filter({ hasText: /^Pushed / })
   await expect(toast).toBeVisible()
   await toast.locator("[data-slot=toast-close]").click()

@@ -88,12 +88,12 @@ describe("presentActivity", () => {
       {
         repositoryPath: "/a",
         kind: "push",
-        title: "Force pushed auth",
+        title: "Force pushed branch auth",
         description: "1 commit · dropped 3 remote commits",
         warning: true,
         details: { type: "dropped", commits: dropped, more: 2 },
       },
-      { repositoryPath: "/a", kind: "push", title: "Pushed auth", description: "4 commits · created the remote branch" },
+      { repositoryPath: "/a", kind: "push", title: "Pushed branch auth", description: "4 commits · created the remote branch" },
     ])
   })
 
@@ -110,7 +110,7 @@ describe("presentActivity", () => {
     const entry = operation("op1", { ...PUSH, subject: { kind: "branch", name: "login" } }, [retarget, pushed(["login"], [null])], { subject: "login" })
     // newest first: the push came after the retarget
     expect(said([entry])).toEqual([
-      { repositoryPath: "/a", kind: "push", title: "Pushed login", description: undefined },
+      { repositoryPath: "/a", kind: "push", title: "Pushed branch login", description: undefined },
       {
         repositoryPath: "/a",
         kind: "review",
@@ -199,14 +199,14 @@ describe("presentActivity", () => {
     const canceled = operation("op4", PUSH, [], { error: apiError("canceled", "Canceled"), endedAt: 104 })
     expect(said([failed, refused, canceled])).toEqual([
       { repositoryPath: "/a", kind: "error", title: "Cannot start the Safe Push of auth", description: "bd runs the Safe Push of auth" },
-      { repositoryPath: "/a", kind: "error", title: "Cannot push auth", description: "The remote refused the push: hook" },
+      { repositoryPath: "/a", kind: "error", title: "Cannot push branch auth", description: "The remote refused the push: hook" },
     ])
     const toast: PageEntry = {
       id: "p1",
       endedAt: 101,
-      activity: { repositoryPath: "/a", kind: "error", title: "Cannot push auth", description: "hook", warning: false, details: null, operationId: "op1" },
+      activity: { repositoryPath: "/a", kind: "error", title: "Cannot push branch auth", description: "hook", warning: false, details: null, operationId: "op1" },
     }
-    expect(said([failed], [toast])).toEqual([{ repositoryPath: "/a", kind: "error", title: "Cannot push auth", description: "hook" }])
+    expect(said([failed], [toast])).toEqual([{ repositoryPath: "/a", kind: "error", title: "Cannot push branch auth", description: "hook" }])
   })
 
   it("puts the error the page told of an operation where the operation ran, whichever repository the window showed then", () => {
@@ -214,13 +214,13 @@ describe("presentActivity", () => {
     const toast = (id: string, operationId: string): PageEntry => ({
       id,
       endedAt: 101,
-      activity: { repositoryPath: "/b", kind: "error", title: "Cannot push auth", description: "hook", warning: false, details: null, operationId },
+      activity: { repositoryPath: "/b", kind: "error", title: "Cannot push branch auth", description: "hook", warning: false, details: null, operationId },
     })
     const shown = said([failed], [toast("p1", "op1"), toast("p2", "sync-of-b")], ["/a", "/a-feature"])
     expect(shown.map(it => [it.repositoryPath, it.title, it.description])).toEqual([
-      ["/b", "Cannot push auth", "hook"],
-      ["/a-feature", "Cannot push auth", "hook"],
-      ["/a", "Cannot push auth", "hook"],
+      ["/b", "Cannot push branch auth", "hook"],
+      ["/a-feature", "Cannot push branch auth", "hook"],
+      ["/a", "Cannot push branch auth", "hook"],
     ])
     const ids = presentActivity(
       { journals: [{ path: "/a/.git/branch-deck/journal.jsonl", repositories: ["/a", "/a-feature"], available: true, entries: [failed] }], page: [toast("p1", "op1")] },
@@ -233,8 +233,8 @@ describe("presentActivity", () => {
     const agents = operation("op3", PUSH, [pushed(["auth"], [null])], { leaseSlot: true, worktree: "/pool/branch-deck-1/1/a", endedAt: 103 })
     const users = operation("op4", PUSH, [pushed(["docs"], [null])], { endedAt: 104 })
     expect(said([agents, users]).map(it => [it.title, it.agent])).toEqual([
-      ["Pushed docs", undefined],
-      ["Pushed auth", { worktree: "/pool/branch-deck-1/1/a" }],
+      ["Pushed branch docs", undefined],
+      ["Pushed branch auth", { worktree: "/pool/branch-deck-1/1/a" }],
     ])
   })
 
@@ -263,8 +263,8 @@ describe("presentActivity", () => {
     }
     expect(said([entry], [page], ["/a", "/a-feature"]).map(it => [it.repositoryPath, it.title])).toEqual([
       ["/b", "Updated master"],
-      ["/a-feature", "Pushed auth"],
-      ["/a", "Pushed auth"],
+      ["/a-feature", "Pushed branch auth"],
+      ["/a", "Pushed branch auth"],
     ])
   })
 })

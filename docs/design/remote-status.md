@@ -292,7 +292,7 @@ push's command answers.
 - `n↑` when the n commits to push are all the user's, `mine (n)↑` only when some are others' (`0 (n)↑` when none is
   theirs): in a single-author repository the total in parentheses only repeated the count. `formatPushCount` in
   `src/lib/push-summary.ts` writes it for the status text of the row.
-- The push labels count the commits the push sends (`Push (3)`, `Force Push (3)`), whoever authored them; the
+- The push labels count the commits the push sends (`Push Branch (3)`, `Force Push Branch (3)`), whoever authored them; the
   description says the user's share: "2 of 3 commits to push are yours."
 - The commits behind are named for what they are, the remote's: "The remote has 2 commits your branch doesn't (by Ann
   and Bob).", never "commits you removed": after a rebase the patch-equivalent copies don't count, so what remains is

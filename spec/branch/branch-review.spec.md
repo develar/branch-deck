@@ -71,7 +71,7 @@ each of its commits names its branch, and the segments of the chain it came from
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
 reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push popover names the files each
 group has to review, and its "Review Changes" opens the review on them. The title bar of the window holds the stack, the diff view and the
-actions on the branch: Open Pull Request, Safe Push and Push, which the main window runs; the footer holds the keys.
+actions on the branch: Open Pull Request, Safe Push and Push Branch, which the main window runs; the footer holds the keys.
 
 ## Goals
 
@@ -227,7 +227,7 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again from the window's own session when a sync of the main window moves a tip of it, and keep a branch that left`)
 - A branch of the chain no longer in the table of the window's session (it landed, it was renamed) must keep the last
   view with "login is no longer a branch: it landed or was renamed": an info `Alert` above the review in the window;
-  its Safe Push and Push are disabled with that reason, its pull request still opens, and the stack is not read again.
+  its Safe Push and Push Branch are disabled with that reason, its pull request still opens, and the stack is not read again.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again from the window's own session when a sync of the main window moves a tip of it, and keep a branch that left`)
 
 ### Title bar, footer and actions
@@ -238,7 +238,7 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   Changes`, `⌥↑ ⌥↓ Commits` with several commits), `Esc Close` (Escape closes a sub-window). The actions are the items
   of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, `Create Pull Request…` for a
   branch on GitHub without a live one, pushed or not (its dialog opens in the window, [below](#the-create-pull-request-dialog), and the main window pushes the branch on Create or "Continue on GitHub"), `S Safe Push` where Patronus is on the repository and the branch has work, and the push for
-  a branch with work, named as the push button of its row (`Push (2)`, `Push Stack (2 branches)`), without a key: P is
+  a branch with work, named as the push button of its row (`Push Branch (2)`, `Push Stack (2 branches)`), without a key: P is
   the previous change. A first push whose landing pushes the branch (`isFirstPushInLanding`) is a step of Create Pull
   Request… and Safe Push: the push stays in its place, disabled with why ("Safe Push and Create Pull Request… push auth
   first: "⋯" pushes it alone"), and so it is while Patronus or GitHub haven't answered whether they push it
@@ -280,7 +280,7 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   the window data at the open (`BranchReviewWindowState`: the items and the menus of each branch), then
   `branch-review/state` whenever it changes (the branches, a sync or a push, the pull requests, the robots, the inline
   action of a row, the selected repository), deduplicated, for the last opened chain. An unavailable Safe Push or
-  Push stays, disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for
+  Push Branch stays, disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for
   the sync to finish"): one blocker for the menu, S on the row, the branch preview and the review
   (the `safe-push` and `push` actions Rust decides, `domain_policy::actions`).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
@@ -292,13 +292,13 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   among the repositories of the main window".
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
   [@test] ../../src/lib/show-repository.test.ts (`switches the main window to another repository and waits for its first sync`, `says why a repository that is no recent one any more can't be shown`)
-- O (and its button) opens the pull request from the window. Safe Push (S) and Push only ask: the window sends
+- O (and its button) opens the pull request from the window. Safe Push (S) and Push Branch only ask: the window sends
   `branch-review/request` (`{ id, repositoryPath, branchName, itemId: "safe-push" | "push" }`). The main window builds
   the item again and runs it as the row would: it comes to the front, reveals the row and asks its start
   (`requestSafePush`: it starts at once, or opens the popover at the row's slot, or says why in an `info` toast), or
   pushes as the push button of the row does (`pushOrConfirm`: the stack while a parent has work, a push that drops
   remote commits asks in the row). A request of another repository switches the main window to it first; one it can't
-  run (the repository is gone from its list, the branch left, the item is disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push login", "Cannot
+  run (the repository is gone from its list, the branch left, the item is disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push branch login", "Cannot
   start the Safe Push of login") and recorded in Activity; `branch-review/reply` answers each request by its id.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 

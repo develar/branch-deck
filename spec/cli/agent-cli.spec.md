@@ -1000,6 +1000,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd push`
 
+- `bd push` must push each virtual branch to its own remote branch, never into master (the app's Push Branch,
+  [Outgoing Commits](../repository/outgoing.spec.md#push)), and its help and the skill must say so and point to
+  `bd land`, which lands a branch into master by the route of the repository.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_help_of_bd_push_says_it_pushes_the_virtual_branches_never_into_master`)
 - `bd push <branch>…` must sync first under the repository lock, then push the branches in one atomic
   `git push --porcelain` through the remote command policy, parents first, with an explicit lease per ref; `--all`
   must need `--yes`. It is an adapter of the engine the app's push runs (`operations::push`): an intent `Push` per

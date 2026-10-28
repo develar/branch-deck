@@ -159,7 +159,7 @@ describe("the toast of a push", () => {
     expect(engine.intents).toEqual([{ kind: "push", subject: { kind: "branch", name: "auth" }, scope: { kind: "alone" }, expectRemote: null, force: false, restartRunning: false }])
     expect(toasts).toHaveLength(1)
     const toast = toasts[0]!
-    expect(toast.title).toBe("Pushed auth")
+    expect(toast.title).toBe("Pushed branch auth")
     expect(text(toast.description)).toBe("1 commit · created the remote branch")
     expect(toast.actionProps?.children).toBe("Create Pull Request…")
     toast.actionProps!.onClick()
@@ -308,7 +308,7 @@ describe("the plan of a push", () => {
     expect(engine.calls).toEqual(["prepare auth"])
     expect(pushConfirmStore.getState().request).toBeNull()
     const toast = toasts.at(-1)!
-    expect(toast.title).toBe("Cannot push auth")
+    expect(toast.title).toBe("Cannot push branch auth")
     expect(text(toast.description)).toBe("auth drops a commit of its remote branch it lacks; login drops 2 commits of its remote branch it lacks: nothing was pushed")
   })
 
@@ -318,7 +318,7 @@ describe("the plan of a push", () => {
     expect(await pushBranch("auth")).toBe(false)
     expect(engine.calls).toEqual(["prepare auth"])
     const toast = toasts.at(-1)!
-    expect(toast.title).toBe("Cannot push auth")
+    expect(toast.title).toBe("Cannot push branch auth")
     expect(toast.actionProps?.children).toBe("Open in Patronus")
   })
 

@@ -141,12 +141,12 @@ export async function confirmForcePush(page: Page, label: string): Promise<void>
 }
 
 /**
- * The toast of a push of `branchName`, by its title: "Pushed feature-auth", or "Force pushed feature-auth" (the words
- * of its Activity entry)
+ * The toast of a push of `branchName`, by its title: "Pushed branch feature-auth", or "Force pushed branch feature-auth"
+ * (the words of its Activity entry)
  */
 export function pushedToast(page: Page, branchName: string): Locator {
   const name = branchName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  return page.locator("[data-slot=toast]").filter({ has: page.locator("[data-slot=toast-title]", { hasText: new RegExp(`^(Force p|P)ushed ${name}$`) }) })
+  return page.locator("[data-slot=toast]").filter({ has: page.locator("[data-slot=toast-title]", { hasText: new RegExp(`^(Force p|P)ushed branch ${name}$`) }) })
 }
 
 /** Waits for the toast of a push of `branchName`; with `description`, its detail ("3 commits · created the remote branch") */

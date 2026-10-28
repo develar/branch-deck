@@ -753,7 +753,7 @@ test.describe("Next step", () => {
     await expect(toast).toHaveAttribute("data-type", "info")
     await expect(toast).toContainText(reason)
     await expect(safePushPopover(page)).toHaveCount(0)
-    await toast.getByRole("button", { name: "Push", exact: true }).click()
+    await toast.getByRole("button", { name: "Push Branch", exact: true }).click()
     await expectPushedToRemote(repo, [BRANCH])
   })
 

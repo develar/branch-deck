@@ -105,9 +105,9 @@ Workflow: the commits into pull requests
    `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>` take the same options;
    `bd describe <branch> --title ... --body ...` sets the pull request text of one branch. `bd group --help`: its
    refusals and its undo.
-4. Push. Show the result to the user; once approved, `bd push <branch>...`, and name every branch of `branches`. Every
-   pull request goes into the baseline: each branch has a ready `gh pr create`; pipe its `body` into it. First run
-   `bd push --help`: the refusals and the stack branches.
+4. Push the branches, never into master (`bd land`). Show the result to the user; once approved,
+   `bd push <branch>...`, and name every branch of `branches`. Each has a ready `gh pr create` into the baseline; pipe
+   its `body` into it. `bd push --help`: the refusals and the stack branches.
 5. Safe Push (Patronus). First, always, `bd safe-push <branch> --check`; show the user `lands` (a stacked branch lands
    what it is built on, in one robot; `--whole-stack` the whole stack) and `review`. Once approved,
    `bd safe-push <branch>` (`--patronus-dry-run`: a Dry Run). `bd safe-push --help`: the fields of --check and every
@@ -453,7 +453,8 @@ Outputs and refusals: `bd help worktrees` for the pick of a worktree or of revis
 ";
 
 pub const PUSH_HELP: &str = "\
-`bd push` pushes branches. Show the result to the user; once approved, `bd push <branch>...` (or --all --yes; --with-children adds the
+`bd push` pushes virtual branches, each to its own remote branch (the app's Push Branch), never into master: `bd land`
+lands a branch there. Show the result to the user; once approved, `bd push <branch>...` (or --all --yes; --with-children adds the
 branches stacked on them) syncs, takes the parents along that have commits for the remote (--alone does not: the
 branch carries their commits), and pushes parents first in one atomic push with a lease per ref; name every branch
 of `branches` to the user (one the remote has as it is is `up_to_date`, nothing of it pushed). Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe

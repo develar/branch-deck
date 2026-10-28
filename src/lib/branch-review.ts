@@ -84,7 +84,7 @@ export function requestAction(
     case "continue-on-github":
       return `open the pull request of ${branchName} on GitHub`
     case "push":
-      return `push ${branchName}`
+      return `push branch ${branchName}`
     case "safe-push":
     case "safe-push-without-review":
       return `start the Safe Push of ${branchName}`

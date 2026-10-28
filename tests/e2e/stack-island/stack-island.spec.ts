@@ -271,7 +271,7 @@ test.describe("Stack island", () => {
 
     // its Force Push runs the header's push on that drop: one push of air over Ann's commit and of the branches that drop
     // nothing; side-test, whose drop nobody showed, keeps Bob's commit
-    await confirmForcePush(page, "Force Push (2)")
+    await confirmForcePush(page, "Force Push Branch (2)")
     const sent = ["air", "bazel", "bridge", "deploy", "runtime", "side-fix"]
     await expect.poll(() => remotePushes(repo)).toEqual([sent])
     await expectPushedToRemote(repo, sent)
@@ -368,7 +368,7 @@ test.describe("Stack island", () => {
     await expect(findBranchRow(page, "side-test").getByTestId("landed-with")).toHaveText("Landed · 1 commit after it")
     await expect(push).toHaveAccessibleName("Push with Children (2 branches)")
     await push.click()
-    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Pushed side-test" })).toBeVisible()
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Pushed branch side-test" })).toBeVisible()
     expect(await remotePushes(repo)).toEqual([["side-test", "stack:air"]])
   })
 

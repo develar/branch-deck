@@ -42,15 +42,15 @@ test.describe("Landed commits", () => {
     await expect(featureAuth.getByTestId("branch-status")).toHaveText("landed")
     await expect(findBranchRow(page, "search").getByTestId("branch-status")).toHaveText("not pushed")
     const push = getPushButton(featureAuth)
-    await expect(push).toHaveAccessibleName("Push (1)")
+    await expect(push).toHaveAccessibleName("Push Branch (1)")
     await expect(push).toHaveClass(/\btext-muted-foreground\b/)
     await push.hover()
     // the row's button shows the count: its description names the push
     const description = page.getByTestId("push-description")
     // with the key of the focused row
-    await expect(description.getByTestId("push-label")).toHaveText("Push (1)P")
+    await expect(description.getByTestId("push-label")).toHaveText("Push Branch (1)P")
     await expect(description.getByTestId("push-label").locator("kbd")).toHaveText("P")
-    await expect(description).toHaveText("Push (1)PAlready in origin/master. Update to archive the branch.")
+    await expect(description).toHaveText("Push Branch (1)PAlready in origin/master. Update to archive the branch.")
     await page.mouse.move(0, 0)
     // in origin/master: the header has it there, not on the way
     await expect(page.getByTestId("landing-indicator")).toHaveAccessibleName(/1 in master$/)

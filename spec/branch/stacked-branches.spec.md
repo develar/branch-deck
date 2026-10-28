@@ -353,8 +353,8 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`)
   [@test] ../../tests/e2e/stacked-branches/push-up-to.spec.ts (`should push the stack up to a commit, the branches it is built on first, the rest left to push`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack in one push, refused whole when a remote branch of it moved`, `should push a parent with its children`)
-- A push of several branches, "Push Stack" or "Push with Children", is one toast: "Pushed auth, login and oauth" (up
-  to four named, "Pushed auth, session, login and oauth"; from five on "Pushed auth, login, oauth and 2 more", never
+- A push of several branches, "Push Stack" or "Push with Children", is one toast: "Pushed branches auth, login and oauth" (up
+  to four named, "Pushed branches auth, session, login and oauth"; from five on "Pushed branches auth, login, oauth and 2 more", never
   "and 1 more", `joinNames`) / "3 commits · created 2 remote branches · force pushed auth",
   each pull request the push retargeted ("retargeted pull request #802 of auth to master") and one whose retarget
   failed, the robots the pushes restarted. The action is the pull request action of the branch the user pushed from
@@ -394,7 +394,7 @@ menu stacks, unstacks and renames branches.
   while it would push nothing beyond the branch ("Nothing to push: the stack is on the remote", "Only auth has
   commits to push: its own push sends them", "login asks first in its row: the push drops remote commits"; "Wait for
   the sync to finish" while the sync computes the remote statuses), while another push that sends the branch holds it
-  ("Pushing login…"; running while its own push runs) and while a running Safe Push holds the branch: every Safe Push of the stack lands it. A branch a merged
+  ("Pushing branch login…"; running while its own push runs) and while a running Safe Push holds the branch: every Safe Push of the stack lands it. A branch a merged
   Safe Push landed whole is only left out, its own branch included: the branches built on it push without it, from its
   menu, the island's header and the description of its push ("session is stacked on auth and has commits to push.",
   "Push with Children (session)"). Once it and every branch built on it landed, nothing is left: "Landed in master

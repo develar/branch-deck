@@ -103,12 +103,12 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The state of a branch must follow the label of its push button, which reads the action Rust decides of its remote
   status for the app and `bd` alike (`domain_policy::push::action`, `RemoteStatusUpdate.action`):
-  - "create" for a branch not on the remote (`Push (3)`, its description "The branch isn't on the remote yet: the push
+  - "create" for a branch not on the remote (`Push Branch (3)`, its description "The branch isn't on the remote yet: the push
     creates it."); one name for every push that sends the commits as they are;
   - "force" for a push that is not a fast-forward: the remote has commits the branch lacks, older versions of commits
-    amended or restacked (below), or the branch was rebased onto a newer baseline (`Force Push`). It follows the
+    amended or restacked (below), or the branch was rebased onto a newer baseline (`Force Push Branch`). It follows the
     remote branch and the local one, not the result of the last sync, so it stays the same across syncs and restarts;
-  - "push" otherwise (`Push (2)`).
+  - "push" otherwise (`Push Branch (2)`).
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
   [@test] ../../src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
@@ -182,7 +182,7 @@ the stack chip. The hue says how risky the push is.
 - The hue must follow the risk of the push: `warning` when it drops remote commits the branch lacks (`· N↓`), `primary`
   otherwise. A force push of a rebased branch only replaces the remote commits with their rebased copies, one of an
   amended, reworded, restacked or landed branch their older versions: it is safe, `primary`, and keeps the
-  `Force Push` label, which says what git does.
+  `Force Push Branch` label, which says what git does.
   [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the risk: warning only for a push that drops remote commits`)
 - Up to date is neutral. A safe push of no commit of the user is neutral too (muted button, grey status dot): there is
   nothing of theirs to push. A first push and a push that drops remote commits keep their hue whoever authored the
@@ -208,7 +208,20 @@ disabled with the reason, `domain_policy::actions`), what each push sends (`Repo
 of the branch runs (the `operations` of the view), and words the plan and the outcome
 (`src/presenters/push-button.ts`, `src/lib/push-run.ts`). The pushes of a stack follow in s9-13.
 
-- A push label must count the commits the push sends, whoever authored them: `Push (2)`, `Force Push (1)`; a force push that sends none is `Force Push`. The user's share is in the description: "1 commit to
+- The push of a branch must be named for where it goes, on every surface (the button of the row, the preview and the
+  review window, the menu item and its key P, the action of a toast, the busy state, the toasts, Activity): "Push
+  Branch", "Force Push Branch", beside "Push to master" of a repository that lands by a push of the copy into the target
+  ([Landing Routes](../branch/landing-routes.spec.md)). With push rights a bare "Push" read as a push into master. "Push
+  Stack", "Push with Children", "Push auth Only" and "Push Up to Here" keep their names, which say what they push. Its
+  toasts and its failures name the branch as such: "Pushed branch auth", "Pushed branches auth and login", "Cannot push
+  branch auth", "Pushing branch auth…" (of a whole stack its stack branch, "Pushed the whole stack branch of air"); a
+  push into the target reads "Pushed auth into master · 3 commits". `bd push` keeps its name; its help says that it
+  pushes each virtual branch to its own remote branch, never into master, and points to `bd land`.
+  [@test] ../../src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
+  [@test] ../../src/lib/push-summary.test.ts (`names the remote branch a push sends to, beside a push into the target`)
+  [@test] ../../src/presenters/operations.test.ts (`words an operation of another process as its row says it and as the hover names its pid`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
+- A push label must count the commits the push sends, whoever authored them: `Push Branch (2)`, `Force Push Branch (1)`; a force push that sends none is `Force Push Branch`. The user's share is in the description: "1 commit to
   push." when all are theirs, "2 of 3 commits to push are yours.", "3 commits to push, none of them yours.".
   [@test] ../../src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`)
@@ -231,11 +244,11 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   [@test] ../../src/lib/remote-status.test.ts (`says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`, `names what a force push replaces when it drops nothing`, `starts the description of a force push with it, and doesn't repeat the older versions it names`, `offers the push the button would show when the remote lacks nothing of the branch`)
   [@test] ../../src/presenters/push-button.test.ts (`says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
 - A push that went through is a `success` toast in the words of its [Activity](activity.spec.md) entry, from the
-  remote status the push was made against (`describePush`): "Pushed JIRA-456" / "3 commits · created the remote
-  branch", "Pushed auth" / "1 commit", "Force pushed auth" / "2 commits · replaced the rebased copies", "1 commit ·
+  remote status the push was made against (`describePush`): "Pushed branch JIRA-456" / "3 commits · created the remote
+  branch", "Pushed branch auth" / "1 commit", "Force pushed branch auth" / "2 commits · replaced the rebased copies", "1 commit ·
   replaced 1 amended commit", "replaced the parent's older commits" or "1 commit · dropped 1 remote commit"; with the
   pull request action ([Pull Requests](../branch/pull-requests.spec.md)) it stays
-  10 s. A failed push is the error toast "Cannot push JIRA-456" with git's reason. One action is one toast: a push that
+  10 s. A failed push is the error toast "Cannot push branch JIRA-456" with git's reason. One action is one toast: a push that
   is a step of another action (a Safe Push start, a merge request, a restart, [Patronus](../branch/patronus.spec.md))
   has none, and a push of several branches of a stack is one toast
   ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)). It is the toast of the pushes of the branch
@@ -258,7 +271,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
 - A remote branch that moved since the row's status (a newer commit, a branch created or deleted elsewhere) must not
   be overwritten: nothing is pushed, the branch alone is fetched, and its row shows the fetched remote status. A
   warning toast stays until the user acts: "login changed on the remote", "3 commits you don't have (by Ann and Bob).
-  Nothing was pushed.", with the push the row now offers ("Force Push", "Push") as its action,
+  Nothing was pushed.", with the push the row now offers ("Force Push Branch", "Push Branch") as its action,
   leased on the fetched head; a push that drops the commits the remote has now confirms first, as below, and it asks
   before a push into a running Safe Push as any push does ([Patronus](../branch/patronus.spec.md)). A remote that
   moved without commits the branch lacks (deleted, rebuilt older versions, a branch created there with the same
@@ -285,7 +298,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: its plan asks it
   (`Confirmation::ForcePushDrops` of `prepare`), so the click opens its description with the dropped commits and a
-  `Force Push (1)` button below them, which pushes with the drop accepted (`force`). Leaving the button keeps
+  `Force Push Branch (1)` button below them, which pushes with the drop accepted (`force`). Leaving the button keeps
   the question open; Escape, a click elsewhere or on the push button again dismisses it, and nothing is pushed. A safe
   push (Push, the first one too, the Force Push of a rebased, amended or restacked branch) pushes on the click. The action
   of the remote-moved toast and P in the [branch preview](../branch/branch-preview.spec.md) ask the same way: the toast
@@ -318,7 +331,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off`)
 - A push belongs to the repository it started in. A switch of the repository before the push of a branch alone is
   asked (while it waits for a rewrite of the page) stops it: the branch of the same name there is another branch, so
-  nothing of it is pushed, and "Cannot push auth" says "idea-1 is no longer the open repository" (a push of an action
+  nothing of it is pushed, and "Cannot push branch auth" says "idea-1 is no longer the open repository" (a push of an action
   returns that reason to its action). Once asked, it is an operation of the session of its repository, which runs it
   to its end there, its sync, its holds and its retarget too; a stack push of the page stops at a switch while it waits.
   A push already sent ends in its repository: its spinner and its progress stay
@@ -327,7 +340,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   branch, in either repository, starts at "Pushing…".
   A stack push retargets its pull requests one after another, each only while its repository is shown: a switch during
   the retarget of login retargets no pull request of the other repository's ui. A push that ends after a switch says
-  "Pushed auth" with what it pushed and the robot it restarted, but offers no pull request (no Open Pull Request, no
+  "Pushed branch auth" with what it pushed and the robot it restarted, but offers no pull request (no Open Pull Request, no
   Create Pull Request, no retarget clause), since the branch of the same name there has its own; the pull requests it
   lists again are of its repository: the session that ran the push lists them (its `PushEnded`), never the selected
   one's.
@@ -337,7 +350,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   [@test] ../../crates/repository-model/src/session_test.rs (`the_outcome_of_a_push_in_one_session_leaves_the_branch_of_the_same_name_in_another`)
 - The robot a push cancels, to restart it (Restart Safe Push) or because a start replaces it, must be canceled after
   the last of those checks, right before the push is sent: a switch before it cancels nothing, and from the cancel on
-  the push goes on in its repository with the branches as they were, so no cancel is followed by "Cannot push auth".
+  the push goes on in its repository with the branches as they were, so no cancel is followed by "Cannot push branch auth".
   The restart goes to the push's repository, its robot and its Activity entry there, also after a switch. The "auth
   changed on the remote" toast of a push offers its push only while its repository is shown: after a switch it says
   what the remote has without the push (it offers it again on the way back), and it closes once the branch is gone;
@@ -427,7 +440,7 @@ branch on GitHub, so the session fetches a branch whose open pull request shows 
   pointer events of the hover) and dimmed by `aria-disabled:opacity-50`; a running push keeps its colour beside the
   spinner, as Update and Sync do.
 - The question of a push that drops remote commits is a `destructive` `xs` button with the upload icon and the label
-  of the push (`Force Push (1)`), at the start of the line below the dropped commits.
+  of the push (`Force Push Branch (1)`), at the start of the line below the dropped commits.
 
 ## Testing / Local Run
 

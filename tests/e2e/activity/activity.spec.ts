@@ -44,8 +44,8 @@ testWithIssueLinks.describe("Activity", () => {
     await issueLinksRepo.fetchInTerminal()
     await syncFromMenu(page)
     // it drops Ann's commit: the click asks first, the Force Push in the description pushes
-    await row.getByRole("button", { name: "Force Push (1)" }).click()
-    await confirmForcePush(page, "Force Push (1)")
+    await row.getByRole("button", { name: "Force Push Branch (1)" }).click()
+    await confirmForcePush(page, "Force Push Branch (1)")
     await expectNothingToPush(row)
     await expectPushedToRemote(issueLinksRepo, ["ABC-123"])
 
@@ -54,9 +54,9 @@ testWithIssueLinks.describe("Activity", () => {
     // not "Today" here (the labels of the days: `groupActivityByDay` of activity.test.ts)
     await expect(window.getByTestId("activity-day")).toHaveCount(1)
     // newest first
-    await expect(window.getByTestId("activity-title")).toHaveText(["Force pushed ABC-123", "Pushed ABC-123"])
-    await expect(activityEntry(window, "Pushed ABC-123").getByTestId("activity-description")).toHaveText("4 commits · created the remote branch")
-    const forced = activityEntry(window, "Force pushed ABC-123")
+    await expect(window.getByTestId("activity-title")).toHaveText(["Force pushed branch ABC-123", "Pushed branch ABC-123"])
+    await expect(activityEntry(window, "Pushed branch ABC-123").getByTestId("activity-description")).toHaveText("4 commits · created the remote branch")
+    const forced = activityEntry(window, "Force pushed branch ABC-123")
     await expect(forced).toHaveAttribute("data-kind", "push")
     await expect(forced.getByTestId("activity-description")).toHaveText("1 commit · dropped 1 remote commit")
     const dropped = forced.getByTestId("dropped-commits")
@@ -84,7 +84,7 @@ testWithIssueLinks.describe("Activity", () => {
 
     // the search: in the titles and descriptions, ignoring case
     await window.getByRole("textbox", { name: "Filter by branch or text" }).fill("abc")
-    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed ABC-123"])
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed branch ABC-123"])
     await expect(filter.getByRole("button", { name: /Pushes/ })).toHaveText("Pushes1")
     await window.getByRole("textbox", { name: "Filter by branch or text" }).fill("nothing like it")
     await expect(window.getByTestId("activity-empty")).toHaveText("No match for “nothing like it”Clear Filter")
@@ -155,8 +155,8 @@ testWithIssueLinks.describe("Activity", () => {
     await page.reload()
     await syncAndWaitForBranches()
     const window = await openActivityWindow(page)
-    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed feature-auth"])
-    await expect(activityEntry(window, "Pushed feature-auth").getByTestId("activity-description")).toHaveText("1 commit · created the remote branch")
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed branch feature-auth"])
+    await expect(activityEntry(window, "Pushed branch feature-auth").getByTestId("activity-description")).toHaveText("1 commit · created the remote branch")
   })
 
   testWithIssueLinks("should hide the operations of agent leases behind the Agents chip", async ({ page, issueLinksRepo }) => {
@@ -164,7 +164,7 @@ testWithIssueLinks.describe("Activity", () => {
     await getPushButton(row).click()
     await expectNothingToPush(row)
     const window = await openActivityWindow(page)
-    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed ABC-123"])
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed branch ABC-123"])
     const filter = window.getByTestId("activity-filter")
     // no agent did anything yet: no Agents chip
     await expect(filter.getByRole("button")).toHaveText(["All1", "Pushes1"])
@@ -181,29 +181,29 @@ testWithIssueLinks.describe("Activity", () => {
     const agents = filter.getByRole("button", { name: /Agents/ })
     await expect(filter.getByRole("button")).toHaveText(["All1", "Pushes1", "Agents1"])
     await expect(agents).toHaveAttribute("aria-pressed", "false")
-    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed ABC-123"])
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed branch ABC-123"])
 
     // its chip shows it among the others, marked an agent's, and the chips count it
     await agents.click()
     await expect(agents).toHaveAttribute("aria-pressed", "true")
-    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed feature-auth", "Pushed ABC-123"])
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed branch feature-auth", "Pushed branch ABC-123"])
     await expect(filter.getByRole("button")).toHaveText(["All2", "Pushes2", "Agents1"])
-    const pushed = activityEntry(window, "Pushed feature-auth")
+    const pushed = activityEntry(window, "Pushed branch feature-auth")
     await expect(pushed.getByTestId("activity-agent")).toHaveText("Agent")
-    await expect(activityEntry(window, "Pushed ABC-123").getByTestId("activity-agent")).toHaveCount(0)
+    await expect(activityEntry(window, "Pushed branch ABC-123").getByTestId("activity-agent")).toHaveCount(0)
 
     // Copy Diagnostics of the entry: what it says and its operation, as its lines in the log name it
     await pushed.hover()
-    await pushed.getByRole("button", { name: "Copy Diagnostics of Pushed feature-auth" }).click()
+    await pushed.getByRole("button", { name: "Copy Diagnostics of Pushed branch feature-auth" }).click()
     await expect.poll(() => readClipboard(window)).toContain(`operation_id=${agent.op}`)
     const diagnostics = await readClipboard(window)
-    expect(diagnostics.split("\n")[0]).toBe("Pushed feature-auth")
+    expect(diagnostics.split("\n")[0]).toBe("Pushed branch feature-auth")
     expect(diagnostics).toContain(`agent worktree=${agent.worktree}`)
 
     // the chip again hides it
     await agents.click()
     await expect(agents).toHaveAttribute("aria-pressed", "false")
-    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed ABC-123"])
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed branch ABC-123"])
   })
 
   testWithIssueLinks("should mark an unavailable journal", async ({ page, issueLinksRepo }) => {
@@ -217,7 +217,7 @@ testWithIssueLinks.describe("Activity", () => {
     const window = await openActivityWindow(page)
     const mark = window.getByTestId("activity-unavailable")
     await expect(mark).toHaveText(`Cannot read the journal of the repositoryIts operations show once it answers again.${journal}`)
-    await expect(activityEntry(window, "Pushed feature-auth")).toHaveCount(0)
+    await expect(activityEntry(window, "Pushed branch feature-auth")).toHaveCount(0)
     // the mark says why the log is short: no "Nothing yet"
     await expect(window.getByTestId("activity-empty")).toHaveCount(0)
 
@@ -227,13 +227,13 @@ testWithIssueLinks.describe("Activity", () => {
     await read
     await activityButton(page).click()
     await expect(activityPanel(page).getByTestId("activity-unavailable-path")).toHaveText(journal)
-    await expect(activityEntry(activityPanel(page), "Pushed feature-auth")).toHaveCount(0)
+    await expect(activityEntry(activityPanel(page), "Pushed branch feature-auth")).toHaveCount(0)
   })
 
   testWithIssueLinks("should clear the log of the repository", async ({ page }) => {
     await getPushButton(findBranchRow(page, "feature-auth")).click()
     const window = await openActivityWindow(page)
-    await expect(activityEntry(window, "Pushed feature-auth")).toBeVisible()
+    await expect(activityEntry(window, "Pushed branch feature-auth")).toBeVisible()
     await window.getByTestId("activity-clear").click()
     // the main window forgot it: no button, and the window says it
     await expect(activityButton(page)).toHaveCount(0)
@@ -252,7 +252,7 @@ testWithIssueLinks.describe("Activity side panel", () => {
     await activityButton(page).click()
     const panel = activityPanel(page)
     await expect(panel.getByRole("heading", { name: "Activity" })).toBeVisible()
-    const entry = activityEntry(panel, "Pushed ABC-123")
+    const entry = activityEntry(panel, "Pushed branch ABC-123")
     await expect(entry.getByTestId("activity-description")).toHaveText("4 commits · created the remote branch")
     // beside the islands, in the main window: no window opens
     expect(await getOpenedSubWindows(page)).toEqual([])
@@ -283,7 +283,7 @@ testWithIssueLinks.describe("Activity side panel", () => {
 
     // a click: the focus stays on the button, so Escape is not the panel's
     await activityButton(page).click()
-    await expect(activityEntry(panel, "Pushed feature-auth")).toBeVisible()
+    await expect(activityEntry(panel, "Pushed branch feature-auth")).toBeVisible()
     await expect(activityButton(page)).toBeFocused()
     await page.keyboard.press("Escape")
     await expect(panel).toBeVisible()
@@ -312,7 +312,7 @@ test.describe("Activity of the selected repository", () => {
     await syncAndWaitForBranches()
     await getPushButton(findBranchRow(page, "test-branch")).click()
     const window = await openActivityWindow(page)
-    await expect(activityEntry(window, "Pushed test-branch")).toBeVisible()
+    await expect(activityEntry(window, "Pushed branch test-branch")).toBeVisible()
     const titles = (await windowCalls(window)).filter(call => call === "set_title").length
 
     await page.getByRole("combobox").click()
@@ -323,7 +323,7 @@ test.describe("Activity of the selected repository", () => {
 
     await page.getByRole("combobox").click()
     await page.getByRole("option", { name: repo.path.split("/").at(-1)! }).click()
-    await expect(activityEntry(window, "Pushed test-branch")).toBeVisible()
+    await expect(activityEntry(window, "Pushed branch test-branch")).toBeVisible()
   })
 })
 

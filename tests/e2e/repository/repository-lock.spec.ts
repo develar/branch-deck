@@ -122,10 +122,10 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     const description = page.getByTestId("push-description")
     await expect(description.getByTestId("push-progress")).toContainText(WAITING)
     await description.getByRole("button", { name: "Stop Waiting" }).click()
-    await expect(page.getByText("Canceled the push of feature-auth before it started")).toBeVisible()
+    await expect(page.getByText("Canceled the push of branch feature-auth before it started")).toBeVisible()
     await expect(push).not.toHaveAttribute("aria-busy", "true")
     expect(pushes).toHaveLength(1)
-    await expect(page.getByText("Cannot push feature-auth")).toHaveCount(0)
+    await expect(page.getByText("Cannot push branch feature-auth")).toHaveCount(0)
     // nothing was pushed: the button offers the same push
     await expect(push).toBeEnabled()
     await repo.holdRepositoryLock(false)
