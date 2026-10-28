@@ -1,0 +1,96 @@
+[
+  {
+    "id": "push-to-master-of-a-piece",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a push: a lone branch is pushed into master as its copy, what CI did not check accepted",
+    "spec": ["spec/branch/landing-routes.spec.md#push-to-master", "spec/branch/next-step.spec.md#the-table:push", "spec/cli/agent-cli.spec.md#bd-land"],
+    "given": {
+      "route": "push",
+      "flags": ["withoutChecks"]
+    },
+    "expect": {
+      "step": {
+        "row": "push",
+        "kind": "pushToBaseline",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "confirmations": ["unchecked"],
+        "into": "master",
+        "lands": ["auth"]
+      }
+    }
+  },
+  {
+    "id": "push-to-master-of-a-stacked-piece-asks-for-the-checks",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a push: a stacked branch lands what it is built on, and the push waits for the user to accept what CI did not check",
+    "spec": ["spec/branch/landing-routes.spec.md#push-to-master", "spec/branch/next-step.spec.md#a-push-into-the-target", "spec/cli/agent-cli.spec.md#bd-land"],
+    "given": {
+      "route": "push",
+      "branch": "login",
+      "commits": ["(auth) Add auth", "(auth/login) Add login"]
+    },
+    "expect": {
+      "step": {
+        "row": "push",
+        "kind": "pushToBaseline",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "confirmations": ["landsMoreThanRow", "unchecked"],
+        "into": "master",
+        "lands": ["auth", "login"]
+      }
+    }
+  },
+  {
+    "id": "push-to-master-of-the-whole-stack",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a push: the whole stack of a stack that forks is pushed into master as its stack branch",
+    "spec": ["spec/branch/landing-routes.spec.md#push-to-master", "spec/branch/next-step.spec.md#a-push-into-the-target", "spec/cli/agent-cli.spec.md#bd-land"],
+    "given": {
+      "route": "push",
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "flags": ["withoutChecks"]
+    },
+    "expect": {
+      "step": {
+        "row": "push",
+        "kind": "pushToBaseline",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "confirmations": ["landsMoreThanRow", "unchecked"],
+        "into": "master",
+        "lands": ["auth", "login", "session"]
+      }
+    }
+  },
+  {
+    "id": "push-to-master-refused-below-write-access",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a push into a GitHub repository the token may only read: the gate of the route refuses the push",
+    "spec": ["spec/branch/landing-routes.spec.md#gates", "spec/branch/landing-routes.spec.md#push-to-master", "spec/cli/agent-cli.spec.md#bd-land"],
+    "given": {
+      "route": "push",
+      "permission": "read",
+      "flags": ["withoutChecks"]
+    },
+    "expect": {
+      "step": {
+        "row": "push",
+        "kind": "pushToBaseline",
+        "safePush": "noWriteAccess",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "blockers": ["noWriteAccess"],
+        "confirmations": ["unchecked"],
+        "into": "master",
+        "lands": ["auth"]
+      }
+    }
+  }
+]

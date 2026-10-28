@@ -15,8 +15,10 @@
 //!
 //! The fingerprint hashes the plan with its witness: the tips of the virtual branches it lands and pushes (of a whole
 //! stack its stack branch too) and of their remote branches as the table has them, the pull requests of what it lands,
-//! and the robots of what it lands and the one it cancels. An `execute` prepares again and runs only on the same
-//! fingerprint (`witness::check`).
+//! and the robots of what it lands and the one it cancels; and the route of the repository it was decided by. A push
+//! into the target (`PlannedEffect::PushBaseline`) witnesses besides the remote-tracking ref of the baseline the copies
+//! were built on and the checked out branch at the HEAD the sync grouped, which holds their originals: an amend before
+//! the sync lands nothing old. An `execute` prepares again and runs only on the same fingerprint (`witness::check`).
 
 use crate::facts::fill;
 use crate::land_execute::{Planned, PushLease, PushedRef};
@@ -30,7 +32,7 @@ use domain_types::session::{Fact, LandedSection, SubjectReadiness};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::FactSources;
 use repository_model::branch_table::BranchTable;
-use repository_model::derive::{LandSources, land_decision, with_land_sources};
+use repository_model::derive::{LandSources, land_decision, landing_route_of, with_land_sources};
 use repository_model::facts::FactRecord;
 use repository_model::one_shot::OneShot;
 use repository_model::session::{SessionKey, Sessions};
@@ -99,7 +101,13 @@ pub fn one_shot_planned(session: &OneShot, land: &Land, host: &LandHost<'_>) -> 
 pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: impl FnOnce(&LandSources<'_>) -> T) -> T {
   let facts = session.facts();
   let readiness = |key: &str| -> Option<&Fact<SubjectReadiness>> { facts.readiness.fact(key) };
+  let header = session.state().header();
+  let route = landing_route_of(header, facts);
   let sources = LandSources {
+    route: &route,
+    // a command keeps no push of its own: its process ends with it
+    pushed: None,
+    header,
     table: host.table,
     remote: &host.table.remote,
     view: session.view(),
@@ -234,8 +242,19 @@ fn witness_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) -
     pull_requests.extend(sources.pull_requests.pull_requests.get(name));
     robots.extend(sources.view.branches.get(name).and_then(|branch| branch.robot_id.as_deref()));
   }
+  // the copies land into the target as the sync built them: on the baseline it read, of the HEAD it grouped
+  if decision.effects.iter().any(|effect| matches!(effect, PlannedEffect::PushBaseline { .. })) {
+    let header = sources.header;
+    if !header.branch.is_empty() {
+      refs.insert(format!("refs/heads/{}", header.branch), Some(header.head.clone()));
+    }
+    let built_on = sources.baseline.baseline.as_ref().and_then(|status| status.update.as_ref());
+    if let Some(update) = built_on {
+      refs.insert(format!("refs/remotes/{}", update.upstream), Some(update.upstream_head.clone()));
+    }
+  }
   let robots = sources.robots.iter().filter(|robot| robots.contains(robot.id.as_str()));
-  Witness::of(refs, pull_requests, robots)
+  Witness::of(refs, pull_requests, robots).routed(sources.route.clone())
 }
 
 #[cfg(test)]

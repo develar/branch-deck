@@ -24,11 +24,32 @@ targets:
   - ../../src/presenters/reasons.ts
   - ../../src/model/patch.ts
   - ../../src/lib/repository-config.ts
+  - ../../crates/domain-policy/src/land.rs
+  - ../../crates/domain-policy/src/land_direct.rs
+  - ../../crates/domain-policy/src/landed.rs
+  - ../../crates/domain-policy/src/next_step.rs
+  - ../../crates/domain-policy/src/landing_node.rs
+  - ../../crates/domain-policy/src/actions.rs
+  - ../../crates/domain-types/src/landing.rs
+  - ../../crates/sync-core/src/baseline_push.rs
+  - ../../crates/sync-core/src/remote_command.rs
+  - ../../crates/operations/src/land.rs
+  - ../../crates/operations/src/land_execute.rs
+  - ../../crates/operations/src/land_session.rs
+  - ../../crates/operations/src/engine.rs
+  - ../../crates/operations/src/witness.rs
+  - ../../crates/repository-model/src/derive.rs
+  - ../../crates/repository-model/src/facts.rs
+  - ../../crates/repository-model/src/session.rs
+  - ../../crates/bd-remote/src/land_command.rs
+  - ../../src/presenters/next-step.ts
+  - ../../src/presenters/land.ts
+  - ../../src/presenters/actions.ts
 ---
 
 # Landing Routes
 
-Status: Draft (implemented: the route, its facts and its gates; the steps, the actions and `bd land` that follow it are not)
+Status: Draft (implemented: the route, its facts and its gates, Push to master with its step, its actions and `bd land`; the merge of a pull request is not)
 Date: 2026-10-28
 
 ## Summary
@@ -133,3 +154,58 @@ target, read before anything is pushed.
   `origin` doesn't push to merges nothing into its target (`gitHubMirror`), and off GitHub there is none
   (`notOnGitHub`).
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_merge_needs_write_access_to_the_repository_origin_pushes_to`)
+
+### Push to master
+
+- One intent lands a subject on every route (`Intent::Land`): its plan decides by the route of the repository as the
+  session holds it (`domain_policy::land::decide`, the dispatcher; `land_direct` the tail of a push), both tails reading
+  the part of the subject of `land` (what lands, the table, the robots, the landing gate, the target). On the push
+  route the start is one push of the copy of the subject into the target, a fast-forward (`PlannedEffect::PushBaseline`):
+  the tip of the virtual branch of a piece (the branch with what it is built on, more than its row a confirmation), of a
+  whole stack its stack branch, only once the sync built it (`stackNotBuilt`). The route is in the fingerprint of the
+  plan: a setting changed between the click and the run is `plan_changed`.
+  [@test] ../../crates/domain-policy/src/land_direct_test.rs (`a_piece_lands_by_a_push_of_its_copy_into_the_target_and_says_it_lands_more_than_its_row`, `a_whole_stack_pushes_its_stack_branch_only_once_the_sync_built_it`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
+- A push must be refused, in this order: a Dry Run (a robot of Patronus, `dryRunNeedsPatronus`), the refusal of the gate,
+  what the table refuses (not built, parked), what landed it whole, a robot on its commit or one that lands it, what the
+  landing gate refuses unless allowed, a conflict with the newest target; it waits for the facts of the gate, the copy,
+  the pull requests GitHub lists and the landing gate, never reading one as "no".
+  [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_gate_of_the_route_refuses_waits_or_asks_and_a_dry_run_needs_patronus`, `the_subject_refuses_in_the_order_of_the_table_what_landed_it_the_landing_gate_and_the_target`)
+- A push runs no CI: what CI did not pass on the commit it lands must be confirmed (`unchecked`: no open pull request,
+  one that shows another commit, failing or running checks, GitHub listing none; a commit without checks asks nothing),
+  so must the changes requested on its pull request and what the gate asks (`routeRule`); `bd land` accepts them only by
+  `--without-checks` and `--bypass-rules`.
+  [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_checks_that_did_not_pass_on_the_tip_and_the_changes_requested_are_confirmations`, `bd_accepts_the_checks_and_what_the_gate_asks_only_by_their_flags`)
+- The push must go by the first push URL of the remote of the baseline, `<tip>:refs/heads/<target>`, without `+` and
+  without a lease, after the size check, with the configured remote of the URL cleared so its remote-tracking ref stays
+  (only the fetch of the baseline writes it); the witness under the repository lock holds the tip of the copy, the
+  remote-tracking ref of the baseline the copies were built on and the checked out branch at the HEAD the sync grouped.
+  [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_copy_built_on_the_target_lands_as_a_fast_forward_and_the_tracking_ref_stays`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_push_into_the_baseline`)
+  [@test] ../../crates/operations/src/land_execute_test.rs (`a_push_into_the_target_lands_the_copy_as_a_fast_forward_and_tells_what_it_landed`)
+- A target that moved must refuse the push as no fast-forward: the start fetches the baseline (`fetch_baseline`, joining
+  a fetch that runs), asks the sync that builds the copy anew, and fails as `baseline_moved`, pushing nothing again by
+  itself. A refusal of the server (`[remote rejected]`: a hook, a protected branch) must fail it as `baseline_refused` in
+  the server's words, which the session keeps: the gate asks about them before the next push
+  (`baselineRefusedPush`), and a push that lands forgets them.
+  [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_target_that_moved_refuses_the_copy_as_no_fast_forward`, `the_server_refusing_the_push_is_said_in_its_words_and_a_large_push_never_goes`)
+  [@test] ../../crates/operations/src/land_execute_test.rs (`a_target_that_moved_is_fetched_and_synced_and_the_push_is_baseline_moved`, `a_refusal_of_the_server_is_baseline_refused_in_its_words_and_goes_into_the_facts`)
+  [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_refusal_of_the_server_in_this_session_is_asked_before_the_next_push`)
+- A push that landed must land its subject at once, each branch of what it landed at the tip it pushed, until a fetch
+  shows it (`landed_state`: "Landed in origin/master"): a second click pushes nothing. Then Update Project with its fetch
+  follows as an operation of its own (`land_direct::update_after`, run by the engine), whose replay drops the originals
+  whose copies landed; `bd land` names `bd update` instead.
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed`)
+  [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_update_follows_only_a_push_into_the_target_that_landed`)
+  [@test] ../../crates/operations/src/update_test.rs (`a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed`)
+  [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
+- The next step of a ready subject must be "Push to master" (the row `push` of
+  [Next Step](next-step.spec.md#a-push-into-the-target)), its node ready, the user's move, and its action
+  `push-to-baseline` of a branch and of a whole stack that forks, none of the robot's starts; a refusal of the gate
+  disables it with its reason and the node waits.
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_push_into_the_target_is_the_step_of_its_route_and_its_gate_holds_it_back`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_push_into_the_target_offers_its_push_with_the_reason_of_its_step_and_no_start_of_the_robot`)
+  [@test] ../../src/presenters/next-step.test.ts (`row push: Push to master by the branches it lands, its start disabled with the refusal of the gate of the route`)
+- `bd land` must land by the same plan ([Agent CLI](../cli/agent-cli.spec.md#bd-land)).
+  [@test] ../../crates/bd-remote/src/land_test.rs (`a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`)

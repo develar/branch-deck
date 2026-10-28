@@ -221,6 +221,12 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::ReviewUnknown
     | ErrorCode::NotLoggedIn => &["safe-push"],
     ErrorCode::ApprovalsMissing | ErrorCode::RulesUnknown => &["help agent", "safe-push"],
+    ErrorCode::NoWriteAccess
+    | ErrorCode::BaselineRequiresPullRequest
+    | ErrorCode::BaselineRefused
+    | ErrorCode::BaselineMoved
+    | ErrorCode::ChecksNotPassed
+    | ErrorCode::LandingRouteUnsupported => &["land"],
     ErrorCode::HunkConflict | ErrorCode::BlockNotFound => &["move-hunk"],
     ErrorCode::HeadMoved => &["help agent", "group"],
     ErrorCode::GroupsMoved | ErrorCode::StacksMoved => &["group"],

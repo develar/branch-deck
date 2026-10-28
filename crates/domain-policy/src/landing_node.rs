@@ -5,11 +5,13 @@
 //! block and its own robot running are the subject's own; the rest the next step decides, as the slot shows it, with no
 //! start refused by the robots (a robot that lands an ancestor is said apart). The page lays a running move of the row
 //! (a start, a review request: the `moves` of an operation of the view) over the node: it shows in place of a node that
-//! says so (`move_shows`).
+//! says so (`move_shows`). A repository that lands by a push into the target is ready once its push can land it
+//! (`push_ready`), the refusal of the gate of the route a wait.
 
 use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, changes_requested_by, landed_whole, next_step, problems_failed, problems_pending, slot};
 use crate::readiness::waiting_reviewers;
-use domain_types::next_step::{LandingNode, LandingNodeKind, NodeLabel, StepFact, StepFailure, StepKind};
+use domain_types::landing_route::LandingRoute;
+use domain_types::next_step::{LandingNode, LandingNodeKind, NextStep, NodeLabel, StepBlocker, StepFact, StepFailure, StepKind};
 use domain_types::patronus::ReviewReadiness;
 use domain_types::pull_request::{ChecksState, PullRequestState, ReviewDecision};
 use domain_types::reason::Reason;
@@ -124,6 +126,13 @@ pub fn landing_node(facts: &NodeFacts<'_>) -> LandingNode {
   if let Some(by) = facts.lands_with {
     return node(LandingNodeKind::Landing, NodeLabel::LandsWith { by: by.clone() });
   }
+  // a push into the target lands it: its own table decides, whatever Patronus answers
+  if matches!(step.route, LandingRoute::Push { .. }) {
+    if step.held {
+      return node(LandingNodeKind::Waiting, NodeLabel::Held);
+    }
+    return of_step(facts);
+  }
   let failure = match step.patronus {
     // what the robots hold and land waits for the first answers of Patronus, as the step does
     PatronusAnswer::Pending => return waits(NodeLabel::Waits { fact: StepFact::Patronus }),
@@ -171,6 +180,7 @@ fn of_step(facts: &NodeFacts<'_>) -> LandingNode {
   });
   let kind = match &step.kind {
     StepKind::SafePush | StepKind::Restart { .. } => return ready(facts),
+    StepKind::PushToBaseline { .. } => return push_ready(facts, step),
     StepKind::Retarget { .. }
     | StepKind::Draft { .. }
     | StepKind::NeedsBranch { .. }
@@ -227,6 +237,19 @@ fn ready(facts: &NodeFacts<'_>) -> LandingNode {
     Listing::Loading | Listing::Listed => None,
   };
   node(LandingNodeKind::YourStep, NodeLabel::AtStart { lands, unlisted })
+}
+
+/// A push into the target lands it now: the user's move, unless a robot that lands a part of it runs or the gate of the
+/// route refuses it, which the node says as a wait
+fn push_ready(facts: &NodeFacts<'_>, step: NextStep) -> LandingNode {
+  let refused = match &step.safe_push {
+    Some(StepBlocker::Rule { reason }) => Some(reason),
+    _ => None,
+  };
+  if let Some(reason) = facts.step.start.or(refused) {
+    return node(LandingNodeKind::Waiting, NodeLabel::StartWaits { reason: reason.clone() });
+  }
+  node(LandingNodeKind::Ready, NodeLabel::Step { step: Box::new(step) })
 }
 
 /// A repository not on Space lands a branch by its pull request; without one GitHub lists, the push is the step it

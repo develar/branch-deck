@@ -48,7 +48,10 @@ case, that every group has its test (a new group gets its test in the same commi
 `landing.json` holds the rest of the Safe Push matrix: robots around the branch (on the remote branch rebuilt since,
 of a branch built on it, of an older commit with and without a push, `--cancel-running`), the parked member of a whole
 stack, a remote branch behind, the retarget of an ancestor's pull request, missing declarations and dangling references
-with their `--allow-*`. `discrepancies.json` is the registry (below).
+with their `--allow-*`. `landing-routes.json` holds the cases of a repository that lands by a push into the target
+(`given.route`, group `modes-and-routes`): there the side of `bd` is `bd land` (`land()` with `--check`, then the
+command without it, which must land, `landed: true`, when nothing refuses it and the flags accept every confirmation).
+`discrepancies.json` is the registry (below).
 
 
 ## A case
@@ -77,7 +80,8 @@ with their `--allow-*`. `discrepancies.json` is the registry (below).
 - `expect.land`: a subset of the decision of the start (`domain_types::landing::LandDecision`): `blockers` (the codes
   of the `Reason`s, in order), `confirmations` (the kinds), `waits` (the kinds of the facts it waits for, `<kind>:failed`
   where the read failed), `start` (`api`, `api:<profile>`, `comment:<number>`, `createPullRequest`), `pushes` (the
-  branches of its push, `null` without one), `force`, `retargets` (the numbers), `cancels` (the robot), `lands`.
+  branches of its push, `null` without one), `force`, `retargets` (the numbers), `cancels` (the robot), `lands`, `into`
+  (the target a push of the copy lands into, `PlannedEffect::PushBaseline`; `null` without one).
   `blockers` and `confirmations` are `[]` where left out, and so is `waits` of a decision no blocker refuses: one that
   appears fails every case it appears in. `null` without a decision (no subject, no Patronus view).
 - `asymmetry` (optional): `{ "kind": "byDesign", "why": "…" }`, where `bd` answers otherwise by design (the spec or the
@@ -128,7 +132,9 @@ fakes; both sides read that.
 | `stackPullRequest` | `true` | the open #12 of `{prefix}/stack/<root>` in the search |
 | `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below |
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | the profile of the start (`--profile`); the last robot's options |
-| `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` | the flags of `bd` of the same names, the choices of the popover (`Land`) |
+| `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` · `withoutChecks` | the flags of `bd` of the same names, the choices of the popover (`Land`); `withoutChecks` the one of `bd land` |
+| `route` | `push` | `branchdeck.landing push`: the repository lands by a push of the copy into the target, `bd land` its side |
+| `permission` | `read` | `remote.origin.pushurl` github.com/acme/monorepo, and the listing of the pull requests names `viewerPermission: READ` |
 | `rules` | `keep` · `dismiss` · `unknown` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none, `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500 |
 | `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) |

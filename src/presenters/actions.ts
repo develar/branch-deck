@@ -78,6 +78,7 @@ export const ACTION_LOOKS = {
   push: { label: "Push", icon: UploadIcon, kbds: ["p"] },
   "push-with-children": { label: "Push with Children", icon: UploadIcon },
   "pick-remote-commits": { label: "Pick Remote Commits…", icon: DownloadIcon },
+  "push-to-baseline": { label: "Push to master", icon: GitMergeIcon },
   "review-changes": { label: "Review Changes", icon: FileDiffIcon, kbds: ["d"] },
   "open-pull-request": { label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"] },
   "request-review": { label: "Request Review…", icon: UserPlusIcon },

@@ -174,6 +174,7 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::Push
       | ActionId::PushWithChildren
       | ActionId::PickRemoteCommits
+      | ActionId::PushToBaseline
       | ActionId::ReviewChanges
       | ActionId::OpenPullRequest
       | ActionId::RequestReview

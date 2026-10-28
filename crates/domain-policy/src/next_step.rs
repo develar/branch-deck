@@ -18,12 +18,18 @@
 //! The whole stack of a root that forks takes the same table over the facts of its stack branch: its robot, the robot
 //! of a branch of it that lands a part of it, its own pull request (never retargeted), the readiness of `stack:<root>`.
 //! What runs on the row (an operation, a start, a push) the page lays over the step, which the facts alone decide.
+//!
+//! A repository that lands by a push of the copy into the target (`LandingRoute::Push`) takes the table of its route
+//! (spec/branch/next-step.spec.md, "A push into the target"; `push_step`): row 1 as above, row 0 while the gate of the
+//! route or the pull requests have no answer, 1′ and 1″ as above, then the row `push`, "Push to master", disabled with
+//! the refusal of the gate; a Dry Run is a robot of Patronus, which no push runs.
 
 use crate::facts::RemoteBranch;
 use crate::holds::is_active;
 use crate::readiness::waiting_reviewers;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{Landed, LandedBy, LandingRefusal, Subject};
+use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
 use domain_types::next_step::{NextStep, StackPullRequest, StepBlocker, StepFact, StepFailure, StepHelp, StepKind, StepRetarget, StepRow, WithoutReview};
 use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotStatus, ReviewReadiness, UnavailableReadinessReason,
@@ -167,6 +173,9 @@ pub struct StepPullRequest<'a> {
 pub struct StepFacts<'a> {
   /// A branch, or the whole stack of a root that forks
   pub subject: &'a Subject,
+  /// The route of the repository into master with its gate (`landing_route::route`): a push into the target takes the
+  /// table of its route (`push_step`)
+  pub route: &'a LandingRoute,
   pub patronus: PatronusAnswer<'a>,
   /// The sync runs on it (of a whole stack: on a branch of it)
   pub syncing: bool,
@@ -281,7 +290,10 @@ pub fn next_step(facts: &StepFacts<'_>) -> NextStep {
   let landed = landed_whole(facts, slot);
   let general = start_reason(facts, facts.start, landed.as_ref());
   let dry_run = start_reason(facts, facts.dry_run_start, landed.as_ref());
-  let mut step = decide(facts, slot, general, dry_run, landed.as_ref());
+  let mut step = match facts.route {
+    LandingRoute::Push { gate } => push_step(facts, slot, gate, general, landed.as_ref()),
+    LandingRoute::Patronus { .. } | LandingRoute::PullRequest { .. } => decide(facts, slot, general, dry_run, landed.as_ref()),
+  };
   step.landed = landed;
   step.lands = facts.lands;
   step.unlisted = match facts.listing {
@@ -435,15 +447,13 @@ pub(crate) fn problems_failed(robot: Option<StepRobot<'_>>) -> Option<StepFailur
 
 /// Row 1: the subject has nothing to start now, and its Status cell says why
 const fn is_settled(facts: &StepFacts<'_>, slot: Slot, landed: Option<&Landed>) -> bool {
-  !matches!(facts.patronus, PatronusAnswer::Answers { .. })
-    || facts.syncing
-    || facts.sync_failed
-    || facts.commit_count == 0
-    || facts.blocked
-    || facts.held
-    || facts.parked.is_some()
-    || landed.is_some()
-    || matches!(slot, Slot::Running { .. } | Slot::None)
+  !matches!(facts.patronus, PatronusAnswer::Answers { .. }) || matches!(slot, Slot::None) || holds_still(facts, slot, landed)
+}
+
+/// What the Status cell says of a subject that lands nothing now, on every route: a sync, a failure, no commits, a block,
+/// a hold, parked, landed, its robot running
+const fn holds_still(facts: &StepFacts<'_>, slot: Slot, landed: Option<&Landed>) -> bool {
+  facts.syncing || facts.sync_failed || facts.commit_count == 0 || facts.blocked || facts.held || facts.parked.is_some() || landed.is_some() || matches!(slot, Slot::Running { .. })
 }
 
 fn decide(facts: &StepFacts<'_>, slot: Slot, general: Option<StepBlocker>, dry_run: Option<StepBlocker>, landed: Option<&Landed>) -> NextStep {
@@ -505,6 +515,50 @@ fn decide(facts: &StepFacts<'_>, slot: Slot, general: Option<StepBlocker>, dry_r
     return step(StepRow::OneDoublePrime, StepKind::PickRemoteCommits { count }, general, dry_run);
   }
   Rows::of(facts, slot, general, dry_run).decide()
+}
+
+/// The step of a repository that lands by a push of the copy into the target (the module's header): row 1 while the
+/// Status cell says why nothing lands now, row 0 while the gate of the route has no answer (a reason of the subject
+/// outranks it), then the pull requests GitHub lists and the landing needs, 1′ and 1″, then the row `push` with the
+/// refusal of the gate as its blocker; a Dry Run is never offered, Patronus runs it
+fn push_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Option<StepBlocker>, landed: Option<&Landed>) -> NextStep {
+  let dry_run = Some(StepBlocker::Rule {
+    reason: Reason::DryRunNeedsPatronus,
+  });
+  if holds_still(facts, slot, landed) {
+    return settled(general, dry_run);
+  }
+  let refused = match gate {
+    RouteGate::Refused { reason } => Some(StepBlocker::Rule { reason: reason.clone() }),
+    RouteGate::Wait { fact, .. } if general.is_none() => {
+      let fact = match fact {
+        RouteFact::Permission => StepFact::Permission,
+        RouteFact::TargetRules => StepFact::TargetRules,
+      };
+      return pending(fact, general, dry_run);
+    }
+    RouteGate::Wait { .. } | RouteGate::Open | RouteGate::Confirm { .. } => None,
+  };
+  let blocker = general.or(refused);
+  if let Needs::Known(refusals) = facts.needs
+    && !refusals.is_empty()
+  {
+    // row 1′: the push stays enabled, its popover says why before it
+    return step(StepRow::OnePrime, StepKind::NeedsBranch { refusals: refusals.to_vec() }, blocker, dry_run);
+  }
+  if blocker.is_none() {
+    // whether CI passed on the tip, what the build needs: never a push a later answer holds back
+    if matches!(facts.listing, Listing::Loading) {
+      return pending(StepFact::PullRequests, None, dry_run);
+    }
+    if matches!(facts.needs, Needs::Computing) {
+      return pending(StepFact::LandingNeeds, None, dry_run);
+    }
+  }
+  if let Some(count) = facts.remote.map(|remote| remote.others).filter(|others| *others > 0) {
+    return step(StepRow::OneDoublePrime, StepKind::PickRemoteCommits { count }, blocker, dry_run);
+  }
+  step(StepRow::Push, StepKind::PushToBaseline { target: facts.target.to_owned() }, blocker, dry_run)
 }
 
 /// The readiness of a subject as the step reads it: none while it loads or nobody asked; a failed read is

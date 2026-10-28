@@ -148,7 +148,7 @@ pub struct PushRefsReport {
 /// The lines of a push's stderr that say why: `remote: ` lines that are no progress of a stage, and git's `error:` and
 /// `fatal:` lines but its `failed to push some refs`, which the reports say; not `Enumerating objects`, `Total …` or
 /// the other lines of git's own progress
-fn remote_messages(stderr: &str) -> Vec<String> {
+pub(crate) fn remote_messages(stderr: &str) -> Vec<String> {
   stderr
     .lines()
     .map(str::trim_end)

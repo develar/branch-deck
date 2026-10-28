@@ -71,6 +71,7 @@ const fn kind_name(kind: &StepKind) -> &'static str {
     StepKind::ChangesRequestedUnjudged { .. } => "changes_requested_unjudged",
     StepKind::AwaitingUnjudged { .. } => "awaiting_unjudged",
     StepKind::SafePush => "safe_push",
+    StepKind::PushToBaseline { .. } => "push_to_baseline",
   }
 }
 
@@ -81,6 +82,8 @@ const fn fact_name(fact: StepFact) -> &'static str {
     StepFact::LandingNeeds => "landing_needs",
     StepFact::RobotProblems => "robot_problems",
     StepFact::Readiness => "readiness",
+    StepFact::Permission => "permission",
+    StepFact::TargetRules => "target_rules",
   }
 }
 
@@ -111,7 +114,8 @@ fn pull_request_of(kind: &StepKind) -> Option<u32> {
     | StepKind::NeedsBranch { .. }
     | StepKind::PickRemoteCommits { .. }
     | StepKind::Restart { .. }
-    | StepKind::SafePush => None,
+    | StepKind::SafePush
+    | StepKind::PushToBaseline { .. } => None,
   }
 }
 
@@ -136,6 +140,8 @@ fn step_words(kind: &StepKind, what: &str) -> String {
       StepFact::LandingNeeds => format!("Checking what {what} needs to land"),
       StepFact::RobotProblems => "Waits for Patronus to tell why the Safe Push failed".to_owned(),
       StepFact::Readiness => "Waits for Patronus to check the approvals".to_owned(),
+      StepFact::Permission => "Waits for GitHub to tell what the token may do in the repository".to_owned(),
+      StepFact::TargetRules => "Waits for GitHub to tell the rules of the target".to_owned(),
     },
     StepKind::Unavailable { failure, .. } => match failure {
       StepFailure::NotLoggedIn => "Run ./safePush.cmd once to log in to Patronus".to_owned(),
@@ -173,7 +179,8 @@ fn step_words(kind: &StepKind, what: &str) -> String {
     | StepKind::Retarget { .. }
     | StepKind::ChangesRequestedUnjudged { .. }
     | StepKind::AwaitingUnjudged { .. }
-    | StepKind::SafePush => String::new(),
+    | StepKind::SafePush
+    | StepKind::PushToBaseline { .. } => String::new(),
   }
 }
 

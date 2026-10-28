@@ -64,6 +64,7 @@ targets:
   - ../../crates/operations/src/pull_request.rs
   - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/bd-remote/src/safe_push_run.rs
+  - ../../crates/bd-remote/src/land_command.rs
   - ../../crates/operations/src/land_execute.rs
   - ../../crates/operations/src/robot_start.rs
   - ../../crates/operations/src/registry_file.rs
@@ -1365,6 +1366,31 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Without the Space token of the Safe Push CLI it must be `not_logged_in`, and outside Space `not_on_space`, before a
   request to Patronus.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`without_a_token_or_space_nothing_runs`)
+
+### `bd land`
+
+- `bd land <branch>` must land the branch into master by the route of the repository (`branchdeck.landing`,
+  `domain_policy::landing_route::route`, [Landing Routes](../branch/landing-routes.spec.md)): Patronus runs the Safe
+  Push of `bd safe-push` (`route: patronus`, its output in `safe_push`); a push (`route: push`) pushes the copy the sync
+  built (`commit`) into the target as a fast-forward; the merge of a pull request on GitHub is refused as not yet done
+  (`landing_route_unsupported`), and Patronus named off Space as `not_on_space`. `--whole-stack` lands the whole stack,
+  `--check` syncs and pushes nothing: `lands`, `confirmations`, `next_step` and the `refusals` a push would meet.
+  [@test] ../../crates/bd-remote/src/land_test.rs (`a_repository_that_lands_through_its_pull_request_is_not_landed_by_bd_yet`)
+- A push must run the plan of the app's start (`operations::land::prepare_one_shot` over the one-shot session of the
+  command: the pull requests with the permission of the token, the rules of the target, the landing gate of the
+  subject) through the engine (`operations::land_execute::execute`): no check against the newest target, the witness
+  and the freeze under the lock, the push by the push URL after it. What CI did not check and the changes requested
+  refuse it (`checks_not_passed`) unless `--without-checks`; what the gate of the route asks refuses it with the code of
+  its reason (`baseline_requires_pull_request`, `baseline_refused`, `push_refused`) unless `--bypass-rules`; both only
+  once the user agreed. A target that moved is `baseline_moved` (exit 3, master fetched, next step `bd update`), a
+  refusal of the server `baseline_refused` in its words; below write access `no_write_access`.
+  [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`, `a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
+- `bd land` must never update: a push that landed prints `landed: true` and `next: "bd update"`, which brings the
+  branch onto the target and drops the commits that landed. The agent skill says that the push route lands without a
+  robot and without CI and needs the user's approval like any push.
+  [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_agent_help_is_a_short_core_with_every_guard`)
 
 ### `bd request-review`
 

@@ -72,7 +72,7 @@ use domain_policy::news::{self, robot_finished};
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{LandedPullRequest, LandingRefusal};
+use domain_types::landing::{BaselinePush, LandedPullRequest, LandingRefusal};
 use domain_types::patronus::{
   KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
   REVIEW_APPROVAL_SUBSYSTEM,
@@ -384,6 +384,8 @@ pub struct FactStore {
   pub review_requests: ReviewRequestsFact,
   /// The sign-ins of the app's accounts: `Loading` until the read of the open
   pub auth: FactRecord<AuthStatus>,
+  /// What the pushes of the session into the target left: the copies they landed, the last refusal of the server
+  pub baseline_pushes: BaselinePushes,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
   /// The remote tip of each branch whose commits of others were told (`tell_remote_commits`)
@@ -412,6 +414,7 @@ impl FactStore {
       robot_details: BTreeMap::new(),
       review_requests: ReviewRequestsFact::default(),
       auth: FactRecord::loading(),
+      baseline_pushes: BaselinePushes::default(),
       news: Vec::new(),
       last_news: 0,
       told_remote_tips: HashMap::new(),
@@ -631,6 +634,25 @@ impl FactStore {
       remote: session_remote(table, state),
     })
   }
+}
+
+/// What the pushes of a session into the target left (`PlannedEffect::PushBaseline`, `Sessions::tell_baseline_push`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BaselinePushes {
+  /// The copies they landed, by subject key (the branch, `stack:<root>`), each at the tip it was pushed at: what landed
+  /// it until a fetch shows it in the baseline (`domain_policy::landed::landed_state`), so a second click pushes nothing
+  /// again
+  pub landed: BTreeMap<String, BaselinePush>,
+  /// What the server said when it refused the last push into the target (`[remote rejected]`: a hook, a protected
+  /// branch), with that target; the gate of the route asks before the next push (`Reason::BaselineRefusedPush`)
+  pub refused: Option<BaselineRefusal>,
+}
+
+/// A refusal of the server of a push into `target`, with what it said
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaselineRefusal {
+  pub target: String,
+  pub message: String,
 }
 
 impl Default for FactStore {

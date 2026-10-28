@@ -123,6 +123,11 @@ pub enum Reason {
   GitHubMirror { repository: String },
   /// The pull requests of the branches are not on GitHub: none is merged there
   NotOnGitHub,
+  /// The repository lands by a push into its target: a Dry Run is a robot of Patronus, which no push runs
+  DryRunNeedsPatronus,
+  /// The server refused a push into `target` before in this session (a hook, a protected branch), with `message`, what
+  /// it said: a push of the copy may be refused again, so the gate of the route asks first
+  BaselineRefusedPush { target: String, message: String },
 }
 
 impl Reason {
@@ -164,7 +169,9 @@ impl Reason {
       | Self::BaselineRequiresStatusChecks { .. }
       | Self::LocalBaseline { .. }
       | Self::GitHubMirror { .. }
-      | Self::NotOnGitHub => None,
+      | Self::NotOnGitHub
+      | Self::DryRunNeedsPatronus
+      | Self::BaselineRefusedPush { .. } => None,
     }
   }
 }

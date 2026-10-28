@@ -3,6 +3,7 @@ use crate::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequ
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request, robot, robot_of, stack_commit};
 use domain_types::landing::{Landed, LandedBy, LandingFix, LandingRefusal, Subject};
+use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
 use domain_types::next_step::{NextStep, StackPullRequest, StepBlocker, StepFact, StepFailure, StepHelp, StepKind, StepRetarget, StepRow, WithoutReview};
 use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusPullRequestLink, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch,
@@ -49,6 +50,8 @@ pub(crate) struct Fixture {
   pub repository: bool,
   /// The branches its Safe Push lands
   pub lands: u32,
+  /// The route of the repository into master: Patronus unless a test names another
+  pub route: LandingRoute,
 }
 
 pub(crate) fn fresh<T>(value: T) -> Fact<T> {
@@ -118,6 +121,7 @@ impl Fixture {
       stack_pull_request: None,
       repository: true,
       lands: 2,
+      route: LandingRoute::Patronus { gate: RouteGate::Open },
     }
   }
 
@@ -128,6 +132,7 @@ impl Fixture {
   /// The facts of the rule over `standing` (of `standing()`)
   pub(crate) fn facts<'a>(&'a self, standing: &'a PatronusStanding) -> StepFacts<'a> {
     StepFacts {
+      route: &self.route,
       subject: &self.subject,
       patronus: standing.answer(),
       syncing: self.syncing,
@@ -1082,4 +1087,58 @@ fn every_row_with_every_fact_without_a_fresh_answer_never_answers_an_action_the_
     }
   }
   assert_eq!(failures, Vec::<String>::new());
+}
+
+/// A repository that lands by a push into the target takes the table of its route, on Space or off it: row 1 while the
+/// Status cell says why, row 0 while the gate of the route or the pull requests have no answer, 1′ before the push,
+/// then "Push to master", disabled with the refusal of the gate; a Dry Run is a robot of Patronus, never offered
+#[test]
+fn a_push_into_the_target_is_the_step_of_its_route_and_its_gate_holds_it_back() {
+  let push = |gate: RouteGate| Fixture::branch().with(|it| it.route = LandingRoute::Push { gate });
+  let no_dry_run = rule(Reason::DryRunNeedsPatronus);
+  let push_step = StepKind::PushToBaseline { target: "master".to_string() };
+  assert_eq!(shape(&push(RouteGate::Open).step()), (StepRow::Push, push_step.clone(), None, no_dry_run.clone()));
+  assert_eq!(push(RouteGate::Open).step().lands, 2);
+  let off_space = push(RouteGate::Open).with(|it| {
+    it.robots_head = fresh(RobotsHead {
+      availability: PatronusAvailability::NotPatronus,
+      github_repository: None,
+    });
+  });
+  assert_eq!(shape(&off_space.step()), (StepRow::Push, push_step.clone(), None, no_dry_run.clone()));
+
+  let no_access = Reason::NoWriteAccess {
+    repository: "acme/monorepo".to_string(),
+    target: "master".to_string(),
+  };
+  let refused = push(RouteGate::Refused { reason: no_access.clone() });
+  assert_eq!(shape(&refused.step()), (StepRow::Push, push_step, rule(no_access), no_dry_run.clone()));
+  let confirm = push(RouteGate::Confirm {
+    confirmations: vec![Reason::BaselineRequiresStatusChecks { target: "master".to_string() }],
+  });
+  assert_eq!(confirm.step().safe_push, None);
+
+  let waits = push(RouteGate::Wait {
+    fact: RouteFact::Permission,
+    failed: None,
+  });
+  assert_eq!(
+    shape(&waits.step()),
+    (StepRow::Zero, StepKind::Pending { fact: StepFact::Permission }, Some(StepBlocker::Step), no_dry_run.clone())
+  );
+  // a reason of the subject outranks the wait
+  let syncing = push(RouteGate::Wait {
+    fact: RouteFact::TargetRules,
+    failed: None,
+  })
+  .with(|it| it.syncing = true);
+  assert_eq!(shape(&syncing.step()), (StepRow::One, StepKind::Settled, Some(StepBlocker::Syncing), no_dry_run));
+  let listing = push(RouteGate::Open).with(|it| it.listing = Fact::default());
+  assert_eq!(listing.step().kind, StepKind::Pending { fact: StepFact::PullRequests });
+  let needs = push(RouteGate::Open).with(|it| {
+    it.needs = Some(LandingNeeds::Known {
+      refusals: vec![missing_declaration()],
+    });
+  });
+  assert_eq!(needs.step().row, StepRow::OnePrime);
 }

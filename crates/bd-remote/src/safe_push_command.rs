@@ -55,6 +55,7 @@ use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ApiError;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject};
+use domain_types::landing_route::{LandingRoute, RouteGate};
 use domain_types::operation::{EffectStatus, Intent, OperationResult, Plan};
 use domain_types::patronus::{
   LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusRobot,
@@ -281,7 +282,7 @@ pub struct Refusal {
 }
 
 impl Refusal {
-  fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+  pub(crate) fn new(code: ErrorCode, message: impl Into<String>) -> Self {
     Self {
       code,
       message: message.into(),
@@ -290,7 +291,7 @@ impl Refusal {
   }
 
   /// The refusal with one more of its `next_steps`, see `CliError::with_next_step`
-  fn with_next_step(mut self, command: impl Into<String>, needs_approval: bool) -> Self {
+  pub(crate) fn with_next_step(mut self, command: impl Into<String>, needs_approval: bool) -> Self {
     self.next_steps.push(NextStep::new(command, needs_approval));
     self
   }
@@ -522,13 +523,13 @@ struct StackPush {
 /// What a start lands, and from which branch: a branch with the branches it is built on starts from its virtual
 /// branch (the whole stack of a straight chain is its last branch), the whole stack of a stack that forks from its
 /// stack branch. One value, so the subject and the branch it starts from can't disagree
-enum Start<'a> {
+pub(crate) enum Start<'a> {
   Branch(String),
   WholeStack(&'a StackBranchUpdate),
 }
 
 impl Start<'_> {
-  fn subject(&self) -> Subject {
+  pub(crate) fn subject(&self) -> Subject {
     match self {
       Self::Branch(name) => Subject::Branch { name: name.clone() },
       Self::WholeStack(update) => Subject::WholeStack { root: update.root.clone() },
@@ -802,11 +803,17 @@ fn refusing_subject(refusal: &Reason, own: &Subject) -> Subject {
 /// The whole stack `--whole-stack` lands, from the sync (`whole_stack`: the rule of the app, by declared parent); a
 /// stack branch the sync doesn't know is `stack_not_built`, which the next sync builds
 fn whole_stack_arg<'s>(context: &RepoContext, args: &SafePushArgs, synced: &'s SyncOutput) -> Result<Option<WholeStack<'s>>, CliError> {
-  if !args.whole_stack {
+  whole_stack_of_branch(context, args.whole_stack.then_some(args.branch.as_str()), synced)
+}
+
+/// The whole stack of `branch` from the sync, while the command lands it whole (`--whole-stack` of `bd safe-push` and
+/// `bd land`); none without
+pub(crate) fn whole_stack_of_branch<'s>(context: &RepoContext, branch: Option<&str>, synced: &'s SyncOutput) -> Result<Option<WholeStack<'s>>, CliError> {
+  let Some(branch) = branch else {
     return Ok(None);
-  }
+  };
   let report = &synced.report;
-  whole_stack(&report.branches, &report.grouping.parked.entries, &report.stack_branches, &args.branch)
+  whole_stack(&report.branches, &report.grouping.parked.entries, &report.stack_branches, branch)
     .map(Some)
     .map_err(|error| match error.code {
       ErrorCode::StackNotBuilt => error.with_next_step(format!("{} sync", context.bd), false),
@@ -983,7 +990,7 @@ pub(crate) fn compared_table(context: &RepoContext, synced: &SyncOutput) -> Bran
 
 /// The subject part of the decision of `start` (`LandingFacts::branch_subject`, `stack_subject`) over `pull_requests` and
 /// the landing report of the sync
-fn subject_facts<'a>(
+pub(crate) fn subject_facts<'a>(
   context: &RepoContext,
   synced: &SyncOutput,
   landing: &'a LandingFacts<'a>,
@@ -1003,7 +1010,7 @@ fn subject_facts<'a>(
 
 /// What the table alone refuses of a start (`domain_policy::land::table_blocker`), as the error of the command: the sync
 /// did not build the branch, it stays local, the stack branch holds a parked member
-fn table_error(context: &RepoContext, synced: &SyncOutput, start: &Start<'_>, reason: &Reason) -> CliError {
+pub(crate) fn table_error(context: &RepoContext, synced: &SyncOutput, start: &Start<'_>, reason: &Reason) -> CliError {
   let report = &synced.report;
   if let Reason::CantPush { branch, .. } = reason {
     let detail = synced
@@ -1167,6 +1174,7 @@ fn plan(
       allow_unknown_rules: args.allow_unknown_rules,
       allow_unknown_review: args.allow_unknown_review,
       cancel_running: args.cancel_running,
+      ..LandingAllowances::default()
     },
   };
 
@@ -1286,6 +1294,8 @@ fn plan(
       landed: &synced.landed_section,
       readiness,
       target: &target,
+      // a Safe Push is the robot's
+      route: &LandingRoute::Patronus { gate: RouteGate::Open },
     };
     check_next_step(context, &read, start, &landing.what)
   });
@@ -1428,23 +1438,25 @@ pub(crate) fn subject_readiness<'s>(session: &'s OneShot, subject: &Subject) -> 
   }
 }
 
-/// What `bd safe-push --check` read, for the next step of its subject
-struct CheckRead<'a> {
-  table: &'a BranchTable,
+/// What `bd safe-push --check` and `bd land --check` read, for the next step of its subject
+pub(crate) struct CheckRead<'a> {
+  pub(crate) table: &'a BranchTable,
   /// The robots with the problems of the failed robot of the subject, the Patronus view with the landing needs of a
   /// branch (its gate's), the pull requests
-  session: &'a OneShot,
+  pub(crate) session: &'a OneShot,
   /// The landing report of the sync
-  landed: &'a LandedSection,
+  pub(crate) landed: &'a LandedSection,
   /// The readiness of the subject, read only when the start waits for it
-  readiness: Option<&'a Fact<SubjectReadiness>>,
-  target: &'a str,
+  pub(crate) readiness: Option<&'a Fact<SubjectReadiness>>,
+  pub(crate) target: &'a str,
+  /// The route of the repository into master the step is decided by: a Safe Push is the robot's
+  pub(crate) route: &'a LandingRoute,
 }
 
 /// The next step of the subject of `start` over what the check read (`next_steps`, the rule of the app's rows): Patronus
 /// answered (it listed the robots), the problems of the failed robot of the subject as the session holds them (whether
 /// it failed for the approvals), the landing needs of a branch are its gate's
-fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_>, what: &str) -> Option<(domain_types::next_step::NextStep, NextStepSummary)> {
+pub(crate) fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_>, what: &str) -> Option<(domain_types::next_step::NextStep, NextStepSummary)> {
   let table = read.table;
   let rows = grouped_rows(table);
   let key = start.subject().key();
@@ -1466,10 +1478,12 @@ fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_
     baseline: read.landed,
     view: Some(view),
     robots: &robots_of,
+    pushed: None,
   };
   let landed = landed_states(table, &table.remote, &landed, pull_requests);
   let readiness = |subject: &str| read.readiness.filter(|_| subject == key);
   let sources = StepSources {
+    route: read.route,
     table,
     remote: &table.remote,
     rows: &rows,
@@ -1629,7 +1643,9 @@ impl Told<'_> {
       | Reason::BaselineRequiresPullRequest { .. }
       | Reason::BaselineRequiresMergeQueue { .. }
       | Reason::BaselineRestrictsUpdates { .. }
-      | Reason::BaselineRequiresStatusChecks { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
+      | Reason::BaselineRequiresStatusChecks { .. }
+      | Reason::DryRunNeedsPatronus
+      | Reason::BaselineRefusedPush { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
       Reason::OtherBase { number, base, target } => {
         let message = format!(
           "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"

@@ -180,6 +180,8 @@ const words = {
   localBaseline: ({ baseline }) => `The baseline ${baseline} is a local branch: no remote branch takes the push`,
   gitHubMirror: ({ repository }) => `${repository} is a mirror origin doesn't push to: a merge there lands nothing`,
   notOnGitHub: () => "The pull requests of the branches are not on GitHub",
+  dryRunNeedsPatronus: () => "A Dry Run is a robot of Patronus: the repository lands by a push into its target",
+  baselineRefusedPush: ({ target, message }) => `The server refused a push into ${target} before: ${message}`,
 } satisfies Words as Words
 
 /**

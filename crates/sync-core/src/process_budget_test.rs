@@ -5,6 +5,7 @@
 
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::baseline::check_baseline_update;
+use crate::baseline_push::{BaselinePush, push_baseline};
 use crate::moved_remote::{MovedBranch, fetch_moved_remotes};
 use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
@@ -890,4 +891,22 @@ async fn a_target_conflict_check() {
   let git = counting();
   assert!(matches!(check_branch_target(&git, PREFIX, &params, None).outcome, TargetOutcome::Conflict(_)));
   assert_processes(&git, &[("log", 2), ("merge-base", 1), ("merge-tree", 1), ("replay", 1), ("rev-parse", 1)]);
+}
+
+/// The push of a copy into the branch of the baseline on its remote (`baseline_push`): the upstream of the baseline
+/// (`remote`, the checked out branch by `symbolic-ref`, its upstream by `for-each-ref`), the size check of what it adds
+/// (one `log`, one `cat-file`), the push URL of the remote (`remote get-url`), one `push`
+#[test]
+fn a_push_into_the_baseline() {
+  let repo = stack_ahead_of_bare_origin();
+  let tip = repo.rev_parse("test/virtual/alpha").unwrap();
+  let git = counting();
+  let push = BaselinePush {
+    repository_path: repo.path_str(),
+    baseline: "origin/master",
+    tip: &tip,
+    size_limit: Some(50 << 20),
+  };
+  push_baseline(&git, &push, &mut |_| {}).unwrap();
+  assert_processes(&git, &[("cat-file", 1), ("for-each-ref", 1), ("log", 1), ("push", 1), ("remote", 2), ("symbolic-ref", 1)]);
 }

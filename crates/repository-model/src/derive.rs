@@ -38,6 +38,10 @@
 //! (`grouped_rows`); `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
 //! session asks it of.
 //!
+//! `landing_route_of` is the route of the repository into master with its gate (`domain_policy::landing_route::route`)
+//! over what its last grouping read of git (`TableHeader::landing`), the facts of GitHub its session holds and the
+//! refusal of the server of its last push into the target; the starts and the steps decide by it.
+//!
 //! `attention_of` is the robot of each subject that needs the user (`domain_policy::attention`: it failed on the subject
 //! as its row shows it, and nothing else holds the subject), which the view derives with every patch over the rows as
 //! they are, so the landing overview, Attention and the Dock badge list what the view says.
@@ -54,6 +58,7 @@ use domain_policy::land::{
 };
 use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
 use domain_policy::landing_node::{NodeFacts, landing_node};
+use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
@@ -65,7 +70,8 @@ use domain_policy::reasons::{held, stack_not_built};
 use domain_policy::review::candidates;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
-use domain_types::landing::{Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
+use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
+use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::{NextStepView, StackPullRequest};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestView};
@@ -73,7 +79,7 @@ use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, RobotAttention,
-  RobotsView, StackBranchAlong, SubjectReadiness, WholeStackView, stack_readiness_key,
+  RobotsView, StackBranchAlong, SubjectReadiness, TableHeader, WholeStackView, stack_readiness_key,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, PushAction};
@@ -565,9 +571,19 @@ pub struct LandingFacts<'a> {
   pub robots: Robots<'a>,
   repo: Repository<'a>,
   holds: HashMap<&'a str, HoldView>,
+  /// The copies the pushes of the session into the target landed, by subject key (`BaselinePushes::landed`)
+  pushed: Option<&'a BTreeMap<String, BaselinePush>>,
 }
 
 impl<'a> LandingFacts<'a> {
+  /// These facts with the copies the pushes of the session into the target landed, which landed their subjects until a
+  /// fetch shows them in the baseline
+  #[must_use]
+  pub const fn with_pushed(mut self, pushed: Option<&'a BTreeMap<String, BaselinePush>>) -> Self {
+    self.pushed = pushed;
+    self
+  }
+
   /// The facts of `table` with `view`, its Patronus facts, the remote branches `remote` and the user's `robots`;
   /// `running_spans`, by branch, the first running robot that lands it (`patronus_view`). A view whose holds are decided
   /// already (`decide_landing`) passes none: its holds are read from it
@@ -596,6 +612,7 @@ impl<'a> LandingFacts<'a> {
       robots,
       repo: table.repository(),
       holds,
+      pushed: None,
     }
   }
 
@@ -719,6 +736,7 @@ impl<'a> LandingFacts<'a> {
       baseline,
       view: Some(self.view),
       robots: &self.robots,
+      pushed: self.pushed,
     }
   }
 
@@ -942,8 +960,26 @@ pub fn landed_states_of(state: &TableState, facts: &FactStore) -> BTreeMap<Strin
     baseline: &state.parts.sections.landed,
     view: matches!(part.state, FactState::Fresh | FactState::Stale { .. }).then_some(&part.view),
     robots: &robots,
+    pushed: Some(&facts.baseline_pushes.landed),
   };
   landed_states(&table.table, &table.remote, &landed, facts.pull_requests.view())
+}
+
+/// The route of the repository of `header` into master with its gate (`domain_policy::landing_route::route`): what its
+/// last grouping read of git (the setting, where the remotes push, the target), the facts of GitHub of `facts` (the
+/// listing of the pull requests with the permission of the token, the rules of the target), and the refusal of the
+/// server of its last push into the target (`BaselinePushes::refused`)
+#[must_use]
+pub fn landing_route_of(header: &TableHeader, facts: &FactStore) -> LandingRoute {
+  let remote = &header.landing;
+  let rules = rules_target(remote).and_then(|target| facts.rules.get(target)).map(FactRecord::fact);
+  route(&RouteFacts {
+    remote,
+    baseline: &header.baseline_branch,
+    github: GitHubFacts::of(facts.pull_requests.view()),
+    rules: TargetRules::of(rules),
+    refused: facts.baseline_pushes.refused.as_ref().map(|refused| refused.message.as_str()),
+  })
 }
 
 /// What landed each subject of `table` (`domain_policy::landed::landed_state`) over `landed` and the listing
@@ -971,6 +1007,13 @@ pub fn landed_states(table: &BranchTable, remote: &RemoteFacts, landed: &LandedF
 /// branches as the deciding side knows them, its Patronus view and the user's robots, and the facts of the remote
 /// services as the session holds them (the scenario facts of `bd` hold their reads so)
 pub struct LandSources<'a> {
+  /// The route of the repository into master with its gate (`landing_route_of`)
+  pub route: &'a LandingRoute,
+  /// The copies the pushes of the session into the target landed (`BaselinePushes::landed`); `None` for `bd`
+  pub pushed: Option<&'a BTreeMap<String, BaselinePush>>,
+  /// The head of the table as its grouping read it: the checked out branch with HEAD (which holds the originals of the
+  /// copies), the baseline
+  pub header: &'a TableHeader,
   pub table: &'a BranchTable,
   pub remote: &'a RemoteFacts,
   pub view: &'a PatronusView,
@@ -1044,7 +1087,11 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
   let robots = listed_robots(facts.robots.view());
   let target = baseline_on_remote(&state.parts.header.baseline_branch);
   let readiness = |key: &str| facts.readiness.fact(key);
+  let route = landing_route_of(&state.parts.header, facts);
   let sources = LandSources {
+    route: &route,
+    pushed: Some(&facts.baseline_pushes.landed),
+    header: &state.parts.header,
     table: &table.table,
     remote: &table.remote,
     view: &part.view,
@@ -1067,7 +1114,7 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
 /// The decisions of the default intents of every branch and of every whole stack that forks
 #[must_use]
 pub fn decide_lands(sources: &LandSources<'_>) -> BTreeMap<String, LandDecisions> {
-  let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None);
+  let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None).with_pushed(sources.pushed);
   let branches = sources.table.branches.iter().map(|branch| Subject::branch(&branch.name));
   let stacks = sources
     .table
@@ -1092,7 +1139,7 @@ pub fn decide_lands(sources: &LandSources<'_>) -> BTreeMap<String, LandDecisions
 /// doesn't fork
 #[must_use]
 pub fn land_decision(sources: &LandSources<'_>, land: &Land) -> Option<(LandDecision, LandProfiles)> {
-  let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None);
+  let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None).with_pushed(sources.pushed);
   let (decision, last) = decide_with(sources, &landing, land)?;
   let profiles = standing(sources.profiles).map_or_default(|options| offered_profiles(options, last, land.mode, land.without_approvals));
   Some((decision, profiles))
@@ -1138,6 +1185,7 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
   };
   let last = robot.and_then(|robot| robot.profile.as_ref());
   let facts = LandFacts {
+    route: sources.route,
     target: sources.target,
     prefix: sources.prefix,
     github: sources.github,
@@ -1244,6 +1292,8 @@ fn member_parked(member: &ParkedMember) -> Parked {
 /// remote branches as the deciding side knows them, its rows as they are now, the Patronus view and the robots, and the
 /// facts of the remote services as the session holds them (`bd` holds its own reads, those it didn't read unknown)
 pub struct StepSources<'a> {
+  /// The route of the repository into master with its gate (`landing_route_of`)
+  pub route: &'a LandingRoute,
   pub table: &'a BranchTable,
   pub remote: &'a RemoteFacts,
   /// The rows, in the order of the table, by branch
@@ -1352,6 +1402,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let ancestors = build_ancestors(&repo, name);
     let step = StepFacts {
       subject: &subject,
+      route: sources.route,
       patronus,
       syncing: row.syncing,
       sync_failed: row.sync_failed,
@@ -1415,6 +1466,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       .map_or(stack.members.len(), |rest| rest.members.len());
     let step = StepFacts {
       subject: &subject,
+      route: sources.route,
       patronus,
       syncing: stack.members.iter().any(|member| rows.get(member.as_str()).is_some_and(|row| row.syncing)),
       sync_failed: false,
@@ -1496,7 +1548,9 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
   let robots = facts.robots.view();
   let patronus = PatronusStanding::of(&robots.head, &part.state);
   let readiness = |key: &str| facts.readiness.fact(key);
+  let route = landing_route_of(&parts.header, facts);
   let sources = StepSources {
+    route: &route,
     table: &table.table,
     remote: &table.remote,
     rows: &rows,

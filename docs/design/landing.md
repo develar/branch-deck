@@ -87,6 +87,16 @@ The specs are the contract of each part:
   the write access (`viewerPermission` of the listing of the pull requests, no request of its own) and the rules of the
   target (`rules/branches/<target>`, read only for a push route). A fact without an answer waits; a fact of another
   repository than the one the remote pushes to counts for nothing, and the server answers.
+- **Push to master.** On the push route the start of a piece or of a whole stack is one push of its copy into the
+  target, a fast-forward (`domain_policy::land_direct`, [Push into the baseline](git-operations.md#push-into-the-baseline)):
+  the next step of a ready subject is "Push to master" (the row `push` of [Next Step](../../spec/branch/next-step.spec.md#a-push-into-the-target)),
+  its node ready, its action `push-to-baseline`; a Dry Run, a robot of Patronus, is refused. A push runs no CI, so
+  what CI did not pass on the tip (no open pull request, one that shows another commit, failing or running checks) and
+  the changes requested on it are confirmations, and so is what the gate asks. After a push that landed, Update Project
+  follows as an operation of its own: the originals whose copies landed drop out of the branch. `bd land` lands by the
+  route of the repository and names `bd update` after it.
+  - *Rationale:* the update is a rule of Rust, not of the page: a landing by a click leaves the branch where the next
+    click lands nothing twice; `bd` never moves the files of an agent's checkout by itself.
 
 The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
 

@@ -6,6 +6,7 @@
 //! `--check` (the production path: its preamble, `plan()`, the output of a check, with the plan and the step its words
 //! tell), then the start without `--check`
 
+use crate::land_command::{LandArgs, land as land_command};
 use crate::push_command::github_repository;
 use crate::safe_push_command::{SafePushArgs, SafePushOutput, safe_push as safe_push_command};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
@@ -19,6 +20,7 @@ use bd_core::services::{github_service, patronus_service};
 use bd_core::stack_summary::whole_stack;
 use bd_core::sync_command::{lock, sync_locked};
 use domain_policy::land::unaccepted;
+use domain_policy::landing_route::rules_target;
 use domain_policy::stack::{WholeStack, whole_stack_of};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::commit::Commit;
@@ -188,6 +190,25 @@ struct Given {
   landing_needs: Option<bool>,
   /// The commits of a fixture that make a dangling reference, instead of `commits`
   dangling: Option<Dangling>,
+  /// The route of the repository into master (`branchdeck.landing`): unset, the host of `origin` decides it
+  route: Option<GivenRoute>,
+  /// What the token may do in the GitHub repository `origin` pushes to (its push URL github.com/acme/monorepo), as the
+  /// listing of the pull requests names it
+  permission: Option<GivenPermission>,
+}
+
+/// The route a case names (`branchdeck.landing`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum GivenRoute {
+  Push,
+}
+
+/// The `viewerPermission` of the listing of the pull requests
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum GivenPermission {
+  Read,
 }
 
 impl Default for Given {
@@ -214,6 +235,8 @@ impl Default for Given {
       landed: None,
       landing_needs: None,
       dangling: None,
+      route: None,
+      permission: None,
     }
   }
 }
@@ -386,6 +409,8 @@ enum Flag {
   AllowMissing,
   AllowDangling,
   AllowUnknownRules,
+  /// `--without-checks` of `bd land`: what CI did not check, accepted
+  WithoutChecks,
 }
 
 impl Given {
@@ -525,6 +550,21 @@ impl Given {
       allow_unknown_rules: self.has(Flag::AllowUnknownRules),
       allow_unknown_review: false,
       cancel_running: self.has(Flag::CancelRunning),
+      allow_without_checks: self.has(Flag::WithoutChecks),
+      ..LandingAllowances::default()
+    }
+  }
+
+  /// The arguments of `bd land`, of a case of the push route
+  fn land_args(&self, check: bool) -> LandArgs {
+    LandArgs {
+      branch: self.branch.clone(),
+      whole_stack: self.subject == GivenSubject::WholeStack,
+      check,
+      without_checks: self.has(Flag::WithoutChecks),
+      allow_dangling: self.has(Flag::AllowDangling),
+      allow_missing: self.has(Flag::AllowMissing),
+      ..LandArgs::default()
     }
   }
 
@@ -726,6 +766,13 @@ impl Situation {
     given.check_mapped();
     let space = Space::new(&[]);
     commit_given(&space, given);
+    if given.route == Some(GivenRoute::Push) {
+      git(&space.repo, &["config", "branchdeck.landing", "push"]);
+    }
+    if given.permission.is_some() {
+      // GitHub's facts count for the repository `origin` pushes to
+      git(&space.repo, &["config", "remote.origin.pushurl", "https://github.com/acme/monorepo.git"]);
+    }
     let branch = given.branch.as_str();
     let mut pull_requests: Vec<Value> = given.pull_request.iter().map(|pull_request| pull_request_of(pull_request, branch)).collect();
     if given.stack_pull_request.is_some() {
@@ -768,6 +815,13 @@ impl Situation {
           github.answer("POST", "/graphql", FakeAnswer::status(500, json!({"message": "Server Error"})));
         }
       }
+    }
+    if let (Some(GivenPermission::Read), Some(github)) = (given.permission, &github) {
+      github.answer(
+        "POST",
+        "/graphql",
+        FakeAnswer::ok(json!({"data": {"repository": {"viewerPermission": "READ"}, "search": {"nodes": pull_requests}}})),
+      );
     }
     match (given.rules, &github) {
       (Rules::Keep, _) | (_, None) => {}
@@ -848,8 +902,20 @@ impl Situation {
 
   /// `safe_push()` with `--check`, the function the command runs: its output as `--check` prints it, or the error of
   /// the plan
-  fn check(&self, given: &Given) -> Result<SafePushOutput, CliError> {
-    safe_push_command(&self.context()?, &given.args(true), &self.environment)
+  fn check(&self, given: &Given) -> Result<BdCheck, CliError> {
+    let context = self.context()?;
+    if given.route == Some(GivenRoute::Push) {
+      let output = land_command(&context, &given.land_args(true), &self.environment)?;
+      return Ok(BdCheck {
+        plan: output.decided.plan,
+        step: output.decided.step,
+      });
+    }
+    let output: SafePushOutput = safe_push_command(&context, &given.args(true), &self.environment)?;
+    Ok(BdCheck {
+      plan: output.plan,
+      step: output.step,
+    })
   }
 
   fn context(&self) -> Result<RepoContext, CliError> {
@@ -866,6 +932,21 @@ impl Situation {
 
   /// `bd safe-push` without `--check`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
   fn start(&self, given: &Given) -> Value {
+    if given.route == Some(GivenRoute::Push) {
+      let mut args = vec!["--prefix", PREFIX, "land", given.branch.as_str()];
+      if given.has(Flag::WithoutChecks) {
+        args.push("--without-checks");
+      }
+      if given.subject == GivenSubject::WholeStack {
+        args.push("--whole-stack");
+      }
+      let (exit_code, output) = run_json(&self.environment, &args);
+      return if exit_code == 0 {
+        json!({"landed": output["landed"]})
+      } else {
+        json!({"error": output["error"]["code"]})
+      };
+    }
     let line = given.command_line();
     let args: Vec<&str> = line.iter().map(String::as_str).collect();
     let (exit_code, output) = safe_push(&self.environment, &args);
@@ -976,7 +1057,10 @@ impl<'c> AppSession<'c> {
     self.apply(FactResult::PullRequests(listed));
     let committed = self.facts.table.value().map(|table| table.baseline.clone());
     if let Some(repository) = &github {
-      for base in self.facts.pull_requests.approved_bases(committed.as_deref(), &context.prefix) {
+      // the rules of the approved bases, and of the target of a push into it on GitHub (`rule_bases` of the session)
+      let mut bases = self.facts.pull_requests.approved_bases(committed.as_deref(), &context.prefix);
+      bases.extend(rules_target(&self.state.header().landing).map(str::to_owned).filter(|target| !bases.contains(target)));
+      for base in bases {
         let result = runtime
           .block_on(read_branch_rules(&github_service, &context.repository, repository, &base))
           .map_err(|failure| ApiError::internal(format!("{failure:?}")));
@@ -1158,6 +1242,12 @@ impl Situation {
   }
 }
 
+/// What `bd` decides of a case with `--check`: the plan and the step its words tell
+struct BdCheck {
+  plan: Option<Plan>,
+  step: Option<NextStep>,
+}
+
 // ---- what a case compares ----
 
 /// What a case compares of a next step (`expect.step`): its row, its kind, the blocker of each start, of a rule the
@@ -1227,6 +1317,10 @@ fn land_answer(decision: Option<&Plan>) -> Value {
       _ => None,
     }).first(),
     "lands": decision.lands,
+    "into": decision.effects.iter().find_map(|effect| match effect {
+      PlannedEffect::PushBaseline { target, .. } => Some(json!(target)),
+      _ => None,
+    }),
   })
 }
 
@@ -1280,7 +1374,9 @@ fn differences(side: &str, column: &str, expected: &Value, actual: &Value) -> Ve
 /// (`domain_policy::land::unaccepted`), else it refuses
 fn start_differences(situation: &Situation, given: &Given, decision: &Plan) -> Vec<String> {
   let starts = decision.blockers.is_empty() && decision.waits.is_empty() && unaccepted(&decision.confirmations, &given.allowances()).is_empty();
-  let expected = if starts {
+  let expected = if starts && given.route == Some(GivenRoute::Push) {
+    json!({"landed": true})
+  } else if starts {
     let via = match decision.start_route() {
       Some(StartRoute::Api { .. }) if !decision.effects.contains(&PlannedEffect::CreatePullRequest) => "api",
       _ => "pull_request",

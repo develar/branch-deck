@@ -7,11 +7,13 @@ use crate::witness::Witness;
 use domain_policy::admission::admit;
 use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{PlannedEffect, Subject};
+use domain_types::landing_route::{LandingRoute, RouteGate};
 use domain_types::operation::{Admission, EffectStatus, Fingerprint, Intent, OperationId, OperationResult, OperationStep, Origin, PullRequestField, Resource, RunningOperation};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusStartOptions};
 use domain_types::pull_request::PullRequestState;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{PatronusView, RestartAction, RobotRestart};
+use domain_types::session::TableHeader;
 use domain_types::session::{Fact, FactState, LandedSection, PullRequestsView, SubjectReadiness, Version};
 use history_rewrite::repository_lock::lock_repository_as_another_process;
 use pretty_assertions::assert_eq;
@@ -77,7 +79,11 @@ impl Sources {
   /// `decide` over these sources
   pub(crate) fn with<T>(&self, decide: impl FnOnce(&LandSources<'_>) -> T) -> T {
     let readiness = |key: &str| self.readiness.get(key);
+    let route = LandingRoute::Patronus { gate: RouteGate::Open };
     let sources = LandSources {
+      route: &route,
+      pushed: None,
+      header: &TableHeader::default(),
       table: &self.table,
       remote: &self.table.remote,
       view: &self.view,

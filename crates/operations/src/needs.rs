@@ -67,15 +67,19 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
 }
 
 /// What the first plan of a start of `subject` into `target` waits for (`waits`) that it reads now: the review of the
-/// subject, the rules of the target for a push into an approved pull request; the other facts it waits for are read
-/// first or are the host's (the landing gate, the remote of a sync)
+/// subject, the rules of the target for a push into an approved pull request and for the gate of a push into the target,
+/// the listing of the pull requests a failed first read left without the permission of the token; the other facts it
+/// waits for are read first or are the host's (the landing gate, the remote of a sync)
 #[must_use]
 pub fn waits(waits: &[FactWait], subject: &Subject, target: &str) -> Vec<FactNeed> {
   let mut needs = Vec::new();
   for wait in waits {
     let need = match wait.fact {
       LandFact::Readiness => FactNeed::Readiness(subject.clone()),
-      LandFact::Rules { .. } => FactNeed::Rules { branch: target.to_owned() },
+      // the rules of the target: of a push into an approved pull request, of the gate of a push into the target
+      LandFact::Rules { .. } | LandFact::TargetRules => FactNeed::Rules { branch: target.to_owned() },
+      // the permission of the token comes with the listing of the pull requests, read first
+      LandFact::Permission => FactNeed::PullRequests,
       LandFact::Remote | LandFact::Profiles | LandFact::PullRequests | LandFact::LandingNeeds => continue,
     };
     if !needs.contains(&need) {

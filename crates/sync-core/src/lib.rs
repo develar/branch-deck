@@ -58,6 +58,8 @@
 //! - `push_lease`: the lease of a virtual branch push and `push_refs`, shared by the app and `bd push`
 //! - `push`: the app's push of a virtual branch
 //! - `push_size`: the size check of every push, refused over `branchdeck.pushSizeLimit` before the network
+//! - `baseline_push`: the push of a copy into the branch of the baseline on its remote, a fast-forward by the push URL,
+//!   where the repository lands by a push (`branchdeck.landing=push`)
 //! - `remote_url`: the host and the repository path of a remote URL
 //! - `review_fetch`: the commits of a pull request to review, into `refs/branch-deck/review/<n>/`
 //!
@@ -82,6 +84,7 @@ pub mod add_issue_reference;
 pub mod amend_to_branch;
 pub mod baseline;
 pub mod baseline_fetch;
+pub mod baseline_push;
 pub mod branch_name_suggestion;
 pub mod branch_prefix;
 pub mod branch_processor;

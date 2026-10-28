@@ -427,6 +427,26 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 
+### A push into the target
+
+- A repository that lands by a push of the copy into the target (`LandingRoute::Push`,
+  [Landing Routes](landing-routes.spec.md#push-to-master)) takes the table of its route, on Space or off it, whatever
+  Patronus answers: row 1 while the Status cell says why nothing lands now (a sync, a failure, no commits, blocked,
+  held, parked, landed, its robot running), row 0 while the gate of the route has no answer (`permission`,
+  `targetRules`; a reason of the subject outranks it) and then while the pull requests or the landing needs have none,
+  1′ and 1″ as above, then:
+
+  | # | State | Slot | Start elsewhere |
+  |---|---|---|---|
+  | push | Nothing of the table above holds it | "Push to master" ("Push to master · 3" for what it is built on), its node ready | disabled with the refusal of the gate ("You have no write access to acme/monorepo"), else enabled: its popover confirms what CI did not check and what the gate asks |
+
+  A Dry Run is a robot of Patronus: never offered on this route (`dryRunNeedsPatronus`). The whole stack of a root that
+  forks takes the same rows in its header. The merge of a pull request on GitHub keeps the table above in this phase.
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_push_into_the_target_is_the_step_of_its_route_and_its_gate_holds_it_back`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits`)
+  [@test] ../../src/presenters/next-step.test.ts (`row push: Push to master by the branches it lands, its start disabled with the refusal of the gate of the route`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
+
 ### The surfaces
 
 - The slot (`NextStepSlot`, the step column of the Actions cell, [Branch columns](../../docs/design/ui-theme.md#branch-columns)) renders the step, and hosts the popover of the branch's start

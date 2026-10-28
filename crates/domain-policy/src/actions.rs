@@ -5,7 +5,8 @@
 //! `start_actions` those of a start whose answer was lost (spec/branch/patronus.spec.md, "A start whose answer was lost").
 //!
 //! - The starts take the reasons of the next step of the subject (`NextStep::safe_push`, `dry_run`, `without_review`):
-//!   one rule for the slot, the menu, S and the popover.
+//!   one rule for the slot, the menu, S and the popover. A repository that lands by a push into the target offers its
+//!   push instead (`push-to-baseline`, of a branch and of a whole stack), none of the robot's starts.
 //! - The push waits for the facts its button reads: parked, blocked, failed, held, a sync that rebuilds the branch,
 //!   nothing to push. Push with Children says what it lacks beyond the branch (`NothingBeyond`).
 //! - A rewrite needs commits and a build; the fixes of a stack problem run while the problem blocks the rest. A sync
@@ -70,6 +71,7 @@ pub struct Children<'a> {
 
 /// The facts the actions of a branch are decided on
 #[derive(Clone, Debug)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of the branch, each read by its own actions")]
 pub struct BranchFacts<'a> {
   pub row: Row<'a>,
   pub patronus: PatronusAnswer<'a>,
@@ -91,6 +93,8 @@ pub struct BranchFacts<'a> {
   /// The pull request whose comment starts its Safe Push (`StartRoute::Comment`)
   pub comment_route: Option<u32>,
   pub stacks_enabled: bool,
+  /// The repository lands by a push of the copy into the target (`LandingRoute::Push`): its push is the start
+  pub push_route: bool,
 }
 
 /// The actions of a branch, in the order of the enum
@@ -100,8 +104,11 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   let step = facts.step;
   let mut actions = Vec::new();
   let mut offer = |id: ActionId, reason: Option<ActionBlocker>| actions.push(state(id, reason));
-  // until Patronus answers its starts are offered, disabled with what they wait for: hidden only off Space
-  if !matches!(facts.patronus, PatronusAnswer::NotOnSpace) {
+  // until Patronus answers its starts are offered, disabled with what they wait for: hidden only off Space, and where
+  // the push into the target lands it
+  if facts.push_route {
+    offer(ActionId::PushToBaseline, step.safe_push.as_ref().map(of_step));
+  } else if !matches!(facts.patronus, PatronusAnswer::NotOnSpace) {
     offer(ActionId::SafePush, step.safe_push.as_ref().map(of_step));
     let profile = step
       .safe_push
@@ -112,7 +119,7 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
     offer(ActionId::DryRun, step.dry_run.as_ref().map(of_step));
     offer(ActionId::CheckApprovals, None);
   }
-  if let Some(without_review) = &step.without_review {
+  if let Some(without_review) = step.without_review.as_ref().filter(|_| !facts.push_route) {
     offer(ActionId::SafePushWithoutReview, without_review.blocker.as_ref().map(of_step));
   }
   offer(ActionId::Push, push_blocker(facts));
@@ -345,6 +352,9 @@ pub struct StackFacts<'a> {
   pub repository: bool,
   /// What landed all of it
   pub landed: Option<&'a Landed>,
+  /// The repository lands by a push of the copy into the target (`LandingRoute::Push`): the push of its stack branch is
+  /// its start
+  pub push_route: bool,
 }
 
 /// The actions of the whole stack of a root, in the order of the enum; the robot of the whole stack has its own
@@ -353,7 +363,11 @@ pub struct StackFacts<'a> {
 pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
   let mut actions = Vec::new();
   let mut offer = |id: ActionId, reason: Option<ActionBlocker>| actions.push(state(id, reason));
-  let offered = !matches!(facts.patronus, PatronusAnswer::NotOnSpace);
+  let offered = !matches!(facts.patronus, PatronusAnswer::NotOnSpace) && !facts.push_route;
+  // the push of a whole stack is of its stack branch: a stack that forks
+  if let Some(step) = facts.step.filter(|_| facts.push_route && matches!(facts.shape, StackShape::Forking { .. })) {
+    offer(ActionId::PushToBaseline, step.safe_push.as_ref().map(of_step));
+  }
   if let Some(step) = facts.step.filter(|step| offered && step.kind != StepKind::Hidden) {
     offer(ActionId::SafePushWholeStack, step.safe_push.as_ref().map(of_step));
     offer(ActionId::DryRunWholeStack, step.dry_run.as_ref().map(of_step));
@@ -678,7 +692,8 @@ fn needs(id: ActionId, of: Of<'_>) -> Vec<Resource> {
 fn is_own(id: ActionId, of: Of<'_>, intent: &Intent) -> bool {
   match of {
     Of::Branch { name, unparks, pull_request, .. } => match (id, intent) {
-      (ActionId::SafePush | ActionId::SafePushWithProfile | ActionId::SafePushWithoutReview, Intent::Land(land)) => {
+      // the push into the target is the start of its route: the same intent
+      (ActionId::SafePush | ActionId::SafePushWithProfile | ActionId::SafePushWithoutReview | ActionId::PushToBaseline, Intent::Land(land)) => {
         land.mode != PatronusPushMode::DryRun && is_branch(&land.subject, name)
       }
       (ActionId::DryRun, Intent::Land(land)) => land.mode == PatronusPushMode::DryRun && is_branch(&land.subject, name),
@@ -691,7 +706,7 @@ fn is_own(id: ActionId, of: Of<'_>, intent: &Intent) -> bool {
       _ => false,
     },
     Of::WholeStack { root, main_line, .. } => match (id, intent) {
-      (ActionId::SafePushWholeStack, Intent::Land(land)) => land.mode != PatronusPushMode::DryRun && is_stack(&land.subject, root),
+      (ActionId::SafePushWholeStack | ActionId::PushToBaseline, Intent::Land(land)) => land.mode != PatronusPushMode::DryRun && is_stack(&land.subject, root),
       (ActionId::DryRunWholeStack, Intent::Land(land)) => land.mode == PatronusPushMode::DryRun && is_stack(&land.subject, root),
       (ActionId::SafePushMainLine, Intent::Land(land)) => land.mode != PatronusPushMode::DryRun && main_line.is_some_and(|leaf| is_branch(&land.subject, leaf)),
       (ActionId::RequestReview, Intent::RequestReview { subject, .. }) => is_stack(subject, root),

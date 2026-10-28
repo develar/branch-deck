@@ -6,8 +6,8 @@ pub mod install;
 pub mod schema;
 
 use crate::agent_help::{
-  AGENT_HELP, CHECK_HELP, FOLD_HELP, GROUP_HELP, MOVE_HUNK_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP,
-  STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
+  AGENT_HELP, CHECK_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP,
+  SAFE_PUSH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::install::{InstallArgs, install};
 use crate::schema::{SchemaArgs, schema};
@@ -27,6 +27,7 @@ use bd_lease::lease_command::{
   pick_requires_check, refuse_update_in_lease, unchecked_tree,
 };
 use bd_lease::workspace_command::workspace;
+use bd_remote::land_command::{LandArgs, land};
 use bd_remote::operation_command::{OperationArgs, OperationCommand, forget};
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
@@ -184,6 +185,12 @@ enum Command {
   /// when approvals are missing), the branch pushed first when the remote lacks its commits by content
   #[command(after_help = "Outputs and refusals: `bd safe-push --help`", after_long_help = SAFE_PUSH_HELP)]
   SafePush(SafePushArgs),
+  /// Land a branch into master by the route of the repository (`branchdeck.landing`); --check pushes nothing
+  ///
+  /// A Safe Push of Patronus, or a push of the copy into the target as a fast-forward, which lands without CI: only
+  /// after the user approved. It never updates: `next` names `bd update`
+  #[command(after_help = "Outputs and refusals: `bd land --help`", after_long_help = LAND_HELP)]
+  Land(LandArgs),
   /// Ask GitHub users to review the open pull request of a branch; --check asks nobody
   ///
   /// The code owners Patronus suggests for the groups whose approval is missing, or --reviewer <login>
@@ -600,6 +607,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::SafePush(args) => context()
       .and_then(|context| safe_push(&context, args, environment))
       .and_then(|output| printed(out, &output)),
+    Command::Land(args) => context().and_then(|context| land(&context, args, environment)).and_then(|output| printed(out, &output)),
     Command::RequestReview(args) => context()
       .and_then(|context| request_review(&context, args, environment))
       .and_then(|output| printed(out, &output)),

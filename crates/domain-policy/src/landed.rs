@@ -1,17 +1,19 @@
-//! What landed a subject (docs/design/rust-domain-authority.md, D7, D13; spec/branch/next-step.spec.md, row 1): the
-//! fetched baseline has all of it, merged Safe Pushes landed it, or GitHub merged its pull request with the commits it
-//! has (`landed_state`, one answer for the view of the app and for `bd safe-push`), what a start says of it
+//! What landed a subject (docs/design/rust-domain-authority.md, D7, D13; spec/branch/next-step.spec.md, row 1): a push
+//! of this session put its copy into the target, the fetched baseline has all of it, merged Safe Pushes landed it, or
+//! GitHub merged its pull request with the commits it has (`landed_state`, one answer for the view of the app and for
+//! `bd safe-push`), what a start says of it
 //! (`Landed::reason` of `landed_reason`), and the open pull requests of the branches a merged Safe Push landed whole
 //! besides its own (`pull_requests_to_close`: the app closes them, `bd robot` lists them, D7).
 
 use crate::facts::{RemoteBranch, Robots};
 use crate::reasons::{landed, stack_landed};
-use domain_types::landing::{Landed, LandedBy, LandedPullRequest};
+use domain_types::landing::{BaselinePush, Landed, LandedBy, LandedPullRequest};
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{PatronusView, RobotLandedBranch, RobotOf};
-use domain_types::session::LandedSection;
+use domain_types::session::{LandedSection, stack_readiness_key};
+use std::collections::BTreeMap;
 
 /// What the rules read to decide what landed a subject: the landing report of the last sync, what merged Safe Pushes
 /// landed of each branch and the user's robots
@@ -22,6 +24,9 @@ pub struct LandedFacts<'a> {
   /// The Patronus view (`landed_by` of each branch); `None` before it stands
   pub view: Option<&'a PatronusView>,
   pub robots: &'a Robots<'a>,
+  /// The copies the pushes of this session into the target landed, by subject key, until a fetch shows them in the
+  /// baseline; `None` where nothing keeps them (`bd`)
+  pub pushed: Option<&'a BTreeMap<String, BaselinePush>>,
 }
 
 /// What a subject is
@@ -47,13 +52,15 @@ pub struct LandedSubject<'a> {
   pub pull_request: Option<&'a PullRequest>,
 }
 
-/// What landed `subject`, the first that holds: the fetched baseline has every commit of it (of a whole stack, of every
-/// branch), merged Safe Pushes landed it (of a branch also a part of it, `after` the work left; of a whole stack every
-/// branch whole), GitHub merged its pull request with the commits it has (`merged_with`, D13). `None` while work is left
-/// that none of them has
+/// What landed `subject`, the first that holds: a push of this session put it into the target at the tip it is at (the
+/// baseline has it once fetched), the fetched baseline has every commit of it (of a whole stack, of every branch),
+/// merged Safe Pushes landed it (of a branch also a part of it, `after` the work left; of a whole stack every branch
+/// whole), GitHub merged its pull request with the commits it has (`merged_with`, D13). `None` while work is left that
+/// none of them has
 #[must_use]
 pub fn landed_state(facts: &LandedFacts<'_>, subject: &LandedSubject<'_>) -> Option<Landed> {
-  by_baseline(facts.baseline, subject.of)
+  by_push(facts.pushed, subject)
+    .or_else(|| by_baseline(facts.baseline, subject.of))
     .or_else(|| by_robots(facts, subject.of))
     .or_else(|| by_pull_request(subject))
 }
@@ -111,6 +118,20 @@ fn merged_with(pull_request: &PullRequest, tip: Option<&str>, remote: Option<Rem
 /// The head of the pull request; `None` when GitHub didn't name it
 fn head_of(pull_request: &PullRequest) -> Option<&str> {
   Some(pull_request.head_ref_oid.as_str()).filter(|head| !head.is_empty())
+}
+
+/// The push of this session that put the copy of `subject`, as it is now, into the target: a rebuild or a new commit
+/// since is new work
+fn by_push(pushed: Option<&BTreeMap<String, BaselinePush>>, subject: &LandedSubject<'_>) -> Option<Landed> {
+  let key = match subject.of {
+    Of::Branch(name) => name.to_owned(),
+    Of::WholeStack { root, .. } => stack_readiness_key(root),
+  };
+  let push = pushed?.get(&key).filter(|push| subject.tip == Some(push.tip.as_str()))?;
+  Some(Landed {
+    by: LandedBy::Baseline { upstream: push.upstream.clone() },
+    after: Vec::new(),
+  })
 }
 
 /// The landing of the fetched baseline: every commit of the branch, of every branch of a whole stack

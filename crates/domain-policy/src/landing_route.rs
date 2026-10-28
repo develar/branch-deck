@@ -8,7 +8,8 @@
 //!   required status checks a push lands without are a confirmation. A merge needs write access too; without it the
 //!   route stays and others merge. The facts of GitHub count only when the remote of the baseline pushes to the
 //!   repository they describe: otherwise there is no gate, and the server answers. A fact without an answer waits,
-//!   never "no"
+//!   never "no". A refusal of the server of a push into the target in this session (`[remote rejected]`: a hook, a
+//!   protected branch) is asked first before the next push (`BaselineRefusedPush`): a hook may refuse only some commits
 //! - `rules_target`: the branch whose rules the session reads for the route: the target, while the repository lands by
 //!   a push into it on GitHub
 
@@ -87,6 +88,8 @@ pub struct RouteFacts<'a> {
   pub github: GitHubFacts<'a>,
   /// The rules of the target (`rules_target`)
   pub rules: TargetRules<'a>,
+  /// What the server said when it refused a push into the target in this session; `None` without one (`bd`)
+  pub refused: Option<&'a str>,
 }
 
 /// The route of the repository with its gate
@@ -98,7 +101,9 @@ pub fn route(facts: &RouteFacts<'_>) -> LandingRoute {
     Some(LandingSetting::Patronus) => LandingRoute::Patronus {
       gate: if remote.on_space { RouteGate::Open } else { refused(Reason::NotOnSpace) },
     },
-    Some(LandingSetting::Push) => LandingRoute::Push { gate: push_gate(facts) },
+    Some(LandingSetting::Push) => LandingRoute::Push {
+      gate: with_refusal(push_gate(facts), facts),
+    },
     None | Some(LandingSetting::PullRequest) => LandingRoute::PullRequest { merge: merge_gate(facts) },
   }
 }
@@ -119,6 +124,26 @@ const fn refused(reason: Reason) -> RouteGate {
 
 fn wait(fact: RouteFact, failed: Option<&ApiError>) -> RouteGate {
   RouteGate::Wait { fact, failed: failed.cloned() }
+}
+
+/// `gate` asking first about the refusal of the server of a push into the target in this session, unless it refuses
+/// already
+fn with_refusal(gate: RouteGate, facts: &RouteFacts<'_>) -> RouteGate {
+  let (Some(message), Some(target)) = (facts.refused, facts.remote.target.as_deref()) else {
+    return gate;
+  };
+  let refused = Reason::BaselineRefusedPush {
+    target: target.to_owned(),
+    message: message.to_owned(),
+  };
+  match gate {
+    RouteGate::Open => RouteGate::Confirm { confirmations: vec![refused] },
+    RouteGate::Confirm { mut confirmations } => {
+      confirmations.insert(0, refused);
+      RouteGate::Confirm { confirmations }
+    }
+    gate @ (RouteGate::Wait { .. } | RouteGate::Refused { .. }) => gate,
+  }
 }
 
 /// The gate of a push into the target

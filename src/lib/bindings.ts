@@ -400,7 +400,12 @@ export type ActionBlocker =
 /**  An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface */
 export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | "push" | "push-with-children" | 
 /**  The commits someone else pushed to its remote branch, taken into the branch (`bd pick --remote`) */
-"pick-remote-commits" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
+"pick-remote-commits" | 
+/**
+ *  The copy pushed into the target where the repository lands by a push (`Intent::Land`): of a branch, of a whole
+ *  stack
+ */
+"push-to-baseline" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
 /**  Approve and Safe Push, or the Safe Push alone after an approval of the head */
 "safe-push-pull-request" | "request-changes" | 
 /**  The branch of the table an own pull request is of */
@@ -1380,7 +1385,22 @@ export type Confirmation =
  *  Its push replaces `commits` commits of the remote branch of `branch` the branch lacks, someone's work (allowed by
  *  `LandingAllowances::allow_force`, D12)
  */
-{ kind: "forcePushDrops"; branch: string; commits: number };
+{ kind: "forcePushDrops"; branch: string; commits: number } | 
+/**
+ *  A push of the copy into the target runs no CI: the checks did not pass on the commit it lands (`why`;
+ *  `LandingAllowances::allow_without_checks` in `bd`)
+ */
+{ kind: "unchecked"; why: Unchecked } | 
+/**
+ *  `by` requested changes on its open pull request `number` (GitHub's decision when `by` is empty), which a push into
+ *  the target lands past (`LandingAllowances::allow_without_checks` in `bd`)
+ */
+{ kind: "changesRequested"; number: number; by: string[] } | 
+/**
+ *  What the gate of the route asks (`domain_policy::landing_route`): a rule of the target the user may bypass, the
+ *  status checks a push lands without, a refusal of the server before (`LandingAllowances::bypass_rules` in `bd`)
+ */
+{ kind: "routeRule"; reason: Reason };
 
 /**  Analysis results for a merge conflict, including missing commits and divergence information. */
 export type ConflictAnalysis = {
@@ -1969,6 +1989,39 @@ export type ErrorCode =
  *  `/patronus` comment was rejected
  */
 "patronus_refused" | 
+/**
+ *  `bd land`: the token may not push into the repository of the target (`viewerPermission` below write): nothing was
+ *  pushed; someone with write access lands it
+ */
+"no_write_access" | 
+/**
+ *  `bd land`: the rules of the target take a change only through a pull request, and the user may not bypass them:
+ *  nothing was pushed. Land it through its pull request
+ */
+"baseline_requires_pull_request" | 
+/**
+ *  `bd land`: the target refuses the push: a rule of it no push of the copy passes (the merge queue, restricted
+ *  updates, signed commits), or the server refused it (`[remote rejected]`: a hook, a protected branch; the message
+ *  says what it said). Nothing was pushed
+ */
+"baseline_refused" | 
+/**
+ *  `bd land`: the target moved since the copy was built on it (the server refused a push that is no fast-forward):
+ *  nothing was pushed, the baseline was fetched. `bd update` brings the branch onto it, then `bd land` again builds
+ *  the copy anew
+ */
+"baseline_moved" | 
+/**
+ *  `bd land`: CI did not pass on the commit the push lands (no open pull request, one that shows another commit, its
+ *  checks failing or running, GitHub listing none), or changes are requested on its pull request: a push into the
+ *  target runs no CI. Nothing was pushed; ask the user, `--without-checks` pushes once they agree
+ */
+"checks_not_passed" | 
+/**
+ *  `bd land`: the route of the repository (`branchdeck.landing`) lands no branch through `bd land` yet: the merge of
+ *  a pull request on GitHub. Nothing was pushed
+ */
+"landing_route_unsupported" | 
 /**
  *  `bd request-review`: the branch has no open pull request, or only a draft; `bd safe-push <branch>
  *  --create-pull-request` opens one, a draft is marked ready for review on GitHub
@@ -2958,7 +3011,11 @@ export type LandFact =
 /**  The rules of the target for a push into the approved pull request `number` */
 { kind: "rules"; number: number } | 
 /**  What what lands needs of the branches outside it (the landing gate) */
-{ kind: "landingNeeds" };
+{ kind: "landingNeeds" } | 
+/**  What the token may do in the repository a push into the target goes to (the gate of the route) */
+{ kind: "permission" } | 
+/**  The rules of the target a push goes into (the gate of the route) */
+{ kind: "targetRules" };
 
 /**  The merge profiles a start offers (`domain_policy::land::offered_profiles`), as its popover lists them */
 export type LandProfiles = {
@@ -3099,6 +3156,16 @@ export type LandingAllowances = {
 	allowUnknownReview?: boolean,
 	/**  Cancel the running Safe Push of an older commit the start replaces */
 	cancelRunning?: boolean,
+	/**
+	 *  Push into the target although the checks of CI did not pass on the commit, or changes are requested on its pull
+	 *  request (`Confirmation::Unchecked`, `Confirmation::ChangesRequested`)
+	 */
+	allowWithoutChecks?: boolean,
+	/**
+	 *  Push into the target past what the gate of the route asks: a rule the user may bypass, the required status checks,
+	 *  a refusal of the server before (`Confirmation::RouteRule`)
+	 */
+	bypassRules?: boolean,
 };
 
 /**  How the user gets the missing declaration, or the change of a dangling use, into what lands */
@@ -4296,7 +4363,13 @@ export type PlannedEffect =
  *  The commits of the pull request `number` are fetched into its review refs, unless both are local
  *  (`Intent::FetchReview`)
  */
-{ kind: "fetchReview"; number: number };
+{ kind: "fetchReview"; number: number } | 
+/**
+ *  The copy of `subject` (the tip of its virtual branch, of a whole stack its stack branch), `tip`, is pushed into the
+ *  branch of the baseline on its remote, `target` ("master"): a fast-forward the server takes or refuses whole
+ *  (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
+ */
+{ kind: "pushBaseline"; subject: Subject; tip: string; target: string };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -4738,7 +4811,14 @@ export type Reason =
  */
 { code: "gitHubMirror"; repository: string } | 
 /**  The pull requests of the branches are not on GitHub: none is merged there */
-{ code: "notOnGitHub" };
+{ code: "notOnGitHub" } | 
+/**  The repository lands by a push into its target: a Dry Run is a robot of Patronus, which no push runs */
+{ code: "dryRunNeedsPatronus" } | 
+/**
+ *  The server refused a push into `target` before in this session (a hook, a protected branch), with `message`, what
+ *  it said: a push of the copy may be refused again, so the gate of the route asks first
+ */
+{ code: "baselineRefusedPush"; target: string; message: string };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";
@@ -6245,7 +6325,11 @@ export type StepFact =
 /**  Why the robot of the subject failed: for the approvals or not */
 "robotProblems" | 
 /**  The review readiness of the subject as it is */
-"readiness";
+"readiness" | 
+/**  What the token may do in the repository a push into the target goes to (the gate of the route) */
+"permission" | 
+/**  The rules of the target a push goes into (the gate of the route) */
+"targetRules";
 
 /**  Why a read the next step decides on failed: no start is decided on it */
 export type StepFailure = 
@@ -6324,7 +6408,12 @@ export type StepKind =
 /**  Row 10′: Patronus can't judge the approvals, and `number` waits for `reviewers` (bots left out) */
 { kind: "awaitingUnjudged"; number: number; reviewers: string[] } | 
 /**  Row 11: "Safe Push" (also row 2 where Patronus can't restart, row 3 approved outside the robot's pull request) */
-{ kind: "safePush" };
+{ kind: "safePush" } | 
+/**
+ *  The row `push` of a repository that lands by a push into the target: "Push to master", its copy pushed into
+ *  `target` as a fast-forward (`NextStep::lands` the branches it lands); its start is `NextStep::safe_push`
+ */
+{ kind: "pushToBaseline"; target: string };
 
 /**  The retarget "⋯" offers of an open pull request into another base than the target */
 export type StepRetarget = {
@@ -6337,7 +6426,12 @@ export type StepRetarget = {
  *  The row of the table that decided the step (spec/branch/next-step.spec.md, "The table"); `NoSlot` a repository that
  *  is not on Space, which has no slot
  */
-export type StepRow = "noSlot" | "0" | "1" | "1′" | "1″" | "2" | "3" | "5" | "5′" | "6" | "7" | "8" | "9" | "10" | "8′" | "10′" | "11";
+export type StepRow = "noSlot" | "0" | "1" | "1′" | "1″" | "2" | "3" | "5" | "5′" | "6" | "7" | "8" | "9" | "10" | "8′" | "10′" | "11" | 
+/**
+ *  The row of a repository that lands by a push into the target (spec/branch/next-step.spec.md, "A push into the
+ *  target"): "Push to master"
+ */
+"push";
 
 /**
  *  The commits of the refs of Branch Deck that a grouping reads and the rewrites write
@@ -6739,6 +6833,19 @@ export type UnavailableReadinessReason =
 "notLoggedIn" | 
 /**  Patronus failed or could not be reached, or is backed off after a failure */
 "error";
+
+/**  Why the checks of CI did not pass on the commit a push into the target lands */
+export type Unchecked = 
+/**  No open pull request of it: no CI ran on it */
+{ kind: "noPullRequest" } | 
+/**  GitHub doesn't list the pull requests (off GitHub, signed out): what ran on it is not known */
+{ kind: "unlisted" } | 
+/**  The open pull request `number` shows another commit than the one it lands: its checks ran on that one */
+{ kind: "otherHead"; number: number } | 
+/**  The checks of the open pull request `number` fail */
+{ kind: "failing"; number: number } | 
+/**  The checks of the open pull request `number` still run */
+{ kind: "running"; number: number };
 
 export type UncommittedChangesResult = {
 	hasChanges: boolean,

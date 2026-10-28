@@ -8,6 +8,7 @@ import {
   ClockIcon,
   DownloadIcon,
   FileTextIcon,
+  GitMergeIcon,
   GitPullRequestArrowIcon,
   Layers2Icon,
   MessageSquareWarningIcon,
@@ -236,6 +237,8 @@ const PENDING_FACTS: Readonly<Record<PendingFact, (subject: string) => { readonl
   landingNeeds: subject => ({ reason: `Checking what ${subject} needs to land…`, from: "the check of what it needs" }),
   robotProblems: () => ({ reason: "Waits for Patronus to tell why the Safe Push failed", from: "Patronus" }),
   readiness: () => ({ reason: "Waits for Patronus to check the approvals", from: "Patronus" }),
+  permission: () => ({ reason: "Waits for GitHub to tell what you may do in the repository", from: "GitHub" }),
+  targetRules: () => ({ reason: "Waits for GitHub to tell the rules of the target", from: "GitHub" }),
 }
 
 /** Why the step of `subject` waits for `fact`, in the words of its hover and of every disabled Safe Push */
@@ -541,6 +544,12 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
     }
     case "safePush":
       return { kind: "safePush", item: safePushItem(step, context, general) }
+    case "pushToBaseline": {
+      // the repository lands by a push of the copy into the target: the start of the row, by the route Rust decides
+      const label = step.lands > 1 ? `Push to ${kind.target} · ${step.lands}` : `Push to ${kind.target}`
+      const description = general ?? `Push the copy of ${subject} into ${kind.target}: it lands without a robot and without the CI of a pull request`
+      return { kind: "safePush", item: { ...safePushItem(step, context, general), id: "push-to-baseline", label, icon: GitMergeIcon, description } }
+    }
   }
 }
 

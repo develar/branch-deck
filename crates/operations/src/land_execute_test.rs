@@ -4,7 +4,7 @@ use crate::witness::{Witness, read_refs};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{land_intent, robot};
-use domain_types::landing::{Confirmation, Land, PlannedEffect, StartRoute};
+use domain_types::landing::{BaselinePush, Confirmation, Land, PlannedEffect, StartRoute, Subject};
 use domain_types::operation::{EffectStatus, Fingerprint, Intent, OperationId, Plan};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::reason::Reason;
@@ -16,6 +16,7 @@ use patronus::service::PatronusService;
 use patronus::token::{Token, TokenLookup, TokenStamp};
 use pretty_assertions::assert_eq;
 use remote_facts::fact_sources::Read;
+use repository_model::facts::BaselineRefusal;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::table::RemoteSubject;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::clock::TestClock;
-use test_utils::git_test_utils::{TestRepo, git_command, refuse_every_push, stack_ahead_of_bare_origin};
+use test_utils::git_test_utils::{TestRepo, git_command, pre_receive_hook, refuse_every_push, stack_ahead_of_bare_origin};
 
 pub(crate) const ALPHA: &str = "refs/heads/test/virtual/alpha";
 pub(crate) const ALPHA_REMOTE: &str = "refs/remotes/origin/test/virtual/alpha";
@@ -91,6 +92,19 @@ impl StartHost for Host {
   fn write_pull_request(&self, write: PullRequestWrite) -> Read<'_, Option<Version>> {
     self.tell(format!("pull request {write:?}"));
     Box::pin(std::future::ready(None))
+  }
+
+  fn baseline_pushed(&self, landed: Vec<(String, BaselinePush)>, refused: Option<BaselineRefusal>) -> Read<'_, Option<Version>> {
+    let landed: Vec<String> = landed.into_iter().map(|(key, push)| format!("{key}@{} into {}", push.tip, push.upstream)).collect();
+    match refused {
+      Some(refused) => self.tell(format!("refused by {}: {}", refused.target, refused.message)),
+      None => self.tell(format!("landed {}", landed.join(", "))),
+    }
+    Box::pin(std::future::ready(None))
+  }
+
+  fn baseline_fetched(&self) {
+    self.tell("fetched".to_string());
   }
 }
 
@@ -455,4 +469,79 @@ async fn a_robot_of_what_it_lands_started_meanwhile_skips_the_start() {
     "{start:?}"
   );
   assert_eq!(fixture.starts(), 0);
+}
+
+/// The push of the copy of `alpha` at `tip` into master
+fn push_alpha(tip: &str) -> Vec<PlannedEffect> {
+  vec![PlannedEffect::PushBaseline {
+    subject: Subject::branch("alpha"),
+    tip: tip.to_string(),
+    target: "master".to_string(),
+  }]
+}
+
+/// The commit of master on the bare origin
+fn remote_master(fixture: &Fixture) -> String {
+  fixture.repo.git(&["--git-dir", ".git/origin.git", "rev-parse", "refs/heads/master"])
+}
+
+/// The push of the copy of `alpha` into master, which fails: its error, and what the session heard
+async fn failed_push(fixture: &Fixture) -> (ApiError, Vec<String>) {
+  let tip = fixture.repo.rev_parse("test/virtual/alpha").unwrap();
+  let host = Fixture::host(fixture.planned(push_alpha(&tip)));
+  let started = fixture.run(&host, &Steps::none()).await.unwrap();
+  match statuses(&started)[..] {
+    [EffectStatus::Failed { error }] => (error.clone(), host.told()),
+    ref statuses => panic!("the push fails: {statuses:?}"),
+  }
+}
+
+/// A push into the target lands the copy the witness froze as a fast-forward, by the push URL: the remote-tracking ref of
+/// master stays where the last fetch left it, and the session hears what landed, each branch at its tip, until a fetch
+/// shows it; no robot is asked, no virtual branch pushed
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_into_the_target_lands_the_copy_as_a_fast_forward_and_tells_what_it_landed() {
+  let fixture = fixture().await;
+  let tip = fixture.repo.rev_parse("test/virtual/alpha").unwrap();
+  let fetched = fixture.repo.rev_parse("refs/remotes/origin/master").unwrap();
+  let host = Fixture::host(fixture.planned(push_alpha(&tip)));
+  let started = fixture.run(&host, &Steps::none()).await.unwrap();
+  assert_eq!(statuses(&started), [&EffectStatus::Done]);
+  assert_eq!(remote_master(&fixture), tip);
+  assert_eq!(fixture.repo.rev_parse("refs/remotes/origin/master").unwrap(), fetched);
+  assert_eq!((fixture.starts(), fixture.remote_alpha()), (0, None));
+  assert_eq!(host.told(), [format!("landed alpha@{tip} into origin/master")]);
+}
+
+/// A target that moved since the copy was built on it refuses the push as no fast-forward: the start fetches the
+/// baseline and asks the sync that builds the copy anew, and fails as `baseline_moved`, pushing nothing again
+#[tokio::test(flavor = "multi_thread")]
+async fn a_target_that_moved_is_fetched_and_synced_and_the_push_is_baseline_moved() {
+  let fixture = fixture().await;
+  let base = remote_master(&fixture);
+  let tree = fixture.repo.git(&["rev-parse", &format!("{base}^{{tree}}")]);
+  let other = fixture.repo.git(&["commit-tree", &tree, "-p", &base, "-m", "Someone else"]);
+  fixture.repo.git(&["push", "-q", ".git/origin.git", &format!("{other}:refs/heads/master")]);
+  let (error, told) = failed_push(&fixture).await;
+  assert_eq!(error.code, ErrorCode::BaselineMoved, "{}", error.message);
+  assert_eq!(remote_master(&fixture), other);
+  assert_eq!(fixture.repo.rev_parse("refs/remotes/origin/master").unwrap(), other);
+  assert_eq!(told, ["fetched"]);
+}
+
+/// The server refusing the push (a hook, a protected branch) fails it as `baseline_refused` in the server's words, which
+/// go into the facts: the gate of the route asks about them before the next push
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refusal_of_the_server_is_baseline_refused_in_its_words_and_goes_into_the_facts() {
+  let fixture = fixture().await;
+  pre_receive_hook(&fixture.repo.path().join(".git/origin.git"), "echo 'master is protected' >&2\nexit 1");
+  let base = remote_master(&fixture);
+  let (error, told) = failed_push(&fixture).await;
+  assert_eq!(error.code, ErrorCode::BaselineRefused);
+  assert!(error.message.contains("master is protected"), "{}", error.message);
+  assert_eq!(remote_master(&fixture), base);
+  assert!(
+    told.len() == 1 && told[0].starts_with("refused by master: ") && told[0].contains("master is protected"),
+    "{told:?}"
+  );
 }

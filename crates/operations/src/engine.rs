@@ -15,15 +15,19 @@
 //! it pushes and the robot it cancels: a second start of the same subject joins it, one that lands a part of it waits for
 //! it and is decided again. An operation that waited in the queue runs on the plan the ones it waited for left, while
 //! the user accepted what it asks (`Accepted::decided_again`): a push and the Safe Push pressed right after it are one
-//! push and one start.
+//! push and one start. A start of a repository that lands by a push into the target reserves the remote-tracking ref of
+//! the target (`refs/remotes/origin/master`: two landings into it wait for each other, a fetch of it waits for the push)
+//! and runs without Patronus; once its push landed, Update Project with its fetch follows as an operation of its own
+//! (`domain_policy::land_direct::update_after`), admitted as any update: the start holds no HEAD in its network part.
 
-use crate::events::EventSink;
+use crate::events::{EventSink, NoEvents};
 use crate::land_execute::{self, Accepted, Planned, StartServices, Steps};
-use crate::land_session::{SessionStart, session_start};
+use crate::land_session::{SessionStart, pull_request_start, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
 use crate::witness::{Witness, check};
 use crate::{close, forget, issue, land, pull_request, push, review, review_fetch, robot, update};
+use domain_policy::land_direct::update_after;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Land, PlannedEffect, Subject};
@@ -33,6 +37,7 @@ use domain_types::session::Version;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::session::{SessionKey, Sessions};
 use std::sync::Arc;
+use sync_core::push::PUSH_REMOTE;
 use sync_core::transfer_progress::TransferProgress;
 use tracing::Instrument;
 
@@ -124,7 +129,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
   let services = hosts.services;
   match intent {
     // the run of a start is a large future: on the heap
-    Intent::Land(land) => Box::pin(execute_land(registry, key, land, accepted, services, events)).await,
+    Intent::Land(land) => Box::pin(execute_land(registry, key, land, accepted, hosts, events)).await,
     Intent::RestartRobot { robot_id } => Box::pin(robot::execute_restart(registry, key, &robot_id, accepted, services, events)).await,
     Intent::CancelRobot { robot_id } => robot::execute_cancel(registry, key, &robot_id, accepted, services, events).await,
     Intent::Retarget { number } => pull_request::execute_retarget(registry, key, number, accepted, services, events).await,
@@ -181,23 +186,43 @@ pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, S
 
 /// Runs the start `land` of the app in the session of `key` on the plan its caller accepted (`accepted`):
 /// admitted over the operations of the session with what the plan as the session has it now reserves, then run
-/// (`land_execute::execute`) over the session and `services` (`session_start`) with its steps in the view and its
-/// progress and outcome to `events`, on what the operations it queued behind left (the push of its branch pressed just
-/// before it: the start pushes nothing more); stopped by `Registry::cancel`. Answers the outcome
+/// (`land_execute::execute`) over the session and the services of `hosts` (`session_start`; a push into the target,
+/// which starts no robot, `pull_request_start`) with its steps in the view and its progress and outcome to `events`, on
+/// what the operations it queued behind left (the push of its branch pressed just before it: the start pushes nothing
+/// more); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows as an operation of
+/// its own (`land_direct::update_after`), its steps in the view; the answer is the start's
 ///
 /// # Errors
 /// What refused the start before its first effect (`land_execute::execute`), a lock another process holds, a session
 /// that closed or has no sync yet
-pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
+pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, accepted: Accepted, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
+  let services = hosts.services;
   let planned = land::prepare(registry.sessions(), key, land.clone()).await;
   let request = land_request(&key.prefix, &land, planned.as_ref());
-  run(registry, key, request, events, async |guard| {
-    let (host, run) = session_start(services, registry.sessions(), key).await?;
+  let pushes_into_target = planned.as_ref().is_some_and(pushes_into_target);
+  let answer = run(registry, key, request, Arc::clone(&events), async |guard| {
+    let (host, run) = if pushes_into_target {
+      pull_request_start(services, registry.sessions(), key).await?
+    } else {
+      session_start(services, registry.sessions(), key).await?
+    };
     let steps = steps_of(guard);
     let started = land_execute::execute(&host, &run, &steps, guard.id().clone(), &land, &accepted, guard.queued()).await?;
     Ok(started.outcome)
   })
-  .await
+  .await;
+  if let Ok(outcome) = &answer
+    && let Some(Intent::UpdateProject { fetch }) = update_after(&outcome.effects)
+  {
+    // its own outcome is told in the view and the journal: the caller hears the start's
+    drop(Box::pin(update::execute_update(registry, key, fetch, hosts, Arc::new(NoEvents))).await);
+  }
+  answer
+}
+
+/// The plan pushes the copy of its subject into the target: no robot of Patronus starts
+fn pushes_into_target(plan: &Plan) -> bool {
+  plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::PushBaseline { .. }))
 }
 
 /// What the start `land` of a session of `prefix` asks the registry for: what its plan (as the session has it now)
@@ -286,6 +311,10 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
         resources.extend(refs.into_iter().map(|name| Resource::Ref { name }));
       }
       PlannedEffect::CancelRobot { robot_id } => resources.push(Resource::Robot { id: robot_id.clone() }),
+      // the remote-tracking ref of the target: a fetch of it, and another landing into it, wait for the push
+      PlannedEffect::PushBaseline { target, .. } => resources.push(Resource::Ref {
+        name: format!("refs/remotes/{PUSH_REMOTE}/{target}"),
+      }),
       _ => {}
     }
   }
