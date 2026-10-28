@@ -72,9 +72,21 @@ test.describe("YouTrack sign-in", () => {
     await form.getByLabel("Token", { exact: true }).fill("perm-wrong")
     await expect(save).toBeDisabled()
     await save.hover()
-    await expect(settings.getByRole("tooltip")).toHaveText("The sign-in in the browser is starting: cancel it to save a token instead")
+    await expect(settings.getByRole("tooltip")).toHaveText("The sign-in in the browser is starting: Cancel Sign-In to save a token instead")
+    // the cancel the hover names is beside the starting sign-in, apart from the Cancel of the token form: it ends the
+    // sign-in at once, the token typed stays, and Save Token goes
+    const cancelStart = auth.getByRole("button", { name: "Cancel Sign-In" })
+    await cancelStart.click()
+    await expect(auth.getByRole("button", { name: "Sign In to YouTrack" })).toBeEnabled()
+    await expect(cancelStart).toBeHidden()
+    await expect(form.getByLabel("Token", { exact: true })).toHaveValue("perm-wrong")
+    await expect(save).toBeEnabled()
+    await expect.poll(() => pendingCommands(settings)).toBe(0)
+    await expect(settings.locator("[data-slot=toast]")).toHaveCount(0)
     await repo.holdRemoteAnswers({ release: ["youTrackConfig"] })
 
+    // the sign-in again, through to the browser: the token form gives way to the wait, whose Cancel ends it
+    await auth.getByRole("button", { name: "Sign In to YouTrack" }).click()
     const waiting = youtrack.getByTestId("youtrack-sign-in-waiting")
     await expect(waiting).toContainText("Waiting for the browser…")
     await expect(form).toBeHidden()

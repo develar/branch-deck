@@ -157,11 +157,17 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: Sign
         <WaitingForBrowser />
       ) : (
         <div className="flex flex-col gap-1">
-          <div>
+          <div className="flex flex-wrap gap-2">
             <Button size="xs" variant="outline" disabled={phase !== "idle" || noUrl} onClick={() => void runSignIn({ provider: "youTrack", url })}>
               {starting ? <Spinner data-icon="inline-start" /> : <LogInIcon data-icon="inline-start" />}
               Sign In to YouTrack
             </Button>
+            {/* a slow YouTrack keeps the sign-in here until it answers: the cancel Save Token's hover names */}
+            {starting && (
+              <Button size="xs" variant="ghost" onClick={() => void cancelSignIn("youTrack")}>
+                Cancel Sign-In
+              </Button>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">Opens YouTrack in the browser. The sign-in renews itself until YouTrack ends it.</p>
         </div>
@@ -224,7 +230,7 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: Sign
 /** Why Save Token is disabled, or null when it goes: one sign-in at a time, so not while the browser sign-in starts */
 function whySaveWaits(starting: boolean, noUrl: boolean, token: string): string | null {
   if (starting) {
-    return "The sign-in in the browser is starting: cancel it to save a token instead"
+    return "The sign-in in the browser is starting: Cancel Sign-In to save a token instead"
   }
   if (noUrl) {
     return "Enter the YouTrack URL first"

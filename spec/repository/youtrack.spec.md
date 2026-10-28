@@ -143,9 +143,9 @@ client takes a pasted token.
   `GET /api/users/me` accepted it; a refused token is "Cannot sign in to YouTrack" with the reason, and the field stays.
   The token lives only in the field until then: never in a persisted store, a log or an error text. Save Token is the
   sign-in of YouTrack with the token (`sign_in({ provider: "youTrack", url, token })`): one at a time with the browser
-  sign-in (Save Token is disabled while the browser sign-in asks the YouTrack for its Hub, its hover saying why, and
-  the form hides while it waits for the browser, the typed token kept for after a cancel), and the same tells of a
-  changed account.
+  sign-in (Save Token is disabled while the browser sign-in asks the YouTrack for its Hub, its hover saying why:
+  "Cancel Sign-In", beside the spinner of that sign-in, ends it at once; the form hides while it waits for the
+  browser, the typed token kept for after a cancel), and the same tells of a changed account.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should cancel the browser sign-in, and paste a token instead`)
   [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
   [@test] ../../src/stores/auth.test.ts (`says why YouTrack refused a pasted token, and answers null, so the field keeps it`)
@@ -212,8 +212,8 @@ client takes a pasted token.
   the issue, and mark it fixed once its work lands".
   - Signed out: the URL with its source ("From .idea/vcs.xml of <repository>"), or, empty, "The address you open
     YouTrack at, e.g. https://youtrack.example.com"; "Sign In to YouTrack" (disabled without a URL) with "Opens
-    YouTrack in the browser. The sign-in renews itself until YouTrack ends it." under it; below, as a link, "Use a
-    Token Instead", the fallback.
+    YouTrack in the browser. The sign-in renews itself until YouTrack ends it." under it, a spinner on it and "Cancel
+    Sign-In" beside it while it asks the YouTrack for its Hub; below, as a link, "Use a Token Instead", the fallback.
   - The token form in the order of its steps: "For a YouTrack that does not sign in apps in the browser: create a
     token there, then paste it here", "Create Token…" (Account Security of the profile), the field "Token", "Save
     Token" and Cancel.
