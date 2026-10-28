@@ -29,7 +29,8 @@ fn processes_of(outcome: &Outcome) -> Vec<(&str, u32)> {
 }
 
 /// A rewrite of the engine costs what its core costs and one `for-each-ref` of the checked out branch and the three
-/// stores, its witness (`rewrite::read_witness`); the sync it asks runs on the actor of the session, outside it. A park
+/// stores, its witness (`rewrite::read_witness`); a core that moves HEAD's branch reads its own witness under the lock
+/// (one more `for-each-ref`); the sync it asks runs on the actor of the session, outside it. A park
 /// and an unpark of alpha and beta (the core's processes: `a_park_and_an_unpark` of sync-core), a squash of two commits
 /// of alpha (`a_squash`) and its undo, which reads no witness
 #[tokio::test(flavor = "multi_thread")]
@@ -85,18 +86,18 @@ async fn a_rewrite_costs_its_core_and_one_read_of_its_witness() {
     [
       ("cat-file", 1),
       ("fast-import", 1),
-      ("for-each-ref", 1),
+      ("for-each-ref", 2),
       ("log", 1),
       ("merge-tree", 1),
       ("replay", 2),
       ("rev-list", 1),
       ("rev-parse", 3),
-      ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),
     ]
   );
   let undone = rewrite(RewriteIntent::Undo { token: squashed.undo.unwrap() }).await.unwrap();
-  // the restore of HEAD under the lock, as the app's undo of a squash: no read of a witness
-  assert_eq!(processes_of(&undone), [("rev-list", 1), ("rev-parse", 3), ("symbolic-ref", 1), ("update-ref", 1)]);
+  // the restore of HEAD, as the app's undo of a squash: its checks, then under the lock the core's witness of HEAD and
+  // the move; the engine reads no witness for an undo
+  assert_eq!(processes_of(&undone), [("for-each-ref", 1), ("rev-list", 1), ("rev-parse", 3), ("update-ref", 1)]);
 }

@@ -390,10 +390,15 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
     NTFS/HFS+ alias of `.git`); regular files only, bytes as git stores them without filters, never read, written or
     deleted through a symlink, every write a temporary file plus a rename; delete only the files bd wrote, only in a
     directory whose marker names this git dir ([Resolve session](docs/design/git-operations.md#resolve-session)).
-- **Repository lock**: every rewrite of the checked-out branch takes it in its core, before it reads anything: the
-  regroup (`regroup.rs`, also `bd reword` and the app's reword through `reword.rs`) and the move of a hunk through their
-  options, and the app's squash and its undo, squash fixups (also `bd fold`), amend, unapply and add issue reference
-  through `RewriteOptions` (`held_lock`,
+- **Repository lock**: every rewrite of the checked-out branch takes it in its core. The regroup (`regroup.rs`: the
+  move, rename, restack, unstack and the conflict fix, also `bd group`, `bd reword` and the app's reword through
+  `reword.rs`) and its undo, park and unpark, the app's squash and its undo and squash fixups (also `bd fold`) read and
+  compute before it, on the oids they read once (the snapshot or the history, merge-tree, replay, the `fast-import` of
+  the new objects on temporary refs), and hold it only for the witness of those refs and the CAS write
+  (`lock_prepared`: HEAD, its branch and the store tips in one `for-each-ref`; a write of the stores alone has the
+  compare-and-swap of its transaction as its witness); a ref that moved meanwhile computes the rewrite once more under
+  the lock, where another HEAD than `expect_head` is `HeadMoved`. Amend, unapply, reapply, add issue reference and the
+  move of a hunk still take it before they read anything. All through their options (`RewriteOptions`: `held_lock`,
   `lock_wait`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push` and
   `bd safe-push` (only their sync, then again the witness of their refs and the freeze of their push in the engine,
   `operations::land_execute`; the reads of the remote, the trial, the retargets, the cancel, the network push and the
@@ -504,7 +509,8 @@ The checklist:
   `crates/repository-model/` (the branch table Rust derives, the guards of the app's push and robot actions) or
   `crates/sync-core/` (the sync, the pushes and the rest, with no remote service but git's) is the one
   entry of every caller: a rewrite of the checked-out branch
-  takes `&RewriteOptions` and the lock before it reads anything, then checks the expected HEAD.
+  takes `&RewriteOptions`, reads and computes on the oids it read once (checking the expected HEAD there), then takes
+  the lock for the witness of those refs and the CAS write (`RewriteOptions::lock_prepared`).
 - **operations**: an action on the remote is an intent of its family in `crates/operations/` (`prepare` and `execute`
   of `engine`): it runs in `engine::run`, admitted by `registry` over the resources it names (`domain_policy::admission`), its
   steps the `operations` part of the view, and checks its `witness` before the first effect (`plan_changed`). A write

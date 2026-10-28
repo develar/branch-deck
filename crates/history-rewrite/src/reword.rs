@@ -3,11 +3,10 @@
 //! `(prefix)` moves the commit to that branch as `bd group` does, with the fixups of a target whose prefix changed, and
 //! the stack problems it would introduce, the fixups it would strand (`fixup_targets.rs`) and the issue groups and the
 //! stack parents stay as the regroup keeps them. Message-only: the trees, the index and the working tree stay as they
-//! are, and the undo token restores HEAD. Also the writes of every regroup (`reword_read_commits_at`): the messages
-//! cleaned up as `git commit` does, written with one `fast-import`.
+//! are, and the undo token restores HEAD. Also the new commits of every regroup (`prepare_reword_at`): the messages
+//! cleaned up as `git commit` does, written with one `fast-import` before the repository lock.
 
 use crate::autosquash::plan_autosquash;
-use crate::baseline::detect_baseline_branch;
 use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::regroup::{Assignment, Change, FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, UndoToken, refuse_unresolved, regroup_with};
 use crate::snapshot::Snapshot;
@@ -16,9 +15,9 @@ use domain_types::commit::Commit;
 use domain_types::rewrite::{CommitReword, RewordResult, RewordText};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_utils::find_commit;
-use git_ops::commit_writer::{StoreUpdate, write_store_updates};
-use git_ops::revs::{checked_out_branch, short_id};
-use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
+use git_ops::commit_writer::StoreCommit;
+use git_ops::revs::short_id;
+use git_ops::reword_commits::{PreparedReword, RewordCommitParams, prepare_reword};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -168,25 +167,19 @@ fn following_fixups(snapshot: &Snapshot, messages: &HashMap<String, String>) -> 
   assignment
 }
 
-/// What `reword_read_commits_at` wrote
-pub(crate) struct Reworded {
-  /// Old -> new full id of every recreated commit, the ones after the oldest reworded one included
-  pub recreated: HashMap<String, String>,
-  /// The new commits of the stores, in input order
-  pub store_commits: Vec<String>,
-}
-
-/// Rewords `(commit id, whole new message)` pairs of `commits` (the regroup's snapshot), for messages
-/// computed from the history at `expected_head` (`reword_commits_batch_at`), with `stores` written in the same run and
-/// moved in the transaction that moves the branch. The caller holds the repository lock
-pub(crate) fn reword_read_commits_at<'a>(
+/// The reword of `(commit id, whole new message)` pairs of `commits` (the regroup's snapshot), computed from the history
+/// at `expected_head` ahead of `baseline` (`git_ops::reword_commits::prepare_reword`), with the commits of `stores` in
+/// the same run: the new commits on temporary refs, before the repository lock, no ref moved; `None` when no message
+/// changes once cleaned up
+pub(crate) fn prepare_reword_at<'a>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
+  baseline: &str,
   commits: &HashMap<String, Commit>,
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
-  expected_head: Option<&str>,
-  stores: &[StoreUpdate<'_>],
-) -> Result<Reworded> {
+  expected_head: &str,
+  stores: &[StoreCommit<'_>],
+) -> Result<Option<PreparedReword>> {
   let rewrites: Vec<(&str, String)> = rewrites.into_iter().map(|(id, message)| (id, normalize_message(message))).collect();
   if rewrites.iter().any(|(_, message)| message.lines().next().is_none_or(|subject| subject.trim().is_empty())) {
     return Err(anyhow!("The commit message must start with a subject line"));
@@ -203,29 +196,15 @@ pub(crate) fn reword_read_commits_at<'a>(
       });
     }
   }
-
+  if params.is_empty() {
+    return Ok(None);
+  }
   let reworded_count = params.len();
-  // also maps the commits recreated on top of a reworded one, unchanged messages included;
-  // `reword_commits_batch` refuses a commit that is no longer on the current branch
-  let (mapping, store_commits) = if params.is_empty() {
-    // no message changes once cleaned up: the stores still move, on the same HEAD
-    let store_commits = if stores.is_empty() {
-      Vec::new()
-    } else {
-      let branch_ref = format!("refs/heads/{}", checked_out_branch(git_executor, repository_path)?);
-      let verify = expected_head.map(|head| (branch_ref.as_str(), head));
-      write_store_updates(git_executor, repository_path, stores, verify, "reword")?
-    };
-    (HashMap::new(), store_commits)
-  } else {
-    let baseline_branch = detect_baseline_branch(git_executor, repository_path)?;
-    reword_commits_batch_at(git_executor, repository_path, &baseline_branch, params, expected_head, stores)?
-  };
-  info!(reworded_count, "Reworded commits");
-  Ok(Reworded {
-    recreated: mapping,
-    store_commits,
-  })
+  // also maps the commits recreated on top of a reworded one, unchanged messages included; `prepare_reword` refuses a
+  // commit that is no longer on the current branch
+  let prepared = prepare_reword(git_executor, repository_path, baseline, params, Some(expected_head), stores)?;
+  info!(reworded_count, "Wrote the reworded commits");
+  Ok(Some(prepared))
 }
 
 /// Whether the virtual branch commit of a commit stays the same when its message changes from `old` to `new`: the

@@ -95,10 +95,12 @@ branch built on it carries its commits, so it is parked with it.
 
 ### Park and unpark
 
-- A park must write the line of a branch that groups commits ahead of the baseline, under the repository lock, with
-  compare-and-swap on the commit it read, and rewrite no commit. A park of a parked branch changes its note; the same
+- A park must write the line of a branch that groups commits ahead of the baseline, its store commit written before the
+  repository lock and moved under it with compare-and-swap on the commit it read, the one ref it writes, and rewrite no
+  commit; a store a sync dropped lines of after the read is read and written once more under the lock. A park of a parked branch changes its note; the same
   line again writes nothing. The note is trimmed; two lines or more than 500 characters are refused.
   [@test] ../../crates/sync-core/src/parked_test.rs (`park_writes_a_line_without_a_rewrite_and_unpark_drops_it`, `park_refuses_an_unknown_branch_and_a_note_of_two_lines_unpark_one_not_parked`)
+  [@test] ../../crates/history-rewrite/src/regroup_test.rs (`a_park_and_an_unpark_lock_only_the_write`, `a_park_over_a_drop_after_its_read_is_written_once_more_under_the_lock`)
 - A park or an unpark of several branches (the app's drag of a selection, an undo) must write all their lines in one
   store commit, or none: an unknown branch refuses the park of all, one that is not parked the unpark of all. The
   processes don't grow with the number of branches.

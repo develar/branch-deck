@@ -126,6 +126,15 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
 - Rewrites must hold the repository lock, so the app and the agent CLI don't rewrite the branch at the same time.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`)
+- A move, a rename, a restack, an unstack, a reword and their undo must read and compute before the lock (the
+  snapshot, the plan validated, the new commits and store commits written on temporary refs) and hold it only for the
+  witness of what they read (HEAD, its branch and the store commits) and the compare-and-swap transaction, so a long
+  history never makes another writer wait. A ref that moved after the read (another process rewrote HEAD, a sync
+  dropped the lines of integrated branches) computes the rewrite once more under the lock: a HEAD the request was not
+  made for refuses it as `HeadMoved`, a store a sync dropped lines of is read as the sync left it, and no temporary
+  ref is left.
+  [@test] ../../crates/history-rewrite/src/regroup_test.rs (`a_move_locks_only_the_witness_and_the_write`, `a_rename_locks_only_the_witness_and_the_write`, `a_reword_locks_only_the_witness_and_the_write`, `a_restack_locks_only_the_witness_and_the_write`, `an_undo_locks_only_the_witness_and_the_write`)
+  [@test] ../../crates/history-rewrite/src/regroup_test.rs (`a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more_under_the_lock`, `a_head_moved_before_the_lock_is_read_once_more_under_it`, `an_undo_over_a_drop_after_its_checks_is_checked_once_more_under_the_lock`)
 - A move, a rename, a restack, an unstack and their undo of the app are rewrites of the engine (`execute` of the
   intent `rewrite`, `operations::rewrite`), named on the table the window shows (`TableWitness`). Each must wait for
   the lock as long as its holder lives (an agent's `bd pick --follow`, `bd`, the app's own push), never refused after

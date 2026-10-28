@@ -10,6 +10,8 @@ pub mod git_in_directory;
 pub mod git_test_utils;
 pub mod held_upload_pack;
 pub mod history;
+#[cfg(unix)]
+pub mod lock_span;
 pub mod process_budget;
 pub mod remote_git;
 pub mod repo_template;

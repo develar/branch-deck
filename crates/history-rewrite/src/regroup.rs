@@ -11,14 +11,14 @@ use crate::baseline::NoBaseline;
 use crate::commit_grouper::{GroupingInputs, issue_group_of};
 use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::fixup_targets::check_fixup_targets;
-use crate::issue_groups::{ISSUE_GROUPS, validate_issue_group_name, validate_issue_key, validate_leaf_name};
+use crate::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_REF, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
-use crate::parked::{PARKED, PARKED_DROP_MESSAGE};
-use crate::repository_lock::{LockWait, RepositoryLock, RepositoryLocked, ensure_expected_head};
-use crate::reword::{normalize_message, reword_read_commits_at};
+use crate::parked::{PARKED, PARKED_DROP_MESSAGE, PARKED_REF};
+use crate::repository_lock::{LockWait, Prepared, RepositoryLock, RepositoryLocked, Witness, ensure_expected_head, lock_prepared};
+use crate::reword::{normalize_message, prepare_reword_at};
 use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, problem_view};
-use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE};
+use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE, STACK_PARENTS_REF};
 use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head, undo_over_drops};
 use domain_types::branch_names::sanitize_branch_name;
 use domain_types::commit::Commit;
@@ -26,11 +26,12 @@ use domain_types::error::ErrorCode;
 use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::{StackProblem, StackProblemView, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_writer::{StoreUpdate, WrittenStore, write_store_commits, write_store_updates};
+use git_ops::commit_writer::{StoreCommit, WrittenCommits, WrittenStore, write_commits_with_notes, write_store_commits};
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{checked_out_branch, is_object_id, read_head, short_id, with_dirs_of};
+use git_ops::reword_commits::PreparedReword;
 use git_ops::rewrite_guard::HeadMoved;
-use git_ops::squash_commits::restore_branch_head_with;
+use git_ops::squash_commits::{CheckedRestore, check_restore};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_utils::commit_subject::parse_subject;
 use sync_utils::issue_pattern::find_issue_number;
@@ -394,18 +395,18 @@ pub fn regroup_commits_accepted(
   repository_path: &str,
   plan: &RegroupPlan,
   options: &RegroupOptions,
-  accept: impl FnOnce(&RegroupOutcome) -> Result<(), RegroupError>,
+  accept: impl FnMut(&RegroupOutcome) -> Result<(), RegroupError>,
 ) -> Result<RegroupOutcome, RegroupError> {
   regroup_accepted(git_executor, repository_path, options, |snapshot| resolve_plan(snapshot, plan), accept)
 }
 
-/// Apply the plan that `plan` makes from the snapshot, which is read under the repository lock: a plan that depends on
-/// how the commits group now (`move_plan.rs`) is computed for exactly the HEAD it rewrites
+/// Apply the plan that `plan` makes from the snapshot: a plan that depends on how the commits group now (`move_plan.rs`)
+/// is computed for exactly the HEAD it rewrites, once more under the lock when a ref moved after the snapshot
 pub fn regroup_planned(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   options: &RegroupOptions,
-  plan: impl FnOnce(&Snapshot) -> Result<RegroupPlan, RegroupError>,
+  mut plan: impl FnMut(&Snapshot) -> Result<RegroupPlan, RegroupError>,
 ) -> Result<RegroupOutcome, RegroupError> {
   regroup_with(git_executor, repository_path, options, |snapshot| resolve_plan(snapshot, &plan(snapshot)?))
 }
@@ -648,69 +649,23 @@ fn with_stack_parents(snapshot: &Snapshot, mut change: Change, set: BTreeMap<Str
 
 /// Move back what a regroup wrote, as its `UndoToken` names it, in one ref transaction with compare-and-swap: the
 /// checked out branch from the new to the previous head, and the issue groups, the stack parents and the parked branches
-/// from the new to the previous commit (or away, when there was none). Message-only rewrites keep HEAD's tree, so the index and the working
-/// tree stay valid
+/// from the new to the previous commit (or away, when there was none). Message-only rewrites keep HEAD's tree, so the
+/// index and the working tree stay valid. The checks (`prepare_undo`) come before the repository lock; under it only
+/// the witness of the refs they read and the transaction, the checks once more when a ref moved meanwhile
 #[instrument(skip(git_executor))]
 pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken, lock_wait: LockWait) -> Result<(), RegroupError> {
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repository_path)?;
-  let _lock = lock_wait.lock(git_executor, repository_path)?;
-  let mut also = RefTransaction::new();
-  if let Some(pair) = &token.issue_groups {
-    undo_store_write(git_executor, repository_path, &ISSUE_GROUPS, pair, &mut also)?;
+  let prepare = || prepare_undo(git_executor, repository_path, token);
+  let (prepared, lock) = lock_prepared((lock_wait, None), git_executor, repository_path, prepare()?, prepare)?;
+  match prepared.write(git_executor, repository_path, token) {
+    // an undo of the stores alone has the compare-and-swap of the stores it read as its witness: a store that moved
+    // after the checks (a sync dropped the lines of integrated branches) is checked once more, under the lock now
+    Err(RegroupError::GroupsMoved(_) | RegroupError::StacksMoved(_) | RegroupError::ParkedMoved(_)) if lock.is_some() && token.head.is_none() => {
+      prepare()?.write(git_executor, repository_path, token)?;
+    }
+    written => written?,
   }
-  // the commits written over the drops of a sync, discarded when the transaction fails
-  let mut over_drops = Vec::new();
-  let stacks_from = match &token.stack_parents {
-    Some(pair) => Some(undo_dropped_store_write(
-      git_executor,
-      repository_path,
-      (&STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE),
-      pair,
-      &mut also,
-      &mut over_drops,
-    )?),
-    None => None,
-  };
-  let parked_from = match &token.parked {
-    Some(pair) => Some(undo_dropped_store_write(
-      git_executor,
-      repository_path,
-      (&PARKED, PARKED_DROP_MESSAGE),
-      pair,
-      &mut also,
-      &mut over_drops,
-    )?),
-    None => None,
-  };
-  let undone = match &token.head {
-    None => also.commit(git_executor, repository_path, "undo").map_err(RegroupError::Other),
-    Some((previous_head, new_head)) => {
-      let (head, _) = read_head(git_executor, repository_path)?.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?;
-      if head != *new_head {
-        return Err(RegroupError::HeadMoved(HeadMoved {
-          branch: checked_out_branch(git_executor, repository_path).unwrap_or_else(|_| "HEAD".to_string()),
-          expected: new_head.clone(),
-          actual: head,
-        }));
-      }
-      restore_branch_head_with(git_executor, repository_path, new_head, previous_head, "undo", &also).map_err(|e| RegroupError::Other(e.into_anyhow()))
-    }
-  };
-  // a ref that moved between the checks and the transaction explains the failure
-  undone.map_err(|error| {
-    for written in &over_drops {
-      written.discard(git_executor, repository_path);
-    }
-    let expected = Expected {
-      head: token.head.as_ref().map(|(_, new)| new.as_str()),
-      branch: None,
-      issue_groups: token.issue_groups.as_ref().map(|(_, new)| Some(new.as_str())),
-      stack_parents: stacks_from.as_deref().map(Some),
-      parked: parked_from.as_deref().map(Some),
-    };
-    moved_or(git_executor, repository_path, &expected, error)
-  })?;
   info!(
     head = token.head.is_some(),
     issue_groups = token.issue_groups.is_some(),
@@ -718,6 +673,121 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
     parked = token.parked.is_some(),
     "Undid a regroup"
   );
+  Ok(())
+}
+
+/// The undo of a regroup, checked before the repository lock: the moves of the stores, the commits written over the
+/// drops of a sync, and the checked move of the branch back
+struct PreparedUndo {
+  also: RefTransaction,
+  /// The commits written over the drops of a sync (on temporary refs)
+  over_drops: Vec<WrittenStore>,
+  restore: Option<CheckedRestore>,
+  /// `(store ref, the commit it moves from)` of each store it moves
+  stores_from: Vec<(&'static str, String)>,
+  stacks_from: Option<String>,
+  parked_from: Option<String>,
+}
+
+impl Prepared for PreparedUndo {
+  /// HEAD and the stores it moves back, when it moves HEAD's branch; an undo of the stores alone reads none, the
+  /// compare-and-swap of its transaction is its witness (`undo_regroup_core`)
+  fn witness(&self) -> Witness {
+    let Some(restore) = &self.restore else {
+      return Witness::default();
+    };
+    Witness {
+      head: Some((restore.head().to_string(), restore.branch().to_string())),
+      refs: self.stores_from.iter().map(|(store_ref, from)| (*store_ref, Some(from.clone()))).collect(),
+    }
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    for written in &self.over_drops {
+      written.discard(git_executor, repository_path);
+    }
+  }
+}
+
+impl PreparedUndo {
+  /// Move the branch back and the stores, each with compare-and-swap, in one transaction; a failure discards what the
+  /// checks wrote and is explained by the ref that moved
+  fn write(&self, git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken) -> Result<(), RegroupError> {
+    let undone = match &self.restore {
+      None => self.also.commit(git_executor, repository_path, "undo").map_err(RegroupError::Other),
+      Some(restore) => restore
+        .apply(git_executor, repository_path, "undo", &self.also)
+        .map_err(|e| RegroupError::Other(e.into_anyhow())),
+    };
+    undone.map_err(|error| {
+      self.discard(git_executor, repository_path);
+      let expected = Expected {
+        head: token.head.as_ref().map(|(_, new)| new.as_str()),
+        branch: None,
+        issue_groups: token.issue_groups.as_ref().map(|(_, new)| Some(new.as_str())),
+        stack_parents: self.stacks_from.as_deref().map(Some),
+        parked: self.parked_from.as_deref().map(Some),
+      };
+      moved_or(git_executor, repository_path, &expected, error)
+    })
+  }
+}
+
+/// The checks of the undo of `token`, nothing moved: each store at the commit the regroup wrote (or only drops of a sync
+/// on it, which the undo writes over), HEAD at the new head with the same tree as the previous one
+fn prepare_undo(git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken) -> Result<PreparedUndo, RegroupError> {
+  let mut prepared = PreparedUndo {
+    also: RefTransaction::new(),
+    over_drops: Vec::new(),
+    restore: None,
+    stores_from: Vec::new(),
+    stacks_from: None,
+    parked_from: None,
+  };
+  let checked = check_undo(git_executor, repository_path, token, &mut prepared);
+  if checked.is_err() {
+    prepared.discard(git_executor, repository_path);
+  }
+  checked.map(|()| prepared)
+}
+
+/// `prepare_undo` into `prepared`, which keeps what it wrote when it fails
+fn check_undo(git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken, prepared: &mut PreparedUndo) -> Result<(), RegroupError> {
+  if let Some(pair) = &token.issue_groups {
+    undo_store_write(git_executor, repository_path, &ISSUE_GROUPS, pair, &mut prepared.also)?;
+    prepared.stores_from.push((ISSUE_GROUPS_REF, pair.1.clone()));
+  }
+  if let Some(pair) = &token.stack_parents {
+    let from = undo_dropped_store_write(
+      git_executor,
+      repository_path,
+      (&STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE),
+      pair,
+      &mut prepared.also,
+      &mut prepared.over_drops,
+    )?;
+    prepared.stores_from.push((STACK_PARENTS_REF, from.clone()));
+    prepared.stacks_from = Some(from);
+  }
+  if let Some(pair) = &token.parked {
+    let from = undo_dropped_store_write(
+      git_executor,
+      repository_path,
+      (&PARKED, PARKED_DROP_MESSAGE),
+      pair,
+      &mut prepared.also,
+      &mut prepared.over_drops,
+    )?;
+    prepared.stores_from.push((PARKED_REF, from.clone()));
+    prepared.parked_from = Some(from);
+  }
+  if let Some((previous_head, new_head)) = &token.head {
+    let restore = check_restore(git_executor, repository_path, new_head, previous_head).map_err(|error| match error.into_anyhow() {
+      error if error.is::<HeadMoved>() => RegroupError::HeadMoved(error.downcast().expect("a HeadMoved")),
+      error => RegroupError::Other(error),
+    })?;
+    prepared.restore = Some(restore);
+  }
   Ok(())
 }
 
@@ -788,24 +858,99 @@ pub(crate) fn regroup_with(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   options: &RegroupOptions,
-  assign: impl FnOnce(&Snapshot) -> Result<Change, RegroupError>,
+  assign: impl FnMut(&Snapshot) -> Result<Change, RegroupError>,
 ) -> Result<RegroupOutcome, RegroupError> {
   regroup_accepted(git_executor, repository_path, options, assign, |_| Ok(()))
 }
 
-/// `regroup_with`, with `accept` to refuse the validated result before anything is written
+/// `regroup_with`, with `accept` to refuse the validated result before anything is written. The snapshot, the change
+/// and the new objects come before the repository lock (`prepare_regroup`); under it only the witness of the snapshot's
+/// refs and the transaction (`lock_prepared`), and a regroup computed once more when a ref moved meanwhile
 fn regroup_accepted(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   options: &RegroupOptions,
-  assign: impl FnOnce(&Snapshot) -> Result<Change, RegroupError>,
-  accept: impl FnOnce(&RegroupOutcome) -> Result<(), RegroupError>,
+  mut assign: impl FnMut(&Snapshot) -> Result<Change, RegroupError>,
+  mut accept: impl FnMut(&RegroupOutcome) -> Result<(), RegroupError>,
 ) -> Result<RegroupOutcome, RegroupError> {
-  let _lock = if options.dry_run || options.held_lock.is_some() {
-    None
-  } else {
-    Some(options.lock_wait.lock(git_executor, repository_path)?)
+  // the guards and the lock take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repository_path)?;
+  let mut prepare = || prepare_regroup(git_executor, repository_path, options, &mut assign, &mut accept);
+  let prepared = match prepare() {
+    Ok(prepared) => prepared,
+    // another process rewrote HEAD between two reads of the computation (the snapshot and the history of the reword),
+    // which only the lock keeps still: computed once more under it, as after a witness that missed
+    Err(RegroupError::HeadMoved(_)) if options.expect_head.is_none() && !options.dry_run && options.held_lock.is_none() => {
+      let _lock = options.lock_wait.lock(git_executor, repository_path)?;
+      return prepare()?.write(git_executor, repository_path);
+    }
+    Err(error) => return Err(error),
   };
+  if prepared.write.is_none() {
+    return Ok(prepared.outcome);
+  }
+  let (prepared, _lock) = lock_prepared((options.lock_wait, options.held_lock), git_executor, repository_path, prepared, prepare)?;
+  prepared.write(git_executor, repository_path)
+}
+
+/// A regroup computed on the snapshot it read, before the repository lock: its outcome, the refs it read, and the new
+/// commits of the branch and of the stores on temporary refs
+struct PreparedRegroup {
+  outcome: RegroupOutcome,
+  head: String,
+  branch: String,
+  /// The commit of the issue groups, the stack parents and the parked branches the snapshot read, in this order
+  store_commits: [Option<String>; 3],
+  /// `(store ref, its commit before)` of each store the regroup writes, in the order of the new store commits
+  moved_stores: Vec<(&'static str, Option<String>)>,
+  /// What it wrote; `None` when nothing changes (a dry run writes nothing either)
+  write: Option<RegroupWrite>,
+}
+
+/// The new objects of a regroup, on temporary refs
+enum RegroupWrite {
+  /// The reworded commits of the branch, with the commits of the stores
+  Reword(PreparedReword),
+  /// Only the commits of the stores, computed for this HEAD
+  Stores(WrittenCommits),
+}
+
+impl RegroupWrite {
+  fn store_commits(&self) -> &[String] {
+    match self {
+      Self::Reword(prepared) => prepared.store_commits(),
+      Self::Stores(written) => &written.store_commits,
+    }
+  }
+}
+
+impl Prepared for PreparedRegroup {
+  fn witness(&self) -> Witness {
+    let [issue_groups, stack_parents, parked] = self.store_commits.clone();
+    Witness {
+      head: Some((self.head.clone(), self.branch.clone())),
+      refs: vec![(ISSUE_GROUPS_REF, issue_groups), (STACK_PARENTS_REF, stack_parents), (PARKED_REF, parked)],
+    }
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    match &self.write {
+      Some(RegroupWrite::Reword(prepared)) => prepared.discard(git_executor, repository_path),
+      Some(RegroupWrite::Stores(written)) => written.discard(git_executor, repository_path),
+      None => {}
+    }
+  }
+}
+
+/// The snapshot, the change `assign` makes of it, validated and accepted, and the new commits written on temporary refs
+/// (none for a dry run): everything a regroup reads and computes, on the HEAD and the store commits read once
+fn prepare_regroup(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  options: &RegroupOptions,
+  assign: &mut impl FnMut(&Snapshot) -> Result<Change, RegroupError>,
+  accept: &mut impl FnMut(&RegroupOutcome) -> Result<(), RegroupError>,
+) -> Result<PreparedRegroup, RegroupError> {
   let snapshot = Snapshot::read(git_executor, repository_path)?;
   let appended = match ensure_expected_head(options.expect_head.as_deref(), &snapshot.head, || snapshot.branch.clone()) {
     Ok(()) => Vec::new(),
@@ -826,67 +971,119 @@ fn regroup_accepted(
   let mut outcome = apply_in_memory(&snapshot, change)?;
   outcome.appended = appended;
   accept(&outcome)?;
+  let grouping = &snapshot.grouping;
+  let mut prepared = PreparedRegroup {
+    outcome,
+    head: snapshot.head.clone(),
+    branch: snapshot.branch.clone(),
+    store_commits: [grouping.issue_groups.commit.clone(), grouping.stack_parents.commit.clone(), grouping.parked.commit.clone()],
+    moved_stores: Vec::new(),
+    write: None,
+  };
+  let outcome = &prepared.outcome;
   if options.dry_run || (outcome.changed_count() == 0 && outcome.issue_groups.is_none() && outcome.stack_parents.is_none() && outcome.parked.is_none()) {
-    return Ok(outcome);
+    return Ok(prepared);
   }
 
-  let previous_groups = snapshot.grouping.issue_groups.commit.as_deref();
-  let previous_stacks = snapshot.grouping.stack_parents.commit.as_deref();
-  let previous_parked = snapshot.grouping.parked.commit.as_deref();
   let content_of = |change: &Option<MapChange>| change.as_ref().map(|change| format_store_lines(&change.entries, &change.kept_lines));
-  let groups_content = content_of(&outcome.issue_groups);
-  let stacks_content = content_of(&outcome.stack_parents);
-  let parked_content = content_of(&outcome.parked);
-  let stores: Vec<StoreUpdate<'_>> = groups_content
-    .as_deref()
-    .map(|content| ISSUE_GROUPS.update(previous_groups, content))
-    .into_iter()
-    .chain(stacks_content.as_deref().map(|content| STACK_PARENTS.update(previous_stacks, content)))
-    .chain(parked_content.as_deref().map(|content| PARKED.update(previous_parked, content)))
+  let changed = [
+    (&ISSUE_GROUPS, &grouping.issue_groups.commit, content_of(&outcome.issue_groups)),
+    (&STACK_PARENTS, &grouping.stack_parents.commit, content_of(&outcome.stack_parents)),
+    (&PARKED, &grouping.parked.commit, content_of(&outcome.parked)),
+  ];
+  let stores: Vec<StoreCommit<'_>> = changed
+    .iter()
+    .filter_map(|(store, previous, content)| Some(store.update(previous.as_deref(), content.as_deref()?).commit))
     .collect();
-  let written = if outcome.changed_count() > 0 {
+  let moved_stores = changed
+    .iter()
+    .filter(|(_, _, content)| content.is_some())
+    .map(|(store, previous, _)| (store.store_ref, (*previous).clone()))
+    .collect();
+  let reworded = if outcome.changed_count() > 0 {
     let commits: HashMap<String, Commit> = snapshot.commits.iter().map(|commit| (commit.id.clone(), commit.clone())).collect();
     let rewrites = outcome
       .commits
       .iter()
       .filter(|commit| commit.changed)
       .map(|commit| (commit.id.as_str(), commit.message.as_str()));
-    reword_read_commits_at(git_executor, repository_path, &commits, rewrites, Some(&snapshot.head), &stores).map(|reworded| (reworded.recreated, reworded.store_commits))
+    prepare_reword_at(git_executor, repository_path, &snapshot.baseline, &commits, rewrites, &snapshot.head, &stores)?
   } else {
-    // only the stores change: they were computed for this HEAD
-    let branch_ref = format!("refs/heads/{}", snapshot.branch);
-    write_store_updates(git_executor, repository_path, &stores, Some((&branch_ref, &snapshot.head)), "regroup").map(|commits| (HashMap::new(), commits))
+    None
   };
-  let (recreated, store_commits) = written.map_err(|error| {
-    let expected = Expected {
-      head: Some(&snapshot.head),
-      branch: Some(&snapshot.branch),
-      issue_groups: groups_content.is_some().then_some(previous_groups),
-      stack_parents: stacks_content.is_some().then_some(previous_stacks),
-      parked: parked_content.is_some().then_some(previous_parked),
+  let write = match reworded {
+    Some(prepared) => Some(RegroupWrite::Reword(prepared)),
+    // only the stores change: they were computed for this HEAD
+    None if !stores.is_empty() => Some(RegroupWrite::Stores(write_commits_with_notes(git_executor, repository_path, &[], None, &stores, None)?)),
+    None => None,
+  };
+  prepared.moved_stores = moved_stores;
+  prepared.write = write;
+  Ok(prepared)
+}
+
+impl PreparedRegroup {
+  /// Move HEAD's branch (or verify it, when only the stores change) and the stores in one transaction with
+  /// compare-and-swap on each, under the repository lock: the outcome with the new ids
+  fn write(mut self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<RegroupOutcome, RegroupError> {
+    let Some(write) = self.write.take() else {
+      return Ok(self.outcome);
     };
-    moved_or(git_executor, repository_path, &expected, error.into())
-  })?;
-  for commit in &mut outcome.commits {
-    if let Some(new_id) = recreated.get(&commit.id) {
-      commit.new_id.clone_from(new_id);
+    let mut transaction = RefTransaction::new();
+    for ((store_ref, previous), new_commit) in self.moved_stores.iter().zip(write.store_commits()) {
+      match previous {
+        Some(previous) => transaction.update(store_ref, new_commit, Some(previous)),
+        None => transaction.create(store_ref, new_commit),
+      };
     }
+    let written = match &write {
+      RegroupWrite::Reword(prepared) => prepared.apply(git_executor, repository_path, transaction),
+      RegroupWrite::Stores(written) => {
+        transaction.verify(&format!("refs/heads/{}", self.branch), &self.head);
+        written.delete_temp_refs(&mut transaction);
+        transaction
+          .commit(git_executor, repository_path, "regroup")
+          .inspect_err(|_| written.discard(git_executor, repository_path))
+      }
+    };
+    if let Err(error) = written {
+      let [issue_groups, stack_parents, parked] = &self.store_commits;
+      let moves = |store_ref: &str| self.moved_stores.iter().any(|(moved, _)| *moved == store_ref);
+      let expected = Expected {
+        head: Some(&self.head),
+        branch: Some(&self.branch),
+        issue_groups: moves(ISSUE_GROUPS_REF).then_some(issue_groups.as_deref()),
+        stack_parents: moves(STACK_PARENTS_REF).then_some(stack_parents.as_deref()),
+        parked: moves(PARKED_REF).then_some(parked.as_deref()),
+      };
+      return Err(moved_or(git_executor, repository_path, &expected, error.into()));
+    }
+    let mut outcome = self.outcome;
+    if let RegroupWrite::Reword(prepared) = &write {
+      for commit in &mut outcome.commits {
+        if let Some(new_id) = prepared.mapping().get(&commit.id) {
+          commit.new_id.clone_from(new_id);
+        }
+      }
+      outcome.new_head = prepared.new_head().to_string();
+    } else {
+      outcome.new_head.clone_from(&self.head);
+    }
+    // the store commits come back in the order of the stores written
+    let mut store_commits = write.store_commits().iter().cloned();
+    for change in [&mut outcome.issue_groups, &mut outcome.stack_parents, &mut outcome.parked].into_iter().flatten() {
+      change.new_commit = store_commits.next();
+    }
+    info!(
+      changed = outcome.changed_count(),
+      new_head = %outcome.new_head,
+      issue_groups = outcome.issue_groups.is_some(),
+      stack_parents = outcome.stack_parents.is_some(),
+      parked = outcome.parked.is_some(),
+      "Regrouped commits"
+    );
+    Ok(outcome)
   }
-  outcome.new_head = recreated.get(&snapshot.head).cloned().unwrap_or_else(|| snapshot.head.clone());
-  // the store commits come back in the order of `stores`
-  let mut store_commits = store_commits.into_iter();
-  for change in [&mut outcome.issue_groups, &mut outcome.stack_parents, &mut outcome.parked].into_iter().flatten() {
-    change.new_commit = store_commits.next();
-  }
-  info!(
-    changed = outcome.changed_count(),
-    new_head = %outcome.new_head,
-    issue_groups = outcome.issue_groups.is_some(),
-    stack_parents = outcome.stack_parents.is_some(),
-    parked = outcome.parked.is_some(),
-    "Regrouped commits"
-  );
-  Ok(outcome)
 }
 
 /// Where a write expected the refs it moves
@@ -1430,3 +1627,7 @@ pub fn problem_commits(problem: &StackProblem) -> Vec<String> {
     StackProblem::Cycle(_) | StackProblem::LeafCollision(_) => Vec::new(),
   }
 }
+
+#[cfg(all(test, unix))]
+#[path = "regroup_test.rs"]
+mod regroup_test;

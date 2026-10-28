@@ -408,3 +408,29 @@ fn the_plan_reads_the_stacks_setting_of_the_repository() {
   assert_eq!(plan.groups[0].branch.as_deref(), Some("login"));
   assert_eq!(plan.orphans, []);
 }
+
+/// A fold computes its plan and the squashed commits before the repository lock; under it only the witness of HEAD and
+/// the compare-and-swap move of the branch (C11 of docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test]
+fn a_fold_locks_only_the_witness_and_the_write() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial", "README.md", "readme");
+  test_repo.create_commit("(auth) Add login", "login.txt", "login");
+  test_repo.create_commit("(ui) Add button", "button.txt", "button");
+  let head = test_repo.create_commit("fixup! (auth) Add login", "login.txt", "fixed");
+  let span = test_utils::lock_span::LockSpan::new(&test_repo.path().join(".git"));
+  let params = SquashFixupsParams {
+    repository_path: test_repo.path_str().to_owned(),
+    expected_head: head.clone(),
+    scope: AutosquashScope::All,
+  };
+  let options = RewriteOptions {
+    expect_head: Some(head),
+    ..RewriteOptions::default()
+  };
+  let result = squash_fixup_commits_core(span.executor(), &params, &options).unwrap();
+  assert_eq!(result.squashed_count, 1);
+  assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-ref"], "{:#?}", span.commands());
+  assert!(span.commands_before_the_lock().iter().any(|command| command == "fast-import"), "{:#?}", span.commands());
+}

@@ -421,8 +421,7 @@ fn an_amend() {
       ("merge-tree", 1),
       ("read-tree", 1),
       ("replay", 1),
-      ("rev-parse", 3), // the directories, read once for the lock and the guards: 1
-      ("symbolic-ref", 1),
+      ("rev-parse", 3), // the directories, read once for the lock and the guards: 1; HEAD and its branch: 1
       ("update-index", 3),
       ("update-ref", 1),
       ("var", 1),
@@ -470,7 +469,7 @@ async fn a_drop() {
       ("replay", 2),
       ("rev-list", 1),
       ("rev-parse", 5), // the directories, read once for the lock, the guards and the index: 1
-      ("symbolic-ref", 4),
+      ("symbolic-ref", 3),
       ("update-index", 3),
       ("update-ref", 2),
     ],
@@ -557,7 +556,8 @@ fn reapply_beta(git: &GitCommandExecutor, repo: &TestRepo) -> ReapplyBranchResul
   reapply_branch_core(git, &params, PREFIX, &RewriteOptions::default()).unwrap()
 }
 
-/// Two commits of alpha squashed into the older one
+/// Two commits of alpha squashed into the older one: the history, the merges, the replays and the new commit before the
+/// repository lock, under it the witness of HEAD (`for-each-ref`) and the move of the branch
 #[test]
 fn a_squash() {
   let (repo, commits) = alpha_and_beta_on_origin();
@@ -577,20 +577,21 @@ fn a_squash() {
     &[
       ("cat-file", 1),
       ("fast-import", 1),
+      ("for-each-ref", 1),
       ("log", 1),
       ("merge-tree", 1),
       ("replay", 2),
       ("rev-list", 1),
-      ("rev-parse", 3), // the directories, read once for the lock and the guards: 1
-      ("symbolic-ref", 1),
+      ("rev-parse", 3), // the directories, read once for the lock and the guards: 1; HEAD and its branch: 1
       ("update-ref", 1),
       ("var", 1),
     ],
   );
 }
 
-/// The app's edit of the message of the oldest commit (the Tauri command `reword`): the regroup's snapshot under the
-/// repository lock, then one `fast-import` of the recreated commits and one ref transaction
+/// The app's edit of the message of the oldest commit (the Tauri command `reword`): the regroup's snapshot and one
+/// `fast-import` of the recreated commits before the repository lock, under it the witness of the snapshot's refs
+/// (`for-each-ref`) and one ref transaction
 #[test]
 fn the_app_reword() {
   let (repo, commits) = alpha_and_beta_on_origin();
@@ -614,16 +615,16 @@ fn the_app_reword() {
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 2),
-      ("remote", 2),
-      ("rev-parse", 7),
-      ("symbolic-ref", 1),
+      ("remote", 1),
+      ("rev-parse", 4),
       ("update-ref", 1),
     ],
   );
   // jscpd:ignore-end
 }
 
-/// A park of alpha and beta, then their unpark: no rewrite, one store write each, whatever the number of branches
+/// A park of alpha and beta, then their unpark: no rewrite, one store write each, whatever the number of branches; the
+/// store commit before the repository lock, under it only its move, whose compare-and-swap is the witness
 #[test]
 fn a_park_and_an_unpark() {
   let (repo, _) = alpha_and_beta_on_origin();
@@ -679,14 +680,13 @@ fn a_squash_of_fixups() {
       ("cat-file", 3),
       ("config", 1),
       ("fast-import", 2),
-      ("for-each-ref", 1),
+      ("for-each-ref", 2), // the baseline, the witness of HEAD under the lock
       ("log", 2),
       ("merge-tree", 1),
       ("remote", 1),
       ("replay", 2),
       ("rev-list", 1),
       ("rev-parse", 6), // the directories, read once for the lock and the guards: 1
-      ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),
     ],

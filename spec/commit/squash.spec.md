@@ -81,6 +81,11 @@ tree and the index are not touched, and an undo is a move of the branch back.
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should stop the wait of a squash with Stop Waiting in its dialog, squash nothing, and squash on the next press`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
+- The squash and its undo must compute before the repository lock (the history, the merges and the replays, the
+  squashed commits on temporary refs; the checks of the undo) and hold it only for the witness of HEAD and the
+  compare-and-swap move of the branch; a HEAD that moved before the lock computes the squash once more under it, where
+  a HEAD the request was not made for refuses it as `HeadMoved`.
+  [@test] ../../crates/history-rewrite/src/squash_test.rs (`a_squash_locks_only_the_witness_and_the_write`)
 - An operation of the app itself never refuses the squash: behind the app's own push or rewrite it waits in the line
   of the app's process, as long as that one takes and past any bound, and the operations of the line get the lock in
   the order they came; a wait stopped in the line leaves it, nothing changed.

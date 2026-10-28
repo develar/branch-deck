@@ -3,7 +3,7 @@
 //! tree of HEAD changes, keeping whatever is staged on paths the rewrite does not touch.
 
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
-use crate::revs::{checked_out_branch, known_dirs};
+use crate::revs::{checked_out_head, known_dirs};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -32,8 +32,7 @@ impl RewriteTarget {
 #[instrument(skip(git_executor))]
 pub fn check_rewrite_range(git_executor: &GitCommandExecutor, repo_path: &str, exclude: &[&str]) -> Result<RewriteTarget> {
   ensure_no_operation_in_progress(git_executor, repo_path)?;
-  let branch = checked_out_branch(git_executor, repo_path)?;
-  let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repo_path)?;
+  let (branch, head) = checked_out_head(git_executor, repo_path)?;
   ensure_no_merges(git_executor, repo_path, &head, exclude)?;
   Ok(RewriteTarget { branch, head })
 }

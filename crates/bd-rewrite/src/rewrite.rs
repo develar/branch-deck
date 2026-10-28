@@ -276,9 +276,10 @@ pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutpu
 }
 
 /// Run `regroup`, the rewrite `operation` (its name in the output, the intent of its record), recorded in the operations
-/// registry of the repository (none for a dry run) and under the repository lock, then under the same lock write the
-/// changed `descriptions`; with --sync, end the record, release the lock and sync. A failure after the rewrite is the
-/// `error` of the rewrite output, so the output keeps the undo token
+/// registry of the repository (none for a dry run); its core takes the repository lock after it computed, for the
+/// witness and the write. Changed `descriptions` are written under the lock of the rewrite: then bd takes it before the
+/// regroup and writes them after it; with --sync, end the record, release the lock and sync. A failure after the
+/// rewrite is the `error` of the rewrite output, so the output keeps the undo token
 pub(crate) fn rewrite(
   context: &RepoContext,
   operation: (&str, RewriteIntent),
@@ -295,7 +296,7 @@ pub(crate) fn rewrite(
   Ok(output)
 }
 
-/// `rewrite` up to its sync: its output, and the lock it holds (none for a dry run)
+/// `rewrite` up to its sync: its output, and the lock it holds (only to write descriptions)
 fn rewrite_locked(
   context: &RepoContext,
   operation: &str,
@@ -303,7 +304,10 @@ fn rewrite_locked(
   descriptions: &BTreeMap<String, Description>,
   regroup: impl FnOnce(&RegroupOptions) -> Result<RegroupOutcome, RegroupError>,
 ) -> Result<(RewriteOutput, Option<RepositoryLock>), CliError> {
-  let held_lock = if args.dry_run { None } else { Some(lock(context)?) };
+  // read before the rewrite: only the writes can fail after it
+  let changed = changed_descriptions(context, descriptions)?;
+  // the descriptions go under the lock of the rewrite; else its core takes the lock after it computed
+  let held_lock = if args.dry_run || changed.is_empty() { None } else { Some(lock(context)?) };
   let options = RegroupOptions {
     expect_head: args.expect_head.clone(),
     allow_append: args.allow_append,
@@ -311,8 +315,6 @@ fn rewrite_locked(
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: held_lock.as_ref(),
   };
-  // read before the rewrite: only the writes can fail after it
-  let changed = changed_descriptions(context, descriptions)?;
   let outcome = regroup(&options).map_err(regroup_error)?;
   let mut output = rewrite_output(context, operation, args, &outcome);
   if args.dry_run {

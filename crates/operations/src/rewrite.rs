@@ -4,7 +4,7 @@
 //!
 //! A rewrite holds `Resource::Head`: the rewrites of a process run one after the other, in the order they came, each on
 //! what the ones before it left (a second click of the same rewrite joins the first); between processes the repository
-//! lock orders them, and a wait for another holder is the step `WaitingForLock` with its holder, which
+//! lock orders their writes, and a wait for another holder is the step `WaitingForLock` with its holder, which
 //! `Registry::cancel` stops (`canceled`, nothing changed). A rewrite never waits for a sync: the sync of the app writes no
 //! HEAD.
 //!
@@ -15,7 +15,9 @@
 //! sync that runs, `SyncReason::Open`) and each id is the commit of the same author, author time and subject without
 //! the prefix (`CommitKey`, read off the table when the request came). A commit none of them finds changes the plan
 //! (`plan_changed`), and nothing is written. The core then runs on the blocking pool with that HEAD expected
-//! (`RewriteOptions::expect_head`), under the repository lock it takes itself; the operation ends once it asked the sync
+//! (`RewriteOptions::expect_head`): it reads and computes before the repository lock, which it takes itself only for
+//! the witness of what it read and its compare-and-swap write, and computes once more under the lock when a ref moved
+//! meanwhile (`history_rewrite::repository_lock::lock_prepared`); the operation ends once it asked the sync
 //! that shows what it changed (`SyncReason::AfterRewrite`), not when that sync ends, with what the core answered and its
 //! undo (`Outcome::undo`); the request answers once that sync ended, with the version of its last patch
 //! (`Outcome::version_after`), which the toast of the window waits for. An undo names no table: its token moves each ref

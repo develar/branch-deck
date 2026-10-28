@@ -36,12 +36,17 @@ modules by area; the layers are the
   and the guards of the app's actions on the remote (the push, the start of a robot), on what the others read; else
   `crates/sync-core/src/<op>.rs`: the sync, the pushes and the other cores, which reach no remote service but through
   git): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
-  of the checked-out branch takes `&RewriteOptions`: `options.lock(..)` before it reads anything, then the expected
-  HEAD (`ensure_head`, `expected_full_head`), then git-ops. An operation reads a repository fact once and passes it
+  of the checked-out branch takes `&RewriteOptions`: it reads the history or the snapshot once and computes on those
+  oids (the expected HEAD checked there, `ensure_head`; merge-tree, replay, the `fast-import` of the new objects on
+  temporary refs) before the lock, then `options.lock_prepared(..)` takes the lock for the witness of the refs it read
+  (`Prepared::witness`: HEAD, its branch and the store tips, one `for-each-ref`), computes once more under the lock when
+  one moved, and the core writes under it: the CAS transaction, then the move of the index. The cores that still lock
+  first (amend, unapply, reapply, add issue reference, the move of a hunk) take `options.lock(..)` before they read
+  anything. An operation reads a repository fact once and passes it
   down: a step of a sync, or of a `bd` command after its sync, takes the facts `RepoFacts`, `ConfigSnapshot`,
   `Snapshot` or the `SyncReport` hold instead of reading them again, the baseline with its upstream comes from one
   `read_baseline` (with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`), and an operation that reads the directories in several steps takes them once at its entry
-  (`with_dirs_of`); only HEAD and the guards are read again under the lock. A remote only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
+  (`with_dirs_of`); under the lock only the witness of what it read is read again. A remote only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
 - **The operation** (`crates/operations/src/<family>.rs`, for an action on the remote: a push, a start, a restart or a
   cancel of a robot, a write to a pull request or an issue): the intent of its family (`domain_types::operation::Intent`)
   runs in the frame of `operations::engine::run`, admitted by the in-process registry (`operations::registry`, by the

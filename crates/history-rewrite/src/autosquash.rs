@@ -3,7 +3,7 @@
 //! `prepare_squash` with a group per target.
 
 use crate::commit_grouper::GroupingInputs;
-use crate::repository_lock::RewriteOptions;
+use crate::repository_lock::{Prepared, RewriteOptions, Witness};
 use crate::snapshot::{CommitsAhead, read_grouping_inputs};
 use anyhow::{Result, anyhow, bail};
 use domain_types::commit::{Commit, SubjectParts};
@@ -15,6 +15,7 @@ use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{checked_out_branch, short_id, with_dirs_of};
 use git_ops::rewrite_guard::HeadMoved;
+use git_ops::rewrite_plan::PreparedRewrite;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -198,16 +199,59 @@ pub fn get_autosquash_plan_with_branches(git_executor: &GitCommandExecutor, repo
 }
 
 /// Squashes the fixups of `scope` into their targets in one history rewrite that keeps HEAD's tree, so the index and
-/// the working tree are not touched, under the repository lock. The plan is computed again and must be for
-/// `expected_head` (and `options.expect_head`): HEAD, the commits the plan is made of and the history the rewrite replays
-/// must all end at it, else the error is `HeadMoved`. The rewrite itself moves the branch only from that head
-/// (compare-and-swap).
+/// the working tree are not touched. The plan is computed again and must be for `expected_head` (and
+/// `options.expect_head`): HEAD, the commits the plan is made of and the history the rewrite replays must all end at
+/// it, else the error is `HeadMoved`. The plan and the new commits come before the repository lock; under it only the
+/// witness of HEAD and the compare-and-swap move of the branch (`RewriteOptions::lock_prepared`)
 #[instrument(skip(git_executor, options))]
 pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<SquashFixupsResult> {
   let repo_path = &params.repository_path;
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let _lock = options.lock(git_executor, repo_path)?;
+  let prepare = || prepare_fold(git_executor, params, options);
+  let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, prepare()?, prepare)?;
+  let PreparedFold { rewrite, groups, orphans } = prepared;
+  rewrite.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
+
+  let squashed: Vec<SquashedTarget> = groups
+    .iter()
+    .map(|group| SquashedTarget {
+      target: group.target.clone(),
+      new_id: rewrite.replacement_of(&group.target).unwrap_or_else(|| rewrite.new_head()).to_string(),
+    })
+    .collect();
+  let squashed_count = groups.iter().map(|group| group.folded.len()).sum::<usize>();
+  info!(squashed_count, targets = squashed.len(), "Squashed fixup commits");
+  Ok(SquashFixupsResult {
+    squashed,
+    squashed_count: u32::try_from(squashed_count)?,
+    orphans,
+    new_head: rewrite.new_head().to_string(),
+    previous_head: rewrite.old_head().to_string(),
+  })
+}
+
+/// A fold computed before the repository lock: its new commits, the groups it squashes and the fixups without a target
+struct PreparedFold {
+  rewrite: PreparedRewrite,
+  groups: Vec<PlannedGroup>,
+  orphans: Vec<OrphanFixup>,
+}
+
+impl Prepared for PreparedFold {
+  fn witness(&self) -> Witness {
+    self.rewrite.witness()
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    self.rewrite.discard(git_executor, repository_path);
+  }
+}
+
+/// The plan of `params` on the HEAD it expects, and the squashed commits written on temporary refs (`prepare_squash`):
+/// the branch is not moved
+fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<PreparedFold> {
+  let repo_path = &params.repository_path;
   let (head, commits, grouping) = read_range(git_executor, repo_path)?;
   options.ensure_head(git_executor, repo_path, &head)?;
   let head_moved = |actual: &str| {
@@ -262,25 +306,8 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
     }
   }
 
-  let prepared = prepare_squash(git_executor, repo_path, &history, &squash_groups)?;
-  prepared.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
-
-  let squashed: Vec<SquashedTarget> = groups
-    .iter()
-    .map(|group| SquashedTarget {
-      target: group.target.clone(),
-      new_id: prepared.replacement_of(&group.target).unwrap_or_else(|| prepared.new_head()).to_string(),
-    })
-    .collect();
-  let squashed_count = groups.iter().map(|group| group.folded.len()).sum::<usize>();
-  info!(squashed_count, targets = squashed.len(), "Squashed fixup commits");
-  Ok(SquashFixupsResult {
-    squashed,
-    squashed_count: u32::try_from(squashed_count)?,
-    orphans,
-    new_head: prepared.new_head().to_string(),
-    previous_head: prepared.old_head().to_string(),
-  })
+  let rewrite = prepare_squash(git_executor, repo_path, &history, &squash_groups)?;
+  Ok(PreparedFold { rewrite, groups, orphans })
 }
 
 const fn is_utf8(encoding: &str) -> bool {

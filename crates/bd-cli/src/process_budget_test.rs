@@ -402,7 +402,8 @@ fn a_push_beside_a_robot_started_before_a_restack() {
   );
 }
 
-/// `bd fold`: the guards and the plan of the command, then the squash of the fixups
+/// `bd fold`: the guards and the plan of the command, then the squash of the fixups, which reads the witness of HEAD
+/// under the lock
 #[test]
 fn a_fold() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -421,22 +422,22 @@ fn a_fold() {
       ("cat-file", 3),
       ("config", 2),
       ("fast-import", 1),
-      ("for-each-ref", 2),
+      ("for-each-ref", 3),
       ("log", 3),
       ("merge-tree", 1),
       ("remote", 2),
       ("replay", 1),
       ("rev-list", 1),
       ("rev-parse", 7),
-      ("symbolic-ref", 2),
+      ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),
     ],
   );
 }
 
-/// `bd reword` of the oldest of three commits: the regroup's snapshot, then one `fast-import` of the recreated commits
-/// and one ref transaction
+/// `bd reword` of the oldest of three commits: the regroup's snapshot and one `fast-import` of the recreated commits,
+/// then under the lock the witness of the snapshot's refs and one ref transaction
 #[test]
 fn a_reword() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -460,9 +461,8 @@ fn a_reword() {
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 2),
-      ("remote", 2),
-      ("rev-parse", 5),
-      ("symbolic-ref", 1),
+      ("remote", 1),
+      ("rev-parse", 4),
       ("update-ref", 1),
     ],
   );
@@ -514,7 +514,7 @@ const MOVE_HUNK: [(&str, u32); 12] = [
   ("patch-id", 1),
   ("remote", 1),
   ("rev-parse", 2),
-  ("symbolic-ref", 2),
+  ("symbolic-ref", 1),
   ("update-ref", 1),
   ("var", 1),
 ];

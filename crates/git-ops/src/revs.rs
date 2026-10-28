@@ -177,6 +177,50 @@ pub fn read_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<O
   Err(anyhow!("Cannot read HEAD: {output}"))
 }
 
+/// The branch HEAD is on and its commit, from one `rev-parse` (`read_head`): the target of a rewrite of the checked out
+/// branch. A detached HEAD is the error `DetachedHead`, a branch without commits an error too
+pub fn checked_out_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(String, String)> {
+  match read_head(git_executor, repo_path)? {
+    Some((head, Some(branch))) => Ok((branch, head)),
+    Some((_, None)) => Err(DetachedHead.into()),
+    None => Err(anyhow!("The checked out branch has no commits yet")),
+  }
+}
+
+/// HEAD as one read sees it: its commit and the full ref of the branch it names
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HeadAndTips {
+  /// The commit HEAD is at; `None` for a branch without commits
+  pub head: Option<String>,
+  /// The full ref HEAD names (`refs/heads/main`); `None` when it is detached
+  pub head_ref: Option<String>,
+  /// Full ref -> tip of each ref asked for that exists
+  pub tips: HashMap<String, String>,
+}
+
+/// HEAD (its commit and the branch it names) and the tips of `refs` (full names), with one `for-each-ref` that lists
+/// HEAD as a root ref: the witness a rewrite reads under the repository lock of the refs it read before it. A pattern of
+/// `for-each-ref` matches the refs under it too, so only the exact names count
+pub fn head_and_tips(git_executor: &GitCommandExecutor, repo_path: &str, refs: &[&str]) -> Result<HeadAndTips> {
+  let mut args = vec!["for-each-ref", "--include-root-refs", "--format=%(refname)%00%(objectname)%00%(symref)", "HEAD"];
+  args.extend_from_slice(refs);
+  let lines = git_executor.execute_command_lines(&args, repo_path)?;
+  let mut read = HeadAndTips::default();
+  for line in &lines {
+    let mut fields = line.split('\0');
+    let (Some(name), Some(tip), symref) = (fields.next(), fields.next(), fields.next()) else {
+      continue;
+    };
+    if name == "HEAD" {
+      read.head = Some(tip.to_string());
+      read.head_ref = symref.filter(|symref| !symref.is_empty()).map(str::to_string);
+    } else if refs.contains(&name) {
+      read.tips.insert(name.to_string(), tip.to_string());
+    }
+  }
+  Ok(read)
+}
+
 /// The abbreviated commit id used in messages and in the output of the agent CLI
 pub fn short_id(id: &str) -> &str {
   id.get(..8).unwrap_or(id)

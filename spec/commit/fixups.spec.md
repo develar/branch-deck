@@ -90,7 +90,9 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   squash rewrites must all be that head, so a commit made between these reads never gives a plan for one head and a
   rewrite of another.
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
-- The squash must run under the repository lock, taken before the plan is read again: while another process holds it
+- The squash must run under the repository lock, taken after the plan is read again and the squashed commits are
+  written on temporary refs, for the witness of HEAD and the compare-and-swap move only (a HEAD that moved meanwhile
+  plans once more under the lock): while another process holds it
   (an agent's `bd pick --follow`, `bd`) or the app's own push, the squash waits as long as the holder lives, its
   surface saying whom for, the step of its operation ("Waiting for `bd pick` (pid 4242, for 12 s)"), with Stop Waiting
   (`cancel_operation`), which ends the wait with nothing changed ("Canceled squashing the fixups before it started");
@@ -98,6 +100,7 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   saying that another operation holds the lock.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`a_fold_locks_only_the_witness_and_the_write`)
 - `bd fold` runs the same squash ([Agent CLI](../cli/agent-cli.spec.md)): it passes its lock timeout and
   `--expect-head` to the squash, which takes the lock and refuses another HEAD, so `bd fold` fails with `locked` or
   `head_moved` and changes nothing.

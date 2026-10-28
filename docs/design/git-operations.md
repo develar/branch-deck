@@ -244,8 +244,8 @@ written, except by Update Project and the finish of its resolve session (their o
    `bd move-hunk` take the baseline with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`
    (`remote` and one `for-each-ref`) and walk the commits between the two ids; the directories come from
    the executor ([Executor](#executor); `the_directories_of_an_operation_are_read_once`); a step of a sync takes
-   `RepoFacts`, `ConfigSnapshot` or the `SyncReport`. Only HEAD and the guards are read again, under the lock, where
-   they may have moved since the check (the witness). Never parse translated text; rely on exit codes and
+   `RepoFacts`, `ConfigSnapshot` or the `SyncReport`. Only the witness is read again, under the lock: HEAD and the
+   refs the operation read, where they may have moved since its check ([Repository lock](#regroup-rename-restack)). Never parse translated text; rely on exit codes and
    on `--porcelain` and `-z` output. **One named exception:** a branch description (`branch.<name>.description`,
    `bd describe` and the `descriptions` of a `bd group` plan) costs one `git config` process per branch, because git
    has no batch writer for config. The current descriptions are still read with one `git config --get-regexp`, and
@@ -450,16 +450,18 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
 4. **The core** runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`, `RegroupOptions`) and
    the lock waited for as long as its holder lives (`LockWait::WhileHeld`): the step of the operation is
    `WaitingForLock` with the holder its record names, then `Rewriting`; `cancel_operation` ends the wait (`canceled`,
-   nothing read or written). The core takes the lock itself: the lock spans what it spanned before.
+   no ref moved, the objects it computed deleted with their temporary refs). The core takes the lock itself, after it
+   computed on the snapshot it read: under it only its witness and its write ([Regroup, rename,
+   restack](#regroup-rename-restack), "Repository lock").
 5. **The end**: the operation asks the sync that shows what it changed (`SyncReason::AfterRewrite`, the effect `Sync`;
    none when the core changed nothing) and ends: it does not wait for that sync, a rewrite queued behind it runs beside
    it, and the sync of the one after joins its chain as one follow-up. Its request answers once that sync ended, with
    the version of its last patch (`Outcome::version_after`), so the toast of the window that asked shows beside what it
    changed; a request that joined it answers as it ended. A delete asks no sync: the table drops the branch at once
    (`version_after`). Its outcome has what the core answered (`OperationResult::Rewrite`, `RewriteResult` by
-   kind), its undo and its git processes: those of its core and the one `for-each-ref` of its witness
-   (`a_rewrite_costs_its_core_and_one_read_of_its_witness` in `crates/operations/src/process_budget_test.rs`); the undo
-   reads no witness.
+   kind), its undo and its git processes: those of its core (with the witness the core reads under the lock) and the
+   one `for-each-ref` of the operation's witness (`a_rewrite_costs_its_core_and_one_read_of_its_witness` in
+   `crates/operations/src/process_budget_test.rs`); the undo reads no witness of the operation.
 
 Update Project, the Fetch of a merge toast and Dismiss Landed are operations of the engine too
 (`operations::update`, "Update project" below): the fetch the intent `FetchBaseline`, holding the tracking ref of the
@@ -484,7 +486,9 @@ edit of a message and `bd reword` are a regroup (below); this is how it writes, 
    - `get-mark` prints the new ids.
 4. Run one transaction that moves the branch with CAS and deletes the temporary ref.
 
-`fast-import` objects become readable only when its stream ends, so it suits batches whose commits are all known up
+Steps 1 to 3 are `prepare_reword` (a `PreparedReword` on temporary refs, no ref moved), step 4 its `apply`: a regroup
+runs the first before the repository lock and the second under it, after its witness; add issue reference runs both
+under the lock (`reword_commits_batch_at`). `fast-import` objects become readable only when its stream ends, so it suits batches whose commits are all known up
 front. Code: `crates/git-ops/src/reword_commits.rs`, `crates/git-ops/src/commit_writer.rs`.
 
 #### Regroup, rename, restack
@@ -493,11 +497,11 @@ A move, a regroup plan of the agent CLI (`{branches: {path: [ids]}, unassign: [i
 `bd reword` and the app's edit of a message all change the messages of commits, so they are one reword. `regroup_commits_core` decides the messages before it
 writes anything:
 
-1. Take the repository lock (below), refuse while an operation is in progress or HEAD is detached, and read HEAD, the
-   stack setting, the issue groups and the stack parents (one `cat-file --batch`) and the commits ahead of the
-   baseline (one `log`): the `Snapshot` (`crates/history-rewrite/src/snapshot.rs`, which the check reads too; the reads
-   that need less take its parts, `CommitsAhead` and `read_grouping_inputs`). An
-   `expect_head` that isn't HEAD is `head_moved`.
+1. Refuse while an operation is in progress or HEAD is detached, and read HEAD, the stack setting, the issue groups,
+   the stack parents and the parked branches (one `cat-file --batch`) and the commits ahead of the baseline (one
+   `log`): the `Snapshot` (`crates/history-rewrite/src/snapshot.rs`, which the check reads too; the reads that need
+   less take its parts, `CommitsAhead` and `read_grouping_inputs`). An `expect_head` that isn't HEAD is
+   `head_moved`. No lock yet: steps 1 to 5 run before it, on the oids the snapshot read (below, "Repository lock").
 2. Resolve the ids of the plan (abbreviations allowed); unknown ids, ids that aren't ahead of the baseline,
    duplicates and ids both in a branch and in `unassign` are refused.
 3. Move every fixup of a moved target along (`plan_autosquash`); a plan that separates a fixup from its target is
@@ -517,12 +521,14 @@ writes anything:
    (`CommitGrouper::new_with`) and compare the stack forest with the current one: a problem the plan introduces (a
    cycle, conflicting parents, a self parent, a leaf collision) refuses the plan, named by its reason without a fix
    (the plan changed nothing yet); a problem that already existed is reported, and its fixes run.
-5. Reword the changed commits in one `fast-import` (`reword_commits_batch_at`): the history must still start at the
-   HEAD of step 1, and the ref transaction's CAS uses it too. A change of the issue groups or of the stack parents
-   joins that transaction (below).
+5. Write the reworded commits and the store commits in one `fast-import` on temporary refs (`prepare_reword` of
+   `git_ops::reword_commits`, on the baseline of the snapshot): the history must still start at the HEAD of step 1.
+6. Take the repository lock, read the witness (HEAD, its branch and the three store commits of step 1, one
+   `for-each-ref`) and move the branch and the changed stores in one ref transaction with CAS on each (below); a
+   witness that missed runs steps 1 to 5 once more, under the lock.
 
-A move of the app (the rewrite `Move`, `move_commits_to_branch_core`) computes its plan from the snapshot of step 1, under the same lock
-(`regroup_planned` and `plan_move` in `move_plan.rs`): a whole issue (every commit of its key without a prefix) goes into
+A move of the app (the rewrite `Move`, `move_commits_to_branch_core`) computes its plan from the snapshot of step 1,
+again from the one read under the lock when the witness missed (`regroup_planned` and `plan_move` in `move_plan.rs`): a whole issue (every commit of its key without a prefix) goes into
 `issue_groups`, also into a stacked target, a part of one and a commit without a key into `branches` (a path `P/X`
 also writes the stack parent of `X`, with an empty list when the issue groups move every commit), and a prefixed commit
 that its key puts into the target anyway into `unassign`. So combining issues rewrites nothing, and a mixed move is one
@@ -536,11 +542,12 @@ engine](#rewrite-in-the-engine)): `rename_branch_core` and `restack_branch_core`
 after their record went into the operations registry of the repository ("Operations registry",
 `bd_core::operation_record::recorded`: `RewriteIntent::Group` of the plan, `Rename`, `Restack`, `Unstack`, `Reword`,
 on the HEAD of `--expect-head`), before the lock; the record leaves before the `--sync`, which runs after the release.
-A rewrite of the app and one of `bd` meanwhile make each other neither busy nor joined: the second takes the lock
-after the first and runs on what it left (a second unstack of beta: `invalid_plan`, "beta is not stacked").
+A rewrite of the app and one of `bd` meanwhile make each other neither busy nor joined: the second finds its witness
+moved once it takes the lock after the first, computes once more under it and runs on what the first left (a second
+unstack of beta: `invalid_plan`, "beta is not stacked").
 
 `bd reword` (`crates/history-rewrite/src/reword.rs`) gives the regroup whole new messages by id (`Change::messages`,
-a `--subject` keeps the body it reads from the snapshot, under the lock), cleaned up as `git commit` does, before the
+a `--subject` keeps the body it reads from the snapshot), cleaned up as `git commit` does, before the
 plan's prefixes apply; a message equal to the old one after the cleanup changes nothing. A new `(prefix)` regroups the
 commit as a plan would, with step 4's check, and the fixups of a target whose prefix changes follow it. The mapping
 note of a commit whose text (not only its prefix) changed is not carried: its copy must be rebuilt with the message.
@@ -598,9 +605,11 @@ messages back.
 - The one write outside a regroup: after the detection of the archived branches, a sync drops the lines of the
   children whose newest archived branch is integrated (`drop_integrated_stack_parents`), with CAS on the commit it
   read and only when a line goes, with a message of its own. It takes the repository lock only while it is free, never
-  waiting (`drop_store_lines`): a regroup holds the lock from its read of the stores to its transaction, so a drop in
-  that time would fail it with `stacks_moved` or `parked_moved`; a held lock, also one of the same process (the sync of
-  `bd push` under its lock), leaves the drop to the next sync
+  waiting (`drop_store_lines`): a regroup reads the stores before the lock, and a drop between that read and its lock
+  moves its witness, so it reads the snapshot once more under the lock and writes on the drop
+  (`a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more_under_the_lock`); park, unpark and the
+  undo of the stores alone find it by their failed compare-and-swap and do the same; a held lock, also one of the same
+  process (the sync of `bd push` under its lock), leaves the drop to the next sync
   (`a_sync_leaves_the_stack_parents_to_a_regroup_that_holds_the_lock`). A write that loses the race to another writer
   is skipped and tried at the next sync. A newer archive that is not integrated, such as a
   branch of another worktree that this sync archived, keeps the line. So that such a drop does not break the undo of
@@ -616,9 +625,10 @@ built on it, which carries its commits.
 - It is read in the same `cat-file --batch` as the other two maps (`GroupingInputs.parked`), so the stack setting and
   the three maps still cost two processes, and a sync's budget is unchanged. The sync sends the whole map in
   `BranchesGrouped` (`parked`), the lines of branches without commits here too.
-- Park and unpark change no commit: `park_core` takes the repository lock, reads the grouping of the commits ahead
-  (each branch must group one), then writes the store with one `fast-import` and one `update-ref --stdin` with CAS on
-  the commit it read (`write_store_updates`); a ref that moved is `parked_moved`. `unpark_core` reads only the store
+- Park and unpark change no commit: `park_core` reads the grouping of the commits ahead (each branch must group one)
+  and writes the store commit with one `fast-import` on a temporary ref, before the repository lock; under it one
+  `update-ref --stdin` with CAS on the commit it read, the witness of the one store it writes (`write_prepared`); a
+  ref that moved is read and written once more under the lock, and only a second move is `parked_moved`. `unpark_core` reads only the store
   (one `cat-file --batch`) and drops a line also of a branch without commits here. Both take several branches (the
   app's drag of a selection, the undo of one) and write all their lines in one store commit, or none when one of them
   is refused; the processes are the same for one branch or many. Neither has an undo token: the other one is the undo.
@@ -645,14 +655,32 @@ bound of `bd` and the bound of a holder no record names count only at the `flock
 does, by the record beside the lock (the operation of this process that holds it, or the other process the one whose
 turn it is waits for). `try_lock_repository` takes the lock only while nobody holds it or waits for it, this process
 included (the drop of store lines), and `lock_as_another_process` takes it outside the line, as another process holds
-it, for the tests and the E2E server, whose app runs in the process that holds it. Every rewrite of the checked out branch takes it in its core, before it reads anything: the regroup (also the
-app's reword) and the move of a hunk (their options), and the app's squash and its undo, squash fixups (also `bd
-fold`), amend, unapply and add issue reference, each a `*_core(…, &RewriteOptions)`
-(`crates/history-rewrite/src/repository_lock.rs`): `lock_wait`, `held_lock` for a caller that holds the lock already,
-so the core takes none, and `expect_head`, the HEAD the request was made for, abbreviated ids allowed, else
-`HeadMoved` (`ensure_expected_head`, one check for every core). The app's cores without options (a move, a rename, a
-restack, an undo of a regroup, park and unpark, the squash undo, the unapply and reapply undo, the conflict fix,
-Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWait` of its caller:
+it, for the tests and the E2E server, whose app runs in the process that holds it. Every rewrite of the checked out
+branch takes it in its core, each a `*_core(…, &RewriteOptions)` or a core with its own options
+(`crates/history-rewrite/src/repository_lock.rs`): `lock_wait`, `held_lock` for a caller that holds the lock already
+(`bd group` that writes branch descriptions after the regroup), so the core takes none and computes under it, and
+`expect_head`, the HEAD the request was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`,
+one check for every core). The app's cores without options (a move, a rename, a restack, an undo of a regroup, the
+squash undo, the unapply and reapply undo, the conflict fix, Update Project) take a `LockWait` themselves.
+
+The lock is held for the witness and the write, never for a computation (C11 and Invariant 1 of [Rust as the Domain Authority](rust-domain-authority.md)). The regroup
+(the move, rename, restack, unstack, the conflict fix, the reword of the app and of `bd`, `bd group`) and its undo,
+park and unpark, the app's squash and its undo and squash fixups (also `bd fold`) read the snapshot or the history
+once and compute on those oids before the lock: the merges and the replays of the squash, the change of the regroup
+validated, the `fast-import` of the new commits and of the store commits on temporary refs (`Prepared`). Under the lock
+the core reads the witness of what it computed on, one `for-each-ref --include-root-refs` of HEAD (its commit and the
+branch it names) and of the stores (`Witness::holds`, `git_ops::revs::head_and_tips`), then writes: the CAS ref
+transaction that moves the branch and the stores and deletes the temporary refs, then the move of the index
+(`RewriteOptions::lock_prepared`). A write of the stores alone (park, unpark, the undo of a regroup that moved only
+stores) reads no witness: the compare-and-swap of its transaction on the one store it read is its witness. When a ref
+moved between the read and the lock (another process rewrote HEAD, a sync dropped the lines of integrated branches
+from a store, `drop_store_lines`), the core discards its temporary refs and computes once more, under the lock now, so
+nothing it reads moves again: the HEAD it expects is checked there, another one is `HeadMoved`, and a store that a
+sync dropped lines of is read as the sync left it. The lock span tests (`test_utils::lock_span`, a git that logs
+whether the holder record of the lock exists when each command starts) pin it per core:
+`a_move_locks_only_the_witness_and_the_write` and its siblings in `regroup_test.rs`, `squash_test.rs` and
+`autosquash_test.rs`. Amend, unapply, reapply, add issue reference and the move of a hunk still take the lock before
+they read anything. How a rewrite waits is the `LockWait` of its caller:
 
 - **`bd`**: `LockWait::Bounded(lock_timeout)`, 10 s by default (`BRANCH_DECK_LOCK_TIMEOUT`), then `locked`, exit 3.
 - **The app**: `LockWait::WhileHeld(&StepWaiter)`, `lock_repository_while_held`: after its own operations before it in
@@ -663,9 +691,10 @@ Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWa
   holder }` with the `LockHolderInfo` of the record (`LockHolder::info`: `bd` or the app, the command, the pid and how
   long it has held the lock), told again when the holder changes and as the time grows, so every window words it
   (`presentLockWait` of `src/presenters/lock-wait.ts`), and its Stop Waiting is `cancel_operation`
-  (`Registry::cancel`): the wait sees the flag on its next poll and returns `LockWaitCanceled` before the rewrite read
-  or wrote anything, and the operation answers the code `canceled` (`StepWaiter::ended_by_cancel` of
-  `operations::rewrite`: only when its own wait ended so, never for a Stop Waiting that came after the lock was taken).
+  (`Registry::cancel`): the wait sees the flag on its next poll and returns `LockWaitCanceled` before the rewrite moved
+  a ref (a core that computed before the lock deletes the temporary refs of its objects), and the operation answers
+  the code `canceled` (`StepWaiter::ended_by_cancel` of `operations::rewrite`: only when its own wait ended so, never
+  for a Stop Waiting that came after the lock was taken).
   Update Project is such an operation (`operations::update`): its wait after its check is its step `WaitingForLock`,
   its stopped wait the failed `Update` effect of its outcome, `canceled`, nothing changed but the fetch. The page says
   "Canceled squashing 2 commits before it started" (an info toast, no error) and changes nothing. The E2E server runs
@@ -699,9 +728,10 @@ the inputs (the fingerprint is taken when the sync starts), so the next focus sy
 wrote from the HEAD it read. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
 `locked`.
 
-**One call: rewrite, descriptions, sync.** `bd group` (and `rename`, `restack`, `unstack`) takes the lock itself and
-passes it to the regroup (`RegroupOptions.held_lock`), so the regroup takes no lock of its own and the lock has no gap
-between the rewrite and its descriptions:
+**One call: rewrite, descriptions, sync.** `bd group` with descriptions that change takes the lock itself and passes
+it to the regroup (`RegroupOptions.held_lock`), so the regroup computes under it and takes no lock of its own, and the
+lock has no gap between the rewrite and its descriptions; without them (and `rename`, `restack`, `unstack`) the
+regroup's core takes the lock after it computed, for its witness and its write:
 
 1. The current descriptions, when the plan has `descriptions`: those of the command's config (`RepoContext::config`,
    one `git config --get-regexp` read once per command and again after a wait for the lock).
@@ -817,9 +847,12 @@ text or the target's own message and encoding):
    - the new HEAD tree equals the old one, so the index and the working tree are already right and a dirty tree is
      fine (one `rev-parse` of the replayed tip; the old tree is the history's);
    - the commit count matches, because `replay` silently drops a commit that becomes empty.
-7. Move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary refs.
+7. Take the repository lock: steps 1 to 6 ran before it. Read the witness, HEAD and its branch (one `for-each-ref`);
+   HEAD elsewhere runs steps 1 to 6 once more under the lock, where a HEAD other than the expected one is `HeadMoved`.
+   Move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary refs.
 
-**Undo** moves the branch back to the old HEAD with a CAS on the new one (`branch-deck: undo squash`). It is refused if
+**Undo** moves the branch back to the old HEAD with a CAS on the new one (`branch-deck: undo squash`), its checks
+before the lock and the witness of HEAD under it (`check_restore`, `CheckedRestore`). It is refused if
 the branch moved since (`HeadMoved`, also when it moves between the check and the transaction: a failed transaction
 reads the branch again, and only a branch elsewhere is `HeadMoved`; the app answers it as `undo_stale`, `undo_error`,
 in the words of `HeadMoved::undo_message`), or if the two trees differ; equal trees mean the index and the working tree
@@ -852,8 +885,9 @@ unassigned targets, or one fixup. It refuses with `HeadMoved` unless HEAD, the n
 the history the squash replays all are the confirmed head; these are three reads, and a commit between them would
 otherwise give a plan for one head and a rewrite of another. The history is read last, down to the oldest target of
 the scope (see "Rewrite history"), once the plan names the targets. The branch moves with `branch-deck: squash fixups` and a
-CAS on that head; Undo is the squash undo. The core takes the repository lock first; `bd fold` passes its
-`--expect-head` and lock timeout to it, with the head it planned for.
+CAS on that head; Undo is the squash undo. The core plans and writes the squashed commits before the repository lock
+and holds it for the witness of HEAD and the move, as the squash does; `bd fold` passes its `--expect-head` and lock
+timeout to it, with the head it planned for.
 
 Code: `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/autosquash_targets.rs` (the target of each
 fixup), `crates/sync-utils/src/commit_subject.rs` (`parse_subject`), `crates/history-rewrite/src/commit_grouper.rs`

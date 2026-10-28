@@ -1,6 +1,7 @@
 //! A lock file that serializes history rewrites between processes: the app and parallel `bd` calls. The in-process
 //! mutexes (ref renames, notes) don't cover another process. Every rewrite of the checked out branch takes it in its
-//! core, through the `RewriteOptions` it is called with (AGENTS.md, "Repository lock").
+//! core, through the `RewriteOptions` it is called with (AGENTS.md, "Repository lock"): after it read and computed on
+//! the oids it read once, for the witness of those refs and its compare-and-swap write only (`lock_prepared`).
 //!
 //! Before the file lock stands the line of this process (`Place`): a fair queue per lock file, in which an operation
 //! waits for the operations of this process that came before it, as long as they take, so two operations of one
@@ -11,8 +12,10 @@ use crate::commit_ids::MIN_ID_LENGTH;
 use anyhow::{Context, Result};
 use domain_types::error::{HolderTool, LockHolderInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::{checked_out_branch, git_common_dir};
+use git_ops::revs::{checked_out_branch, git_common_dir, head_and_tips};
 use git_ops::rewrite_guard::HeadMoved;
+use git_ops::rewrite_plan::PreparedRewrite;
+use git_ops::squash_commits::CheckedRestore;
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
@@ -658,16 +661,20 @@ fn take_turn(path: &Path, meanwhile: &mut dyn FnMut(), canceled: &dyn Fn() -> bo
 }
 
 /// What every rewrite of the checked out branch takes besides its request (`*_core(…, options)`): the HEAD the request
-/// was made for and the repository lock. The core takes the lock before it reads anything, so two rewrites never
-/// interleave, also when one runs in the app and the other in `bd`
+/// was made for and the repository lock. The core reads and computes before the lock, on the oids it read once, and
+/// holds the lock only for the witness of what it read and its compare-and-swap write (`lock_prepared`), so two
+/// rewrites never interleave, also when one runs in the app and the other in `bd`, and a long computation never makes
+/// another writer wait
 #[derive(Debug, Clone, Default)]
 pub struct RewriteOptions<'a> {
-  /// The HEAD the request was made for; abbreviated ids are fine. Another HEAD is `HeadMoved`
+  /// The HEAD the request was made for; abbreviated ids are fine. Another HEAD is `HeadMoved`, when the core reads it
+  /// and when it reads it again under the lock after a witness that missed
   pub expect_head: Option<String>,
   /// How the rewrite waits for another holder of the lock: `bd` at most its timeout, then `RepositoryLocked`; the app
   /// as long as the holder lives
   pub lock_wait: LockWait<'a>,
-  /// The repository lock the caller holds, so that it can write more under it; `None` takes the lock for the rewrite
+  /// The repository lock the caller holds, so that it can write more under it (`bd group` with descriptions); the core
+  /// then reads and computes under it too, without a witness. `None`: the core takes the lock after it computed
   pub held_lock: Option<&'a RepositoryLock>,
 }
 
@@ -686,6 +693,20 @@ impl<'a> RewriteOptions<'a> {
     }
   }
 
+  /// `lock_prepared` with the lock of these options
+  ///
+  /// # Errors
+  /// The lock not taken (`RepositoryLocked`, `LockWaitCanceled`), the witness not read, the error of `again`
+  pub fn lock_prepared<P: Prepared, E: From<anyhow::Error>>(
+    &self,
+    git_executor: &GitCommandExecutor,
+    repository_path: &str,
+    prepared: P,
+    again: impl FnOnce() -> Result<P, E>,
+  ) -> Result<(P, Option<RepositoryLock>), E> {
+    lock_prepared((self.lock_wait, self.held_lock), git_executor, repository_path, prepared, again)
+  }
+
   /// `ensure_expected_head` of `expect_head`, the branch read only for the error
   pub fn ensure_head(&self, git_executor: &GitCommandExecutor, repository_path: &str, head: &str) -> Result<(), HeadMoved> {
     ensure_expected_head(self.expect_head.as_deref(), head, || {
@@ -702,6 +723,115 @@ impl<'a> RewriteOptions<'a> {
     let head = git_executor.execute_command(&["rev-parse", "--verify", "HEAD^{commit}"], repository_path)?;
     self.ensure_head(git_executor, repository_path, &head)?;
     Ok(Some(head))
+  }
+}
+
+/// The refs a rewrite computed on, as it read them before the repository lock: under the lock one read of them
+/// (`holds`) tells whether what it computed may be written
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Witness {
+  /// HEAD and the branch it was on (`main`); `None` for a rewrite that reads no HEAD
+  pub head: Option<(String, String)>,
+  /// `(full ref, its commit then)`, `None` for a ref that did not exist: the stores the rewrite read
+  pub refs: Vec<(&'static str, Option<String>)>,
+}
+
+impl Witness {
+  /// HEAD at `head` on `branch`, and nothing else
+  pub fn of_head(head: &str, branch: &str) -> Self {
+    Self {
+      head: Some((head.to_string(), branch.to_string())),
+      refs: Vec::new(),
+    }
+  }
+
+  /// Whether HEAD, its branch and every ref are still as read: one `for-each-ref` (`head_and_tips`), none for an empty
+  /// witness
+  ///
+  /// # Errors
+  /// The refs not read
+  pub fn holds(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<bool> {
+    if self.head.is_none() && self.refs.is_empty() {
+      return Ok(true);
+    }
+    let names: Vec<&str> = self.refs.iter().map(|(name, _)| *name).collect();
+    let now = head_and_tips(git_executor, repository_path, &names)?;
+    let head_holds = self.head.as_ref().is_none_or(|(head, branch)| {
+      now.head.as_deref() == Some(head.as_str()) && now.head_ref.as_deref().and_then(|name| name.strip_prefix("refs/heads/")) == Some(branch.as_str())
+    });
+    Ok(head_holds && self.refs.iter().all(|(name, tip)| now.tips.get(*name) == tip.as_ref()))
+  }
+}
+
+/// What a rewrite core computed before the repository lock, on the oids it read once: its new objects written (on
+/// temporary refs), no ref moved
+pub trait Prepared {
+  /// The refs it computed on
+  fn witness(&self) -> Witness;
+
+  /// Delete the temporary refs of the objects it wrote: it is abandoned, or computed once more
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str);
+}
+
+impl Prepared for PreparedRewrite {
+  /// HEAD at the tip the new commits were computed on, on its branch
+  fn witness(&self) -> Witness {
+    Witness::of_head(self.old_head(), self.branch())
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    Self::discard(self, git_executor, repository_path);
+  }
+}
+
+impl Prepared for CheckedRestore {
+  /// HEAD at the head the restore moves back from, on its branch
+  fn witness(&self) -> Witness {
+    Witness::of_head(self.head(), self.branch())
+  }
+
+  /// A restore writes no object
+  fn discard(&self, _git_executor: &GitCommandExecutor, _repository_path: &str) {}
+}
+
+/// The lock of a rewrite that computed `prepared` before it (AGENTS.md, "Repository lock"): `(lock_wait, held_lock)`.
+/// Under the lock only the witness is read, one process; when it holds, `prepared` is written as it is. When a ref it
+/// computed on moved meanwhile (another process rewrote HEAD, a sync dropped the lines of a store), `prepared` is
+/// discarded and `again` computes it once more, under the lock now, so nothing it reads moves again: the HEAD it
+/// expects is checked there, and another HEAD is `HeadMoved`. The caller writes under the lock it gets back: the
+/// compare-and-swap ref transaction, then the move of the index. A lock not taken discards `prepared`. A caller that
+/// holds the lock (`held_lock`) computed under it: no witness then
+///
+/// # Errors
+/// The lock not taken (`RepositoryLocked`, `LockWaitCanceled`), the witness not read, the error of `again`
+pub fn lock_prepared<P: Prepared, E: From<anyhow::Error>>(
+  (lock_wait, held_lock): (LockWait<'_>, Option<&RepositoryLock>),
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  prepared: P,
+  again: impl FnOnce() -> Result<P, E>,
+) -> Result<(P, Option<RepositoryLock>), E> {
+  if held_lock.is_some() {
+    return Ok((prepared, None));
+  }
+  let lock = match lock_wait.lock(git_executor, repository_path) {
+    Ok(lock) => lock,
+    Err(error) => {
+      prepared.discard(git_executor, repository_path);
+      return Err(error.into());
+    }
+  };
+  match prepared.witness().holds(git_executor, repository_path) {
+    Ok(true) => Ok((prepared, Some(lock))),
+    Ok(false) => {
+      prepared.discard(git_executor, repository_path);
+      debug!("a ref moved since the rewrite read it: computed once more under the lock");
+      Ok((again()?, Some(lock)))
+    }
+    Err(error) => {
+      prepared.discard(git_executor, repository_path);
+      Err(error.into())
+    }
   }
 }
 

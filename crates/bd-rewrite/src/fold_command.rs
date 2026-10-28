@@ -1,6 +1,6 @@
 //! `bd fold`: fold the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
-//! (`history_rewrite::autosquash`, spec/commit/fixups.spec.md), recorded in the operations registry, under the repository
-//! lock its core takes. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo`
+//! (`history_rewrite::autosquash`, spec/commit/fixups.spec.md), recorded in the operations registry; its core takes the
+//! repository lock after it computed the squash, for the witness of HEAD and the move only. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo`
 //! takes it back
 
 use bd_core::context::RepoContext;
@@ -81,7 +81,8 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
       format!("No branch named {branch:?} among the commits ahead of the baseline"),
     ));
   }
-  // also a dry run is refused on another HEAD; the core checks it again under the lock
+  // also a dry run is refused on another HEAD; the core checks it again, and once more under the lock when HEAD moved
+  // before it took the lock
   ensure_expected_head(args.expect_head.as_deref(), &plan.head, || current_branch).map_err(|moved| head_moved(&moved))?;
   let in_scope = |branch: &Option<String>| args.branch.as_ref().is_none_or(|name| branch.as_ref() == Some(name));
   let groups: Vec<&PlannedGroup> = plan.groups.iter().filter(|group| in_scope(&group.branch)).collect();

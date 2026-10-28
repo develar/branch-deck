@@ -44,6 +44,12 @@ impl PreparedRewrite {
     &self.target.head
   }
 
+  /// The checked out branch it moves
+  #[must_use]
+  pub fn branch(&self) -> &str {
+    &self.target.branch
+  }
+
   /// The id of the commit that replaces `commit_id` (a `Replace` step)
   #[must_use]
   pub fn replacement_of(&self, commit_id: &str) -> Option<&str> {

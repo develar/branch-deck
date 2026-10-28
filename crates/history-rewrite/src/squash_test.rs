@@ -108,3 +108,41 @@ fn undo_restores_the_previous_head_and_refuses_after_a_new_commit() {
   assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
   assert_eq!(test_repo.head(), later);
 }
+
+/// A squash and its undo compute before the repository lock (the history, the merges, the replay, the new commits; the
+/// checks of the undo); under it only the witness of HEAD and the compare-and-swap move of the branch (C11 of
+/// docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test]
+fn a_squash_locks_only_the_witness_and_the_write() {
+  let (test_repo, a, b) = repo_with_two_commits();
+  test_repo.create_commit("Add c", "c.txt", "c");
+  let span = test_utils::lock_span::LockSpan::new(&test_repo.path().join(".git"));
+  let params = SquashCommitsParams {
+    repository_path: repo_path(&test_repo),
+    commit_ids: vec![a, b],
+    message: "Add a and b".to_string(),
+  };
+  let options = RewriteOptions {
+    expect_head: Some(test_repo.head()),
+    ..RewriteOptions::default()
+  };
+  let result = squash_commits_core(span.executor(), &params, &options).unwrap();
+  assert_eq!(subjects(&test_repo), "Add c\nAdd a and b\nInitial");
+  assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-ref"], "{:#?}", span.commands());
+  let before = span.commands_before_the_lock();
+  assert!(
+    before.iter().any(|command| command == "replay") && before.iter().any(|command| command == "fast-import"),
+    "{before:?}"
+  );
+
+  let span = test_utils::lock_span::LockSpan::new(&test_repo.path().join(".git"));
+  let undo = RestoreBranchHeadParams {
+    repository_path: repo_path(&test_repo),
+    expected_head: result.new_head,
+    previous_head: result.previous_head.clone(),
+  };
+  restore_branch_head_core(span.executor(), &undo, LockWait::default()).unwrap();
+  assert_eq!(test_repo.head(), result.previous_head);
+  assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-ref"], "{:#?}", span.commands());
+}

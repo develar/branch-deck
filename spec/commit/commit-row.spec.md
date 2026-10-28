@@ -23,6 +23,7 @@ targets:
   - ../../src/lib/rewrite-run.ts
   - ../../crates/operations/src/rewrite.rs
   - ../../crates/history-rewrite/src/reword.rs
+  - ../../crates/history-rewrite/src/regroup.rs
   - ../../crates/history-rewrite/src/fixup_targets.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/git-ops/src/reword_commits.rs
@@ -268,11 +269,14 @@ The commit hash popover shows the same header and body.
   (`cancel_operation`), which ends the wait with nothing changed; only a holder no record names refuses it after 10 s,
   with nothing changed and the toast "Cannot edit the commit message" saying that another operation holds the lock. A
   save while another rewrite runs (an Unstack from the main window, an issue reference of the same commit) waits
-  behind it in the queue of the session and rewords the commit as that one left it, its new id included.
+  behind it in the queue of the session and rewords the commit as that one left it, its new id included. The reword
+  computes before the lock (the snapshot, the new commits on temporary refs) and holds it only for the witness of HEAD
+  and the store commits and the compare-and-swap transaction.
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_reword_and_an_unstack_from_two_windows_at_once_are_both_applied_in_order`, `a_reword_queued_behind_the_issue_reference_of_its_commit_names_it_through_the_new_id`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
+  [@test] ../../crates/history-rewrite/src/regroup_test.rs (`a_reword_locks_only_the_witness_and_the_write`)
 
 ### Message body
 

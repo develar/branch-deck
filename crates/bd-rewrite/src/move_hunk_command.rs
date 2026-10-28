@@ -1,6 +1,6 @@
 //! `bd move-hunk`: move the changes of one file, or some of its blocks, from one commit ahead of the baseline into
 //! another (`trial_check::move_hunk`), recorded in the operations registry (`RewriteIntent::MoveHunk`, which only bd runs)
-//! and under the repository lock. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they
+//! and under the repository lock its core takes. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they
 //! are; `bd undo` takes it back, --sync rebuilds the virtual branches after the record ended and the lock is released
 
 use crate::block_patch::PatchBlock;
@@ -10,13 +10,12 @@ use bd_core::error::regroup_error;
 use bd_core::error::{CliError, ErrorBody, ErrorExtra};
 use bd_core::operation_record::{asked_on, recorded_unless};
 use bd_core::output::SchemaVersion;
-use bd_core::sync_command::{SyncOutput, lock};
+use bd_core::sync_command::SyncOutput;
 use domain_types::error::ErrorCode;
 use domain_types::operation::Intent;
 use domain_types::rewrite::RewriteIntent;
 use git_ops::move_hunk::MoveHunkMode;
 use history_rewrite::regroup::UndoToken;
-use history_rewrite::repository_lock::RepositoryLock;
 use schemars::JsonSchema;
 use serde::Serialize;
 use trial_check::move_hunk::{MoveHunkError, MoveHunkOptions, MoveHunkParams, MoveHunkResult, move_hunk_core};
@@ -99,16 +98,15 @@ pub fn move_hunk(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkO
     path: args.path.clone(),
     witness: asked_on(args.expect_head.as_deref()),
   };
-  let (mut output, held_lock) = recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || moved(context, args))?;
+  let mut output = recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || moved(context, args))?;
   if args.sync {
-    (output.sync, output.after_error) = sync_after_rewrite(context, held_lock);
+    (output.sync, output.after_error) = sync_after_rewrite(context, None);
   }
   Ok(output)
 }
 
-/// `move_hunk` up to its sync, under the repository lock (none for a dry run): its output, and the lock
-fn moved(context: &RepoContext, args: &MoveHunkArgs) -> Result<(MoveHunkOutput, Option<RepositoryLock>), CliError> {
-  let held_lock = if args.dry_run { None } else { Some(lock(context)?) };
+/// `move_hunk` up to its sync: its output; the core takes the repository lock (none for a dry run)
+fn moved(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkOutput, CliError> {
   let params = MoveHunkParams {
     from: args.from.clone(),
     to: args.to.clone(),
@@ -119,10 +117,10 @@ fn moved(context: &RepoContext, args: &MoveHunkArgs) -> Result<(MoveHunkOutput, 
     expect_head: args.expect_head.clone(),
     mode: if args.dry_run { MoveHunkMode::DryRun } else { MoveHunkMode::Apply },
     lock_timeout: context.lock_timeout,
-    held_lock: held_lock.as_ref(),
+    held_lock: None,
   };
   let result = move_hunk_core(&context.git, &context.repository, &context.cache(), &params, &options).map_err(|error| move_hunk_error(context, error))?;
-  Ok((move_hunk_output(context, args.dry_run, &result), held_lock))
+  Ok(move_hunk_output(context, args.dry_run, &result))
 }
 
 fn move_hunk_error(context: &RepoContext, error: MoveHunkError) -> CliError {
