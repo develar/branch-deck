@@ -138,3 +138,79 @@ fn a_run_checks_out_its_commit_in_its_slot_by_the_diff() {
   let (exit_code, refused) = fixture.run(&["lease", "host", "checkout", "--run", "run-1", "--commit", &second[..8]]);
   assert_error(&refused, exit_code, (2, "invalid_arguments"));
 }
+
+/// lend --wait: a run that waits behind a lent slot gets it once the slot is given back, without a second call; a wait
+/// whose time is up answers its place in the queue with the time it waited; a process that ends while it waits is
+/// `invalid_arguments`, and its ticket leaves the queue
+#[test_log::test]
+fn a_lend_that_waits_gets_the_slot_once_it_is_given_back() {
+  let fixture = host_fixture(1);
+  host(&fixture, "lease_host_fill", &["fill"]);
+  lend(&fixture, "run-1", "checkout-a");
+  let pid = std::process::id().to_string();
+  let queue = || host(&fixture, "lease_host_status", &["status"])["queue"].clone();
+
+  let timed_out = host(&fixture, "lease_host_lend", &["lend", "--run", "run-2", "--pid", &pid, "--wait", "1"]);
+  assert_eq!((&timed_out["state"], &timed_out["ahead"]), (&json!("queued"), &json!(0)), "{timed_out}");
+  assert!(timed_out["waited_ms"].as_u64().is_some_and(|waited| waited >= 1000), "{timed_out}");
+  assert_eq!(queue(), json!(["run-2"]), "the ticket stays while its process lives");
+
+  let waited = std::thread::scope(|scope| {
+    let waiting = scope.spawn(|| host(&fixture, "lease_host_lend", &["lend", "--run", "run-3", "--pid", &pid, "--wait", "120"]));
+    while queue() != json!(["run-2", "run-3"]) {
+      std::thread::yield_now();
+    }
+    // run-2 leaves the queue, then the slot comes free
+    host(&fixture, "lease_host_give_back", &["give-back", "--run", "run-2"]);
+    host(&fixture, "lease_host_give_back", &["give-back", "--run", "run-1"]);
+    waiting.join().unwrap()
+  });
+  assert_eq!((&waited["state"], &waited["slot"]["n"]), (&json!("lent"), &json!(1)), "{waited}");
+  assert!(waited["waited_ms"].is_u64(), "{waited}");
+
+  let mut child = crate::lease_test::Killed(sleeping());
+  let child_pid = child.0.id().to_string();
+  let (exit_code, refused) = std::thread::scope(|scope| {
+    let waiting = scope.spawn(|| fixture.run(&["lease", "host", "lend", "--run", "run-4", "--pid", &child_pid, "--wait", "120"]));
+    while queue() != json!(["run-4"]) {
+      std::thread::yield_now();
+    }
+    let _ = child.0.kill();
+    let _ = child.0.wait();
+    waiting.join().unwrap()
+  });
+  assert_error(&refused, exit_code, (2, "invalid_arguments"));
+  assert_eq!(queue(), json!([]), "the ticket of a gone process left the queue");
+}
+
+/// With `branchdeck.leaseMaintenance` a give-back starts git's maintenance, also for a run without a slot; without it
+/// none
+#[test_log::test]
+fn a_give_back_starts_the_maintenance_that_branchdeck_lease_maintenance_asks_for() {
+  let fixture = host_fixture(1);
+  host(&fixture, "lease_host_fill", &["fill"]);
+  lend(&fixture, "run-1", "checkout-a");
+  let gave_back = host(&fixture, "lease_host_give_back", &["give-back", "--run", "run-1"]);
+  assert_eq!(gave_back.get("maintenance_started"), None, "{gave_back}");
+
+  bd_cli::fixture_test::git(&fixture.repo, &["config", "branchdeck.leaseMaintenance", "true"]);
+  lend(&fixture, "run-2", "checkout-a");
+  let gave_back = host(&fixture, "lease_host_give_back", &["give-back", "--run", "run-2"]);
+  assert_eq!((&gave_back["n"], &gave_back["maintenance_started"]), (&json!(1), &json!(true)), "{gave_back}");
+  let left = host(&fixture, "lease_host_give_back", &["give-back", "--run", "run-3"]);
+  assert_eq!((&left["left_queue"], &left["maintenance_started"]), (&json!(true), &json!(true)), "{left}");
+}
+
+/// A process that sleeps for 30 s
+fn sleeping() -> std::process::Child {
+  let mut command = if cfg!(windows) {
+    let mut command = std::process::Command::new("powershell");
+    command.args(["-NoProfile", "-Command", "Start-Sleep 30"]);
+    command
+  } else {
+    let mut command = std::process::Command::new("sleep");
+    command.arg("30");
+    command
+  };
+  command.spawn().unwrap()
+}

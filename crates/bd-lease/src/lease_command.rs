@@ -1027,7 +1027,7 @@ pub(crate) fn lease_error(error: anyhow::Error) -> CliError {
     let code = match refusal {
       HostSlotRefusal::UnknownSlot(_) | HostSlotRefusal::NotLent { .. } | HostSlotRefusal::NoSlot(_) => ErrorCode::NoLease,
       HostSlotRefusal::Busy { .. } => ErrorCode::SlotBusy,
-      HostSlotRefusal::InvalidConfig { .. } => ErrorCode::InvalidArguments,
+      HostSlotRefusal::InvalidConfig { .. } | HostSlotRefusal::ProcessGone(_) => ErrorCode::InvalidArguments,
     };
     return CliError::new(code, format!("{error:#}"));
   }
