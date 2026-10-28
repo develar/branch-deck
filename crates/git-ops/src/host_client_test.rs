@@ -1,4 +1,6 @@
-use crate::host_client::{FARTHEST, apply_patch, candidates, commit_count, pack_commit, repository_name, working_tree_commit};
+use crate::host_client::{
+  FARTHEST, Scan, Shipper, apply_patch, candidates, commit_count, pack_commit, pack_commit_until, repository_name, snapshot as snapshot_of, working_tree_commit,
+};
 use crate::host_objects::ingest_pack;
 use crate::lease_slot::LeaseConfig;
 use crate::worktree_snapshot::{WorktreeCommit, local_changes, read_head_commit, write_tree_patch};
@@ -120,6 +122,48 @@ fn the_thin_pack_is_a_private_file_that_the_host_takes() {
     pack_commit(client.git_executor(), client.path_str(), "HEAD", &[], &packs, &mut |_| {}).is_err(),
     "a name that is no id"
   );
+}
+
+/// The snapshot of `bd-host` reads no status for `Scan::Head`, the status for `Scan::Status`, and ships a commit of the
+/// working tree for `Scan::WorkingTree` by `bd-host <bd-host@bd-host.invalid>`; each with the candidates of HEAD
+#[test]
+fn a_snapshot_of_bd_host_reads_what_its_scan_names_and_ships_its_own_commit() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("Add a", "a.txt", "a\n");
+  std::fs::write(repo.path().join("a.txt"), "a\nchanged\n").unwrap();
+  let git_dir = repo.path().join(".git");
+  let git = counting();
+  let quick = snapshot_of(&git, repo.path_str(), &git_dir, Scan::Head, 16, Shipper::BdHost).unwrap();
+  assert_processes(&git, &[("for-each-ref", 1), ("log", 1), ("merge-base", 1), ("rev-list", 1)]);
+  assert_eq!((quick.commit.as_str(), quick.head.commit.as_str(), quick.changed), (head.as_str(), head.as_str(), None));
+  assert_eq!(quick.candidates.commits, std::slice::from_ref(&head));
+
+  let status = snapshot_of(repo.git_executor(), repo.path_str(), &git_dir, Scan::Status, 16, Shipper::BdHost).unwrap();
+  let lines: Vec<String> = status.changed.unwrap().iter().map(super::worktree_snapshot::StatusEntry::line).collect();
+  assert_eq!((status.commit.as_str(), lines), (head.as_str(), vec![" M a.txt".to_string()]));
+
+  let shipped = snapshot_of(repo.git_executor(), repo.path_str(), &git_dir, Scan::WorkingTree, 16, Shipper::BdHost).unwrap();
+  assert_ne!(shipped.commit, head);
+  assert_eq!(
+    repo.git(&["log", "-1", "--format=%P|%an <%ae>|%s", &shipped.commit]),
+    format!("{head}|bd-host <bd-host@bd-host.invalid>|bd-host: the working tree on {}", &head[..12])
+  );
+  assert_eq!(repo.head(), head, "no ref moves");
+}
+
+/// A pack that its caller stops fails as cancelled and leaves no file
+#[test]
+fn a_cancelled_pack_fails_and_leaves_no_file() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("Base", "a.txt", "a\n");
+  let commit = repo.create_commit("Change", "b.txt", "b\n");
+  let dir = tempfile::tempdir().unwrap();
+  let error = pack_commit_until(repo.git_executor(), repo.path_str(), &commit, &[base], dir.path(), &mut |_| {}, &|| true).unwrap_err();
+  assert_eq!(
+    error.downcast_ref::<git_executor::git_command_executor::StoppedCommand>(),
+    Some(&git_executor::git_command_executor::StoppedCommand::Cancelled)
+  );
+  assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
 /// The patch of a run applies to the files, not the index, all or nothing: one that does not apply changes nothing

@@ -108,7 +108,7 @@ This spec is a draft of the port. A requirement names the test that will cover i
 
 - Each directory that bd-host makes has the mode 0700, and each file 0600. A removal and a rename go through
   `sync_utils::fs_retry`. A record and a patch older than 7 days go at the next run of the checkout.
-  Test (planned): `crates/host-client/src/record_test.rs` (`a_run_record_names_what_a_fetch_takes_and_old_records_go`)
+  [@test] ../../crates/host-client/src/record_test.rs (`a_run_record_names_what_a_fetch_takes_and_old_records_go`)
 
 ### run
 
@@ -122,27 +122,27 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   <bd-host@bd-host.invalid>` at the date of the committer of HEAD, and its message names HEAD. So the same tree on the
   same HEAD is the same commit, and a second run of it sends no pack. The index, the files and the refs of the
   checkout stay as they are, and no ref names the commit.
-  Test (planned): `crates/host-client/src/run_test.rs` (`the_working_tree_ships_as_one_commit_and_the_same_tree_sends_no_pack`)
+  [@test] ../../crates/host-client/src/run_test.rs (`the_working_tree_ships_as_one_commit_and_the_same_tree_sends_no_pack`)
 - With `--head`, `run` must ship the committed HEAD and refuse a checkout with tracked or untracked changes
   (`local_changes`, exit 75).
-  Test (planned): `crates/host-client/src/run_test.rs` (`head_refuses_a_checkout_with_local_changes`)
+  [@test] ../../crates/host-client/src/run_test.rs (`head_refuses_a_checkout_with_local_changes`)
 - The client must ask the host which commits it has (`Have`): HEAD and its first-parent ancestors at the distances 1,
   2, 4 … 16 first, then up to 65536 only when the host has none of them, and the merge bases of HEAD with `master` and
   `origin/master`. A host that has none refuses the run with `behind` (exit 75), and the message gives the commit
   count of the history.
-  Test (planned): `crates/host-client/src/run_test.rs` (`a_host_without_a_near_commit_gets_the_far_candidates_then_refuses_behind`)
+  [@test] ../../crates/host-client/src/run_test.rs (`a_host_without_a_near_commit_gets_the_far_candidates_then_refuses_behind`)
 - The order of a run must be: the commit and `Have`; the run record; `Start`; `Follow` on a thread of its own; the pack
   on a connection of its own, with an empty chunk every 15 s while it builds; the base sync of the local
   `origin/master`, else `master`, once per run after the pack, a failure only one warning line; `Fetch` and `Forget`;
   with `--apply`, the apply of the patch. Up to `Start`, nothing runs on the host.
-  Test (planned): `crates/host-client/src/run_test.rs` (`a_run_starts_follows_packs_syncs_the_base_and_fetches_in_order`)
+  [@test] ../../crates/host-client/src/run_test.rs (`a_run_starts_follows_packs_syncs_the_base_and_fetches_in_order`)
 - A failed pack must cancel the run, stop the follow and refuse with the code of the pack. The message says whether the
   cancel came.
-  Test (planned): `crates/host-client/src/run_test.rs` (`a_failed_pack_cancels_the_run_and_refuses_with_its_code`)
+  [@test] ../../crates/host-client/src/run_test.rs (`a_failed_pack_cancels_the_run_and_refuses_with_its_code`)
 - The run goes to the repository of the same name as the local one beside the repository of the host file, else to
   the one of the host file. `--repo` names another one. `--affinity` names the affinity of the lend, by default
   `checkout-<12 hex>` of the local checkout path. The base of the pack goes to `base:<affinity>`.
-  Test (planned): `crates/host-client/src/run_test.rs` (`the_repository_of_a_run_is_the_one_of_the_same_name_beside_the_host_file`)
+  [@test] ../../crates/host-client/src/run_test.rs (`the_repository_of_a_run_is_the_one_of_the_same_name_beside_the_host_file`)
 - `--nice` is 10 by default: the niceness of the prepare steps and the command. `--no-outputs` leaves the outputs of
   `[host]` alone. `--fetch <dir>` (repeatable) brings back the new entries of `<dir>`, relative to the slot root.
 - Ctrl+C before `Start` must run nothing on the host and exit 130 (`interrupted`). Ctrl+C after it must send `Cancel`
@@ -158,7 +158,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
 - A follow that lost its connection must connect again with waits from 1 s up to 30 s and go on from the last offset
   it showed. After 10 min without a reply it refuses with `timed_out` (exit 255) and names `bd-host follow`. A follow
   that the agent answers with `unknown_run` after the start exits 255, never 75: whether the command ran is unknown.
-  Test (planned): `crates/host-client/src/run_test.rs` (`a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255`)
+  [@test] ../../crates/host-client/src/run_test.rs (`a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255`)
 
 ### The fetch, the outputs and the changes
 
@@ -168,15 +168,15 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   and the fetch then fails with `fetch_failed` (exit 255). No write follows a local link. Each file goes to
   `<name>.bd-host-part` first and takes its name only at the size that the agent named. The run forgets itself on the
   host only when the client saw its end and every file came.
-  Test (planned): `crates/host-client/src/fetch_test.rs` (`a_fetch_takes_only_what_the_record_names_and_never_writes_through_a_link`)
+  [@test] ../../crates/host-client/src/fetch_test.rs (`a_fetch_takes_only_what_the_record_names_and_never_writes_through_a_link`)
 - The first file of an output must remove the local file or directory of that output. An output that the run did not
   make brings nothing, so the local copy of an earlier run stays.
-  Test (planned): `crates/host-client/src/fetch_test.rs` (`the_first_file_of_an_output_replaces_its_local_copy`)
+  [@test] ../../crates/host-client/src/fetch_test.rs (`the_first_file_of_an_output_replaces_its_local_copy`)
 - With `--apply`, the patch of the changes that the command made goes to `<git dir>/branch-deck/host/runs/<run>.patch`
   and applies to the files of the working tree, not to the index, all or nothing (`git_ops::host_client::apply_patch`).
   A patch that does not apply refuses with `apply_failed` (exit 255), names the patch, and the working tree stays as it
   was.
-  Test (planned): `crates/host-client/src/run_test.rs` (`apply_brings_the_changes_back_all_or_nothing`)
+  [@test] ../../crates/host-client/src/run_test.rs (`apply_brings_the_changes_back_all_or_nothing`)
 
 ### The report of a run
 
@@ -191,7 +191,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   `commit` and `head` are `null` before the client knows them. `phases` lists the steps in their order, each with its
   milliseconds. `fetched` lists the files that came back, relative to the checkout root with `/`. `applied_files` is
   the count of the files that `--apply` changed, `null` without `--apply`.
-  Test (planned): `crates/bd-host/src/report_test.rs` (`the_report_of_a_run_is_the_golden_json_of_the_spec`)
+  [@test] ../../crates/host-client/src/report_test.rs (`the_report_of_a_run_is_the_golden_json_of_the_spec`)
 
 ```json golden=run-report
 {
@@ -225,7 +225,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
 - The steps are `pack` and `upload` of the client; `git`, `slot`, `pack_wait`, `checkout`, `prepare`, `command` and
   `stage` of the host; `fetch` and `total` of the client. A run that ends early has only the steps up to its last one.
   Only a run that waited for an upgrade of git has `git`.
-  Test (planned): `crates/host-client/src/phases_test.rs` (`the_phases_are_the_steps_of_both_ends_in_their_order`)
+  [@test] ../../crates/host-client/src/phases_test.rs (`the_phases_are_the_steps_of_both_ends_in_their_order`)
 
 ### follow, cancel, fetch, forget, runs
 
@@ -247,7 +247,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   prints one JSON object of the shape of the golden JSON below on stdout. `build` is the SHA-256 of the binary, which
   names a build. `version` is the version of Branch Deck. `same_build` tells whether both ends run the same build. A
   refusal prints `{"schema": 1, "alias", "refusal": {"code", "message"}}` with `--json` and exits 255.
-  Test (planned): `crates/bd-host/src/report_test.rs` (`the_hello_is_the_golden_json_of_the_spec`)
+  [@test] ../../crates/host-client/src/report_test.rs (`the_hello_is_the_golden_json_of_the_spec`)
 
 ```json golden=hello
 {
@@ -273,7 +273,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
 
 - A hello of another schema must refuse with `schema` (exit 75 for a run). A hello of the same schema and another build
   must let the run go on, with one line that names `bd-host upgrade <alias>`.
-  Test (planned): `crates/host-client/src/host_test.rs` (`another_schema_refuses_and_another_build_runs_with_a_hint`)
+  [@test] ../../crates/host-client/src/host_test.rs (`another_schema_refuses_and_another_build_runs_with_a_hint`)
 
 ### slots
 
@@ -305,7 +305,7 @@ bd-host setup --retire-yonderd
   to `~/.local/bin/bd-host` of the host when the host has another build there; run `~/.local/bin/bd-host setup --agent
   --client <the fingerprint of this client> --name <name>` there; and write the host file from its answer. Each ssh
   call has 30 s, the copy 120 s (`ssh_failed`).
-  Test (planned): `crates/host-client/src/setup_test.rs` (`setup_copies_the_binary_runs_the_agent_setup_and_writes_the_host_file`)
+  [@test] ../../crates/host-client/src/setup_test.rs (`setup_copies_the_binary_runs_the_agent_setup_and_writes_the_host_file`)
 - `bd-host setup --agent` must make the identity of the agent when it has none, add the client to the allow list,
   write the LaunchAgent `com.jetbrains.bd-host` (`KeepAlive`, `AbandonProcessGroup`, `~/.local/bin/bd-host serve
   --port <port>`), and bootstrap or restart it. It prints one JSON line `{"fingerprint", "port", "launchd":
@@ -336,7 +336,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   `upgrade`. It refuses a binary of another platform than the hello names before it sends it (the Mach-O header),
   and it sends nothing when the agent runs that build already, unless `--force`. A host that is not macOS refuses with
   `agent_failed`. An agent runs it only after the user agrees.
-  Test (planned): `crates/host-client/src/upgrade_test.rs` (`upgrade_sends_this_executable_once_and_refuses_another_platform`)
+  [@test] ../../crates/host-client/src/upgrade_test.rs (`upgrade_sends_this_executable_once_and_refuses_another_platform`)
 - The agent must check the size and the SHA-256 of the binary (`bad_binary`), run `<staged> version --json` within
   10 s and refuse another schema or a binary without the feature `upgrade` (`bad_binary`), refuse a lower version
   without `force` (`downgrade`), and refuse another LaunchAgent than the one on the host (`plist_changed`). Then it

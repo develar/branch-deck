@@ -2879,7 +2879,18 @@ version = "0.1.0"
 name = "host-client"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "ctrlc",
+ "git-executor",
+ "git-ops",
+ "host-link",
+ "libc",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "sync-utils",
+ "tempfile",
+ "test-utils",
 ]
 
 [[package]]

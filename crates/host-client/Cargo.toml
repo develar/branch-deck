@@ -6,11 +6,31 @@ license.workspace = true
 description = "The client of the remote runs of bd-host: the run, the commit of the working tree, the pack, the follow, the fetch, the base sync and the host files"
 publish = false
 
-# The port of yonder-client adds `host-link`, `git-ops`, `git-executor`, `sync-utils`, `serde` and `serde_json`; the
-# architecture test keeps it off the lease pool and the agent
+# The architecture test keeps it off the lease pool and the agent
 [dependencies]
 # Ctrl+C of a run (`interrupt`)
 ctrlc.workspace = true
+# the identity, the pinned channel, the protocol, the refusal codes and `[host]` of a commit
+host-link = { path = "../host-link" }
+# the git of the client in process: the snapshot, the thin pack, the blob of `[host]` and the apply (`git`)
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+# the errors of git-ops (`git`)
+anyhow.workspace = true
+# the 0600 files, the renames and removals that wait out a holder, the span of a thread, and the start of ssh
+sync-utils = { path = "../sync-utils" }
+# the host files, the run records and the report of a run
+serde.workspace = true
+serde_json.workspace = true
+
+# The fetch: `O_NOFOLLOW` of the open of a part
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+test-utils = { path = "../test-utils" }
 
 [lints]
 workspace = true
