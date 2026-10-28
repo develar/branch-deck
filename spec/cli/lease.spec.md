@@ -588,7 +588,8 @@ for; one that is no working tree is `not_a_repository` (exit 2).
   so the sender is never blocked. A name of 1 to 128 characters of `A-Z a-z 0-9 . _ -`, the first one a letter or a
   digit, without `..` and not ending in `.lock`, and a full commit id are required (`invalid_arguments`).
   [@test] ../../crates/git-ops/src/host_objects_test.rs (`a_small_pack_lands_as_loose_objects_and_a_large_one_as_a_pack`, `a_stream_that_is_no_pack_is_refused_and_read_to_its_end`)
-  [@test] ../../crates/git-ops/src/host_objects_test.rs (`the_unpack_limit_is_the_one_of_receive_else_transfer_else_100`, `a_host_ref_name_is_one_safe_component`)
+  [@test] ../../crates/git-ops/src/host_objects_test.rs (`the_unpack_limit_is_the_one_of_receive_else_transfer_else_100`)
+  [@test] ../../crates/sync-utils/src/host_ref_name_test.rs (`a_host_ref_name_is_one_safe_component`)
   [@test] ../../crates/bd-lease/src/host_objects_test.rs (`the_refusals_of_the_host_objects_have_their_codes`)
 - When a pack last moved each ref of the host must be kept in `$GIT_COMMON_DIR/branch-deck/host-refs.json` (its lock
   a leaf, as the one of the lend table). The give-back of a run must delete the run ref of its pack (`deleted_ref`),

@@ -603,7 +603,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "host-link",
- "serde",
  "serde_json",
 ]
 
@@ -2887,11 +2886,17 @@ dependencies = [
 name = "host-link"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "pretty_assertions",
  "rcgen",
  "rustls",
+ "serde",
+ "serde_json",
  "sha2 0.11.1",
+ "sync-utils",
  "tempfile",
+ "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]

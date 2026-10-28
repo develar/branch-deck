@@ -12,11 +12,10 @@ publish = false
 name = "bd-host"
 path = "src/main.rs"
 
-# The port adds `host-agent` and `host-client`, and `schemars` for `bd-host schema`
+# The port adds `host-agent`, `host-client` and `serde`, and `schemars` for `bd-host schema`
 [dependencies]
 host-link = { path = "../host-link" }
 clap = { version = "4.6", features = ["derive"] }
-serde.workspace = true
 serde_json.workspace = true
 
 [build-dependencies]

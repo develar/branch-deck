@@ -1,6 +1,4 @@
-use crate::host_objects::{
-  IngestConfig, ShowRefusal, Stored, delete_host_refs, ingest_config, ingest_pack, is_host_ref_name, parse_pack_header, point_host_ref, present_commits, show_commit,
-};
+use crate::host_objects::{IngestConfig, ShowRefusal, Stored, delete_host_refs, ingest_config, ingest_pack, parse_pack_header, point_host_ref, present_commits, show_commit};
 use pretty_assertions::assert_eq;
 use std::io::{Cursor, Read};
 use test_utils::git_test_utils::TestRepo;
@@ -190,14 +188,4 @@ fn the_unpack_limit_is_the_one_of_receive_else_transfer_else_100() {
   );
   repo.git(&["config", "receive.unpackLimit", "3"]);
   assert_eq!(config().unpack_limit, 3);
-}
-
-#[test]
-fn a_host_ref_name_is_one_safe_component() {
-  for name in ["run-1", "1792-81.a_b", "client", &"a".repeat(128)] {
-    assert!(is_host_ref_name(name), "{name}");
-  }
-  for name in ["", "-run", ".run", "a..b", "a/b", "a.lock", "a b", "a:b", &"a".repeat(129)] {
-    assert!(!is_host_ref_name(name), "{name}");
-  }
 }

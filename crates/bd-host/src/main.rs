@@ -4,8 +4,7 @@
 
 use clap::{Parser, Subcommand};
 use host_link::digest::sha256_file;
-use host_link::proto::{SCHEMA_VERSION, features};
-use serde::Serialize;
+use host_link::proto::VersionLine;
 use std::io::Write as _;
 use std::process::ExitCode;
 
@@ -26,26 +25,11 @@ enum Command {
   Version,
 }
 
-/// `bd-host version`
-#[derive(Debug, Serialize)]
-struct VersionOutput {
-  version: &'static str,
-  schema: u32,
-  features: Vec<&'static str>,
-  /// The build id; `null` when the binary cannot be read
-  sha256: Option<String>,
-}
-
 fn main() -> ExitCode {
   let cli = Cli::parse();
   match cli.command {
     Command::Version => {
-      let output = VersionOutput {
-        version: VERSION,
-        schema: SCHEMA_VERSION,
-        features: features(),
-        sha256: std::env::current_exe().ok().and_then(|binary| sha256_file(&binary).ok()),
-      };
+      let output = VersionLine::of_this_build(VERSION, std::env::current_exe().ok().and_then(|binary| sha256_file(&binary).ok()));
       let line = serde_json::to_string(&output).expect("a version serializes");
       if writeln!(std::io::stdout(), "{line}").is_err() {
         return ExitCode::FAILURE;

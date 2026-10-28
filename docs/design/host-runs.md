@@ -52,7 +52,7 @@ flowchart LR
 
 | Crate | Content | Depends on |
 |---|---|---|
-| `host-link` | The identity files, TLS 1.3 with pinned certificates, the frames, the protocol, the allow list, the relay through `/usr/bin/nc` | rustls, rcgen, `sync-utils` |
+| `host-link` | The identity files and their import from yonder, TLS 1.3 with pinned certificates, the frames, the protocol, the allow list, the relay through `/usr/bin/nc`, the refusal codes, `[host]` of `.branchdeck.toml` | rustls, rcgen, `sync-utils` |
 | `host-client` | The run, the commit of the working tree, the thin pack, the follow, the cancel, the fetch, the base sync, the host files, the upgrade | `host-link`, `git-ops`, `git-executor` |
 | `host-agent` | `serve`, the supervisor, the run directories, the login environment, the prepare steps, the keeper, the power assertions, the upgrade | `host-link`, `lease-pool`, `git-ops`, `git-executor` |
 | `bd-host` | The CLI of both ends | `host-agent`, `host-client`, `host-link` |

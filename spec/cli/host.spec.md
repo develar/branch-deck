@@ -61,17 +61,26 @@ This spec is a draft of the port. A requirement names the test that will cover i
   (`aws-lc-rs`). Each end has a self-signed certificate. The SHA-256 of the certificate is its fingerprint. The client
   must refuse an agent that shows another fingerprint than its host file (`untrusted`). The agent must refuse a client
   whose fingerprint its allow list does not name, and it reads the list at each handshake.
-  Test (planned): `crates/host-link/src/channel_test.rs` (`the_link_refuses_a_certificate_that_the_pin_or_the_allow_list_does_not_name`)
+  [@test] ../../crates/host-link/src/channel_test.rs (`a_host_with_another_certificate_is_untrusted`, `a_client_outside_the_allow_list_gets_no_reply`, `a_kept_configuration_resumes_no_session_and_a_removed_client_is_refused`)
+  [@test] ../../crates/host-link/src/identity_test.rs (`first_calls_at_the_same_time_answer_one_identity`, `an_identity_is_created_once_and_loaded_after`)
+  [@test] ../../crates/host-link/src/allow_test.rs (`the_list_skips_comments_and_keeps_the_names`, `a_name_with_a_control_character_is_refused`)
 - The default port is 7742. The protocol is host-link schema 1. One connection carries one hello and one request. A
   frame is a kind byte, a big-endian u32 length and the payload: a message of at most 1 MiB of JSON, or a byte chunk of
   at most 64 KiB. An empty chunk keeps a byte stream alive. An end frame completes it. A frame of an unknown kind, a
   frame over its limit, or a message that the protocol does not allow there is a protocol error.
-  Test (planned): `crates/host-link/src/channel_test.rs` (`a_frame_over_its_limit_or_of_an_unknown_kind_is_a_protocol_error`)
+  [@test] ../../crates/host-link/src/channel_test.rs (`a_frame_over_its_limit_or_of_an_unknown_kind_is_a_protocol_error`, `the_frames_go_to_tls_in_one_write_per_full_buffer_and_at_a_flush`)
+  [@test] ../../crates/host-link/src/proto_test.rs (`a_request_and_a_reply_have_a_tagged_json_shape`, `a_start_carries_the_run_spec_inline_without_a_ref`)
 - `Request::Pack` must name its target as `{"run": "<id>"}` or `{"base": "<name>"}`, never a ref name. The agent lands
   it as `refs/branch-deck/host/run/<id>` or `refs/branch-deck/host/base/<name>` (`lease_pool::host_refs`). `RunSpec`
   has no ref. A run id and a base name have the rules of a host ref name: 1 to 128 characters of `A-Z a-z 0-9 . _ -`,
   the first a letter or a digit, no `..`, no `.lock` at the end.
-  Test (planned): `crates/host-link/src/proto_test.rs` (`a_pack_names_a_run_or_a_base_and_never_a_ref`)
+  [@test] ../../crates/host-link/src/proto_test.rs (`a_pack_names_a_run_or_a_base_and_never_a_ref`, `a_run_id_names_one_directory_and_one_ref`)
+  [@test] ../../crates/sync-utils/src/host_ref_name_test.rs (`a_host_ref_name_is_one_safe_component`)
+- A refusal of the agent must be `{"reply": "refused", "code", "message"}` with a code of the table "Refusal codes".
+  A client that does not know the code takes it as `agent_error`, and the message names the code, so a code of a
+  newer build is no protocol error. A connection that fails is `unreachable`, `untrusted`, `timed_out` or `link`.
+  [@test] ../../crates/host-link/src/refusal_test.rs (`a_refusal_prints_its_code_and_an_unknown_code_of_an_agent_is_an_agent_error`)
+  [@test] ../../crates/host-link/src/channel_test.rs (`a_port_without_an_agent_is_unreachable_and_a_silent_agent_times_out`)
 - Every read and every write must have a deadline. A request that waits gets `Reply::Heartbeat` every 15 s, and the
   client resets its read deadline at each one. A TLS handshake has 3 s in all. The agent takes at most 128 handshakes
   at a time and 8 of one peer address.
@@ -79,7 +88,9 @@ This spec is a draft of the port. A requirement names the test that will cover i
 - On macOS a connection that Local Network privacy refuses (`EHOSTUNREACH`) must go again through `/usr/bin/nc`, which
   the client starts responsible for itself. TLS stays end to end. The process remembers the address, so its next
   connection takes the relay at once.
-  Test (planned): `crates/host-link/src/relay_test.rs` (`a_refused_connect_goes_through_the_relay_and_tls_stays_end_to_end`)
+  [@test] ../../crates/host-link/src/channel_test.rs (`a_relayed_connection_carries_the_handshake_and_the_frames`, `a_remembered_refusal_of_an_address_takes_the_relay_at_once`)
+  [@test] ../../crates/host-link/src/relay_test.rs (`the_relay_carries_bytes_both_ways_and_ends_with_the_peer`, `local_network_privacy_is_a_cause_only_of_host_unreachable_on_a_local_address_that_the_relay_cannot_pass`)
+  [@test] ../../crates/host-link/src/disclaim_test.rs (`a_disclaimed_child_gets_its_arguments_and_its_pipes`, `a_command_that_changes_the_environment_is_refused`)
 
 ### The files
 
@@ -272,7 +283,9 @@ bd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
 ```
 
 - `bd-host slots <alias>` must ask the agent for the lend table of each repository that it served (`Request::Slots`):
-  each slot, its state, its run, its affinity, its last use, and the queue. It writes nothing.
+  each slot, its state, its run, its affinity, its last use, and the queue. It writes nothing. The reply carries each
+  table as the JSON of its `host-slots.json`, so the protocol keeps no second shape of the table.
+  [@test] ../../crates/host-link/src/proto_test.rs (`the_slots_of_the_agent_carry_the_lend_table_as_the_pool_writes_it`)
 - `--local` must read the table of the repository of `-C` on this machine, without the agent. `--shrink <n>` gives
   the host slots past `n` back to the pool in its own process (`lease_pool::host_slots::shrink`), also without a running
   `serve`, and keeps `n` as the limit of later fills. `--sizes` measures the directories that the clean rules of each
@@ -302,8 +315,11 @@ bd-host setup --retire-yonderd
 - `bd-host setup --import-yonder` must take what yonder has on this machine, so no new pairing and no ssh is needed:
   the identity and the host files of the client from `~/.config/yonder` (each host file with the port 7742), and the
   identity and the allow list of the agent from `~/.config/yonderd`, then the LaunchAgent as `--agent` writes it. It
-  copies, so yonder keeps working. A file that bd-host has already stays, unless it is equal. It prints what it took. A
+  copies, so yonder keeps working. An identity or a host file that bd-host has already stays. The clients of the allow
+  list of yonderd join the allow list of bd-host, and a client that it names keeps its name. It prints what it took. A
   machine without yonder files refuses with `no_yonder`.
+  [@test] ../../crates/host-link/src/identity_test.rs (`an_import_copies_the_identity_of_yonder_once_and_keeps_another_one`)
+  [@test] ../../crates/host-link/src/allow_test.rs (`the_clients_of_another_list_join_and_a_known_client_keeps_its_name`)
   Test (planned): `crates/host-agent/src/setup_test.rs` (`import_yonder_takes_the_identities_the_hosts_and_the_allow_list`)
 - `bd-host setup --retire-yonderd` must wait until no yonderd run holds its run lock, boot out
   `com.jetbrains.yonderd`, delete the refs `refs/yonder/*` of each repository of `~/.cache/yonderd/repos` through a ref
@@ -372,7 +388,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   commit whose `.branchdeck.toml` has no `[host]` table gets its `.yonder.toml`, until the repositories moved. An
   unknown key or a value of the wrong shape ends the run with `bad_config` before the command. The other tables of
   `.branchdeck.toml` are not the agent's.
-  Test (planned): `crates/host-link/src/config_test.rs` (`the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses`)
+  [@test] ../../crates/host-link/src/config_test.rs (`the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses`, `a_commit_without_the_host_table_gets_its_yonder_toml`, `a_typo_or_a_bad_value_is_an_error_that_names_the_file`)
 
 ```toml
 [host]
@@ -401,7 +417,9 @@ creates = ["node_modules"]             # a missing path runs the step again
 ### version, schema, skill
 
 - `bd-host version [--json]` must print the version of Branch Deck, the schema of the protocol, the features and the
-  SHA-256 of the binary: `{"version", "schema", "features", "sha256"}`.
+  SHA-256 of the binary: `{"version", "schema", "features", "sha256"}`. The hello, `Request::Upgrade`,
+  `Reply::Upgraded` and this line keep their shapes within the schema, so an agent takes the next binary over the link.
+  [@test] ../../crates/host-link/src/proto_test.rs (`the_version_line_names_the_build_and_a_check_adds_the_launch_agent`, `a_hello_names_the_binary_and_the_features_of_this_build`, `an_upgrade_and_its_reply_have_a_tagged_json_shape`)
 - `bd-host schema` must print one JSON object: the protocol schema and port, every refusal code of the table below
   with its exit code and words, the exit codes, and the JSON schemas of the report and of the hello.
   Test (planned): `crates/bd-host/src/report_test.rs` (`schema_lists_every_code_and_the_shapes_of_the_report_and_the_hello`)
@@ -463,7 +481,7 @@ except `usage` (2) and `interrupted` (130).
 
 - Each code must be one variant of the refusal type of `host-link`, with its name and exit in one table that
   `bd-host schema` prints, so a code cannot have two exits.
-  Test (planned): `crates/host-link/src/refusal_test.rs` (`every_refusal_code_has_one_name_and_one_exit`)
+  [@test] ../../crates/host-link/src/refusal_test.rs (`every_refusal_code_has_one_name_and_one_exit`, `the_exit_of_a_code_follows_how_far_the_run_came`)
 - The yonder code `lock_timeout` is `slot_timeout` here, and `bd_failed` is `git_failed`, because no `bd` process
   runs. `old_agent` is gone: every agent of host-link knows the upgrade request.
 

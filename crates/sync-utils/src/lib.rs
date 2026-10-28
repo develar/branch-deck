@@ -5,6 +5,7 @@ pub mod commit_body;
 pub mod commit_subject;
 pub mod fs_retry;
 pub mod git_bool;
+pub mod host_ref_name;
 pub mod issue_pattern;
 pub mod known_tools;
 pub mod list_cut;
@@ -26,6 +27,8 @@ mod child_process_test;
 mod clock_test;
 #[cfg(test)]
 mod fs_retry_test;
+#[cfg(test)]
+mod host_ref_name_test;
 #[cfg(test)]
 mod list_cut_test;
 #[cfg(test)]

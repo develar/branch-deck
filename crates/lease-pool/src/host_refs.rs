@@ -14,9 +14,7 @@ use crate::host_slots::{HostSlotRefusal, HostUser, now_ms};
 use crate::state_file::StateFile;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::host_objects::{
-  BASE_REFS, Ingested, RUN_REFS, ShownCommit, delete_host_refs, ingest_config, ingest_pack, is_host_ref_name, point_host_ref, present_commits, show_commit,
-};
+use git_ops::host_objects::{BASE_REFS, Ingested, RUN_REFS, ShownCommit, delete_host_refs, ingest_config, ingest_pack, point_host_ref, present_commits, show_commit};
 use git_ops::lease_slot::start_deferred_maintenance;
 use git_ops::revs::{RepositoryDirs, is_object_id};
 use serde::{Deserialize, Serialize};
@@ -24,6 +22,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
+use sync_utils::host_ref_name::is_host_ref_name;
 use tracing::{debug, warn};
 
 const STATE_FILE: &str = "host-refs.json";

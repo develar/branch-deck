@@ -19,24 +19,12 @@ pub const HOST_REFS: &str = "refs/branch-deck/host/";
 pub const RUN_REFS: &str = "refs/branch-deck/host/run/";
 /// The ref of a base, `refs/branch-deck/host/base/<name>`: the commit the later packs of a client are thin against
 pub const BASE_REFS: &str = "refs/branch-deck/host/base/";
-/// The most characters of the id of a run or the name of a base
-const MAX_NAME: usize = 128;
 /// git's default of `receive.unpackLimit` and `transfer.unpackLimit`
 const DEFAULT_UNPACK_LIMIT: u32 = 100;
 /// The bytes of the header of a pack: `PACK`, the version, the count of its objects
 pub const PACK_HEADER: usize = 12;
 /// How much of a pack one write to git takes
 const CHUNK: usize = 64 * 1024;
-
-/// Whether `name` may be the id of a run or the name of a base under `HOST_REFS`: 1 to 128 characters of `A-Z a-z 0-9 .
-/// _ -`, the first a letter or a digit, no `..`, not ending in `.lock`, so the ref is valid and one component
-pub fn is_host_ref_name(name: &str) -> bool {
-  name.len() <= MAX_NAME
-    && name.bytes().next().is_some_and(|first| first.is_ascii_alphanumeric())
-    && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-    && !name.contains("..")
-    && !name.to_ascii_lowercase().ends_with(".lock")
-}
 
 /// The commits of `ids` (full ids) that the repository has as commit objects, in their order: one `cat-file
 /// --batch-check`

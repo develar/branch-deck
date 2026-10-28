@@ -15,9 +15,14 @@ impl Sha256 {
     self.0.update(bytes);
   }
 
+  /// The digest as 32 bytes
+  pub fn bytes(self) -> [u8; 32] {
+    self.0.finalize().into()
+  }
+
   /// The digest as 64 lower-case hex digits
   pub fn hex(self) -> String {
-    self.0.finalize().iter().fold(String::with_capacity(64), |mut text, byte| {
+    self.bytes().iter().fold(String::with_capacity(64), |mut text, byte| {
       text.push(char::from_digit(u32::from(byte >> 4), 16).unwrap_or('0'));
       text.push(char::from_digit(u32::from(byte & 0xf), 16).unwrap_or('0'));
       text
