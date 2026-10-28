@@ -8,7 +8,7 @@ use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationSt
 use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind};
 use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use pretty_assertions::assert_eq;
 use std::pin::Pin;
@@ -415,4 +415,103 @@ async fn an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through
   assert_eq!(undo_and_sync(&deleted), (None, false));
   assert!(deleted.version_after.is_some(), "the version of the patch that removed its row: {deleted:?}");
   assert!(fixture.repo.rev_parse("refs/heads/test/unapplied/beta").is_err(), "the unapplied branch is gone");
+}
+
+impl Fixture {
+  /// `rewrite` started while another process holds the lock; once it waits for it, that process changes HEAD by
+  /// `change` (a commit on top, a squash under the lock it holds) and releases the lock; its answer
+  async fn while_another_process_moves_head(&self, rewrite: &RewriteIntent, change: impl FnOnce(&Self, &RepositoryLock) + Send) -> Result<Outcome, ApiError> {
+    let held = self.lock();
+    let moved = async {
+      self.until(waits_with(1)).await;
+      change(self, &held);
+      drop(held);
+    };
+    within_a_minute(Box::pin(async { tokio::join!(self.rewrite(rewrite), moved) })).await.0
+  }
+}
+
+/// A rewrite that waits for the lock another process holds while that process moves HEAD (`bd update`, `bd pick`, a
+/// `bd` rewrite, a commit of an agent) runs on the HEAD it left: its core refuses the HEAD it did not expect, and the
+/// rewrite is resolved again on HEAD and runs once more. An Unstack goes by the name of its branch, a move finds its
+/// commit by its key once the sync shows HEAD; a commit the other process squashed away changes the plan, nothing
+/// written
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rewrite_waiting_for_the_lock_of_another_process_runs_on_the_head_it_left() {
+  let fixture = fixture(true).await;
+  let commit_on_top = |subject: &'static str, file: &'static str| {
+    move |fixture: &Fixture, _: &RepositoryLock| {
+      fixture.repo.create_commit(subject, file, "on top\n");
+    }
+  };
+  let unstacked = fixture
+    .while_another_process_moves_head(&unstack(&fixture.witness().await), commit_on_top("(alpha) Alpha 2", "alpha2.txt"))
+    .await;
+  assert!(matches!(&unstacked.unwrap().result, OperationResult::Rewrite(result) if matches!(result.as_ref(), RewriteResult::Moved(_))));
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha 2", "(beta) Beta", "(alpha) Alpha"]);
+
+  fixture.synced().await;
+  let (beta, witness) = (fixture.commit("(beta) Beta"), fixture.witness().await);
+  let moved = fixture
+    .while_another_process_moves_head(&move_to(std::slice::from_ref(&beta), "delta", &witness), commit_on_top("(alpha) Alpha 3", "alpha3.txt"))
+    .await;
+  moved.unwrap();
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha 3", "(alpha) Alpha 2", "(delta) Beta", "(alpha) Alpha"]);
+
+  fixture.synced().await;
+  let (alpha, delta, witness) = (fixture.commit("(alpha) Alpha"), fixture.commit("(delta) Beta"), fixture.witness().await);
+  let squash_into_alpha = |fixture: &Fixture, held: &RepositoryLock| {
+    let params = SquashCommitsParams {
+      repository_path: fixture.repo.path_str().to_owned(),
+      commit_ids: vec![alpha.clone(), delta.clone()],
+      message: "(alpha) Alpha and Beta".to_owned(),
+    };
+    let options = RewriteOptions {
+      held_lock: Some(held),
+      ..RewriteOptions::default()
+    };
+    squash_commits_core(&GitCommandExecutor::new(), &params, &options).unwrap();
+  };
+  let refused = fixture
+    .while_another_process_moves_head(&move_to(std::slice::from_ref(&delta), "gamma", &witness), squash_into_alpha)
+    .await
+    .unwrap_err();
+  assert_eq!(refused.code, ErrorCode::PlanChanged, "{refused:?}");
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha 3", "(alpha) Alpha 2", "(alpha) Alpha and Beta"], "nothing was written");
+}
+
+/// The unapply of `branch` whose commits the window showed as `commits`, on `witness`
+fn unapply(branch: &str, commits: &[String], witness: &TableWitness) -> RewriteIntent {
+  RewriteIntent::Unapply {
+    branch_name: branch.to_owned(),
+    original_commit_ids: Some(commits.to_vec()),
+    witness: witness.clone(),
+  }
+}
+
+/// An unapply queued behind a reword of its branch's commit names that commit through the new id the reword answered
+/// and waits for the sync that builds its copy, whose virtual branch its core checks: both are applied, and the
+/// unapplied branch keeps the reworded commit. A reword that took the commit out of the branch changes the plan of the
+/// unapply, nothing written
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unapply_queued_behind_a_reword_of_its_branch_unapplies_what_the_reword_left() {
+  let fixture = fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let unapply_beta = unapply("beta", std::slice::from_ref(&beta), &witness);
+  let (reworded, unapplied) = fixture.one_after_another(&reword(&beta, "(alpha/beta) Beta, reworded", &witness), &unapply_beta).await;
+  reworded.unwrap();
+  assert_eq!(undo_and_sync(&unapplied.unwrap()), (Some(UndoKind::Unapply), true));
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha"]);
+  let kept = fixture.repo.git(&["log", "-1", "--format=%s", "refs/heads/test/unapplied/beta"]);
+  assert!(kept.ends_with("Beta, reworded"), "{kept}");
+
+  let fixture = self::fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let unapply_beta = unapply("beta", std::slice::from_ref(&beta), &witness);
+  let (reworded, refused) = fixture.one_after_another(&reword(&beta, "(gamma) Beta", &witness), &unapply_beta).await;
+  reworded.unwrap();
+  let head = fixture.repo.rev_parse("HEAD").unwrap();
+  assert_eq!(refused.unwrap_err().code, ErrorCode::PlanChanged);
+  assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "nothing was written");
+  assert_eq!(fixture.subjects(), ["(gamma) Beta", "(alpha) Alpha"]);
 }

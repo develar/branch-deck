@@ -233,7 +233,8 @@ The commit hash popover shows the same header and body.
 - The save must be refused while a rebase, merge, cherry-pick or revert is in progress, or on a detached HEAD.
 - The save must be refused if the commit left the current branch meanwhile (reworded or dropped in a terminal): "Commit
   <short id> is no longer on the current branch, sync and try again".
-- The save must fail, and keep the new commit unreferenced, if the branch moved meanwhile (a commit made in a terminal).
+- The core of the save must fail, and keep the new commit unreferenced, if the branch moved meanwhile (a commit made
+  in a terminal); the app's save then rewords the commit once more on that HEAD (below).
   [@test] ../../crates/sync-core/src/reword_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing`, `refuses_ids_and_texts_it_cannot_reword`, `refuses_to_reword_while_a_merge_is_in_progress`, `rewrite_refused_on_detached_head`, `refuses_a_commit_that_left_the_current_branch`, `rewords_several_commits_in_one_pass`)
   [@test] ../../crates/git-ops/src/ref_transaction_test.rs (`refuses_to_move_a_branch_that_moved_meanwhile`)
 - A new prefix of a commit must move its fixups with it.
@@ -269,10 +270,14 @@ The commit hash popover shows the same header and body.
   (`cancel_operation`), which ends the wait with nothing changed; only a holder no record names refuses it after 10 s,
   with nothing changed and the toast "Cannot edit the commit message" saying that another operation holds the lock. A
   save while another rewrite runs (an Unstack from the main window, an issue reference of the same commit) waits
-  behind it in the queue of the session and rewords the commit as that one left it, its new id included. The reword
-  computes before the lock (the snapshot, the new commits on temporary refs) and holds it only for the witness of HEAD
-  and the store commits and the compare-and-swap transaction.
+  behind it in the queue of the session and rewords the commit as that one left it, its new id included. A HEAD
+  another process moved while the save waited for the lock (an agent's `bd update`, a commit) makes the core refuse
+  it, nothing written, and the save is resolved again on that HEAD and rewords the commit as that process left it, by
+  its author, author time and subject without the prefix; a commit gone is `plan_changed`. The reword computes before
+  the lock (the snapshot, the new commits on temporary refs) and holds it only for the witness of HEAD and the store
+  commits and the compare-and-swap transaction.
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_reword_and_an_unstack_from_two_windows_at_once_are_both_applied_in_order`, `a_reword_queued_behind_the_issue_reference_of_its_commit_names_it_through_the_new_id`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waiting_for_the_lock_of_another_process_runs_on_the_head_it_left`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)

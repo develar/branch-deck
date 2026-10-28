@@ -442,19 +442,26 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    (`TableState::rewrites`, the last 16, each with the new ids its core reported, `RewriteResult::rewritten`; one that
    only added commits keeps the others; an added issue reference reports every commit it recreated and the new HEAD,
    `AddIssueReferenceResult::new_commit_ids` and `new_head`, since its key changes the subject a key would find them
-   by): each id goes through them. Else the session's table is brought to HEAD (the
-   sync in flight, `SyncReason::Open`, at most three times) and each id is the commit of the same author, author time
-   and subject without the prefix (`CommitKey`, read off the table when the request came; a key two commits share finds
-   neither); an ungroup takes the commits
-   of its branch there. A branch goes by its name. A commit none of them finds is `plan_changed`, nothing written.
+   by): each id goes through them. Else, and for an id one of them may have changed without naming it (a squash, an
+   unapply), the session's table is brought to HEAD (the sync in flight, `SyncReason::Open`, at most three times) and
+   the id is the commit of the same author, author time and subject without the prefix (`CommitKey`, read off the
+   table when the request came; a key two commits share finds neither); an ungroup takes the commits of its branch
+   there. An unapply names the commits of its branch the window showed, and its core checks that the virtual branch is
+   their copies: it waits for the sync that builds them at HEAD whichever way its ids go, and its branch there must be
+   those commits. A branch goes by its name. A commit none of them finds, or an unapply's branch with other commits, is
+   `plan_changed`, nothing written.
 4. **The core** runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`, `RegroupOptions`,
-   `MoveCommitsParams`; another process that moved HEAD before the lock makes it `head_moved`, nothing written) and
-   the lock waited for as long as its holder lives (`LockWait::WhileHeld`; the undo of a pick and of an update waits
-   `DEFAULT_LOCK_TIMEOUT`, as `bd undo` does): the step of the operation is
+   `MoveCommitsParams`) and the lock waited for as long as its holder lives (`LockWait::WhileHeld`; the undo of a pick
+   and of an update waits `DEFAULT_LOCK_TIMEOUT`, as `bd undo` does): the step of the operation is
    `WaitingForLock` with the holder its record names, then `Rewriting`; `cancel_operation` ends the wait (`canceled`,
    no ref moved, the objects it computed deleted with their temporary refs). The core takes the lock itself, after it
    computed on the snapshot it read: under it only its witness and its write ([Regroup, rename,
-   restack](#regroup-rename-restack), "Repository lock").
+   restack](#regroup-rename-restack), "Repository lock"). Another process that moved HEAD before the lock or while the
+   rewrite waited for it (`bd update`, `bd pick`, a `bd` rewrite, a commit) makes the core refuse the HEAD it expected
+   (`head_moved`, nothing written); the engine then resolves the rewrite again on HEAD as it is now (step 3) and runs
+   its core once more, on what the other process left, at most three runs (`resolve_and_run`): a branch by its name,
+   its commits by their keys once the sync shows that HEAD, `plan_changed` when they are gone. A core that failed on
+   the HEAD it expected answers its own failure.
 5. **The end**: the operation asks the sync that shows what it changed (`SyncReason::AfterRewrite`, the effect `Sync`;
    none when the core changed nothing) and ends: it does not wait for that sync, a rewrite queued behind it runs beside
    it, and the sync of the one after joins its chain as one follow-up. Its request answers once that sync ended, with
@@ -551,7 +558,9 @@ on the HEAD of `--expect-head`), before the lock; the record leaves before the `
 A rewrite of the app and one of `bd` meanwhile make each other neither busy nor joined: the second finds its witness
 moved once it takes the lock after the first and computes once more under it, on what the first left when HEAD is
 still the one it expects (a second unstack of beta: `invalid_plan`, "beta is not stacked"; `bd` without
-`--expect-head` expects none); a HEAD the first moved is `head_moved` for an app's rewrite, nothing written.
+`--expect-head` expects none); a HEAD the first moved makes the core of an app's rewrite `head_moved`, nothing
+written, and the engine resolves it again on that HEAD and runs it on what the first left (step 4 of [Rewrite in the
+engine](#rewrite-in-the-engine)); a `bd` rewrite with `--expect-head` answers `head_moved`.
 
 `bd reword` (`crates/history-rewrite/src/reword.rs`) gives the regroup whole new messages by id (`Change::messages`,
 a `--subject` keeps the body it reads from the snapshot), cleaned up as `git commit` does, before the

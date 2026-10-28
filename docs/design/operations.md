@@ -407,11 +407,14 @@ operation.
    **Rationale**: the rewrite names its commits on the table its window showed, and the session resolves them on the
    HEAD it reads once it is admitted ([Conflicts](#conflicts)); the core must write on that HEAD, or it would act on
    commits nobody named. Two rewrites of the app never meet there: the queue of the session runs the second on what
-   the first left. A `bd` rewrite that moved HEAD between that read and the lock makes it `head_moved`
-   (`retry: after_reread`), nothing written; one that moved only the stores (a `bd unstack` of the same branch) leaves
-   HEAD, so the core computes once more under the lock on what it left, and the second Unstack is `invalid_plan`. The
-   registry closes the double start in the app (the same intent joins, in every window), and the record of a `bd`
-   rewrite shows it on the rows (decision 7).
+   the first left. A process that moved HEAD between that read and the lock (a `bd` rewrite, `bd update`, `bd pick`,
+   a commit) makes the core refuse it (`head_moved`), nothing written, and the engine resolves the rewrite again on
+   that HEAD and runs its core once more, at most three runs (`operations::rewrite::resolve_and_run`): it runs on what
+   the other one left, as decision 7 says, by the name of its branch or its commits found by their keys once the sync
+   shows that HEAD, and is `plan_changed` only when they are gone. One that moved only the stores (a `bd unstack` of
+   the same branch) leaves HEAD, so the core computes once more under the lock on what it left, and the second Unstack
+   is `invalid_plan`. The registry closes the double start in the app (the same intent joins, in every window), and the
+   record of a `bd` rewrite shows it on the rows (decision 7).
 5. **Decision**: the identical error toast updates in place (`notifyError` passes an id of the title and the
    description; Base UI updates the open toast of that id).
    **Rationale**: a poll or two surfaces must not stack copies of one error; Activity still records each.

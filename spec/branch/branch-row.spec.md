@@ -643,8 +643,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   its item says what its start waits behind ("Waits for Unstacking oauth…", `Waits`), its start goes to the session at
   once (the page queues none) and waits for the running one in the queue of the session, in the order of the starts,
   its rows busy and its "⋯" saying what it waits for, then runs on what the one before left (a move, a squash, a
-  reword, an amend and an added issue reference take the commits by the ids that one gave them, also a commit whose
-  subject it changed), in the repository of its start, whichever the window shows by then. A remote action whose
+  reword, an amend, an added issue reference and an unapply take the commits by the ids that one gave them, also a
+  commit whose subject it changed; an unapply once the sync built their copies), in the repository of its start,
+  whichever the window shows by then. A remote action whose
   resource an operation holds (a push of a branch a push of the stack sends, a cancel during a restart, an action
   another process runs) is disabled with its busy state ("Pushing login…", "bd: Pushing auth…", `Busy`), and a key says
   so in an info toast; a retarget and a review request of one pull request write other fields of it and run side by
@@ -660,6 +661,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../src/stores/branch-sync.test.ts (`finds a commit whose subject a message rewrite changed by the committer it kept, and one an amend replayed by its subject`, `finds no commit by a key two commits share`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`rewords the commit as the rewrite before it in the queue left it, its preview and its Undo on that commit`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_reword_queued_behind_the_issue_reference_of_its_commit_names_it_through_the_new_id`, `a_reword_and_an_unstack_from_two_windows_at_once_are_both_applied_in_order`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_unapply_queued_behind_a_reword_of_its_branch_unapplies_what_the_reword_left`)
   [@test] ../../src/presenters/next-step.test.ts (`lays what runs on the row over the step: its own action runs, the others wait, never a quiet step nor another field of the pull request`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - An action started from the menu, a key or a toast must show its spinner on the "⋯" of its row (`aria-busy`, its

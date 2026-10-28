@@ -5,23 +5,28 @@
 //! A rewrite holds `Resource::Head`: the rewrites of a process run one after the other, in the order they came, each on
 //! what the ones before it left (a second click of the same rewrite joins the first); between processes the repository
 //! lock orders their writes, and a wait for another holder is the step `WaitingForLock` with its holder, which
-//! `Registry::cancel` stops (`canceled`, nothing changed). A rewrite never waits for a sync: the sync of the app writes no
-//! HEAD.
+//! `Registry::cancel` stops (`canceled`, nothing changed). A rewrite waits for no sync, which writes no HEAD, but to find
+//! what it names on a HEAD the table does not show yet (below).
 //!
 //! An intent names its commits and branches on the table its window showed (`TableWitness`). Once admitted, the rewrite
 //! reads what it names now (one `for-each-ref` of the checked out branch and the three stores, `read_witness`): HEAD is
 //! the one of the witness, so its ids are the ones of HEAD; or a rewrite of this process moved HEAD since, and each id
-//! goes through the new ids its core reported (`TableState::rewrites`); or the session's table is brought to HEAD (the
-//! sync that runs, `SyncReason::Open`) and each id is the commit of the same author, author time and subject without
-//! the prefix (`CommitKey`, read off the table when the request came). A commit none of them finds changes the plan
-//! (`plan_changed`), and nothing is written. The core then runs on the blocking pool with that HEAD expected
-//! (`RewriteOptions::expect_head`): it reads and computes before the repository lock, which it takes itself only for
-//! the witness of what it read and its compare-and-swap write, and computes once more under the lock when a ref moved
-//! meanwhile (`history_rewrite::repository_lock::lock_prepared`); the operation ends once it asked the sync
-//! that shows what it changed (`SyncReason::AfterRewrite`), not when that sync ends, with what the core answered and its
-//! undo (`Outcome::undo`); the request answers once that sync ended, with the version of its last patch
-//! (`Outcome::version_after`), which the toast of the window waits for. An undo names no table: its token moves each ref
-//! back with compare-and-swap.
+//! goes through the new ids its core reported (`TableState::rewrites`); else, and for an id they may have changed
+//! without naming it, the session's table is brought to HEAD (the sync that runs, `SyncReason::Open`) and the id is the
+//! commit of the same author, author time and subject without the prefix (`CommitKey`, read off the table when the
+//! request came). An unapply, whose core checks that the virtual branch is the copies of its commits, waits for the sync
+//! that builds them at HEAD either way, and its branch there must be the commits it named. A commit none of them finds,
+//! or an unapply's branch with other commits, changes the plan (`plan_changed`), and nothing is written. The core then
+//! runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`): it reads and computes before the
+//! repository lock, which it takes itself only for the witness of what it read and its compare-and-swap write, and
+//! computes once more under the lock when a ref moved meanwhile (`history_rewrite::repository_lock::lock_prepared`). A
+//! core that failed on a HEAD another process moved while it waited for the lock (`bd update`, a `bd` rewrite, a
+//! commit) ran on a HEAD the rewrite was not resolved on: the rewrite is resolved again on HEAD as it is now and its
+//! core runs once more, on what the other process left (`resolve_and_run`, at most three runs). The operation ends once
+//! it asked the sync that shows what it changed (`SyncReason::AfterRewrite`), not when that sync ends, with what the
+//! core answered and its undo (`Outcome::undo`); the request answers once that sync ended, with the version of its last
+//! patch (`Outcome::version_after`), which the toast of the window waits for. An undo names no table: its token moves
+//! each ref back with compare-and-swap.
 
 use crate::engine::{Hosts, outcome_of, run, runs_only_in_bd};
 use crate::events::EventSink;
@@ -33,7 +38,7 @@ use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationResult, OperationStep, Outcome, Plan, Resource};
 use domain_types::review_request::FetchReviewHeadParams;
 use domain_types::rewrite::{AppliedConflictFix, MoveCommitsResult, RewriteIntent, RewriteResult, TableWitness, UndoKind, UndoToken};
-use domain_types::session::{StoreTips, SyncReason, Version};
+use domain_types::session::{StoreTips, SyncReason, SyncState, SyncStep, Version};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::CommitKey;
@@ -50,7 +55,7 @@ use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use object_cache::cache::ObjectCache;
 use repository_model::session::{SessionKey, Sessions, SyncTicket};
 use repository_model::table::{RewriteLink, TableState};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use sync_core::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
@@ -136,14 +141,17 @@ fn rewrite_plan(state: &TableState, rewrite: &RewriteIntent) -> RewritePlan {
   RewritePlan { plan, keys }
 }
 
-/// The commits `rewrite` names, original ids: those of its request; of an ungroup every commit of its branch as `state`
-/// has it
+/// The commits `rewrite` names, original ids: those of its request (of an unapply the commits of its branch the window
+/// showed); of an ungroup every commit of its branch as `state` has it
 fn named_commits(state: &TableState, rewrite: &RewriteIntent) -> Vec<String> {
   match rewrite {
     RewriteIntent::Move { commit_ids, .. } | RewriteIntent::Squash { commit_ids, .. } => commit_ids.clone(),
     RewriteIntent::Reword { rewords, .. } => rewords.iter().map(|reword| reword.commit.clone()).collect(),
     RewriteIntent::AddIssueReference { commits, .. } => commits.iter().map(|commit| commit.hash.clone()).collect(),
     RewriteIntent::Amend { original_commit_id, .. } => vec![original_commit_id.clone()],
+    RewriteIntent::Unapply {
+      original_commit_ids: Some(ids), ..
+    } => ids.clone(),
     RewriteIntent::Ungroup { branch_name, .. } => state
       .branch(branch_name)
       .map_or_default(|branch| branch.commits.iter().map(|commit| commit.id.clone()).collect()),
@@ -193,7 +201,8 @@ pub(crate) fn rewrite_request(prefix: &str, rewrite: &RewriteIntent) -> Operatio
 /// Runs `rewrite` in the session of `key` over the services of `host` (the module's header): admitted on HEAD (a second
 /// click joins it, another rewrite waits in the queue), what it names resolved on HEAD as it is now, its core on the
 /// blocking pool with that HEAD expected and the lock waited for as long as its holder lives (`WaitingForLock`, stopped
-/// by `Registry::cancel`), then the sync asked; its steps in the view, its outcome to `events`. The operation ends with
+/// by `Registry::cancel`), resolved and run again when the holder moved HEAD meanwhile (`resolve_and_run`), then the
+/// sync asked; its steps in the view, its outcome to `events`. The operation ends with
 /// the request of that sync, so a rewrite queued behind it runs beside the sync; the answer comes once the sync ended,
 /// with the version of its last patch (`Outcome::version_after`), so the window that asked shows its toast beside what
 /// it changed. A request that joined the operation answers as it ended, without that version
@@ -215,8 +224,7 @@ pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: Rew
   let mut answer = run(registry, key, request, events, async |guard| {
     // no session was open: what the intent itself names
     let planned = planned.unwrap_or_else(|| rewrite_plan(&TableState::new(), &rewrite));
-    let (resolved, expect_head) = resolve(sessions, key, hosts, &rewrite, &planned).await?;
-    let ran = run_core(guard, key, hosts, &resolved, expect_head.clone()).await?;
+    let (resolved, expect_head, ran) = resolve_and_run(sessions, key, hosts, guard, &rewrite, &planned).await?;
     let (outcome, sync) = finish(sessions, key, guard, &planned.plan, &resolved, expect_head, ran).await;
     *asked.lock().unwrap_or_else(PoisonError::into_inner) = sync;
     Ok(outcome)
@@ -230,12 +238,80 @@ pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: Rew
   answer
 }
 
+/// How many times a rewrite runs its core when HEAD moved away from the one it expected each time
+const RUNS_ON_A_MOVED_HEAD: usize = 3;
+
+/// `rewrite` resolved on HEAD as it is now and run by its core (`resolve`, `run_core`): its resolution, the HEAD its
+/// core expected and what it answered. A core that failed while HEAD is no longer the one it expected (another process
+/// moved it while the rewrite waited for the lock: `bd update`, `bd pick`, a `bd` rewrite, a commit) ran on a HEAD the
+/// rewrite was not resolved on, so the rewrite is resolved again on HEAD as it is now and its core runs once more on
+/// what the other one left, up to `RUNS_ON_A_MOVED_HEAD` times
+///
+/// # Errors
+/// What `resolve` and the core refused, the core's failure on a HEAD that did not move; `canceled` after a stopped wait
+async fn resolve_and_run(
+  sessions: &Sessions,
+  key: &SessionKey,
+  hosts: Hosts<'_>,
+  guard: &RunningGuard,
+  rewrite: &RewriteIntent,
+  planned: &RewritePlan,
+) -> Result<(RewriteIntent, Option<String>, Ran), ApiError> {
+  let (mut resolved, mut expect_head) = resolve(sessions, key, hosts, rewrite, planned).await?;
+  let mut runs = 0;
+  loop {
+    runs += 1;
+    let failed = match run_core(guard, key, hosts, &resolved, expect_head.clone()).await {
+      Ok(ran) => return Ok((resolved, expect_head, ran)),
+      Err(failed) => failed,
+    };
+    if expect_head.is_none() || failed.code == ErrorCode::Canceled || runs == RUNS_ON_A_MOVED_HEAD {
+      return Err(failed);
+    }
+    let (again, head) = resolve(sessions, key, hosts, rewrite, planned).await?;
+    if head == expect_head {
+      // HEAD is the one the core expected: the failure is the core's own
+      return Err(failed);
+    }
+    debug!(error = %failed.message, "HEAD moved while the core ran: the rewrite runs once more on HEAD as it is now");
+    (resolved, expect_head) = (again, head);
+  }
+}
+
 /// HEAD and the stores as the table of the session of `key` knows them, and the rewrites of this process since
 struct Seen {
   /// The checked out branch of the last grouping; empty before it
   branch: String,
-  header: TableWitness,
+  shown: Shown,
   links: Vec<RewriteLink>,
+}
+
+/// What the table of a session shows of HEAD
+#[derive(Default)]
+struct Shown {
+  /// HEAD and the stores of its last grouping
+  header: TableWitness,
+  /// The branches of that grouping are built: no sync groups or builds them now
+  built: bool,
+}
+
+impl Shown {
+  fn of(state: &TableState) -> Self {
+    Self {
+      header: state.header().witness(),
+      built: !matches!(
+        state.sync(),
+        SyncState::Running {
+          step: SyncStep::Grouping | SyncStep::Building
+        }
+      ),
+    }
+  }
+
+  /// Whether the table shows `head`, its branches built when `built`
+  fn shows(&self, head: &str, built: bool) -> bool {
+    self.header.head == head && (self.built || !built)
+  }
 }
 
 /// What the session knows of HEAD now
@@ -243,7 +319,7 @@ async fn seen(sessions: &Sessions, key: &SessionKey) -> Option<Seen> {
   sessions
     .read(key, |state, _| Seen {
       branch: state.header().branch.clone(),
-      header: state.header().witness(),
+      shown: Shown::of(state),
       links: state.rewrites().to_vec(),
     })
     .await
@@ -254,7 +330,7 @@ async fn seen(sessions: &Sessions, key: &SessionKey) -> Option<Seen> {
 /// asked, with the HEAD of its witness
 ///
 /// # Errors
-/// `plan_changed` for a commit that is gone; a failed read of git
+/// `plan_changed` for a commit that is gone, or an unapply whose branch has other commits now; a failed read of git
 async fn resolve(sessions: &Sessions, key: &SessionKey, hosts: Hosts<'_>, rewrite: &RewriteIntent, planned: &RewritePlan) -> Result<(RewriteIntent, Option<String>), ApiError> {
   let Some(asked) = rewrite.witness() else {
     return Ok((rewrite.clone(), None));
@@ -268,56 +344,92 @@ async fn resolve(sessions: &Sessions, key: &SessionKey, hosts: Hosts<'_>, rewrit
     return Ok((ungrouped(rewrite, planned_commits(&planned.plan)), Some(now.head)));
   }
   let named = named_commits_of(rewrite);
+  // an unapply checks that the virtual branch is the copies of its commits: the sync that shows HEAD builds them
+  let built = matches!(rewrite, RewriteIntent::Unapply { .. });
   // a branch goes by its name
-  if named.is_empty() && !matches!(rewrite, RewriteIntent::Ungroup { .. }) {
+  if named.is_empty() && !built && !matches!(rewrite, RewriteIntent::Ungroup { .. }) {
     return Ok((rewrite.clone(), Some(now.head)));
   }
+  let linked = through_links(&seen.links, &asked.head, &now.head, &named);
   if !named.is_empty()
-    && let Some(ids) = through_links(&seen.links, &asked.head, &now.head, &named)
+    && !built
+    && let Some(ids) = linked.as_ref().and_then(|ids| ids.iter().cloned().collect::<Option<Vec<String>>>())
   {
     debug!(from = %short_id(&asked.head), to = %short_id(&now.head), "the ids go through the rewrites of this process");
     return Ok((with_commits(rewrite, &ids), Some(now.head)));
   }
   // the table of the session at HEAD: the sync in flight (the one a rewrite before asked), or one that reads it
-  let mut table = seen.header;
+  let mut shown = seen.shown;
   for _ in 0..SYNCS_TO_HEAD {
-    if table.head == now.head {
+    if shown.shows(&now.head, built) {
       break;
     }
     if let Err(error) = sessions.sync(key, SyncReason::Open).wait().await {
       debug!(error = %error.message, "the sync before the rewrite failed");
     }
-    table = seen_header(sessions, key).await.unwrap_or_default();
+    shown = sessions.read(key, |state, _| Shown::of(state)).await.unwrap_or_default();
   }
   let intent = Intent::Rewrite(Box::new(rewrite.clone()));
-  if table.head != now.head {
+  if !shown.shows(&now.head, built) {
     return Err(plan_changed(&intent, Some("HEAD moved, and no sync shows it yet")));
   }
-  let (named, keys, of) = (named.clone(), planned.keys.clone(), rewrite.clone());
-  let found = sessions
-    .read(key, move |state, _| {
-      if matches!(of, RewriteIntent::Ungroup { .. }) {
-        // its commits are the ones of its branch now
-        return Ok(named_commits(state, &of));
-      }
-      // a key two commits share finds neither
-      let mut by_key: HashMap<CommitKey, Option<&str>> = HashMap::new();
-      for commit in state.commits() {
-        let key = CommitKey::from_subject(&commit.author_email, commit.author_timestamp, &commit.subject);
-        by_key.entry(key).and_modify(|found| *found = None).or_insert(Some(commit.id.as_str()));
-      }
-      named
-        .iter()
-        .map(|id| keys.get(id).and_then(|key| by_key.get(key).copied().flatten()).map(str::to_owned).ok_or_else(|| id.clone()))
-        .collect::<Result<Vec<String>, String>>()
-    })
-    .await
-    .unwrap_or_else(|| Err(String::new()));
-  match found {
-    Ok(ids) if ids.is_empty() => Err(plan_changed(&intent, Some(&format!("{} has no commits", rewrite.subject().unwrap_or_default())))),
-    Ok(ids) => Ok((with_commits(&ungrouped(rewrite, ids.clone()), &ids), Some(now.head))),
-    Err(gone) => Err(plan_changed(&intent, Some(&format!("{} is no commit ahead of the baseline any more", short_id(&gone))))),
+  if named.is_empty() && built {
+    // an unapply of the branch as it is now
+    return Ok((rewrite.clone(), Some(now.head)));
   }
+  let linked = linked.unwrap_or_else(|| vec![None; named.len()]);
+  let (keys, of) = (planned.keys.clone(), rewrite.clone());
+  let found = sessions
+    .read(key, move |state, _| at_head(state, &of, &named, &linked, &keys))
+    .await
+    .unwrap_or_else(|| Err(Missing::Gone(String::new())));
+  let subject = rewrite.subject().unwrap_or_default();
+  match found {
+    Ok(ids) if ids.is_empty() => Err(plan_changed(&intent, Some(&format!("{subject} has no commits")))),
+    Ok(ids) => Ok((with_commits(&ungrouped(rewrite, ids.clone()), &ids), Some(now.head))),
+    Err(Missing::Gone(gone)) => Err(plan_changed(&intent, Some(&format!("{} is no commit ahead of the baseline any more", short_id(&gone))))),
+    Err(Missing::BranchChanged) => Err(plan_changed(&intent, Some(&format!("{subject} has other commits now")))),
+  }
+}
+
+/// Why a rewrite does not find on the table at HEAD what it named
+enum Missing {
+  /// The commit of this id neither went through the rewrites of this process nor has a key that finds it
+  Gone(String),
+  /// The branch of an unapply has other commits than the ones it named
+  BranchChanged,
+}
+
+/// The ids of `named` on `state`, the table at HEAD: of an ungroup the commits of its branch there; else each the id the
+/// rewrites of this process gave it (`linked`), or the commit of its key (`keys`, read off the table of the request; a
+/// key two commits share finds neither); of an unapply they must be the commits of its branch there
+fn at_head(state: &TableState, rewrite: &RewriteIntent, named: &[String], linked: &[Option<String>], keys: &HashMap<String, CommitKey>) -> Result<Vec<String>, Missing> {
+  if matches!(rewrite, RewriteIntent::Ungroup { .. }) {
+    // its commits are the ones of its branch now
+    return Ok(named_commits(state, rewrite));
+  }
+  let mut by_key: HashMap<CommitKey, Option<&str>> = HashMap::new();
+  for commit in state.commits() {
+    let key = CommitKey::from_subject(&commit.author_email, commit.author_timestamp, &commit.subject);
+    by_key.entry(key).and_modify(|found| *found = None).or_insert(Some(commit.id.as_str()));
+  }
+  let ids = named
+    .iter()
+    .zip(linked)
+    .map(|(id, linked)| {
+      let by_its_key = || keys.get(id).and_then(|key| by_key.get(key).copied().flatten()).map(str::to_owned);
+      linked.clone().or_else(by_its_key).ok_or_else(|| Missing::Gone(id.clone()))
+    })
+    .collect::<Result<Vec<String>, Missing>>()?;
+  if let RewriteIntent::Unapply { branch_name, .. } = rewrite {
+    let branch: BTreeSet<&str> = state
+      .branch(branch_name)
+      .map_or_default(|branch| branch.commits.iter().map(|commit| commit.id.as_str()).collect());
+    if branch != ids.iter().map(String::as_str).collect() {
+      return Err(Missing::BranchChanged);
+    }
+  }
+  Ok(ids)
 }
 
 /// The commits of the rewrite effect of `plan`
@@ -361,6 +473,7 @@ fn with_commits(rewrite: &RewriteIntent, ids: &[String]) -> RewriteIntent {
         original_commit_id.clone_from(id);
       }
     }
+    RewriteIntent::Unapply { original_commit_ids, .. } => *original_commit_ids = Some(ids.to_vec()),
     _ => {}
   }
   rewrite
@@ -369,11 +482,6 @@ fn with_commits(rewrite: &RewriteIntent, ids: &[String]) -> RewriteIntent {
 /// How many syncs a rewrite whose HEAD moved waits for until the table shows that HEAD: the one in flight may have read
 /// the HEAD before
 const SYNCS_TO_HEAD: usize = 3;
-
-/// HEAD and the stores of the table of the session of `key`
-async fn seen_header(sessions: &Sessions, key: &SessionKey) -> Option<TableWitness> {
-  sessions.read(key, |state, _| state.header().witness()).await
-}
 
 /// HEAD (the tip of `branch`, the checked out branch) and the tips of the stores now: one `for-each-ref`
 fn read_witness(git: &GitCommandExecutor, path: &str, branch: &str) -> anyhow::Result<TableWitness> {
@@ -392,11 +500,11 @@ fn read_witness(git: &GitCommandExecutor, path: &str, branch: &str) -> anyhow::R
 }
 
 /// The ids of `named` after the rewrites of `links` that led HEAD from `from` to `to`, each id through the new ids of
-/// each rewrite (one that only added commits keeps the others); `None` when no chain of them leads there, or one of
-/// them may have given an id another id it does not name
-fn through_links(links: &[RewriteLink], from: &str, to: &str, named: &[String]) -> Option<Vec<String>> {
+/// each rewrite (one that only added commits keeps the others): `None` for an id one of them may have given an id it
+/// does not name; `None` when no chain of them leads there
+fn through_links(links: &[RewriteLink], from: &str, to: &str, named: &[String]) -> Option<Vec<Option<String>>> {
   let mut head = from;
-  let mut ids = named.to_vec();
+  let mut ids: Vec<Option<String>> = named.iter().cloned().map(Some).collect();
   for link in links {
     if head == to {
       break;
@@ -404,10 +512,9 @@ fn through_links(links: &[RewriteLink], from: &str, to: &str, named: &[String]) 
     if link.from != head {
       continue;
     }
-    ids = ids
-      .into_iter()
-      .map(|id| link.rewritten.get(&id).cloned().or_else(|| link.appends.then_some(id)))
-      .collect::<Option<Vec<_>>>()?;
+    for id in &mut ids {
+      *id = id.take().and_then(|id| link.rewritten.get(&id).cloned().or_else(|| link.appends.then_some(id)));
+    }
     head = &link.to;
   }
   (head == to).then_some(ids)

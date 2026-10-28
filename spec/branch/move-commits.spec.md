@@ -142,10 +142,15 @@ Renaming and ungrouping a branch are moves of all its commits.
   the "⋯" of its row, whose hover says whom it waits for ("Waiting for `bd pick` (pid 4242, for 12 s)") and whose
   click offers Stop Waiting (`cancel_operation`), which ends the wait with nothing moved ("Canceled moving 1 commit to
   docs before it started"); the surface that started it says the same. Once the holder released the lock the move
-  runs. Only a holder no record names refuses it after 10 s.
+  runs, on what the holder left: a holder that moved HEAD meanwhile (`bd update`, `bd pick`, a `bd` rewrite, a commit)
+  makes its core refuse the HEAD it expected, and the move is resolved again on HEAD as it is now and runs once more (at
+  most three runs), a branch by its name, a commit by its author, author time and subject without the prefix once the
+  sync shows that HEAD; a commit the holder took away is `plan_changed`, nothing written. Only a holder no record names
+  refuses it after 10 s.
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved`)
   [@test] ../../crates/test-server/src/channel_commands_test.rs (`a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_lock`, `stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waiting_for_the_lock_of_another_process_runs_on_the_head_it_left`)
   [@test] ../../src/lib/rewrite-run.test.ts (`shows whom a rewrite of the engine waits for and stops the wait by its operation`)
   [@test] ../../src/lib/rewrite-run.test.ts (`says behind which rewrite of this window it waits in the queue of the session`)
   [@test] ../../src/presenters/lock-wait.test.ts (`offers Stop Waiting of an operation of the session only while it waits for a holder, and stops it by its id`, `says that an action stopped while it waited for the repository lock changed nothing`)
