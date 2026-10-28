@@ -133,10 +133,13 @@ server's error names its operation too) and the handwritten `#[tauri::command]`s
   `operation_now(|| { … })` (`crates/app-api/src/operation.rs`): the span `operation{operation_id}`, a child of the command's
   span, so a line reads `close_pull_request{…}:operation{operation_id=…}: message`. A command of a session (the
   `session` kind of the registry, `crates/app-api/src/registry.rs`) gets both from its frame: the span of the command
-  with its repository, then its operation, in which the frame resolves the key of the session before the body runs, so
-  a line reads `sync{repository_path=…}:operation{operation_id=…}: message` and a refusal of the key names the
+  with its repository and the fields its entry names, as `#[instrument]` would (`session(reason = ?params.reason)
+  sync(…)`: why a sync ran, which family a refresh read and for which subject, whether a window gained the focus), then
+  its operation, in which the frame resolves the key of the session before the body runs, so a line reads
+  `sync{repository_path=… reason=Focus}:operation{operation_id=…}: message` and a refusal of the key names the
   operation too; its body opens neither
-  (`the_body_of_a_session_command_opens_no_span_and_no_operation_of_its_own`). A blocking step of the body, git or
+  (`the_body_of_a_session_command_opens_no_span_and_no_operation_of_its_own`,
+  `the_span_of_a_session_command_records_the_fields_its_entry_names` of the e2e server). A blocking step of the body, git or
   the file system, runs through `run_blocking` on the pool, inside the caller's span; a command whose body is that one
   step needs no `operation`: `run_blocking` alone is the operation then (a task-local tells it whether one is open).
   Opening the object cache is such a step: its first open runs `rev-parse --git-common-dir` and opens LMDB, so an async

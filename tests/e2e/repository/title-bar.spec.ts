@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test"
 import { expect, test, testWithConflicts } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, MIN_WINDOW } from "../helpers/header-helpers"
+import { settledIpc } from "../helpers/ipc-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
 import { availableReviewRequests, getYourTurnCard, openReviewWindow, reviewRequest } from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
@@ -289,11 +290,16 @@ test.describe("Custom title bar on Linux", () => {
     await header(page).click({ button: "right", position: empty })
     // the window manager's menu, which the backend opens (`show_window_menu`)
     await expect.poll(() => getWindowMenus(page)).toBe(1)
-    // a control keeps its own right click
+    // a control keeps its own right click: once every command of the page answered, so the server got each, no second
+    // menu was asked for
     const calls = (await windowCalls(page)).length
     await page.getByTestId("sync-button").click({ button: "right" })
+    await settledIpc(page)
     expect(await windowCalls(page)).toHaveLength(calls)
     expect(await getWindowMenus(page)).toBe(1)
+    // the same path still records a right click of the empty row, so the count above could have seen a second menu
+    await header(page).click({ button: "right", position: empty })
+    await expect.poll(() => getWindowMenus(page)).toBe(2)
   })
 })
 

@@ -4,8 +4,9 @@
 //! `#[tauri::command]` wrapper with the docs and the argument names of the bindings (`src-tauri/src/api.rs`).
 //!
 //! An entry is the doc comment of the bindings, then
-//! `<class> <kind> <name>(<argument>: <type>, …) [channel <name>: <event>, open] -> <output> = <body>;`, the output
-//! left out for a `now` command that answers nothing (`void` in the bindings, where `-> ()` would be `null`):
+//! `<class> <kind>[(<span fields>)] <name>(<argument>: <type>, …) [channel <name>: <event>, open] -> <output> = <body>;`,
+//! the output left out for a `now` command that answers nothing (`void` in the bindings, where `-> ()` would be
+//! `null`):
 //! - the class says what it does to the app and its repositories: `read` writes nothing, `engine` runs or stops an
 //!   operation of a session (`operations::engine`), `app(<reason>)` writes what no session admits, with the reason
 //!   ([`AppReason`]); the e2e tests answer no command but a `read` in the page (`command_registry_test.rs` of the e2e
@@ -17,7 +18,10 @@
 //!   grammar of what the user types); `session` a
 //!   command of the session of the repository its `params.repository_path` names, `async fn(&AppContext, &Call,
 //!   SessionKey, arguments…) -> Result<output, ApiError>`, whose frame runs it as one operation in the span of the
-//!   command (`<name>{repository_path}:operation{operation_id}`) once it resolved the key (`AppContext::session_key`);
+//!   command (`<name>{repository_path, …}:operation{operation_id}`) once it resolved the key (`AppContext::session_key`);
+//!   beside `repository_path` the span records the fields the entry names after its kind, as `fields(…)` of
+//!   `#[instrument]` names them over the arguments (`session(reason = ?params.reason)`), since its body opens no span
+//!   of its own (only a `session` entry names fields);
 //!   `now` a synchronous command of a window that cannot fail and answers at once (on the main thread of the app),
 //!   `fn(&AppContext, &Call, arguments…) -> output`; `main` the same that can fail, `fn(&AppContext, &Call, arguments…)
 //!   -> Result<output, ApiError>`, for what the app does on its main thread (a native menu, the restart);
@@ -57,7 +61,8 @@ pub enum AppReason {
   PageJournal,
   /// A settings writer of no repository's session, serialized per file
   SettingsWriter,
-  /// The app itself: its menu, its CLI, its update and its restart
+  /// The app itself: its windows (an open, the stages of a page that show its window), its dialog, its menu, its CLI,
+  /// its update and its restart
   TheApp,
   /// The CLIs of Settings → Tools, one action of a tool at a time (`cli_tools`)
   Tools,
@@ -121,8 +126,8 @@ pub trait Command {
 /// its arguments `…::Args`) and lists them all in `COMMANDS`
 #[macro_export]
 macro_rules! api_commands {
-  ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
-    $($crate::api_command!([$class $($reason)?] $kind $name($($arg: $type),*) [$(channel $channel: $event $(, $open)?)?] -> [$($output)?] = $body);)*
+  ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $(($($field:tt)*))? $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
+    $($crate::api_command!([$class $($reason)?] $kind [$($($field)*)?] $name($($arg: $type),*) [$(channel $channel: $event $(, $open)?)?] -> [$($output)?] = $body);)*
 
     /// Every command of the registry, in the order of `for_each_command!`
     pub const COMMANDS: &[$crate::registry::CommandSpec] = &[$(<$name::Command as $crate::registry::Command>::SPEC),*];
@@ -184,21 +189,21 @@ macro_rules! api_command {
   (@channel_spec [channel $channel:ident: $event:ty, open]) => {
     Some($crate::registry::ChannelSpec { name: stringify!($channel), open: true })
   };
-  (@call plain $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
+  (@call plain $name:ident [] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let _ = ($ctx, $call, $sink);
     ::std::future::ready(Ok($body($($args.$arg),*)))
   }};
-  (@call now $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
+  (@call now $name:ident [] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let () = $sink;
     ::std::future::ready(Ok($body($ctx, $call, $($args.$arg),*)))
   }};
-  (@call main $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
+  (@call main $name:ident [] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let () = $sink;
     ::std::future::ready($body($ctx, $call, $($args.$arg),*))
   }};
   // the span of the command, then its operation: the key resolved in it, so its error names the operation too
-  (@call session $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)*]) => {{
-    let span = ::tracing::info_span!(stringify!($name), repository_path = %$args.params.repository_path);
+  (@call session $name:ident [$($field:tt)*] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)*]) => {{
+    let span = $crate::api_command!(@session_span $name [$($field)*] $args($($arg),*));
     ::tracing::Instrument::instrument(
       $crate::operation::operation(async move {
         let key = $ctx.session_key(&$args.params.repository_path).await?;
@@ -207,6 +212,15 @@ macro_rules! api_command {
       span,
     )
   }};
+  (@session_span $name:ident [] $args:ident($($arg:ident),*)) => {
+    ::tracing::info_span!(stringify!($name), repository_path = %$args.params.repository_path)
+  };
+  // the fields of the entry name the arguments by their names: bound here as the entry spells them
+  (@session_span $name:ident [$($field:tt)+] $args:ident($($arg:ident),*)) => {{
+    let Args { $($arg),* } = &$args;
+    let _ = ($($arg,)*);
+    ::tracing::info_span!(stringify!($name), repository_path = %$args.params.repository_path, $($field)+)
+  }};
   (@session_body $body:path, $ctx:ident, $call:ident, $key:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let () = $sink;
     $body($ctx, $call, $key, $($args.$arg),*)
@@ -214,19 +228,19 @@ macro_rules! api_command {
   (@session_body $body:path, $ctx:ident, $call:ident, $key:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)+]) => {
     $body($ctx, $call, $key, $($args.$arg,)* $sink)
   };
-  (@call window $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
+  (@call window $name:ident [] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let () = $sink;
     $body($ctx, $call, $($args.$arg),*)
   }};
-  (@call $kind:ident $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
+  (@call $kind:ident $name:ident [] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let (_, ()) = ($call, $sink);
     $body($ctx, $($args.$arg),*)
   }};
-  (@call json $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)+]) => {{
+  (@call json $name:ident [] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)+]) => {{
     let _ = $call;
     $body($ctx, $($args.$arg,)* $sink)
   }};
-  ([$($class:tt)+] $kind:ident $name:ident($($arg:ident: $type:ty),*) [$($channel:tt)*] -> [$($output:ty)?] = $body:path) => {
+  ([$($class:tt)+] $kind:ident [$($field:tt)*] $name:ident($($arg:ident: $type:ty),*) [$($channel:tt)*] -> [$($output:ty)?] = $body:path) => {
     pub mod $name {
       pub struct Command;
 
@@ -256,7 +270,7 @@ macro_rules! api_command {
         ) -> impl ::std::future::Future<Output = Result<Self::Output, ::domain_types::error::ApiError>> + Send {
           // a command without arguments reads none
           let _ = &args;
-          $crate::api_command!(@call $kind $name $body, ctx, call, args($($arg),*), channel [$($channel)*])
+          $crate::api_command!(@call $kind $name [$($field)*] $body, ctx, call, args($($arg),*), channel [$($channel)*])
         }
       }
     }

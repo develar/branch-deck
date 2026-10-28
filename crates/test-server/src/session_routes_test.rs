@@ -1,7 +1,7 @@
 //! The session commands of app-api on the server as the page mock calls them: a subscription is an event stream that
 //! answers first and then carries the patches, each on the version before it, up to the version a sync answers; it ends
 //! with `unsubscribe_view`; a repository without a prefix is refused by the frame with the `ApiError` of the app and the
-//! id of its operation, on the stream too
+//! id of its operation, on the stream too; the span of the frame records the fields of the entry
 
 use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, push_alone, rewrite, start_test_server, view_when};
 use pretty_assertions::assert_eq;
@@ -309,4 +309,79 @@ async fn the_clock_of_the_sessions_moves_only_by_a_test_and_sweeps_the_idle_ones
   assert!(snapshot.is_object(), "idle for 119 s of 120: {snapshot}");
   post(&client, addr, &format!("/repositories/{id}/clock/advance"), json!({ "ms": 1_000 })).await;
   assert_eq!(post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await, Value::Null);
+}
+
+/// A span the process opened: its name and its fields, `name=value` in their order
+type OpenedSpan = (String, Vec<String>);
+
+/// The spans the process opened
+#[derive(Clone, Default)]
+struct OpenedSpans(std::sync::Arc<std::sync::Mutex<Vec<OpenedSpan>>>);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for OpenedSpans {
+  fn on_new_span(&self, attributes: &tracing::span::Attributes<'_>, _id: &tracing::span::Id, _context: tracing_subscriber::layer::Context<'_, S>) {
+    let mut fields = SpanFields::default();
+    attributes.record(&mut fields);
+    let name = attributes.metadata().name().to_owned();
+    self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, fields.0));
+  }
+}
+
+impl OpenedSpans {
+  /// The fields of the spans named `name`, in the order they opened
+  fn named(&self, name: &str) -> Vec<Vec<String>> {
+    let spans = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    spans.iter().filter(|(span, _)| span == name).map(|(_, fields)| fields.clone()).collect()
+  }
+}
+
+/// The fields a span recorded, `name=value`
+#[derive(Default)]
+struct SpanFields(Vec<String>);
+
+impl tracing::field::Visit for SpanFields {
+  fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+    self.0.push(format!("{}={value:?}", field.name()));
+  }
+}
+
+/// The frame of a session command opens its span with the fields of its entry beside the repository (its body opens no
+/// span of its own), so a line of the log says why a sync ran, which fact a refresh read, whether a window gained the
+/// focus: here before the key, which a repository without a prefix refuses
+#[tokio::test]
+async fn the_span_of_a_session_command_records_the_fields_its_entry_names() {
+  use tracing_subscriber::layer::SubscriberExt;
+  use tracing_subscriber::util::SubscriberInitExt;
+
+  // the global subscriber, which sees the tasks of the server too: sound because nextest runs each test in a process
+  let spans = OpenedSpans::default();
+  tracing_subscriber::registry().with(spans.clone()).init();
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (_, path) = create_repository_from(&client, addr, "simple_no_prefix").await;
+
+  let calls = [
+    ("sync", json!({ "repositoryPath": path, "reason": "focus" })),
+    (
+      "refresh_facts",
+      json!({ "repositoryPath": path, "family": "readiness", "reason": "manual", "subject": "auth" }),
+    ),
+    ("set_window_focus", json!({ "repositoryPath": path, "focused": true })),
+  ];
+  for (command, params) in calls {
+    let error = post_error(&client, addr, &format!("/invoke/{command}"), params).await;
+    assert_eq!(error["code"], "no_branch_prefix", "{command}: {error}");
+  }
+  let repository = format!("repository_path={path}");
+  assert_eq!(spans.named("sync"), [vec![repository.clone(), "reason=Focus".to_owned()]]);
+  assert_eq!(
+    spans.named("refresh_facts"),
+    [vec![
+      repository.clone(),
+      "family=Readiness".to_owned(),
+      "reason=Manual".to_owned(),
+      r#"subject=Some("auth")"#.to_owned()
+    ]]
+  );
+  assert_eq!(spans.named("set_window_focus"), [vec![repository, "focused=true".to_owned()]]);
 }

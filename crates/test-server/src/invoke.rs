@@ -158,7 +158,7 @@ pub fn event_stream(receiver: mpsc::UnboundedReceiver<serde_json::Value>) -> Res
 
 /// The callback of `for_each_command!`: the route of each command by its kind
 macro_rules! invoke_routes {
-  ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
+  ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $(($($field:tt)*))? $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
     /// `router` with the route of every command of app-api
     pub fn command_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
       router $(.route(concat!("/invoke/", stringify!($name)), invoke_route!($kind $name)))*

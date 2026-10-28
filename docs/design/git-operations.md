@@ -4347,9 +4347,9 @@ it by `auth_due` when a window begins to watch the session, on a focus by the ru
 refresh button and after a sign-in or a sign-out of any window, and never for a sync, a push or a poll: only the user
 changes a sign-in. A sign-in is no operation of a session ([Running Operations](operations.md)): the command `sign_in`
 of the app runs it, and once it changed an account its host has every session read the fact again
-(`SignInHost::changed`: `Sessions::refresh_all(Auth, AfterWrite)`, after GitHub the pull requests and the review
-requests too, `Manual`) and tells the windows without a session (`auth-changed`, on which they ask `get_auth_status`,
-the same reader). A reason that follows up (`auth_follows_up`: the button, a sign-in) asks once more after a read in
+(`SignInHost::changed`, the one rule of both hosts `app_api::app::sign_in::account_changed`:
+`Sessions::refresh_all(Auth, AfterWrite)`, after GitHub the pull requests and the review requests too, `Manual`) and
+tells the windows without a session (`auth-changed`, on which they ask `get_auth_status`, the same reader). A reason that follows up (`auth_follows_up`: the button, a sign-in) asks once more after a read in
 flight, which may have started before the token was kept. The page keeps the status of its window
 (`src/stores/auth.ts`, `applyAuthFacts`, `useAuthSync`).
 

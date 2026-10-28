@@ -215,10 +215,15 @@ Mock implementation:
   `invoke.rs` names a route of a command; `PAGE_PLUGINS` holds only plugins. The class of an entry says what the
   command writes, the ratchet below reads it: `read`, `engine` (`execute`, `cancel_operation`, pinned in
   `registry_test.rs`) or `app(<reason>)`, a write no session admits with its reason (`AppReason`: a ticket of the
-  session, the cancel of a read, the page's journal, a settings writer, the app itself, the tools, an account). No
-  page handler emits an event: the events come from Rust (**Events of the app**).
+  session, the cancel of a read, the page's journal, a settings writer, the app itself, the tools, an account). The app
+  itself is every command that acts on its windows or its desktop: an open of a window and the stages of a page that
+  show it, the folder dialog, the window menu, a check for an update (which downloads it), the restart; a body that uses
+  the desktop or the windows of `AppContext` beyond the reads of the updater and the agent CLI is no `read`
+  (`command_scan_test.rs` of app-api). No page handler emits an event: the events come from Rust (**Events of the
+  app**).
   [@test] ../../crates/test-server/src/command_registry_test.rs (`the_registry_and_the_bindings_are_one_set`, `the_server_routes_every_command_of_the_registry`, `no_source_of_the_server_routes_a_command_beside_the_registry`, `the_page_mock_answers_only_the_plugins_of_tauri`)
   [@test] ../../crates/app-api/src/registry_test.rs (`every_command_is_registered_once`, `the_writes_of_the_engine_are_its_intents_and_their_cancel`)
+  [@test] ../../crates/app-api/src/command_scan_test.rs (`a_command_that_acts_on_the_windows_or_the_desktop_is_no_read`)
 - **Desktop**: what the app does on the desktop runs on the server as the app runs it, its host the desktop of the
   test repository (`Desktop` of app-api; `TestDesktop`, `TestUpdater` and `TestAgentCli` of `host.rs` and `updater.rs`): the windows
   (**Sub-windows**) and the window menu, recorded (`GET /repositories/{id}/windows`: `opens`, `menus`;
@@ -669,7 +674,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   failed by `HeldAnswer::AuthStatus` in `TestHost::before_auth_status`) call the host's `SignIns` (`remote_facts::sign_in`,
   the core of the app's commands) on the services of the repository (`TestSignIns` of `remote_host.rs`), and a sign-in
   or a sign-out has the sessions of the repository's worktree read their fact `auth` (after GitHub the pull requests
-  and the review requests too), as the app has all of its sessions; the session reads the fact through
+  and the review requests too), as the app has all of its sessions, by the app's one rule
+  (`app_api::app::sign_in::account_changed`); the session reads the fact through
   `TestFactSources::auth`. The GitHub one runs `GitHubSignInSession` (`crates/github/src/sign_in_session.rs`). The fake answers
   the device flow as GitHub does: `POST /login/device/code` a code (`WDJB-MJHT`, `https://github.com/login/device`, 900
   s, polled every second), `POST /login/oauth/access_token` `authorization_pending` until the codes are authorized,

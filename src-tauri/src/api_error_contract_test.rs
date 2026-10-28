@@ -1,8 +1,8 @@
 //! The app's side of the adapters' contract: each error of `app_api::api_error::contract_cases`, failed by a blocking
 //! step of a command (`run_blocking`) and rejected the way Tauri rejects a command (`InvokeError` of the error), is the
-//! JSON of `crates/app-api/fixtures/api_errors.json`, the same the e2e server answers
-//! (`crates/test-server/src/api_error_contract_test.rs`); the one difference is the id of the operation, which only the
-//! app gives.
+//! JSON of `crates/app-api/fixtures/api_errors.json` with the id of the operation it failed in, the same the e2e server
+//! answers (`crates/test-server/src/api_error_contract_test.rs`): both hosts run the bodies of app-api in their
+//! operations, so an error of either names its operation.
 
 use app_api::api_error::{CONTRACT_JSON, contract_cases};
 use app_api::operation::run_blocking;

@@ -124,7 +124,7 @@ macro_rules! for_each_command {
       /// A window of the repository gained or lost focus; a gained one reads the operations registry of the repository again
       /// and syncs when what a sync reads changed and Settings sync on focus, and answers when that ends. Null when nothing
       /// was asked (focus lost, the setting off, the session not open)
-      app(SessionTickets) session set_window_focus(params: $crate::session::view::WindowFocusParams) -> Option<domain_types::session::SyncAnswer> = $crate::session::view::set_window_focus;
+      app(SessionTickets) session(focused = params.focused) set_window_focus(params: $crate::session::view::WindowFocusParams) -> Option<domain_types::session::SyncAnswer> = $crate::session::view::set_window_focus;
 
       /// What the window of a subscription shows and needs of its session (`Demand`), in place of what it said before; the
       /// page sends it when it changes, at most four times a second, and again for a new subscription
@@ -133,12 +133,12 @@ macro_rules! for_each_command {
       /// Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
       /// the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
       /// `ApiError` (`operation_in_progress`, `detached_head`)
-      app(SessionTickets) session sync(params: $crate::session::view::SyncParams) -> domain_types::session::SyncAnswer = $crate::session::view::sync;
+      app(SessionTickets) session(reason = ?params.reason) sync(params: $crate::session::view::SyncParams) -> domain_types::session::SyncAnswer = $crate::session::view::sync;
 
       /// Asks the repository's session to read a fact again: the refresh button, or an action that needs it now (the robot a
       /// `/patronus` comment started). Answers once that read applied, with the version of the view after its patch; null when
       /// nothing was asked (the rules held it back, no session is open)
-      read session refresh_facts(params: domain_types::session::RefreshFactsParams) -> Option<domain_types::session::Version> = $crate::session::view::refresh_facts;
+      read session(family = ?params.family, reason = ?params.reason, subject = ?params.subject) refresh_facts(params: domain_types::session::RefreshFactsParams) -> Option<domain_types::session::Version> = $crate::session::view::refresh_facts;
 
       /// The group `message` would put its commit into, with the stacked branches, the issue groups and the stack parents
       /// the table of the repository's session was grouped with (`Sessions::preview_group`): the "Move to…" form previews a
@@ -169,28 +169,28 @@ macro_rules! for_each_command {
       app(SettingsWriter) session link_pull_request(params: domain_types::review_request::LinkPullRequestParams) -> domain_types::review_request::LinkedPullRequestAnswer = $crate::session::reviews::link_pull_request;
 
       /// Removes a pull request the user added by its link from Reviews, and the session reads Reviews again
-      app(SettingsWriter) session unlink_pull_request(params: domain_types::review_request::UnlinkPullRequestParams) -> () = $crate::session::reviews::unlink_pull_request;
+      app(SettingsWriter) session(number = params.number) unlink_pull_request(params: domain_types::review_request::UnlinkPullRequestParams) -> () = $crate::session::reviews::unlink_pull_request;
 
       /// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
       /// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
-      read session get_new_pull_request(params: remote_facts::pull_request_create::GetNewPullRequestParams) -> domain_types::pull_request::NewPullRequest = $crate::remote::pull_requests::get_new_pull_request;
+      read session(head = %params.head, base = %params.base, stack_ancestors = params.stack_ancestors.len()) get_new_pull_request(params: remote_facts::pull_request_create::GetNewPullRequestParams) -> domain_types::pull_request::NewPullRequest = $crate::remote::pull_requests::get_new_pull_request;
 
       /// The text the "Create pull request" dialog of the whole stack starts with (`read_new_stack_pull_request`): the
       /// descriptions of the stack branch and its members, else the subjects of their commits; and the user of the token,
       /// who is the assignee
-      read session get_new_stack_pull_request(params: remote_facts::stack_pull_request::GetNewStackPullRequestParams) -> domain_types::pull_request::NewPullRequest = $crate::remote::pull_requests::get_new_stack_pull_request;
+      read session(root = %params.root, members = params.members.len()) get_new_stack_pull_request(params: remote_facts::stack_pull_request::GetNewStackPullRequestParams) -> domain_types::pull_request::NewPullRequest = $crate::remote::pull_requests::get_new_stack_pull_request;
 
       /// The users of the repository a review can be asked from whose login or name matches the query
-      read session search_github_users(params: remote_facts::pull_request_create::SearchGitHubUsersParams) -> Vec<domain_types::pull_request::GitHubUser> = $crate::remote::pull_requests::search_github_users;
+      read session(query = %params.query) search_github_users(params: remote_facts::pull_request_create::SearchGitHubUsersParams) -> Vec<domain_types::pull_request::GitHubUser> = $crate::remote::pull_requests::search_github_users;
 
       /// The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
       /// the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
       /// before the runs are read
-      read session get_robot_stats(params: domain_types::robot_stats::GetRobotStatsParams) [channel events: domain_types::robot_stats::RobotStatsEvent] -> domain_types::robot_stats::RobotStatsResult = $crate::remote::patronus::get_robot_stats;
+      read session(period = ?params.period, refresh = params.refresh) get_robot_stats(params: domain_types::robot_stats::GetRobotStatsParams) [channel events: domain_types::robot_stats::RobotStatsEvent] -> domain_types::robot_stats::RobotStatsResult = $crate::remote::patronus::get_robot_stats;
 
       /// Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
       /// with the failed builds, their tests and the log tails of the `teamcity` CLI
-      read session get_robot_failure(params: domain_types::robot_failure::GetRobotFailureParams) -> domain_types::robot_failure::RobotFailureReport = $crate::remote::patronus::get_robot_failure;
+      read session(robot_id = %params.robot_id, full = params.full) get_robot_failure(params: domain_types::robot_failure::GetRobotFailureParams) -> domain_types::robot_failure::RobotFailureReport = $crate::remote::patronus::get_robot_failure;
 
       /// Which commits of the branches a running robot covers, by the hashes of the checked-out branch: the commit rows mark
       /// the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
@@ -256,30 +256,30 @@ macro_rules! for_each_command {
       /// Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
       /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
       /// settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
-      read window open_sub_window(params: $crate::app::windows::OpenSubWindowParams) -> () = $crate::app::windows::open_sub_window;
+      app(TheApp) window open_sub_window(params: $crate::app::windows::OpenSubWindowParams) -> () = $crate::app::windows::open_sub_window;
 
       /// The page of the calling window loaded and listens to the settings: a sub-window gets the data of an open that came
       /// while it loaded and the changes of the settings after the snapshot its window was built with. The window shows once
       /// the page settled its content, at most `DRAW_FALLBACK` from now when the page draws no shell (`sub_window_drawn`)
-      read window sub_window_loaded() -> $crate::app::windows::SubWindowLoaded = $crate::app::windows::sub_window_loaded;
+      app(TheApp) window sub_window_loaded() -> $crate::app::windows::SubWindowLoaded = $crate::app::windows::sub_window_loaded;
 
       /// The loaded page of the calling window committed its shell, the title row (the main window's with its loading table):
       /// the window shows once the page settled its content, at most the content budget of the page from now
       /// (`CONTENT_BUDGET`, the main window's `MAIN_CONTENT_BUDGET`), so a slow page shows its shell, never a bare canvas
-      read window sub_window_drawn() -> () = $crate::app::windows::sub_window_drawn;
+      app(TheApp) window sub_window_drawn() -> () = $crate::app::windows::sub_window_drawn;
 
       /// The page of the calling window settled the content of the open `open_id` (the main window: drew its first rows or
       /// the state without rows): the window shows if that is the latest open and the window is still hidden, once its
       /// webview presented that content (`show_window`)
-      read window sub_window_ready(open_id: u32) -> () = $crate::app::windows::sub_window_ready;
+      app(TheApp) window sub_window_ready(open_id: u32) -> () = $crate::app::windows::sub_window_ready;
 
       /// The window manager's menu of the window (Move, Resize, Always on Top, Close…), as a right click on a native title bar
       /// opens it: the page calls it for a right click on the empty parts of its title bar (`WindowTitleBar`). A sync command,
       /// so it runs on the main thread, where GDK and Win32 menus live.
-      read main show_window_menu() -> () = $crate::app::windows::show_window_menu;
+      app(TheApp) main show_window_menu() -> () = $crate::app::windows::show_window_menu;
 
       /// Opens a native file dialog to browse for a git repository
-      read json browse_repository() -> sync_core::repository_validation::BrowseResult = $crate::app::desktop::browse_repository;
+      app(TheApp) json browse_repository() -> sync_core::repository_validation::BrowseResult = $crate::app::desktop::browse_repository;
 
       /// Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
       /// for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
@@ -291,7 +291,7 @@ macro_rules! for_each_command {
       /// new process reads the file.
       app(TheApp) main restart_app(system_title_bar: bool) -> () = $crate::app::desktop::restart_app;
 
-      read json check_for_updates() -> domain_types::update::UpdateInfo = $crate::app::desktop::check_for_updates;
+      app(TheApp) json check_for_updates() -> domain_types::update::UpdateInfo = $crate::app::desktop::check_for_updates;
 
       read json get_update_status() -> domain_types::update::UpdateInfo = $crate::app::desktop::get_update_status;
 

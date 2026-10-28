@@ -10,6 +10,7 @@
 //! its session, whose host reads them off the workers. The key of a session is built in one place, `context.rs`.
 
 use crate::commands::COMMANDS;
+use crate::registry::CommandClass;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -158,19 +159,39 @@ fn tauri_commands_of(path: &Path, text: &str) -> Vec<Command> {
   commands
 }
 
+/// `text` after the word that opens it and its group in parentheses, if it has one (`session(reason = ?params.reason)
+/// sync(…)`): the word without the group, and the rest after the space that follows them
+fn word_and_group(text: &str) -> Option<(&str, &str)> {
+  let end = text.find([' ', '('])?;
+  let word = &text[..end];
+  let mut rest = &text[end..];
+  if rest.starts_with('(') {
+    let mut depth = 0;
+    let close = rest.char_indices().find_map(|(at, c)| {
+      match c {
+        '(' => depth += 1,
+        ')' => depth -= 1,
+        _ => {}
+      }
+      (depth == 0).then_some(at)
+    })?;
+    rest = &rest[close + 1..];
+  }
+  Some((word, rest.strip_prefix(' ')?))
+}
+
 /// An entry of `for_each_command!` in `commands.rs`: its name, its kind and the path of its body under `$crate::`
 fn registry_entries(text: &str) -> Vec<(String, String, String)> {
   let mut entries = Vec::new();
   for line in text.lines().map(str::trim) {
-    let mut words = line.splitn(3, ' ');
-    let (Some(class), Some(kind), Some(rest)) = (words.next(), words.next(), words.next()) else {
+    // `app` with its reason (`app(SettingsWriter)`), `session` with the fields of its span
+    let Some((class, rest)) = word_and_group(line) else {
       continue;
     };
-    // `app` with its reason: `app(SettingsWriter)`
-    let class = class.split_once('(').map_or(class, |(class, _)| class);
     if !matches!(class, "read" | "engine" | "app") {
       continue;
     }
+    let (kind, rest) = word_and_group(rest).unwrap_or_else(|| panic!("the entry `{line}` names no kind"));
     let name = rest.split('(').next().expect("the name of the entry");
     let body = rest
       .rsplit_once("= $crate::")
@@ -360,6 +381,20 @@ fn is_one_operation(body: &str) -> bool {
 }
 
 #[test]
+fn an_entry_is_read_with_the_reason_of_its_class_and_the_span_fields_of_its_kind() {
+  let entries = registry_entries(
+    "      app(SessionTickets) session(family = ?params.family, len = params.subjects.len()) sync(params: P) -> A = $crate::session::view::sync;\n      read json get_auth_status() -> S = $crate::remote::accounts::get_auth_status;\n      /// read the docs (of a line that is no entry)",
+  );
+  assert_eq!(
+    entries,
+    [
+      ("sync".to_owned(), "session".to_owned(), "session::view::sync".to_owned()),
+      ("get_auth_status".to_owned(), "json".to_owned(), "remote::accounts::get_auth_status".to_owned()),
+    ]
+  );
+}
+
+#[test]
 fn a_body_is_one_operation_only_without_work_outside_it() {
   assert!(is_one_operation("  operation(async move {\n    let x = read().await?;\n    Ok(x)\n  })\n  .await"));
   assert!(is_one_operation("  operation(async move { read(&git, params).await }).await"));
@@ -431,6 +466,57 @@ fn the_body_of_a_session_command_opens_no_span_and_no_operation_of_its_own() {
   }
   assert!(bodies.iter().any(framed), "the scan found no command of a session");
   assert!(report.is_empty(), "docs/design/async-patterns.md#operation-spans:\n{}", report.join("\n"));
+}
+
+/// What a read asks of the desktop of the app: the status of its updater and the update it downloaded, the command and
+/// the status of its agent CLI. Any other use of `ctx.desktop` (a window, the dialog, the menu, the restart, a check or
+/// an install of an update, an install of the CLI) or of `ctx.sub_windows` (the opens and the stages of the windows)
+/// acts on the app
+const DESKTOP_READS: &[&str] = &[
+  "ctx.desktop.updater.status()",
+  "ctx.desktop.updater.downloaded()",
+  "ctx.desktop.agent_cli.command(",
+  "ctx.desktop.agent_cli.status()",
+];
+
+/// Whether `body` acts on the windows or the desktop of the app: it uses `ctx.desktop` or `ctx.sub_windows` beside the
+/// reads of [`DESKTOP_READS`]
+fn acts_on_the_app(body: &str) -> bool {
+  ["ctx.desktop", "ctx.sub_windows"]
+    .iter()
+    .any(|root| body.match_indices(root).any(|(at, _)| !DESKTOP_READS.iter().any(|read| body[at..].starts_with(read))))
+}
+
+#[test]
+fn a_body_acts_on_the_app_by_any_use_of_its_windows_or_desktop_but_their_reads() {
+  assert!(acts_on_the_app("  let (state, host) = (&ctx.sub_windows, &ctx.desktop.windows);"));
+  assert!(acts_on_the_app("  operation(async move { ctx.desktop.updater.check().await }).await"));
+  assert!(acts_on_the_app("  let (host, git) = (Arc::clone(&ctx.desktop.agent_cli), ctx.git.clone());"));
+  assert!(acts_on_the_app("  let loaded = ctx.sub_windows.loaded(label, &ctx.settings);"));
+  assert!(!acts_on_the_app("  operation(async move { ctx.desktop.updater.status() }).await"));
+  assert!(!acts_on_the_app("  let app_update = ctx.desktop.updater.downloaded();"));
+  assert!(!acts_on_the_app("  run_blocking(move || core(&git)).await"));
+}
+
+/// A `read` writes nothing (`registry.rs`): a command that builds or shows a window, moves a window through the stages
+/// that show it, opens the dialog or the menu, checks for an update (which downloads it) or installs one is a command of
+/// the app (`app(TheApp)`), so the e2e tests can never answer it in the page (`command_registry_test.rs` of the e2e
+/// server)
+#[test]
+fn a_command_that_acts_on_the_windows_or_the_desktop_is_no_read() {
+  let mut report = Vec::new();
+  let mut acting = 0;
+  for (spec, command) in COMMANDS.iter().zip(commands()) {
+    if !acts_on_the_app(&command.body) {
+      continue;
+    }
+    acting += 1;
+    if spec.class == CommandClass::Read {
+      report.push(format!("  {} ({}): a `read` that acts on the app", spec.name, command.place));
+    }
+  }
+  assert!(acting > 0, "the scan found no command that acts on the windows or the desktop");
+  assert!(report.is_empty(), "declare each as `app(TheApp)` in crates/app-api/src/commands.rs:\n{}", report.join("\n"));
 }
 
 /// The key of a session is built in one place (`AppContext::session_key`): the frame of a session command resolves it

@@ -309,32 +309,32 @@
   },
   {
     "name": "open_sub_window",
-    "class": "read",
+    "class": "app",
     "transport": "json"
   },
   {
     "name": "sub_window_loaded",
-    "class": "read",
+    "class": "app",
     "transport": "json"
   },
   {
     "name": "sub_window_drawn",
-    "class": "read",
+    "class": "app",
     "transport": "json"
   },
   {
     "name": "sub_window_ready",
-    "class": "read",
+    "class": "app",
     "transport": "json"
   },
   {
     "name": "show_window_menu",
-    "class": "read",
+    "class": "app",
     "transport": "json"
   },
   {
     "name": "browse_repository",
-    "class": "read",
+    "class": "app",
     "transport": "json"
   },
   {
@@ -349,7 +349,7 @@
   },
   {
     "name": "check_for_updates",
-    "class": "read",
+    "class": "app",
     "transport": "json"
   },
   {

@@ -107,10 +107,12 @@ redirect and without a client secret.
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
 - With the token, the app asks `GET /user` for the login, keeps the token and forgets what GitHub accepted and denied
   (`TokenChain::forget`). A sign-in or a sign-out that changed the account tells the host once, however many calls
-  joined it (`SignInHost::changed`): every session reads its fact `auth` again (`AfterWrite`) and lists the pull requests
-  and the review requests again (`Manual`), and every window hears `auth-changed`, on which a window without a session
-  reads `get_auth_status` again.
+  joined it (`SignInHost::changed`), and both hosts, the app and the e2e server, hand it to one rule
+  (`app_api::app::sign_in::account_changed`): every session reads its fact `auth` again (`AfterWrite`) and lists the pull
+  requests and the review requests again (`Manual`), and every window hears `auth-changed`, on which a window without a
+  session reads `get_auth_status` again.
   [@test] ../../crates/github/src/sign_in_session_test.rs (`a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_user`)
+  [@test] ../../crates/app-api/src/app/sign_in_test.rs (`a_change_of_an_account_reads_the_sign_ins_again_and_after_github_its_lists_too`)
   [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_sign_in_joins_the_one_that_runs_hears_its_code_and_ends_with_it`)
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`)
 - The status of the sign-ins (`AuthStatus`: GitHub's below, YouTrack's of [YouTrack](youtrack.spec.md)) is the fact

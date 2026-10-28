@@ -12,9 +12,9 @@ use crate::cli_tools_fixtures::CliToolsHost;
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
 use crate::remote_git_fixtures::FakeRemote;
 use crate::review_fixtures::{ReviewAnswers, review_check_answer};
+use app_api::app::sign_in::account_changed;
 use app_api::transport::AppEvents;
 use domain_types::error::ApiError;
-use domain_types::session::{FactFamily, FactRefreshReason};
 use domain_types::sign_in::{Account, SignInProvider};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
@@ -653,16 +653,15 @@ impl SignInHost for TestSignIns {
     app_api::api_error::api_error(error)
   }
 
-  /// As the app's host: the sign-ins read again, and after GitHub the pull requests and the review requests; every page
-  /// hears `auth-changed`
+  /// The rule of the app's host (`account_changed`), on the sessions of the worktree of the test repository; every page
+  /// hears it
   fn changed(&self, account: Account) {
-    if let Some(sessions) = self.sessions.upgrade() {
-      sessions.refresh_worktree(&self.worktree, FactFamily::Auth, FactRefreshReason::AfterWrite);
-      if account == Account::GitHub {
-        sessions.refresh_worktree(&self.worktree, FactFamily::PullRequests, FactRefreshReason::Manual);
-        sessions.refresh_worktree(&self.worktree, FactFamily::ReviewRequests, FactRefreshReason::Manual);
+    let sessions = self.sessions.upgrade();
+    let refresh = |family, reason| {
+      if let Some(sessions) = &sessions {
+        sessions.refresh_worktree(&self.worktree, family, reason);
       }
-    }
-    app_api::events::auth_changed(&*self.events);
+    };
+    account_changed(account, refresh, &*self.events);
   }
 }

@@ -8,8 +8,9 @@
 
 use crate::api::TauriEvents;
 use app_api::api_error::{api_error, undo_error};
+use app_api::app::sign_in::account_changed;
 use app_api::context::AppContext;
-use app_api::events::{activity_changed, auth_changed, settings_changed};
+use app_api::events::{activity_changed, settings_changed};
 use app_api::operation::run_blocking;
 use app_api::repository_state::RepositoryStateCache;
 use app_api::transport::AppHost;
@@ -20,7 +21,6 @@ use domain_types::calendar::Calendar;
 use domain_types::cli_tools::CliTool;
 use domain_types::error::{ApiError, HolderTool};
 use domain_types::review_request::LinkedPullRequest;
-use domain_types::session::{FactFamily, FactRefreshReason};
 use domain_types::sign_in::Account;
 use domain_types::youtrack::YouTrackAuthStatus;
 use file_diffs::service::FileDiffs;
@@ -431,16 +431,10 @@ impl SignInHost for AppSignIns {
     api_error(error)
   }
 
-  /// Every session reads its sign-ins again, after GitHub its pull requests and review requests too, and every window
-  /// hears `auth-changed`
+  /// Every session refreshes what the change asks (`account_changed`), and every window hears it
   fn changed(&self, account: Account) {
     let ctx = self.app.state::<AppContext>();
-    ctx.sessions.refresh_all(FactFamily::Auth, FactRefreshReason::AfterWrite);
-    if account == Account::GitHub {
-      ctx.sessions.refresh_all(FactFamily::PullRequests, FactRefreshReason::Manual);
-      ctx.sessions.refresh_all(FactFamily::ReviewRequests, FactRefreshReason::Manual);
-    }
-    auth_changed(&*ctx.events);
+    account_changed(account, |family, reason| ctx.sessions.refresh_all(family, reason), &*ctx.events);
   }
 }
 
