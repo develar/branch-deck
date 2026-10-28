@@ -321,7 +321,8 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    `processes`: each with `argv` and `kind`): a process of another session works in it (a shell, a build, a test run);
    read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. `host_slot` (exit 4, `paths`):
    the worktree is a host slot (holder `bd-host/<n>`) that the host lends to the runs of other machines, never yours;
-   `bd lease host …` is the interface of the remote-run agent of a host to those slots, never a command of yours. A repeat after a timed-out call is
+   `bd lease host …` is the interface of the remote-run agent of a host to those slots, and `bd host`
+   (`bd host snapshot`, `bd host pack`, `bd host apply`) the one of its client, never commands of yours. A repeat after a timed-out call is
    safe: it waits for the running return and answers `joined: true`. Not counted: your own session (bd, its ancestors
    and their process groups: the `jq` of `bd lease return | jq`), git's background maintenance (`maintenance`: a
    repack after a commit, which writes only the shared object store; `maintenance_started`: the return started it

@@ -140,6 +140,11 @@ written, except by Update Project and the finish of its resolve session (their o
    commits, `checkout --force` of a new slot or of one whose diff git refused, `clean -fd` of a clone, and on a return
    that the agent confirmed or a give-back, `reset --hard HEAD` and `clean -fd`. These argument lists live in
    `crates/git-ops/src/lease_slot.rs` only, and the safety scan asserts each count (`checkout` 2, `reset` 2, `clean` 2).
+
+   **The changes of a remote run that the user asked to apply** (`bd host apply`, see "Host slots"): `git apply
+   --whitespace=nowarn` of the patch of the run to the files of the client, all or nothing, the index left alone. It
+   lives in `crates/git-ops/src/host_client.rs` only, and the scan counts it (`CLIENT_WRITE_EXEMPTIONS`, one); an
+   `apply` with `--cached`, `--numstat`, `--stat` or `--check` writes no file.
 2. **The user's index changes only where HEAD's tree changes** (see the index policy below). Staged changes on other
    paths survive. A conflict with staged work is detected before any ref moves. If the update fails afterwards, the
    error is returned, never ignored.
@@ -1904,13 +1909,35 @@ read a file, not the refs: a run ref without a lend or a ticket goes an hour aft
 moved goes after 14 days. yonderd kept every base ref forever. With `branchdeck.leaseMaintenance` the ingest starts the
 maintenance after the ref, as the give-back does.
 
-The scans of a run (`bd lease host snapshot` before the command, `changes` after it; `git_ops::worktree_snapshot`)
-build the tree of the slot in a copy of its index, so the slot index, which the give-back's `status` keeps warm, stays
-as it is. The copy keeps the fsmonitor token and the untracked cache, so the `status` of the copy asks the daemon what
-changed since. The `status` lists untracked files in the configured mode (`UntrackedFiles`): yonderd forced `normal`,
-and in idea-1, which configures `all`, a `status` with `normal` walked every directory in 41 s, with `all` it took 2 s.
-The add takes the paths the `status` named, up to 256; above that one `add --all`, as a pathspec add matches each path
-against each entry of the index. The patch of `changes` streams into its file: yonderd collected it in memory first.
+The scans of a run (`bd lease host snapshot` before the command, `changes` after it) and the commit of the working
+tree of a client (`bd host snapshot --working-tree`) are one function, `git_ops::worktree_snapshot::worktree_commit`:
+the commit on HEAD of what `git add --all` would stage, without a write of the index. One `status` of the index, read
+only, names the paths; their files become blobs (`hash-object -w --stdin-paths`, which applies the clean filters and
+the end of line of each path), links, gitlinks and deletions, and one `fast-import` writes the commit from the tree of
+HEAD. The `status` lists untracked files in the configured mode (`UntrackedFiles`): yonderd forced `normal`, and in
+idea-1, which configures `all`, a `status` with `normal` walked every directory in 41 s, with `all` it took 2 s.
+yonder built the tree in a copy of the index instead: an add of the paths and a `write-tree`. Measured on 2026-10-28
+in a lease of idea-1 (1.4M files, a 138 MB index, load 60–80), median seconds:
+
+| Change | `status` | add in the copy | `write-tree` | `hash-object` + `fast-import` |
+|---|---|---|---|---|
+| one file | 1.7 | 1.5 | 0.65 | 0.06 |
+| 200 files | 1.8 | 4.4 | 1.5 | 0.3 |
+| a new directory of 1000 files | 1.6 | 12 | 0.4 | 0.7 |
+| none (`add --all` of every path) | 2.3 | 44 | 9.8 | — |
+
+The copy itself costs 5 ms as an APFS clone and 0.03–0.1 s as a copy. The trees of both ways were the same in each
+case. So the files decide, and the copy stays only where they can't tell what `add` stages: `core.fileMode` or
+`core.symlinks` false, a path with a newline, a nested repository without a commit. The patch of `changes` streams
+into its file: yonderd collected it in memory first.
+
+A client of yonder starts no git either (`bd host`, `git_ops::host_client`): `snapshot` answers the commit a run
+ships, the commits the host may have (HEAD and its first-parent ancestors at the powers of two, the merge bases with
+`origin/master` and `master`) and `.yonder.toml` of the commit; `pack` streams the thin pack into a private file of the
+git dir, where yonder made predictable names in the shared temporary directory; `apply` applies the changes of a run
+to the files. That apply is the one write of the user's working tree beside the guarded update: the user asked for it
+(`yonder run --apply`), and `git apply` writes all or nothing and leaves the index alone. The worktree safety scan
+counts it (`CLIENT_WRITE_EXEMPTIONS`).
 
 A shrink checks the slot out at the commit it was leased at. That commit is the base of `unlanded_commits`, so the
 snapshot commits of the runs never refuse the return, and the return needs no `--confirm-preserved`. A shrink also

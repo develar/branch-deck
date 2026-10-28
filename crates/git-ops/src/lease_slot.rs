@@ -390,11 +390,15 @@ pub struct LeaseConfig {
   /// `branchdeck.hostSlotMaxSize`, as written (`60G`): what the clean rules may free in an idle host slot before it is
   /// cleaned
   pub host_slot_max_size: Option<String>,
+  /// `core.fileMode` is false: git keeps the modes of the index, not the executable bits of the files
+  pub no_file_mode: bool,
+  /// `core.symlinks` is false: git keeps a link as a file of its target
+  pub no_symlinks: bool,
 }
 
 /// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles`, `branchdeck.leaseMinFree`,
-/// `branchdeck.leaseMaintenance`, `branchdeck.hostSlots` and `branchdeck.hostSlotMaxSize`: one `config --type=path
-/// --get-regexp`, which exits with 1 when no key is set
+/// `branchdeck.leaseMaintenance`, `branchdeck.hostSlots`, `branchdeck.hostSlotMaxSize`, `core.fileMode` and
+/// `core.symlinks`: one `config --type=path --get-regexp`, which exits with 1 when no key is set
 pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
   let output = git_executor
     .cmd(
@@ -402,7 +406,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "config",
         "--type=path",
         "--get-regexp",
-        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|checkout\.workers|status\.showuntrackedfiles)$",
+        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks)$",
       ],
       repository,
     )
@@ -421,6 +425,8 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
       "checkout.workers" => config.workers.configured = true,
       // the last value wins, as in git
       "status.showuntrackedfiles" => config.untracked = if value == "all" { UntrackedFiles::All } else { UntrackedFiles::Normal },
+      "core.filemode" => config.no_file_mode = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(false),
+      "core.symlinks" => config.no_symlinks = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(false),
       _ => {}
     }
   }

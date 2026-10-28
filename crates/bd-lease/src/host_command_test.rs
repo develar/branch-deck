@@ -10,7 +10,12 @@ use serde_json::{Value, json};
 
 /// `bd lease host <args>`, which must succeed, its output checked against `bd schema`
 pub(crate) fn host(fixture: &Fixture, output: &str, args: &[&str]) -> Value {
-  let (exit_code, value) = fixture.run(&[&["lease", "host"][..], args].concat());
+  checked(fixture, output, &[&["lease", "host"][..], args].concat())
+}
+
+/// `bd <args>`, which must succeed, its output checked against the schema `output` of `bd schema`
+pub(crate) fn checked(fixture: &Fixture, output: &str, args: &[&str]) -> Value {
+  let (exit_code, value) = fixture.run(args);
   assert_eq!(exit_code, 0, "{value}");
   let (_, schema) = fixture.run(&["schema", "--all"]);
   let schema = &schema["outputs"][output];

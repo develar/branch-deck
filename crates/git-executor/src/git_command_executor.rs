@@ -224,7 +224,7 @@ impl GitCommandExecutor {
 }
 
 /// A git invocation of `GitCommandExecutor::cmd`: options first, then one finisher that runs it
-#[must_use = "git runs only in a finisher: text, bytes, lines, output, status, stream, progress or interactive"]
+#[must_use = "git runs only in a finisher: text, bytes, lines, output, status, stream, stream_progress, progress or interactive"]
 pub struct GitCommand<'a> {
   git: &'a GitCommandExecutor,
   args: &'a [&'a str],
@@ -329,6 +329,18 @@ impl<'a> GitCommand<'a> {
   /// result. Otherwise the result fails as `text` does
   pub fn stream(self, mut handler: impl FnMut(&[u8]) -> Result<ControlFlow<()>>) -> Result<()> {
     let finished = self.run(Some(&mut handler), None, &ProgressStop::NEVER)?;
+    if finished.broken {
+      return Ok(());
+    }
+    self.check(&finished)
+  }
+
+  /// `stream` of a git that reports progress on stderr (`pack-objects --stdout --progress` into a file): `handler` gets
+  /// stdout in chunks and `on_line` every stderr line, both on the calling thread, and git is killed when `stop` says so
+  /// (the error is then a `StoppedCommand`). `ControlFlow::Break` of `handler` stops git as in `stream`; otherwise the
+  /// result fails as `text`
+  pub fn stream_progress(self, mut handler: impl FnMut(&[u8]) -> Result<ControlFlow<()>>, on_line: &mut dyn FnMut(&str), stop: &ProgressStop<'_>) -> Result<()> {
+    let finished = self.run(Some(&mut handler), Some(on_line), stop)?;
     if finished.broken {
       return Ok(());
     }

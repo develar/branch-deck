@@ -725,14 +725,25 @@ fn the_host_slots_lend_give_back_and_shrink() {
   let git = host(&|git, params| assert!(give_back_run(git, params, "run-2").unwrap().maintenance_started));
   assert_git_processes(&git, &[("config", 1), ("maintenance", 1), ("rev-parse", 1)]);
   repo.git_executor().execute_command(&["config", "--unset", "branchdeck.leaseMaintenance"], path).unwrap();
-  // the scans of a slot: the config, HEAD (the second `rev-parse`), one status and the tree, plus one add when
-  // something changed
+  // the scans of a slot: the config, HEAD and its tree (`log`) and one status; when something changed, the blobs, the
+  // commit and the delete of its temporary ref
   host(&|_, params| assert!(matches!(lend(params, &request).unwrap(), LendAnswer::Lent(_))));
   let git = host(&|git, params| assert_eq!(snapshot_run(git, params, "run-1").unwrap().changed, 0));
-  assert_git_processes(&git, &[("config", 1), ("rev-parse", 2), ("status", 1), ("write-tree", 1)]);
+  assert_git_processes(&git, &[("config", 1), ("log", 1), ("rev-parse", 1), ("status", 1)]);
   std::fs::write(std::path::Path::new(&added.path).join("made.txt"), "made\n").unwrap();
   let git = host(&|git, params| assert_eq!(snapshot_run(git, params, "run-1").unwrap().changed, 1));
-  assert_git_processes(&git, &[("add", 1), ("config", 1), ("rev-parse", 2), ("status", 1), ("write-tree", 1)]);
+  assert_git_processes(
+    &git,
+    &[
+      ("config", 1),
+      ("fast-import", 1),
+      ("hash-object", 1),
+      ("log", 1),
+      ("rev-parse", 1),
+      ("status", 1),
+      ("update-ref", 1),
+    ],
+  );
   host(&|git, params| assert_eq!(give_back(git, params, 1, "run-1").unwrap().discarded, ["made.txt"]));
   let git = host(&|git, params| assert!(matches!(shrink(git, params, 0).unwrap()[0].outcome, ShrinkOutcome::Returned(_))));
   assert_git_processes(&git, &[("config", 2), ("log", 1), ("reset", 1), ("rev-parse", 3), ("show-ref", 1), ("status", 2)]);
@@ -1329,4 +1340,78 @@ fn the_host_objects_have_ingest_and_show() {
   let none = context();
   assert_eq!(lease_pool::host_refs::delete_run_ref(&none.git, &none.dirs, "run-1", none.lock_timeout).unwrap(), None);
   assert_git_processes(&none.git, &[("rev-parse", 1)]);
+}
+
+/// `bd host snapshot` of a clean checkout: HEAD, the config, one status and the candidates (one `rev-list`, one
+/// `for-each-ref`, a `merge-base` per base ref: the fixture has `master` and `origin/master`); of a changed one with
+/// --working-tree the blobs, the commit and the delete of its temporary ref, and the file of --blob from one
+/// `cat-file`; `bd host pack` the pack and its count
+#[test]
+fn the_snapshot_and_the_pack_of_a_client() {
+  use bd_lease::host_client_command::{HostPackArgs, HostSnapshotArgs, host_pack, host_snapshot};
+  let repo = repo_with_branches();
+  let base = repo.head();
+  let (_home, environment) = lease_environment(&repo);
+  let context = || LeaseContext::resolve(&environment, None).unwrap();
+
+  let clean = context();
+  let snapshot = host_snapshot(
+    &clean,
+    &HostSnapshotArgs {
+      farthest: 16,
+      ..HostSnapshotArgs::default()
+    },
+  )
+  .unwrap();
+  assert_eq!(snapshot.commit, base);
+  assert_git_processes(
+    &clean.git,
+    &[
+      ("config", 1),
+      ("for-each-ref", 1),
+      ("log", 1),
+      ("merge-base", 2),
+      ("rev-list", 1),
+      ("rev-parse", 1),
+      ("status", 1),
+    ],
+  );
+
+  std::fs::write(repo.path().join("README.md"), "changed\n").unwrap();
+  let changed = context();
+  let args = HostSnapshotArgs {
+    working_tree: true,
+    blob: Some("README.md".to_string()),
+    farthest: 16,
+    ..HostSnapshotArgs::default()
+  };
+  let snapshot = host_snapshot(&changed, &args).unwrap();
+  assert_ne!(snapshot.commit, base);
+  assert_git_processes(
+    &changed.git,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("fast-import", 1),
+      ("for-each-ref", 1),
+      ("hash-object", 1),
+      ("log", 1),
+      ("merge-base", 2),
+      ("rev-list", 1),
+      ("rev-parse", 1),
+      ("status", 1),
+      ("update-ref", 1),
+    ],
+  );
+
+  let pack = context();
+  host_pack(
+    &pack,
+    &HostPackArgs {
+      commit: snapshot.commit,
+      have: vec![base],
+    },
+  )
+  .unwrap();
+  assert_git_processes(&pack.git, &[("pack-objects", 1), ("rev-list", 1), ("rev-parse", 1)]);
 }

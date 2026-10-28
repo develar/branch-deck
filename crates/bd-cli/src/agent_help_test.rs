@@ -17,6 +17,12 @@ const NOT_IN_AGENT_HELP: &[&str] = &[
   "describe --body-file",
   "describe --clear",
   "group --map",
+  // the interface of the client of a remote run (yonder), never a command of a coding agent
+  "host pack --have",
+  "host snapshot --blob",
+  "host snapshot --farthest",
+  "host snapshot --no-status",
+  "host snapshot --working-tree",
   "install --uninstall",
   "push --remote",
   "schema --all",
@@ -373,6 +379,11 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["move-hunk", &change, &first, "shared.txt", "--dry-run"],
     &["reword", &change, "--subject", "ABC-1 Change the shared file", "--dry-run"],
     &["lease", "status"],
+    &["lease", "host", "have", &first],
+    &["lease", "host", "show", "--commit", &first, "--blob", "shared.txt", "--ids", "README.md"],
+    &["lease", "host", "git"],
+    &["host", "snapshot", "--working-tree", "--blob", "shared.txt"],
+    &["host", "snapshot"],
     &["workspace"],
   ];
   // with --no-cache first: no cache appears either

@@ -304,7 +304,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   and gives git a null stdin unless the call pipes one; callers don't add `--no-pager`. A git with an environment,
   stdin, accepted exit codes, a timeout, streamed stdout, progress or a reply protocol is `git.cmd(&args, repo)` with
   `.env`, `.stdin`, `.accept`, `.timeout` and one finisher (`.text`, `.bytes`, `.lines`, `.output`, `.status`,
-  `.stream`, `.progress`, `.interactive`), all on one spawn core; the only shorthands are `execute_command` (`.text`),
+  `.stream`, `.stream_progress`, `.progress`, `.interactive`), all on one spawn core; the only shorthands are `execute_command` (`.text`),
   `execute_command_lines` (`.lines`) and `execute_command_with_status` (`.status` as text). The executor knows no git
   beyond that: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a git-ops function. It carries what its operation
   read once (`with_fact`): the repository's directories (`git_ops::revs::with_dirs_of`), so a step asks `known_dirs`,
@@ -320,7 +320,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 - **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
   `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
-  `GIT_INDEX_FILE` is fine. The single exception is the guarded two-way `read-tree -m -u` in
+  `GIT_INDEX_FILE` is fine. Besides `bd host apply` (`crates/git-ops/src/host_client.rs`: the patch of a remote run
+  the user asked to apply, all or nothing, the index left alone), the single exception is the guarded two-way `read-tree -m -u` in
   `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure),
   `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app, `bd update`, and the update of a lease
   onto its home branch, detached, after a conflict of `bd lease pick`), its undo, the finish

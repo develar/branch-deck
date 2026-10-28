@@ -5,11 +5,14 @@
 //! The one exception, Update Project, writes the working tree in `WORKTREE_WRITE_EXEMPTIONS` only, with exactly the
 //! listed number of `read-tree -u` argument lists, so the exemption can't grow unnoticed; the moves of HEAD that the
 //! files follow are called only from `MOVE_CALLERS`, each with its count. A slot of the lease pool is not the user's
-//! working tree: `SLOT_WRITE_EXEMPTIONS` allows its writes in one file, each subcommand with its count.
+//! working tree: `SLOT_WRITE_EXEMPTIONS` allows its writes in one file, each subcommand with its count. `apply`
+//! writes the files unless it has `--cached` or only reads the patch (`--numstat`, `--stat`, `--check`): the one apply
+//! to the user's working tree is `CLIENT_WRITE_EXEMPTIONS`, the changes of a remote run the user asked for.
 
 use crate::source_scan_test::{argument_lists, production_part, production_sources};
 
-/// Subcommands that write to the working tree or the user's index. `apply` is not listed: `apply --cached` is fine
+/// Subcommands that write to the working tree or the user's index. `apply` is not listed: `apply --cached` is fine, and
+/// a writing `apply` is `Violation::Apply`
 const DENIED_SUBCOMMANDS: [&str; 14] = [
   "checkout",
   "checkout-index",
@@ -62,6 +65,13 @@ const SLOT_WRITE_EXEMPTIONS: [(&str, &str, usize); 3] = [
   ("crates/git-ops/src/lease_slot.rs", "clean", 2),
 ];
 
+/// The file that applies the patch of the changes of a remote run to the user's working tree, on the user's request
+/// (`bd host apply`, docs/design/git-operations.md, "Host slots"), with the number of its argument lists
+const CLIENT_WRITE_EXEMPTIONS: [(&str, &str, usize); 1] = [("crates/git-ops/src/host_client.rs", "apply", 1)];
+
+/// The options of an `apply` that only reads the patch or writes the index alone
+const APPLY_READS: [&str; 4] = ["--cached", "--numstat", "--stat", "--check"];
+
 /// A git argument list that writes the working tree
 #[derive(Debug, PartialEq, Eq)]
 enum Violation {
@@ -96,6 +106,10 @@ fn violations(source: &str) -> Vec<Violation> {
         subcommand: subcommand.to_string(),
       }),
       Some("read-tree") if list.has(updates_worktree) => found.push(Violation::ReadTreeUpdate { line }),
+      Some("apply") if !list.has(|argument| APPLY_READS.contains(&argument)) => found.push(Violation::Subcommand {
+        line,
+        subcommand: "apply".to_string(),
+      }),
       _ => {}
     }
   }
@@ -107,16 +121,19 @@ fn production_code_never_writes_the_working_tree() {
   let mut report = Vec::new();
   let mut exempt_found = vec![0; WORKTREE_WRITE_EXEMPTIONS.len()];
   let mut slot_found = vec![0; SLOT_WRITE_EXEMPTIONS.len()];
+  let mut client_found = vec![0; CLIENT_WRITE_EXEMPTIONS.len()];
   for source in production_sources() {
     let exemption = WORKTREE_WRITE_EXEMPTIONS.iter().position(|(path, _)| source.path == *path);
     for violation in violations(&source.text) {
-      let slot_write = match &violation {
-        Violation::Subcommand { subcommand, .. } => SLOT_WRITE_EXEMPTIONS.iter().position(|(path, exempt, _)| source.path == *path && subcommand == exempt),
+      let exempt_in = |exemptions: &[(&str, &str, usize)]| match &violation {
+        Violation::Subcommand { subcommand, .. } => exemptions.iter().position(|(path, exempt, _)| source.path == *path && subcommand == exempt),
         Violation::ReadTreeUpdate { .. } => None,
       };
-      match (exemption, slot_write, &violation) {
-        (_, Some(slot_write), _) => slot_found[slot_write] += 1,
-        (Some(exemption), _, Violation::ReadTreeUpdate { .. }) => exempt_found[exemption] += 1,
+      let (slot_write, client_write) = (exempt_in(&SLOT_WRITE_EXEMPTIONS), exempt_in(&CLIENT_WRITE_EXEMPTIONS));
+      match (exemption, slot_write, client_write, &violation) {
+        (_, Some(slot_write), _, _) => slot_found[slot_write] += 1,
+        (_, _, Some(client_write), _) => client_found[client_write] += 1,
+        (Some(exemption), _, _, Violation::ReadTreeUpdate { .. }) => exempt_found[exemption] += 1,
         _ => report.push(format!("{}: {violation}", source.path)),
       }
     }
@@ -125,6 +142,12 @@ fn production_code_never_writes_the_working_tree() {
     assert_eq!(
       found, *expected,
       "{path} must have exactly {expected} `{subcommand}` argument lists; a change to the slot writes needs a review of docs/design/git-operations.md"
+    );
+  }
+  for ((path, subcommand, expected), found) in CLIENT_WRITE_EXEMPTIONS.iter().zip(client_found) {
+    assert_eq!(
+      found, *expected,
+      "{path} must have exactly {expected} `{subcommand}` argument lists; another write of the user's working tree needs a review of docs/design/git-operations.md"
     );
   }
   for ((path, expected), found) in WORKTREE_WRITE_EXEMPTIONS.iter().zip(exempt_found) {
@@ -182,4 +205,9 @@ fn scanner_finds_denied_subcommands() {
   assert_eq!(violations(r#"run(&["--no-pager", "reset"]); run(&["-C", dir, "checkout", "-"])"#).len(), 2);
   assert_eq!(violations(r#"run(&["commit-tree", "-p"]); run(&["merge-tree", "--write-tree"])"#), Vec::<Violation>::new());
   assert_eq!(violations("fn f() {}\n#[cfg(test)]\nmod tests {\n  run(&[\"checkout\"]);\n}"), Vec::<Violation>::new());
+  assert_eq!(violations(r#"run(&["apply", "--whitespace=nowarn", patch])"#).len(), 1);
+  assert_eq!(
+    violations(r#"run(&["apply", "--cached", patch]); run(&["apply", "--numstat", patch])"#),
+    Vec::<Violation>::new()
+  );
 }
