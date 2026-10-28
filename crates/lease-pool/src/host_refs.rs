@@ -5,13 +5,18 @@
 //! of the host slots: held while the file changes, never across git. The give-back of a run deletes its ref, and
 //! `reclaim` deletes a run ref whose run has no lend and no ticket an hour after its pack, and a base ref that no pack
 //! moved for 14 days: a ref outlives its run only when the give-back never came (a supervisor that died, a pack after
-//! the end of its run). Both read the file first, so a run that sent no pack costs no git
+//! the end of its run). Both read the file first, so a run that sent no pack costs no git.
+//!
+//! The host-object calls (`have`, `ingest`, `show`) are git users of the host (`host_slots::HostUser`): each waits
+//! behind a recorded upgrade of git. The deletes of the refs skip while a live process upgrades git
 
-use crate::host_slots::now_ms;
+use crate::host_slots::{HostSlotRefusal, HostUser, now_ms};
 use crate::state_file::StateFile;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::host_objects::{BASE_REFS, Ingested, RUN_REFS, delete_host_refs, ingest_config, ingest_pack, is_host_ref_name, point_host_ref};
+use git_ops::host_objects::{
+  BASE_REFS, Ingested, RUN_REFS, ShownCommit, delete_host_refs, ingest_config, ingest_pack, is_host_ref_name, point_host_ref, present_commits, show_commit,
+};
 use git_ops::lease_slot::start_deferred_maintenance;
 use git_ops::revs::{RepositoryDirs, is_object_id};
 use serde::{Deserialize, Serialize};
@@ -19,7 +24,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
-use tracing::warn;
+use tracing::{debug, warn};
 
 const STATE_FILE: &str = "host-refs.json";
 const LOCK_FILE: &str = "host-refs.lock";
@@ -98,12 +103,13 @@ pub struct IngestedPack {
 /// `target` at `commit` (a full id); then the time of the move goes into the file of the refs, and with
 /// `branchdeck.leaseMaintenance` git's maintenance starts in the common dir: in a repository whose `maintenance.auto`
 /// is false, the packs of the runs would else pile up. A bad commit id is refused before the pack is read, and then the
-/// pack is read to its end
+/// pack is read to its end. A git user (`HostUser::wait`) while it runs: the pack waits behind an upgrade of git
 pub fn ingest(git: &GitCommandExecutor, dirs: &RepositoryDirs, target: &HostRef, commit: &str, input: &mut dyn Read, lock_timeout: Duration) -> Result<IngestedPack> {
   if !is_object_id(commit) {
     let _ = std::io::copy(input, &mut std::io::sink());
     bail!(HostRefRefusal::BadCommit(commit.to_string()));
   }
+  let _user = HostUser::wait(Path::new(&dirs.git_common_dir), lock_timeout)?;
   let config = ingest_config(git, &dirs.top_level)?;
   let ingested = ingest_pack(git, &dirs.top_level, input, config.unpack_limit)?;
   let full_ref = target.full_ref();
@@ -129,14 +135,30 @@ pub fn ingest(git: &GitCommandExecutor, dirs: &RepositoryDirs, target: &HostRef,
   })
 }
 
+/// The commits of `commits` (full ids) that the repository of `dirs` has as commit objects, in their order
+/// (`present_commits`). A git user (`HostUser::wait`) while it runs
+pub fn have(git: &GitCommandExecutor, dirs: &RepositoryDirs, commits: &[String], lock_timeout: Duration) -> Result<Vec<String>> {
+  let _user = HostUser::wait(Path::new(&dirs.git_common_dir), lock_timeout)?;
+  present_commits(git, &dirs.top_level, commits)
+}
+
+/// The text of the file `blob` of `commit` and the object ids of the paths `ids` (`show_commit`). A git user
+/// (`HostUser::wait`) while it runs
+pub fn show(git: &GitCommandExecutor, dirs: &RepositoryDirs, commit: &str, blob: Option<&str>, ids: &[String], lock_timeout: Duration) -> Result<ShownCommit> {
+  let _user = HostUser::wait(Path::new(&dirs.git_common_dir), lock_timeout)?;
+  show_commit(git, &dirs.top_level, commit, blob, ids)
+}
+
 /// Delete the run ref of `run` once its run ended (the give-back): the ref, when the file of the refs names it, and its
-/// record. `None` when the run sent no pack, and then no git runs
+/// record. `None` when the run sent no pack, and then no git runs. `GitUpgrading` while a live process upgrades git:
+/// the ref stays for `reclaim_refs`
 pub fn delete_run_ref(git: &GitCommandExecutor, dirs: &RepositoryDirs, run: &str, lock_timeout: Duration) -> Result<Option<String>> {
   let full_ref = HostRef::Run(run.to_string()).full_ref();
   let file = refs_file(Path::new(&dirs.git_common_dir));
   if !file.read::<HostRefs>()?.refs.contains_key(&full_ref) {
     return Ok(None);
   }
+  let _user = HostUser::unless_upgrading(Path::new(&dirs.git_common_dir), lock_timeout)?;
   delete_host_refs(git, &dirs.top_level, std::slice::from_ref(&full_ref))?;
   file.update(lock_timeout, |refs: &mut HostRefs| {
     refs.refs.remove(&full_ref);
@@ -147,7 +169,7 @@ pub fn delete_run_ref(git: &GitCommandExecutor, dirs: &RepositoryDirs, run: &str
 
 /// Delete what no run needs any more: a run ref whose run is not in `live_runs` (a lend or a ticket of a live process)
 /// an hour after its pack, and a base ref that no pack moved for 14 days; one ref transaction. The refs deleted, by
-/// their full names
+/// their full names; none while a live process upgrades git, and a later reclaim deletes them
 pub fn reclaim_refs(git: &GitCommandExecutor, dirs: &RepositoryDirs, live_runs: &HashSet<String>, lock_timeout: Duration) -> Result<Vec<String>> {
   let file = refs_file(Path::new(&dirs.git_common_dir));
   let refs: HostRefs = file.read()?;
@@ -166,6 +188,18 @@ pub fn reclaim_refs(git: &GitCommandExecutor, dirs: &RepositoryDirs, live_runs: 
   if names.is_empty() {
     return Ok(names);
   }
+  let _user = match HostUser::unless_upgrading(Path::new(&dirs.git_common_dir), lock_timeout) {
+    Ok(user) => user,
+    Err(error)
+      if error
+        .downcast_ref::<HostSlotRefusal>()
+        .is_some_and(|refusal| matches!(refusal, HostSlotRefusal::GitUpgrading(_))) =>
+    {
+      debug!(refs = names.len(), error = %error, "the stale host refs stay while git is upgrading");
+      return Ok(Vec::new());
+    }
+    Err(error) => return Err(error),
+  };
   delete_host_refs(git, &dirs.top_level, &names)?;
   // a record that a pack moved meanwhile stays: the next reclaim deletes its ref once more, or later
   file.update(lock_timeout, |refs: &mut HostRefs| {

@@ -8,10 +8,10 @@ use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
-use git_ops::host_objects::{Stored, present_commits, show_commit};
+use git_ops::host_objects::Stored;
 use git_ops::revs::is_object_id;
 use lease_pool::host_git::{find_git, min_version, run_path};
-use lease_pool::host_refs::{HostRef, ingest, reclaim_refs};
+use lease_pool::host_refs::{HostRef, have, ingest, reclaim_refs, show};
 use lease_pool::host_slots::{
   HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout, describe_state, ensure_host_git,
   fill, give_back_run, is_abandoned, lend, lend_waiting, live_runs, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
@@ -811,7 +811,7 @@ pub fn lease_host_have(context: &LeaseContext, args: &LeaseHostHaveArgs) -> Resu
   if let Some(bad) = args.commits.iter().find(|commit| !is_object_id(commit)) {
     return Err(CliError::new(ErrorCode::InvalidArguments, format!("{bad:?} is no full commit id")));
   }
-  let commits = present_commits(&context.git, &context.dirs.top_level, &args.commits).map_err(lease_error)?;
+  let commits = have(&context.git, &context.dirs, &args.commits, context.lock_timeout).map_err(lease_error)?;
   Ok(LeaseHostHaveOutput {
     schema: SchemaVersion,
     repository: context.dirs.top_level.clone(),
@@ -850,7 +850,7 @@ pub fn lease_host_show(context: &LeaseContext, args: &LeaseHostShowArgs) -> Resu
       format!("--commit must be a full commit id, not {:?}", args.commit),
     ));
   }
-  let shown = show_commit(&context.git, &context.dirs.top_level, &args.commit, args.blob.as_deref(), &args.ids).map_err(lease_error)?;
+  let shown = show(&context.git, &context.dirs, &args.commit, args.blob.as_deref(), &args.ids, context.lock_timeout).map_err(lease_error)?;
   Ok(LeaseHostShowOutput {
     schema: SchemaVersion,
     commit: args.commit.clone(),

@@ -1028,7 +1028,7 @@ pub(crate) fn lease_error(error: anyhow::Error) -> CliError {
   if let Some(refusal) = error.downcast_ref::<HostSlotRefusal>() {
     let code = match refusal {
       HostSlotRefusal::UnknownSlot(_) | HostSlotRefusal::NotLent { .. } | HostSlotRefusal::NoSlot(_) => ErrorCode::NoLease,
-      HostSlotRefusal::Busy { .. } => ErrorCode::SlotBusy,
+      HostSlotRefusal::Busy { .. } | HostSlotRefusal::GitUpgrading(_) => ErrorCode::SlotBusy,
       HostSlotRefusal::InvalidConfig { .. } | HostSlotRefusal::ProcessGone(_) => ErrorCode::InvalidArguments,
       HostSlotRefusal::OldGit(_) => ErrorCode::GitNotFound,
     };

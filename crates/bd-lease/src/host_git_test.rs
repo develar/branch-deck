@@ -5,11 +5,11 @@
 //! shell scripts
 
 use crate::host_command_test::host;
-use crate::host_slots_test::{context, edit_table, host_fixture, params};
+use crate::host_slots_test::{context, edit_table, gone_process, host_fixture, params, record_live_upgrade, remove_upgrade};
 use crate::lease_test::{Fixture, pool_environment};
 use bd_cli::fixture_test::{assert_error, run_json};
 use lease_pool::host_git::{TEST_BREW, TEST_MIN_VERSION};
-use lease_pool::host_slots::{HostGitState, ensure_host_git, read_host_slots};
+use lease_pool::host_slots::{EnsuredGit, HostGitState, ensure_host_git, read_host_slots};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::ffi::OsStr;
@@ -142,24 +142,21 @@ fn the_upgrade_waits_for_the_lent_slots_and_the_lends_queue_while_it_runs() {
   assert_eq!(second["state"], json!("lent"), "{second}");
 }
 
-/// The upgrade of git that a live process records, `brew upgrade git` since the millisecond 1: this process
-pub(crate) fn record_live_upgrade(fixture: &Fixture) {
-  let pid = std::process::id();
-  edit_table(fixture, |table| {
-    table["git"] = json!({
-      "kind": "upgrading",
-      "owner": { "pid": pid, "process_started": process_started(pid) },
-      "command": "brew upgrade git",
-      "since_ms": 1,
+/// `ensure_host_git` with `/usr/bin:/bin` as the `PATH`, in a thread: `while_it_waits` gets its first progress line,
+/// said while it waits, and ends the wait
+fn ensure_while(fixture: &Fixture, while_it_waits: impl FnOnce(&str)) -> anyhow::Result<EnsuredGit> {
+  let context = context(fixture);
+  let params = params(fixture, &context);
+  std::thread::scope(|scope| {
+    let (said, heard) = std::sync::mpsc::channel::<String>();
+    let params = &params;
+    let ensure = scope.spawn(move || {
+      let progress = move |line: &str| said.send(line.to_string()).unwrap_or_default();
+      ensure_host_git(params, OsStr::new("/usr/bin:/bin"), &progress)
     });
-  });
-}
-
-/// Remove the record of the upgrade of git from the table
-pub(crate) fn remove_upgrade(fixture: &Fixture) {
-  edit_table(fixture, |table| {
-    table.as_object_mut().unwrap().remove("git");
-  });
+    while_it_waits(&heard.recv().unwrap());
+    ensure.join().unwrap()
+  })
 }
 
 /// A second --ensure leaves the upgrade of a live process as it is (also of a call of its own process) and waits for
@@ -170,27 +167,39 @@ fn a_second_ensure_never_records_over_the_upgrade_of_a_live_process() {
   host(&fixture, "lease_host_fill", &["fill"]);
   let (_dir, brew, _env) = homebrew_below_the_floor();
   record_live_upgrade(&fixture);
-  let context = context(&fixture);
-  let params = params(&fixture, &context);
   let git_dir = fixture.repo.path().join(".git");
 
-  let ensured = std::thread::scope(|scope| {
-    let (said, heard) = std::sync::mpsc::channel::<String>();
-    let params = &params;
-    let ensure = scope.spawn(move || {
-      let progress = move |line: &str| said.send(line.to_string()).unwrap_or_default();
-      ensure_host_git(params, OsStr::new("/usr/bin:/bin"), &progress)
-    });
-    assert_eq!(heard.recv().unwrap(), "another upgrade runs `brew upgrade git`");
+  let ensured = ensure_while(&fixture, |line| {
+    assert_eq!(line, "another upgrade runs `brew upgrade git`");
     assert!(
       matches!(read_host_slots(&git_dir).unwrap().git, Some(HostGitState::Upgrading { since_ms: 1, .. })),
       "the record of the live process stays"
     );
     assert_eq!(brew_log(&brew), "", "no Homebrew while another upgrade runs");
     remove_upgrade(&fixture);
-    ensure.join().unwrap()
   });
   assert!(ensured.unwrap().upgraded);
   assert_eq!(brew_log(&brew), "install git\n");
   assert_eq!(read_host_slots(&git_dir).unwrap().git, None);
+}
+
+/// Homebrew also waits for a host-object call of a live process (`users`), without a limit, and the progress names its
+/// process; the call of a gone process does not count
+#[test_log::test]
+fn the_upgrade_waits_for_a_live_host_object_call_and_not_for_a_gone_one() {
+  let fixture = host_fixture(1);
+  host(&fixture, "lease_host_fill", &["fill"]);
+  let (_dir, brew, _env) = homebrew_below_the_floor();
+  let pid = std::process::id();
+  edit_table(&fixture, |table| table["users"] = json!([{ "pid": pid, "process_started": process_started(pid) }]));
+
+  let ensured = ensure_while(&fixture, |line| {
+    assert!(line.starts_with("`brew install git` waits for the users of git ("), "{line}");
+    assert!(line.ends_with(&format!("): 1 host-object calls of the processes {pid}")), "{line}");
+    assert_eq!(brew_log(&brew), "", "no Homebrew while a host-object call runs");
+    let (gone, started) = gone_process();
+    edit_table(&fixture, |table| table["users"] = json!([{ "pid": gone, "process_started": started }]));
+  });
+  assert!(ensured.unwrap().upgraded);
+  assert_eq!(brew_log(&brew), "install git\n");
 }

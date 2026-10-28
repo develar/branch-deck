@@ -2,20 +2,26 @@
 //! commands of the pool leave alone, a run gets the slot of its affinity, else the one used longest ago, else waits in
 //! line; a give-back stops the processes of the run and discards its changes, and quarantines the slot for an older
 //! process; `reclaim` takes up what a gone process left; the clean rules run by size, by free space and after 50 runs;
-//! a shrink returns its slots without `--confirm-preserved`, also without `bd host serve`; a hand return is refused
+//! a shrink returns its slots without `--confirm-preserved`, also without `bd host serve`; a hand return is refused;
+//! while a live process upgrades git, a fill, a clean, a shrink and `reclaim` skip, and a host-object call waits
 
 use crate::lease_command::LeaseContext;
 #[cfg(unix)]
 use crate::lease_test::busy_in;
 use crate::lease_test::{Fixture, path_of, slot_git};
 use bd_cli::fixture_test::{assert_error, git};
+use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
-  Filled, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, ReclaimAction, ShrinkOutcome, fill, give_back, lend, read_host_slots, reclaim, set_limit, shrink,
+  Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, ReclaimAction, ShrinkOutcome, clean_slot, fill, give_back, lend, read_host_slots,
+  reclaim, set_limit, shrink, snapshot_run,
 };
 use lease_pool::lease::{LeaseState, Pool, canonical_path};
+use lease_pool::lease_clean::CleanOverrides;
 use pretty_assertions::assert_eq;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::Duration;
 #[cfg(unix)]
 use std::time::UNIX_EPOCH;
 #[cfg(unix)]
@@ -555,4 +561,103 @@ fn a_host_slot_lease_keeps_the_format_of_leases_json() {
     })
     .collect();
   assert_eq!(keys[0], keys[1]);
+}
+
+/// The upgrade of git that a live process records, `brew upgrade git` since the millisecond 1: this process
+pub(crate) fn record_live_upgrade(fixture: &Fixture) {
+  let pid = std::process::id();
+  edit_table(fixture, |table| {
+    table["git"] = json!({
+      "kind": "upgrading",
+      "owner": { "pid": pid, "process_started": process_started(pid) },
+      "command": "brew upgrade git",
+      "since_ms": 1,
+    });
+  });
+}
+
+/// Remove the record of the upgrade of git from the table
+pub(crate) fn remove_upgrade(fixture: &Fixture) {
+  edit_table(fixture, |table| {
+    table.as_object_mut().unwrap().remove("git");
+  });
+}
+
+/// Whether `error` is the refusal of a step while git is upgrading by `brew upgrade git`
+fn is_upgrading(error: &anyhow::Error) -> bool {
+  matches!(error.downcast_ref::<HostSlotRefusal>(), Some(HostSlotRefusal::GitUpgrading(command)) if command == "brew upgrade git")
+}
+
+/// While a live process upgrades git, a fill adds no slot (`slot_busy` in bd), a clean and the steps of `reclaim` skip
+/// with the refusal, `bd lease clean --host` says that git is upgrading, and a shrink refuses each slot. The upgrade of
+/// a gone process holds nothing back
+#[test_log::test]
+fn a_fill_a_clean_a_shrink_and_reclaim_skip_while_git_is_upgrading() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  git(&fixture.repo, &["config", "branchdeck.hostSlots", "2"]);
+  lend_to_gone(&params, "run-1");
+  record_live_upgrade(fixture);
+
+  assert!(is_upgrading(&fill(&context.git, &params, None).unwrap_err()));
+  let (exit_code, refused) = fixture.run(&["lease", "host", "fill"]);
+  assert_error(&refused, exit_code, (4, "slot_busy"));
+  assert_eq!(table(fixture).slots.len(), 1, "no slot added");
+  assert!(is_upgrading(&clean_slot(&context.git, &params, 1, CleanOverrides::default()).unwrap_err()));
+  let reclaimed = reclaim(&context.git, &params).unwrap();
+  assert_eq!(
+    reclaimed.iter().map(|done| (done.n, done.action, done.error.clone())).collect::<Vec<_>>(),
+    [(1, ReclaimAction::GaveBack, Some("The git of the host is upgrading (`brew upgrade git`)".to_string()))]
+  );
+  assert!(matches!(state_of(fixture, 1), HostState::Lent(_)), "the abandoned lend waits for a later reclaim");
+  let (exit_code, cleaned) = fixture.run(&["lease", "clean", "--host"]);
+  assert_eq!(exit_code, 0, "{cleaned}");
+  assert_eq!(
+    cleaned["targets"][0]["skipped"],
+    json!("The git of the host is upgrading (`brew upgrade git`)"),
+    "{cleaned}"
+  );
+  let shrunk = shrink(&context.git, &params, 0).unwrap();
+  assert!(matches!(&shrunk[..], [slot] if matches!(&slot.outcome, ShrinkOutcome::Refused(reason) if reason.contains("upgrading"))));
+  assert_eq!(table(fixture).slots.len(), 1, "the slot stays");
+
+  edit_table(fixture, |table| table["git"]["owner"]["pid"] = Value::from(gone_process().0));
+  set_limit(&params, None).unwrap();
+  let reclaimed = reclaim(&context.git, &params).unwrap();
+  assert_eq!(
+    reclaimed.iter().map(|done| (done.n, done.action, done.error.clone())).collect::<Vec<_>>(),
+    [(1, ReclaimAction::GaveBack, None)]
+  );
+  assert_eq!(fill(&context.git, &params, None).unwrap().iter().map(|slot| slot.n).collect::<Vec<_>>(), [2]);
+}
+
+/// A host-object call waits while a live process upgrades git and no slot is busy, and goes on once the upgrade is gone;
+/// it leaves `users` at its end. While a slot is lent, Homebrew can't start, so a scan of the lent run goes on at once:
+/// the run and the upgrade never wait for each other
+#[test_log::test]
+fn a_host_object_call_waits_for_an_upgrade_of_git_but_a_scan_of_a_lent_run_goes_on() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  let head = fixture.repo.head();
+  record_live_upgrade(fixture);
+
+  std::thread::scope(|scope| {
+    let (done, answered) = std::sync::mpsc::channel();
+    let (context, head) = (&context, &head);
+    scope.spawn(move || done.send(have(&context.git, &context.dirs, std::slice::from_ref(head), context.lock_timeout).map_err(|error| format!("{error:#}"))));
+    // a loaded machine can make this pass later, never fail: the call must not answer while the upgrade is recorded
+    assert_eq!(
+      answered.recv_timeout(Duration::from_millis(300)),
+      Err(RecvTimeoutError::Timeout),
+      "it waits for the upgrade"
+    );
+    remove_upgrade(fixture);
+    assert_eq!(answered.recv().unwrap(), Ok(vec![head.clone()]));
+  });
+  assert_eq!(table(fixture).users, [], "the call left the users");
+
+  lent(lend_to(&params, "run-1", None));
+  record_live_upgrade(fixture);
+  assert_eq!(snapshot_run(&context.git, &params, "run-1").unwrap().changed, 0);
+  assert_eq!(table(fixture).users, []);
 }

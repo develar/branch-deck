@@ -2142,8 +2142,17 @@ yonderd's `host_git.rs`. yonderd kept two flocks, `git.lock` of the upgrade and 
 supervisor. Here the lend table is the lock: the upgrade is a record of the table (`git`), so a lend sees it in the
 same read that lends a slot. The upgrade is recorded before it waits, so the queue stops growing behind a run that
 never ends, and Homebrew starts only once no live process acts on a slot. The record is a compare and set under the
-lock: an `--ensure` that finds the upgrade of a live process waits for it, so two never run Homebrew at once. The
-wait for the slots has no limit. Until 2026-10-28 Homebrew started after an hour anyway, and a run that still used git
+lock: an `--ensure` that finds the upgrade of a live process waits for it, so two never run Homebrew at once.
+
+Every git user of the host takes its turn behind a recorded upgrade. A state of a slot names the process that acts on
+it, so the steps that would take a state (a fill, a clean, a shrink, the steps of `reclaim`) skip while a live process
+upgrades. A host-object call (`have`, `ingest`, `show`, the scans of a run) has no state of a slot, so it adds its
+process to `users` of the table while it runs (`HostUser`, a guard that removes it also on a panic). It waits behind a
+recorded upgrade only while no slot is busy. A run calls its scans and the `show` of its prepare steps while its slot
+is lent; were those calls to wait, the run would wait for the upgrade, and the upgrade for the lent slot. While any
+slot is busy, Homebrew can't start anyway, and once none is, no new slot gets busy: a lend queues and the keeper's
+steps skip. So the last look of the upgrade at the slots and `users` stays true until Homebrew ends. yonderd kept
+this as the shared `git-users.lock` of each supervisor. The wait for the users has no limit. Until 2026-10-28 Homebrew started after an hour anyway, and a run that still used git
 then could fail on a git that Homebrew replaced; a run that never ends is a bug of the agent, not a reason to break
 the others. A refusal stays in the table, so a lend on
 a host whose git stays old refuses at once (`git_not_found`, which yonderd maps to its `old_git`) instead of a run

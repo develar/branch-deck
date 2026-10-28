@@ -624,13 +624,30 @@ for; one that is no working tree is `not_a_repository` (exit 2).
   [@test] ../../crates/lease-pool/src/host_git_test.rs (`the_plan_installs_upgrades_or_refuses_with_a_hint`, `a_lock_of_another_homebrew_process_is_told_by_its_words`)
 - No run may use git while Homebrew replaces it, and the lend table is the lock: `--ensure` records the upgrade in
   the table first (`git`: `upgrading`, its process and command), then waits until no slot is lent, filled, cleaned,
-  shrunk or given back by a live process, then runs Homebrew. The wait has no limit: Homebrew never starts under a
-  live user of git. Once a minute it says the busy slots and the seconds it waited (`bd lease host git: … waits for the
-  host slots (<s> s so far): 1 is lent to …`). An upgrade that fails or panics before the end of
-  Homebrew removes its record. While a live process upgrades, a lend only queues and answers `git_upgrading` with the
+  shrunk or given back by a live process and no host-object call of a live process runs (`users`, below), then runs
+  Homebrew. The wait has no limit: Homebrew never starts under a live user of git, and a gone one does not count.
+  Once a minute it says the busy slots, the host-object calls with their processes and the seconds it waited (`bd
+  lease host git: … waits for the users of git (<s> s so far): 1 is lent to …, 2 host-object calls of the processes
+  …`). An upgrade that fails or panics before the end of Homebrew removes its record. While a live process upgrades, a lend only queues and answers `git_upgrading` with the
   command, and the queue line of `--wait` says that git is upgrading. A refusal stays in the table (`git`:
   `refused`): every lend refuses with it as `git_not_found` until a later `--ensure` finds the floor.
   [@test] ../../crates/bd-lease/src/host_git_test.rs (`the_upgrade_waits_for_the_lent_slots_and_the_lends_queue_while_it_runs`, `without_homebrew_ensure_and_the_lends_refuse_until_git_meets_the_floor`)
+  [@test] ../../crates/bd-lease/src/host_git_test.rs (`the_upgrade_waits_for_a_live_host_object_call_and_not_for_a_gone_one`)
+- Each host-object call (`have`, `ingest`, `show`, and `snapshot` and `changes` of Host runs) must be a git user of
+  the table while it runs: it adds its process to `users` under the lock and removes it at its end, also on an error
+  or a panic. It adds itself only when no live process records an upgrade, or while a slot is busy, since Homebrew
+  can't start then: the scans and the `show` of a run come while its slot is lent, and the run and the upgrade would
+  else wait for each other. Else it waits, without a limit, until the upgrade ends or its process is gone: a change of
+  the table wakes it, and it looks again every 5 s. The library functions do this, so each caller gets it.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_object_call_waits_for_an_upgrade_of_git_but_a_scan_of_a_lent_run_goes_on`)
+- While a live process upgrades git, a step that would take a slot or run git for the keeper must skip, with the
+  refusal "The git of the host is upgrading" with the command: a fill adds no slot and runs no git (`slot_busy` from
+  `bd lease host fill`), a clean and the clean after a give-back skip, a shrink sets its limit and refuses each slot
+  past it, and each step of `reclaim` but the queue and the dead fills has the refusal as its `error`, so a later
+  `reclaim` takes it up. `bd lease clean --host` skips every host slot with that reason, before any git. The give-back
+  of a lent run still runs, as Homebrew waits for it, but its run ref stays for `reclaim`, and `reclaim` deletes no
+  ref meanwhile.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_fill_a_clean_a_shrink_and_reclaim_skip_while_git_is_upgrading`)
 - `--ensure` must record its upgrade, its refusal or the ready git under the lock of the table, and only while no live
   process records an upgrade, also another call of its own process. Else it leaves that record as it is, says once a
   minute that another upgrade runs and its command, waits for its end and plans the git again. So two `--ensure` never

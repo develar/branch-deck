@@ -11,6 +11,11 @@
 //! the process that acts on the slot; once that process is gone, the state is abandoned and `reclaim` finishes the work
 //! (a give-back, a clean, a shrink). Nothing here starts a git of its own: the git of a slot is
 //! `git_ops::lease_slot`, the gets and the returns are those of `lease`.
+//!
+//! The table is also the lock of an upgrade of git (`ensure_host_git`): every git user of the host takes its turn
+//! behind a recorded upgrade. A state of a slot names its process, and a host-object call that no state names is a
+//! `HostUser` in `users` while it runs. A fill, a clean, a shrink and the steps of `reclaim` skip while a live process
+//! upgrades, and a host-object call waits.
 
 use crate::free_space::available_bytes;
 use crate::host_git::{FoundGit, GitPlan, min_version, plan_of, run_brew};
@@ -74,6 +79,10 @@ pub struct HostSlots {
   /// The git of the host (`ensure_host_git`): an upgrade that runs, or the refusal of the last check
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub git: Option<HostGitState>,
+  /// The processes of the git users that no state of a slot names (`HostUser`), once per call: Homebrew waits for each
+  /// live one, and a gone one does not count
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub users: Vec<Owner>,
 }
 
 /// What `ensure_host_git` left in the table
@@ -233,6 +242,10 @@ pub enum HostSlotRefusal {
   /// The git of the host stays below its floor (`host_git`), with the hint
   #[error("{0}")]
   OldGit(String),
+  /// A live process upgrades the git of the host by this command: a fill, a clean, a shrink and the steps of `reclaim`
+  /// skip until it ends
+  #[error("The git of the host is upgrading (`{0}`)")]
+  GitUpgrading(String),
 }
 
 /// The repository of the host slots
@@ -592,22 +605,15 @@ pub fn ensure_host_git(params: &HostSlotsParams<'_>, path: &OsStr, progress: &dy
   let waiting = Instant::now();
   let mut said = None::<Instant>;
   loop {
-    let busy: Vec<String> = params
-      .table()
-      .read::<HostSlots>()?
-      .slots
-      .iter()
-      .filter(|slot| is_busy(&slot.state))
-      .map(|slot| format!("{} is {}", slot.n, describe_state(&slot.state)))
-      .collect();
-    if busy.is_empty() {
+    let users = git_users(&params.table().read::<HostSlots>()?);
+    if users.is_empty() {
       break;
     }
     if said.is_none_or(|at| at.elapsed() >= WAIT_PROGRESS) {
       progress(&format!(
-        "`{command}` waits for the host slots ({} s so far): {}",
+        "`{command}` waits for the users of git ({} s so far): {}",
         waiting.elapsed().as_secs(),
-        busy.join(", ")
+        users.join(", ")
       ));
       said = Some(Instant::now());
     }
@@ -629,10 +635,126 @@ fn brew_command(plan: &GitPlan) -> String {
   format!("brew {}", plan.brew_args().unwrap_or(["upgrade", "git"]).join(" "))
 }
 
+/// `GitUpgrading` while a live process upgrades git: a step that would take a slot skips
+fn refuse_while_upgrading(table: &HostSlots) -> Result<()> {
+  match live_upgrade(table) {
+    Some(command) => bail!(HostSlotRefusal::GitUpgrading(command.to_string())),
+    None => Ok(()),
+  }
+}
+
 /// Whether a live process acts on a slot in `state`: it is lent, filled, cleaned, shrunk or given back. Homebrew waits
 /// for each such slot
 fn is_busy(state: &HostState) -> bool {
   !matches!(state, HostState::Idle | HostState::Quarantined { .. }) && !is_abandoned(state)
+}
+
+/// What Homebrew waits for, in words: each busy slot ("1 is lent to the run …"), and the live host-object calls with
+/// their processes
+fn git_users(table: &HostSlots) -> Vec<String> {
+  let mut users: Vec<String> = table
+    .slots
+    .iter()
+    .filter(|slot| is_busy(&slot.state))
+    .map(|slot| format!("{} is {}", slot.n, describe_state(&slot.state)))
+    .collect();
+  let mut pids: Vec<u32> = table.users.iter().filter(|user| user.is_alive()).map(|user| user.pid).collect();
+  if !pids.is_empty() {
+    let calls = pids.len();
+    pids.sort_unstable();
+    pids.dedup();
+    let pids: Vec<String> = pids.iter().map(u32::to_string).collect();
+    users.push(format!("{calls} host-object calls of the processes {}", pids.join(", ")));
+  }
+  users
+}
+
+/// The upgrade that a new host-object call waits for: one that a live process records, once no slot is busy. While a
+/// slot is busy, Homebrew can't start, so a call goes on: the scans and the `show` of a run come while its slot is
+/// lent, and the run and the upgrade would else wait for each other
+fn upgrade_holding_calls(table: &HostSlots) -> Option<&str> {
+  live_upgrade(table).filter(|_| !table.slots.iter().any(|slot| is_busy(&slot.state)))
+}
+
+/// How a git user takes its turn behind a recorded upgrade of git
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Turn {
+  /// A host-object call: it waits while `upgrade_holding_calls` names an upgrade
+  Wait,
+  /// A step of the keeper: it skips while a live process upgrades (`GitUpgrading`)
+  Skip,
+}
+
+/// A git user of the host that no state of a slot names: it is in `users` of the table from its start to its drop, also
+/// on an error or a panic. Homebrew waits for it (`ensure_host_git`)
+pub(crate) struct HostUser {
+  table: StateFile,
+  lock_timeout: Duration,
+  owner: Owner,
+}
+
+impl HostUser {
+  /// Wait while a recorded upgrade holds the host-object calls back (`upgrade_holding_calls`), then enter. The wait has
+  /// no limit, as the upgrade has its own: a change of the table wakes it, and it looks again every 5 s, as the end of a
+  /// process makes no file event
+  pub(crate) fn wait(git_common_dir: &Path, lock_timeout: Duration) -> Result<Self> {
+    let table = table_file(Path::new(&canonical_path(git_common_dir)));
+    let owner = Owner::this();
+    let mut wake = None::<TableWake>;
+    loop {
+      let Some(command) = Self::enter(&table, lock_timeout, &owner, Turn::Wait)? else {
+        return Ok(Self { table, lock_timeout, owner });
+      };
+      if let Some(wake) = &wake {
+        wake.wait(WAIT_RECHECK);
+      } else {
+        // the watch starts before the next look, so no change between the two is lost
+        debug!(%command, "a host-object call waits for the upgrade of git");
+        wake = Some(TableWake::start(table.dir()));
+      }
+    }
+  }
+
+  /// Enter, or `GitUpgrading` while a live process upgrades git
+  pub(crate) fn unless_upgrading(git_common_dir: &Path, lock_timeout: Duration) -> Result<Self> {
+    let table = table_file(Path::new(&canonical_path(git_common_dir)));
+    let owner = Owner::this();
+    match Self::enter(&table, lock_timeout, &owner, Turn::Skip)? {
+      None => Ok(Self { table, lock_timeout, owner }),
+      Some(command) => bail!(HostSlotRefusal::GitUpgrading(command)),
+    }
+  }
+
+  /// Under the lock: the gone users leave, then `owner` joins unless an upgrade holds it back; the command of that
+  /// upgrade else
+  fn enter(table: &StateFile, lock_timeout: Duration, owner: &Owner, turn: Turn) -> Result<Option<String>> {
+    table.update(lock_timeout, |slots: &mut HostSlots| {
+      slots.users.retain(Owner::is_alive);
+      let held = match turn {
+        Turn::Wait => upgrade_holding_calls(slots),
+        Turn::Skip => live_upgrade(slots),
+      }
+      .map(str::to_string);
+      if held.is_none() {
+        slots.users.push(owner.clone());
+      }
+      Ok(held)
+    })
+  }
+}
+
+impl Drop for HostUser {
+  fn drop(&mut self) {
+    let left = self.table.update(self.lock_timeout, |slots: &mut HostSlots| {
+      if let Some(index) = slots.users.iter().position(|user| *user == self.owner) {
+        slots.users.remove(index);
+      }
+      Ok(())
+    });
+    if let Err(error) = left {
+      warn!(error = %format!("{error:#}"), "cannot remove a git user from the host slots: an upgrade of git waits until its process ends");
+    }
+  }
 }
 
 /// How often a lend that waits (`lend_waiting`) asks the table without a file event: the end of a process, which frees
@@ -900,8 +1022,14 @@ pub struct SlotSnapshot {
 
 /// The tree of the files of the slot that the run `run` has, as `git add --all` stages them (`worktree_commit`): the
 /// slot index stays as it is, and its `core.fsmonitor`, `core.untrackedCache` and untracked mode apply. The scan before the command of a run: an ignored file of the last run can be untracked under the `.gitignore`
-/// of the new commit, and the removal of the outputs changes the tree. `NoSlot` when the run has none
+/// of the new commit, and the removal of the outputs changes the tree. `NoSlot` when the run has none. A git user
+/// (`HostUser::wait`) while it runs
 pub fn snapshot_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str) -> Result<SlotSnapshot> {
+  let _user = HostUser::wait(Path::new(&params.repository.git_common_dir), params.lock_timeout)?;
+  snapshot_core(git_executor, params, run)
+}
+
+fn snapshot_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str) -> Result<SlotSnapshot> {
   let (n, path) = live_lend(params, run)?;
   let worktree = linked_worktree(Path::new(&path)).ok_or_else(|| anyhow::anyhow!("The host slot {path} is no linked worktree"))?;
   let config = lease_config(git_executor, &path)?;
@@ -932,9 +1060,11 @@ pub struct SlotChanges {
 }
 
 /// The tree of the slot of the run `run` after its command (`snapshot_run`), and the patch from `base` (the tree of the
-/// scan before) to it streamed into `patch` when the two differ (`write_tree_patch`)
+/// scan before) to it streamed into `patch` when the two differ (`write_tree_patch`). A git user (`HostUser::wait`)
+/// while it runs
 pub fn changes_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str, base: &str, patch: &Path) -> Result<SlotChanges> {
-  let snapshot = snapshot_run(git_executor, params, run)?;
+  let _user = HostUser::wait(Path::new(&params.repository.git_common_dir), params.lock_timeout)?;
+  let snapshot = snapshot_core(git_executor, params, run)?;
   let patch_bytes = if snapshot.tree == base {
     None
   } else {
@@ -964,6 +1094,9 @@ fn live_lend(params: &HostSlotsParams<'_>, run: &str) -> Result<(u32, String)> {
 fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, take: Take<'_>) -> Result<GaveBack> {
   let me = Owner::this();
   let (path, since_ms) = params.update(|table| {
+    if !matches!(take, Take::Run(_)) {
+      refuse_while_upgrading(table)?;
+    }
     let slot = slot_mut(table, n)?;
     let since_ms = match (&slot.state, take) {
       (HostState::Lent(lent), Take::Run(run)) if lent.run == run => lent.since_ms,
@@ -1012,11 +1145,17 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
       return Err(error);
     }
   };
-  let slot = set_state(params, n, mine, |slot| {
+  // told while the slot is still given back, so Homebrew waits for the git of the measure
+  let due = params.table().read::<HostSlots>().and_then(|table| {
+    let mut slot = table.slots.into_iter().find(|slot| slot.n == n).ok_or(HostSlotRefusal::UnknownSlot(n))?;
+    slot.runs_since_clean = slot.runs_since_clean.saturating_add(1);
+    clean_due(git_executor, &slot, &config)
+  });
+  set_state(params, n, mine, |slot| {
     slot.state = HostState::Idle;
     slot.runs_since_clean = slot.runs_since_clean.saturating_add(1);
   })?;
-  let cleaned = match clean_due(git_executor, &slot, &config) {
+  let cleaned = match due {
     Ok(true) => clean_core(git_executor, params, n, CleanOverrides::default(), Take::Idle)
       .inspect_err(|error| warn!(slot = %path, error = %format!("{error:#}"), "cannot clean the host slot after its run"))
       .ok(),
@@ -1173,7 +1312,7 @@ fn clean_due(git_executor: &GitCommandExecutor, slot: &HostSlot, config: &LeaseC
 }
 
 /// Apply the clean rules of the slot's own `.branchdeck.toml`, with `overrides`, to the idle slot `n`: `cleaning`
-/// meanwhile, so no run gets it, then idle with its counts reset
+/// meanwhile, so no run gets it, then idle with its counts reset. `GitUpgrading` while a live process upgrades git
 pub fn clean_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, overrides: CleanOverrides) -> Result<CleanTarget> {
   clean_core(git_executor, params, n, overrides, Take::Idle)
 }
@@ -1181,6 +1320,7 @@ pub fn clean_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
 fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, overrides: CleanOverrides, take: Take<'_>) -> Result<CleanTarget> {
   let me = Owner::this();
   let slot = params.update(|table| {
+    refuse_while_upgrading(table)?;
     let slot = slot_mut(table, n)?;
     let takes = match (&slot.state, take) {
       (HostState::Idle, Take::Idle) => true,
@@ -1219,16 +1359,27 @@ fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
 }
 
 /// `bd lease clean --host`: the clean rules of each idle host slot's own `.branchdeck.toml` with `overrides`, or with
-/// `apply` false only measured. A slot that is not idle, or that has a process in it, is skipped with the reason
+/// `apply` false only measured. A slot that is not idle, or that has a process in it, is skipped with the reason, and
+/// every slot while a live process upgrades git, before any git or process scan
 pub fn clean_host_slots(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, apply: bool, overrides: CleanOverrides) -> Result<(Vec<CleanTarget>, bool)> {
   let table = params.table().read::<HostSlots>()?;
-  let scan = ProcessScan::scan();
   let skipped = |path: &str, reason: String| CleanTarget {
     path: path.to_string(),
     skipped: Some(reason),
     cleaned: Vec::new(),
     trash_left: Vec::new(),
   };
+  if let Some(command) = live_upgrade(&table) {
+    let reason = HostSlotRefusal::GitUpgrading(command.to_string()).to_string();
+    let targets = table
+      .slots
+      .iter()
+      .filter(|slot| !slot.path.is_empty())
+      .map(|slot| skipped(&slot.path, reason.clone()))
+      .collect();
+    return Ok((targets, false));
+  }
+  let scan = ProcessScan::scan();
   let targets = table
     .slots
     .iter()
@@ -1273,11 +1424,14 @@ pub struct Filled {
 /// number reserved as `filling` under the lock of the table, then, without it, the get of the pool with the holder
 /// `bd-host/<n>` at the HEAD of the host checkout (a free slot reused, else one clone at a time), detached; then idle.
 /// A get that fails frees the numbers it had not got and is the error; the slots got so far stay. `progress` hears each
-/// step of each get with the number of its slot
+/// step of each get with the number of its slot. While a live process upgrades git, it adds none and runs no git:
+/// `GitUpgrading`
 pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, progress: Option<&dyn Fn(u32, GetStep)>) -> Result<Vec<Filled>> {
+  refuse_while_upgrading(&params.table().read()?)?;
   let count = slot_count(&lease_config(git_executor, &params.repository.top_level)?)?;
   let me = Owner::this();
   let missing: Vec<u32> = params.update(|table| {
+    refuse_while_upgrading(table)?;
     let count = table.limit.map_or(count, |limit| limit.min(count));
     let have: HashSet<u32> = table.slots.iter().map(|slot| slot.n).collect();
     let missing: Vec<u32> = (1..=count).filter(|n| !have.contains(n)).collect();
@@ -1370,17 +1524,26 @@ pub enum ShrinkOutcome {
 /// refused. Each taken slot: a process in it refuses it (none is signalled: it is older than any lend), its changes are
 /// discarded, it is checked out at the commit it was leased at, which `unlanded_commits` counts as landed, so the
 /// snapshot commits of the runs never refuse it, and its lease goes back through the return of the pool, with its clean
-/// rules. A slot the return refuses stays idle
+/// rules. A slot the return refuses stays idle. While a live process upgrades git, the limit is set and each slot past
+/// it is refused with `GitUpgrading`
 pub fn shrink(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, keep: u32) -> Result<Vec<Shrunk>> {
   let me = Owner::this();
   let taken: Vec<Result<HostSlot, Shrunk>> = params.update(|table| {
     table.limit = Some(keep);
+    let upgrading = live_upgrade(table).map(|command| HostSlotRefusal::GitUpgrading(command.to_string()).to_string());
     Ok(
       table
         .slots
         .iter_mut()
         .filter(|slot| slot.n > keep)
         .map(|slot| {
+          if let Some(reason) = &upgrading {
+            return Err(Shrunk {
+              n: slot.n,
+              path: slot.path.clone(),
+              outcome: ShrinkOutcome::Refused(reason.clone()),
+            });
+          }
           let free = matches!(slot.state, HostState::Idle | HostState::Quarantined { .. }) || is_abandoned(&slot.state);
           if !free {
             return Err(Shrunk {
@@ -1533,7 +1696,9 @@ pub enum ReclaimAction {
 /// command of the host slots: the tickets of gone processes leave the queue; the record of a fill that died before its
 /// get goes; an abandoned lend or give-back is given back; a slot in quarantine whose processes are gone is given back;
 /// an abandoned clean runs again; an abandoned shrink returns its slot; a `ready` lease of the holder `bd-host/<n>`
-/// that the table does not name, and whose number no live fill holds, goes back to the pool
+/// that the table does not name, and whose number no live fill holds, goes back to the pool. While a live process
+/// upgrades git, each step but the first two is skipped: its `error` is `GitUpgrading`, and a later `reclaim` takes
+/// it up again
 pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) -> Result<Vec<Reclaimed>> {
   let table = params.update(|table| {
     table.queue.retain(|ticket| is_running(ticket.pid, ticket.process_started));
@@ -1601,8 +1766,11 @@ pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) 
     if filling.contains(&n) {
       continue;
     }
-    warn!(slot = %slot.path, holder = %lease.holder, "returning a host slot lease that the table does not name");
-    record(n, ReclaimAction::Returned, return_slot(git_executor, params, &slot.path, &lease.id).map(drop));
+    let returned = HostUser::unless_upgrading(Path::new(&params.repository.git_common_dir), params.lock_timeout).and_then(|_user| {
+      warn!(slot = %slot.path, holder = %lease.holder, "returning a host slot lease that the table does not name");
+      return_slot(git_executor, params, &slot.path, &lease.id)
+    });
+    record(n, ReclaimAction::Returned, returned.map(drop));
   }
   Ok(reclaimed)
 }
@@ -1611,6 +1779,7 @@ pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) 
 fn shrink_one(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32) -> Result<()> {
   let me = Owner::this();
   let slot = params.update(|table| {
+    refuse_while_upgrading(table)?;
     let slot = slot_mut(table, n)?;
     if !matches!(&slot.state, HostState::Shrinking(owner) if !owner.is_alive()) {
       bail!(busy(n, &slot.state));
