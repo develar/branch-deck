@@ -29,7 +29,8 @@ yonder (the client `~/.local/bin/yonder`, the agent `yonderd` on port 7741, `com
 monorepo) did these runs before. Both agents serve the Studio side by side and lend from its one lend table, so a run
 of either one waits for the same slots. Until the user ran `bd-host setup --import-yonder` on this Mac and on the
 Studio, `bd-host run studio` refuses with `no_host` (75): run `yonder run studio` with the same arguments then, never
-the heavy command here. The arguments are the same, but `--holder` is `--affinity` in bd-host.
+the heavy command here. Until the app bundle carries bd-host, this Mac can have no `bd-host` at all, and the shell
+exits 127: the same rule applies. The arguments are the same, but `--holder` is `--affinity` in bd-host.
 
 ## Use
 

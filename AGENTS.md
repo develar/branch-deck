@@ -119,9 +119,9 @@ processes of every test, which the load of the machine does not change.
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
 `pnpm lint:backend` run as `bd-host run studio -- <command>` from the lease, on its working tree, committed or not
-([Studio Runs](docs/guidelines/studio-runs.md), `.yonder.toml`). `no_host` means that this Mac has no bd-host setup
-yet: run `yonder run studio` with the same arguments. This Mac runs several agents at once, and under that
-load the suites take far longer and E2E fails on timeouts. What a command edits (`cargo fmt`, `pnpm e2e-up`,
+([Studio Runs](docs/guidelines/studio-runs.md), `.yonder.toml`). `no_host`, or a shell that finds no `bd-host`
+(exit 127), means that this Mac has no bd-host setup yet: run `yonder run studio` with the same arguments. This Mac
+runs several agents at once, and under that load the suites take far longer and E2E fails on timeouts. What a command edits (`cargo fmt`, `pnpm e2e-up`,
 `UPDATE_BINDINGS=1`) comes back with `--apply`. Exit code 75: the Studio did not run it, run it here.
 
 If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
