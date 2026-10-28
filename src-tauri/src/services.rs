@@ -17,10 +17,12 @@ use app_settings::linked_pull_requests::{forget, linked};
 use cli_tools::environment::ToolEnvironment;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
+use domain_types::cli_tools::CliTool;
 use domain_types::error::{ApiError, HolderTool};
 use domain_types::review_request::LinkedPullRequest;
 use domain_types::session::{FactFamily, FactRefreshReason};
 use domain_types::sign_in::Account;
+use domain_types::youtrack::YouTrackAuthStatus;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::client::GitHubClient;
@@ -35,6 +37,7 @@ use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
+use remote_facts::cli_tool_releases::{refresh_releases, releases_file};
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
@@ -44,7 +47,7 @@ use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{OneClock, SessionClocks, SessionKey, Sessions};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -259,6 +262,36 @@ impl AppHost for AppServices {
 
   fn calendar(&self) -> Calendar {
     Calendar::from_zone(jiff::tz::TimeZone::system())
+  }
+
+  fn tool_environment(&self) -> ToolEnvironment {
+    ToolEnvironment::from_process()
+  }
+
+  /// Asked of GitHub at most once a day and kept in the app data directory (no lock: two reads at once ask twice at
+  /// worst)
+  fn tool_releases(&self) -> Read<'_, HashMap<CliTool, String>> {
+    Box::pin(async move {
+      let file = self.app.path().app_data_dir().ok().map(|directory| releases_file(&directory));
+      let releases = refresh_releases(&self.app.state::<GitHubState>().service, file.as_deref(), unix_now()).await;
+      CliTool::ALL
+        .into_iter()
+        .filter_map(|tool| releases.latest(tool).map(|version| (tool, version.to_owned())))
+        .collect()
+    })
+  }
+
+  /// The robot prompt finds the `teamcity` CLI again
+  fn tool_changed(&self, tool: CliTool) -> Read<'_, ()> {
+    Box::pin(async move {
+      if tool == CliTool::Teamcity {
+        self.app.state::<PatronusState>().reset_teamcity().await;
+      }
+    })
+  }
+
+  fn youtrack_status(&self) -> Option<YouTrackAuthStatus> {
+    Some(self.app.state::<YouTrackState>().service.status())
   }
 }
 

@@ -182,7 +182,7 @@ sequenceDiagram
   (`init_script`); `crates/app-api/src/app/settings.rs` has `set_setting` (origin: the calling window's label, `Call` of
   app-api) and `get_settings_changes` (the main window's catch-up), and `crates/app-api/src/events.rs` sends a change to
   the windows that get its key (`settings_changed`, through `AppEvents` of the host); a sub-window's catch-up is
-  `sub_window_loaded` (`src-tauri/src/commands/window_management.rs`). The window builders (the zoom), the title bar and the menu
+  `sub_window_loaded` (`crates/app-api/src/app/windows.rs`). The window builders (the zoom), the title bar and the menu
   read their settings from the writer's `AppSettings` (`zoom.rs`, `title_bar.rs`, `menu.rs`), with its defaults.
 - `bd`: reads the file once as it starts, by the same loader (`app_settings_of` in `crates/bd-core/src/context.rs`,
   `SettingsFile::load`), so it runs with the same values and defaults without the app; it resolves the branch prefix
@@ -243,8 +243,8 @@ Optimizations:
 - Branch prefix: `crates/app-settings/src/resolve.rs`, `crates/app-settings/src/branch_prefixes.rs`,
   `crates/app-api/src/context.rs`, `crates/app-api/src/reads/repository.rs`
 - Backend: `src-tauri/src/settings.rs`, `crates/app-api/src/app/settings.rs`, `crates/app-api/src/events.rs`,
-  `src-tauri/src/commands/window_management.rs`,
-  `restart_app` in `src-tauri/src/title_bar.rs`, the flush on exit in `src-tauri/src/lib.rs`
+  `crates/app-api/src/app/windows.rs` (the init script of a window, `settings_script`),
+  `restart_app` in `crates/app-api/src/app/desktop.rs`, the flush on exit in `src-tauri/src/lib.rs`
 - `bd`: `app_settings_of` in `crates/bd-core/src/context.rs`
 - Page: `src/stores/settings/persistent-store.ts`, `src/stores/settings/repositoryState.ts`, `src/stores/repository.ts`
   (the resolved prefix), `src/lib/sub-window.ts` (the catch-up of a load)

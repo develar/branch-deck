@@ -1,5 +1,5 @@
 //! The command-line tools of the team that Settings → Tools shows, installs and signs in (`cli-tools` crate,
-//! `src-tauri/src/commands/cli_tools.rs`, spec/repository/cli-tools.spec.md).
+//! `crates/app-api/src/app/cli_tools.rs`, spec/repository/cli-tools.spec.md).
 
 use serde::{Deserialize, Serialize};
 

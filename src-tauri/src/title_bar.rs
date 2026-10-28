@@ -1,12 +1,7 @@
-use crate::api::Settings;
-use app_api::api_error::api_error;
-use app_api::operation::operation_now;
-use domain_types::error::ApiError;
-use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsPatch};
+use domain_types::settings::AppSettings;
 use serde::Serialize;
 use std::sync::OnceLock;
 use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
-use tracing::instrument;
 
 /// How every window draws its title bar, decided once per process (`init_title_bar`) and passed to the page as
 /// `window.__BD_TITLE_BAR__` (`src/lib/title-bar.ts`):
@@ -236,30 +231,6 @@ pub fn macos_double_click(action: Option<&str>) -> DoubleClick {
     Some("None") => DoubleClick::None,
     _ => DoubleClick::ToggleMaximize,
   }
-}
-
-/// Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
-/// (`init_title_bar`). The value goes through the writer of the settings, which saves it now, before the restart: the
-/// new process reads the file.
-#[tauri::command]
-#[instrument(skip(app_handle, webview, service))]
-#[specta::specta]
-#[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle, the webview and the state of a command by value")]
-pub fn restart_app(app_handle: tauri::AppHandle, webview: tauri::Webview, service: Settings<'_>, system_title_bar: bool) -> Result<(), ApiError> {
-  operation_now(|| {
-    let mut fields = serde_json::Map::new();
-    fields.insert("systemTitleBar".to_owned(), serde_json::Value::Bool(system_title_bar));
-    let patch = SettingsPatch::Fields {
-      key: APP_SETTINGS_KEY.to_owned(),
-      fields,
-    };
-    let change = service
-      .set(patch, webview.label())
-      .map_err(|e| api_error(anyhow::Error::new(e).context("Cannot change the settings")))?;
-    app_api::events::settings_changed(&crate::api::TauriEvents(app_handle.clone()), &change);
-    service.flush().map_err(|e| api_error(anyhow::Error::new(e).context("Cannot save the settings")))?;
-    app_handle.restart();
-  })
 }
 
 static TITLE_BAR: OnceLock<TitleBar> = OnceLock::new();

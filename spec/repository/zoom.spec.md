@@ -6,7 +6,8 @@ targets:
   - ../../src-tauri/src/menu.rs
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/src/lib.rs
-  - ../../src-tauri/src/commands/window_management.rs
+  - ../../crates/app-api/src/app/windows.rs
+  - ../../src-tauri/src/desktop.rs
   - ../../src-tauri/capabilities/default.json
   - ../../src-tauri/capabilities/sub-windows.json
   - ../../src/lib/zoom.ts

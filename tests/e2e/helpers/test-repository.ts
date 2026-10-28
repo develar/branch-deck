@@ -516,6 +516,14 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * The folder the native dialog of the app picks from now on (`browse_repository`, the Browse button): `path`, or
+   * `null`, the user cancels; without the fixture it picks the repository's own path
+   */
+  async setDialogPick(path: string | null): Promise<void> {
+    await this.setFixture("dialog-pick", { path })
+  }
+
+  /**
    * The fake `teamcity` and `youtrack` CLIs and `brew` of the repository (`cli_tools_fixtures.rs`): the tools installed,
    * whether the machine has Homebrew, the newest release of each, and state files of the fakes (`teamcity.auth`,
    * `youtrack.auth`: their `auth status --json`; `teamcity.skill`: the bundled skill; `brew.fail`: brew's error)

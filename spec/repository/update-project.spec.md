@@ -37,7 +37,8 @@ targets:
   - ../../src/components/repository/DockStatus.tsx
   - ../../src/lib/transfer-progress.ts
   - ../../src/lib/agent-prompt.ts
-  - ../../src-tauri/src/commands/agent_cli.rs
+  - ../../crates/app-api/src/app/agent_cli.rs
+  - ../../src-tauri/src/agent_cli.rs
   - ../../src/lib/update-conflict.ts
   - ../../src/lib/text.ts
   - ../../crates/sync-utils/src/list_cut.rs

@@ -18,7 +18,8 @@
 //!   SessionKey, arguments…) -> Result<output, ApiError>`, whose frame runs it as one operation in the span of the
 //!   command (`<name>{repository_path}:operation{operation_id}`) once it resolved the key (`AppContext::session_key`);
 //!   `now` a synchronous command of a window that cannot fail and answers at once (on the main thread of the app),
-//!   `fn(&AppContext, &Call, arguments…) -> output`;
+//!   `fn(&AppContext, &Call, arguments…) -> output`; `main` the same that can fail, `fn(&AppContext, &Call, arguments…)
+//!   -> Result<output, ApiError>`, for what the app does on its main thread (a native menu, the restart);
 //! - the arguments are what the page sends, by name (`params`, `repository_path` as `repositoryPath`);
 //! - the channel, for a command that tells the page its events while it runs (`[channel events: OperationEvent]`, of a
 //!   `json` or a `session` command), is the last argument of the body (`Sink<event>`) and of the bindings
@@ -58,6 +59,8 @@ pub enum CommandKind {
   Session,
   /// A synchronous command of a window that cannot fail: the bindings return its output as it is
   Now,
+  /// A synchronous command of a window that can fail, on the main thread of the app
+  Main,
 }
 
 /// The channel a command tells the page its events on while it runs
@@ -135,6 +138,9 @@ macro_rules! api_command {
   (@kind now) => {
     $crate::registry::CommandKind::Now
   };
+  (@kind main) => {
+    $crate::registry::CommandKind::Main
+  };
   (@channel_type []) => {
     ()
   };
@@ -163,6 +169,10 @@ macro_rules! api_command {
   (@call now $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let () = $sink;
     ::std::future::ready(Ok($body($ctx, $call, $($args.$arg),*)))
+  }};
+  (@call main $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
+    let () = $sink;
+    ::std::future::ready($body($ctx, $call, $($args.$arg),*))
   }};
   // the span of the command, then its operation: the key resolved in it, so its error names the operation too
   (@call session $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)*]) => {{

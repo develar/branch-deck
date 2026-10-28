@@ -1925,7 +1925,7 @@ error. The first line of `bd help agent` names the version too.
 ### `bd install [--uninstall]`, `bd help skill`
 
 How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI… in the app
-(`src-tauri/src/commands/agent_cli.rs`, the same code), writes:
+(`install_agent_cli` of `crates/app-api/src/app/agent_cli.rs`, through `src-tauri/src/agent_cli.rs`: the same code), writes:
 
 - on macOS and Linux a `bd` symlink in `~/.local/bin` to the app binary, which runs the CLI under that name. A symlink
   there is replaced; a file that is not a symlink is `install_refused` (exit 4). On Linux an app run from an AppImage

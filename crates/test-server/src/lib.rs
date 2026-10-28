@@ -290,24 +290,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/store/{repo_id}/{key}", axum::routing::delete(delete_store_value))
     // the events of the app to the pages of a repository, and the events of its pages to each other (`host.rs`)
     .route("/repositories/{id}/events", get(host::subscribe_events).post(host::emit_page_event))
-    // the handwritten command endpoints, until their commands move to app-api
-    .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
-    // the native menu: a test counts the requests of the page
-    .route("/invoke/set_auto_sync_menu_checked", post(tauri_command_bridge::set_auto_sync_menu_checked))
-    .route("/invoke/sub_window_loaded", post(tauri_command_bridge::sub_window_loaded))
-    .route("/invoke/sub_window_drawn", post(tauri_command_bridge::sub_window_drawn))
-    .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
-    .route("/invoke/install_agent_cli", post(tauri_command_bridge::install_agent_cli))
-    .route("/invoke/agent_cli_status", post(tauri_command_bridge::agent_cli_status))
-    .route("/invoke/cli_tools_status", post(cli_tools_fixtures::cli_tools_status))
-    .route("/invoke/run_cli_tool_action", post(cli_tools_fixtures::run_cli_tool_action))
-    .route("/invoke/cancel_cli_tool_action", post(cli_tools_fixtures::cancel_cli_tool_action))
-    .route("/invoke/get_setup_items", post(cli_tools_fixtures::get_setup_items))
-    // the updater, by the update of the fixture; the install and the restart of the app fail
-    .route("/invoke/check_for_updates", post(updater::check_for_updates))
-    .route("/invoke/get_update_status", post(updater::get_update_status))
-    .route("/invoke/install_update", post(updater::install_update))
-    .route("/invoke/restart_app", post(updater::restart_app))
+    // the desktop of the app: what it opened, the build of a page a test opens, the folder its dialog picks (`host.rs`)
+    .route("/repositories/{id}/windows", get(host::get_windows))
+    .route("/repositories/{id}/windows/built", post(host::built_window))
+    .route("/repositories/{id}/dialog-pick", post(host::set_dialog_pick))
     // Health check
     .route("/health", get(health_check))
     // Serve static files from dist with SPA fallback
@@ -665,15 +651,21 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
   }
   write_test_identity(&state.global_config_of(id))?;
   let store = Arc::new(store);
-  let events = Arc::new(host::TestEvents::default());
+  let hosts = state::TestHosts {
+    desktop: Arc::new(host::TestDesktop::new(&store, path)),
+    settings: store,
+    events: Arc::new(host::TestEvents::default()),
+    updater: Arc::default(),
+    cli_tools: Arc::new(cli_tools_fixtures::CliToolsHost::new(&state.app_data_of(id))),
+  };
   let repo = TestRepository {
     id: id.to_string(),
     path: path.to_string(),
     app_data,
     in_flight: Arc::default(),
-    context: Arc::new(state.context_of(id, &store, &events)),
-    events,
-    store,
+    context: Arc::new(state.context_of(id, &hosts)),
+    events: hosts.events,
+    store: hosts.settings,
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
     review_requests: std::sync::RwLock::default(),
     review_request_calls: std::sync::atomic::AtomicU32::new(0),
@@ -689,9 +681,9 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
     review_readiness_calls: std::sync::Mutex::default(),
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
-    agent_cli_installed: std::sync::atomic::AtomicBool::new(false),
-    available_update: std::sync::RwLock::default(),
-    cli_tools: Arc::new(cli_tools_fixtures::CliToolsHost::new(&state.app_data_of(id))),
+    desktop: hosts.desktop,
+    updater: hosts.updater,
+    cli_tools: hosts.cli_tools,
     held_lock: std::sync::Mutex::default(),
     fetch_held: std::sync::Mutex::default(),
     foreign_operation: Arc::default(),

@@ -5,8 +5,8 @@ style: plain-1
 targets:
   - ../../src-tauri/src/lib.rs
   - ../../src-tauri/src/title_bar.rs
-  - ../../src-tauri/src/commands/window_management.rs
-  - ../../src-tauri/src/commands/window_menu.rs
+  - ../../crates/app-api/src/app/windows.rs
+  - ../../src-tauri/src/desktop.rs
   - ../../src-tauri/src/menu.rs
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/capabilities/title-bar.json
@@ -155,7 +155,8 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   inactive window dim (`data-window-inactive`, the focus of the window).
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should draw KDE's buttons, dim them in an inactive window, and leave fullscreen with Restore`)
 - A right click on the empty parts of the row opens the window manager's window menu, as a native title bar does
-  (`show_window_menu`: the system menu on Windows with its items enabled by the state of the window, Restore while
+  (`show_window_menu` of app-api, on the main thread, through `MenuHost` of `src-tauri/src/menu.rs`: the system menu on
+  Windows with its items enabled by the state of the window, Restore while
   maximized or minimized, Move, Size and Maximize while not, as `DefWindowProc` would; GDK's `show_window_menu` on Linux
   with the right button press of the webview of the last two seconds, whose serial Wayland checks, forgotten with its
   window); a control keeps its own right click.
@@ -241,7 +242,7 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window without rows where the window has none to wait for`)
   [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window on Ready to Sync, which waits for the user, not for a sync`)
   [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window when git defers its first sync, without a table that loads for ever`)
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_main_window_waits_for_its_first_rows_longer_and_takes_no_settings_with_its_load`)
+  [@test] ../../crates/app-api/src/windows_test.rs (`the_main_window_waits_for_its_first_rows_longer_and_takes_no_settings_with_its_load`)
 - It shows at most 1 s after its page committed its shell (`MAIN_CONTENT_BUDGET`; the rows of the first sync of the
   IntelliJ monorepo came about 0.6 s after the page loaded): the title row and the loading table, which the first
   render of the title row says (`markWindowShellDrawn`, `sub_window_drawn`), so a slow sync shows them, never a bare
@@ -254,10 +255,10 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   and as many rows as the last sync had (`lastBranchCount`), "Syncing branches…" after its delay; the rows take its
   room, nothing below moves. The deadlines run on the backend's clock (`wait_for_deadline`), never on a timer of the
   page, which WebKit throttles while the window is hidden: a page that says nothing after its shell still shows.
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_page_that_loaded_is_never_shown_by_the_fallback_of_its_load`, `the_budget_of_the_content_counts_from_the_shell_not_from_the_load`)
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_page_that_loaded_and_draws_no_shell_shows_once_the_fallback_of_its_shell_passed`, `a_page_that_never_loads_shows_once_the_fallback_of_its_build_passed`)
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_backend_shows_a_main_window_whose_page_says_nothing_after_its_shell_once_its_budget_passed`)
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`the_first_rows_within_the_budget_show_the_main_window_and_the_budget_then_does_nothing`)
+  [@test] ../../crates/app-api/src/windows_test.rs (`a_page_that_loaded_is_never_shown_by_the_fallback_of_its_load`, `the_budget_of_the_content_counts_from_the_shell_not_from_the_load`)
+  [@test] ../../crates/app-api/src/windows_test.rs (`a_page_that_loaded_and_draws_no_shell_shows_once_the_fallback_of_its_shell_passed`, `a_page_that_never_loads_shows_once_the_fallback_of_its_build_passed`)
+  [@test] ../../crates/app-api/src/windows_test.rs (`the_backend_shows_a_main_window_whose_page_says_nothing_after_its_shell_once_its_budget_passed`)
+  [@test] ../../crates/app-api/src/windows_test.rs (`the_first_rows_within_the_budget_show_the_main_window_and_the_budget_then_does_nothing`)
   [@test] ../../tests/e2e/repository/first-frame.spec.ts (`should show the main window on the first rows of its sync, the table loading where they come until then`)
 - The first frame of a window that shows is what its page has in its DOM then, never the layers of an earlier frame.
   A page says its content settled from an effect, right after React committed it and before WebKit painted it; a
@@ -320,8 +321,8 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   phases of each open ("commit-review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed 88"). The opens are serialized: two quick opens build one window. A new window opens centred on the
   monitor of the main window, then where it was (the window state plugin, without the visibility); it has a taskbar
   entry (Windows, Linux). Escape that nothing in the page handled and ⌘W close it.
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`an_open_while_the_page_loads_waits_for_the_page`, `a_loaded_hidden_page_takes_an_open_and_shows_for_it`, `a_deadline_shows_the_window_once_and_only_its_own_build`, `a_window_built_again_after_its_close_waits_for_its_page_again`)
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_shell_counts_once_per_load_and_only_after_it`, `a_reopen_while_the_page_loads_shows_the_window_on_the_content_of_the_reopen`)
+  [@test] ../../crates/app-api/src/windows_test.rs (`an_open_while_the_page_loads_waits_for_the_page`, `a_loaded_hidden_page_takes_an_open_and_shows_for_it`, `a_deadline_shows_the_window_once_and_only_its_own_build`, `a_window_built_again_after_its_close_waits_for_its_page_again`)
+  [@test] ../../crates/app-api/src/windows_test.rs (`a_shell_counts_once_per_load_and_only_after_it`, `a_reopen_while_the_page_loads_shows_the_window_on_the_content_of_the_reopen`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the files while the patch is read, settle with the diffs, and step to a commit read beside it`)
   [@test] ../../src/lib/sub-window.test.ts (`says the page loaded and its content settled without an animation frame, once per open`, `takes the settings changed while the page loaded once it listens, before it says its shell and its content`)
   [@test] ../../src/lib/open-timing.test.ts (`tells the phases of an open after its opener asked, the first time of each, once`)
@@ -339,7 +340,12 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
 
 - `pnpm e2e`: `tests/e2e/repository/title-bar.spec.ts` sets `__BD_TITLE_BAR__` with `addInitScript`. The window calls go
   to the mock (`plugin:window` in `tests/e2e/setup/tauri-mocks.ts`): `__e2eWindowState` holds fullscreen and
-  maximized, a test fires `tauri://resize`, `__e2eWindowCalls` records minimize, toggle_maximize and close.
+  maximized, a test fires `tauri://resize`, `__e2eWindowCalls` records minimize, toggle_maximize and close. The window
+  menu is a command of the app: the desktop of the test server records it (`getWindowMenus`). The first frame: the
+  harness builds the window of each page on the test server before it loads (`registerWindowBuild`, the main window in
+  `common-setup.ts`, a sub-window in `openLinkedSubWindow`), so its stages set the deadlines there as in the app, and
+  records what the page had in its DOM when it said a stage (`observeWindowStages`: `sub_window_drawn`,
+  `sub_window_ready`, on `page.route`).
 - By hand: `pnpm install-app` on macOS (the traffic lights, dragging, double click, entering and leaving fullscreen, in
   the main window and in each sub-window); an Ubuntu VM with GNOME on Wayland and on Xorg (the frame, resizing from
   every edge, snapping, the layouts by `gsettings set org.gnome.desktop.wm.preferences button-layout`, the double-click

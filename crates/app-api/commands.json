@@ -306,5 +306,98 @@
     "name": "set_repository_config",
     "class": "app",
     "transport": "json"
+  },
+  {
+    "name": "open_sub_window",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "sub_window_loaded",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "sub_window_drawn",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "sub_window_ready",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "show_window_menu",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "browse_repository",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "set_auto_sync_menu_checked",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "restart_app",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "check_for_updates",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_update_status",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "install_update",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "install_agent_cli",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "agent_cli_command",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "agent_cli_status",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "cli_tools_status",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "run_cli_tool_action",
+    "class": "app",
+    "transport": {
+      "channel": "progress",
+      "open": false
+    }
+  },
+  {
+    "name": "cancel_cli_tool_action",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "get_setup_items",
+    "class": "read",
+    "transport": "json"
   }
 ]

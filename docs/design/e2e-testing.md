@@ -171,7 +171,8 @@ Mock implementation:
   the repository is (`AppState::context_of`): the settings of its page, its own memory of the diffs and of the reviews
   of branches, no object cache (decision 8), the fakes of the repository as its services (`TestServices`) and its host
   (`TestHost` of `host.rs`: the accounts of the fakes, no `teamcity` CLI, the branch names of the fixture, since E2E
-  never runs claude, and the page's clock in UTC), and the git of a test machine, `GIT_CONFIG_GLOBAL` the repository's
+  never runs claude, the page's clock in UTC and the fakes of the CLIs of Settings → Tools), its desktop (`TestDesktop`,
+  `TestUpdater`, `TestAgentCli`: below, **Command registry**), and the git of a test machine, `GIT_CONFIG_GLOBAL` the repository's
   own file and `GIT_CONFIG_NOSYSTEM`, whose identity is Test User <test-user@example.com> (`TEST_IDENTITY`: what `git
   var` finds outside a repository, the first run's suggestion `test-user`; a template's own identity wins inside it).
   So the server answers what the app answers, an unknown path included, with no code of its own: the read ahead of a
@@ -190,23 +191,29 @@ Mock implementation:
   one. No channel is guessed from the payload: the diffs and the merges of the views (`get_file_diffs`,
   `get_file_merges`, `events`) stream through it as the app streams them, the patches of `subscribe_view`
   (`patches`, open), the events of `execute`, of a sign-in (`sign_in`, `events`) and the progress of the Safe Push
-  statistics (`get_robot_stats`, `events`). The handwritten command with a channel (`run_cli_tool_action`) is named in
-  `HANDWRITTEN_CHANNELS` of the mock until it moves into the registry; one that is in the table fails the page.
+  statistics (`get_robot_stats`, `events`) and the lines of an action of Settings → Tools (`run_cli_tool_action`,
+  `progress`).
   [@test] ../../crates/app-api/src/commands_json_test.rs (`the_commands_json_of_the_page_mock_is_the_registry`, `a_channel_of_the_table_names_the_argument_of_the_page_and_whether_it_stays_open`)
 - **Command registry**: three lists name the commands: `collect_commands!` of `src-tauri/src/lib.rs`, the
-  `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and of `invoke.rs` (`app_api::commands::COMMANDS`), and
-  `COMMAND_HANDLERS` of `tauri-mocks.ts`. The mock
-  proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
-  `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
-  entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
-  or a handler without its command, fails; the two
-  handlers over a route (`sub_window_loaded` and `sub_window_drawn` add the snapshot of the page, or record what it
-  drew) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes). No
-  handler emits an event: the events come from Rust (**Events of the app**). The number of commands (75) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
-  gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
+  `/invoke/<name>` routes of `invoke.rs` (one per entry of `app_api::commands::COMMANDS`; `crates/test-server/src/lib.rs`
+  has none of its own), and what the page answers itself, `PAGE_PLUGINS` of `tauri-mocks.ts`: the plugins of Tauri
+  (`plugin:event`, `plugin:window`, the clipboard, the opener…), never a command of the app. The mock proxies every
+  command to the server, and one without a route answers 405, which fails the test. `command_registry_test.rs`
+  (test-server) reads the three as text: every command has a route, a route without its command fails, `PAGE_PLUGINS`
+  holds only plugins, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes); the
+  number of commands (75) is pinned. No page handler emits an event: the events come from Rust (**Events of the app**).
+  What the app does on the desktop runs on the server as the app runs it, its host the desktop of the test repository
+  (`Desktop` of app-api; `TestDesktop`, `TestUpdater` and `TestAgentCli` of `host.rs` and `updater.rs`): the windows
+  (**Sub-windows**) and the window menu, recorded (`GET /repositories/{id}/windows`: `opens`, `menus`;
+  `getOpenedSubWindows`, `getWindowMenus`); Auto-sync on Focus of the native menu, a request a test reads; the folder
+  dialog (`browse_repository`), which picks the folder of `POST /repositories/{id}/dialog-pick` (`{ path }`, null
+  cancels; `setDialogPick`), else the test repository; the updater, whose `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
-  date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
-  updater (`updater.rs`).
+  date, version `0.0.0-test`) and whose install fails, as `restart_app` does after its write of the settings, with the
+  message that the test server has no updater; the agent CLI, `bd` at a fixed path that installs nothing (its skills
+  once `install_agent_cli` ran, the rules of `bd workspace` of the repository's global config); the CLIs of Settings →
+  Tools, the real cores on the fakes of the repository (`cli_tools_fixtures.rs`: `POST /repositories/{id}/cli-tools`
+  sets what is installed, `GET` reads what the fakes were asked; `AppHost::tool_environment` of `TestHost`).
 - **Events of the app**: the commands of app-api tell the windows through `AppEvents` of the host
   (`app_api::events`: `settings_changed`, `activity-changed`, `auth-changed`, `repository_config_changed`), which in
   the test server is `TestEvents` of `crates/test-server/src/host.rs`, one per test repository: each page subscribes
@@ -381,19 +388,26 @@ Mock implementation:
   with its review. `GET` returns the sessions' `calls` (the subjects of each,
   the recheck) and the `checks` the fake got (the tip, the pull request)
 - **Window**: `plugin:window` answers from `__e2eWindowState` (fullscreen, maximized) and records the actions in
-  `__e2eWindowCalls` (with `show_window_menu`); a test fires `tauri://resize`, `tauri://focus` and `tauri://blur` with
+  `__e2eWindowCalls` (the window menu is a command of the app, recorded by the server: `getWindowMenus`); a test fires `tauri://resize`, `tauri://focus` and `tauri://blur` with
   `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar renders as under a native title bar
   (`{ kind: "native" }`); a test sets one of the platforms' title bars with `useTitleBar` (`TITLE_BARS` in
   `tests/e2e/helpers/title-bar-helpers.ts`: macOS, Windows, GNOME layouts, KDE). The browser says it is Windows, so the
   lone Alt tap of the main menu is on. `emit` and `emit_to` are recorded in `__e2eEmittedEvents` and go through the
   test server to the pages of the repository (**Events of the app**)
-- **Sub-windows**: `open_sub_window` is answered in the page and recorded in `__e2eSubWindows` (the label, the URL, the
-  title, the parsed data and the settings it starts from, `store`); `getOpenedSubWindows` reads them; `sub_window_ready` (the page settled its content) is answered in
-  the page too, recorded in `__e2eSubWindowReady` (the open) and `__e2eWindowReadyRows` (the branch rows the page had
-  then: the main window, whose open the mock sets as its init script does, says it on its first rows);
-  `sub_window_drawn` (the page committed its shell) goes on to the server, which shows no window, and records in
-  `__e2eWindowShell` the title rows, the loading tables and the branch rows the page had then (`getWindowShell`). Two
-  ways show a sub-window:
+- **Sub-windows**: `open_sub_window` runs on the server as the app runs it (`app_api::app::windows`): the desktop of the
+  test repository builds no window and records each open (the window that asked, the label, the URL, the title, the
+  parsed data and the settings it starts from, `store` and `storeVersion`: the writer's copy, as the app builds the
+  window), which `getOpenedSubWindows` reads (`GET /repositories/{id}/windows`), the opens of the page's own window.
+  The window of a page a test opens is built on the server before the page loads, as the app builds it
+  (`registerWindowBuild`, `POST /repositories/{id}/windows/built`: the main window in `common-setup.ts`, a linked
+  sub-window in `openLinkedSubWindow` with the version of its snapshot), so `sub_window_loaded` answers the changes of
+  the settings after it and the stages of the page set the deadlines of the window there (`sub_window_drawn`,
+  `sub_window_ready`), as in the app; the server shows nothing. What the page had in its DOM when it said a stage is a
+  measure of the test (`observeCommand` on `page.route`, the call going on to the server; `observeWindowStages`, which
+  `openLinkedSubWindow` sets for every window: `getWindowShell`, the title rows, the loading tables and the branch rows
+  at `sub_window_drawn`; `getSubWindowReadyOpen` and `getWindowReadyRows`, the open and the branch rows at
+  `sub_window_ready`, which the main window, whose open the mock sets as its init script does, says on its first rows).
+  Two ways show a sub-window:
   - in the same page, with the recorded data as `__INIT_DATA__` (`openSubWindowPage` in `sub-window-helpers.ts`), under
     the label `main`: for a window that only reads (the commit review, the branch review, the conflict windows); the
     main window's page is gone then;

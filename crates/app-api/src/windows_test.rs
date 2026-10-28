@@ -1,4 +1,4 @@
-use crate::commands::window_management::{Awaited, BuiltPage, Deadline, Reopen, SubWindowLoaded, SubWindowOpen, SubWindowState, SubWindowUpdate, wait_for_deadline};
+use crate::app::windows::{Awaited, BuiltPage, Deadline, Reopen, SubWindowLoaded, SubWindowOpen, SubWindowState, SubWindowUpdate, wait_for_deadline};
 use app_settings::service::SettingsService;
 use domain_types::settings::SettingsPatch;
 use serde_json::json;

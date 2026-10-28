@@ -1,21 +1,25 @@
-use crate::api::{Settings, tauri_error};
-use crate::presentation::{Presentation, next_presentation};
-use crate::settings::init_script as settings_init_script;
-use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
-use crate::zoom::{apply_zoom, sub_window_min_size};
-use app_api::operation::operation;
+//! The windows of the app (spec/repository/title-bar.spec.md, "The first frame"): every window is built hidden and shows
+//! once its page settled the content of its latest open, else once the deadline of the stage its page reached passed
+//! (`SubWindowState`, one per app); an open of a window whose page still loads is kept for the page. The commands:
+//! `open_sub_window` (the build or the reopen of a sub-window), the stages its page says (`sub_window_loaded`,
+//! `sub_window_drawn`, `sub_window_ready`) and the window manager's menu of a window (`show_window_menu`). What only the
+//! host can do (build, title, hand a page its update, show) is its `WindowHost`; the deadlines run here, on the clock of
+//! the backend (`show_when_settled`), never on a timer of the page, which `WebKit` throttles while the window is hidden.
+
+use crate::context::AppContext;
+use crate::operation::{operation, operation_now};
+use crate::transport::Call;
 use app_settings::service::SettingsService;
-use app_settings::windows::window_changes_since;
+use app_settings::windows::{window_changes_since, window_snapshot};
 use domain_types::error::ApiError;
 use domain_types::settings::SettingsChange;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Manager, State, Webview, WebviewUrl, WebviewWindowBuilder};
-use tracing::{Instrument, info, instrument, warn};
+use tracing::{Instrument, instrument};
 
 /// How long a new window stays hidden at most when its page never loads (a broken page still shows)
 const SHOW_FALLBACK: Duration = Duration::from_secs(3);
@@ -29,16 +33,6 @@ const CONTENT_BUDGET: Duration = Duration::from_millis(300);
 /// window shows its title row and the loading table: in the release app on the IntelliJ monorepo the rows of the first
 /// sync came about 0.6 s after the page loaded, so a sync that takes longer is slow (a cold cache), not one to wait for
 const MAIN_CONTENT_BUDGET: Duration = Duration::from_secs(1);
-/// How long a window that is due to show waits at most for the webview to present the page as it is (`presentation`):
-/// in the check copy of the release app the hidden webview presented the settled rows 15 to 80 ms after the page said
-/// them (and when the page was busy for 0.6 s after it, right after that); a webview that presents nothing in a second
-/// shows the window as it is
-const PRESENTATION_BUDGET: Duration = Duration::from_secs(1);
-
-/// The canvas of the light and the dark theme (`--canvas` of `src/index.css` in sRGB): the colour behind the first frame
-/// that the webview paints after `show()`, never white
-const LIGHT_CANVAS: tauri::window::Color = tauri::window::Color(233, 234, 238, 255);
-const DARK_CANVAS: tauri::window::Color = tauri::window::Color(38, 40, 44, 255);
 
 /// An open of a sub-window, as its page gets it (`window.__SUB_WINDOW_OPEN__`)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Type)]
@@ -61,7 +55,7 @@ pub struct SubWindowUpdate {
 
 impl SubWindowUpdate {
   /// The script that hands the update to a loaded page
-  fn script(&self) -> Result<String, ApiError> {
+  pub(crate) fn script(&self) -> Result<String, ApiError> {
     let open = to_json(&self.open)?;
     Ok(format!(
       "
@@ -188,12 +182,12 @@ impl SubWindowEntry {
 /// content of the latest open (no blank frame, never the subject of an earlier open), else once the deadline of the
 /// stage its page reached passed: `SHOW_FALLBACK` after the build for a page that never loads, `DRAW_FALLBACK` after the
 /// load for one that never draws its shell, the content budget of the page after its shell; and then only once its
-/// webview presented the page as it is (`show_window`). An open of a window whose page still loads is kept for the page.
+/// webview presented the page as it is (`WindowHost::show`). An open of a window whose page still loads is kept for the page.
 /// The main window has one open, its build at the start of the app.
 #[derive(Default)]
 pub struct SubWindowState {
   /// one open at a time: two opens of a label never both build it (`open_sub_window` is async, opens run in parallel)
-  open_lock: tauri::async_runtime::Mutex<()>,
+  open_lock: tokio::sync::Mutex<()>,
   windows: Mutex<HashMap<String, SubWindowEntry>>,
   opens: AtomicU32,
 }
@@ -329,69 +323,35 @@ pub struct OpenSubWindowParams {
 /// Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
 /// settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
-#[tauri::command]
-#[instrument(skip(app_handle, state, settings, params), fields(window_id = %params.window_id, url = %params.url))]
-#[specta::specta]
-pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, settings: Settings<'_>, params: OpenSubWindowParams) -> Result<(), ApiError> {
+#[instrument(skip_all, fields(window_id = %params.window_id, url = %params.url))]
+pub async fn open_sub_window(ctx: &AppContext, call: &Call, params: OpenSubWindowParams) -> Result<(), ApiError> {
   operation(async move {
+    let (state, host) = (&ctx.sub_windows, &ctx.desktop.windows);
     let _open = state.open_lock.lock().await;
     let open = state.next_open(params.opened_at);
-    if let Some(existing_window) = app_handle.get_webview_window(&params.window_id) {
-      // titled for what it shows now
-      existing_window.set_title(&params.title).map_err(tauri_error)?;
-      let update = SubWindowUpdate { data: params.data, open };
-      match state.reopened(&params.window_id, update.clone()) {
-        Reopen::Pending => {}
-        Reopen::Hidden => existing_window.eval(update.script()?).map_err(tauri_error)?,
-        Reopen::Shown => {
-          existing_window.eval(update.script()?).map_err(tauri_error)?;
-          existing_window.show().map_err(tauri_error)?;
-          existing_window.unminimize().map_err(tauri_error)?;
-          existing_window.set_focus().map_err(tauri_error)?;
-        }
-      }
-      return Ok(());
+    if host.is_open(&params.window_id) {
+      let update = SubWindowUpdate { data: params.data.clone(), open };
+      return match state.reopened(&params.window_id, update.clone()) {
+        Reopen::Pending => host.reopen(&call.window, &params, None, false),
+        Reopen::Hidden => host.reopen(&call.window, &params, Some(&update.script()?), false),
+        Reopen::Shown => host.reopen(&call.window, &params, Some(&update.script()?), true),
+      };
     }
-
-    // the settings, the window data, the open and how the page draws the title bar, before the page's own scripts
-    let (settings_script, settings_version) = settings_init_script(&settings, &params.window_id);
-    let init_script = format!(
+    // the settings, the window data and the open, before the page's own scripts
+    let (settings_script, settings_version) = settings_script(&ctx.settings, &params.window_id);
+    let page_script = format!(
       "
       {settings_script}
       window.__INIT_DATA__ = {};
       window.__SUB_WINDOW_OPEN__ = {};
-      {}
       ",
       params.data,
-      to_json(&open)?,
-      title_bar_script()
+      to_json(&open)?
     );
-
-    // Create new window: its page draws the title bar, as the main window's does
-    let zoom = settings.app().zoom;
-    let (min_width, min_height) = sub_window_min_size(&params.window_id, zoom);
-    let width = params.width.unwrap_or(1400.0).max(min_width);
-    let height = params.height.unwrap_or(900.0).max(min_height);
-    let builder = WebviewWindowBuilder::new(&app_handle, &params.window_id, WebviewUrl::App(params.url.into()))
-      .title(params.title)
-      .inner_size(width, height)
-      .min_inner_size(min_width, min_height)
-      .visible(false)
-      .resizable(true)
-      .initialization_script(&init_script)
-      // the native file drop handler would swallow HTML5 drag and drop (on Windows)
-      .disable_drag_drop_handler();
-    let builder = match centered_on_main_monitor(&app_handle, width, height) {
-      Some((x, y)) => builder.position(x, y),
-      None => builder.center(),
-    };
     // known before the page can load and ask for the changes after its snapshot
     let deadline = state.built(&params.window_id, open, BuiltPage::Sub { settings_version });
-    let window = with_title_bar(with_canvas(builder, &app_handle)).build().map_err(tauri_error)?;
-    apply_zoom(&window, zoom);
-    // the empty GTK titlebar of a custom title bar on Linux, before the page paints and the window shows
-    prepare_title_bar(&window);
-    show_when_settled(app_handle, params.window_id, deadline);
+    host.build(&call.window, &params, &page_script, ctx.settings.app().zoom)?;
+    show_when_settled(ctx, params.window_id, deadline);
     Ok(())
   })
   .await
@@ -400,15 +360,13 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
 /// The page of the calling window loaded and listens to the settings: a sub-window gets the data of an open that came
 /// while it loaded and the changes of the settings after the snapshot its window was built with. The window shows once
 /// the page settled its content, at most `DRAW_FALLBACK` from now when the page draws no shell (`sub_window_drawn`)
-#[tauri::command]
-#[instrument(skip(app_handle, webview, state, settings))]
-#[specta::specta]
-pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>, settings: Settings<'_>) -> Result<SubWindowLoaded, ApiError> {
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn sub_window_loaded(ctx: &AppContext, call: &Call) -> Result<SubWindowLoaded, ApiError> {
   operation(async move {
-    let label = webview.label().to_string();
-    let (loaded, deadline) = state.loaded(&label, &settings);
+    let label = call.window.as_str();
+    let (loaded, deadline) = ctx.sub_windows.loaded(label, &ctx.settings);
     if let Some(deadline) = deadline {
-      show_when_settled(app_handle, label, deadline);
+      show_when_settled(ctx, label.to_owned(), deadline);
     }
     Ok(loaded)
   })
@@ -418,14 +376,11 @@ pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: S
 /// The loaded page of the calling window committed its shell, the title row (the main window's with its loading table):
 /// the window shows once the page settled its content, at most the content budget of the page from now
 /// (`CONTENT_BUDGET`, the main window's `MAIN_CONTENT_BUDGET`), so a slow page shows its shell, never a bare canvas
-#[tauri::command]
-#[instrument(skip(app_handle, webview, state))]
-#[specta::specta]
-pub async fn sub_window_drawn(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>) -> Result<(), ApiError> {
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn sub_window_drawn(ctx: &AppContext, call: &Call) -> Result<(), ApiError> {
   operation(async move {
-    let label = webview.label().to_string();
-    if let Some(deadline) = state.drawn(&label) {
-      show_when_settled(app_handle, label, deadline);
+    if let Some(deadline) = ctx.sub_windows.drawn(call.window.as_str()) {
+      show_when_settled(ctx, call.window.as_str().to_owned(), deadline);
     }
     Ok(())
   })
@@ -435,27 +390,35 @@ pub async fn sub_window_drawn(app_handle: AppHandle, webview: Webview, state: St
 /// The page of the calling window settled the content of the open `open_id` (the main window: drew its first rows or
 /// the state without rows): the window shows if that is the latest open and the window is still hidden, once its
 /// webview presented that content (`show_window`)
-#[tauri::command]
-#[instrument(skip(app_handle, webview, state))]
-#[specta::specta]
-pub async fn sub_window_ready(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>, open_id: u32) -> Result<(), ApiError> {
+#[instrument(skip_all, fields(window = %call.window, open_id = open_id))]
+pub async fn sub_window_ready(ctx: &AppContext, call: &Call, open_id: u32) -> Result<(), ApiError> {
   operation(async move {
-    if state.ready(webview.label(), open_id) {
-      tauri::async_runtime::spawn(show_window(app_handle, webview.label().to_owned(), Shown::Settled { open_id }).in_current_span());
+    if ctx.sub_windows.ready(call.window.as_str(), open_id) {
+      let (host, label) = (Arc::clone(&ctx.desktop.windows), call.window.as_str().to_owned());
+      ctx.runtime.spawn(async move { host.show(&label, Shown::Settled { open_id }).await }.in_current_span());
     }
     Ok(())
   })
   .await
 }
 
+/// The window manager's menu of the window (Move, Resize, Always on Top, Close…), as a right click on a native title bar
+/// opens it: the page calls it for a right click on the empty parts of its title bar (`WindowTitleBar`). A sync command,
+/// so it runs on the main thread, where GDK and Win32 menus live.
+#[instrument(skip_all, fields(window = %call.window))]
+pub fn show_window_menu(ctx: &AppContext, call: &Call) -> Result<(), ApiError> {
+  operation_now(|| ctx.desktop.menu.show_window_menu(&call.window))
+}
+
 /// Shows the window of `label`, built hidden, once its page settled its content (`sub_window_ready`), else once
 /// `deadline` passed without the stage after the one it was set for: each stage of the page (the build, the load, the
-/// shell) sets the deadline of the next. The main window as a sub-window: `prepare_title_bar` first, then this
-pub fn show_when_settled(app_handle: AppHandle, label: String, deadline: Deadline) {
-  tauri::async_runtime::spawn(
+/// shell) sets the deadline of the next. The main window as a sub-window: the app builds it and calls this
+pub fn show_when_settled(ctx: &AppContext, label: String, deadline: Deadline) {
+  let (state, host) = (Arc::clone(&ctx.sub_windows), Arc::clone(&ctx.desktop.windows));
+  ctx.runtime.spawn(
     async move {
-      if wait_for_deadline(&app_handle.state::<SubWindowState>(), &label, deadline).await {
-        show_window(app_handle, label, Shown::Deadline(deadline)).await;
+      if wait_for_deadline(&state, &label, deadline).await {
+        host.show(&label, Shown::Deadline(deadline)).await;
       }
     }
     .in_current_span(),
@@ -472,51 +435,21 @@ pub async fn wait_for_deadline(state: &SubWindowState, label: &str, deadline: De
 
 /// What shows a window built hidden
 #[derive(Debug, Clone, Copy)]
-enum Shown {
+pub enum Shown {
   /// Its page settled the content of the open `open_id`
   Settled { open_id: u32 },
   /// A deadline passed: the window shows as it is
   Deadline(Deadline),
 }
 
-/// Shows and focuses the window of `label`, due to show for `shown`, once its webview presented the page as it is now
-/// (`next_presentation`, at most `PRESENTATION_BUDGET`): its first frame is the content the page settled, or the shell
-/// it drew, never the layers of an earlier frame. A page that never loaded shows at once: nothing of it is to come
-async fn show_window(app_handle: AppHandle, label: String, shown: Shown) {
-  let Some(window) = app_handle.get_webview_window(&label) else {
-    return;
-  };
-  let started = tokio::time::Instant::now();
-  let presentation = match shown {
-    Shown::Deadline(Deadline { awaited: Awaited::Load, .. }) => Presentation::Unknown,
-    _ => next_presentation(&window, PRESENTATION_BUDGET).await,
-  };
-  let presented_ms = started.elapsed().as_millis();
-  match shown {
-    Shown::Settled { open_id } => info!(label, open_id, presented_ms, "the page settled its content, showing the window"),
-    Shown::Deadline(Deadline {
-      awaited: Awaited::Content, after, ..
-    }) => {
-      info!(
-        label,
-        budget_ms = after.as_millis(),
-        presented_ms,
-        "the page settled no content within its budget, showing the window"
-      );
-    }
-    Shown::Deadline(Deadline { awaited: Awaited::Shell, .. }) => warn!(label, presented_ms, "the page loaded and drew no shell, showing the window"),
-    Shown::Deadline(Deadline { awaited: Awaited::Load, .. }) => warn!(label, "the page of the window did not load, showing it"),
-  }
-  if presentation == Presentation::TimedOut {
-    warn!(
-      label,
-      budget_ms = PRESENTATION_BUDGET.as_millis(),
-      "the webview presented no frame within its budget, the window shows as it is"
-    );
-  }
-  if let Err(e) = window.show().and_then(|()| window.set_focus()) {
-    warn!(label, error = %e, "cannot show the window");
-  }
+/// The part of the init script of the window `label` that hands it the settings (`window.__TAURI_STORE__`, the values
+/// by key, and `window.__TAURI_STORE_VERSION__`, the version they were taken at), before the page's own scripts, and
+/// the version of that snapshot, after which a sub-window's page takes the changes when it loads (`sub_window_loaded`).
+/// The values are serialized JSON, so the script always parses, a settings file cut within a write too (its snapshot is
+/// the defaults)
+pub fn settings_script(settings: &SettingsService, label: &str) -> (String, u32) {
+  let (version, values) = window_snapshot(settings, label);
+  (format!("window.__TAURI_STORE__ = {values}; window.__TAURI_STORE_VERSION__ = {version};"), version)
 }
 
 /// The line of the main window's init script that names its open (`__SUB_WINDOW_OPEN__`, its build): its page settles
@@ -535,24 +468,4 @@ pub fn epoch_millis() -> f64 {
 
 fn to_json(open: &SubWindowOpen) -> Result<String, ApiError> {
   serde_json::to_string(open).map_err(|e| ApiError::internal(e.to_string()))
-}
-
-/// The window on the canvas of the theme the main window shows. Not on Linux: a rounded window is transparent there,
-/// the page clips its canvas to the radius (`round_corners`)
-fn with_canvas<'a>(builder: WebviewWindowBuilder<'a, tauri::Wry, AppHandle>, app_handle: &AppHandle) -> WebviewWindowBuilder<'a, tauri::Wry, AppHandle> {
-  if cfg!(target_os = "linux") {
-    return builder;
-  }
-  let theme = app_handle.get_webview_window("main").and_then(|window| window.theme().ok());
-  builder.background_color(if theme == Some(tauri::Theme::Dark) { DARK_CANVAS } else { LIGHT_CANVAS })
-}
-
-/// Where a sub-window of `width` x `height` (logical) is centred on the monitor of the main window: a new window opens
-/// where the user works, not on the primary monitor
-fn centered_on_main_monitor(app_handle: &AppHandle, width: f64, height: f64) -> Option<(f64, f64)> {
-  let monitor = app_handle.get_webview_window("main")?.current_monitor().ok()??;
-  let scale = monitor.scale_factor();
-  let position = monitor.position().to_logical::<f64>(scale);
-  let size = monitor.size().to_logical::<f64>(scale);
-  Some((position.x + ((size.width - width) / 2.0).max(0.0), position.y + ((size.height - height) / 2.0).max(0.0)))
 }

@@ -1,6 +1,7 @@
+pub mod agent_cli;
 pub mod api;
 pub mod auto_update;
-pub mod commands;
+pub mod desktop;
 pub mod legacy_model_cache;
 pub mod menu;
 pub mod presentation;
@@ -36,14 +37,9 @@ mod zoom_test;
   )
 )]
 use api::generated::*;
-use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
-use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
-use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
-use commands::repository_browser::browse_repository;
-use commands::window_management::{
-  BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_drawn, sub_window_loaded, sub_window_ready,
-};
-use commands::window_menu::show_window_menu;
+use app_api::app::windows::{BuiltPage, SubWindowState, epoch_millis, open_script, settings_script, show_when_settled};
+use app_api::transport::Desktop;
+use auto_update::{AppUpdater, UpdateState};
 use services::{AppSignIns, GitHubState, PatronusState, SignInsState, YouTrackState};
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
@@ -53,12 +49,12 @@ use app_api::repository_state::RepositoryStateCache;
 use app_api::transport::WindowId;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::sign_in_session::GitHubSignInSession;
-use menu::{configure_app_menu, handle_menu_event, set_auto_sync_menu_checked};
+use menu::{TauriMenu, configure_app_menu, handle_menu_event};
 use remote_facts::sign_in::SignIns;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
-use title_bar::{init_title_bar, prepare_title_bar, restart_app, title_bar_script, with_title_bar};
+use title_bar::{init_title_bar, prepare_title_bar, title_bar_script, with_title_bar};
 use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width};
 // The log plugin is replaced by the devtools plugin in devtools builds; keep the dependency referenced.
 #[cfg(feature = "devtools")]
@@ -257,7 +253,6 @@ pub fn run() {
       app.manage(git.clone());
       app.manage(repository_state.clone());
       let (sessions, registry) = services::start_sessions(app.handle(), &git, &repository_state);
-      app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
       }
@@ -275,9 +270,7 @@ pub fn run() {
       let github_session = GitHubSignInSession::new(app_data_dir.as_deref().map(github::token_store::token_file));
       let sign_in_host = Arc::new(AppSignIns { app: app.handle().clone() });
       app.manage(SignInsState(SignIns::new(sign_in_host, github_session)));
-      app.manage(CliToolsState::new(app_data_dir.as_deref()));
-      // Initialize update state
-      app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
+      let update_state = Arc::new(std::sync::Mutex::new(UpdateState::new(current_version)));
 
       // the one writer of settings.json and repository-state.json: every window starts from its copy and changes it
       // through `set_setting`
@@ -290,16 +283,9 @@ pub fn run() {
       init_title_bar(&app_settings);
       configure_app_menu(app, &app_settings)?;
 
-      // the settings and the title bar, before the page's own scripts
-      // the main window's page catches up from the version of this snapshot itself (`get_settings_changes`): a reload
-      // runs this script again
-      let (settings_script, _) = settings::init_script(&settings_service, app_settings::windows::MAIN_WINDOW);
-      // the open of the window, which its page settles once it drew its first rows (`sub_window_ready`)
-      let windows = app.state::<SubWindowState>();
-      let open = windows.next_open(epoch_millis());
-      let init_script = format!("{settings_script} {} {}", open_script(&open), title_bar_script());
-      // the state of the commands of app-api, which shares its parts with the handwritten commands
+      // the state of the commands of app-api
       let services = Arc::new(services::AppServices::new(app.handle()));
+      let desktop = Arc::new(desktop::TauriDesktop(app.handle().clone()));
       app.manage(AppContext {
         git,
         settings: Arc::clone(&settings_service),
@@ -318,8 +304,31 @@ pub fn run() {
         events: Arc::new(api::TauriEvents(app.handle().clone())),
         host: services,
         remote: app_api::remote::RemoteMemory::default(),
+        desktop: Desktop {
+          windows: Arc::clone(&desktop) as Arc<dyn app_api::transport::WindowHost>,
+          dialog: Arc::clone(&desktop) as Arc<dyn app_api::transport::DialogHost>,
+          menu: Arc::new(TauriMenu(app.handle().clone())),
+          restart: desktop,
+          updater: Arc::new(AppUpdater {
+            app: app.handle().clone(),
+            state: update_state,
+          }),
+          agent_cli: Arc::new(agent_cli::AppAgentCli),
+        },
+        sub_windows: Arc::new(SubWindowState::default()),
+        cli_tools: app_api::app::cli_tools::CliToolsState::default(),
+        runtime: tauri::async_runtime::handle().inner().clone(),
       });
       app.manage(settings_service);
+      let ctx = app.state::<AppContext>();
+
+      // the settings and the title bar, before the page's own scripts
+      // the main window's page catches up from the version of this snapshot itself (`get_settings_changes`): a reload
+      // runs this script again
+      let (settings_script, _) = settings_script(&ctx.settings, app_settings::windows::MAIN_WINDOW);
+      // the open of the window, which its page settles once it drew its first rows (`sub_window_ready`)
+      let open = ctx.sub_windows.next_open(epoch_millis());
+      let init_script = format!("{settings_script} {} {}", open_script(&open), title_bar_script());
 
       let zoom = app_settings.zoom;
       let min_width = min_window_width(zoom);
@@ -334,13 +343,13 @@ pub fn run() {
           .disable_drag_drop_handler(),
       );
       // known before the page can load and say it drew its first rows
-      let deadline = windows.built(app_settings::windows::MAIN_WINDOW, open, BuiltPage::Main);
+      let deadline = ctx.sub_windows.built(app_settings::windows::MAIN_WINDOW, open, BuiltPage::Main);
       let window = builder.build()?;
       apply_zoom(&window, zoom);
       // built hidden (`with_title_bar`), it shows on its first frame with content, as a sub-window does: never a grey
       // canvas, nor a title row over an empty body
       prepare_title_bar(&window);
-      show_when_settled(app.handle().clone(), app_settings::windows::MAIN_WINDOW.to_owned(), deadline);
+      show_when_settled(&ctx, app_settings::windows::MAIN_WINDOW.to_owned(), deadline);
 
       Ok(())
     })
@@ -363,7 +372,6 @@ pub fn run() {
         ..
       } = event
       {
-        app_handle.state::<SubWindowState>().forget(&label);
         app_handle.state::<AppContext>().forget_window(&WindowId::new(label.as_str()));
         title_bar::forget_window(&label);
         if label == app_settings::windows::MAIN_WINDOW {

@@ -2,6 +2,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot, captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 import { openModal } from "../helpers/modal-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { TestRepositoryBuilder } from "../helpers/test-repository"
 
 test.describe("Welcome Card", () => {
   test("shows welcome card for new users without branch prefix", async ({ page, setupRepo }) => {
@@ -72,29 +73,39 @@ test.describe("Welcome Card", () => {
   })
 
   test("keeps Step 2 visible after selecting a repository without branch prefix", async ({ page, setupRepo }) => {
-    await setupRepo("NO_REPO", { prepopulateStore: false })
+    const welcome = await setupRepo("NO_REPO", { prepopulateStore: false })
+    // the repository the user picks in the folder dialog: one without a branch prefix
+    const picked = new TestRepositoryBuilder().useTemplate("simple_no_prefix").withPrepopulateStore(false)
+    await picked.init()
+    try {
+      await welcome.setDialogPick(picked.path)
 
-    // Welcome card should be visible initially
-    const welcomeCard = page.locator('[data-testid="welcome-card"]')
-    await expect(welcomeCard).toBeVisible()
+      // Welcome card should be visible initially
+      const welcomeCard = page.locator('[data-testid="welcome-card"]')
+      await expect(welcomeCard).toBeVisible()
 
-    // Select a repository via the browse button
-    const browseButton = page.getByTestId("browse-repository-button")
-    await browseButton.click()
+      // Select a repository via the browse button
+      const browseButton = page.getByTestId("browse-repository-button")
+      await browseButton.click()
 
-    // After repository selection, Step 2 should still be present if no prefix is configured
-    // Re-query the card to avoid staleness if DOM re-rendered
-    const welcomeCardAfter = page.locator('[data-testid="welcome-card"]')
-    await expect(welcomeCardAfter).toBeVisible()
-    await expect(welcomeCardAfter.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
+      // After repository selection, Step 2 should still be present if no prefix is configured
+      // Re-query the card to avoid staleness if DOM re-rendered
+      const welcomeCardAfter = page.locator('[data-testid="welcome-card"]')
+      await expect(welcomeCardAfter).toBeVisible()
+      await expect(welcomeCardAfter.getByRole("heading", { name: "Choose your branch prefix" })).toBeVisible()
 
-    // Step 1 should no longer be shown inside the welcome card (avoid matching tooltip text elsewhere)
-    await expect(welcomeCardAfter.getByText("Select a Git repository")).toHaveCount(0)
+      // Step 1 should no longer be shown inside the welcome card (avoid matching tooltip text elsewhere)
+      await expect(welcomeCardAfter.getByText("Select a Git repository")).toHaveCount(0)
 
-    // the field shows the suggestion of the selected repository's git identity (test@example.com)
-    await expect(welcomeCardAfter.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test")
+      // the field shows the suggestion of the selected repository's git identity (test@example.com)
+      await expect(welcomeCardAfter.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test")
 
-    // Capture HTML snapshot for regression safety
-    await captureHtmlSnapshot(welcomeCardAfter, "welcome-card-repo-selected-no-prefix")
+      // Capture HTML snapshot for regression safety
+      await captureHtmlSnapshot(welcomeCardAfter, "welcome-card-repo-selected-no-prefix")
+    } finally {
+      // the page first, so it starts no command for the picked repository
+      await page.close()
+      await picked.cleanup()
+    }
   })
 })

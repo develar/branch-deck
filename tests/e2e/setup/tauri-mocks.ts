@@ -44,9 +44,6 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
 
   // the label of the window: `main`, or that of a linked sub-window (`openLinkedSubWindow` sets `__e2eWindowLabel`)
   const windowLabel: string = (window as any).__e2eWindowLabel ?? "main"
-  // the version of the snapshot of the settings the page starts from, as the backend remembers it for the window it
-  // built (`SubWindowState::built`): the load of a sub-window takes the changes after it (`sub_window_loaded`)
-  const startStoreVersion: number = (window as any).__TAURI_STORE_VERSION__ ?? 0
   // the main window's open, its build, as its init script names it (`open_script`): its page settles it on its first
   // rows (`markWindowContentReady`); a sub-window's page gets its open from the test (`openLinkedSubWindow`)
   if (windowLabel === "main") {
@@ -134,11 +131,6 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     return body
   }
 
-  /** A command's answer as JSON, its bytes counted in `__ipcStats` */
-  async function readJsonAnswer(response: Response): Promise<any> {
-    return JSON.parse(decoder.decode(await readAnswer(response)))
-  }
-
   /** A message of a command's channel, counted in `__ipcStats` */
   function countChannelMessage(cmd: string, data: string) {
     ipcStats.channelMessages[cmd] = (ipcStats.channelMessages[cmd] ?? 0) + 1
@@ -186,24 +178,12 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     }
   }
 
-  /**
-   * The handwritten commands of the app with a channel, by the argument of the page that gets its events, until they
-   * move into the registry of app-api, whose table names the channels of its commands
-   */
-  const HANDWRITTEN_CHANNELS: Record<string, string> = { run_cli_tool_action: "progress" }
-
   /** The channel of each command that has one, by its name: the argument of the page that gets its events, and `open` */
   const commandChannels = new Map<string, { channel: string; open: boolean }>()
   for (const command of pageCommands) {
     if (typeof command.transport === "object") {
       commandChannels.set(command.name, command.transport)
     }
-  }
-  for (const [name, channel] of Object.entries(HANDWRITTEN_CHANNELS)) {
-    if (pageCommands.some(command => command.name === name)) {
-      throw new Error(`[Test Mock] ${name} is a command of app-api: remove it from HANDWRITTEN_CHANNELS`)
-    }
-    commandChannels.set(name, { channel, open: false })
   }
 
   // the keys of the channels of a page: the pages of tests that run at once never share one, so each page counts from a
@@ -496,64 +476,14 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     }
   }
 
-  /**
-   * Helper to proxy simple commands to test server with repoId in URL
-   */
-  async function proxyCommandWithRepoId(command: string): Promise<any> {
-    // Empty body since repo_id is in URL
-    const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
-    return await invokeServer(command, `/invoke/${command}/${repoId}`, init, async response => {
-      if (!response.ok) {
-        throw new Error(`${command} failed: ${response.status} ${response.statusText}`)
-      }
-      return await readJsonAnswer(response)
-    })
-  }
-
-  // Returned by handleAppCommand for commands it does not handle (handled commands may legitimately return null)
-  const NOT_HANDLED = Symbol("not handled")
+  // === The plugins of Tauri ===
 
   /**
-   * Handle app-specific commands
+   * What the page answers itself: the plugins of Tauri, by their prefix (`plugin:window|set_min_size`), as the webview of
+   * the app answers them; every command of the app goes to the test server, which runs it as the app does (its windows,
+   * its menu, its dialog and its updater on the desktop of the test repository, `host.rs`)
    */
-  async function handleAppCommand(cmd: string, payload: any): Promise<any> {
-    switch (cmd) {
-      case "validate_repository_path":
-        // Always return empty string for valid path in tests
-        return ""
-
-      case "browse_repository":
-        // Special-case: when current path is NO_REPO_*, simulate a valid selection by
-        // creating a real repo and returning its path. Otherwise, proxy as before.
-        try {
-          const repoInfoRes = await serverFetch(`/repositories/${repoId}`)
-          if (repoInfoRes.ok) {
-            const repoInfo = await repoInfoRes.json()
-            const currentPath: string | undefined = repoInfo?.path
-            if (currentPath && currentPath.startsWith("NO_REPO_")) {
-              const createRes = await serverFetch(`/repositories`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ template: "simple_no_prefix", prepopulate_store: false }),
-              })
-              if (createRes.ok) {
-                const created = await createRes.json()
-                return { path: created.path, valid: true, error: null }
-              }
-            }
-          }
-        } catch (_) {}
-        return await proxyCommandWithRepoId("browse_repository")
-
-      default:
-        return NOT_HANDLED
-    }
-  }
-
-  // === Command Registry ===
-
-  const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
-    // Plugin commands
+  const PAGE_PLUGINS: Record<`plugin:${string}`, (cmd: string, payload: any) => any> = {
     "plugin:event": handleEventCommand,
     "plugin:window": handleWindowCommand,
     // the page zoom (`useZoom`), recorded in `__e2eWebviewZoom`; a test zooms the page as the webview does with a
@@ -575,47 +505,6 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     },
     // the notification plugin goes through the browser's `Notification`; its permission check never notifies
     "plugin:notification": () => false,
-    // a sub-window is a page of its own in the app: record what opens it (`window.__e2eSubWindows`, with the parsed data
-    // and the settings it starts from); a test opens the page itself with them (`openSubWindowPage`, `openLinkedSubWindow`
-    // in sub-window-helpers)
-    open_sub_window: (_cmd: string, payload: any) => {
-      const params = payload?.params
-      ;((window as any).__e2eSubWindows ??= []).push({
-        windowId: params.windowId,
-        url: params.url,
-        title: params.title,
-        data: JSON.parse(params.data),
-        // the backend builds a new window from its writer's copy of the settings, which this page's copy follows
-        store: structuredClone((window as any).__TAURI_STORE__ ?? {}),
-        storeVersion: (window as any).__TAURI_STORE_VERSION__ ?? 0,
-      })
-      return null
-    },
-    // the page of a window loaded (`announceWindowLoaded`): no data of a later open, and the changes of the settings
-    // after the snapshot the page started from, which the test server's writer has (none for the main window)
-    sub_window_loaded: async (cmd: string) => proxyToTestServer(cmd, { since: startStoreVersion, origin: windowLabel }),
-    // the page committed its shell (`markWindowShellDrawn`): the backend would count the content budget from now; with
-    // the title rows, the loading tables and the branch rows the page had then
-    sub_window_drawn: async (cmd: string, payload: any) => {
-      ;(window as any).__e2eWindowShell = {
-        titleRows: document.querySelectorAll("header[data-title-bar]").length,
-        loadingTables: document.querySelectorAll("[data-testid=branch-table-loading]").length,
-        branchRows: document.querySelectorAll("[data-testid=branch-row]").length,
-      }
-      return proxyToTestServer(cmd, payload)
-    },
-    // the page settled the content of an open (`markWindowContentReady`): the backend would show the window; with the
-    // branch rows the page had then, which the main window waits for
-    sub_window_ready: (_cmd: string, payload: any) => {
-      ;(window as any).__e2eSubWindowReady = payload?.openId ?? null
-      ;(window as any).__e2eWindowReadyRows = document.querySelectorAll("[data-testid=branch-row]").length
-      return null
-    },
-    // the window manager's window menu of a right click on the title bar: recorded with the window calls
-    show_window_menu: () => {
-      ;((window as any).__e2eWindowCalls ??= []).push("show_window_menu")
-      return null
-    },
     // links open in the browser: record them for the test (`window.__OPENED_URLS__`)
     "plugin:opener": (_cmd: string, payload: any) => {
       ;((window as any).__OPENED_URLS__ ??= []).push(payload?.url)
@@ -629,30 +518,17 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     },
   }
 
-  // All unhandled commands are proxied to test server for single source of truth
-
   /**
-   * Main command handler
+   * Main command handler: a plugin of Tauri in the page (`PAGE_PLUGINS`), every command of the app on the test server
    */
   const handleMockCommand = async (cmd: string, payload: any): Promise<any> => {
     debug(`[Test Mock] Handling command: ${cmd}`, payload)
 
-    // Check app-specific commands first
-    const appResult = await handleAppCommand(cmd, payload)
-    if (appResult !== NOT_HANDLED) {
-      return appResult
+    const prefix = cmd.split("|")[0] as `plugin:${string}`
+    const plugin = cmd.startsWith("plugin:") ? PAGE_PLUGINS[prefix] : undefined
+    if (plugin) {
+      return plugin(cmd, payload)
     }
-
-    // Check command registry
-    const prefix = cmd.split("|")[0]
-    const handler = (prefix && COMMAND_HANDLERS[prefix]) || COMMAND_HANDLERS[cmd]
-
-    if (handler) {
-      return handler(cmd, payload)
-    }
-
-    // Proxy all unhandled commands to test server (single source of truth)
-    debug(`[Test Mock] Command not handled locally: ${cmd}. Proxying to test server.`)
 
     try {
       return await proxyToTestServer(cmd, payload)

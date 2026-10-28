@@ -98,7 +98,7 @@ flowchart LR
 ### Implementation Notes
 
 Pattern structure:
-- **Tauri Command**: Async wrapper with `#[tauri::command]` (see `src-tauri/src/commands/`)
+- **Command**: an async body of the registry of app-api (`crates/app-api/src/`, its families), wrapped as a `#[tauri::command]` by `src-tauri/src/api.rs`
 - **Core Function**: Synchronous implementation with actual logic
 - **State Cloning**: Clone `State<T>` before moving to blocking thread
 - **Error Mapping**: Convert JoinError to user-friendly message
@@ -204,7 +204,7 @@ Thread pool characteristics:
 
 ## References
 
-- Implementation: `src-tauri/src/commands/` - All Tauri commands
+- Implementation: `crates/app-api/src/commands.rs` - every command of the app, its body in a family of app-api
 - Core functions: Synchronous functions called from commands
 - GitCommandExecutor: `crates/git-executor/src/git_command_executor.rs`
 - Tests: Much simpler without async - see any `#[test]` vs `#[tokio::test]`

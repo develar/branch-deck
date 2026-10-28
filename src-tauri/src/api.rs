@@ -1,11 +1,9 @@
 //! The commands of app-api as Tauri commands: one `#[tauri::command]` wrapper per entry of
 //! `app_api::for_each_command!` (`generated`), with the docs and the argument names of the entry, which the bindings
 //! show (`specta`), and the `AppContext` the app manages for the body; the call of a window is its `Webview`, the channel
-//! of a command its Tauri channel (`ChannelSink`). `lib.rs` registers them with the handwritten commands that have no
-//! entry yet.
+//! of a command its Tauri channel (`ChannelSink`). `lib.rs` registers them: the app has no command beside them.
 
 use app_api::transport::{AppEvents, EventSink, Sink, SinkGone, WindowId};
-use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use std::sync::Arc;
 use tauri::ipc::{Channel, IpcResponse};
@@ -17,9 +15,6 @@ use tracing::warn;
 pub fn tauri_error(error: tauri::Error) -> ApiError {
   ApiError::internal(error.to_string())
 }
-
-/// The writer of the settings, as a handwritten command takes it
-pub type Settings<'a> = tauri::State<'a, Arc<SettingsService>>;
 
 /// A Tauri channel of the page as the channel of a command of app-api: the patches of a subscription, the events of an
 /// operation. A channel of a page that went away never fails its send, so a window's subscription ends with its page
@@ -64,7 +59,8 @@ macro_rules! tauri_commands {
 
 /// The wrapper of one command by its kind: `json` async with its `Result`, `plain` on the main thread with its value,
 /// `raw` async with the bytes as a `tauri::ipc::Response`, which the typed bindings cannot say (`raw_invoke_handler`),
-/// `now` on the main thread with the call of its webview; `session`, `window` and a `json` command with a channel
+/// `now` on the main thread with the call of its webview, `main` the same with its `Result`; `session`, `window` and a
+/// `json` command with a channel
 /// async in the frame of app-api (`Command::call`) with the call of its webview and its channel. The arms of the kinds
 /// come before the arms of any kind, which `macro_rules` tries in order
 macro_rules! tauri_command {
@@ -108,6 +104,15 @@ macro_rules! tauri_command {
     pub fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) {
       let call = ctx.call(webview.label());
       $body(&ctx, &call, $($arg),*);
+    }
+  };
+  ($(#[doc = $doc:literal])* main $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
+    $(#[doc = $doc])*
+    #[tauri::command]
+    #[specta::specta]
+    pub fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
+      let call = ctx.call(webview.label());
+      $body(&ctx, &call, $($arg),*)
     }
   };
   // `session`, `window`: the call of the webview

@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
 import { clearClipboard } from "./clipboard-helpers"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
+import { registerWindowBuild } from "./sub-window-helpers"
 import { TestRepositoryBuilder } from "./test-repository"
 import { TEST_SERVER_URL } from "./test-server-url"
 
@@ -154,6 +155,12 @@ export async function setupTestRepository(page: Page, templateName: string, opti
     if (snapshot.ok) {
       storeVersion = ((await snapshot.json()) as { version: number }).version
     }
+  }
+
+  // the main window is built before its page loads, as the app builds it: its open is 1 (`__SUB_WINDOW_OPEN__` of the
+  // page mock), and its stages set its deadlines on the test server as in the app
+  if (repoBuilder.id) {
+    await registerWindowBuild(repoBuilder.id, { label: "main", page: "main", openId: 1 })
   }
 
   await page.addInitScript(

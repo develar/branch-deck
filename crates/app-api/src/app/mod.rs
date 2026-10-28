@@ -7,8 +7,17 @@
 //!   (docs/design/distributed-settings.md).
 //! - `repository_config`: a write of Settings → Repository, the `branchdeck.*` git config (spec/repository/settings.spec.md).
 //! - `sign_in`: the sign-ins of the app's accounts (spec/repository/github-sign-in.spec.md).
+//!
+//! And the app itself, beside its repositories: its windows (`windows`: the opens and the first frame of every window,
+//! spec/repository/title-bar.spec.md), what it does on the desktop (`desktop`: the folder dialog, the native menu, the
+//! restart, the updater), its agent CLI (`agent_cli`, spec/cli/agent-cli.spec.md) and the CLIs of Settings → Tools
+//! (`cli_tools`, spec/repository/cli-tools.spec.md).
 
 pub mod activity;
+pub mod agent_cli;
+pub mod cli_tools;
+pub mod desktop;
 pub mod repository_config;
 pub mod settings;
 pub mod sign_in;
+pub mod windows;

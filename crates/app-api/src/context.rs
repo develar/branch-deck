@@ -4,13 +4,15 @@
 //! the session of a repository is built here alone (`session_key`), for the frame of a session command (`registry.rs`).
 
 use crate::api_error::no_branch_prefix;
+use crate::app::cli_tools::CliToolsState;
+use crate::app::windows::SubWindowState;
 use crate::operation::run_blocking;
 use crate::reads::conflict_fix::ConflictFixSearch;
 use crate::reads::symbols::SymbolIndexes;
 use crate::remote::RemoteMemory;
 use crate::repository_state::RepositoryStateCache;
 use crate::session::windows::Windows;
-use crate::transport::{AppEvents, AppHost, Call, WindowId};
+use crate::transport::{AppEvents, AppHost, Call, Desktop, WindowId};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
@@ -26,7 +28,9 @@ use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 
 /// The state every command of the app shares. A host differs only in what it puts here: the e2e server gives a test the
 /// git of a test machine (its own global config, no system config), its settings, its own memory of the diffs, the
-/// symbol index of its fixture and the fakes of its repository as its services and its host
+/// symbol index of its fixture, the fakes of its repository as its services and its host, and a desktop that records
+/// what the app would do (its windows, its menu) or answers from the fixtures of the repository (the folder dialog, the
+/// updater)
 pub struct AppContext {
   pub git: GitCommandExecutor,
   /// The one writer of `settings.json` and `repository-state.json`
@@ -63,6 +67,15 @@ pub struct AppContext {
   /// What the commands of the remote family keep between their calls: the reviews of branches, the latest request for
   /// branch names, the reads of the Safe Push statistics
   pub remote: RemoteMemory,
+  /// What the app does on the desktop: its windows, the folder dialog, the native menu, its restart, its updater, its
+  /// agent CLI
+  pub desktop: Desktop,
+  /// The windows built hidden, the main window too, until each shows (`app::windows`)
+  pub sub_windows: Arc<SubWindowState>,
+  /// The CLIs of Settings → Tools: the actions that run, the statuses read last
+  pub cli_tools: CliToolsState,
+  /// The runtime of what a command leaves running after it answered: the deadlines of the windows built hidden
+  pub runtime: tokio::runtime::Handle,
 }
 
 impl AppContext {
@@ -99,12 +112,14 @@ impl AppContext {
     }
   }
 
-  /// `window` closed: its subscriptions end, its review fetches stop and its symbol search is superseded
+  /// `window` closed: its subscriptions end, its review fetches stop, its symbol search is superseded, and a window built
+  /// again under its label waits for its page again
   pub fn forget_window(&self, window: &WindowId) {
     for op in self.windows.forget_fetches(window) {
       self.registry.cancel(&op);
     }
     self.windows.forget_search(window);
+    self.sub_windows.forget(window.as_str());
     self.forget_page(window);
   }
 

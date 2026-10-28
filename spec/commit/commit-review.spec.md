@@ -12,7 +12,7 @@ targets:
   - ../../src/lib/open-timing.ts
   - ../../src/lib/review-window-reads.ts
   - ../../crates/app-api/src/reads/diffs.rs
-  - ../../src-tauri/src/commands/window_management.rs
+  - ../../crates/app-api/src/app/windows.rs
   - ../../src/components/files/FileTree.tsx
   - ../../src/components/files/FileContextMenu.tsx
   - ../../src/components/shared/WindowPage.tsx

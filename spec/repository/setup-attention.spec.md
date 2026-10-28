@@ -7,7 +7,9 @@ targets:
   - ../../crates/cli-tools/src/kept_statuses.rs
   - ../../crates/domain-types/src/setup.rs
   - ../../crates/remote-facts/src/cli_tool_releases.rs
-  - ../../src-tauri/src/commands/cli_tools.rs
+  - ../../crates/app-api/src/app/cli_tools.rs
+  - ../../src-tauri/src/auto_update.rs
+  - ../../crates/test-server/src/updater.rs
   - ../../crates/test-server/src/cli_tools_fixtures.rs
   - ../../src/stores/setup.ts
   - ../../src/lib/setup.ts

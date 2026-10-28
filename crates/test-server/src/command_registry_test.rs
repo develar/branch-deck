@@ -1,9 +1,9 @@
 //! The three registries of the Tauri commands, held together: the commands of the app (`collect_commands!` in
 //! `src-tauri/src/lib.rs`), the routes of this server (`/invoke/<name>` in `lib.rs`, and one of `invoke.rs` for every
-//! command of the registry of app-api, `app_api::commands::COMMANDS`) and the handlers of the page mock
-//! (`COMMAND_HANDLERS` in `tests/e2e/setup/tauri-mocks.ts`). The mock proxies every command it does not handle to this
-//! server, and a command without a route answers 405, which fails the test ("Unimplemented Tauri command"). So every
-//! command either has a route or is named in [`PAGE_MOCKED`] with the reason it never reaches Rust in an E2E test.
+//! command of the registry of app-api, `app_api::commands::COMMANDS`) and what the page mock answers itself
+//! (`PAGE_PLUGINS` in `tests/e2e/setup/tauri-mocks.ts`). The mock proxies every command to this server, and a command
+//! without a route answers 405, which fails the test ("Unimplemented Tauri command"). So every command has a route, and
+//! the page answers only the plugins of Tauri (the window, the events, the clipboard), never a command of the app.
 //! A fourth source, the E2E tests (`tests/e2e/**/*.ts`), is held by a ratchet: a test answers a command in the page
 //! only where [`ROUTED_IN_PAGE`] pins it, never a write of [`MUTATING`] (a push included: it goes to the remote of the
 //! repository, `remote_git_fixtures`). An answer counts where it is given: a helper that answers
@@ -15,20 +15,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
-/// entry) and raises this number; it also proves the parse found the whole macro
+/// The number of commands of `collect_commands!`: a new command gets a route and raises this number; it also proves
+/// the parse found the whole macro
 const COMMAND_COUNT: usize = 75;
-
-const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
-
-/// The commands that have no route of this server, each with its reason. The number only goes down: a command moves
-/// out of here when the server answers it from a fake of its service (`s0b-remote-bridge` of rust-domain-authority.md)
-const PAGE_MOCKED: &[(&str, &str)] = &[
-  // the handlers of `COMMAND_HANDLERS` in tauri-mocks.ts: the windows and the window menu
-  ("open_sub_window", SUB_WINDOW),
-  ("sub_window_ready", SUB_WINDOW),
-  ("show_window_menu", "the window manager's menu: the page mock records it with the window calls"),
-];
 
 /// The routes that name no command of `collect_commands!`, each with its reason
 const RAW_ROUTES: &[(&str, &str)] = &[(
@@ -190,25 +179,25 @@ fn app_commands() -> Vec<String> {
   names
 }
 
-/// The command names of the `/invoke/<name>` routes of this server: the handwritten ones of `lib.rs`
-/// (`/invoke/browse_repository/{repo_id}` names `browse_repository`) and the one of every command of app-api
-/// (`invoke::command_routes`)
+/// The command names of the `/invoke/<name>` routes of this server: the one of every command of app-api
+/// (`invoke::command_routes`), and any handwritten one of `lib.rs` (none: a route there would answer a command beside
+/// the registry, which `every_route_names_a_command` refuses twice)
 fn server_routes() -> Vec<String> {
   let text = read_workspace_file("crates/test-server/src/lib.rs");
   let handwritten = text.split("\"/invoke/").skip(1).map(|rest| rest.split(['"', '/']).next().expect("a route name").to_owned());
   handwritten.chain(app_api::commands::COMMANDS.iter().map(|command| command.name.to_owned())).collect()
 }
 
-/// The top-level keys of `COMMAND_HANDLERS` in the page mock, plugin prefixes (`plugin:event`) included
-fn page_handlers() -> Vec<String> {
-  page_handlers_of(&read_workspace_file("tests/e2e/setup/tauri-mocks.ts"))
+/// The keys of `PAGE_PLUGINS` in the page mock, the plugin prefixes it answers (`plugin:event`)
+fn page_plugins() -> Vec<String> {
+  page_plugins_of(&read_workspace_file("tests/e2e/setup/tauri-mocks.ts"))
 }
 
-/// The keys of `COMMAND_HANDLERS` in `text`: a `"quoted": …` or `identifier: …` entry at the indentation of the entries;
+/// The keys of `PAGE_PLUGINS` in `text`: a `"quoted": …` or `identifier: …` entry at the indentation of the entries;
 /// another form there (a method shorthand `name(cmd, payload) {`, a computed key) fails, because it would hide a handler
-fn page_handlers_of(text: &str) -> Vec<String> {
-  let mut lines = text.lines().skip_while(|line| !line.contains("const COMMAND_HANDLERS"));
-  let declaration = lines.next().expect("COMMAND_HANDLERS in tauri-mocks.ts");
+fn page_plugins_of(text: &str) -> Vec<String> {
+  let mut lines = text.lines().skip_while(|line| !line.contains("const PAGE_PLUGINS"));
+  let declaration = lines.next().expect("PAGE_PLUGINS in tauri-mocks.ts");
   let indent = indentation(declaration);
   let mut keys = Vec::new();
   for line in lines {
@@ -226,10 +215,10 @@ fn page_handlers_of(text: &str) -> Vec<String> {
       Some(quoted) => quoted.split_once('"').map(|(key, _)| key),
       None => entry.split_once(':').map(|(key, _)| key).filter(|key| is_identifier(key)),
     };
-    let key = key.unwrap_or_else(|| panic!("unparsed entry of COMMAND_HANDLERS in tauri-mocks.ts: `{entry}`; write it as `name: handler` or `\"name\": handler`"));
+    let key = key.unwrap_or_else(|| panic!("unparsed entry of PAGE_PLUGINS in tauri-mocks.ts: `{entry}`; write it as `name: handler` or `\"name\": handler`"));
     keys.push(key.to_owned());
   }
-  panic!("COMMAND_HANDLERS in tauri-mocks.ts has no closing brace at its own indentation");
+  panic!("PAGE_PLUGINS in tauri-mocks.ts has no closing brace at its own indentation");
 }
 
 fn indentation(line: &str) -> usize {
@@ -252,7 +241,7 @@ fn the_app_registers_the_pinned_number_of_commands() {
   assert_eq!(
     commands.len(),
     COMMAND_COUNT,
-    "collect_commands! has {} commands: route the new one in crates/test-server/src/lib.rs (or name it in PAGE_MOCKED with its reason), then update COMMAND_COUNT",
+    "collect_commands! has {} commands: declare the new one in the registry of app-api, which routes it here, then update COMMAND_COUNT",
     commands.len()
   );
 }
@@ -277,31 +266,13 @@ fn the_class_of_a_command_of_app_api_is_its_list() {
 }
 
 #[test]
-fn every_command_is_routed_or_page_mocked() {
+fn every_command_is_routed() {
   let routes: BTreeSet<String> = server_routes().into_iter().collect();
-  let page_mocked = names_of(PAGE_MOCKED);
-  let unreached: Vec<String> = app_commands().into_iter().filter(|name| !routes.contains(name) && !page_mocked.contains(name)).collect();
+  let unreached: Vec<String> = app_commands().into_iter().filter(|name| !routes.contains(name)).collect();
   assert!(
     unreached.is_empty(),
-    "these commands have no route of the test server, so an E2E test that calls them fails with 405: {unreached:?}; route them in crates/test-server/src/lib.rs"
+    "these commands have no route of the test server, so an E2E test that calls them fails with 405: {unreached:?}; declare them in the registry of app-api"
   );
-}
-
-#[test]
-fn every_page_mocked_command_is_a_command_without_a_route() {
-  let commands: BTreeSet<String> = app_commands().into_iter().collect();
-  let routes: BTreeSet<String> = server_routes().into_iter().collect();
-  assert_eq!(names_of(PAGE_MOCKED).len(), PAGE_MOCKED.len(), "PAGE_MOCKED names a command twice");
-  for (name, _) in PAGE_MOCKED {
-    assert!(
-      commands.contains(*name),
-      "PAGE_MOCKED names `{name}`, which collect_commands! does not have: remove the entry"
-    );
-    assert!(
-      !routes.contains(*name),
-      "`{name}` has a route of the test server now: remove it from PAGE_MOCKED and lower its pinned number"
-    );
-  }
 }
 
 #[test]
@@ -323,50 +294,28 @@ fn every_route_names_a_command() {
   }
 }
 
+/// The page answers no command of the app: the server runs each, as the app does; the page mock answers only the
+/// plugins of Tauri, which no command of the registry names
 #[test]
-fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
-  let commands: BTreeSet<String> = app_commands().into_iter().collect();
-  let routes: BTreeSet<String> = server_routes().into_iter().collect();
-  let page_mocked = names_of(PAGE_MOCKED);
-  let handlers = page_handlers();
+fn the_page_mock_answers_only_the_plugins_of_tauri() {
+  let plugins = page_plugins();
   assert!(
-    handlers.iter().any(|key| key == "plugin:event"),
-    "the parse of COMMAND_HANDLERS found no `plugin:event`: {handlers:?}"
+    plugins.iter().any(|key| key == "plugin:event"),
+    "the parse of PAGE_PLUGINS found no `plugin:event`: {plugins:?}"
   );
-  let mut wrappers = Vec::new();
-  for key in handlers.iter().filter(|key| !key.starts_with("plugin:")) {
+  let commands: BTreeSet<String> = app_commands().into_iter().collect();
+  for key in &plugins {
     assert!(
-      commands.contains(key),
-      "COMMAND_HANDLERS of tauri-mocks.ts handles `{key}`, which collect_commands! does not have: remove the handler"
+      key.starts_with("plugin:") && !commands.contains(key),
+      "PAGE_PLUGINS of tauri-mocks.ts answers `{key}`, which is no plugin of Tauri: a command of the app runs on the test server"
     );
-    if routes.contains(key) {
-      // a handler over the route: it adds what the page knows of its window, or records what it drew, and proxies the
-      // command to this server
-      wrappers.push(key.as_str());
-    } else {
-      assert!(
-        page_mocked.contains(key),
-        "COMMAND_HANDLERS answers `{key}` in the page: name it in PAGE_MOCKED with its reason"
-      );
-    }
   }
-  wrappers.sort_unstable();
-  assert_eq!(wrappers, ["sub_window_drawn", "sub_window_loaded"], "the handlers of COMMAND_HANDLERS that wrap a route");
 }
 
 #[test]
-fn page_mocked_only_goes_down() {
-  assert_eq!(
-    PAGE_MOCKED.len(),
-    3,
-    "PAGE_MOCKED may only shrink: a new command gets a route of the test server, not a page mock; when a command gets its route, lower this number"
-  );
-}
-
-#[test]
-fn the_page_handler_parser_reads_every_entry_form_it_knows_and_refuses_another() {
+fn the_page_plugin_parser_reads_every_entry_form_it_knows_and_refuses_another() {
   let known = r#"
-  const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
+  const PAGE_PLUGINS: Record<`plugin:${string}`, (cmd: string, payload: any) => any> = {
     // a comment between the entries
     "plugin:event": handleEventCommand,
     "plugin:webview": (cmd: string, payload: any) => {
@@ -375,17 +324,17 @@ fn the_page_handler_parser_reads_every_entry_form_it_knows_and_refuses_another()
     get_zoom: () => 1,
   }
 "#;
-  assert_eq!(page_handlers_of(known), ["plugin:event", "plugin:webview", "get_zoom"]);
+  assert_eq!(page_plugins_of(known), ["plugin:event", "plugin:webview", "get_zoom"]);
 
   let shorthand = r#"
-  const COMMAND_HANDLERS: Record<string, (cmd: string, payload: any) => any> = {
+  const PAGE_PLUGINS: Record<`plugin:${string}`, (cmd: string, payload: any) => any> = {
     "plugin:event": handleEventCommand,
     start_patronus_robot(_cmd, payload) {
       return robot
     },
   }
 "#;
-  let failure = std::panic::catch_unwind(|| page_handlers_of(shorthand)).unwrap_err();
+  let failure = std::panic::catch_unwind(|| page_plugins_of(shorthand)).unwrap_err();
   let message = failure.downcast_ref::<String>().cloned().unwrap_or_default();
   assert!(message.contains("unparsed entry") && message.contains("start_patronus_robot(_cmd, payload) {"), "{message}");
 }

@@ -8,9 +8,9 @@ use crate::registry::CommandKind;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// The number of commands of the registry: it grows as the handwritten commands move into it (s12-app-api of
-/// docs/design/rust-domain-authority.md), and proves the macro listed them all
-const REGISTERED: usize = 58;
+/// The number of commands of the registry, every command of the app since the windows and the desktop moved into it
+/// (s12-app-api of docs/design/rust-domain-authority.md): a new command raises it, and it proves the macro listed them all
+const REGISTERED: usize = 76;
 
 /// The names inside `<list>![...]` of `src-tauri/src/lib.rs`
 fn listed(list: &str) -> BTreeSet<String> {
@@ -26,7 +26,7 @@ fn listed(list: &str) -> BTreeSet<String> {
 fn every_command_is_registered_once() {
   let names: BTreeSet<&str> = COMMANDS.iter().map(|command| command.name).collect();
   assert_eq!(names.len(), COMMANDS.len(), "the registry names a command twice");
-  assert_eq!(COMMANDS.len(), REGISTERED, "a command moved into the registry: update REGISTERED");
+  assert_eq!(COMMANDS.len(), REGISTERED, "a command was added to the registry or removed from it: update REGISTERED");
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn the_app_registers_every_command_of_the_registry() {
   for command in COMMANDS {
     let (handlers, list) = match command.kind {
       CommandKind::Raw => (&raw, "generate_handler!"),
-      CommandKind::Json | CommandKind::Plain | CommandKind::Window | CommandKind::Session | CommandKind::Now => (&typed, "collect_commands!"),
+      CommandKind::Json | CommandKind::Plain | CommandKind::Window | CommandKind::Session | CommandKind::Now | CommandKind::Main => (&typed, "collect_commands!"),
     };
     assert!(handlers.contains(command.name), "{}: not in {list} of src-tauri/src/lib.rs", command.name);
   }

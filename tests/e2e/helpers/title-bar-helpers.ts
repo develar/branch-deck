@@ -40,7 +40,7 @@ export async function useTitleBar(page: Page, titleBar: TitleBar): Promise<void>
   }, titleBar)
 }
 
-/** The window actions the page asked for (minimize, toggle_maximize, show_window_menu…), in order */
+/** The window actions the page asked of its window plugin (minimize, toggle_maximize, close…), in order */
 export function windowCalls(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])
 }

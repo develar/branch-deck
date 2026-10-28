@@ -8,7 +8,7 @@
 
 Read this before you add or change a git operation in `crates/git-ops`, `crates/history-rewrite`, `crates/sync-core`,
 `crates/update-core`, `crates/trial-check`, `crates/lease-pool`, `crates/remote-facts`, `crates/repository-model`,
-`crates/operations`, `crates/bd-*` or `src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
+`crates/operations`, `crates/bd-*` or `crates/app-api`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
 in its "Git Operations", the flows and the reasons in [Git Operations](../design/git-operations.md).
 
 ## Layers
@@ -66,10 +66,10 @@ modules by area; the layers are the
   the grammar in `registry.rs`) with its body in a family module (`crates/app-api/src/reads/`), `async fn(&AppContext,
   params)` that calls `run_blocking(move || <op>_core(..))`; the app's `#[tauri::command]` wrapper (`src-tauri/src/api.rs`)
   and the E2E server's route (`crates/test-server/src/invoke.rs`) come from the entry, and its name goes into
-  `collect_commands!` of `src-tauri/src/lib.rs`. A command the registry has no family for yet is handwritten in
-  `src-tauri/src/commands/<op>.rs` and routed by the E2E server to the same core (`crates/test-server/src/lib.rs`,
-  `tauri_command_bridge.rs`). Either way `src/lib/bindings.ts` is regenerated (`UPDATE_BINDINGS=1` on
-  `the_bindings_are_what_the_export_writes`, `bindings_test.rs`).
+  `collect_commands!` of `src-tauri/src/lib.rs`. Every command is an entry: the app has no handwritten command
+  (`command_scan_test.rs` of app-api); what only the app can do (a window, a dialog, the updater) is a host trait of
+  `crates/app-api/src/transport.rs`, which the app and the E2E server implement. `src/lib/bindings.ts` is regenerated
+  (`UPDATE_BINDINGS=1` on `the_bindings_are_what_the_export_writes`, `bindings_test.rs`).
 - **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test of the
   operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, of `history-rewrite` too;
   `crates/update-core/src/`, `crates/trial-check/src/`, `crates/remote-facts/src/`, `crates/operations/src/` and

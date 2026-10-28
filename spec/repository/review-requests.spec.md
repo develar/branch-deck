@@ -25,7 +25,7 @@ targets:
   - ../../crates/app-api/src/reads/diffs.rs
   - ../../crates/app-api/src/remote/pull_requests.rs
   - ../../src-tauri/src/services.rs
-  - ../../src-tauri/src/commands/window_management.rs
+  - ../../crates/app-api/src/app/windows.rs
   - ../../src-tauri/src/lib.rs
   - ../../src-tauri/capabilities/sub-windows.json
   - ../../src-tauri/src/menu.rs

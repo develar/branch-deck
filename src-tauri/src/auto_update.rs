@@ -1,12 +1,16 @@
-use app_api::operation::operation;
+//! The updater of the app (`Updater` of app-api, whose `check_for_updates`, `get_update_status` and `install_update`
+//! call it): a check downloads the update it finds at once, an install applies it and restarts. A build without the
+//! feature `auto-update` has none: its check, its state and its install fail.
+
 #[cfg(feature = "auto-update")]
 use app_api::operation::run_blocking;
+use app_api::transport::{Later, Updater};
 use domain_types::error::ApiError;
+use domain_types::update::{UpdateInfo, UpdateStatus};
+use std::sync::Arc;
+use tracing::error;
 #[cfg(feature = "auto-update")]
 use tracing::info;
-use tracing::{error, instrument};
-
-use domain_types::update::{UpdateInfo, UpdateStatus};
 
 pub struct UpdateState {
   pub info: UpdateInfo,
@@ -50,7 +54,7 @@ mod auto_update_impl {
   use tracing::{debug, info, instrument};
 
   #[instrument(skip(app_handle, update_state))]
-  pub(super) async fn perform_update_check(app_handle: &AppHandle, update_state: &tauri::State<'_, SharedUpdateState>) -> anyhow::Result<UpdateInfo> {
+  pub(super) async fn perform_update_check(app_handle: &AppHandle, update_state: &SharedUpdateState) -> anyhow::Result<UpdateInfo> {
     let updater = app_handle.updater()?;
 
     debug!("Fetching update information");
@@ -137,98 +141,82 @@ fn auto_update_disabled<T>() -> Result<T, ApiError> {
   Err(ApiError::internal("Auto-update feature is not enabled in this build"))
 }
 
-// Always export these commands regardless of feature flags
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip_all)]
-#[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
-pub async fn check_for_updates(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, ApiError> {
-  operation(async move {
-    #[cfg(feature = "auto-update")]
-    {
-      info!("Checking for updates");
+/// The updater of the app and the state of its update
+pub struct AppUpdater {
+  /// The app the updater of the feature checks for and restarts
+  pub app: tauri::AppHandle,
+  pub state: Arc<SharedUpdateState>,
+}
 
-      // Set status to checking
+impl Updater for AppUpdater {
+  fn check(&self) -> Later<'_, Result<UpdateInfo, ApiError>> {
+    Box::pin(async move {
+      #[cfg(feature = "auto-update")]
       {
-        let mut state = lock_state(&update_state)?;
-        state.info.status = UpdateStatus::Checking;
-      }
-
-      match auto_update_impl::perform_update_check(&app_handle, &update_state).await {
-        Ok(update_info) => {
-          let mut state = lock_state(&update_state)?;
-          state.info = update_info.clone();
-          Ok(update_info)
-        }
-        Err(e) => {
-          error!("Update check failed: {e:?}");
-          Err(record_error(&update_state, ApiError::internal(format!("Update check failed: {e:#}"))))
+        info!("Checking for updates");
+        lock_state(&self.state)?.info.status = UpdateStatus::Checking;
+        match auto_update_impl::perform_update_check(&self.app, &self.state).await {
+          Ok(update_info) => {
+            lock_state(&self.state)?.info = update_info.clone();
+            Ok(update_info)
+          }
+          Err(e) => {
+            error!("Update check failed: {e:?}");
+            Err(record_error(&self.state, ApiError::internal(format!("Update check failed: {e:#}"))))
+          }
         }
       }
-    }
 
-    #[cfg(not(feature = "auto-update"))]
-    auto_update_disabled()
-  })
-  .await
-}
+      #[cfg(not(feature = "auto-update"))]
+      auto_update_disabled()
+    })
+  }
 
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip_all)]
-#[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
-pub async fn install_update(app_handle: tauri::AppHandle, update_state: tauri::State<'_, SharedUpdateState>) -> Result<(), ApiError> {
-  operation(async move {
+  fn status(&self) -> Result<UpdateInfo, ApiError> {
     #[cfg(feature = "auto-update")]
     {
-      // Get the pending update and downloaded bytes
-      let (update, bytes) = {
-        let mut state = lock_state(&update_state)?;
+      Ok(lock_state(&self.state)?.info.clone())
+    }
 
-        if state.pending_update.is_none() || state.downloaded_bytes.is_none() {
-          let error = "No update available to install".to_string();
-          state.info.status = UpdateStatus::Error(error.clone());
-          return Err(ApiError::internal(error));
+    #[cfg(not(feature = "auto-update"))]
+    auto_update_disabled()
+  }
+
+  fn install(&self) -> Later<'_, Result<(), ApiError>> {
+    Box::pin(async move {
+      #[cfg(feature = "auto-update")]
+      {
+        // the pending update and its downloaded bytes
+        let (update, bytes) = {
+          let mut state = lock_state(&self.state)?;
+          let (Some(update), Some(bytes)) = (state.pending_update.take(), state.downloaded_bytes.take()) else {
+            let error = "No update available to install".to_string();
+            state.info.status = UpdateStatus::Error(error.clone());
+            return Err(ApiError::internal(error));
+          };
+          state.info.status = UpdateStatus::Installing;
+          (update, bytes)
+        };
+
+        // unpacking and replacing the app bundle blocks, off the async runtime
+        info!("Installing update");
+        if let Err(e) = run_blocking(move || update.install(&bytes).map_err(|e| ApiError::internal(format!("Failed to install update: {e}")))).await {
+          error!("{e}");
+          return Err(record_error(&self.state, e));
         }
 
-        state.info.status = UpdateStatus::Installing;
-        (state.pending_update.take().unwrap(), state.downloaded_bytes.take().unwrap())
-      };
-
-      // Install the update: unpacking and replacing the app bundle blocks, keep it off the async runtime
-      info!("Installing update");
-      if let Err(e) = run_blocking(move || update.install(&bytes).map_err(|e| ApiError::internal(format!("Failed to install update: {e}")))).await {
-        error!("{e}");
-        return Err(record_error(&update_state, e));
+        // the restart after the install never returns
+        info!("Update installed, restarting app");
+        self.app.restart()
       }
 
-      // Restart the app after installation (never returns)
-      info!("Update installed, restarting app");
-      app_handle.restart()
-    }
+      #[cfg(not(feature = "auto-update"))]
+      auto_update_disabled()
+    })
+  }
 
-    #[cfg(not(feature = "auto-update"))]
-    auto_update_disabled()
-  })
-  .await
-}
-
-// jscpd:ignore-start: every command repeats this attribute stack and the feature-gated body split
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip_all)]
-#[cfg_attr(not(feature = "auto-update"), expect(unused_variables))]
-// jscpd:ignore-end
-pub async fn get_update_status(update_state: tauri::State<'_, SharedUpdateState>) -> Result<UpdateInfo, ApiError> {
-  operation(async move {
-    #[cfg(feature = "auto-update")]
-    {
-      let state = lock_state(&update_state)?;
-      Ok(state.info.clone())
-    }
-
-    #[cfg(not(feature = "auto-update"))]
-    auto_update_disabled()
-  })
-  .await
+  fn downloaded(&self) -> Option<String> {
+    let state = self.state.lock().ok()?;
+    (state.info.is_update_available && state.info.status == UpdateStatus::Downloaded).then(|| state.info.available_version.clone())
+  }
 }

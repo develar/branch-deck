@@ -49,6 +49,8 @@ targets:
   - ../../crates/sync-core/src/git_setup.rs
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/sync-core/src/repository_validation.rs
+  - ../../crates/app-api/src/app/desktop.rs
+  - ../../crates/test-server/src/host.rs
   - ../../crates/history-rewrite/src/baseline.rs
   - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/git-executor/src/git_info.rs
@@ -255,6 +257,11 @@ alert with the reason and the next step, never a raw Git error.
 
 ### Repository problems
 
+- Browse opens the folder dialog of the system (`browse_repository` of app-api, `DialogHost`): the folder picked is
+  checked as a repository, and the dialog canceled changes nothing. In an E2E test the dialog of the test server picks
+  the folder of its fixture (`setDialogPick`, `POST /repositories/{id}/dialog-pick`), else the test repository itself.
+  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`keeps Step 2 visible after selecting a repository without branch prefix`)
+  [@test] ../../tests/e2e/repository/browse.spec.ts (`should successfully select valid git repository`)
 - A folder that is not a repository: "Not a Git repository"; a bare repository: "Bare repositories are not supported:
   Branch Deck needs a working tree"; a worktree (`.git` file) is a repository.
   [@test] ../../crates/sync-core/src/repository_validation.rs (`test_validate_path_not_git_repo`, `test_validate_path_bare_repo`, `test_validate_path_linked_worktree`)

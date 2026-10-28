@@ -1,7 +1,7 @@
 //! The rules of a command's span and operation (docs/design/async-patterns.md#operation-spans), checked on the sources:
-//! the bodies of the commands of the registry (`commands.rs` names the body of each entry) and the handwritten
-//! `#[tauri::command]`s of `src-tauri` that have no entry yet (its `api.rs`, the wrappers of the entries, aside). Every
-//! command has an `#[instrument]` span; a command that can fail (`Result<_, ApiError>`) runs its body as an operation
+//! the bodies of the commands of the registry (`commands.rs` names the body of each entry), which are every command of
+//! the app: `src-tauri` has no `#[tauri::command]` beside the wrappers of the entries (its `api.rs`). Every command has
+//! an `#[instrument]` span; a command that can fail (`Result<_, ApiError>`) runs its body as an operation
 //! (`operation`, `operation_now`, or the one blocking step `run_blocking`); a command of a session has both from the
 //! frame of its kind (`registry.rs`), so its body opens neither; the span records no argument that holds a
 //! collection, whose Debug text a line of the log would carry whole (`skip_all` and a field or two instead); and an
@@ -221,26 +221,37 @@ fn registry_bodies() -> Vec<Command> {
     .collect()
 }
 
-/// The handwritten commands of the app that have no entry yet
+/// The `#[tauri::command]`s of the app beside the wrappers of the entries (`api.rs`)
 fn tauri_commands() -> Vec<Command> {
   let mut files = Vec::new();
   rust_files(&workspace().join("src-tauri/src"), &mut files);
   let generated = workspace().join("src-tauri/src/api.rs");
-  let mut commands: Vec<Command> = files
+  files
     .iter()
     .filter(|path| **path != generated)
     .flat_map(|path| tauri_commands_of(path, &fs::read_to_string(path).expect("readable source")))
-    .collect();
-  commands.sort_by(|a, b| a.name.cmp(&b.name));
-  // the handwritten commands go down as they move into the registry: the bound only proves the parse found them
-  assert!(commands.len() > 10, "the scan found {} commands, is src-tauri laid out differently?", commands.len());
-  commands
+    .collect()
 }
 
 fn commands() -> Vec<Command> {
-  let mut commands = registry_bodies();
-  commands.extend(tauri_commands());
-  commands
+  registry_bodies()
+}
+
+/// A command is declared once, in the registry: the app wraps the entries (`api.rs`) and has no command of its own
+#[test]
+fn the_app_has_no_command_beside_the_registry() {
+  let handwritten: Vec<String> = tauri_commands().into_iter().map(|command| format!("  {} ({})", command.name, command.place)).collect();
+  assert!(
+    handwritten.is_empty(),
+    "these commands of src-tauri are no entry of app_api::for_each_command!: declare each in crates/app-api/src/commands.rs, its body in a family of app-api\n{}",
+    handwritten.join("\n")
+  );
+  // the scan finds a command where there is one: the wrappers of the entries have the attribute it looks for
+  let generated = workspace().join("src-tauri/src/api.rs");
+  assert!(
+    fs::read_to_string(&generated).expect("api.rs").lines().any(|line| line.trim() == "#[tauri::command]"),
+    "the wrappers of api.rs have no #[tauri::command] line: the scan needs an update"
+  );
 }
 
 /// The fields of every struct the workspace declares, by the struct's name: `(field, type)`

@@ -17,7 +17,8 @@ targets:
   - ../../crates/test-server/src/host.rs
   - ../../src/stores/settings/repositoryState.ts
   - ../../src-tauri/src/zoom.rs
-  - ../../src-tauri/src/commands/window_management.rs
+  - ../../crates/app-api/src/app/windows.rs
+  - ../../src-tauri/src/desktop.rs
   - ../../src-tauri/capabilities/settings.json
   - ../../src-tauri/capabilities/sub-windows.json
   - ../../src-tauri/capabilities/title-bar.json
@@ -310,7 +311,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   the level it has differs (`zoomAtStart`, `useZoom`).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`zooms a review window whose page loaded after Actual Size`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should keep the Activity panel the main window opened when a review window hides its sidebar right after`)
-  [@test] ../../src-tauri/src/commands/window_management_test.rs (`a_page_that_loads_takes_the_changes_after_the_snapshot_of_its_build`, `a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_main_window_keeps`)
+  [@test] ../../crates/app-api/src/windows_test.rs (`a_page_that_loads_takes_the_changes_after_the_snapshot_of_its_build`, `a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_main_window_keeps`)
   [@test] ../../src/lib/sub-window.test.ts (`takes the settings changed while the page loaded once it listens, before it says its shell and its content`)
   [@test] ../../src/stores/settings/persistent-store.test.ts (`takes the changes the load of the window hands over by their versions, before its store exists too`)
   [@test] ../../src/stores/settings/persistent-store-main.test.ts (`holds its changes until it caught up with the writer, and drops a whole array the writer has a newer one of`)
@@ -577,7 +578,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - `pnpm e2e`: `tests/e2e/settings/settings.spec.ts`. `openSettingsWindow` of `tests/e2e/helpers/settings-helpers.ts`
   fires `open_settings` in the main window's page and shows the recorded open as a linked page
   (`openLinkedSubWindow`), whose settings changes reach every linked page; it starts from the settings the open
-  recorded (`store` and `storeVersion` of `__e2eSubWindows`, the main page's copy at the open). `expectSettingsOpened`
+  recorded (`store` and `storeVersion` of the open the test server's desktop recorded, `getOpenedSubWindows`: the
+  writer's copy at the open, as the app builds the window), its window built for it on the server before the page
+  loads (`registerWindowBuild`), so its load takes the changes after that snapshot. `expectSettingsOpened`
   checks the last open and that it is the only new one; `reopenLinkedSubWindow` hands a later open to the shown
   window, as the backend does.
 - The settings of a test live in the test server's writer of the repository (`TestRepository::store`, the app's

@@ -1,21 +1,15 @@
 use crate::invoke::{CommandResult, Rejection, failed};
 use app_api::api_error::IntoApiError;
-use axum::{
-  extract::State,
-  http::{HeaderMap, StatusCode},
-  response::Json,
-};
+use axum::response::Json;
 use domain_types::error::ApiError;
 use domain_types::patronus::PatronusRobotsResult;
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use repository_model::session::SessionKey;
-use serde::Deserialize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
 use sync_core::patronus::SpaceRepository;
-use sync_core::repository_config::{ConfigScope, RepositoryConfig, read_config_entries, read_origin_facts, repository_config_from_entries, with_stacks_off_clashes};
 
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
@@ -112,17 +106,6 @@ pub fn read_local_branch_prefix(git_executor: &git_executor::git_command_executo
 /// write
 pub(crate) fn config_git(state: &AppState, repository_path: &str) -> Result<git_executor::git_command_executor::GitCommandExecutor, Rejection> {
   Ok(repository_by_path(state, repository_path)?.context.git.clone())
-}
-
-/// The production read without the system config, its global config the repository's own file (`config_git`), so the
-/// tests are deterministic
-fn read_test_repository_config(git_executor: &git_executor::git_command_executor::GitCommandExecutor, repository_path: &str) -> anyhow::Result<RepositoryConfig> {
-  let entries: Vec<_> = read_config_entries(git_executor, repository_path)?
-    .into_iter()
-    .filter(|entry| matches!(entry.scope, ConfigScope::Local | ConfigScope::Global))
-    .collect();
-  let config = repository_config_from_entries(&entries, read_origin_facts(git_executor, repository_path)?);
-  Ok(with_stacks_off_clashes(git_executor, repository_path, config))
 }
 
 /// The GitHub repository of the repository at `path` as the app resolves it (`RepositoryStateCache::github_repository`):
@@ -248,128 +231,4 @@ pub(crate) fn rejected(rejection: Rejection) -> ApiError {
     Rejection::Error(error) => error,
     Rejection::Panicked => ApiError::internal("The test server failed"),
   }
-}
-
-pub async fn browse_repository(
-  State(state): State<Arc<AppState>>,
-  axum::extract::Path(repo_id): axum::extract::Path<String>,
-) -> Result<Json<sync_core::repository_validation::BrowseResult>, StatusCode> {
-  // Get the repository from state
-  let repo = state.repositories.get(&repo_id).ok_or_else(|| {
-    tracing::error!("Repository not found: {}", repo_id);
-    StatusCode::NOT_FOUND
-  })?;
-
-  let path = repo.path.clone();
-
-  // Handle NO_REPO case specially - simulate user selecting a non-existent path
-  // Return an error result as if the path exists but is not accessible
-  if path.starts_with(crate::NO_REPO_PREFIX) {
-    return Ok(Json(sync_core::repository_validation::BrowseResult {
-      path: Some(path),
-      valid: false,
-      error: Some("Path does not exist".to_string()),
-    }));
-  }
-
-  // Use shared validation logic from branch-sync
-  Ok(Json(sync_core::repository_validation::validate_and_create_result(path)))
-}
-
-#[derive(Deserialize)]
-pub struct SetAutoSyncMenuCheckedRequest {
-  checked: bool,
-}
-
-/// The bd the copied prompts name: a fixed path, the app's `agent_cli_command` reads the running binary
-pub const AGENT_CLI: &str = "/Users/test/.local/bin/bd";
-
-#[derive(Deserialize)]
-pub struct AgentCliCommandRequest {
-  #[serde(rename = "repositoryPath")]
-  repository_path: String,
-}
-
-/// `AgentCliCommand` of the app for a POSIX shell, with the repository path as it is (test paths are plain)
-pub async fn agent_cli_command(Json(request): Json<AgentCliCommandRequest>) -> Json<serde_json::Value> {
-  Json(serde_json::json!({ "command": format!("{AGENT_CLI} -C {}", request.repository_path), "powershell": false }))
-}
-
-/// The skill files the fake install names
-const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"];
-
-/// The repository of the page that sends a command (`X-Repository-Id`)
-pub(crate) fn requesting_repository<'a>(state: &'a AppState, headers: &HeaderMap) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, Rejection> {
-  headers
-    .get(crate::REPOSITORY_ID_HEADER)
-    .and_then(|value| value.to_str().ok())
-    .and_then(|id| state.repositories.get(id))
-    .ok_or_else(|| failed("find the test repository", "no test repository named by the request"))
-}
-
-/// `bd install` without its files: the installed state of the test repository, and the agent rules of its own global
-/// config, as the app reads the developer's
-pub async fn install_agent_cli(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<serde_json::Value> {
-  let path = {
-    let repository = requesting_repository(&state, &headers)?;
-    repository.agent_cli_installed.store(true, Ordering::SeqCst);
-    repository.path.clone()
-  };
-  let git_executor = config_git(&state, &path)?;
-  run_command("install the Agent CLI", move || {
-    // the global config alone, as `bd install` reads it
-    read_test_repository_config(&git_executor, &path).map(|config| {
-      serde_json::json!({
-        "bd": AGENT_CLI,
-        "on_path": true,
-        "skills": AGENT_SKILLS,
-        "agents": { "lease": config.agent_lease.fallback_value, "subject_branch": config.agent_subject_branch.fallback_value },
-      })
-    })
-  })
-  .await
-}
-
-/// The skills once `install_agent_cli` ran for the test repository, else none
-pub async fn agent_cli_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<serde_json::Value> {
-  let installed = requesting_repository(&state, &headers)?.agent_cli_installed.load(Ordering::SeqCst);
-  Ok(Json(if installed {
-    serde_json::json!({ "bd": AGENT_CLI, "skills": AGENT_SKILLS })
-  } else {
-    serde_json::json!({ "bd": null, "skills": [] })
-  }))
-}
-
-/// The page has no native menu: the check is the request, which a test reads (`checked` of its body)
-pub async fn set_auto_sync_menu_checked(Json(request): Json<SetAutoSyncMenuCheckedRequest>) -> Json<serde_json::Value> {
-  tracing::debug!(checked = request.checked, "Auto-sync on Focus checked");
-  Json(serde_json::Value::Null)
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SubWindowLoadedRequest {
-  pub since: u32,
-  /// The label of the page's window
-  pub origin: String,
-}
-
-/// `sub_window_loaded` of the app: the changes of the settings after the snapshot the window was built with, which the
-/// page mock names (`since`, the version of the snapshot the test opened the page with), as the app answers them from
-/// the version its build remembered; none for the main window, which asks for them itself (`get_settings_changes`); no
-/// open of the window came while it loaded, a test opens the page itself
-pub async fn sub_window_loaded(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<SubWindowLoadedRequest>) -> CommandResult<serde_json::Value> {
-  let repository = requesting_repository(&state, &headers)?;
-  let settings = if request.origin == app_settings::windows::MAIN_WINDOW {
-    Vec::new()
-  } else {
-    app_settings::windows::window_changes_since(&repository.store, &request.origin, request.since)
-  };
-  Ok(Json(serde_json::json!({ "update": null, "settings": settings })))
-}
-
-/// `sub_window_drawn` of the app, which counts the content budget of the window from the shell: this server shows no
-/// window; the page mock records what the page had when it said it
-pub async fn sub_window_drawn() -> Json<serde_json::Value> {
-  Json(serde_json::Value::Null)
 }

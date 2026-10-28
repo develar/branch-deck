@@ -29,6 +29,10 @@ pub const AUTH_CHANGED_EVENT: &str = "auth-changed";
 /// (spec/repository/settings.spec.md)
 pub const REPOSITORY_CONFIG_CHANGED_EVENT: &str = "repository_config_changed";
 
+/// The statuses of the tools changed, to every window: each reads the items of the Setup dot again
+/// (spec/repository/setup-attention.spec.md)
+pub const SETUP_CHANGED_EVENT: &str = "setup-changed";
+
 /// The payload of `repository_config_changed`
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +67,11 @@ pub fn activity_changed(events: &dyn AppEvents) {
 /// Tells every window that an account changed
 pub fn auth_changed(events: &dyn AppEvents) {
   events.emit(AUTH_CHANGED_EVENT, serde_json::Value::Null);
+}
+
+/// Tells every window that the statuses of the tools changed
+pub fn setup_changed(events: &dyn AppEvents) {
+  events.emit(SETUP_CHANGED_EVENT, serde_json::Value::Null);
 }
 
 /// Tells the main window that `key` of the config of `repository_path` was written

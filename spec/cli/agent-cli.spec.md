@@ -97,7 +97,8 @@ targets:
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/install.rs
   - ../../crates/bd-core/src/bd_command.rs
-  - ../../src-tauri/src/commands/agent_cli.rs
+  - ../../crates/app-api/src/app/agent_cli.rs
+  - ../../src-tauri/src/agent_cli.rs
   - ../../src/hooks/useInstallAgentCli.ts
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/object-cache/src/cache.rs

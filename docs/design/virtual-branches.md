@@ -213,7 +213,7 @@ edges of the hunks are not edges of the blocks.
 - **Branch Materialization**: Cherry-picks grouped commits onto baseline as trees, in one `CommitChain` per branch (see
   `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/commit_chain.rs`)
 - **Integration Detection**: Parallel strategies for merge/rebase/squash detection (see `crates/branch-integration/`)
-- **Async Boundaries**: Tauri commands use `spawn_blocking` for git operations (see `src-tauri/src/commands/`)
+- **Async Boundaries**: the commands of app-api run their git work in a blocking step (`run_blocking`, see `crates/app-api/src/`)
 
 ## Alternatives Considered
 
@@ -239,7 +239,7 @@ Key optimizations:
 
 ## References
 
-- Implementation: `crates/sync-core/`, `src-tauri/src/commands/`
+- Implementation: `crates/sync-core/`, `crates/app-api/src/`
 - Tests: `crates/sync-core/src/*_test.rs` (the archive step and the detection a sync runs: `detection_*_test.rs`)
 - Related docs: 
   - [integration-detection.md](integration-detection.md) - Detection strategies

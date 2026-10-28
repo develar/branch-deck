@@ -43,14 +43,10 @@ impl AppState {
   /// (the global config of the repository, `global_config_of`, and no system config), the settings of its page, its own
   /// memory of the diffs and of the reviews of branches, its own windows and its own search of the conflict fix, the
   /// fixture of the repository as its symbol index (`FixtureIndexes`), the fakes of the repository as its services
-  /// (`TestServices`) and its host (`TestHost`), the event streams of its pages (`TestEvents`), and the git prefixes, the
-  /// repository state, the sessions and the registry of the server
-  pub fn context_of(
-    self: &std::sync::Arc<Self>,
-    repository_id: &str,
-    settings: &std::sync::Arc<app_settings::service::SettingsService>,
-    events: &std::sync::Arc<crate::host::TestEvents>,
-  ) -> app_api::context::AppContext {
+  /// (`TestServices`) and its host (`TestHost`), the event streams of its pages (`TestEvents`), its desktop
+  /// (`TestDesktop`, `TestUpdater`, `TestAgentCli`), and the git prefixes, the repository state, the sessions and the
+  /// registry of the server
+  pub fn context_of(self: &std::sync::Arc<Self>, repository_id: &str, hosts: &TestHosts) -> app_api::context::AppContext {
     let global_config = self.global_config_of(repository_id);
     let services = crate::session_routes::test_services(self);
     app_api::context::AppContext {
@@ -58,7 +54,7 @@ impl AppState {
         .git_executor
         .with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy())
         .with_env("GIT_CONFIG_NOSYSTEM", "1"),
-      settings: std::sync::Arc::clone(settings),
+      settings: std::sync::Arc::clone(&hosts.settings),
       prefixes: self.branch_prefixes.clone(),
       repository_state: self.repository_state.clone(),
       file_diffs: file_diffs::service::FileDiffs::default(),
@@ -69,12 +65,24 @@ impl AppState {
       windows: std::sync::Arc::default(),
       services: std::sync::Arc::clone(&services) as std::sync::Arc<dyn remote_facts::service_sources::ServiceHost>,
       rewrites: services,
-      events: std::sync::Arc::clone(events) as std::sync::Arc<dyn app_api::transport::AppEvents>,
+      events: std::sync::Arc::clone(&hosts.events) as std::sync::Arc<dyn app_api::transport::AppEvents>,
       host: std::sync::Arc::new(crate::host::TestHost {
         state: std::sync::Arc::downgrade(self),
         repository: repository_id.to_owned(),
+        cli_tools: std::sync::Arc::clone(&hosts.cli_tools),
       }),
       remote: app_api::remote::RemoteMemory::default(),
+      desktop: app_api::transport::Desktop {
+        windows: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::WindowHost>,
+        dialog: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::DialogHost>,
+        menu: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::MenuHost>,
+        restart: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::RestartHost>,
+        updater: std::sync::Arc::clone(&hosts.updater) as std::sync::Arc<dyn app_api::transport::Updater>,
+        agent_cli: std::sync::Arc::new(crate::host::TestAgentCli::default()),
+      },
+      sub_windows: std::sync::Arc::default(),
+      cli_tools: app_api::app::cli_tools::CliToolsState::default(),
+      runtime: tokio::runtime::Handle::current(),
     }
   }
 
@@ -84,6 +92,16 @@ impl AppState {
   pub fn app_data_of(&self, repository_id: &str) -> PathBuf {
     self.test_root_dir.path().join(format!("{repository_id}.app-data"))
   }
+}
+
+/// What the app of a test repository is made with beside the server's own: its settings, the event streams of its
+/// pages, its desktop, its updater and the fakes of its CLIs, which its fixture routes reach too (`TestRepository`)
+pub struct TestHosts {
+  pub settings: std::sync::Arc<app_settings::service::SettingsService>,
+  pub events: std::sync::Arc<crate::host::TestEvents>,
+  pub desktop: std::sync::Arc<crate::host::TestDesktop>,
+  pub updater: std::sync::Arc<crate::updater::TestUpdater>,
+  pub cli_tools: std::sync::Arc<crate::cli_tools_fixtures::CliToolsHost>,
 }
 
 /// The symbol index of a test repository is its fixture, `.git/branch-deck-accio.json` (`FixtureIndex`), as accio
@@ -142,10 +160,10 @@ pub struct TestRepository {
   pub branch_name_suggestions: RwLock<BranchNameSuggestionFixture>,
   /// How often the app asked for branch names: nothing may leave before the user enabled AI
   pub branch_name_suggestion_calls: AtomicU32,
-  /// The Agent CLI was installed (`install_agent_cli`): `agent_cli_status` names the skills then
-  pub agent_cli_installed: std::sync::atomic::AtomicBool,
+  /// What the desktop of the app recorded (its windows, its window menus) and the folder its dialog picks (`host.rs`)
+  pub desktop: std::sync::Arc<crate::host::TestDesktop>,
   /// The version a check for updates finds (`updater.rs`); none: the app is up to date
-  pub available_update: RwLock<Option<String>>,
+  pub updater: std::sync::Arc<crate::updater::TestUpdater>,
   /// The fakes of the `teamcity` and `youtrack` CLIs and of `brew` (`cli_tools_fixtures`)
   pub cli_tools: std::sync::Arc<crate::cli_tools_fixtures::CliToolsHost>,
   /// The repository lock the server holds for a test (`hold_lock`), as another process (`bd pick`) would

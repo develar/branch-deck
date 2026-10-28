@@ -157,7 +157,8 @@ pub enum HeldAnswer {
   /// The status of the sign-ins: the read of the sessions (`TestFactSources::auth`) and `get_auth_status` of a window
   /// without a session (`TestHost::before_auth_status`)
   AuthStatus,
-  /// The statuses of the command-line tools of Settings → Tools (`cli_tools_status`, in the bridge)
+  /// The statuses of the command-line tools of Settings → Tools (`cli_tools_status`, `AppHost::before_tools_status` of
+  /// `TestHost`)
   CliTools,
   /// A push to the remote of the repository (its pre-receive hook, `remote_git_fixtures`): the remote has the pack and
   /// moves no ref until the release

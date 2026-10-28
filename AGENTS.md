@@ -508,7 +508,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
 you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/update-core/`,
 `crates/trial-check/`, `crates/lease-pool/`, `crates/remote-facts/`, `crates/repository-model/`, `crates/operations/`,
-`crates/bd-*/` or `src-tauri/src/commands/`.
+`crates/bd-*/` or `crates/app-api/`.
 The checklist:
 - One name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`); the `//!` headers of
   `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
@@ -666,7 +666,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Update Project (the intents `UpdateProject`, `FetchBaseline`, `DismissLanded`; `bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/operations/src/update.rs`, `crates/update-core/src/update_project.rs`, `crates/update-core/src/resolve_session.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `src/stores/update-project.ts`, `update-progress.ts` |
 | Pick between worktrees (`bd pick --from <worktree> --follow`); the commits someone else pushed to a remote virtual branch (`bd pick --remote`, Pick Remote Commits) | `cli/pick`, `repository/outgoing` | `crates/update-core/src/pick.rs`, `crates/git-ops/src/pick.rs`, `crates/sync-core/src/moved_remote.rs`, `crates/repository-model/src/moved_remote.rs`, `src/lib/git/pick-remote.ts` |
 | Agent workspace (`bd workspace`): a lease and the `(branch)` subject by `branchdeck.agentLease` and `branchdeck.agentSubjectBranch`, Settings → Agents | `cli/workspace`, `repository/settings`, `repository/onboarding` | `crates/lease-pool/src/agent_workspace.rs`, `crates/bd-lease/src/workspace_command.rs`, `src/components/settings/AgentsPage.tsx` |
-| Command-line tools: the `teamcity` and `youtrack` CLIs in Settings → Tools, installed and updated through Homebrew, winget or scoop, with their agent skills; the Setup dot on Settings (updates, expiring sign-ins) | `repository/cli-tools`, `repository/setup-attention`, `repository/settings` | `crates/cli-tools/`, `crates/sync-utils/src/known_tools.rs`, `src-tauri/src/commands/cli_tools.rs`, `src/components/settings/ToolsPage.tsx` |
+| Command-line tools: the `teamcity` and `youtrack` CLIs in Settings → Tools, installed and updated through Homebrew, winget or scoop, with their agent skills; the Setup dot on Settings (updates, expiring sign-ins) | `repository/cli-tools`, `repository/setup-attention`, `repository/settings` | `crates/cli-tools/`, `crates/sync-utils/src/known_tools.rs`, `crates/app-api/src/app/cli_tools.rs`, `src/components/settings/ToolsPage.tsx` |
 | Landing routes: the route into master (`branchdeck.landing`: Patronus, a push into the target, a merge of the pull request; unset by the host of `origin`) and its gate of the write access and the rules of the target; Push to master, Merge #7 and Auto-Merge #7 (`bd land`), Cancel Auto-Merge | `branch/landing-routes`, `branch/next-step`, `repository/settings`, `cli/agent-cli` ([Landing](docs/design/landing.md#routes)) | `crates/domain-policy/src/landing_route.rs`, `crates/domain-policy/src/land_direct.rs`, `crates/domain-types/src/landing_route.rs`, `crates/sync-core/src/repository_config.rs`, `crates/sync-core/src/repo_facts.rs` (`landing_remote`), `crates/sync-core/src/baseline_push.rs`, `crates/operations/src/land_execute.rs` (`push_baseline`, `merge`), `crates/operations/src/auto_merge.rs`, `crates/remote-facts/src/pull_request_writes.rs` (`merge_pull_request`, `enable_auto_merge`, `disable_auto_merge`), `crates/bd-remote/src/land_command.rs`, `crates/remote-facts/src/branch_rules.rs`, `crates/remote-facts/src/pull_requests.rs` (`viewerPermission`, `mergeStateStatus`) |
 | Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`), the host slots that `bd-host serve` lends in process | `cli/lease` | `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/lease_clean.rs`, `crates/lease-pool/src/host_slots.rs`, `crates/bd-lease/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
 | Remote runs on another Mac (`bd-host`, Draft): a command of a checkout in a warm host slot, the agent under launchd, the upgrade | `cli/host`, `cli/lease` ([Host Runs](docs/design/host-runs.md)) | `crates/bd-host/`, `crates/host-client/`, `crates/host-agent/`, `crates/host-link/` |
@@ -800,8 +800,8 @@ src/
 ├── index.css        # Tailwind and the theme tokens
 └── main.tsx         # App entry (store handlers, router)
 src-tauri/src/
-├── api.rs           # The Tauri wrappers of the commands of app-api, generated from its registry (`for_each_command!`)
-├── commands/        # The handwritten Tauri commands, until their family moves to app-api
+├── api.rs           # The Tauri wrappers of the commands of app-api, generated from its registry (`for_each_command!`): the app has no command of its own
+├── desktop.rs       # The windows, the folder dialog and the restart of the app (`WindowHost`, `DialogHost`, `RestartHost` of app-api)
 ├── lib.rs           # Command registration (`specta_builder`, exported to bindings.ts by bindings_test.rs)
 ├── services.rs      # What the app's sessions run with: their start, `AppEnvironment`, `AppServices` (over the `AppContext`)
 └── …                # title_bar.rs, menu.rs, zoom.rs, …

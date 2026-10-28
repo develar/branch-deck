@@ -1,8 +1,7 @@
 // @spec spec/repository/title-bar.spec.md
-import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { getSubWindowReadyOpen, getWindowShell } from "../helpers/sub-window-helpers"
+import { getSubWindowReadyOpen, getWindowReadyRows, getWindowShell, observeWindowStages } from "../helpers/sub-window-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
 /** The repository was synced an hour ago: the window syncs it by itself when it opens it */
@@ -11,12 +10,12 @@ const SYNCED_AN_HOUR_AGO = 60 * 60 * 1000
 /** The rows of the `branch_filter` template: a stack, a side stack and lone branches, enough for the filter bar */
 const BRANCH_FILTER_ROWS = 11
 
-/** The branch rows the main window's page had when it said its first frame is drawn (`sub_window_ready`), or null */
-async function rowsWhenReady(page: Page): Promise<number | null> {
-  return page.evaluate(() => (window as unknown as { __e2eWindowReadyRows?: number }).__e2eWindowReadyRows ?? null)
-}
-
 test.describe("The first frame of the main window", () => {
+  // what the page says of the stages of its window, with what it had in its DOM then
+  test.beforeEach(async ({ page }) => {
+    await observeWindowStages(page)
+  })
+
   test("should show the main window on the first rows of its sync, the table loading where they come until then", async ({ page, setupRepo }) => {
     // the first sync of the window, held: what the window shows before its rows
     const release = await holdCommand(page, "sync")
@@ -41,7 +40,7 @@ test.describe("The first frame of the main window", () => {
     await expect(findBranchRow(page, "core")).toBeVisible()
     await expect.poll(() => getSubWindowReadyOpen(page)).toBe(1)
     // said with the rows in the page, not before them
-    expect(await rowsWhenReady(page)).toBe(BRANCH_FILTER_ROWS)
+    expect(await getWindowReadyRows(page)).toBe(BRANCH_FILTER_ROWS)
     await expect(loading).toHaveCount(0)
     // the rows and the filter bar took the room the loading table had: nothing below moved
     const table = page.getByTestId("branch-view").locator("[data-slot=card]").first()
@@ -53,7 +52,7 @@ test.describe("The first frame of the main window", () => {
     await setupRepo("NO_REPO", { prepopulateStore: false })
     await expect(page.getByTestId("welcome-card")).toBeVisible()
     await expect.poll(() => getSubWindowReadyOpen(page)).toBe(1)
-    expect(await rowsWhenReady(page)).toBe(0)
+    expect(await getWindowReadyRows(page)).toBe(0)
     await expect(page.getByTestId("branch-table-loading")).toHaveCount(0)
   })
 
@@ -69,7 +68,7 @@ test.describe("The first frame of the main window", () => {
     await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, syncedBranchCount: 1, rebaseInProgress: true })
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
     await expect.poll(() => getSubWindowReadyOpen(page)).toBe(1)
-    expect(await rowsWhenReady(page)).toBe(0)
+    expect(await getWindowReadyRows(page)).toBe(0)
     await expect(page.getByTestId("branch-table-loading")).toHaveCount(0)
   })
 })

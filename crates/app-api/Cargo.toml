@@ -17,6 +17,8 @@ git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 github = { path = "../github" }
 history-rewrite = { path = "../history-rewrite" }
+# the rules of `bd workspace` an install of the agent CLI answers (`agent_defaults`)
+lease-pool = { path = "../lease-pool" }
 object-cache = { path = "../object-cache" }
 # the Patronus service of the robots and the `teamcity` CLI of the full failure of a robot
 patronus = { path = "../patronus" }
@@ -36,10 +38,13 @@ serde.workspace = true
 serde_json.workspace = true
 # the parameters of the commands are types of the bindings
 specta.workspace = true
-tokio.workspace = true
+# the deadlines of the windows built hidden (`app::windows`)
+tokio = { workspace = true, features = ["time"] }
 tracing.workspace = true
 
 [dev-dependencies]
+# the deadlines of the windows on a paused clock (`windows_test.rs`)
+tokio = { workspace = true, features = ["test-util", "time"] }
 # `error_cases`: the typed errors with the one code bd and the app answer for each
 update-core = { path = "../update-core", features = ["fixtures"] }
 pretty_assertions = { workspace = true }

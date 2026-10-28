@@ -1,6 +1,7 @@
 //! The commands of the app, each declared once, here (the grammar of an entry: `registry.rs`). The doc comment of an
 //! entry is the one of its function in `src/lib/bindings.ts`; its body lives in a family module (`reads::…`,
-//! `session::…`, `remote::…`, `app::…`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its
+//! `session::…`, `remote::…`, `app::…`). Every command of the app is an entry here: the app has no command of its own
+//! (`command_scan_test.rs`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its
 //! `Command` and the list [`COMMANDS`], the app its `#[tauri::command]` wrappers (`src-tauri/src/api.rs`), the e2e
 //! server its routes (`crates/test-server/src/invoke.rs`), and the page mock of the e2e server its table,
 //! `crates/app-api/commands.json` (written from `COMMANDS` by `commands_json_test.rs`). A type of an entry is named by
@@ -250,6 +251,75 @@ macro_rules! for_each_command {
       /// read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands
       /// (`BranchPrefixes`); a global one forgets the prefix of every other repository, which may take it
       app json set_repository_config(params: $crate::app::repository_config::SetRepositoryConfigParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::set_repository_config;
+
+      /// Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
+      /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
+      /// settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
+      read window open_sub_window(params: $crate::app::windows::OpenSubWindowParams) -> () = $crate::app::windows::open_sub_window;
+
+      /// The page of the calling window loaded and listens to the settings: a sub-window gets the data of an open that came
+      /// while it loaded and the changes of the settings after the snapshot its window was built with. The window shows once
+      /// the page settled its content, at most `DRAW_FALLBACK` from now when the page draws no shell (`sub_window_drawn`)
+      read window sub_window_loaded() -> $crate::app::windows::SubWindowLoaded = $crate::app::windows::sub_window_loaded;
+
+      /// The loaded page of the calling window committed its shell, the title row (the main window's with its loading table):
+      /// the window shows once the page settled its content, at most the content budget of the page from now
+      /// (`CONTENT_BUDGET`, the main window's `MAIN_CONTENT_BUDGET`), so a slow page shows its shell, never a bare canvas
+      read window sub_window_drawn() -> () = $crate::app::windows::sub_window_drawn;
+
+      /// The page of the calling window settled the content of the open `open_id` (the main window: drew its first rows or
+      /// the state without rows): the window shows if that is the latest open and the window is still hidden, once its
+      /// webview presented that content (`show_window`)
+      read window sub_window_ready(open_id: u32) -> () = $crate::app::windows::sub_window_ready;
+
+      /// The window manager's menu of the window (Move, Resize, Always on Top, Close…), as a right click on a native title bar
+      /// opens it: the page calls it for a right click on the empty parts of its title bar (`WindowTitleBar`). A sync command,
+      /// so it runs on the main thread, where GDK and Win32 menus live.
+      read main show_window_menu() -> () = $crate::app::windows::show_window_menu;
+
+      /// Opens a native file dialog to browse for a git repository
+      read json browse_repository() -> sync_core::repository_validation::BrowseResult = $crate::app::desktop::browse_repository;
+
+      /// Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
+      /// for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
+      /// Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
+      app main set_auto_sync_menu_checked(checked: bool) -> () = $crate::app::desktop::set_auto_sync_menu_checked;
+
+      /// Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
+      /// (`init_title_bar`). The value goes through the writer of the settings, which saves it now, before the restart: the
+      /// new process reads the file.
+      app main restart_app(system_title_bar: bool) -> () = $crate::app::desktop::restart_app;
+
+      read json check_for_updates() -> domain_types::update::UpdateInfo = $crate::app::desktop::check_for_updates;
+
+      read json get_update_status() -> domain_types::update::UpdateInfo = $crate::app::desktop::get_update_status;
+
+      app json install_update() -> () = $crate::app::desktop::install_update;
+
+      app json install_agent_cli() -> $crate::app::agent_cli::AgentCliInstall = $crate::app::agent_cli::install_agent_cli;
+
+      /// The bd command of the prompts the app copies. Writes nothing and needs no install, so the bd of a prompt is always
+      /// the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
+      read json agent_cli_command(repository_path: String) -> $crate::app::agent_cli::AgentCliCommand = $crate::app::agent_cli::agent_cli_command;
+
+      /// The skill files of `bd install` that exist, without writing anything
+      read now agent_cli_status() -> $crate::app::agent_cli::AgentCliStatus = $crate::app::agent_cli::agent_cli_status;
+
+      /// The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
+      /// reads the Setup dot again
+      read json cli_tools_status() -> Vec<domain_types::cli_tools::CliToolStatus> = $crate::app::cli_tools::cli_tools_status;
+
+      /// Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
+      /// `teamcity` to `server`), each line of its output to `progress`; a second action of the same tool while one runs is
+      /// refused
+      app json run_cli_tool_action(params: $crate::app::cli_tools::RunCliToolActionParams) [channel progress: $crate::app::cli_tools::CliToolProgress] -> $crate::app::cli_tools::CliToolActionDone = $crate::app::cli_tools::run_cli_tool_action;
+
+      /// Ends the action of `tool` that runs, with its whole process group
+      app now cancel_cli_tool_action(tool: domain_types::cli_tools::CliTool) = $crate::app::cli_tools::cancel_cli_tool_action;
+
+      /// What waits for the user (the Setup dot): the downloaded update of the app, the tools' updates and expiring sign-ins
+      /// from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides
+      read json get_setup_items(skips: Vec<domain_types::setup::SetupSkip>) -> Vec<domain_types::setup::SetupEntry> = $crate::app::cli_tools::get_setup_items;
     }
   };
 }

@@ -6,7 +6,7 @@ import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, MIN_WIND
 import { availableRobots } from "../helpers/patronus-helpers"
 import { availableReviewRequests, getYourTurnCard, openReviewWindow, reviewRequest } from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
-import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { getEmittedEvents, getOpenedSubWindows, getWindowMenus, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { waitForConflictViewer } from "../helpers/wait-helpers"
@@ -287,11 +287,13 @@ test.describe("Custom title bar on Linux", () => {
     expect(await windowCalls(page)).not.toContain("toggle_maximize")
 
     await header(page).click({ button: "right", position: empty })
-    await expect.poll(() => windowCalls(page)).toContain("show_window_menu")
+    // the window manager's menu, which the backend opens (`show_window_menu`)
+    await expect.poll(() => getWindowMenus(page)).toBe(1)
     // a control keeps its own right click
     const calls = (await windowCalls(page)).length
     await page.getByTestId("sync-button").click({ button: "right" })
     expect(await windowCalls(page)).toHaveLength(calls)
+    expect(await getWindowMenus(page)).toBe(1)
   })
 })
 
