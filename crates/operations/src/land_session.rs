@@ -6,17 +6,21 @@
 //! the lock. A check that could not run in full holds nothing back: the outcome says so (`StartNote`). The robots and
 //! the pull requests after the push are the session's as they are; the robot a comment started is looked for in a list
 //! of the robots started since shortly before the comment, and every robot the start starts or cancels goes into the
-//! session, so every window shows it at once.
+//! session, so every window shows it at once. A start of a repository that lands by a push into the target runs no check
+//! against the newest target (a target that moved refuses the push as no fast-forward, which fetches it), and what its
+//! push landed or the refusal of the server goes into the session (`Sessions::tell_baseline_push`), a fetch after a push
+//! that was no fast-forward asks the sync that builds the copies anew.
 
 use crate::land::planned_of;
 use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, PushedRef, StartHost, StartServices, lock_failure, shown_remote};
 use crate::push::Sent;
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{Land, LandingRefusal, Subject};
+use domain_types::landing::{BaselinePush, Land, LandingRefusal, Subject};
+use domain_types::landing_route::LandingRoute;
 use domain_types::operation::StartNote;
 use domain_types::patronus::{PatronusAvailability, PatronusRobot};
-use domain_types::session::Version;
+use domain_types::session::{SyncReason, Version};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{git_common_dir, resolve_commit};
 use github::service::GitHubService;
@@ -25,7 +29,8 @@ use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::service_sources::ServiceHost;
-use repository_model::derive::{StartChecks, with_checked_land_sources};
+use repository_model::derive::{StartChecks, landing_route_of, with_checked_land_sources};
+use repository_model::facts::BaselineRefusal;
 use repository_model::facts::listed_robots;
 use repository_model::patronus_view::landed_commits;
 use repository_model::pull_request_facts::PullRequestWrite;
@@ -62,6 +67,8 @@ struct Inputs {
   tip: Option<String>,
   baseline: String,
   landed: Option<HashSet<String>>,
+  /// The repository lands by a push into the target: no check runs before the plan
+  push_route: bool,
 }
 
 impl SessionStart {
@@ -82,6 +89,7 @@ impl SessionStart {
           tip,
           baseline: table.table.baseline.clone(),
           landed,
+          push_route: matches!(landing_route_of(state.header(), facts), LandingRoute::Push { .. }),
         })
       })
       .await
@@ -170,7 +178,12 @@ impl StartHost for SessionStart {
       let Some(inputs) = self.inputs(&land.subject).await else {
         return Ok(None);
       };
-      let (checks, notes) = self.checks(&land.subject, inputs).await?;
+      // a push into the target is its own check against it: one that moved refuses it as no fast-forward
+      let (checks, notes) = if inputs.push_route {
+        (StartChecks::default(), Vec::new())
+      } else {
+        self.checks(&land.subject, inputs).await?
+      };
       let (prefix, land) = (self.key.prefix.clone(), land.clone());
       let planned = self
         .sessions
@@ -247,6 +260,14 @@ impl StartHost for SessionStart {
 
   fn write_pull_request(&self, write: PullRequestWrite) -> Read<'_, Option<Version>> {
     Box::pin(async move { self.sessions.write_pull_request(&self.key, write).await })
+  }
+
+  fn baseline_pushed(&self, landed: Vec<(String, BaselinePush)>, refused: Option<BaselineRefusal>) -> Read<'_, Option<Version>> {
+    Box::pin(async move { self.sessions.tell_baseline_push(&self.key, landed, refused).await })
+  }
+
+  fn baseline_fetched(&self) {
+    drop(self.sessions.sync(&self.key, SyncReason::AfterRewrite));
   }
 
   /// A start of the app opens no pull request: Create Pull Request does, with its own text

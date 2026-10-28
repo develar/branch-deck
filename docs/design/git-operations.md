@@ -3585,6 +3585,61 @@ take. `bd fold` (Squash Fixups in the app) before the start removes the differen
 
 Code: `crates/sync-core/src/target_conflict.rs`, `crates/git-ops/src/trial_rebase.rs`, `crates/operations/src/land_session.rs`.
 
+#### Push into the baseline
+
+Where the repository lands by a push (`branchdeck.landing=push`, [Landing Routes](../../spec/branch/landing-routes.spec.md#push-to-master)),
+a start (`Intent::Land`, the app's and `bd land`'s) pushes the copy the sync built of its subject into the branch of
+the baseline on its remote: the tip of the virtual branch of a piece (the branch with what it is built on), of a whole
+stack its stack branch, only one the sync `Built`. The plan is the app's start (`domain_policy::land_direct`, the tail of
+`land::decide` for the route), its effect `PlannedEffect::PushBaseline`; the run is the frame of every start
+(`operations::land_execute`):
+
+1. Before the lock: the cheap witness. The plan witnesses the tip of the copy, the remote-tracking ref of the baseline
+   at the commit the copies were built on (`upstream_head` of the update check of the sync), and the checked out branch
+   at the HEAD the sync grouped, which holds the originals: an amend or a fetch after the sync is `plan_changed`, and
+   the old copy never lands. The route itself is in the fingerprint (`Witness::route`): a setting changed between the
+   click and the run is `plan_changed` too. No check against the newest target runs: a target that moved refuses the
+   push.
+2. Under the repository lock: the full witness, one `for-each-ref`; nothing else.
+3. After the lock: `sync_core::baseline_push::push_baseline`, through the policy of every remote git
+   (`execute_remote_command_with_progress_configured`): the upstream of the baseline (`resolve_baseline_upstream`:
+   `remote`, `symbolic-ref`, `for-each-ref`), the size check of what it adds (`check_push_size`, one `log`, one
+   `cat-file`), the first push URL of its remote (`remote get-url --push`, with `pushurl` and `pushInsteadOf`), then
+   `git -c remote.<r>.url= -c remote.<r>.pushurl= push --progress --porcelain --end-of-options <url> <tip>:refs/heads/<target>`.
+   - No `+` and no lease: a commit that is no fast-forward the server refuses whole, atomically.
+   - By the URL, not by the remote's name: a push to a named remote moves its remote-tracking ref, which only the fetch
+     of the baseline writes (`fetch_baseline`, under `fetch.lock`, "Fetch lock"). Git takes the configured remote whose
+     `url` or `pushurl` equals the URL all the same (git 2.56), so the push clears both of that remote for itself (an
+     empty value resets the list); `refs/remotes/origin/master` stays where the last fetch left it
+     (`a_copy_built_on_the_target_lands_as_a_fast_forward_and_the_tracking_ref_stays`). A pre-push hook sees the URL
+     as both its arguments; a second push URL, `remote.<name>.receivepack` and `remote.<name>.proxy` play no part.
+   - The report of the ref comes from `--porcelain`, the server's words from its `remote:` lines.
+
+What it answers:
+
+- Taken (`*`, ` `; `=` when the target was at it already): the copies it landed go into the session, each branch of
+  `lands` at its tip and the subject at the pushed tip (`Sessions::tell_baseline_push`, `BaselinePushes::landed`), so
+  `landed_state` says "Landed in origin/master" before any fetch shows it and a second click pushes nothing; then the
+  engine runs Update Project with its fetch as an operation of its own (`engine::execute_land`,
+  `domain_policy::land_direct::update_after`), admitted as any update: the start holds no HEAD. Its replay drops the
+  originals whose copies landed: their changes are in the new baseline, so they become empty (`git replay`, "Update
+  project"). `bd land` updates nothing: it names `bd update`.
+- `[rejected] (fetch first)` or `(non-fast-forward)`: the target moved since the copy was built on it. The start fetches
+  the baseline (`fetch_baseline`, which joins a fetch of any process that runs), asks the sync that builds the copies
+  anew on it, and fails as `baseline_moved`; no push goes again by itself.
+- Any other refusal (`[remote rejected]`: a hook, a protected branch): `baseline_refused` with the server's words, which
+  go into the session (`BaselinePushes::refused`): the gate of the route asks about them before the next push
+  (`Reason::BaselineRefusedPush`), and a push that lands forgets them.
+- Over the size limit: `push_too_large`, nothing sent.
+
+The start reserves the remote-tracking ref of the target (`Resource::Ref`, `refs/remotes/origin/<target>`): two landings
+into it wait for each other in the process, a fetch of it waits for the push, and across processes the record of the
+other one makes it `busy`.
+
+Code: `crates/sync-core/src/baseline_push.rs`, `crates/operations/src/land_execute.rs` (`Run::push_baseline`),
+`crates/operations/src/engine.rs` (`execute_land`), `crates/domain-policy/src/land_direct.rs`,
+`crates/bd-remote/src/land_command.rs`. Budget: `a_push_into_the_baseline` (`crates/sync-core/src/process_budget_test.rs`).
+
 #### Landing gate
 
 git merges a branch that uses a name only another branch adds, and the robot's build fails, as the robots of

@@ -28,6 +28,15 @@
 //!    a start whose answer was lost, which holds what it held until a read of Patronus settles it
 //!    (`operations::reconcile`) or the user forgets it (`Intent::ForgetStart`).
 //!
+//! A start of a repository that lands by a push into the target (`PlannedEffect::PushBaseline`,
+//! `domain_policy::land_direct`) runs the same frame: its witness the tip of the copy, the remote-tracking ref of the
+//! baseline the copy was built on and the checked out branch that holds the originals, under the lock; then, after the
+//! lock, the push of the copy into the target by the push URL (`sync_core::baseline_push`). A push that landed goes into
+//! the facts as what landed its subject until a fetch shows it (`StartHost::baseline_pushed`); a target that moved since
+//! (no fast-forward) is fetched (`fetch_baseline`, which joins a fetch that runs) and synced, `baseline_moved`; a refusal
+//! of the server (`[remote rejected]`) goes into the facts with its words, which the gate of the route asks about next,
+//! `baseline_refused`. Update Project after a push that landed is an operation of its own (`engine::execute_land`).
+//!
 //! A refusal the facts know (a blocker, an unaccepted confirmation, a changed fingerprint, a held lock) does nothing:
 //! every effect comes after the full witness (a plan that moves and leases no ref reads none and takes no lock). The
 //! first effect that fails stops the start; the effects before it stay done, and the outcome lists each with its
@@ -41,7 +50,7 @@ use domain_policy::holds::is_active;
 use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
-use domain_types::landing::{Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
+use domain_types::landing::{BaselinePush as PushedCopy, Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
 use domain_types::operation::{
   EffectRecord, EffectStatus, Fingerprint, Intent, LandResult, NewsKey, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, PushResult, RobotResult,
   StartComment, StartNote,
@@ -63,6 +72,7 @@ use remote_facts::pull_request_writes::request_pull_request_reviewers;
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::pull_requests::failure_message;
 use repository_model::branch_table::BranchTable;
+use repository_model::facts::BaselineRefusal;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::ref_claims::claim_refs;
 use repository_model::refusal_words::start_refusal_text;
@@ -70,6 +80,8 @@ use repository_model::table::{RemoteSubject, TableState};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use sync_core::baseline::fetch_baseline;
+use sync_core::baseline_push::{BaselinePush, BaselinePushed, push_baseline};
 use sync_core::github_repository::GitHubRepository;
 use sync_core::push::{LeasedBranch, LeasedPush, PreparedPush, PushTarget};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
@@ -247,6 +259,18 @@ pub trait StartHost: Send + Sync {
   /// The pull request a run opened, or the reviewers it asked, goes into the facts: the version of the view after its
   /// patch; `None` when nothing keeps it (`bd`)
   fn write_pull_request(&self, write: PullRequestWrite) -> Read<'_, Option<Version>>;
+
+  /// A push into the target ended: the copies it landed (`landed`, by subject key), which land their subjects until a
+  /// fetch shows them in the baseline, or the refusal of the server (`refused`), which the gate of the route asks about
+  /// before the next push, go into the facts: the version of the view after its patch; `None` when nothing keeps them
+  /// (`bd`, whose process ends with the command)
+  fn baseline_pushed(&self, _landed: Vec<(String, PushedCopy)>, _refused: Option<BaselineRefusal>) -> Read<'_, Option<Version>> {
+    Box::pin(std::future::ready(None))
+  }
+
+  /// The baseline was fetched after a push into the target that was no fast-forward: a sync builds the copies anew on
+  /// it (`bd`: nothing, its next command syncs)
+  fn baseline_fetched(&self) {}
 }
 
 /// The pull request a start opens, as its host words it
@@ -624,17 +648,15 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
       ..
     } => ErrorCode::StackConflict,
     Reason::StackNotBuilt { .. } | Reason::NoStackBranch { .. } => ErrorCode::StackNotBuilt,
-    // the gates of a push into the target (`domain_policy::landing_route`) too: the server would refuse it
-    Reason::DropsRemote { .. }
-    | Reason::CantPush { .. }
-    | Reason::RewrittenSincePush { .. }
-    | Reason::NoWriteAccess { .. }
-    | Reason::BaselineRequiresPullRequest { .. }
-    | Reason::BaselineRequiresMergeQueue { .. }
-    | Reason::BaselineRestrictsUpdates { .. }
-    | Reason::BaselineRequiresSignatures { .. }
-    | Reason::BaselineRequiresStatusChecks { .. }
-    | Reason::LocalBaseline { .. } => ErrorCode::PushRefused,
+    Reason::DropsRemote { .. } | Reason::CantPush { .. } | Reason::RewrittenSincePush { .. } | Reason::BaselineRequiresStatusChecks { .. } | Reason::LocalBaseline { .. } => {
+      ErrorCode::PushRefused
+    }
+    // the gates of a push into the target (`domain_policy::landing_route`): the server would refuse it
+    Reason::NoWriteAccess { .. } => ErrorCode::NoWriteAccess,
+    Reason::BaselineRequiresPullRequest { .. } => ErrorCode::BaselineRequiresPullRequest,
+    Reason::BaselineRequiresMergeQueue { .. } | Reason::BaselineRestrictsUpdates { .. } | Reason::BaselineRequiresSignatures { .. } | Reason::BaselineRefusedPush { .. } => {
+      ErrorCode::BaselineRefused
+    }
     Reason::TargetConflict { .. } => ErrorCode::TargetConflict,
     Reason::Draft { .. } | Reason::Unprotected { .. } => ErrorCode::PatronusRefused,
     Reason::NeedsPush { .. } => ErrorCode::NeedsPush,
@@ -650,8 +672,8 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     Reason::Blocked { .. } | Reason::LastCommit { .. } | Reason::Descendant { .. } | Reason::Ancestor { .. } | Reason::Held { .. } | Reason::StackHeld { .. } => {
       ErrorCode::RobotRunning
     }
-    // no robot lands off Space, no pull request of GitHub merges it
-    Reason::NotOnSpace => ErrorCode::NotOnSpace,
+    // no robot lands off Space, nor where a push into the target lands it; no pull request of GitHub merges it
+    Reason::NotOnSpace | Reason::DryRunNeedsPatronus => ErrorCode::NotOnSpace,
     Reason::GitHubMirror { .. } | Reason::NotOnGitHub => ErrorCode::NoPullRequest,
   }
 }
@@ -781,6 +803,7 @@ impl<'a> Run<'a> {
           PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
+          PlannedEffect::PushBaseline { tip, target, .. } => self.push_baseline(tip, target).await,
           // a close, a review, the state of an issue and a forget are operations of their own, never a step of a start
           PlannedEffect::ClosePullRequest { .. }
           | PlannedEffect::SubmitReview { .. }
@@ -961,6 +984,90 @@ impl Run<'_> {
       return self.fail(error);
     }
     status
+  }
+
+  /// The push of the copy `tip` into the target `target` by the push URL (the module's header), after the lock: what it
+  /// landed into the facts, a target that moved fetched and synced, a refusal of the server into the facts with its words
+  async fn push_baseline(&mut self, tip: &str, target: &str) -> EffectStatus {
+    if self.steps.canceled() {
+      return self.skip(canceled());
+    }
+    self.steps.step(OperationStep::Pushing);
+    let (git, path, baseline, size_limit) = (
+      self.services.git.clone(),
+      self.services.repository_path.clone(),
+      self.services.push.baseline.clone(),
+      self.services.push.size_limit,
+    );
+    let (owned_tip, progress) = (tip.to_owned(), Arc::clone(&self.steps.progress));
+    let pushed = blocking(move || {
+      let push = BaselinePush {
+        repository_path: &path,
+        baseline: &baseline,
+        tip: &owned_tip,
+        size_limit,
+      };
+      push_baseline(&git, &push, &mut |tick: TransferProgress| progress(&tick)).map_err(git_failure)
+    })
+    .await;
+    let report = match pushed {
+      Ok(report) => report,
+      Err(error) => return self.fail(error),
+    };
+    let baseline = &self.services.push.baseline;
+    match report.pushed {
+      BaselinePushed::Pushed { .. } => {
+        let landed = self.landed_by_push(tip);
+        self.version = self.host.baseline_pushed(landed, None).await.or(self.version);
+        EffectStatus::Done
+      }
+      BaselinePushed::Moved { summary } => {
+        // the target as it is now, for the sync that builds the copies anew on it: the fetch of the baseline, which joins
+        // a fetch of any process that runs
+        let (git, path, upstream) = (self.services.git.clone(), self.services.repository_path.clone(), report.upstream);
+        let fetched = blocking(move || fetch_baseline(&git, &path, &upstream, &mut |_| {}).map_err(git_failure)).await;
+        let after = match fetched {
+          Ok(_) => {
+            self.host.baseline_fetched();
+            format!("{baseline} is fetched, and the sync builds the copy anew on it")
+          }
+          Err(error) => format!("its fetch failed ({}): fetch {baseline} and sync", error.message),
+        };
+        self.fail(ApiError::new(
+          ErrorCode::BaselineMoved,
+          format!("{target} moved since the copy was built on it ({summary}): nothing was pushed; {after}, then push again"),
+        ))
+      }
+      BaselinePushed::Refused { message } => {
+        let refusal = BaselineRefusal {
+          target: target.to_owned(),
+          message: message.clone(),
+        };
+        self.version = self.host.baseline_pushed(Vec::new(), Some(refusal)).await.or(self.version);
+        self.fail(ApiError::new(ErrorCode::BaselineRefused, format!("The server refused the push into {target}: {message}")))
+      }
+      BaselinePushed::TooLarge(too_large) => self.fail(ApiError::new(ErrorCode::PushTooLarge, too_large.to_string())),
+    }
+  }
+
+  /// What a push of the copy at `tip` landed, by subject key: each branch the plan lands at the tip its witness froze, and
+  /// the subject at `tip` (of a whole stack, `stack:<root>`)
+  fn landed_by_push(&self, tip: &str) -> Vec<(String, PushedCopy)> {
+    let upstream = &self.services.push.baseline;
+    let pushed = |tip: &str| PushedCopy {
+      tip: tip.to_owned(),
+      upstream: upstream.clone(),
+    };
+    let tip_of = |name: &str| {
+      let full = to_final_branch_name(&self.services.prefix, name).ok()?;
+      self.planned.witness.refs.get(&format!("refs/heads/{full}"))?.as_deref()
+    };
+    let mut landed: Vec<(String, PushedCopy)> = self.planned.plan.lands.iter().filter_map(|name| Some((name.clone(), pushed(tip_of(name)?)))).collect();
+    let key = self.planned.subject.key();
+    if !landed.iter().any(|(landed, _)| *landed == key) {
+      landed.push((key, pushed(tip)));
+    }
+    landed
   }
 
   /// Before the start, once: a pushed branch that moved since its push (a rewrite after the lock), a robot of what it

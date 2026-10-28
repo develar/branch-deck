@@ -83,6 +83,8 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::LocalBaseline { baseline } => format!("the baseline {baseline} is a local branch: no remote branch takes the push"),
     Reason::GitHubMirror { repository } => format!("{repository} is a mirror origin doesn't push to: a merge there lands nothing"),
     Reason::NotOnGitHub => "the pull requests of the branches are not on GitHub".to_string(),
+    Reason::DryRunNeedsPatronus => "a Dry Run is a robot of Patronus, and the repository lands by a push into its target".to_string(),
+    Reason::BaselineRefusedPush { target, message } => format!("the server refused a push into {target} before: {message}"),
   }
 }
 

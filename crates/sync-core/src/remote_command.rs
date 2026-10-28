@@ -24,9 +24,11 @@ const REMOTE_CONFIG: [&str; 6] = ["-c", "credential.interactive=false", "-c", "h
 ///   git command); an unknown locale would fall back to C as well
 const REMOTE_ENV: [(&str, &str); 3] = [("GCM_INTERACTIVE", "never"), ("LC_ALL", "C"), ("LANGUAGE", "")];
 
-fn remote_args<'a>(args: &[&'a str]) -> Vec<&'a str> {
-  let mut full_args = Vec::with_capacity(REMOTE_CONFIG.len() + args.len());
+/// The policy's config, then `config` (more `-c` pairs of the caller), then `args`
+fn remote_args<'a>(config: &[&'a str], args: &[&'a str]) -> Vec<&'a str> {
+  let mut full_args = Vec::with_capacity(REMOTE_CONFIG.len() + config.len() + args.len());
   full_args.extend(REMOTE_CONFIG);
+  full_args.extend_from_slice(config);
   full_args.extend_from_slice(args);
   full_args
 }
@@ -40,13 +42,13 @@ pub fn execute_remote_command(git_executor: &GitCommandExecutor, args: &[&str], 
 /// `execute_remote_command` for which the given non-zero exit codes are not failures, e.g. 1 for a `push --porcelain`
 /// with rejected refs, whose stdout still reports every ref
 pub fn execute_remote_command_accepting(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<String> {
-  git_executor.cmd(&remote_args(args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).text()
+  git_executor.cmd(&remote_args(&[], args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).text()
 }
 
 /// `execute_remote_command_accepting` that keeps git's stderr and exit code too: an accepted failure (a `push` whose
 /// ref the remote refused) is said in the `remote:` lines of stderr
 pub fn execute_remote_command_output(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<GitOutput> {
-  git_executor.cmd(&remote_args(args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).output()
+  git_executor.cmd(&remote_args(&[], args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).output()
 }
 
 /// `execute_remote_command_output` with `--progress` (added after the subcommand): `on_progress` gets how far the
@@ -72,13 +74,39 @@ pub fn execute_remote_command_with_progress_until(
   on_progress: &mut dyn FnMut(TransferProgress),
   stop: &ProgressStop<'_>,
 ) -> Result<GitOutput> {
+  with_progress(git_executor, &[], args, repository_path, ok_exit_codes, on_progress, stop)
+}
+
+/// `execute_remote_command_with_progress` with `config`, more `-c` pairs after the policy's: the push into the baseline
+/// by its URL clears the URLs of its remote, so git takes no configured remote for the URL and moves none of its
+/// remote-tracking refs (`baseline_push`)
+pub fn execute_remote_command_with_progress_configured(
+  git_executor: &GitCommandExecutor,
+  config: &[&str],
+  args: &[&str],
+  repository_path: &str,
+  ok_exit_codes: &[i32],
+  on_progress: &mut dyn FnMut(TransferProgress),
+) -> Result<GitOutput> {
+  with_progress(git_executor, config, args, repository_path, ok_exit_codes, on_progress, &ProgressStop::NEVER)
+}
+
+fn with_progress(
+  git_executor: &GitCommandExecutor,
+  config: &[&str],
+  args: &[&str],
+  repository_path: &str,
+  ok_exit_codes: &[i32],
+  on_progress: &mut dyn FnMut(TransferProgress),
+  stop: &ProgressStop<'_>,
+) -> Result<GitOutput> {
   let (subcommand, rest) = args.split_first().ok_or_else(|| anyhow!("No git subcommand to run"))?;
   let mut progress_args = Vec::with_capacity(args.len() + 1);
   progress_args.extend([*subcommand, "--progress"]);
   progress_args.extend_from_slice(rest);
   let mut reporter = TransferProgressReporter::new(on_progress);
   git_executor
-    .cmd(&remote_args(&progress_args), repository_path)
+    .cmd(&remote_args(config, &progress_args), repository_path)
     .env(&REMOTE_ENV)
     .accept(ok_exit_codes)
     .progress(

@@ -13,6 +13,7 @@ use domain_types::fixtures::branches_grouped;
 use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot};
 use domain_types::landed::LandedBranch;
 use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, PlannedEffect, ProfileChoice, StartRoute, Subject};
+use domain_types::landing_route::{LandingRoute, RouteGate};
 use domain_types::next_step::{LandingNodeKind, StepKind, StepRow};
 use domain_types::patronus::{
   LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult,
@@ -23,7 +24,7 @@ use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, PatronusView, StackPatronus};
 use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, StackBranchAlong,
-  SubjectReadiness, WholeStackView,
+  SubjectReadiness, TableHeader, WholeStackView,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
@@ -447,7 +448,11 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
   let failed = FactState::Unavailable {
     reason: ApiError::internal("the trial session failed"),
   };
+  let route = LandingRoute::Patronus { gate: RouteGate::Open };
   let sources = LandSources {
+    route: &route,
+    pushed: None,
+    header: &TableHeader::default(),
     table: &table,
     remote: &remote,
     view: &PatronusView::default(),

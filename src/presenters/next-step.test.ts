@@ -234,6 +234,16 @@ describe("the words of the next step", () => {
     )
     expect(stack.item?.description).toBe("Lands 2 branches, 3 commits into master in one Safe Push: air and ui")
   })
+
+  it("row push: Push to master by the branches it lands, its start disabled with the refusal of the gate of the route", () => {
+    const lone = presentNextStep(testStep({ kind: "pushToBaseline", target: "master" }), testContext())
+    expect(lone.item).toMatchObject({ id: "push-to-baseline", label: "Push to master", disabled: false })
+    expect(lone.item?.description).toBe("Push the copy of auth into master: it lands without a robot and without the CI of a pull request")
+    const stacked = presentNextStep(testStep({ kind: "pushToBaseline", target: "master" }, { lands: 3 }), testContext())
+    expect(stacked.item?.label).toBe("Push to master · 3")
+    const refused = presentNextStep(testStep({ kind: "pushToBaseline", target: "master" }, { safePush: rule(reasonOf("noWriteAccess")) }), testContext())
+    expect(refused.item).toMatchObject({ disabled: true, description: "You have no write access to develar/branch-deck: someone who has lands it into master" })
+  })
 })
 
 describe("the step's blocker of a start", () => {

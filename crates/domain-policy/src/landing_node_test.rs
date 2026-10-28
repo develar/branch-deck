@@ -2,6 +2,7 @@ use crate::landing_node::{NodeFacts, is_users_move, landing_node};
 use crate::next_step_test::{Fixture, failed, failure, fresh, group, missing, open, readiness, reviewer, robot_on_tip, signed_out};
 use domain_types::fixtures::{robot_of, whole_stack_robot_of};
 use domain_types::landing::{Landed, LandedBy};
+use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
 use domain_types::next_step::{LandingNode, LandingNodeKind, NodeLabel, StackPullRequest, StepFact, StepFailure, StepKind};
 use domain_types::patronus::{MissingApprovalsReason, PatronusAvailability, PatronusPushMode, PatronusRobotStatus, ReviewReadiness, UnknownReadinessReason};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestBase, ReviewerState};
@@ -242,4 +243,43 @@ fn a_filled_node_is_the_users_move() {
   .filter(|kind| is_users_move(*kind))
   .collect();
   assert_eq!(moves, vec![LandingNodeKind::Ready, LandingNodeKind::YourStep, LandingNodeKind::NeedsFix]);
+}
+
+/// A repository that lands by a push into the target is ready once the push can land it, on Space or off it, whatever
+/// the readiness: the user's move; a refusal of the gate of the route is a wait for others, a fact of the gate without
+/// an answer a wait that nobody counts yet, a running Safe Push that holds the branch a wait
+#[test]
+fn a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits() {
+  let push = |gate: RouteGate| Fixture::branch().with(|it| it.route = LandingRoute::Push { gate });
+  let ready = node(&push(RouteGate::Open).with(|it| it.readiness = None));
+  assert!(matches!(
+    (ready.kind, &ready.label),
+    (LandingNodeKind::Ready, NodeLabel::Step { step }) if matches!(step.kind, StepKind::PushToBaseline { .. })
+  ));
+  assert!(is_users_move(ready.kind));
+  let off_space = push(RouteGate::Open).with(|it| {
+    it.robots_head = fresh(RobotsHead {
+      availability: PatronusAvailability::NotPatronus,
+      github_repository: None,
+    });
+  });
+  assert_eq!(node(&off_space).kind, LandingNodeKind::Ready);
+
+  let no_access = Reason::NoWriteAccess {
+    repository: "acme/monorepo".to_string(),
+    target: "master".to_string(),
+  };
+  assert_eq!(
+    kind_and_label(&node(&push(RouteGate::Refused { reason: no_access.clone() }))),
+    (LandingNodeKind::Waiting, NodeLabel::StartWaits { reason: no_access })
+  );
+  let waits = node(&push(RouteGate::Wait {
+    fact: RouteFact::TargetRules,
+    failed: None,
+  }));
+  assert_eq!((waits.kind, waits.pending), (LandingNodeKind::Waiting, true));
+  assert_eq!(
+    kind_and_label(&node(&push(RouteGate::Open).with(|it| it.held = true))),
+    (LandingNodeKind::Waiting, NodeLabel::Held)
+  );
 }

@@ -11,6 +11,7 @@ use bd_lease::host_command::{
 };
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
 use bd_lease::workspace_command::WorkspaceOutput;
+use bd_remote::land_command::LandOutput;
 use bd_remote::operation_command::OperationForgetOutput;
 use bd_remote::push_command::PushOutput;
 use bd_remote::request_review_command::RequestReviewOutput;
@@ -76,6 +77,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ),
   ("move-hunk", &["move_hunk"]),
   ("operation", &["operation_forget"]),
+  ("land", &["land"]),
   ("park", &["park"]),
   ("pick", &["pick"]),
   ("push", &["push"]),
@@ -200,6 +202,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),
     ("lease_status".to_string(), schema_for!(LeaseStatusOutput)),
     ("move_hunk".to_string(), schema_for!(MoveHunkOutput)),
+    ("land".to_string(), schema_for!(LandOutput)),
     ("park".to_string(), schema_for!(ParkOutput)),
     ("operation_forget".to_string(), schema_for!(OperationForgetOutput)),
     ("pick".to_string(), schema_for!(PickOutput)),

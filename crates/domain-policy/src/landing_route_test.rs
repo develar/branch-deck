@@ -42,6 +42,7 @@ fn decide(remote: &LandingRemote, github: GitHubFacts<'_>, rules: TargetRules<'_
     baseline: "origin/master",
     github,
     rules,
+    refused: None,
   })
 }
 
@@ -313,4 +314,48 @@ fn the_facts_of_the_session_read_as_the_rule_takes_them() {
     observed_at: 0,
   };
   assert!(matches!(TargetRules::of(Some(&failed)), TargetRules::Failed { .. }));
+}
+
+/// A refusal of the server of a push into the target in this session is asked before the next push, first among what
+/// the gate asks: a hook may refuse only some commits; a gate that waits or refuses keeps its answer
+#[test]
+fn a_refusal_of_the_server_in_this_session_is_asked_before_the_next_push() {
+  let remote = on_github(Some(LandingSetting::Push));
+  let checks = BranchRules {
+    required_status_checks: true,
+    ..BranchRules::default()
+  };
+  let with_refusal = |github: GitHubFacts<'_>, rules: TargetRules<'_>| {
+    route(&RouteFacts {
+      remote: &remote,
+      baseline: "origin/master",
+      github,
+      rules,
+      refused: Some("remote: master is protected"),
+    })
+  };
+  let refused = Reason::BaselineRefusedPush {
+    target: "master".to_owned(),
+    message: "remote: master is protected".to_owned(),
+  };
+  assert_eq!(
+    with_refusal(listed(Write), TargetRules::Known(&BranchRules::default())),
+    push(RouteGate::Confirm {
+      confirmations: vec![refused.clone()]
+    })
+  );
+  assert_eq!(
+    with_refusal(listed(Write), TargetRules::Known(&checks)),
+    push(RouteGate::Confirm {
+      confirmations: vec![refused, Reason::BaselineRequiresStatusChecks { target: "master".to_owned() }]
+    })
+  );
+  assert!(matches!(
+    with_refusal(listed(Read), TargetRules::Pending),
+    LandingRoute::Push { gate: RouteGate::Refused { .. } }
+  ));
+  assert!(matches!(
+    with_refusal(GitHubFacts::Pending, TargetRules::Pending),
+    LandingRoute::Push { gate: RouteGate::Wait { .. } }
+  ));
 }

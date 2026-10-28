@@ -357,6 +357,32 @@ pub enum Confirmation {
   /// Its push replaces `commits` commits of the remote branch of `branch` the branch lacks, someone's work (allowed by
   /// `LandingAllowances::allow_force`, D12)
   ForcePushDrops { branch: String, commits: u32 },
+  /// A push of the copy into the target runs no CI: the checks did not pass on the commit it lands (`why`;
+  /// `LandingAllowances::allow_without_checks` in `bd`)
+  Unchecked { why: Unchecked },
+  /// `by` requested changes on its open pull request `number` (GitHub's decision when `by` is empty), which a push into
+  /// the target lands past (`LandingAllowances::allow_without_checks` in `bd`)
+  ChangesRequested { number: u32, by: Vec<String> },
+  /// What the gate of the route asks (`domain_policy::landing_route`): a rule of the target the user may bypass, the
+  /// status checks a push lands without, a refusal of the server before (`LandingAllowances::bypass_rules` in `bd`)
+  RouteRule { reason: Reason },
+}
+
+/// Why the checks of CI did not pass on the commit a push into the target lands
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Unchecked {
+  /// No open pull request of it: no CI ran on it
+  NoPullRequest,
+  /// GitHub doesn't list the pull requests (off GitHub, signed out): what ran on it is not known
+  Unlisted,
+  /// The open pull request `number` shows another commit than the one it lands: its checks ran on that one
+  OtherHead { number: u32 },
+  /// The checks of the open pull request `number` fail
+  Failing { number: u32 },
+  /// The checks of the open pull request `number` still run
+  Running { number: u32 },
 }
 
 /// A fact a start waits for: no answer yet, or `failed` with why the read failed; never read as "no"
@@ -385,6 +411,10 @@ pub enum LandFact {
   Rules { number: u32 },
   /// What what lands needs of the branches outside it (the landing gate)
   LandingNeeds,
+  /// What the token may do in the repository a push into the target goes to (the gate of the route)
+  Permission,
+  /// The rules of the target a push goes into (the gate of the route)
+  TargetRules,
 }
 
 /// What a start or a restart does, in the order of its effects (the contract's `PlannedEffect`)
@@ -436,6 +466,10 @@ pub enum PlannedEffect {
   /// The commits of the pull request `number` are fetched into its review refs, unless both are local
   /// (`Intent::FetchReview`)
   FetchReview { number: u32 },
+  /// The copy of `subject` (the tip of its virtual branch, of a whole stack its stack branch), `tip`, is pushed into the
+  /// branch of the baseline on its remote, `target` ("master"): a fast-forward the server takes or refuses whole
+  /// (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
+  PushBaseline { subject: Subject, tip: String, target: String },
 }
 
 impl PlannedEffect {
@@ -492,6 +526,18 @@ pub enum LandedBy {
   Robots { by: Vec<RobotOf>, own: bool, target: String },
   /// GitHub merged its pull request `number` with the commits the subject has (D13)
   PullRequest { number: u32 },
+}
+
+/// The copy a push into the target landed in this session, until a fetch shows it in the baseline: what landed the
+/// subject at this tip (`domain_policy::landed::landed_state`), so a second click pushes nothing again
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BaselinePush {
+  /// The commit pushed
+  pub tip: String,
+  /// The baseline it went into, as it is shown (`origin/master`)
+  pub upstream: String,
 }
 
 /// An open pull request of a branch a merged Safe Push landed whole besides its own: the app closes it

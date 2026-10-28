@@ -8,6 +8,7 @@
     "push",
     "push-with-children",
     "pick-remote-commits",
+    "push-to-baseline",
     "review-changes",
     "open-pull-request",
     "request-review",

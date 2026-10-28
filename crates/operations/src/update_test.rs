@@ -1,16 +1,21 @@
 use crate::events::EventSink;
+use crate::land_execute::Accepted;
 use crate::push::push_test::{AGENT_PUSH, OFFLINE, registry_of};
 use crate::registry::Registry;
 use crate::registry::registry_test::{Heard, operations_until, view_operations};
 use crate::rewrite::execute_rewrite;
 use crate::update::{execute_dismiss, execute_fetch, execute_update};
 use domain_types::error::ErrorCode;
+use domain_types::fixtures::land_intent;
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectStatus, Intent, OperationEvent, OperationResult, OperationStep, Outcome, RunningOperation};
+use domain_types::patronus::{PatronusAvailability, PatronusPushMode, PatronusRobotsResult};
+use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use domain_types::rewrite::{RewriteIntent, RewriteResult, UndoKind};
 use domain_types::session::SyncReason;
 use history_rewrite::repository_lock::{RepositoryLock, lock_repository_as_another_process};
 use pretty_assertions::assert_eq;
+use repository_model::facts::{FactResult, RobotsRead};
 use repository_model::session::SessionKey;
 use std::sync::Arc;
 use std::time::Duration;
@@ -355,4 +360,67 @@ async fn a_rewrite_during_the_check_of_an_update_waits_behind_it_and_runs_on_wha
     "the update ran first, the move on what it left"
   );
   assert_eq!(fixture.clone.git(&["rev-parse", "HEAD~2"]), fixture.upstream.head());
+}
+
+/// Push to master lands the copy of a piece into the target of a repository that lands by a push, off Space and off
+/// GitHub; Update Project follows as an operation of its own, not an effect of the start: its fetch shows the copy in the
+/// baseline, and its replay drops the original commit whose copy landed (an empty change on the new baseline), so the
+/// branch keeps only what is built on it
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed() {
+  let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  repo.set_config("branchdeck.landing", "push").unwrap();
+  let (registry, key) = registry_of(&repo, true).await;
+  let sessions = registry.sessions();
+  // Patronus and GitHub answer for nothing here
+  let robots = FactResult::Robots {
+    read: RobotsRead::List { full: true },
+    result: PatronusRobotsResult::from(PatronusAvailability::NotPatronus),
+  };
+  let pull_requests = FactResult::PullRequests(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
+  for result in [robots, pull_requests] {
+    let ticket = sessions.begin(&key).await.unwrap();
+    sessions.apply_facts(&key, ticket, result).await.unwrap();
+  }
+  let Intent::Land(land) = land_intent("alpha", PatronusPushMode::RebaseAutosquash) else {
+    unreachable!()
+  };
+  // the plan once the Patronus view and its landing needs are in
+  let plan = within_a_minute(async {
+    loop {
+      if let Some(plan) = crate::engine::prepare(sessions, &key, Intent::Land(land.clone())).await.unwrap()
+        && plan.waits.is_empty()
+      {
+        break plan;
+      }
+      tokio::task::yield_now().await;
+    }
+  })
+  .await;
+  let copy = repo.rev_parse("test/virtual/alpha").unwrap();
+  let push = PlannedEffect::PushBaseline {
+    subject: land.subject.clone(),
+    tip: copy.clone(),
+    target: "master".to_owned(),
+  };
+  assert_eq!((plan.blockers.clone(), plan.effects.clone()), (Vec::new(), vec![push.clone()]));
+  let accepted = Accepted {
+    fingerprint: plan.fingerprint.clone(),
+    confirmations: plan.confirmations.clone(),
+  };
+  let outcome = within_a_minute(Box::pin(crate::engine::execute(
+    &registry,
+    &key,
+    Intent::Land(land),
+    accepted,
+    OFFLINE.hosts(),
+    Arc::new(Heard::default()),
+  )))
+  .await
+  .unwrap();
+  assert_eq!(effects(&outcome), [(push, "done")], "the update is no effect of the start");
+  assert_eq!(repo.git(&["--git-dir", ".git/origin.git", "rev-parse", "refs/heads/master"]), copy);
+  assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), copy, "the update fetched it");
+  assert_eq!(repo.git(&["log", "--format=%s", "origin/master..HEAD"]), "(alpha/beta) Beta");
 }

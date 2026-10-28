@@ -98,6 +98,12 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::PatronusError, 5, false),
   (ErrorCode::Internal, 5, false),
   (ErrorCode::Canceled, 4, false),
+  (ErrorCode::NoWriteAccess, 4, false),
+  (ErrorCode::BaselineRequiresPullRequest, 4, false),
+  (ErrorCode::BaselineRefused, 4, false),
+  (ErrorCode::BaselineMoved, 3, true),
+  (ErrorCode::ChecksNotPassed, 4, false),
+  (ErrorCode::LandingRouteUnsupported, 4, false),
 ];
 
 #[test_log::test]

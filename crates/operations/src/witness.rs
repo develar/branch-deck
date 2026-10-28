@@ -8,6 +8,7 @@
 
 use anyhow::Result;
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::landing_route::LandingRoute;
 use domain_types::operation::{Fingerprint, Intent};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestState};
@@ -32,6 +33,9 @@ pub struct Witness {
   /// (`PushLease::Planned`): in the fingerprint, never read again, so a remote-tracking ref another push or a fetch
   /// moved meanwhile refuses nothing before the push, and the remote refuses the lease instead
   pub leases: BTreeMap<String, Option<String>>,
+  /// The route of the repository into master a start was decided by, with its gate: a setting changed between the
+  /// click and the run changes the plan
+  pub route: Option<LandingRoute>,
 }
 
 /// What a plan reads of a pull request
@@ -63,7 +67,14 @@ impl Witness {
         .collect(),
       robots: robots.into_iter().map(|robot| (robot.id.clone(), robot.status)).collect(),
       leases: BTreeMap::new(),
+      route: None,
     }
+  }
+
+  /// This witness with `route`, the route of the repository a start was decided by
+  #[must_use]
+  pub fn routed(self, route: LandingRoute) -> Self {
+    Self { route: Some(route), ..self }
   }
 
   /// This witness with `leases`, the remote heads its push leases on

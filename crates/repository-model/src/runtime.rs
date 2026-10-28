@@ -114,6 +114,13 @@ pub(crate) enum Message {
     robot: PatronusRobot,
     reply: oneshot::Sender<Version>,
   },
+  /// A push into the target ended (`Sessions::tell_baseline_push`): the copies it landed, by subject key, or the
+  /// refusal of the server; `reply` gets the version of the view after its patch
+  BaselinePushed {
+    landed: Vec<(String, domain_types::landing::BaselinePush)>,
+    refused: Option<crate::facts::BaselineRefusal>,
+    reply: oneshot::Sender<Version>,
+  },
   /// The review the user submitted from the app; `reply` gets the version of the view after its patch
   WriteReview {
     number: u32,
@@ -387,6 +394,16 @@ impl Actor {
         let robots = self.robots_digest();
         self.facts.tell_failures(&robots);
         self.derive_patronus();
+        self.flush();
+        let _ = reply.send(self.view.version());
+      }
+      Message::BaselinePushed { landed, refused, reply } => {
+        let pushes = &mut self.facts.baseline_pushes;
+        // a push that went answers the refusal before it: the server took this one
+        if refused.is_some() || !landed.is_empty() {
+          pushes.refused = refused;
+        }
+        pushes.landed.extend(landed);
         self.flush();
         let _ = reply.send(self.view.version());
       }

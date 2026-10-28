@@ -2,13 +2,14 @@ use crate::facts::{RemoteBranch, Robots};
 use crate::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state, pull_requests_to_close};
 use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot, whole_stack_robot_of};
 use domain_types::landed::LandedBranch;
-use domain_types::landing::{Landed, LandedBy, LandedPullRequest};
+use domain_types::landing::{BaselinePush, Landed, LandedBy, LandedPullRequest};
 use domain_types::patronus::{PatronusPullRequestLink, PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchPatronus, LandedByView, PatronusView, RobotLandedBranch, RobotOf};
 use domain_types::session::{BaselineStatus, LandedSection};
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 
 /// The fetched baseline `origin/master` has `remaining` commits of `name` left out
 fn landing(name: &str, remaining: u32) -> LandedBranch {
@@ -109,6 +110,7 @@ fn what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull
   let merged_pull_request = with_state(PullRequestState::Merged, pull_request("auth", 5));
   let baseline = section(vec![landing("auth", 0), landing("login", 1)]);
   let facts = |baseline| LandedFacts {
+    pushed: None,
     baseline,
     view: Some(&view),
     robots: &robots,
@@ -137,6 +139,7 @@ fn what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull
     })
   );
   let without_robots = LandedFacts {
+    pushed: None,
     baseline: &no_landing,
     view: None,
     robots: &robots,
@@ -159,6 +162,7 @@ fn a_pull_request_lands_the_branch_only_merged_with_the_commits_it_has() {
   let robots = Robots::new(&[]);
   let no_landing = section(Vec::new());
   let facts = LandedFacts {
+    pushed: None,
     baseline: &no_landing,
     view: None,
     robots: &robots,
@@ -200,6 +204,7 @@ fn a_whole_stack_landed_when_every_branch_of_it_did() {
   let by_stack = view(&whole_stack_robot_of("auth", "s"), &[("auth", false, &[]), ("login", false, &[])]);
   let no_landing = section(Vec::new());
   let facts = |view| LandedFacts {
+    pushed: None,
     baseline: &no_landing,
     view,
     robots: &robots,
@@ -213,6 +218,7 @@ fn a_whole_stack_landed_when_every_branch_of_it_did() {
   assert_eq!(by(&facts(Some(&left)), stack(None)), None, "auth is left");
   let all_in_baseline = section(vec![landing("auth", 0), landing("login", 0)]);
   let baseline = LandedFacts {
+    pushed: None,
     baseline: &all_in_baseline,
     ..facts(None)
   };
@@ -236,6 +242,7 @@ fn the_reason_a_start_gives_of_what_landed_all_of_the_subject() {
   let robots = Robots::new(&robots);
   let baseline = section(vec![landing("oauth", 0)]);
   let facts = LandedFacts {
+    pushed: None,
     baseline: &baseline,
     view: Some(&view),
     robots: &robots,
@@ -344,4 +351,55 @@ fn leaves_the_pull_request_the_robot_started_from_to_patronus() {
     pull_requests_to_close(&whole, &[landed_branch("auth", false, &[]), landed_branch("login", false, &[])], subject),
     vec![closes("auth", 5)]
   );
+}
+
+/// A push of this session into the target landed the copy of the subject at the tip it is at, before any fetch shows
+/// it: in the baseline it went into, first of all; a rebuild or a new commit since is new work, and a whole stack is
+/// told by its key
+#[test]
+fn a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed() {
+  let robots = Robots::new(&[]);
+  let no_landing = section(Vec::new());
+  let pushed = BTreeMap::from([
+    (
+      "auth".to_owned(),
+      BaselinePush {
+        tip: "auth-tip".to_owned(),
+        upstream: "origin/master".to_owned(),
+      },
+    ),
+    (
+      "stack:auth".to_owned(),
+      BaselinePush {
+        tip: "stack-tip".to_owned(),
+        upstream: "origin/master".to_owned(),
+      },
+    ),
+  ]);
+  let facts = LandedFacts {
+    pushed: Some(&pushed),
+    baseline: &no_landing,
+    view: None,
+    robots: &robots,
+  };
+  let in_master = Some(Landed {
+    by: LandedBy::Baseline {
+      upstream: "origin/master".to_owned(),
+    },
+    after: Vec::new(),
+  });
+  assert_eq!(landed_state(&facts, &branch("auth", None)), in_master);
+  let rebuilt = LandedSubject {
+    tip: Some("rebuilt"),
+    ..branch("auth", None)
+  };
+  assert_eq!(landed_state(&facts, &rebuilt), None);
+  let members = ["auth".to_owned(), "login".to_owned()];
+  let stack = LandedSubject {
+    of: Of::WholeStack { root: "auth", members: &members },
+    tip: Some("stack-tip"),
+    remote: None,
+    pull_request: None,
+  };
+  assert_eq!(landed_state(&facts, &stack), in_master);
 }

@@ -1691,6 +1691,28 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
+### `bd land <branch> [--whole-stack] [--check] [--without-checks] [--bypass-rules] [--allow-dangling] [--allow-missing]`
+
+Lands the branch into master by the route of the repository (`branchdeck.landing`,
+[Landing Routes](../../spec/branch/landing-routes.spec.md)), `route` in the output:
+
+- `patronus`: the Safe Push of `bd safe-push`, its whole output in `safe_push`.
+- `push`: the sync under the repository lock, then the plan of the app's start over the one-shot session of the
+  command (the pull requests with `viewerPermission`, the rules of the target, the landing gate of the subject), then
+  its run through the engine: the witness under the lock, the push of the copy (`commit`: the virtual branch of the
+  piece, the stack branch of a whole stack) into `target` by the push URL after it, a fast-forward
+  ([Push into the baseline](../design/git-operations.md#push-into-the-baseline)). `--check` pushes nothing and prints
+  `lands`, `confirmations`, `next_step` and `refusals`.
+- the merge of a pull request on GitHub: `landing_route_unsupported`, not yet.
+
+A push into master lands without a robot and without the CI of a pull request: what CI did not pass on the commit
+and the changes requested on its pull request refuse it as `checks_not_passed` until `--without-checks`; what the gate
+of the route asks (a rule a maintainer may bypass, the required status checks, a refusal of the server before) refuses
+it with the code of its reason until `--bypass-rules`. Both flags are the user's word, never the agent's. Below write
+access it is `no_write_access`, a rule no push passes `baseline_refused`, a server that refused it `baseline_refused`
+with what the server said, a target that moved `baseline_moved` (exit 3; master is fetched, `bd update` comes next).
+It never updates: a push that landed prints `landed: true` and `next: "bd update"`.
+
 ### `bd request-review <branch> [--reviewer LOGIN]… [--push] [--check]`
 
 Asks GitHub users to review the open pull request of the virtual branch, as the app's Request Review… does

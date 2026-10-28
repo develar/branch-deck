@@ -28,6 +28,9 @@ pub enum ActionId {
   PushWithChildren,
   /// The commits someone else pushed to its remote branch, taken into the branch (`bd pick --remote`)
   PickRemoteCommits,
+  /// The copy pushed into the target where the repository lands by a push (`Intent::Land`): of a branch, of a whole
+  /// stack
+  PushToBaseline,
   // its review
   ReviewChanges,
   OpenPullRequest,
@@ -81,7 +84,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 45] = [
+  pub const ALL: [Self; 46] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -90,6 +93,7 @@ impl ActionId {
     Self::Push,
     Self::PushWithChildren,
     Self::PickRemoteCommits,
+    Self::PushToBaseline,
     Self::ReviewChanges,
     Self::OpenPullRequest,
     Self::RequestReview,

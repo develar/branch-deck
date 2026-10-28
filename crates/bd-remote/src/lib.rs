@@ -8,12 +8,15 @@
 //! - `push_command`, `push_refusals`: `bd push` through the engine of the operations, and what its push refuses and
 //!   leaves out of what its intents cover
 //! - `safe_push_command`: `bd safe-push`, a Safe Push or a Dry Run through Patronus
+//! - `land_command`: `bd land`, the landing into master by the route of the repository: a Safe Push, or the push of the
+//!   copy into the target
 //! - `request_review_command`: `bd request-review`
 //! - `robot_command`, `robot_list`: `bd robot`, and the robots Patronus lists
 //! - `robot_stats_command`: `bd robot-stats`, the Safe Push statistics of the repository
 //! - `operation_command`: `bd operation forget`, a start whose answer was lost let go
 
 pub mod branch_stats;
+pub mod land_command;
 pub mod landed;
 pub mod numstat;
 pub mod operation_command;
@@ -28,6 +31,8 @@ pub mod safe_push_run;
 pub mod session_facts;
 pub mod status;
 
+#[cfg(test)]
+mod land_test;
 #[cfg(test)]
 mod landed_test;
 #[cfg(test)]

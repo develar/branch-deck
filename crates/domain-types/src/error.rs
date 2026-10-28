@@ -205,6 +205,27 @@ pub enum ErrorCode {
   /// `bd safe-push`: Patronus can't start the robot: the target is not protected, the pull request is a draft, or the
   /// `/patronus` comment was rejected
   PatronusRefused,
+  /// `bd land`: the token may not push into the repository of the target (`viewerPermission` below write): nothing was
+  /// pushed; someone with write access lands it
+  NoWriteAccess,
+  /// `bd land`: the rules of the target take a change only through a pull request, and the user may not bypass them:
+  /// nothing was pushed. Land it through its pull request
+  BaselineRequiresPullRequest,
+  /// `bd land`: the target refuses the push: a rule of it no push of the copy passes (the merge queue, restricted
+  /// updates, signed commits), or the server refused it (`[remote rejected]`: a hook, a protected branch; the message
+  /// says what it said). Nothing was pushed
+  BaselineRefused,
+  /// `bd land`: the target moved since the copy was built on it (the server refused a push that is no fast-forward):
+  /// nothing was pushed, the baseline was fetched. `bd update` brings the branch onto it, then `bd land` again builds
+  /// the copy anew
+  BaselineMoved,
+  /// `bd land`: CI did not pass on the commit the push lands (no open pull request, one that shows another commit, its
+  /// checks failing or running, GitHub listing none), or changes are requested on its pull request: a push into the
+  /// target runs no CI. Nothing was pushed; ask the user, `--without-checks` pushes once they agree
+  ChecksNotPassed,
+  /// `bd land`: the route of the repository (`branchdeck.landing`) lands no branch through `bd land` yet: the merge of
+  /// a pull request on GitHub. Nothing was pushed
+  LandingRouteUnsupported,
   /// `bd request-review`: the branch has no open pull request, or only a draft; `bd safe-push <branch>
   /// --create-pull-request` opens one, a draft is marked ready for review on GitHub
   NoPullRequest,
@@ -285,7 +306,16 @@ impl ErrorCode {
       | Self::NotASlot
       | Self::SlotInPool
       | Self::NotParked => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged | Self::Locked | Self::Busy => 3,
+      Self::HeadMoved
+      | Self::GroupsMoved
+      | Self::StacksMoved
+      | Self::ParkedMoved
+      | Self::PrefixChanged
+      | Self::RoundMoved
+      | Self::PlanChanged
+      | Self::BaselineMoved
+      | Self::Locked
+      | Self::Busy => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
@@ -331,6 +361,11 @@ impl ErrorCode {
       | Self::NotOnSpace
       | Self::NotLoggedIn
       | Self::PatronusRefused
+      | Self::NoWriteAccess
+      | Self::BaselineRequiresPullRequest
+      | Self::BaselineRefused
+      | Self::ChecksNotPassed
+      | Self::LandingRouteUnsupported
       | Self::NoPullRequest
       | Self::NoReviewer
       | Self::NeedsPush
@@ -354,7 +389,7 @@ impl ErrorCode {
     match self {
       Self::Locked | Self::Busy | Self::NetworkError => Retry::Same,
       code if code.moved_ref() => Retry::AfterReread,
-      Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged => Retry::AfterReread,
+      Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged | Self::BaselineMoved => Retry::AfterReread,
       _ => Retry::No,
     }
   }

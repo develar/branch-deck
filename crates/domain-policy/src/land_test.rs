@@ -6,6 +6,7 @@ use crate::land::{
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request, robot, robot_of, stack_commit, stack_robot};
 use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute, Subject};
+use domain_types::landing_route::{LandingRoute, RouteGate};
 use domain_types::patronus::{
   LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness, ReviewReadinessBranch,
   UnavailableReadinessReason, UnknownReadinessReason,
@@ -16,6 +17,9 @@ use domain_types::repository_view::{HoldKind, HoldView, RobotOf, SpanView};
 use domain_types::session::{Fact, FactState, Parked, PullRequestsView, SubjectReadiness};
 use domain_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchState, StackBranchUpdate};
 use pretty_assertions::assert_eq;
+
+/// The route of the starts of these tables: the robot of Patronus
+const PATRONUS: LandingRoute = LandingRoute::Patronus { gate: RouteGate::Open };
 
 const SAFE_PUSH: PatronusPushMode = PatronusPushMode::RebaseAutosquash;
 const DRY_RUN: PatronusPushMode = PatronusPushMode::DryRun;
@@ -333,7 +337,7 @@ fn options(supported: bool) -> PatronusStartOptions {
   }
 }
 
-fn listed(pull_requests: &[(&str, PullRequest)]) -> PullRequestsView {
+pub(crate) fn listed(pull_requests: &[(&str, PullRequest)]) -> PullRequestsView {
   PullRequestsView {
     head: fresh(PullRequestAvailability::Available {
       owner: "acme".to_string(),
@@ -380,7 +384,7 @@ fn world() -> World {
   }
 }
 
-fn land(mode: PatronusPushMode) -> Land {
+pub(crate) fn land(mode: PatronusPushMode) -> Land {
   Land {
     subject: Subject::branch("login"),
     mode,
@@ -401,6 +405,7 @@ impl World {
       carried: None,
     };
     let facts = LandFacts {
+      route: &PATRONUS,
       target: "master",
       prefix: "user",
       github: true,
@@ -441,7 +446,7 @@ impl World {
   }
 }
 
-fn codes(decision: &LandDecision) -> Vec<String> {
+pub(crate) fn codes(decision: &LandDecision) -> Vec<String> {
   decision
     .blockers
     .iter()
@@ -1064,6 +1069,7 @@ fn the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced()
     |stack: &StackBranchUpdate, remote: RemoteBranch<'static>, landing_member: Option<&RobotOf>, held_by: Option<&PatronusRobot>, mode, pull_requests: &PullRequestsView| {
       let robots = Robots::new(&robots_list);
       let facts = LandFacts {
+        route: &PATRONUS,
         target: "master",
         prefix: "user",
         github: true,

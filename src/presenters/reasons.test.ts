@@ -52,9 +52,11 @@ describe("formatReason", () => {
       "The baseline master is a local branch: no remote branch takes the push",
       "JetBrains/intellij-community is a mirror origin doesn't push to: a merge there lands nothing",
       "The pull requests of the branches are not on GitHub",
+      "A Dry Run is a robot of Patronus: the repository lands by a push into its target",
+      "The server refused a push into master before: remote: master is protected",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(36)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(38)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

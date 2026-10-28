@@ -50,10 +50,12 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::LocalBaseline { .. } => 33,
     Reason::GitHubMirror { .. } => 34,
     Reason::NotOnGitHub => 35,
+    Reason::DryRunNeedsPatronus => 36,
+    Reason::BaselineRefusedPush { .. } => 37,
   }
 }
 
-const CODES: usize = 36;
+const CODES: usize = 38;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -240,6 +242,11 @@ fn examples() -> Vec<Reason> {
       repository: s("JetBrains/intellij-community"),
     },
     Reason::NotOnGitHub,
+    Reason::DryRunNeedsPatronus,
+    Reason::BaselineRefusedPush {
+      target: s("master"),
+      message: s("remote: master is protected"),
+    },
   ]
 }
 

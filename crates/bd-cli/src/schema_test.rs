@@ -22,6 +22,7 @@ fn schema_lists_every_output() {
       "host_pack",
       "host_snapshot",
       "install",
+      "land",
       "lease_adopt",
       "lease_clean",
       "lease_get",

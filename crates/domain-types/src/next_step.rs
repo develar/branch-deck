@@ -27,6 +27,10 @@ pub enum StepFact {
   RobotProblems,
   /// The review readiness of the subject as it is
   Readiness,
+  /// What the token may do in the repository a push into the target goes to (the gate of the route)
+  Permission,
+  /// The rules of the target a push goes into (the gate of the route)
+  TargetRules,
 }
 
 /// Why a read the next step decides on failed: no start is decided on it
@@ -105,6 +109,10 @@ pub enum StepRow {
   TenPrime,
   #[serde(rename = "11")]
   Eleven,
+  /// The row of a repository that lands by a push into the target (spec/branch/next-step.spec.md, "A push into the
+  /// target"): "Push to master"
+  #[serde(rename = "push")]
+  Push,
 }
 
 impl StepRow {
@@ -129,6 +137,7 @@ impl StepRow {
       Self::EightPrime => "8′",
       Self::TenPrime => "10′",
       Self::Eleven => "11",
+      Self::Push => "push",
     }
   }
 }
@@ -200,6 +209,9 @@ pub enum StepKind {
   AwaitingUnjudged { number: u32, reviewers: Vec<String> },
   /// Row 11: "Safe Push" (also row 2 where Patronus can't restart, row 3 approved outside the robot's pull request)
   SafePush,
+  /// The row `push` of a repository that lands by a push into the target: "Push to master", its copy pushed into
+  /// `target` as a fast-forward (`NextStep::lands` the branches it lands); its start is `NextStep::safe_push`
+  PushToBaseline { target: String },
 }
 
 /// Why "Safe Push" (or a Dry Run) can't open now, the same on every surface

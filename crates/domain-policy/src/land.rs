@@ -37,6 +37,13 @@
 //! The profiles of a mode (`allows_mode`), the default one (`default_profile`: the last robot's while the target offers
 //! it) and what a start offers (`offered_profiles`: of a start without approvals the emergency ones too, and as the
 //! default only one that skips the review) are read here too.
+//!
+//! `decide` is the dispatcher of the route of the repository (`LandFacts::route`, `landing_route::route`): the robot of
+//! Patronus decides here (a Patronus named off Space refused first; the merge of a pull request on GitHub starts the
+//! robot as before until it has a way of its own), a push of the copy into the target in `land_direct`. Both read the
+//! subject part of here: what lands (`branch_lands`, `stack_lands`), what the table alone refuses (`table_blocker`), the
+//! robots of part 1 (`start_refusal`), what the landing gate refuses unless allowed (`gate_blockers`) and a conflict with
+//! the newest target (`conflict_blocker`).
 
 use crate::facts::{RemoteBranch, Robots};
 use crate::holds::is_active;
@@ -45,6 +52,7 @@ use crate::push::{StartAncestor, kept, start_push};
 use crate::reasons::{ancestor, blocked, descendant, held, last_commit, stack_not_built};
 use crate::review::{ReviewState, review_state, skips_approvals};
 use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandProfiles, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute};
+use domain_types::landing_route::{LandingRoute, RouteGate};
 use domain_types::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestState, ReviewerState};
 use domain_types::reason::Reason;
@@ -233,6 +241,8 @@ pub struct TargetConflictFact<'a> {
 /// services, each as the session holds it (`bd` holds its own reads as `Fresh`)
 #[derive(Clone, Debug)]
 pub struct LandFacts<'a> {
+  /// The route of the repository into master with its gate (`landing_route::route`): which tail decides the start
+  pub route: &'a LandingRoute,
   /// The branch of origin the robot pushes into
   pub target: &'a str,
   /// The branch prefix of the virtual branches (a pull request into one goes into the target)
@@ -338,8 +348,9 @@ pub fn table_blocker(subject: &SubjectFacts<'_>) -> Option<Reason> {
 }
 
 /// The confirmations of `confirmations` that `allow` doesn't accept, of those an allowance accepts in `bd` (a flag): the
-/// cancel of the robot the start replaces, a review Patronus couldn't answer, rules GitHub didn't answer. The others
-/// the start says and `bd` prints; the app's popover asks every one
+/// cancel of the robot the start replaces, a review Patronus couldn't answer, rules GitHub didn't answer; of a push into
+/// the target the checks that did not pass and the changes requested (`allow_without_checks`), what the gate of the
+/// route asks (`bypass_rules`). The others the start says and `bd` prints; the app's popover asks every one
 #[must_use]
 pub fn unaccepted<'c>(confirmations: &'c [Confirmation], allow: &LandingAllowances) -> Vec<&'c Confirmation> {
   confirmations
@@ -348,6 +359,8 @@ pub fn unaccepted<'c>(confirmations: &'c [Confirmation], allow: &LandingAllowanc
       Confirmation::CancelsRobot { .. } => !allow.cancel_running,
       Confirmation::ReviewUnknown { .. } => !allow.allow_unknown_review,
       Confirmation::RulesUnknown { .. } => !allow.allow_unknown_rules,
+      Confirmation::Unchecked { .. } | Confirmation::ChangesRequested { .. } => !allow.allow_without_checks,
+      Confirmation::RouteRule { .. } => !allow.bypass_rules,
       _ => false,
     })
     .collect()
@@ -372,12 +385,27 @@ struct SubjectPart<'a> {
   whole_stack_pull_request: Option<u32>,
 }
 
-/// What a start of `land` does and what stands in its way over `facts` (module docs). Every fact without an answer is
-/// a wait; the effects say what the start does once nothing refuses it and the user accepted its confirmations
+/// What a start of `land` does and what stands in its way over `facts` (module docs), by the route of the repository:
+/// a push of the copy into the target (`land_direct::decide_push`), else the robot of Patronus. Every fact without an
+/// answer is a wait; the effects say what the start does once nothing refuses it and the user accepted its confirmations
 #[must_use]
 pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
+  match facts.route {
+    LandingRoute::Push { gate } => crate::land_direct::decide_push(facts, land, gate),
+    // the merge of a pull request on GitHub has no way of its own yet: the start is the robot's, as before the routes
+    LandingRoute::Patronus { gate } => decide_robot(facts, land, Some(gate)),
+    LandingRoute::PullRequest { .. } => decide_robot(facts, land, None),
+  }
+}
+
+/// The start of the robot of Patronus (module docs); `gate` the gate of a route that names Patronus, whose refusal comes
+/// first (Patronus named off Space)
+fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) -> LandDecision {
   let mut decision = LandDecision::default();
   let safe_push = land.mode != PatronusPushMode::DryRun;
+  if let Some(RouteGate::Refused { reason }) = gate {
+    decision.blockers.push(reason.clone());
+  }
   decision.blockers.extend(table_blocker(&facts.subject));
   let options = standing(facts.profiles);
   match options {
@@ -395,29 +423,8 @@ pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
     SubjectFacts::Branch(branch) => branch_part(facts, land, branch, listed, &mut decision),
     SubjectFacts::WholeStack(stack) => stack_part(facts, land, stack, listed, &mut decision),
   };
-  match facts.landing {
-    None => decision.waits.push(FactWait {
-      fact: LandFact::LandingNeeds,
-      failed: None,
-    }),
-    Some(refusals) => decision.blockers.extend(
-      refusals
-        .iter()
-        .filter(|refusal| match refusal {
-          LandingRefusal::DanglingReference { .. } => !land.allow.allow_dangling,
-          LandingRefusal::MissingDeclaration { .. } => !land.allow.allow_missing,
-        })
-        .map(|refusal| Reason::LandingRefused {
-          refusal: Box::new(refusal.clone()),
-        }),
-    ),
-  }
-  if let Some(conflict) = facts.target_conflict {
-    decision.blockers.push(Reason::TargetConflict {
-      commit: conflict.commit.to_string(),
-      files: conflict.files.to_vec(),
-    });
-  }
+  gate_blockers(facts, land, &mut decision);
+  conflict_blocker(facts, &mut decision);
 
   // a robot starts from the open pull request of the subject into the target, of a branch also from one into a virtual
   // branch once it is retargeted (D11); a `/patronus` comment takes no profile
@@ -498,6 +505,60 @@ pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
   decision
 }
 
+/// What the landing gate refuses of what lands, each a blocker unless an allowance of `land` accepts its kind; a wait
+/// until it answered
+pub(crate) fn gate_blockers(facts: &LandFacts<'_>, land: &Land, decision: &mut LandDecision) {
+  match facts.landing {
+    None => decision.waits.push(FactWait {
+      fact: LandFact::LandingNeeds,
+      failed: None,
+    }),
+    Some(refusals) => decision.blockers.extend(
+      refusals
+        .iter()
+        .filter(|refusal| match refusal {
+          LandingRefusal::DanglingReference { .. } => !land.allow.allow_dangling,
+          LandingRefusal::MissingDeclaration { .. } => !land.allow.allow_missing,
+        })
+        .map(|refusal| Reason::LandingRefused {
+          refusal: Box::new(refusal.clone()),
+        }),
+    ),
+  }
+}
+
+/// A conflict of what lands with the newest target, as the check before the start found it
+pub(crate) fn conflict_blocker(facts: &LandFacts<'_>, decision: &mut LandDecision) {
+  if let Some(conflict) = facts.target_conflict {
+    decision.blockers.push(Reason::TargetConflict {
+      commit: conflict.commit.to_string(),
+      files: conflict.files.to_vec(),
+    });
+  }
+}
+
+/// What a start of `branch` lands, root first: the branches it is built on that merged Safe Pushes didn't land whole,
+/// then the branch itself
+pub(crate) fn branch_lands(branch: &BranchSubject<'_>) -> Vec<String> {
+  branch
+    .chain
+    .iter()
+    .filter(|step| step.name == branch.start.name || !step.landed_whole)
+    .map(|step| step.name.to_string())
+    .collect()
+}
+
+/// What a start of the whole stack `stack` lands: every branch of it merged Safe Pushes didn't land whole, in the order
+/// of the stack
+pub(crate) fn stack_lands(stack: &StackSubject<'_>) -> Vec<String> {
+  stack.members.iter().filter(|(_, landed)| !landed).map(|(name, _)| (*name).to_string()).collect()
+}
+
+/// How many more branches than its row `lands` names: a lone branch lands 0 more
+pub(crate) fn more_than_row(lands: usize) -> u32 {
+  u32::try_from(lands.saturating_sub(1)).unwrap_or(u32::MAX)
+}
+
 /// What the start of a branch lands and pushes, and what refuses it of the table and the robots
 fn branch_part<'a>(facts: &LandFacts<'a>, land: &Land, branch: &BranchSubject<'a>, listed: Option<&'a PullRequestsView>, decision: &mut LandDecision) -> SubjectPart<'a> {
   let name = branch.start.name;
@@ -560,14 +621,9 @@ fn branch_part<'a>(facts: &LandFacts<'a>, land: &Land, branch: &BranchSubject<'a
       })
     })
     .collect();
-  let lands: Vec<String> = branch
-    .chain
-    .iter()
-    .filter(|step| step.name == name || !step.landed_whole)
-    .map(|step| step.name.to_string())
-    .collect();
+  let lands = branch_lands(branch);
   SubjectPart {
-    lands_more: u32::try_from(lands.len().saturating_sub(1)).unwrap_or(u32::MAX),
+    lands_more: more_than_row(lands.len()),
     lands,
     push: push.iter().map(|step| step.name.to_string()).collect(),
     force: !forced.is_empty(),
@@ -626,7 +682,7 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
     .filter(|pull_request| pull_request.state == PullRequestState::Open)
     .map(|pull_request| (pull_request, start_base(pull_request, facts.target, facts.prefix, true)));
   SubjectPart {
-    lands: stack.members.iter().filter(|(_, landed)| !landed).map(|(name, _)| (*name).to_string()).collect(),
+    lands: stack_lands(stack),
     push: if pushes { vec![root.to_string()] } else { Vec::new() },
     force: !forced.is_empty(),
     own,
@@ -635,7 +691,7 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
     forced,
     reviewable: !not_built,
     // the whole stack lands every branch of it with its root, always more than the root's row
-    lands_more: u32::try_from(stack.members.len().saturating_sub(1)).unwrap_or(u32::MAX),
+    lands_more: more_than_row(stack.members.len()),
     whole_stack_pull_request: None,
   }
 }

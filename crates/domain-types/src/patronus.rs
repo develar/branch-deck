@@ -278,6 +278,14 @@ pub struct LandingAllowances {
   /// Cancel the running Safe Push of an older commit the start replaces
   #[serde(default)]
   pub cancel_running: bool,
+  /// Push into the target although the checks of CI did not pass on the commit, or changes are requested on its pull
+  /// request (`Confirmation::Unchecked`, `Confirmation::ChangesRequested`)
+  #[serde(default)]
+  pub allow_without_checks: bool,
+  /// Push into the target past what the gate of the route asks: a rule the user may bypass, the required status checks,
+  /// a refusal of the server before (`Confirmation::RouteRule`)
+  #[serde(default)]
+  pub bypass_rules: bool,
 }
 
 /// Whether the code owners still have to approve the branch before a Safe Push can merge it

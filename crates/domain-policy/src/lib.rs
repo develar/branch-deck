@@ -22,6 +22,9 @@
 //!   it waits for and its effects, retarget, cancel, push and the start), what the table alone refuses
 //!   (`table_blocker`), the confirmations `bd` accepts by a flag (`unaccepted`), the modes a profile allows
 //!   (`allows_mode`) and the default profile (`default_profile`)
+//! - `land_direct`: the start of a repository that lands by a push of the copy into the target (`decide_push`, the tail
+//!   of `land::decide` for that route: its blockers, the confirmations of the checks of CI and of the gate of the route,
+//!   the push `PushBaseline`), and the update that follows a push that landed (`update_after`)
 //! - `landed`: what landed a subject (`landed_state`: the fetched baseline, merged Safe Pushes, its pull request merged
 //!   with its commits, D13), what a start says of it (`landed_reason`), and the open pull requests of the branches a
 //!   merged Safe Push landed whole besides its own (`pull_requests_to_close`, D7)
@@ -70,6 +73,7 @@ pub mod attention;
 pub mod facts;
 pub mod holds;
 pub mod land;
+pub mod land_direct;
 pub mod landed;
 pub mod landing_needs;
 pub mod landing_node;
@@ -99,6 +103,8 @@ mod branch_name_cases_test;
 mod catalog_test;
 #[cfg(test)]
 mod holds_test;
+#[cfg(test)]
+mod land_direct_test;
 #[cfg(test)]
 mod land_test;
 #[cfg(test)]

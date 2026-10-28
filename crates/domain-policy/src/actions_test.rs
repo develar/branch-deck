@@ -15,9 +15,9 @@ use pretty_assertions::assert_eq;
 
 use ActionId::{
   AddIssueReference, AmendChanges, CancelRobot, CheckApprovals, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest, CreateStackPullRequest, DryRun, DryRunWholeStack,
-  ForgetStart, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest, OpenUnknownStart, Park, Push, PushAndRestartRobot, PushWithChildren, Rename,
-  RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack, SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview,
-  SquashFixups, StackOn, Unapply, Ungroup, Unpark, Unstack,
+  ForgetStart, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest, OpenUnknownStart, Park, Push, PushAndRestartRobot, PushToBaseline, PushWithChildren,
+  Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack, SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile,
+  SafePushWithoutReview, SquashFixups, StackOn, Unapply, Ungroup, Unpark, Unstack,
 };
 
 /// The actions as the table reads them: the id and why it can't run, `None` when it can
@@ -96,6 +96,7 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
     repository: true,
     comment_route: None,
     stacks_enabled: true,
+    push_route: false,
   }
 }
 
@@ -642,6 +643,7 @@ fn stack_facts<'a>(shape: StackShape<'a>, step: Option<&'a NextStep>) -> StackFa
     open_pull_request: None,
     repository: true,
     landed: None,
+    push_route: false,
   }
 }
 
@@ -1146,4 +1148,64 @@ fn the_restart_and_the_cancel_of_a_robot_run_once_and_hold_each_other_back() {
     })
   );
   assert_eq!(of(OpenRobot), Some(Availability::Enabled));
+}
+
+/// A repository that lands by a push into the target offers its push, of a branch and of a whole stack that forks, with
+/// the reason of its step, and none of the starts of the robot: on Space neither
+#[test]
+fn a_push_into_the_target_offers_its_push_with_the_reason_of_its_step_and_no_start_of_the_robot() {
+  let step = NextStep {
+    row: StepRow::Push,
+    kind: StepKind::PushToBaseline { target: "master".to_string() },
+    without_review: Some(WithoutReview { blocker: None }),
+    ..ready_step()
+  };
+  let status = remote(PushAction::Push);
+  let push_route = |patronus| BranchFacts {
+    patronus,
+    push_route: true,
+    ..facts(&step, &status)
+  };
+  for patronus in [PatronusAnswer::NotOnSpace, PatronusAnswer::Answers { failure: None }] {
+    let actions = branch_actions(&push_route(patronus));
+    assert_eq!(ids(&actions)[..3], [PushToBaseline, Push, ReviewChanges]);
+    assert_eq!(reason_of(&actions, PushToBaseline), None);
+  }
+  let no_access = Reason::NoWriteAccess {
+    repository: "acme/monorepo".to_string(),
+    target: "master".to_string(),
+  };
+  let refused = NextStep {
+    safe_push: Some(StepBlocker::Rule { reason: no_access.clone() }),
+    ..step.clone()
+  };
+  let refused_facts = BranchFacts {
+    push_route: true,
+    ..facts(&refused, &status)
+  };
+  assert_eq!(
+    reason_of(&branch_actions(&refused_facts), PushToBaseline),
+    Some(ActionBlocker::Step {
+      blocker: StepBlocker::Rule { reason: no_access }
+    })
+  );
+
+  let built = StackShape::Forking {
+    not_built: None,
+    tip: true,
+    main_line: None,
+  };
+  let stack = StackFacts {
+    push_route: true,
+    ..stack_facts(built, Some(&step))
+  };
+  assert_eq!(
+    table(&stack_actions(&stack)),
+    [(PushToBaseline, None), (CreateStackPullRequest, None), (ReviewWholeStack, None)]
+  );
+  let chain = StackFacts {
+    push_route: true,
+    ..stack_facts(StackShape::Chain { length: 2, review: None }, Some(&step))
+  };
+  assert_eq!(ids(&stack_actions(&chain)), [ReviewWholeStack]);
 }

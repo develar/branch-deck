@@ -15,7 +15,7 @@
 //! reads number themselves with `begin` and apply with `apply_facts`. Without a consumer nothing is sent.
 
 use crate::branch_table::BranchTable;
-use crate::facts::{AppliedFacts, FactResult, FactStore, FactTicket, Needs, PatronusOf, RobotsDigest, TableFacts};
+use crate::facts::{AppliedFacts, BaselineRefusal, FactResult, FactStore, FactTicket, Needs, PatronusOf, RobotsDigest, TableFacts};
 use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestWrite, PushedHead};
@@ -26,6 +26,7 @@ use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
 use domain_types::commit::CommitGroup;
 use domain_types::error::ApiError;
+use domain_types::landing::BaselinePush;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
@@ -380,6 +381,14 @@ impl Sessions {
   /// its patch; `None` for a session that is not open
   pub async fn write_robot(&self, key: &SessionKey, robot: PatronusRobot) -> Option<Version> {
     self.ask(key, |reply| Message::WriteRobot { robot, reply }).await
+  }
+
+  /// A push into the target of the session of `key` ended: the copies it landed (`landed`, by subject key, each at the
+  /// tip it pushed) land their subjects until a fetch shows them in the baseline, and a refusal of the server
+  /// (`refused`) is what the gate of the route asks about before the next push; a push that landed forgets the refusal
+  /// before it. Answers the version of the view after its patch; `None` for a session that is not open
+  pub async fn tell_baseline_push(&self, key: &SessionKey, landed: Vec<(String, BaselinePush)>, refused: Option<BaselineRefusal>) -> Option<Version> {
+    self.ask(key, |reply| Message::BaselinePushed { landed, refused, reply }).await
   }
 
   /// The review the user submitted from the app on `commit` goes into the review requests of the open session of `key`:
