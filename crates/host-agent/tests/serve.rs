@@ -15,6 +15,15 @@ mod pack;
 #[path = "serve/system.rs"]
 mod system;
 
+#[path = "serve/link.rs"]
+mod link;
+
+#[path = "serve/lend.rs"]
+mod lend;
+
+#[path = "serve/upgrade.rs"]
+mod upgrade;
+
 use host_agent::serve::spawn_on_loopback;
 use host_link::allow::AllowList;
 use host_link::channel::{Channel, ClientTls};
@@ -30,6 +39,9 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 use test_utils::git_test_utils::{TestRepo, git_command};
+
+/// The agent binary of the process tests
+const AGENT_BINARY: &str = env!("CARGO_BIN_EXE_host-agent-test");
 
 /// The deadline of each connect and read of the test client
 const DEADLINE: Duration = Duration::from_secs(60);
@@ -88,17 +100,35 @@ impl World {
   /// Starts `serve` on a loopback port with more environment, such as a duration of `tuning.rs` or a fake of
   /// `PROCESS_TEST_ENV`
   fn serve_with(&self, env: &[(&str, &str)]) -> Agent<'_> {
-    let log = fs::File::create(self.home.path().join("serve.log")).expect("the serve log");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_host-agent-test"));
+    self.serve_program(Path::new(AGENT_BINARY), 0, &[], env)
+  }
+
+  /// Starts `serve` of `program` on the loopback `port` (0: a free one) with the `serve` options `args` and more
+  /// environment. The stderr of each `serve` of this world goes to one log. `serve` prints its line before it hashes
+  /// its binary and accepts, so this answers after one reply, and the deadline of a test starts after it
+  fn serve_program(&self, program: &Path, port: u16, args: &[&str], env: &[(&str, &str)]) -> Agent<'_> {
+    let log = fs::OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(self.home.path().join("serve.log"))
+      .expect("the serve log");
+    let mut command = Command::new(program);
     command.env("HOME", self.home.path());
     command.envs(env.iter().copied());
-    let (child, listening) = spawn_on_loopback(command, log).expect("serve listens");
-    Agent {
+    let (child, listening) = spawn_on_loopback(command, port, args, log).unwrap_or_else(|error| panic!("serve listens: {error}; {}", self.serve_log()));
+    let agent = Agent {
       child,
       address: listening.listening,
       fingerprint: listening.fingerprint,
       world: self,
-    }
+    };
+    assert!(matches!(agent.reply(&Request::Runs), Reply::Runs { .. }), "{}", self.serve_log());
+    agent
+  }
+
+  /// The stderr of each `serve` of this world
+  fn serve_log(&self) -> String {
+    fs::read_to_string(self.home.path().join("serve.log")).unwrap_or_default()
   }
 }
 
@@ -128,6 +158,16 @@ struct Followed {
 impl Followed {
   fn phase_names(&self) -> Vec<&str> {
     self.phases.iter().map(|phase| phase.name.as_str()).collect()
+  }
+
+  /// The time of the phase `name` in ms
+  fn phase_ms(&self, name: &str) -> u64 {
+    self
+      .phases
+      .iter()
+      .find(|phase| phase.name == name)
+      .unwrap_or_else(|| panic!("no phase {name}: {self:?}"))
+      .ms
   }
 
   /// The lines of one stream, less the lines of the agent
@@ -170,11 +210,17 @@ impl Agent<'_> {
 
   /// The last reply of `request`; the heartbeats before it are skipped
   fn reply(&self, request: &Request) -> Reply {
+    self.reply_after_heartbeats(request).1
+  }
+
+  /// The last reply of `request`, and the count of the heartbeats before it
+  fn reply_after_heartbeats(&self, request: &Request) -> (u32, Reply) {
     let mut channel = self.ask(request);
+    let mut heartbeats = 0;
     loop {
       match channel.recv().expect("the reply") {
-        Reply::Heartbeat { .. } => {}
-        reply => return reply,
+        Reply::Heartbeat { .. } => heartbeats += 1,
+        reply => return (heartbeats, reply),
       }
     }
   }
@@ -186,7 +232,12 @@ impl Agent<'_> {
 
   /// Follows a run from its start to its end
   fn follow(&self, run: &str) -> Followed {
-    let mut channel = self.ask(&Request::Follow { run: run.to_owned(), offset: 0 });
+    self.follow_from(run, 0)
+  }
+
+  /// Follows a run from `offset` to its end
+  fn follow_from(&self, run: &str, offset: u64) -> Followed {
+    let mut channel = self.ask(&Request::Follow { run: run.to_owned(), offset });
     let mut lines = Vec::new();
     let mut phases = Vec::new();
     loop {
@@ -245,7 +296,7 @@ impl Agent<'_> {
       "events: {}\nsupervisor: {}\nserve: {}",
       read(dir.join("events.log")),
       read(dir.join("supervisor.log")),
-      read(self.world.home.path().join("serve.log"))
+      self.world.serve_log()
     )
   }
 

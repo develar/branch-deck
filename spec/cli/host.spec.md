@@ -91,7 +91,8 @@ This spec is a draft of the port. A requirement names the test that will cover i
 - Every read and every write must have a deadline. A request that waits gets `Reply::Heartbeat` every 15 s, and the
   client resets its read deadline at each one. A TLS handshake has 3 s in all. The agent takes at most 128 handshakes
   at a time and 8 of one peer address.
-  Test (planned): `crates/host-agent/src/serve_test.rs` (`a_waiting_request_gets_a_heartbeat_and_a_handshake_has_a_deadline`)
+  [@test] ../../crates/host-agent/tests/serve/link.rs (`a_slow_handshake_is_cut_at_the_deadline_and_a_socket_over_the_cap_closes_at_once`, `heartbeats_go_on_while_the_follow_thread_is_held_in_a_file_read`)
+  [@test] ../../crates/host-agent/tests/serve/lend.rs (`a_have_sends_heartbeats_while_it_waits_for_an_upgrade_of_git`)
 - On macOS a connection that Local Network privacy refuses (`EHOSTUNREACH`) must go again through `/usr/bin/nc`, which
   the client starts responsible for itself. TLS stays end to end. The process remembers the address, so its next
   connection takes the relay at once.
@@ -385,6 +386,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   again every 1 s to 5 s for up to 110 s: the previous build at the end refuses with `rolled_back`, no answer with
   `unreachable`. A run goes on through the restart.
   [@test] ../../crates/host-agent/src/upgrade_test.rs (`the_watchdog_brings_back_the_previous_binary_when_the_new_one_does_not_listen`)
+  [@test] ../../crates/host-agent/tests/serve/upgrade.rs (`an_upgrade_swaps_the_binary_and_ends_serve_and_a_run_and_the_watchdog_see_the_next_serve`)
 - `upgrade` must also replace an installed copy of the skill of another build that has no local edits, and say so.
   [@test] ../../crates/bd-host/src/skill_test.rs (`a_refresh_replaces_only_an_unedited_copy_of_another_build`)
 
@@ -403,6 +405,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   hint of Branch Deck. A cancel in the queue ends the wait within 2 s.
   [@test] ../../crates/host-agent/tests/serve.rs (`a_cancel_in_the_queue_of_the_host_slots_ends_the_run_before_its_command`)
   [@test] ../../crates/host-agent/tests/serve.rs (`two_runs_of_one_affinity_run_in_parallel_and_a_third_waits_for_a_slot`)
+  [@test] ../../crates/host-agent/tests/serve/lend.rs (`a_git_below_the_floor_ends_the_run_with_old_git_and_the_hint_of_bd`, `a_failed_lend_refuses_the_run_with_lease_failed`, `a_run_waits_while_homebrew_upgrades_git_and_its_command_gets_the_git_of_the_host`)
 - The supervisor must wait for the pack of its commit when the repository lacks it: up to 30 min, and up to 2 min
   without a chunk (`pack_missing`). It checks out the commit by the diff (`lease_pool::host_slots::checkout`), and
   writes the reason of a forced checkout to the log. On every way out, after `exit.json`, it gives the slot back
@@ -415,7 +418,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
 - The keeper must wake once a minute and at each `Start` of a repository, and run `ensure_host_git`, `reclaim`,
   `reclaim_refs` (`lease_pool::host_runs::reclaim_all`) and `fill` in process, one repository at a time. A failed
   fill waits 1, 5, then 15 minutes.
-  Test (planned): `crates/host-agent/tests/serve.rs` (`the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill`)
+  [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill`)
 - `serve` must hold the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after its
   hello, and each supervisor for its whole life. Elsewhere than on macOS nothing holds them.
   [@test] ../../crates/host-agent/tests/serve/system.rs (`serve_and_the_supervisor_keep_the_host_awake`)

@@ -66,7 +66,7 @@ impl World {
   /// Starts `serve` on a loopback port, and writes the host file of `ALIAS` for it
   fn serve(&self) -> Agent {
     let log = fs::File::create(self.home.path().join("serve.log")).expect("the serve log");
-    let (child, listening) = spawn_on_loopback(self.command(), log).expect("serve listens");
+    let (child, listening) = spawn_on_loopback(self.command(), 0, &[], log).expect("serve listens");
     let host_file = json!({
       "alias": ALIAS,
       "fingerprint": listening.fingerprint.to_string(),
