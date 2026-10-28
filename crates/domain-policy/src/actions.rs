@@ -400,6 +400,7 @@ pub enum StackShape<'a> {
 
 /// The facts the actions of the whole stack of a root are decided on
 #[derive(Clone, Debug)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of the stack, each read by its own actions")]
 pub struct StackFacts<'a> {
   pub root: &'a str,
   pub patronus: PatronusAnswer<'a>,
@@ -417,9 +418,9 @@ pub struct StackFacts<'a> {
   pub push_route: bool,
   /// The repository lands by a merge of the pull request on GitHub: the merge of the pull request of its stack branch is
   /// its start
+  pub merge_route: bool,
   /// Its remote actions read a frame nobody checked yet (`on_cached_frame`)
   pub cached: bool,
-  pub merge_route: bool,
 }
 
 /// The merge of the pull request of a subject on the merge route, and Cancel Auto-Merge while its auto-merge is enabled
