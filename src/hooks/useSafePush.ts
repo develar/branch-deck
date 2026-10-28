@@ -4,6 +4,7 @@ import { useStore } from "zustand"
 import { getBranchNextStep } from "@/hooks/useBranchNextStep"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
+import { askUntilSettled } from "@/lib/ask-until-settled"
 import type { ApiError, Land, LandingAllowances, LandProfiles, OperationEvent, OperationId, Outcome, PatronusProfile, PatronusRobot, Plan, ReviewReadiness } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure, notifyError } from "@/lib/errors"
@@ -312,35 +313,20 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
   }
 }
 
-/** Resolves on the next change of a store the facts are read from */
-function nextChange(): Promise<void> {
-  return new Promise(resolve => {
-    const stores = [branchSyncStore, reviewReadinessStore, pullRequestsStore, patronusStore]
-    let unsubscribes: (() => void)[] = []
-    const done = () => {
-      unsubscribes.forEach(unsubscribe => unsubscribe())
-      unsubscribes = []
-      resolve()
-    }
-    unsubscribes = stores.map(store => store.subscribe(done))
-  })
-}
-
 /**
  * The start of a click, planned again on every change until its plan waits for nothing (`prepare`): the session answers
- * every fact it waits for (the review it is asked at once, the rules, the profiles), a failure too, so the wait ends
+ * every fact it waits for (the review it is asked at once, the rules, the profiles), a failure too, so the wait ends.
+ * The rules come with the listing that has the approval: the session reads them then. A fact may come while the plan is
+ * asked, its patch ahead of the plan that still waits for it: `askUntilSettled` asks again then
  */
 async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "placement">): Promise<SafePushRead | null> {
   // the profiles as the session has them now, the rules GitHub didn't give read again: the start decides on new answers
   await Promise.all([askStartOptions(branchName), askBranchRulesAgain()])
-  for (;;) {
-    const read = readSafePush(branchName, ask, await prepareStart(branchName, ask))
-    if (read === null || read.prompt.kind !== "wait") {
-      return read
-    }
-    // the rules come with the listing that has the approval: the session reads them then
-    await nextChange()
-  }
+  return askUntilSettled(
+    async () => readSafePush(branchName, ask, await prepareStart(branchName, ask)),
+    read => read === null || read.prompt.kind !== "wait",
+    [branchSyncStore, reviewReadinessStore, pullRequestsStore, patronusStore],
+  )
 }
 
 /**
