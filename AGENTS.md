@@ -118,8 +118,9 @@ assertion depends on. `pnpm perf:test-processes measure|summarize|compare` count
 processes of every test, which the load of the machine does not change.
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
-`pnpm lint:backend` run as `yonder run studio -- <command>` from the lease, on its working tree, committed or not
-([Studio Runs](docs/guidelines/studio-runs.md), `.yonder.toml`). This Mac runs several agents at once, and under that
+`pnpm lint:backend` run as `bd-host run studio -- <command>` from the lease, on its working tree, committed or not
+([Studio Runs](docs/guidelines/studio-runs.md), `.yonder.toml`). `no_host` means that this Mac has no bd-host setup
+yet: run `yonder run studio` with the same arguments. This Mac runs several agents at once, and under that
 load the suites take far longer and E2E fails on timeouts. What a command edits (`cargo fmt`, `pnpm e2e-up`,
 `UPDATE_BINDINGS=1`) comes back with `--apply`. Exit code 75: the Studio did not run it, run it here.
 
@@ -155,8 +156,8 @@ pnpm install-app          # Unsigned release build of the .app, copied to /Appli
 
 pnpm test                 # test:backend + test:unit (Rust and Vitest; not E2E)
 pnpm test:backend         # cargo nextest run --workspace
-yonder run studio -- cargo nextest run --workspace  # The same on the Mac Studio, on this working tree (75: run it here)
-yonder run studio -- pnpm e2e  # The E2E suite there; --apply brings back what a command edits (pnpm e2e-up, cargo fmt)
+bd-host run studio -- cargo nextest run --workspace  # The same on the Mac Studio, on this working tree (75: run it here)
+bd-host run studio -- pnpm e2e  # The E2E suite there; --apply brings back what a command edits (pnpm e2e-up, cargo fmt)
 cargo nextest run -R latest  # Rerun what failed or did not run in the last run (record on in the user config)
 pnpm test:unit            # Vitest (`vp test run`; src/**/*.test.ts)
 
@@ -667,6 +668,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Command-line tools: the `teamcity` and `youtrack` CLIs in Settings → Tools, installed and updated through Homebrew, winget or scoop, with their agent skills; the Setup dot on Settings (updates, expiring sign-ins) | `repository/cli-tools`, `repository/setup-attention`, `repository/settings` | `crates/cli-tools/`, `crates/sync-utils/src/known_tools.rs`, `src-tauri/src/commands/cli_tools.rs`, `src/components/settings/ToolsPage.tsx` |
 | Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`), the host slots that yonderd lends through `bd lease host` | `cli/lease` | `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/lease_clean.rs`, `crates/lease-pool/src/host_slots.rs`, `crates/bd-lease/src/lease_command.rs`, `crates/bd-lease/src/host_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
 | Landing routes: the route into master (`branchdeck.landing`: Patronus, a push into the target, a merge of the pull request; unset by the host of `origin`) and its gate of the write access and the rules of the target; Push to master (`bd land`) | `branch/landing-routes`, `branch/next-step`, `repository/settings`, `cli/agent-cli` ([Landing](docs/design/landing.md#routes)) | `crates/domain-policy/src/landing_route.rs`, `crates/domain-policy/src/land_direct.rs`, `crates/domain-types/src/landing_route.rs`, `crates/sync-core/src/repository_config.rs`, `crates/sync-core/src/repo_facts.rs` (`landing_remote`), `crates/sync-core/src/baseline_push.rs`, `crates/operations/src/land_execute.rs` (`push_baseline`), `crates/bd-remote/src/land_command.rs`, `crates/remote-facts/src/branch_rules.rs`, `crates/remote-facts/src/pull_requests.rs` (`viewerPermission`) |
+| Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`), the host slots that `bd-host serve` lends in process and yonderd through `bd lease host` | `cli/lease` | `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/lease_clean.rs`, `crates/lease-pool/src/host_slots.rs`, `crates/bd-lease/src/lease_command.rs`, `crates/bd-lease/src/host_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
 | Remote runs on another Mac (`bd-host`, Draft): a command of a checkout in a warm host slot, the agent under launchd, the upgrade, the migration from yonderd | `cli/host`, `cli/lease` ([Host Runs](docs/design/host-runs.md)) | `crates/bd-host/`, `crates/host-client/`, `crates/host-agent/`, `crates/host-link/` |
 | Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` (report in `branch-deck/landed.json`) |
 | Landing overview, PR status, Create Pull Request, Request Review, the push | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `crates/operations/src/pull_request.rs` (the intents `CreatePullRequest`, `RequestReview`, `Retarget`, each with its push first; `bd request-review`), `crates/operations/src/close.rs` (`ClosePullRequest`, `CloseLandedPullRequests`), `crates/operations/src/push.rs` (the intent `Push` of a branch, a stack, up to a commit, an unapplied branch; its network part for `bd push`), `src/lib/pull-request-run.ts`, `src/lib/push-run.ts`, `remote_facts::pull_requests`, `remote_facts::pull_request_create`, `remote_facts::pull_request_text`, `repository_model::pull_request_facts` (the pull requests, rules and profiles of the session), `crates/domain-policy/src/pull_request.rs` (where a pull request goes, the rules of its base), `crates/domain-policy/src/review.rs` (the candidates of Request Review, where the approvals count), `src/stores/pull-requests.ts` |
@@ -760,7 +762,7 @@ Authority](docs/design/rust-domain-authority.md#индекс-правил).
 - [Agent CLI](docs/guidelines/agent-cli.md) - The `bd` commands, their JSON, error codes and exit codes
 - [Platform Checks](docs/guidelines/platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands
 - [Fast Rust Tests](docs/guidelines/rust-tests.md) - A test costs its git processes: the fixtures of one process per step, no sleeps or wall-clock limits, `pnpm perf:test-processes`
-- [Studio Runs](docs/guidelines/studio-runs.md) - `yonder run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm host slot that the Studio lends to that run
+- [Studio Runs](docs/guidelines/studio-runs.md) - `bd-host run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm host slot that the Studio lends to that run
 - [Real App Checks](docs/guidelines/real-app-checks.md) - The release app driven with Peekaboo: windows, input, frames, timings
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
 - [UX Writing](docs/guidelines/ux-writing.md) - Toast titles and actions, "Cannot …" errors, Title Case and sentence case, punctuation

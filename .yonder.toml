@@ -1,5 +1,6 @@
-# A run of this repository on another machine of the user: `yonder run studio -- <command>` (docs/guidelines/studio-runs.md).
-# The format is the one of yonderd (community/tools/yonder/bins/yonderd/API.md in the IntelliJ monorepo).
+# A run of this repository on another machine of the user: `bd-host run studio -- <command>`, or `yonder run studio`
+# during the migration (docs/guidelines/studio-runs.md). bd-host reads this file while `.branchdeck.toml` has no `[host]`
+# table (spec/cli/host.spec.md, "The environment of a run and `[host]`"); yonderd reads only this file.
 
 # What a run makes and brings back into the same paths here
 outputs = ["tests/results", "playwright-report", "target/nextest/ci/junit.xml"]

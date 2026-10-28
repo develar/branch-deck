@@ -65,7 +65,7 @@ pnpm perf:test-processes compare notes.local/tp-before notes.local/tp-after
 
 `measure` runs the suite with `scripts/perf/test-git-runner.sh` as the cargo target runner, which gives each test
 process its own `GIT_TRACE2_EVENT` directory (macOS and Linux). The times of its run mean little: a time is measured on
-the Studio (`yonder run studio -- cargo nextest run --workspace`, [Studio Runs](studio-runs.md)) when nothing else runs there,
+the Studio (`bd-host run studio -- cargo nextest run --workspace`, [Studio Runs](studio-runs.md)) when nothing else runs there,
 best as an A/B of two checkouts in turns. CI writes the 30 slowest tests of each platform and the time per binary into
 the job summary (`scripts/slowest-tests.mjs`).
 

@@ -2009,8 +2009,10 @@ slot for its run (`lend --pid <supervisor> --wait <s>`, one call that waits whil
 on every way out (`give-back --run`), and a keeper runs `reclaim` and `fill`. A lend answers the `generation` of the
 files of the slot, which a give-back that discarded changes and a clean move before the slot is idle again: yonder keys
 the fingerprints of its prepare steps by it, so a run never skips a step whose output a give-back of the run before
-removed. The network and the run stay yonder's; the full move of yonder into Branch Deck (`bd host`) is a later
-decision.
+removed. `bd-host` (`crates/bd-host`, [Host Runs](host-runs.md)) is the move of yonder into Branch Deck: its agent
+calls the same functions of `lease_pool::host_slots`, `host_refs` and `host_git` in process, and its client the
+functions of `git_ops::host_client`, so neither end starts `bd`. Both agents lend from the one lend table of a host
+during the migration. `bd lease host` and `bd host` stay for yonderd and the yonder client until then.
 
 A lend that waits (`host_slots::lend_waiting`) watches `branch-deck/` of the common dir with `notify` before its first
 look, so a give-back between the look and the wait wakes it: the table is replaced by a rename, so the watch is on the
