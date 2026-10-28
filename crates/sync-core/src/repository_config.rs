@@ -1,8 +1,9 @@
 //! The `branchdeck.*` git config of a repository that Settings shows and writes: stacked branches, the symbol mode, the
 //! GitHub repository and the branch prefix (Settings → Repository), the resolve by words (Diffs & Merge), the push size
-//! limit (Patronus), and how coding agents work (Settings → Agents, read by `bd workspace`). One `git config
-//! --get-regexp` reads all eight with their scopes; a write goes to the local config (`.git/config`, shared by the
-//! linked worktrees), or to the global one where the request names it (`WriteScope`), and `bd` reads the same keys.
+//! limit (Patronus), the route into master (`branchdeck.landing`, spec/branch/landing-routes.spec.md), and how coding
+//! agents work (Settings → Agents, read by `bd workspace`). One `git config --get-regexp` reads all nine with their
+//! scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one where
+//! the request names it (`WriteScope`; never a `push` route), and `bd` reads the same keys.
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
 use crate::config_snapshot::{SYMBOLS_CONFIG_KEY, SymbolMode};
@@ -11,6 +12,7 @@ use crate::push_size::{PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
 use crate::remote_url::split_owner_and_name;
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
+use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list_with_handler;
 use history_rewrite::baseline::detect_baseline_branch;
@@ -24,8 +26,12 @@ use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
-/// The eight keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
-const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|agentlease|agentsubjectbranch)$";
+/// The nine keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
+const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch)$";
+
+/// Why a `push` route of the global or the system config is taken as unset: a push into master of every repository of
+/// the user that names no route of its own would be a trap
+pub const GLOBAL_PUSH_ROUTE_REASON: &str = "push is taken only from the config of the repository (git config --local), never from the global one";
 
 /// Whether a sync resolves the conflicts of git by words (`git_ops::word_resolve`), a git boolean, on when unset
 pub const RESOLVE_BY_WORDS_CONFIG_KEY: &str = "branchdeck.resolveByWords";
@@ -133,6 +139,9 @@ pub struct RepositoryConfig {
   pub push_size_limit: ConfigSetting<Option<String>>,
   /// `branchdeck.resolveByWords`, on by default
   pub resolve_by_words: ConfigSetting<bool>,
+  /// `branchdeck.landing`: unset by default, which is Patronus on Space and the pull request elsewhere; a `push` of the
+  /// global or the system config is unset, with the reason (`GLOBAL_PUSH_ROUTE_REASON`)
+  pub landing: ConfigSetting<Option<LandingSetting>>,
   /// `branchdeck.agentLease`, on by default
   pub agent_lease: ConfigSetting<bool>,
   /// `branchdeck.agentSubjectBranch`, off by default
@@ -167,6 +176,7 @@ pub enum RepositoryConfigKey {
   BranchPrefix,
   PushSizeLimit,
   ResolveByWords,
+  Landing,
   AgentLease,
   AgentSubjectBranch,
 }
@@ -181,6 +191,7 @@ impl RepositoryConfigKey {
       Self::BranchPrefix => BRANCH_PREFIX_CONFIG_KEY,
       Self::PushSizeLimit => PUSH_SIZE_LIMIT_CONFIG_KEY,
       Self::ResolveByWords => RESOLVE_BY_WORDS_CONFIG_KEY,
+      Self::Landing => LANDING_CONFIG_KEY,
       Self::AgentLease => AGENT_LEASE_CONFIG_KEY,
       Self::AgentSubjectBranch => AGENT_SUBJECT_BRANCH_CONFIG_KEY,
     }
@@ -194,6 +205,7 @@ impl RepositoryConfigKey {
       Self::BranchPrefix,
       Self::PushSizeLimit,
       Self::ResolveByWords,
+      Self::Landing,
       Self::AgentLease,
       Self::AgentSubjectBranch,
     ]
@@ -225,6 +237,7 @@ pub enum RepositoryConfigChange {
   BranchPrefix(Option<String>),
   PushSizeLimit(Option<String>),
   ResolveByWords(Option<bool>),
+  Landing(Option<LandingSetting>),
   AgentLease(Option<bool>),
   AgentSubjectBranch(Option<bool>),
 }
@@ -238,6 +251,7 @@ impl RepositoryConfigChange {
       Self::BranchPrefix(_) => RepositoryConfigKey::BranchPrefix,
       Self::PushSizeLimit(_) => RepositoryConfigKey::PushSizeLimit,
       Self::ResolveByWords(_) => RepositoryConfigKey::ResolveByWords,
+      Self::Landing(_) => RepositoryConfigKey::Landing,
       Self::AgentLease(_) => RepositoryConfigKey::AgentLease,
       Self::AgentSubjectBranch(_) => RepositoryConfigKey::AgentSubjectBranch,
     }
@@ -248,6 +262,7 @@ impl RepositoryConfigChange {
     Ok(match self {
       Self::Stacks(value) | Self::ResolveByWords(value) | Self::AgentLease(value) | Self::AgentSubjectBranch(value) => value.map(|value| value.to_string()),
       Self::Symbols(value) => value.map(|mode| symbol_mode_name(mode).to_string()),
+      Self::Landing(value) => value.map(|setting| setting.config_value().to_string()),
       Self::GithubRepository(value) => match value.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
         None => None,
         Some(value) => Some(validate_github_repository(value).map_err(|reason| anyhow!(reason))?.to_string()),
@@ -298,7 +313,7 @@ fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   Ok(value)
 }
 
-/// The eight keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
+/// The nine keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
 /// config alone for an empty `repository_path`
 #[instrument(skip(git))]
 pub fn read_config_entries(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<ConfigEntry>> {
@@ -353,11 +368,35 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], detected_github_r
       text_setting(value.map(str::trim), validate_push_size_limit)
     }),
     resolve_by_words: resolve_setting(entries, RepositoryConfigKey::ResolveByWords, true, |value| bool_setting(value, true)),
+    landing: landing_setting(entries),
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
     agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, false, |value| bool_setting(value, false)),
     detected_github_repository,
     stacks_off_clashes: Vec::new(),
   }
+}
+
+/// `branchdeck.landing`: unset or empty is none, a value other than the three is invalid; a `push` that no config of
+/// the repository itself sets (the global or the system one) is none, with the reason, and so is a `push` it falls back
+/// to
+fn landing_setting(entries: &[ConfigEntry]) -> ConfigSetting<Option<LandingSetting>> {
+  let mut setting = resolve_setting(entries, RepositoryConfigKey::Landing, None, |value| {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+      None => (None, None),
+      Some(value) => match LandingSetting::parse(value) {
+        Some(setting) => (Some(setting), None),
+        None => (None, Some(format!("{value} is not patronus, push or pull-request"))),
+      },
+    }
+  });
+  if setting.value == Some(LandingSetting::Push) && setting.scope.is_some_and(|scope| !scope.is_repository_scoped()) {
+    setting.value = None;
+    setting.invalid = Some(GLOBAL_PUSH_ROUTE_REASON.to_string());
+  }
+  if setting.fallback_value == Some(LandingSetting::Push) {
+    setting.fallback_value = None;
+  }
+  setting
 }
 
 /// A git boolean, `default` for what git refuses, with the reason
@@ -492,8 +531,12 @@ pub fn set_config(git: &GitCommandExecutor, repository_path: &str, change: &Repo
 }
 
 /// Write one key to the global config of the user (`git config --global --replace-all`, or `--unset-all`). A local
-/// value of a repository still wins there; the read of its settings shows that scope
+/// value of a repository still wins there; the read of its settings shows that scope. A `push` route is refused: only
+/// a repository's own config names it
 pub fn write_global_config(git: &GitCommandExecutor, change: &RepositoryConfigChange) -> Result<()> {
+  if *change == RepositoryConfigChange::Landing(Some(LandingSetting::Push)) {
+    bail!("{LANDING_CONFIG_KEY}: {GLOBAL_PUSH_ROUTE_REASON}");
+  }
   run_config_write(git, ".", "--global", change.key().config_key(), change.config_value()?.as_deref())
 }
 

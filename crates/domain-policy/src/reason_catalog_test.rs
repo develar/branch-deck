@@ -40,10 +40,20 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::NeedsPush { .. } => 23,
     Reason::NoReviewer { .. } => 24,
     Reason::RewrittenSincePush { .. } => 25,
+    Reason::NotOnSpace => 26,
+    Reason::NoWriteAccess { .. } => 27,
+    Reason::BaselineRequiresPullRequest { .. } => 28,
+    Reason::BaselineRequiresMergeQueue { .. } => 29,
+    Reason::BaselineRestrictsUpdates { .. } => 30,
+    Reason::BaselineRequiresSignatures { .. } => 31,
+    Reason::BaselineRequiresStatusChecks { .. } => 32,
+    Reason::LocalBaseline { .. } => 33,
+    Reason::GitHubMirror { .. } => 34,
+    Reason::NotOnGitHub => 35,
   }
 }
 
-const CODES: usize = 26;
+const CODES: usize = 36;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -215,6 +225,21 @@ fn examples() -> Vec<Reason> {
     },
     Reason::LandedIn { upstream: s("origin/master") },
     Reason::PullRequestMerged { number: 7 },
+    Reason::NotOnSpace,
+    Reason::NoWriteAccess {
+      repository: s("develar/branch-deck"),
+      target: s("master"),
+    },
+    Reason::BaselineRequiresPullRequest { target: s("master") },
+    Reason::BaselineRequiresMergeQueue { target: s("master") },
+    Reason::BaselineRestrictsUpdates { target: s("master") },
+    Reason::BaselineRequiresSignatures { target: s("master") },
+    Reason::BaselineRequiresStatusChecks { target: s("master") },
+    Reason::LocalBaseline { baseline: s("master") },
+    Reason::GitHubMirror {
+      repository: s("JetBrains/intellij-community"),
+    },
+    Reason::NotOnGitHub,
   ]
 }
 

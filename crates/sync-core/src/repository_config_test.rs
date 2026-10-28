@@ -1,9 +1,10 @@
 use crate::config_snapshot::SymbolMode;
 use crate::github_repository::GitHubRepositorySource;
 use crate::repository_config::{
-  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, RepositoryConfigChange, WriteScope, parse_config_entries, read_config_entries,
-  read_repository_config, repository_config_from_entries, set_config, set_repository_config,
+  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, GLOBAL_PUSH_ROUTE_REASON, RepositoryConfigChange, WriteScope, parse_config_entries,
+  read_config_entries, read_repository_config, repository_config_from_entries, set_config, set_repository_config,
 };
+use domain_types::landing_route::LandingSetting;
 use pretty_assertions::assert_eq;
 use sync_utils::git_bool::parse_git_bool;
 use test_utils::git_test_utils::{TestRepo, append_config};
@@ -534,4 +535,58 @@ fn a_write_fails_on_a_config_lock_that_stays() {
   std::fs::write(test_repo.path().join(".git").join("config.lock"), "").unwrap();
   let error = set_repository_config(test_repo.git_executor(), test_repo.path_str(), &RepositoryConfigChange::Stacks(Some(true))).unwrap_err();
   assert!(error.to_string().starts_with("git config branchdeck.stacks failed"), "{error}");
+}
+
+// ---- the route into master ----
+
+#[test]
+fn the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset() {
+  let landing = |entries: &[ConfigEntry]| repository_config_from_entries(entries, None).landing;
+  assert_eq!(landing(&[]), unset(None));
+  let local = landing(&[entry(ConfigScope::Local, "branchdeck.landing", Some("pull-request"))]);
+  assert_eq!(
+    (local.value, local.scope, local.invalid),
+    (Some(LandingSetting::PullRequest), Some(ConfigScope::Local), None)
+  );
+  let wrong = landing(&[entry(ConfigScope::Local, "branchdeck.landing", Some("merge"))]);
+  assert_eq!((wrong.value, wrong.invalid.as_deref()), (None, Some("merge is not patronus, push or pull-request")));
+
+  // a push into master of every repository of the user is a trap: only the repository's own config names it
+  let global = landing(&[entry(ConfigScope::Global, "branchdeck.landing", Some("push"))]);
+  assert_eq!(
+    (global.value, global.scope, global.invalid.as_deref(), global.fallback_value),
+    (None, Some(ConfigScope::Global), Some(GLOBAL_PUSH_ROUTE_REASON), None)
+  );
+  let local_over_global = landing(&[
+    entry(ConfigScope::Global, "branchdeck.landing", Some("push")),
+    entry(ConfigScope::Local, "branchdeck.landing", Some("push")),
+  ]);
+  assert_eq!(
+    (local_over_global.value, local_over_global.invalid, local_over_global.fallback_value),
+    (Some(LandingSetting::Push), None, None)
+  );
+  let worktree = landing(&[entry(ConfigScope::Worktree, "branchdeck.landing", Some("push"))]);
+  assert_eq!(worktree.value, Some(LandingSetting::Push));
+}
+
+#[test]
+fn a_push_route_is_written_only_to_the_local_config() {
+  let test_repo = TestRepo::new();
+  let (global, git) = with_own_global_config(&test_repo);
+  let path = test_repo.path_str();
+
+  let refused = set_config(&git, path, &RepositoryConfigChange::Landing(Some(LandingSetting::Push)), WriteScope::Global).unwrap_err();
+  assert_eq!(refused.to_string(), format!("branchdeck.landing: {GLOBAL_PUSH_ROUTE_REASON}"));
+  assert_eq!(std::fs::read_to_string(global.path()).unwrap(), "");
+
+  let config = set_config(&git, path, &RepositoryConfigChange::Landing(Some(LandingSetting::PullRequest)), WriteScope::Global).unwrap();
+  assert_eq!((config.landing.value, config.landing.scope), (Some(LandingSetting::PullRequest), Some(ConfigScope::Global)));
+  let config = set_config(&git, path, &RepositoryConfigChange::Landing(Some(LandingSetting::Push)), WriteScope::Local).unwrap();
+  assert_eq!((config.landing.value, config.landing.scope), (Some(LandingSetting::Push), Some(ConfigScope::Local)));
+  assert_eq!(
+    (config.landing.fallback_value, config.landing.fallback_scope),
+    (Some(LandingSetting::PullRequest), Some(ConfigScope::Global))
+  );
+  let config = set_config(&git, path, &RepositoryConfigChange::Landing(None), WriteScope::Local).unwrap();
+  assert_eq!(config.landing.value, Some(LandingSetting::PullRequest));
 }

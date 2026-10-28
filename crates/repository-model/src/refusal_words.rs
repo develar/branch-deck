@@ -73,6 +73,16 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     ),
     Reason::LandingRefused { refusal } => format!("{subject} would not build: {}", refusal.reason()),
     Reason::TargetConflict { files, .. } => format!("{subject} conflicts with the newest target in {}: Patronus would fail it at once", join_names(files)),
+    Reason::NotOnSpace => "origin is not on Space: no Patronus robot lands it (branchdeck.landing names the route)".to_string(),
+    Reason::NoWriteAccess { repository, target } => format!("you have no write access to {repository}: someone who has lands it into {target}"),
+    Reason::BaselineRequiresPullRequest { target } => format!("{target} takes changes only through a pull request"),
+    Reason::BaselineRequiresMergeQueue { target } => format!("{target} takes changes only through the merge queue"),
+    Reason::BaselineRestrictsUpdates { target } => format!("{target} takes updates only from the users its rules let bypass them"),
+    Reason::BaselineRequiresSignatures { target } => format!("{target} takes only signed commits, and the copies Branch Deck writes are unsigned"),
+    Reason::BaselineRequiresStatusChecks { target } => format!("{target} requires status checks: a push lands without them"),
+    Reason::LocalBaseline { baseline } => format!("the baseline {baseline} is a local branch: no remote branch takes the push"),
+    Reason::GitHubMirror { repository } => format!("{repository} is a mirror origin doesn't push to: a merge there lands nothing"),
+    Reason::NotOnGitHub => "the pull requests of the branches are not on GitHub".to_string(),
   }
 }
 

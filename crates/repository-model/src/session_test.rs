@@ -11,8 +11,9 @@ use crate::table::table_test::{branch_status, grouped, grouping, remote_at, sync
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit};
+use domain_types::landing_route::{LandingRemote, LandingSetting};
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness};
-use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState};
+use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState, ViewerPermission};
 use domain_types::repository_view::{LandingNeeds, PatronusView};
 use domain_types::session::{
   BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, Version, ViewPatch,
@@ -1200,6 +1201,25 @@ async fn the_readiness_a_window_needs_is_in_its_view_and_stale_in_the_patch_of_a
   assert_eq!(refresh.await.unwrap(), None);
 }
 
+/// A listing of `acme/monorepo` with the pull request of `auth` into `master`, which alice approved, and what the token
+/// may do there
+fn approved_listing(viewer_permission: Option<ViewerPermission>) -> PullRequestsResult {
+  let mut approved = pull_request("auth", 7);
+  approved.reviewers.push(Reviewer {
+    login: "alice".to_owned(),
+    state: ReviewerState::Approved,
+    requested: false,
+  });
+  PullRequestsResult {
+    viewer_permission,
+    pull_requests: [("auth".to_owned(), approved)].into(),
+    ..PullRequestsResult::unavailable(PullRequestAvailability::Available {
+      owner: "acme".to_owned(),
+      name: "monorepo".to_owned(),
+    })
+  }
+}
+
 /// The pull requests: a listing reaches the windows as a patch and tells the scheduler the bases whose rules it reads; a
 /// retarget of the app applies at once, newer than the listing that started before it, which keeps it, and lists them
 /// again (a close lists nothing); a push that pushed lists them again with the heads it left, an unapplied branch none
@@ -1209,24 +1229,18 @@ async fn the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_
   let (sessions, _clock) = scripted(&host);
   let mut events = sessions.events().unwrap();
   let (key, window) = synced_window(&sessions, &host, "/repo", auth_built()).await;
-  let mut approved = pull_request("auth", 7);
-  approved.reviewers.push(Reviewer {
-    login: "alice".to_owned(),
-    state: ReviewerState::Approved,
-    requested: false,
-  });
-  let listed = PullRequestsResult {
-    pull_requests: [("auth".to_owned(), approved)].into(),
-    ..PullRequestsResult::unavailable(PullRequestAvailability::Available {
-      owner: "acme".to_owned(),
-      name: "monorepo".to_owned(),
-    })
-  };
+  let listed = approved_listing(Some(ViewerPermission::Write));
   let ticket = sessions.begin(&key).await.unwrap();
   let applied = sessions.apply_facts(&key, ticket, FactResult::PullRequests(listed.clone())).await.unwrap();
-  assert_eq!(applied.approved_bases, vec!["master".to_owned()]);
+  assert_eq!(applied.rule_bases, vec!["master".to_owned()]);
   let patch = window.take().pop().unwrap();
-  assert_eq!(patch.changes.facts.unwrap().pull_requests.unwrap().pull_requests.keys().collect::<Vec<_>>(), vec!["auth"]);
+  let pull_requests = patch.changes.facts.unwrap().pull_requests.unwrap();
+  assert_eq!(pull_requests.pull_requests.keys().collect::<Vec<_>>(), vec!["auth"]);
+  // what the token may do there goes with the answer
+  assert_eq!(
+    (pull_requests.repository.as_deref(), pull_requests.viewer_permission),
+    (Some("acme/monorepo"), Some(ViewerPermission::Write))
+  );
   drop(heard(&mut events));
 
   let late = sessions.begin(&key).await.unwrap();
@@ -1247,6 +1261,29 @@ async fn the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_
   let unapplied = vec![RemoteSubject::Unapplied("old".to_owned())];
   push(&sessions, &key, unapplied, Ok(pushed("old", "pushed"))).await.unwrap();
   assert_eq!(heard(&mut events), Vec::<String>::new(), "an unapplied branch has no pull request");
+}
+
+/// A repository that lands by a push into its target on GitHub reads the rules of the target besides those of the
+/// approved bases, each once; the route a sync read reaches the header of the view
+#[tokio::test]
+async fn a_push_route_reads_the_rules_of_the_target() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let mut events = auth_built();
+  let landing = LandingRemote {
+    setting: Some(LandingSetting::Push),
+    on_space: false,
+    push_repository: Some("acme/monorepo".to_owned()),
+    target: Some("main".to_owned()),
+  };
+  if let SyncEvent::BranchesGrouped { landing: read, .. } = &mut events[0] {
+    *read = landing.clone();
+  }
+  let (key, _window) = synced_window(&sessions, &host, "/repo", events).await;
+  assert_eq!(snapshot(&sessions, &key).await.header.landing, landing);
+  let ticket = sessions.begin(&key).await.unwrap();
+  let applied = sessions.apply_facts(&key, ticket, FactResult::PullRequests(approved_listing(None))).await.unwrap();
+  assert_eq!(applied.rule_bases, vec!["main".to_owned(), "master".to_owned()]);
 }
 
 /// The Patronus part of the session's view once `done` says it is, asked again until then (the view and the landing

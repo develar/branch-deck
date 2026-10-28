@@ -1,6 +1,7 @@
 use crate::baseline::resolve_baseline_upstream;
-use crate::repo_facts::{RepoFacts, read_baseline_listing, read_repo_facts};
+use crate::repo_facts::{RepoFacts, parse_remotes, read_baseline_listing, read_repo_facts};
 use branch_integration::common::{ListedBranch, list_branches};
+use domain_types::landing_route::{LandingRemote, LandingSetting};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::with_dirs_of;
 use history_rewrite::baseline::{NoBaseline, detect_baseline_branch};
@@ -200,4 +201,54 @@ fn the_listing_reads_no_commit_of_the_branches_it_lists() {
   assert_eq!(facts.branches, [archived]);
   assert_eq!(facts.remote_tips, HashMap::from([("test/virtual/old".to_string(), gone)]));
   assert_eq!(processes, 3, "git processes");
+}
+
+/// The remotes in the order of `git remote`, each with its first push URL; a fetch URL alone is the push URL too, as
+/// `git remote -v` names it
+#[test]
+fn the_remotes_come_with_their_push_urls() {
+  let lines: Vec<String> = [
+    "origin\tgit@github.com:acme/app.git (fetch)",
+    "origin\tssh://git@git.jetbrains.team/ij/app.git (push)",
+    "origin\tgit@github.com:acme/second.git (push)",
+    "fork\thttps://github.com/jane/app (fetch)",
+    "fork\thttps://github.com/jane/app (push)",
+  ]
+  .map(str::to_string)
+  .to_vec();
+  let (remotes, push_urls) = parse_remotes(&lines);
+  assert_eq!(remotes, ["origin", "fork"]);
+  assert_eq!(push_urls["origin"], "ssh://git@git.jetbrains.team/ij/app.git");
+  assert_eq!(push_urls["fork"], "https://github.com/jane/app");
+}
+
+/// The route is decided on what the listing read: the setting, `origin` on Space, the github.com repository the remote
+/// of the baseline pushes to and its branch; nothing of a local baseline
+#[test]
+fn the_landing_remote_is_read_with_the_facts_of_a_sync() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.git(&["remote", "add", "origin", "."]);
+  repo.git(&["fetch", "-q", "origin"]);
+  repo.git(&["config", "branch.master.remote", "origin"]);
+  repo.git(&["config", "branch.master.merge", "refs/heads/master"]);
+  repo.git(&["config", "remote.origin.pushurl", "git@github.com:acme/app.git"]);
+
+  let (facts, processes) = facts(&repo);
+  // the URLs come with the listing of the remotes: no process of their own
+  assert_eq!(processes, 3, "remote -v, for-each-ref and rev-parse");
+  assert_eq!(
+    facts.unwrap().landing_remote(Some(LandingSetting::Push)),
+    LandingRemote {
+      setting: Some(LandingSetting::Push),
+      on_space: false,
+      push_repository: Some("acme/app".to_string()),
+      target: Some("master".to_string()),
+    }
+  );
+
+  repo.git(&["config", "remote.origin.pushurl", "https://git.jetbrains.team/ij/app.git"]);
+  let facts = read_repo_facts(repo.git_executor(), repo.path_str(), "master", "test").unwrap();
+  let landing = facts.landing_remote(None);
+  assert_eq!((landing.on_space, landing.push_repository), (true, None));
 }

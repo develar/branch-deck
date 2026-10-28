@@ -25,7 +25,10 @@ fn approved() -> PullRequest {
 
 fn rules(state: FactState, dismiss: Option<bool>) -> Fact<BranchRules> {
   Fact {
-    value: dismiss.map(|dismiss_stale_reviews_on_push| BranchRules { dismiss_stale_reviews_on_push }),
+    value: dismiss.map(|dismiss_stale_reviews_on_push| BranchRules {
+      dismiss_stale_reviews_on_push,
+      ..BranchRules::default()
+    }),
     state,
     seq: 1,
     observed_at: 0,

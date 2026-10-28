@@ -436,7 +436,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
         ..pull_request("login", 8)
       },
     )]),
-    stack_pull_requests: BTreeMap::new(),
+    ..PullRequestsView::default()
   };
   let ready = fresh(SubjectReadiness {
     ask: ReviewReadinessBranch::starting_from("oauth".to_string(), None, "vo1".to_string(), None),

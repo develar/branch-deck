@@ -170,6 +170,16 @@ const words = {
   dismissesApprovals: ({ number }) => `The push dismisses the approvals of #${number}: push first, then ask for the review again`,
   landingRefused: ({ refusal }) => describeLandingRefusal(refusal, refusal.branch),
   targetConflict: ({ commit, files }) => `${formatShortHash(commit)} conflicts in ${joinNames(files)} with the newest target: Patronus would fail the robot at once`,
+  notOnSpace: () => "origin is not on Space: no Patronus robot lands it",
+  noWriteAccess: ({ repository, target }) => `You have no write access to ${repository}: someone who has lands it into ${target}`,
+  baselineRequiresPullRequest: ({ target }) => `${target} takes changes only through a pull request`,
+  baselineRequiresMergeQueue: ({ target }) => `${target} takes changes only through the merge queue`,
+  baselineRestrictsUpdates: ({ target }) => `${target} takes updates only from the users its rules let bypass them`,
+  baselineRequiresSignatures: ({ target }) => `${target} takes only signed commits, and the copies Branch Deck writes are unsigned`,
+  baselineRequiresStatusChecks: ({ target }) => `${target} requires status checks: a push lands without them`,
+  localBaseline: ({ baseline }) => `The baseline ${baseline} is a local branch: no remote branch takes the push`,
+  gitHubMirror: ({ repository }) => `${repository} is a mirror origin doesn't push to: a merge there lands nothing`,
+  notOnGitHub: () => "The pull requests of the branches are not on GitHub",
 } satisfies Words as Words
 
 /**

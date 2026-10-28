@@ -190,6 +190,11 @@ pub enum PullRequestAvailability {
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestsResult {
   pub availability: PullRequestAvailability,
+  /// What the token may do in the repository (`viewerPermission` of the same query); `None` unless available, and when
+  /// GitHub named none or one this version doesn't know
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub viewer_permission: Option<ViewerPermission>,
   /// By virtual branch name (without the `{prefix}/virtual/` namespace); empty unless available
   pub pull_requests: BTreeMap<String, PullRequest>,
   /// The pull requests of the stack branches (`{prefix}/stack/<root>`, the whole stack), by the root of the stack; the
@@ -203,9 +208,51 @@ impl PullRequestsResult {
   pub const fn unavailable(availability: PullRequestAvailability) -> Self {
     Self {
       availability,
+      viewer_permission: None,
       pull_requests: BTreeMap::new(),
       stack_pull_requests: BTreeMap::new(),
     }
+  }
+}
+
+/// What the user of the token may do in a GitHub repository (GitHub's `RepositoryPermission`, `viewerPermission`),
+/// weakest first: a push into a branch needs `Write`, and only `Maintain` and `Admin` may bypass the rules of a branch
+/// where a ruleset lets them (the API of the rules doesn't tell whether it does)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum ViewerPermission {
+  Read,
+  Triage,
+  Write,
+  Maintain,
+  Admin,
+}
+
+impl ViewerPermission {
+  /// The value GitHub's GraphQL names (`ADMIN`, `MAINTAIN`, `WRITE`, `TRIAGE`, `READ`); `None` for another
+  #[must_use]
+  pub fn parse(value: &str) -> Option<Self> {
+    match value {
+      "ADMIN" => Some(Self::Admin),
+      "MAINTAIN" => Some(Self::Maintain),
+      "WRITE" => Some(Self::Write),
+      "TRIAGE" => Some(Self::Triage),
+      "READ" => Some(Self::Read),
+      _ => None,
+    }
+  }
+
+  /// It may push into a branch of the repository and merge a pull request
+  #[must_use]
+  pub fn can_write(self) -> bool {
+    self >= Self::Write
+  }
+
+  /// It may bypass the rules of a branch, where a ruleset lets it
+  #[must_use]
+  pub fn may_bypass(self) -> bool {
+    self >= Self::Maintain
   }
 }
 
@@ -267,15 +314,37 @@ pub struct GitHubUser {
   pub name: Option<String>,
 }
 
-/// What the rules of a branch do to the pull requests into it (`remote_facts::branch_rules`): a fact of the session for
-/// the bases of the open pull requests someone approved, which the Safe Push popover and the Request Review form read
-/// before a push takes the approvals away
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// What the rules of a branch do to the pull requests into it and to a push into it (`remote_facts::branch_rules`): a
+/// fact of the session for the bases of the open pull requests someone approved, which the Safe Push popover and the
+/// Request Review form read before a push takes the approvals away, and for the target of the baseline while the
+/// repository lands by a push (`domain_policy::landing_route`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "independent rules of a branch, each one GitHub tells")]
 pub struct BranchRules {
   /// A push of new commits dismisses the approvals of a pull request into the branch
   pub dismiss_stale_reviews_on_push: bool,
+  /// A change reaches the branch only through a pull request (the rule `pull_request`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub requires_pull_request: bool,
+  /// Every commit pushed into the branch is signed (`required_signatures`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub requires_signatures: bool,
+  /// Status checks pass before a change reaches the branch (`required_status_checks`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub required_status_checks: bool,
+  /// A change reaches the branch only through the merge queue (`merge_queue`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub merge_queue: bool,
+  /// Only the users the ruleset lets bypass it update the branch (`update`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub restricts_updates: bool,
 }
 
 /// Where an open pull request goes, as a Safe Push of its branch reads it (`domain_policy::pull_request::base_of`):

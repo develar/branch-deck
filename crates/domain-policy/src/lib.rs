@@ -25,6 +25,9 @@
 //! - `landed`: what landed a subject (`landed_state`: the fetched baseline, merged Safe Pushes, its pull request merged
 //!   with its commits, D13), what a start says of it (`landed_reason`), and the open pull requests of the branches a
 //!   merged Safe Push landed whole besides its own (`pull_requests_to_close`, D7)
+//! - `landing_route`: the route of a repository into master (`route`: a robot of Patronus, a push into the target, a
+//!   merge of the pull request), named by `branchdeck.landing` or by the host, each with its gate of the write access
+//!   and the rules of the target; the branch whose rules the session reads for it (`rules_target`)
 //! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
 //! - `landing_node`: where a branch or a whole stack is on its way into master, the node of its row (`landing_node`)
 //! - `next_step`: the next step of a branch or a whole stack, the first row of the table of the next step that matches
@@ -70,6 +73,7 @@ pub mod land;
 pub mod landed;
 pub mod landing_needs;
 pub mod landing_node;
+pub mod landing_route;
 pub mod news;
 pub mod next_step;
 pub mod parked;
@@ -103,6 +107,8 @@ mod landed_test;
 mod landing_needs_test;
 #[cfg(test)]
 mod landing_node_test;
+#[cfg(test)]
+mod landing_route_test;
 #[cfg(test)]
 mod news_test;
 #[cfg(test)]

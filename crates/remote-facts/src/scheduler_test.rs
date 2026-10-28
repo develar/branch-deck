@@ -167,9 +167,7 @@ impl FactSources for ScriptedSources {
       if fails {
         Err(ApiError::internal("GitHub answered 500"))
       } else {
-        Ok(BranchRules {
-          dismiss_stale_reviews_on_push: false,
-        })
+        Ok(BranchRules::default())
       }
     })
   }
@@ -254,7 +252,7 @@ struct RecordingPort {
   applied: Mutex<Vec<RobotsRead>>,
   after_answer: Mutex<RobotsDigest>,
   /// The bases of the approved pull requests after each answer
-  approved_bases: Mutex<Vec<String>>,
+  rule_bases: Mutex<Vec<String>>,
   /// The remote branches the next answer of a listing of the pull requests shows moved, once
   moved_remotes: Mutex<Vec<MovedRemoteAsk>>,
 }
@@ -270,7 +268,7 @@ impl FactsPort for RecordingPort {
       lock(&self.applied).push(*read);
     }
     let robots = lock(&self.after_answer).clone();
-    let approved_bases = lock(&self.approved_bases).clone();
+    let rule_bases = lock(&self.rule_bases).clone();
     let moved_remotes = if matches!(result, FactResult::PullRequests(_)) {
       std::mem::take(&mut *lock(&self.moved_remotes))
     } else {
@@ -280,7 +278,7 @@ impl FactsPort for RecordingPort {
       Some(AppliedFacts {
         version: Version { epoch: 1, seq: ticket.seq.0 },
         robots,
-        approved_bases,
+        rule_bases,
         moved_remotes,
       })
     })
@@ -939,7 +937,7 @@ async fn after_a_rate_limit_nothing_is_asked_before_retry_at_but_manual() {
 #[tokio::test]
 async fn the_rules_of_an_approved_base_are_read_once_and_a_failed_read_again_when_a_start_asks() {
   let session = Harness::new();
-  *lock(&session.port.approved_bases) = vec!["master".to_owned(), "user/virtual/auth".to_owned()];
+  *lock(&session.port.rule_bases) = vec!["master".to_owned(), "user/virtual/auth".to_owned()];
   session.sources.github_fails.store(true, Ordering::SeqCst);
   session.send(SessionEventKind::Watched(true)).await;
   session.send(committed()).await;

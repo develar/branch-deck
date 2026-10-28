@@ -102,6 +102,7 @@ const EMPTY_CONFIG: RepositoryConfig = {
   branchPrefix: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
   pushSizeLimit: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
   resolveByWords: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
+  landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
   agentLease: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   agentSubjectBranch: { value: false, scope: null, localSet: false, invalid: null, fallbackValue: false, fallbackScope: null },
   detectedGithubRepository: null,

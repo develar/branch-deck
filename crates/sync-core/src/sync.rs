@@ -420,6 +420,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   };
   let grouping = read_grouping_inputs_with(git_executor, repository_path, config.stacks()?)?;
   let resolve = config.resolve_mode()?;
+  let landing = facts.landing_remote(config.landing()?);
   // the conflict views of the unchanged branches come from the object cache, the new ones go there
   let tree_id_cache = if object_cache.is_enabled() {
     TreeIdCache::with_merge_memo(Arc::new(ConflictMemo::new(object_cache.clone(), resolve)))
@@ -560,6 +561,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     parked: grouping.parked.entries,
     stack_branches: stack_branches.reported_roots(),
     target_branch: crate::patronus::target_branch_of(facts.upstream.as_ref()),
+    landing,
   })?;
 
   let tree_id_cache = seeded_tree_cache(tree_id_cache, branches.values().flatten());

@@ -1,7 +1,9 @@
-//! The rules GitHub applies to pull requests into a branch, as far as the Safe Push popover tells them before a push: a
-//! repository whose rules dismiss stale reviews on push takes the approvals of an open pull request away with the push
-//! of new commits. One `GET rules/branches/<branch>`, readable with read access to the repository (classic branch
-//! protection needs admin rights and is not read).
+//! The rules GitHub applies to a branch, as far as the Safe Push popover tells them before a push and the route into
+//! master decides by them (`domain_policy::landing_route`): a repository whose rules dismiss stale reviews on push takes
+//! the approvals of an open pull request away with the push of new commits, and a push into the target meets its rules
+//! of a pull request, signatures, status checks, the merge queue and restricted updates. One `GET
+//! rules/branches/<branch>`, readable with read access to the repository (classic branch protection needs admin rights
+//! and is not read; the server refuses a push it forbids).
 
 use domain_types::pull_request::BranchRules;
 use github::service::{GitHubFailure, GitHubService, RequestKind};
@@ -12,7 +14,8 @@ use tracing::instrument;
 /// GitHub lists at most this many rules per page; a branch has a handful
 const RULES_PER_PAGE: &str = "100";
 
-/// One rule of a branch (`GET repos/<owner>/<name>/rules/branches/<branch>`); only the pull request rule is read
+/// One rule of a branch (`GET repos/<owner>/<name>/rules/branches/<branch>`): its type, and the parameters of the pull
+/// request rule
 #[derive(Debug, Deserialize)]
 struct GhBranchRule {
   #[serde(rename = "type")]
@@ -38,10 +41,16 @@ pub async fn read_branch_rules(github: &GitHubService, repository_path: &str, re
       client.get(&token, path, &[("per_page", RULES_PER_PAGE)]).await
     })
     .await?;
+  let has = |kind: &str| rules.iter().any(|rule| rule.kind == kind);
   Ok(BranchRules {
     dismiss_stale_reviews_on_push: rules
       .iter()
       .filter(|rule| rule.kind == "pull_request")
       .any(|rule| rule.parameters.as_ref().is_some_and(|parameters| parameters.dismiss_stale_reviews_on_push)),
+    requires_pull_request: has("pull_request"),
+    requires_signatures: has("required_signatures"),
+    required_status_checks: has("required_status_checks"),
+    merge_queue: has("merge_queue"),
+    restricts_updates: has("update"),
   })
 }

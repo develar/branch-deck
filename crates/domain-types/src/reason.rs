@@ -1,4 +1,5 @@
-//! Why an action of the domain is refused, as a code with the facts its words need, never the words
+//! Why an action of the domain is refused, or what the user accepts before it (a gate of a route into master,
+//! `domain_policy::landing_route`), as a code with the facts its words need, never the words
 //! (docs/design/rust-domain-authority.md, s8-policy): `domain_policy` decides it (`holds`, `land`: a start's blockers too,
 //! `land::decide`), the page words it
 //! (`src/presenters/reasons.ts`), `bd` and the engine in their own words (`repository_model::refusal_words`,
@@ -99,6 +100,29 @@ pub enum Reason {
   /// Patronus rebases what lands onto the newest target first, and `commit` (a copy of the virtual branch) conflicts with
   /// it in `files`: the robot would fail at once
   TargetConflict { commit: String, files: Vec<String> },
+  /// The repository lands by Patronus (`branchdeck.landing`), and `origin` is not on Space: no robot lands it
+  NotOnSpace,
+  /// The token may not push into `repository` (`viewerPermission` below write): neither a push into `target` nor a merge
+  /// of a pull request lands from it
+  NoWriteAccess { repository: String, target: String },
+  /// The rules of `target` take a change only through a pull request: a push into it is refused, unless the user may
+  /// bypass the rule (a maintainer or an admin, whom a ruleset may let)
+  BaselineRequiresPullRequest { target: String },
+  /// The rules of `target` take a change only through the merge queue
+  BaselineRequiresMergeQueue { target: String },
+  /// The rules of `target` let only the users a ruleset lets bypass it update it
+  BaselineRestrictsUpdates { target: String },
+  /// The rules of `target` take only signed commits, and the copies Branch Deck writes are unsigned
+  BaselineRequiresSignatures { target: String },
+  /// The rules of `target` require status checks to pass, which a push of the copy lands without
+  BaselineRequiresStatusChecks { target: String },
+  /// The baseline `baseline` is a local branch: no remote branch takes a push of what lands
+  LocalBaseline { baseline: String },
+  /// The pull requests are in `repository`, which `origin` doesn't push to (a mirror): a merge there lands nothing
+  /// into the target of `origin`
+  GitHubMirror { repository: String },
+  /// The pull requests of the branches are not on GitHub: none is merged there
+  NotOnGitHub,
 }
 
 impl Reason {
@@ -130,7 +154,17 @@ impl Reason {
       | Self::ApprovalsMissing { .. }
       | Self::DismissesApprovals { .. }
       | Self::LandingRefused { .. }
-      | Self::TargetConflict { .. } => None,
+      | Self::TargetConflict { .. }
+      | Self::NotOnSpace
+      | Self::NoWriteAccess { .. }
+      | Self::BaselineRequiresPullRequest { .. }
+      | Self::BaselineRequiresMergeQueue { .. }
+      | Self::BaselineRestrictsUpdates { .. }
+      | Self::BaselineRequiresSignatures { .. }
+      | Self::BaselineRequiresStatusChecks { .. }
+      | Self::LocalBaseline { .. }
+      | Self::GitHubMirror { .. }
+      | Self::NotOnGitHub => None,
     }
   }
 }

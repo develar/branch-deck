@@ -16,7 +16,6 @@ use domain_types::repository_view::{HoldKind, HoldView, RobotOf, SpanView};
 use domain_types::session::{Fact, FactState, Parked, PullRequestsView, SubjectReadiness};
 use domain_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchState, StackBranchUpdate};
 use pretty_assertions::assert_eq;
-use std::collections::BTreeMap;
 
 const SAFE_PUSH: PatronusPushMode = PatronusPushMode::RebaseAutosquash;
 const DRY_RUN: PatronusPushMode = PatronusPushMode::DryRun;
@@ -341,7 +340,7 @@ fn listed(pull_requests: &[(&str, PullRequest)]) -> PullRequestsView {
       name: "monorepo".to_string(),
     }),
     pull_requests: pull_requests.iter().map(|(name, pull_request)| ((*name).to_string(), pull_request.clone())).collect(),
-    stack_pull_requests: BTreeMap::new(),
+    ..PullRequestsView::default()
   }
 }
 
@@ -896,6 +895,7 @@ fn the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait() {
   };
   let dismiss = Some(fresh(BranchRules {
     dismiss_stale_reviews_on_push: true,
+    ..BranchRules::default()
   }));
   let counted = ReviewReadiness::Approved { groups: Vec::new() };
   assert_eq!(

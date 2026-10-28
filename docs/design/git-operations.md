@@ -2147,7 +2147,10 @@ names it by the code of its `ApiError` (`operation_in_progress`, `detached_head`
 asked for, nothing for one it started itself; `bd sync` answers `operation_in_progress` or `detached_head` (exit 4).
 
 **What a sync reads once** (`RepoFacts`, `crates/sync-core/src/repo_facts.rs`), after the guards, for every step that
-needs it: `remote`; one `for-each-ref` of the checked out branch (its upstream: `%(upstream)`,
+needs it: `remote -v` (the remotes in the order of `git remote`, each with its first push URL, `pushInsteadOf`
+applied, in the one process `remote` cost: where `origin` and the remote of the baseline push, which the route into
+master is decided on, [Landing Routes](../../spec/branch/landing-routes.spec.md); a remote without a URL has no line);
+one `for-each-ref` of the checked out branch (its upstream: `%(upstream)`,
 `%(upstream:remotename)`, `%(upstream:remoteref)`, `%(upstream:short)`), the baseline candidates (`<first
 remote>/master`, `/main`, or the local ones) and the branches under the prefix, local (`%(worktreepath)`) and on
 `origin`. HEAD and the baseline commit are the tips that listing read, `FETCH_HEAD` and the landed state of the
@@ -3726,7 +3729,9 @@ The tests never call `enable_keychain`: a test that needs the keychain runs a fa
 Settings → Repository shows and writes four keys of the repository's git config, Settings → Diffs & Merge the
 fifth, `branchdeck.resolveByWords`, Settings → Patronus the sixth, `branchdeck.pushSizeLimit` (a size, `50M` when
 unset, `0` or `off` for none: see [Push size](#push-size); one value for every repository in the global config, as
-`resolveByWords`), and Settings → Agents the two rules of coding agents (`crates/sync-core/src/repository_config.rs`):
+`resolveByWords`), the route into master (`branchdeck.landing`: `patronus`, `push` or `pull-request`, no row yet,
+[Landing Routes](../../spec/branch/landing-routes.spec.md)), and Settings → Agents the two rules of coding agents
+(`crates/sync-core/src/repository_config.rs`):
 `branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
@@ -3736,7 +3741,7 @@ two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspac
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `bd install` and the app's Install Agent CLI: no sync,
 no operation.
 
-- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|agentlease|agentsubjectbranch)$'`
+- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch)$'`
   (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from
   its value with a newline; a key without `=` (an implicit `true`) has no newline. Git prints the scopes in its order
   (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
@@ -3756,9 +3761,10 @@ no operation.
   (`turning_stacks_off_fails_the_sync_on_the_flat_child`); the page refuses the switch with those names
   (`stacks_off_clashes`). A failed grouping (no baseline yet) is no clash: the sync then says what fails.
 - **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
-  `git config -z --show-scope --get-regexp` of the six keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
+  `git config -z --show-scope --get-regexp` of the seven keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
-  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit` and `descriptions`. A sync reads it once for the stack setting and the
+  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing` and `descriptions`. A sync reads it once for the stack setting, the
+  route into master (sent in `BranchesGrouped` with the push URLs of its listing, `RepoFacts::landing_remote`) and the
   description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it
   before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `bd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
@@ -3773,7 +3779,9 @@ no operation.
   write refuses a key that the worktree config or the command line (`git -c`, `GIT_CONFIG_*`) sets: they win over
   `.git/config`, so the write would change nothing. A branch prefix is normalized and validated as the app's field does
   (`domain_types::branch_names::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace, a push
-  size limit a size or off as the push reads it (`parse_push_size_limit`); an empty text unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
+  size limit a size or off as the push reads it (`parse_push_size_limit`), a route one of the three; an empty text
+  unsets. A `push` route is taken only from the repository's own config: a global or system one reads as unset with
+  the reason (`GLOBAL_PUSH_ROUTE_REASON`), and its global write is refused. The answer is the settings read again, and the main window gets `repository_config_changed`
   (`{repositoryPath, key}`) to sync; the agent keys and the push size limit sync nothing.
 - **Writes at once**: the app writes one config file at a time (a mutex per file in `run_config_write`: the local one
   by the repository's path, the global one), so a prefix saved on blur and a switch flipped right after do not race for

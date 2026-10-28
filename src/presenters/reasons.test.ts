@@ -42,9 +42,19 @@ describe("formatReason", () => {
       "01234567 conflicts in a.kt with the newest target: Patronus would fail the robot at once",
       "Landed in origin/master",
       "Pull request #7 is merged",
+      "origin is not on Space: no Patronus robot lands it",
+      "You have no write access to develar/branch-deck: someone who has lands it into master",
+      "master takes changes only through a pull request",
+      "master takes changes only through the merge queue",
+      "master takes updates only from the users its rules let bypass them",
+      "master takes only signed commits, and the copies Branch Deck writes are unsigned",
+      "master requires status checks: a push lands without them",
+      "The baseline master is a local branch: no remote branch takes the push",
+      "JetBrains/intellij-community is a mirror origin doesn't push to: a merge there lands nothing",
+      "The pull requests of the branches are not on GitHub",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(26)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(36)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

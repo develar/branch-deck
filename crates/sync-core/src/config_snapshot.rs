@@ -5,20 +5,21 @@
 use crate::github_repository::GitHubRepository;
 use crate::push_size::{DEFAULT_PUSH_SIZE_LIMIT, PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
 use crate::remote_url::split_owner_and_name;
-use crate::repository_config::{ConfigEntry, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries};
+use crate::repository_config::{ConfigEntry, GLOBAL_PUSH_ROUTE_REASON, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries};
 use anyhow::{Result, anyhow};
+use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
 use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::stack::STACKS_CONFIG_KEY;
 use std::collections::HashMap;
-use tracing::instrument;
+use tracing::{instrument, warn};
 
-/// The six `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `bd workspace` and
+/// The seven `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `bd workspace` and
 /// Settings read) and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
 /// lowercase, the branch name as it is
-const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit)|branch\..+\.description)$";
+const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing)|branch\..+\.description)$";
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
@@ -128,6 +129,21 @@ impl ConfigSnapshot {
     match self.last_value("branchdeck.pushsizelimit") {
       None => Ok(Some(DEFAULT_PUSH_SIZE_LIMIT)),
       Some(value) => parse_push_size_limit(value).map_err(|reason| anyhow!("{PUSH_SIZE_LIMIT_CONFIG_KEY} is not a size: {reason}")),
+    }
+  }
+
+  /// `branchdeck.landing`, `None` when unset (the route is then Patronus on Space, the pull request elsewhere); a `push`
+  /// of the global or the system config is unset (`GLOBAL_PUSH_ROUTE_REASON`); an error for another value than the
+  /// three, which refuses the sync as a wrong `branchdeck.stacks` does
+  pub fn landing(&self) -> Result<Option<LandingSetting>> {
+    let landing = self.settings().landing;
+    match landing.invalid {
+      None => Ok(landing.value),
+      Some(reason) if reason == GLOBAL_PUSH_ROUTE_REASON => {
+        warn!("{LANDING_CONFIG_KEY}: {reason}");
+        Ok(None)
+      }
+      Some(reason) => Err(anyhow!("{LANDING_CONFIG_KEY}: {reason}")),
     }
   }
 

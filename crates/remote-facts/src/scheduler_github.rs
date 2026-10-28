@@ -65,7 +65,7 @@ pub(super) struct PullRequestsListed {
   pub shows_old_head: bool,
   /// The version after its patch and the bases whose rules are read
   pub version: Option<Version>,
-  pub approved_bases: Vec<String>,
+  pub rule_bases: Vec<String>,
 }
 
 impl GitHubSchedule {
@@ -169,14 +169,14 @@ impl SessionFacts {
               availability,
               shows_old_head,
               version: applied.as_ref().map(|applied| applied.version),
-              approved_bases: applied.map_or_default(|applied| applied.approved_bases),
+              rule_bases: applied.map_or_default(|applied| applied.rule_bases),
             }
           }
           None => PullRequestsListed {
             availability: None,
             shows_old_head: false,
             version: None,
-            approved_bases: Vec::new(),
+            rule_bases: Vec::new(),
           },
         };
         let _ = inbox.send(Input::PullRequests(listed));
@@ -206,7 +206,7 @@ impl SessionFacts {
       schedule.recheck_at = Some(at);
     }
     if listed.availability.is_some() && self.watched {
-      self.read_rules(&listed.approved_bases, RefreshReason::Sync);
+      self.read_rules(&listed.rule_bases, RefreshReason::Sync);
     }
     if let Some(waiters) = follow_up {
       self.start_pull_requests(waiters, false);

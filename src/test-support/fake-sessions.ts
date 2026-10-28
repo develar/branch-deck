@@ -55,6 +55,7 @@ const EMPTY_HEADER: TableHeader = {
   head: "",
   branch: "",
   storeTips: { issueGroups: null, stackParents: null, parked: null },
+  landing: { setting: null, onSpace: false, pushRepository: null, target: null },
 }
 
 /** The view of a session that never synced, at `version` */
@@ -79,7 +80,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
     patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} } },
     facts: {
       robots: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problemsFailed: {} },
-      pullRequests: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, pullRequests: {}, stackPullRequests: {} },
+      pullRequests: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, repository: null, viewerPermission: null, pullRequests: {}, stackPullRequests: {} },
       rules: {},
       profiles: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 },
       readiness: {},

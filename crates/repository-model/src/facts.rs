@@ -323,8 +323,10 @@ pub enum FactResult {
 pub struct AppliedFacts {
   pub version: Version,
   pub robots: RobotsDigest,
-  /// The bases of the open pull requests someone approved (`PullRequestsFact::approved_bases`): their rules are read
-  pub approved_bases: Vec<String>,
+  /// The branches whose rules are read: the bases of the open pull requests someone approved
+  /// (`PullRequestsFact::approved_bases`), and the target of the baseline while the repository lands by a push into it
+  /// on GitHub (`domain_policy::landing_route::rules_target`)
+  pub rule_bases: Vec<String>,
   /// The branches a listing of the pull requests showed at a head their remote-tracking refs lack, to fetch
   /// (`moved_remote::MovedFetches::asks`); none for an answer of another fact
   pub moved_remotes: Vec<MovedRemoteAsk>,
