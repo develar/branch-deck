@@ -6,10 +6,41 @@ license.workspace = true
 description = "The agent of the remote runs of bd-host on a host: serve, the supervisor of a run, the run directories, the login environment, the prepare steps, the keeper and the upgrade"
 publish = false
 
-# The port of yonderd adds `host-link`, `lease-pool` (the lend table, the refs and the git of the host in process),
-# `git-ops`, `git-executor`, `sync-utils`, `serde`, `serde_json` and, on Unix, `libc`; the architecture test keeps it
-# off the client
-[dependencies]
+# The binary that the process tests of `tests/serve.rs` start: the agent commands of bd-host and nothing else, so a
+# test needs no build of bd-host. Never shipped
+[[bin]]
+name = "host-agent-test"
+path = "src/bin/host_agent_test.rs"
+test = false
+doc = false
+
+# Only on Unix: the agent runs under launchd on macOS and by hand on Linux, never on Windows
+[target.'cfg(unix)'.dependencies]
+# the link, the protocol, the refusal codes and `[host]` of a commit
+host-link = { path = "../host-link" }
+# the lend table, the refs and the git of the host, in process (`slots`, `repo`, `run_git`, `keeper`)
+lease-pool = { path = "../lease-pool" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+# the wait of the repository lock of the pool
+history-rewrite = { path = "../history-rewrite" }
+# the renames and removals, the process children, the spans of the threads and the process scan
+sync-utils = { path = "../sync-utils" }
+# the errors of the pool, which the agent maps to its refusal codes
+anyhow.workspace = true
+# the run directories and the JSON lines
+serde.workspace = true
+serde_json.workspace = true
+# the agent commands of bd-host (`command`)
+clap = { version = "4.6", features = ["derive"] }
+# flock, process groups, the open-files limit, the niceness, kqueue (`sys`)
+libc = "0.2.191"
+
+[target.'cfg(unix)'.dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+# a repository of a test
+test-utils = { path = "../test-utils" }
 
 [lints]
 workspace = true

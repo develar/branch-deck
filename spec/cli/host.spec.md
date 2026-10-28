@@ -11,6 +11,7 @@ targets:
   - ../../crates/lease-pool/src/host_slots.rs
   - ../../crates/lease-pool/src/host_refs.rs
   - ../../crates/lease-pool/src/host_git.rs
+  - ../../crates/lease-pool/src/host_runs.rs
   - ../../crates/git-ops/src/host_client.rs
   - ../../crates/git-ops/src/host_objects.rs
   - ../../crates/git-ops/src/worktree_snapshot.rs
@@ -311,7 +312,7 @@ bd-host setup --retire-yonderd
   --port <port>`), and bootstrap or restart it. It prints one JSON line `{"fingerprint", "port", "launchd":
   "bootstrapped" | "restarted" | "none"}`. A client name with a control character refuses with `bad_request`, and a
   failed `launchctl` with `launchd_failed`.
-  Test (planned): `crates/host-agent/src/setup_test.rs` (`the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent`)
+  [@test] ../../crates/host-agent/src/setup_test.rs (`the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent`)
 - `bd-host setup --import-yonder` must take what yonder has on this machine, so no new pairing and no ssh is needed:
   the identity and the host files of the client from `~/.config/yonder` (each host file with the port 7742), and the
   identity and the allow list of the agent from `~/.config/yonderd`, then the LaunchAgent as `--agent` writes it. It
@@ -320,11 +321,12 @@ bd-host setup --retire-yonderd
   machine without yonder files refuses with `no_yonder`.
   [@test] ../../crates/host-link/src/identity_test.rs (`an_import_copies_the_identity_of_yonder_once_and_keeps_another_one`)
   [@test] ../../crates/host-link/src/allow_test.rs (`the_clients_of_another_list_join_and_a_known_client_keeps_its_name`)
-  Test (planned): `crates/host-agent/src/setup_test.rs` (`import_yonder_takes_the_identities_the_hosts_and_the_allow_list`)
+  [@test] ../../crates/host-agent/src/setup_test.rs (`import_yonder_takes_the_identities_the_hosts_and_the_allow_list`)
 - `bd-host setup --retire-yonderd` must wait until no yonderd run holds its run lock, boot out
   `com.jetbrains.yonderd`, delete the refs `refs/yonder/*` of each repository of `~/.cache/yonderd/repos` through a ref
-  transaction, then delete `~/.cache/yonderd` and `~/.config/yonderd`. The user only runs it.
-  Test (planned): `crates/host-agent/src/setup_test.rs` (`retire_yonderd_waits_for_its_runs_and_removes_its_refs_and_files`)
+  transaction, then delete `~/.cache/yonderd`. It keeps `~/.config/yonderd`, the identity and the allow list of
+  yonderd, and prints it as kept: the user deletes it. The user only runs it.
+  [@test] ../../crates/host-agent/src/setup_test.rs (`retire_yonderd_waits_for_its_runs_and_removes_its_refs_and_files`)
 
 ### upgrade
 
@@ -342,12 +344,12 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   without `force` (`downgrade`), and refuse another LaunchAgent than the one on the host (`plist_changed`). Then it
   keeps the binary as `~/.local/bin/bd-host.previous`, puts the new one at `~/.local/bin/bd-host` by a rename,
   answers, waits up to 20 s for its other requests, and exits. launchd starts the new binary.
-  Test (planned): `crates/host-agent/src/upgrade_test.rs` (`the_agent_checks_the_binary_keeps_the_previous_one_and_swaps_by_rename`)
+  [@test] ../../crates/host-agent/src/upgrade_test.rs (`the_agent_checks_the_binary_keeps_the_previous_one_and_swaps_by_rename`)
 - A watchdog must wait for the new binary to listen, for the drain plus 60 s. Else it renames the previous binary
   back, restarts the LaunchAgent, and writes `~/.cache/bd-host/upgrade.json` with the outcome. The client connects
   again every 1 s to 5 s for up to 110 s: the previous build at the end refuses with `rolled_back`, no answer with
   `unreachable`. A run goes on through the restart.
-  Test (planned): `crates/host-agent/src/upgrade_test.rs` (`the_watchdog_brings_back_the_previous_binary_when_the_new_one_does_not_listen`)
+  [@test] ../../crates/host-agent/src/upgrade_test.rs (`the_watchdog_brings_back_the_previous_binary_when_the_new_one_does_not_listen`)
 - `upgrade` must also replace an installed copy of the skill of another build that has no local edits, and say so.
 
 ### serve
@@ -355,22 +357,24 @@ bd-host upgrade <alias> [--binary <path>] [--force]
 - `bd-host serve [--port 7742]` must print one JSON line `{"listening": "<address>", "fingerprint": "<64 hex>"}`,
   then log on stderr. It answers the requests of the protocol, starts one supervisor per `Start`, and runs the keeper
   thread.
-  Test (planned): `crates/host-agent/tests/serve.rs` (`serve_answers_a_run_on_the_loopback_with_a_real_pool`)
+  [@test] ../../crates/host-agent/tests/serve.rs (`serve_answers_a_run_on_the_loopback_with_a_real_pool`)
 - The supervisor must lend a slot through `lease_pool::host_slots::lend_waiting` with its own pid and the affinity of
-  the spec, up to 1 h (`slot_timeout`). It writes the queue line to the log once a minute. A run with no slot whose
-  last fill failed refuses at once (`lease_failed`). A lend that git refuses below its floor ends the run with
-  `old_git` and the hint of Branch Deck.
-  Test (planned): `crates/host-agent/tests/serve.rs` (`two_runs_of_one_affinity_run_in_parallel_and_a_third_waits_for_a_slot`)
+  the spec, up to 1 h (`slot_timeout`). It writes the queue line to the log once a minute
+  (`lease_pool::host_runs::queue_line`). A lend that git refuses below its floor ends the run with `old_git` and the
+  hint of Branch Deck. A cancel in the queue ends the wait within 2 s.
+  [@test] ../../crates/host-agent/tests/serve.rs (`a_cancel_in_the_queue_of_the_host_slots_ends_the_run_before_its_command`)
+  [@test] ../../crates/host-agent/tests/serve.rs (`two_runs_of_one_affinity_run_in_parallel_and_a_third_waits_for_a_slot`)
 - The supervisor must wait for the pack of its commit when the repository lacks it: up to 30 min, and up to 2 min
   without a chunk (`pack_missing`). It checks out the commit by the diff (`lease_pool::host_slots::checkout`), and
   writes the reason of a forced checkout to the log. On every way out, after `exit.json`, it gives the slot back
   (`give_back_run`), which also deletes the run ref. No signal cuts the give-back.
-  Test (planned): `crates/host-agent/tests/serve.rs` (`a_run_waits_for_its_pack_checks_out_by_the_diff_and_gives_its_slot_back`)
+  [@test] ../../crates/host-agent/tests/serve.rs (`a_run_waits_for_its_pack_checks_out_by_the_diff_and_gives_its_slot_back`)
 - With changes asked for, the supervisor must take the tree of the slot after the prepare steps
   (`snapshot_run`), and after the command the patch from it (`changes_run`).
-  Test (planned): `crates/host-agent/tests/serve.rs` (`the_changes_of_a_command_come_back_as_a_patch_without_the_prepare_steps`)
+  [@test] ../../crates/host-agent/tests/serve.rs (`the_changes_of_a_command_come_back_as_a_patch_without_the_prepare_steps`)
 - The keeper must wake once a minute and at each `Start` of a repository, and run `ensure_host_git`, `reclaim`,
-  `reclaim_refs` and `fill` in process, one repository at a time. A failed fill waits 1, 5, then 15 minutes.
+  `reclaim_refs` (`lease_pool::host_runs::reclaim_all`) and `fill` in process, one repository at a time. A failed
+  fill waits 1, 5, then 15 minutes.
   Test (planned): `crates/host-agent/tests/serve.rs` (`the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill`)
 - `serve` must hold the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after its
   hello, and each supervisor for its whole life. Elsewhere than on macOS nothing holds them.
@@ -412,7 +416,7 @@ creates = ["node_modules"]             # a missing path runs the step again
   slot, or when a path of `creates` is missing. A step without `inputs` runs once per slot. A step that exits with
   another code than 0 ends the run with `prepare_failed`. The fingerprints are keyed by the `generation` of the slot,
   so a give-back that discarded changes or a clean runs each step again.
-  Test (planned): `crates/host-agent/src/prepare_test.rs` (`a_prepare_step_runs_when_its_inputs_change_or_a_created_path_is_missing`)
+  [@test] ../../crates/host-agent/src/prepare_test.rs (`a_prepare_step_runs_when_its_inputs_change_or_a_created_path_is_missing`)
 
 ### version, schema, skill
 
@@ -459,7 +463,7 @@ except `usage` (2) and `interrupted` (130).
 | `pack_failed` | 75 | The agent cannot land the pack: no pack, or git refused it. |
 | `pack_missing` | 75 | The pack of the commit did not come within 30 min, or sent no chunk for 2 min. |
 | `slot_timeout` | 75 | The run got no host slot within an hour. |
-| `lease_failed` | 75 | The lend failed, or no slot exists and the last fill failed. The message has the error of the pool. |
+| `lease_failed` | 75 | The lend failed. The message has the error of the pool. |
 | `old_git` | 75 | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. The message is the hint of Branch Deck. |
 | `checkout_failed` | 75 | The commit cannot be checked out in the slot. |
 | `bad_config` | 75 | `[host]` of `.branchdeck.toml` (or `.yonder.toml`) of the commit does not parse, has an unknown key or a value of the wrong shape. |
@@ -499,6 +503,12 @@ except `usage` (2) and `interrupted` (130).
 - A daemon that leaves the slot directory escapes the process scan of the give-back.
 - While both agents serve one host, a yonderd that upgrades the git of the host holds the lends of `bd-host` too,
   because they share the lend table. That is the intent: no run uses git while Homebrew replaces it.
+
+- A run with no slot whose last fill failed waits in the queue like any other run. A refusal at once
+  (`lease_failed`) needs a fact of the last fill in the lend table.
+- A cancel during the checkout or the scan of a slot waits for that step to end, because the pool runs that git in
+  process. yonderd killed its `bd` child instead.
+- `--retire-yonderd` keeps `~/.config/yonderd` until the user agrees that it deletes it.
 
 ## References
 

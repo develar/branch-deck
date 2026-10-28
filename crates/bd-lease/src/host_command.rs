@@ -11,10 +11,11 @@ use domain_types::error::ErrorCode;
 use git_ops::host_objects::Stored;
 use git_ops::revs::is_object_id;
 use lease_pool::host_git::{find_git, min_version, run_path};
-use lease_pool::host_refs::{HostRef, have, ingest, reclaim_refs, show};
+use lease_pool::host_refs::{HostRef, have, ingest, show};
+use lease_pool::host_runs::{ReclaimedAll, queue_line, reclaim_all};
 use lease_pool::host_slots::{
   HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout, describe_state, ensure_host_git,
-  fill, give_back_run, is_abandoned, lend, lend_waiting, live_runs, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
+  fill, give_back_run, is_abandoned, lend, lend_waiting, read_host_slots, set_limit, shrink, snapshot_run,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -609,26 +610,6 @@ pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: 
   })
 }
 
-/// "run 1792-81 waits 60 s: 2 runs ahead, 4 slots, lent to run-a (1), run-b (2), 1 in quarantine"
-fn queue_line(run: &str, queued: &Queued, waited: Duration) -> String {
-  let lent: Vec<String> = queued.lent.iter().map(|(n, run)| format!("{run} ({n})")).collect();
-  let quarantined = match queued.quarantined.len() {
-    0 => String::new(),
-    count => format!(", {count} in quarantine"),
-  };
-  let upgrading = queued
-    .git_upgrading
-    .as_ref()
-    .map_or_else(String::new, |command| format!(", git is upgrading (`{command}`)"));
-  format!(
-    "run {run} waits {} s: {} runs ahead, {} slots, lent to {}{quarantined}{upgrading}",
-    waited.as_secs(),
-    queued.ahead,
-    queued.slots,
-    if lent.is_empty() { "none".to_string() } else { lent.join(", ") }
-  )
-}
-
 /// `bd lease host checkout`: a forced checkout tells its reason on stderr too
 pub fn lease_host_checkout(context: &LeaseContext, environment: &Environment, args: &LeaseHostCheckoutArgs) -> Result<LeaseHostCheckoutOutput, CliError> {
   if !is_object_id(&args.commit) {
@@ -713,10 +694,7 @@ pub fn lease_host_fill(context: &LeaseContext, environment: &Environment) -> Res
 
 /// `bd lease host reclaim`
 pub fn lease_host_reclaim(context: &LeaseContext, environment: &Environment) -> Result<LeaseHostReclaimOutput, CliError> {
-  let params = params(context, environment);
-  let reclaimed = reclaim(&context.git, &params).map_err(lease_error)?;
-  let live = live_runs(&params).map_err(lease_error)?;
-  let deleted_refs = reclaim_refs(&context.git, &context.dirs, &live, context.lock_timeout).map_err(lease_error)?;
+  let ReclaimedAll { reclaimed, deleted_refs } = reclaim_all(&context.git, &params(context, environment)).map_err(lease_error)?;
   Ok(LeaseHostReclaimOutput {
     schema: SchemaVersion,
     deleted_refs,

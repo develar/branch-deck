@@ -243,7 +243,7 @@ impl Code {
       Self::LeaseFailed => (
         "lease_failed",
         ExitRule::Always(Exit::NotRun),
-        "The lend failed, or no slot exists and the last fill failed. The message has the error of the pool.",
+        "The lend failed. The message has the error of the pool.",
       ),
       Self::OldGit => (
         "old_git",

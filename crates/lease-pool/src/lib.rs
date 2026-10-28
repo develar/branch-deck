@@ -14,6 +14,8 @@
 //! - `host_git`: the floor of the version of the git of a host that serves remote runs
 //! - `host_refs`: the refs that keep the commits of the runs of a host and the bases of its clients (`bd lease host
 //!   ingest`), and when a pack last moved each, which the give-back of a run and `reclaim` read to delete them
+//! - `host_runs`: what `bd lease host` and the agent of `bd-host` share: the queue line of a waiting lend and the
+//!   reclaim of the slots and the refs of a tick of the keeper
 //! - `state_file`: a JSON state file of `branch-deck/` with a lock of its own, of the pool and of the lend table
 //! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot, and its
 //!   `pick_requires_check`
@@ -29,6 +31,7 @@ pub mod free_space;
 mod host_brew;
 pub mod host_git;
 pub mod host_refs;
+pub mod host_runs;
 pub mod host_slots;
 pub mod lease;
 pub mod lease_clean;

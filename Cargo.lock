@@ -2874,6 +2874,22 @@ dependencies = [
 [[package]]
 name = "host-agent"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "host-link",
+ "lease-pool",
+ "libc",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "sync-utils",
+ "tempfile",
+ "test-utils",
+]
 
 [[package]]
 name = "host-client"
