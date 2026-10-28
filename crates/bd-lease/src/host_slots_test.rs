@@ -2,7 +2,7 @@
 //! commands of the pool leave alone, a run gets the slot of its affinity, else the one used longest ago, else waits in
 //! line; a give-back stops the processes of the run and discards its changes, and quarantines the slot for an older
 //! process; `reclaim` takes up what a gone process left; the clean rules run by size, by free space and after 50 runs;
-//! a shrink returns its slots without `--confirm-preserved`, also without `bd host serve`; a hand return is refused;
+//! a shrink returns its slots without `--confirm-preserved`, also without `bd-host serve`; a hand return is refused;
 //! while a live process upgrades git, a fill, a clean, a shrink and `reclaim` skip, and a host-object call waits
 
 use crate::lease_command::LeaseContext;
@@ -12,8 +12,8 @@ use crate::lease_test::{Fixture, path_of, slot_git};
 use bd_cli::fixture_test::{assert_error, git};
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
-  Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, ReclaimAction, ShrinkOutcome, clean_slot, fill, give_back, lend, read_host_slots,
-  reclaim, set_limit, shrink, snapshot_run,
+  Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
+  clean_slot, fill, give_back, give_back_run, lend, lend_waiting, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
 };
 use lease_pool::lease::{LeaseState, Pool, canonical_path};
 use lease_pool::lease_clean::CleanOverrides;
@@ -77,7 +77,7 @@ impl Host {
 }
 
 /// The lend of `run` to this process, which lives as long as the test
-fn lend_to(params: &HostSlotsParams<'_>, run: &str, affinity: Option<&str>) -> LendAnswer {
+pub(crate) fn lend_to(params: &HostSlotsParams<'_>, run: &str, affinity: Option<&str>) -> LendAnswer {
   let pid = std::process::id();
   lend(
     params,
@@ -481,7 +481,7 @@ fn a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs() {
 }
 
 /// A shrink returns the host slots past the count without `--confirm-preserved`: a slot whose run committed a snapshot
-/// and left changes, and whose lend is abandoned (no `bd host serve`), goes back to the pool; a live lend is refused.
+/// and left changes, and whose lend is abandoned (no `bd-host serve`), goes back to the pool; a live lend is refused.
 /// The count stays the limit of the fills until it is lifted
 #[test_log::test]
 fn a_shrink_returns_the_host_slots_past_the_count_also_without_the_agent() {
@@ -588,7 +588,7 @@ fn is_upgrading(error: &anyhow::Error) -> bool {
   matches!(error.downcast_ref::<HostSlotRefusal>(), Some(HostSlotRefusal::GitUpgrading(command)) if command == "brew upgrade git")
 }
 
-/// While a live process upgrades git, a fill adds no slot (`slot_busy` in bd), a clean and the steps of `reclaim` skip
+/// While a live process upgrades git, a fill adds no slot, a clean and the steps of `reclaim` skip
 /// with the refusal, `bd lease clean --host` says that git is upgrading, and a shrink refuses each slot. The upgrade of
 /// a gone process holds nothing back
 #[test_log::test]
@@ -600,8 +600,6 @@ fn a_fill_a_clean_a_shrink_and_reclaim_skip_while_git_is_upgrading() {
   record_live_upgrade(fixture);
 
   assert!(is_upgrading(&fill(&context.git, &params, None).unwrap_err()));
-  let (exit_code, refused) = fixture.run(&["lease", "host", "fill"]);
-  assert_error(&refused, exit_code, (4, "slot_busy"));
   assert_eq!(table(fixture).slots.len(), 1, "no slot added");
   assert!(is_upgrading(&clean_slot(&context.git, &params, 1, CleanOverrides::default()).unwrap_err()));
   let reclaimed = reclaim(&context.git, &params).unwrap();
@@ -660,4 +658,142 @@ fn a_host_object_call_waits_for_an_upgrade_of_git_but_a_scan_of_a_lent_run_goes_
   record_live_upgrade(fixture);
   assert_eq!(snapshot_run(&context.git, &params, "run-1").unwrap().changed, 0);
   assert_eq!(table(fixture).users, []);
+}
+
+/// The refusal of the host slots in `error`
+fn refusal(error: &anyhow::Error) -> &HostSlotRefusal {
+  error.downcast_ref::<HostSlotRefusal>().unwrap_or_else(|| panic!("no refusal of the host slots: {error:#}"))
+}
+
+/// checkout: the slot of a run moves to the commit of the run by the diff, stays at it on a repeat, and checks out every
+/// file with git's reason when an untracked file is in a path of the diff; a run without a slot is `NoSlot`
+#[test_log::test]
+fn a_run_checks_out_its_commit_in_its_slot_by_the_diff() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  let path = PathBuf::from(lent(lend_to(&params, "run-1", None)).path);
+  let check_out = |commit: &str| checkout(&context.git, &params, "run-1", commit).unwrap();
+
+  let first = fixture.repo.create_commit("Add c", "c.txt", "c\n");
+  let moved = check_out(&first);
+  assert_eq!((moved.n, moved.moved), (1, SlotCheckout::Switched));
+  assert_eq!(std::fs::read_to_string(path.join("c.txt")).unwrap(), "c\n");
+  assert_eq!(check_out(&first).moved, SlotCheckout::Kept);
+
+  let second = fixture.repo.create_commit("Add d", "d.txt", "d\n");
+  std::fs::write(path.join("d.txt"), "in the way\n").unwrap();
+  let SlotCheckout::Forced(reason) = check_out(&second).moved else {
+    panic!("git took the diff over an untracked file in its way");
+  };
+  assert!(reason.contains("d.txt"), "{reason}");
+  assert_eq!(std::fs::read_to_string(path.join("d.txt")).unwrap(), "d\n");
+
+  let refused = checkout(&context.git, &params, "run-2", &second).unwrap_err();
+  assert!(matches!(refusal(&refused), HostSlotRefusal::NoSlot(run) if run == "run-2"), "{refused:#}");
+}
+
+/// A process that sleeps for 30 s
+fn sleeping() -> std::process::Child {
+  let mut command = if cfg!(windows) {
+    let mut command = std::process::Command::new("powershell");
+    command.args(["-NoProfile", "-Command", "Start-Sleep 30"]);
+    command
+  } else {
+    let mut command = std::process::Command::new("sleep");
+    command.arg("30");
+    command
+  };
+  command.spawn().unwrap()
+}
+
+/// `lend_waiting`: a run that waits behind a lent slot gets it once the slot is given back, without a second call; a
+/// wait whose time is up answers its place in the queue; a process that ends while it waits is `ProcessGone`, and its
+/// ticket leaves the queue
+#[test_log::test]
+fn a_lend_that_waits_gets_the_slot_once_it_is_given_back() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  lent(lend_to(&params, "run-1", None));
+  let pid = std::process::id();
+  let request = |run| LendRequest {
+    run,
+    pid,
+    process_started: process_started(pid),
+    affinity: None,
+  };
+  let queue = || table(fixture).queue.into_iter().map(|ticket| ticket.run).collect::<Vec<_>>();
+  let quiet = |_: &Queued, _: Duration| {};
+
+  let timed_out = lend_waiting(&params, &request("run-2"), Duration::from_secs(1), &quiet).unwrap();
+  assert!(matches!(timed_out, LendAnswer::Queued(Queued { ahead: 0, .. })), "{timed_out:?}");
+  assert_eq!(queue(), ["run-2"], "the ticket stays while its process lives");
+
+  let (params, context) = (&params, &context);
+  let waited = std::thread::scope(|scope| {
+    let waiting = scope.spawn(|| lend_waiting(params, &request("run-3"), Duration::from_secs(120), &quiet).unwrap());
+    while queue() != ["run-2", "run-3"] {
+      std::thread::yield_now();
+    }
+    // run-2 leaves the queue, then the slot comes free
+    give_back_run(&context.git, params, "run-2").unwrap();
+    give_back_run(&context.git, params, "run-1").unwrap();
+    waiting.join().unwrap()
+  });
+  assert_eq!(lent(waited).n, 1);
+
+  let mut child = crate::lease_test::Killed(sleeping());
+  let child_pid = child.0.id();
+  let gone = LendRequest {
+    run: "run-4",
+    pid: child_pid,
+    process_started: process_started(child_pid),
+    affinity: None,
+  };
+  let refused = std::thread::scope(|scope| {
+    let waiting = scope.spawn(|| lend_waiting(params, &gone, Duration::from_secs(120), &quiet));
+    while queue() != ["run-4"] {
+      std::thread::yield_now();
+    }
+    let _ = child.0.kill();
+    let _ = child.0.wait();
+    waiting.join().unwrap().unwrap_err()
+  });
+  assert!(matches!(refusal(&refused), HostSlotRefusal::ProcessGone(gone) if *gone == child_pid), "{refused:#}");
+  assert_eq!(queue(), Vec::<String>::new(), "the ticket of a gone process left the queue");
+}
+
+/// snapshot and changes: the tree of the slot of a run before its command is the tree of its commit, without a change of
+/// the slot index; after the command, the patch from that tree to the new one applies to the commit elsewhere, and a
+/// tree that did not change writes no patch; a run without a slot is `NoSlot`
+#[test_log::test]
+fn the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  let path = PathBuf::from(lent(lend_to(&params, "run-1", None)).path);
+  let commit = fixture.repo.create_commit("Add c", "c.txt", "c\n");
+  checkout(&context.git, &params, "run-1", &commit).unwrap();
+
+  let before = snapshot_run(&context.git, &params, "run-1").unwrap();
+  let tree = git(&fixture.repo, &["rev-parse", &format!("{commit}^{{tree}}")]);
+  assert_eq!((before.tree.as_str(), before.head.as_str(), before.changed), (tree.as_str(), commit.as_str(), 0));
+
+  std::fs::write(path.join("c.txt"), "c\nchanged by the command\n").unwrap();
+  std::fs::write(path.join("made.txt"), "made\n").unwrap();
+  let dir = tempfile::tempdir().unwrap();
+  let patch = dir.path().join("run-1.patch");
+  let changes = changes_run(&context.git, &params, "run-1", &tree, &patch).unwrap();
+  assert_eq!(changes.patch_bytes, Some(std::fs::metadata(&patch).unwrap().len()));
+  let slot_status = slot_git(path.to_str().unwrap(), &["status", "--porcelain"]);
+  assert_eq!(slot_status, " M c.txt\n?? made.txt".trim(), "the slot index stays: {slot_status}");
+
+  let elsewhere = test_utils::git_test_utils::TestRepo::new_empty();
+  elsewhere.clone_from(fixture.repo.path()).unwrap();
+  elsewhere.git(&["apply", patch.to_str().unwrap()]);
+  assert_eq!(std::fs::read_to_string(elsewhere.path().join("made.txt")).unwrap(), "made\n");
+
+  let none = dir.path().join("none.patch");
+  assert_eq!(changes_run(&context.git, &params, "run-1", &changes.tree, &none).unwrap().patch_bytes, None);
+  assert!(!none.exists());
+  let refused = snapshot_run(&context.git, &params, "run-2").unwrap_err();
+  assert!(matches!(refusal(&refused), HostSlotRefusal::NoSlot(run) if run == "run-2"), "{refused:#}");
 }

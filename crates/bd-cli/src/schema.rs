@@ -4,10 +4,6 @@ use bd_core::error::ErrorOutput;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::SyncOutput;
 use bd_core::version::VersionOutput;
-use bd_lease::host_command::{
-  LeaseHostChangesOutput, LeaseHostCheckoutOutput, LeaseHostFillOutput, LeaseHostGitOutput, LeaseHostGiveBackOutput, LeaseHostHaveOutput, LeaseHostIngestOutput,
-  LeaseHostLendOutput, LeaseHostLimitOutput, LeaseHostReclaimOutput, LeaseHostShowOutput, LeaseHostShrinkOutput, LeaseHostSnapshotOutput, LeaseHostStatusOutput,
-};
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
 use bd_lease::workspace_command::WorkspaceOutput;
 use bd_remote::land_command::LandOutput;
@@ -39,8 +35,7 @@ use std::collections::BTreeMap;
 
 /// The outputs of each command, by their names in `bd schema --all`: `rewrite` is the output of group, rename, restack,
 /// unstack and reword, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort`
-/// those of `bd update --status` and `--abort`, `lease_get` … `lease_clean` those of `bd lease <command>`,
-/// `lease_host_lend` … `lease_host_status` those of `bd lease host <command>`. `error` is
+/// those of `bd update --status` and `--abort`, `lease_get` … `lease_clean` those of `bd lease <command>`. `error` is
 /// what any command prints when it fails
 pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("check", &["check"]),
@@ -49,31 +44,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("fold", &["fold"]),
   ("group", &["rewrite"]),
   ("install", &["install"]),
-  (
-    "lease",
-    &[
-      "lease_get",
-      "lease_pick",
-      "lease_return",
-      "lease_status",
-      "lease_adopt",
-      "lease_clean",
-      "lease_host_lend",
-      "lease_host_checkout",
-      "lease_host_give_back",
-      "lease_host_fill",
-      "lease_host_reclaim",
-      "lease_host_shrink",
-      "lease_host_limit",
-      "lease_host_status",
-      "lease_host_have",
-      "lease_host_ingest",
-      "lease_host_show",
-      "lease_host_git",
-      "lease_host_snapshot",
-      "lease_host_changes",
-    ],
-  ),
+  ("lease", &["lease_get", "lease_pick", "lease_return", "lease_status", "lease_adopt", "lease_clean"]),
   ("move-hunk", &["move_hunk"]),
   ("operation", &["operation_forget"]),
   ("land", &["land"]),
@@ -181,20 +152,6 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("lease_adopt".to_string(), schema_for!(LeaseAdoptOutput)),
     ("lease_clean".to_string(), schema_for!(LeaseCleanOutput)),
     ("lease_get".to_string(), schema_for!(LeaseGetOutput)),
-    ("lease_host_checkout".to_string(), schema_for!(LeaseHostCheckoutOutput)),
-    ("lease_host_fill".to_string(), schema_for!(LeaseHostFillOutput)),
-    ("lease_host_give_back".to_string(), schema_for!(LeaseHostGiveBackOutput)),
-    ("lease_host_lend".to_string(), schema_for!(LeaseHostLendOutput)),
-    ("lease_host_limit".to_string(), schema_for!(LeaseHostLimitOutput)),
-    ("lease_host_reclaim".to_string(), schema_for!(LeaseHostReclaimOutput)),
-    ("lease_host_shrink".to_string(), schema_for!(LeaseHostShrinkOutput)),
-    ("lease_host_status".to_string(), schema_for!(LeaseHostStatusOutput)),
-    ("lease_host_have".to_string(), schema_for!(LeaseHostHaveOutput)),
-    ("lease_host_ingest".to_string(), schema_for!(LeaseHostIngestOutput)),
-    ("lease_host_show".to_string(), schema_for!(LeaseHostShowOutput)),
-    ("lease_host_git".to_string(), schema_for!(LeaseHostGitOutput)),
-    ("lease_host_snapshot".to_string(), schema_for!(LeaseHostSnapshotOutput)),
-    ("lease_host_changes".to_string(), schema_for!(LeaseHostChangesOutput)),
     ("lease_pick".to_string(), schema_for!(LeasePickOutput)),
     ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),
     ("lease_status".to_string(), schema_for!(LeaseStatusOutput)),

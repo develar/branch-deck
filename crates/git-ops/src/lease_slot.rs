@@ -385,7 +385,7 @@ pub struct LeaseConfig {
   /// (`start_deferred_maintenance`), for a repository whose `maintenance.auto` is false, where no commit or fetch in a
   /// slot starts it
   pub return_maintenance: bool,
-  /// `branchdeck.hostSlots`, as written: how many slots of the pool `bd host` keeps for its runs (`host_slots`)
+  /// `branchdeck.hostSlots`, as written: how many slots of the pool `bd-host` keeps for its runs (`host_slots`)
   pub host_slots: Option<String>,
   /// `branchdeck.hostSlotMaxSize`, as written (`60G`): what the clean rules may free in an idle host slot before it is
   /// cleaned

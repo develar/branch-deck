@@ -703,7 +703,7 @@ fn a_lease_return_that_starts_the_maintenance() {
   );
 }
 
-/// The host slots of `bd host`, each step after the `rev-parse` of its context: a fill of a free slot reads the config of
+/// The host slots of `bd-host`, each step after the `rev-parse` of its context: a fill of a free slot reads the config of
 /// the host slots, then gets the slot as `bd lease get` does; a lend runs no git; the checkout of a run reads the config
 /// and HEAD and moves by the diff with one `reset`, no `status`; a give-back reads the config and one `status`, and only
 /// a dirty slot adds `reset` and `clean`; a shrink reads the config, one `status` and HEAD, which is at the leased commit
@@ -1394,7 +1394,7 @@ fn a_group_dry_run_with_a_description() {
   );
 }
 
-/// `bd lease host have` is one `cat-file`, `ingest` of a small pack the config, `unpack-objects` and one ref
+/// The host objects of `bd-host`: `have` is one `cat-file`, `ingest` of a small pack the config, `unpack-objects` and one ref
 /// transaction, `show` one `cat-file`, and the give-back of a run that sent a pack one more ref transaction
 #[test]
 fn the_host_objects_have_ingest_and_show() {

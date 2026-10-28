@@ -57,7 +57,6 @@ This spec is a draft of the port. A requirement names the test that will cover i
 ## Non-goals
 
 - Linux and Windows hosts under launchd. The agent runs on Linux only by hand (`bd-host serve`), without `upgrade`.
-- The removal of `bd lease host …` from bd: yonderd still calls it.
 - A choice of the slot by the distance between trees, and a spare count of slots on the client Mac.
 
 ## Requirements

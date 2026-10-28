@@ -1,6 +1,6 @@
 ---
 name: bd lease
-description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand; the host slots are leases of the pool that a lend table lends to one run at a time, which the remote-run agent of a host drives through bd lease host.
+description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of bd-host drives in process.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/lease_command.rs
@@ -18,7 +18,6 @@ targets:
   - ../../crates/git-ops/src/host_objects.rs
   - ../../crates/git-ops/src/worktree_snapshot.rs
   - ../../crates/git-ops/src/host_client.rs
-  - ../../crates/bd-lease/src/host_command.rs
   - ../../crates/lease-pool/src/state_file.rs
   - ../../crates/lease-pool/src/lease_clean.rs
   - ../../crates/lease-pool/src/check_record.rs
@@ -473,38 +472,34 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Host slots
 
-The slots that the remote-run agent of a host (yonderd of the IntelliJ monorepo; IJAI-4792) keeps for the runs of
-other machines: it calls the functions of `lease_pool::host_slots` through `bd lease host` on the host. A remote slot
-holds no state of its own, since the commit comes from the client and the outputs go back to it, so a slot is lent to
-one run for the duration of that run only.
+The slots that the agent of `bd-host` keeps for the runs of other machines (spec/cli/host.spec.md): it calls the
+functions of `lease_pool::host_slots` in process on the host. A remote slot holds no state of its own, since the commit
+comes from the client and the outputs go back to it, so a slot is lent to one run for the duration of that run only.
 
-- `bd lease host` must answer each function of the table as one JSON object: `lend --run <id> --pid <pid>
-  [--affinity <key>] [--wait <seconds>]` (`state` `lent` with the `slot`, its `lease_id`, `cleaned_at` and
-  `generation`, or `queued` with `ahead`, the lent runs and the slots in quarantine; a repeat answers the same slot),
-  `checkout --run <id> --commit <id>` (below), `give-back --run <id>` (the slot of the run,
-  else the run leaves the queue: `left_queue`), `fill` (its steps on stderr), `reclaim`, `shrink <keep>`, `limit <n>`
-  or `limit --unset`, and `status` (each slot, its state in words, `abandoned`, the queue, the limit). bd reads the
-  start of `--pid` itself; a pid that is gone is refused as `invalid_arguments`, and one whose start a sandbox hides
-  counts as alive while it exists. The `generation` of a slot grows by one with each give-back that discards changes
-  and each clean, before their removal of files, so also before a retry after a crash, so an agent that keys what its prepare steps made in the slot by it
-  never reuses a result that a give-back or a clean removed. A
-  refusal of the table is `no_lease` (no such slot, or not this run's), `slot_busy` (another process acts on it) or
-  `invalid_arguments` (a bad `branchdeck.hostSlots`). It is never a command of a coding agent.
-  [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_run_lends_a_slot_waits_in_line_and_gives_it_back`)
-  [@test] ../../crates/bd-lease/src/host_command_test.rs (`reclaim_shrink_and_limit_answer_the_table`)
-  [@test] ../../crates/bd-lease/src/host_command_test.rs (`the_refusals_of_the_table_have_their_codes`)
-- `lend --wait <seconds>` must wait while the run is queued, as long as `--pid` lives, and answer as soon as it gets a
+- The functions of the table are `lend` (a run, the pid of its process with its start, an affinity: `Lent` with the
+  slot, its lease id, `cleaned_at` and `generation`, or `Queued` with `ahead`, the lent runs and the slots in
+  quarantine; a repeat answers the same slot), `lend_waiting` (below), `checkout` (below), `give_back_run` (the slot
+  of the run, else the run leaves the queue), `fill`, `reclaim`, `shrink`, `set_limit`, and `read_host_slots` (each
+  slot, its state, the queue, the limit; `describe_state` and `is_abandoned` say a state in words). A pid whose start a
+  sandbox hides counts as alive while it exists. The `generation` of a slot grows by one with each give-back that
+  discards changes and each clean, before their removal of files, so also before a retry after a crash. So an agent
+  that keys what its prepare steps made in the slot by it never reuses a result that a give-back or a clean removed. A
+  refusal of the table is a `HostSlotRefusal`: `UnknownSlot`, `NoSlot` or `NotLent` (no such slot, or not this run's),
+  `Busy` (another process acts on it) or `InvalidConfig` (a bad `branchdeck.hostSlots`).
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_run_gets_the_slot_of_its_affinity_else_the_one_used_longest_ago_else_waits_in_line`)
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`an_abandoned_lend_is_given_back_by_reclaim_before_another_run_gets_the_slot`)
+- `lend_waiting` must wait while the run is queued, as long as its process lives, and answer as soon as it gets a
   slot, without a second call. It watches `branch-deck/` of the common dir before its first look, so no give-back
   between the look and the wait is lost, wakes only on a change of `host-slots.json` or `leases.json`, and looks again
-  at least every 5 s, as the end of a process makes no file event. It says the queue on stderr once a minute
-  (`bd lease host lend: run <id> waits <s> s: <n> runs ahead, …`). Once the time is up it answers `queued` with its
-  place; the ticket stays while `--pid` lives. A `--pid` that ends while it waits is `invalid_arguments`, and its
-  ticket leaves the queue. With `--wait` the answer has `waited_ms`.
-  [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_lend_that_waits_gets_the_slot_once_it_is_given_back`)
+  at least every 5 s, as the end of a process makes no file event. It gives its caller the queue once a minute
+  (`host_runs::queue_line`: `run <id> waits <s> s: <n> runs ahead, …`). Once the time is up it answers `Queued` with
+  its place; the ticket stays while the process lives. A process that ends while it waits is `ProcessGone`, and its
+  ticket leaves the queue.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_lend_that_waits_gets_the_slot_once_it_is_given_back`)
 - With `branchdeck.leaseMaintenance` true, a give-back must start `git maintenance run --auto --detach` in the common
   dir, as a return does, also for a run without a slot, and say so (`maintenance_started`); a failed start never fails
   the give-back. Without the setting it starts none.
-  [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_give_back_starts_the_maintenance_that_branchdeck_lease_maintenance_asks_for`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
 
 - A fill must lease the missing host slots up to `branchdeck.hostSlots` (git config of the host, 4 by default) as plain
   `ready` leases of the holders `bd-host/1`, `bd-host/2`, … at the HEAD of the host checkout, detached, through the get
@@ -554,16 +549,15 @@ one run for the duration of that run only.
   does not name and whose number no live fill holds.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`reclaim_drops_a_dead_fill_and_returns_a_lease_the_table_does_not_name`)
 - A hand `bd lease return` of a host slot (its holder is `bd-host/<n>`, or the table names its lease id) must be refused
-  as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `bd lease host shrink`.
+  as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `bd-host slots --local --shrink`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_hand_return_of_a_host_slot_is_refused`)
-- `bd lease host checkout --run <id> --commit <full id>` must move the slot lent to that run to the commit, detached,
-  by the diff, as the get of a reused slot does but without a `status`: a give-back, a fill and a clean leave the slot
-  clean (its index, HEAD and files agree, the ignored files aside). It answers `moved`: `kept`, `switched`, or `forced`
-  with git's `reason`, also on stderr. Every file is checked out only after git refused the diff (exit 128, never after
-  a signal), and only while the table still lends the slot to the same run with the same lend: the bd of a supervisor
-  that died may still run, and the slot may be another run's by then. A run without a slot or another run's id is
-  `no_lease`, a commit that is no full id `invalid_arguments`.
-  [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_run_checks_out_its_commit_in_its_slot_by_the_diff`)
+- `checkout` of a run and a commit must move the slot lent to that run to the commit, detached, by the diff, as the
+  get of a reused slot does but without a `status`: a give-back, a fill and a clean leave the slot clean (its index,
+  HEAD and files agree, the ignored files aside). It answers `moved`: `Kept`, `Switched`, or `Forced` with git's
+  reason. Every file is checked out only after git refused the diff (exit 128, never after a signal), and only while
+  the table still lends the slot to the same run with the same lend: a call of a supervisor that died may still run,
+  and the slot may be another run's by then. A run without a slot is `NoSlot`, another run's slot `NotLent`.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_run_checks_out_its_commit_in_its_slot_by_the_diff`)
 - A lend runs no git, a checkout the config, HEAD and one `reset`, a give-back one `status` (plus `reset` and `clean`
   for a dirty slot, and the `maintenance` of `branchdeck.leaseMaintenance`), a shrink one `status`, HEAD, a `reset` when the slot is not at the commit it was leased at, and
   the processes of a return.
@@ -572,28 +566,26 @@ one run for the duration of that run only.
 
 ### Host objects
 
-The git of the runs on the host goes through bd too, so yonderd starts no git: which commits the host has, the packs
-of the clients, the refs that keep their commits, and what a commit holds. `-C` names the repository the client asks
-for; one that is no working tree is `not_a_repository` (exit 2).
+The git of the runs on the host goes through these functions too (`lease_pool::host_refs`, `git_ops::host_objects`),
+so the agent starts no git of its own: which commits the host has, the packs of the clients, the refs that keep their
+commits, and what a commit holds.
 
-- `bd lease host have <commit>…` must answer `commits`, the full ids of the arguments that the repository has as
-  commit objects, in their order, and `repository`, its top level, from one `cat-file --batch-check`. An argument that
-  is no full id is `invalid_arguments`.
+- `have` must answer the full ids of the commits that the repository has as commit objects, in their order, from one
+  `cat-file --batch-check`.
   [@test] ../../crates/bd-lease/src/host_objects_test.rs (`a_pack_lands_under_the_ref_of_its_run_until_the_give_back_of_the_run`)
   [@test] ../../crates/git-ops/src/host_objects_test.rs (`the_commits_a_host_has_are_its_commit_objects_in_order`)
-- `bd lease host ingest --ref run:<id>|base:<name> --commit <id>` must write the pack on stdin (or `--pack <file>`)
-  into the object store and point `refs/branch-deck/host/run/<id>` or `refs/branch-deck/host/base/<name>` at the
+- `ingest` of a ref (`HostRef::parse`: `run:<id>` or `base:<name>`) and a commit must write the pack of its input into
+  the object store and point `refs/branch-deck/host/run/<id>` or `refs/branch-deck/host/base/<name>` at the
   commit, in one ref transaction. It reads the 12-byte header across short reads; a pack of fewer objects than
   `receive.unpackLimit`, else `transfer.unpackLimit`, else 100, goes to `unpack-objects`, which resolves the bases of
   a thin pack from the object store, as `receive-pack` does, and a larger one to `index-pack --stdin --fix-thin`. It
-  answers `ref`, `commit`, `objects` and `stored` (`loose` or `pack`). The pack streams through, never whole in
-  memory. A stream that is no pack, and a pack git refuses, fail with git's words after the rest of the stream was read,
-  so the sender is never blocked. A name of 1 to 128 characters of `A-Z a-z 0-9 . _ -`, the first one a letter or a
-  digit, without `..` and not ending in `.lock`, and a full commit id are required (`invalid_arguments`).
+  answers the full ref, `objects` and `stored` (`Loose` or `Pack`). The pack streams through, never whole in memory. A
+  stream that is no pack, and a pack git refuses, fail with git's words after the rest of the stream was read, so the
+  sender is never blocked. A name of 1 to 128 characters of `A-Z a-z 0-9 . _ -`, the first one a letter or a digit,
+  without `..` and not ending in `.lock`, and a full commit id are required (`HostRefRefusal`).
   [@test] ../../crates/git-ops/src/host_objects_test.rs (`a_small_pack_lands_as_loose_objects_and_a_large_one_as_a_pack`, `a_stream_that_is_no_pack_is_refused_and_read_to_its_end`)
   [@test] ../../crates/git-ops/src/host_objects_test.rs (`the_unpack_limit_is_the_one_of_receive_else_transfer_else_100`)
   [@test] ../../crates/sync-utils/src/host_ref_name_test.rs (`a_host_ref_name_is_one_safe_component`)
-  [@test] ../../crates/bd-lease/src/host_objects_test.rs (`the_refusals_of_the_host_objects_have_their_codes`)
 - When a pack last moved each ref of the host must be kept in `$GIT_COMMON_DIR/branch-deck/host-refs.json` (its lock
   a leaf, as the one of the lend table). The give-back of a run must delete the run ref of its pack (`deleted_ref`),
   also for a run that had no slot; a run that sent no pack costs no git. `reclaim` must delete a run ref whose run has
@@ -602,39 +594,35 @@ for; one that is no working tree is `not_a_repository` (exit 2).
   (`maintenance_started`).
   [@test] ../../crates/bd-lease/src/host_objects_test.rs (`a_pack_lands_under_the_ref_of_its_run_until_the_give_back_of_the_run`, `reclaim_deletes_the_refs_that_no_run_needs`)
   [@test] ../../crates/git-ops/src/host_objects_test.rs (`the_refs_of_the_host_move_and_go_in_one_transaction`)
-- `bd lease host show --commit <id> [--blob <path>] [--ids <path>…]` must answer the text of the file `--blob` names
-  (`blob`: `path`, `id`, `text`; `null` when the commit has no file there) and the object id of each path of `--ids`
-  (a blob, the tree of a directory, the commit of a gitlink; `null` for none), from one `cat-file --batch`. A commit
-  that the repository lacks, a path with an empty, `.` or `..` component and a file over 1 MiB are
-  `invalid_arguments`.
-  [@test] ../../crates/bd-lease/src/host_objects_test.rs (`show_answers_a_file_and_ids_and_git_answers_the_git_of_the_host`)
+- `show` of a commit, a blob path and id paths must answer the text of the file of the blob path (its path, id and
+  text; none when the commit has no file there) and the object id of each id path (a blob, the tree of a directory, the
+  commit of a gitlink; none for no object), from one `cat-file --batch`. A commit that the repository lacks, a path with
+  an empty, `.` or `..` component and a file over 1 MiB are refused (`ShowRefusal`).
   [@test] ../../crates/git-ops/src/host_objects_test.rs (`show_answers_the_text_of_a_file_and_the_ids_of_paths`)
-- `bd lease host git` must answer the git that the `PATH` of the runs finds first, the `bin` of Homebrew before
-  `/usr/bin` (`path`, `dir`, `version`), the floor of a host (`floor`, `HOST_MIN_VERSION` 2.56.0, above the 2.54 of
-  bd itself, a constant of the code), `meets_floor` and `upgraded`. A version parses as git prints it (`2.50.1 (Apple
-  Git-155)`, `2.45.1.windows.1`), and a release candidate comes before its release.
-  [@test] ../../crates/bd-lease/src/host_objects_test.rs (`show_answers_a_file_and_ids_and_git_answers_the_git_of_the_host`)
+- `find_git` of `run_path` must find the git that the `PATH` of the runs finds first, the `bin` of Homebrew before
+  `/usr/bin`, with its version. The floor of a host is `HOST_MIN_VERSION` (2.56.0, above the 2.54 of bd itself, a
+  constant of the code). A version parses as git prints it (`2.50.1 (Apple Git-155)`, `2.45.1.windows.1`), and a
+  release candidate comes before its release.
   [@test] ../../crates/lease-pool/src/host_git_test.rs (`a_version_parses_releases_candidates_and_the_apple_git`, `the_bin_of_homebrew_comes_before_usr_bin`)
-- `bd lease host git --ensure` must bring that git to the floor: nothing at the floor; below it `brew install git`
+- `ensure_host_git` must bring that git to the floor: nothing at the floor; below it `brew install git`
   when the `bin` of Homebrew has no git, else `brew upgrade git` (in `/`, `HOMEBREW_AUTO_UPDATE_SECS=0`,
   `HOMEBREW_NO_INSTALL_CLEANUP=1`, at most 30 min), and `upgraded: true`. While another Homebrew process holds the
   lock of git (`has already locked`, `already in progress`), it tries again every 10 s and takes a git that meets the
   floor meanwhile as the end of that process. A host without Homebrew, a git before the one of Homebrew in the
-  `PATH`, and an upgrade that fails or leaves the git below the floor refuse as `git_not_found` (exit 5) with the
-  hint: the install of Homebrew on macOS, a newer source of packages elsewhere. Its waits and Homebrew go to stderr
-  (`bd lease host git: …`). `BD_TEST_HOST_BREW` names a fake Homebrew (`none`: none) and `BD_TEST_HOST_MIN_VERSION`
-  another floor, for a test.
+  `PATH`, and an upgrade that fails or leaves the git below the floor refuse as `OldGit` with the hint: the install of
+  Homebrew on macOS, a newer source of packages elsewhere. Its waits and Homebrew go to the progress of its caller.
+  `BD_TEST_HOST_BREW` names a fake Homebrew (`none`: none) and `BD_TEST_HOST_MIN_VERSION` another floor, for a test.
   [@test] ../../crates/bd-lease/src/host_git_test.rs (`ensure_installs_or_upgrades_git_with_homebrew_below_the_floor`)
   [@test] ../../crates/lease-pool/src/host_git_test.rs (`the_plan_installs_upgrades_or_refuses_with_a_hint`, `a_lock_of_another_homebrew_process_is_told_by_its_words`)
-- No run may use git while Homebrew replaces it, and the lend table is the lock: `--ensure` records the upgrade in
+- No run may use git while Homebrew replaces it, and the lend table is the lock: the ensure records the upgrade in
   the table first (`git`: `upgrading`, its process and command), then waits until no slot is lent, filled, cleaned,
   shrunk or given back by a live process and no host-object call of a live process runs (`users`, below), then runs
   Homebrew. The wait has no limit: Homebrew never starts under a live user of git, and a gone one does not count.
-  Once a minute it says the busy slots, the host-object calls with their processes and the seconds it waited (`bd
-  lease host git: … waits for the users of git (<s> s so far): 1 is lent to …, 2 host-object calls of the processes
-  …`). An upgrade that fails or panics before the end of Homebrew removes its record. While a live process upgrades, a lend only queues and answers `git_upgrading` with the
-  command, and the queue line of `--wait` says that git is upgrading. A refusal stays in the table (`git`:
-  `refused`): every lend refuses with it as `git_not_found` until a later `--ensure` finds the floor.
+  Once a minute it says the busy slots, the host-object calls with their processes and the seconds it waited (`… waits
+  for the users of git (<s> s so far): 1 is lent to …, 2 host-object calls of the processes …`). An upgrade that
+  fails or panics before the end of Homebrew removes its record. While a live process upgrades, a lend only queues and
+  answers `git_upgrading` with the command, and the queue line of a waiting lend says that git is upgrading. A refusal
+  stays in the table (`git`: `refused`): every lend refuses with it as `OldGit` until a later ensure finds the floor.
   [@test] ../../crates/bd-lease/src/host_git_test.rs (`the_upgrade_waits_for_the_lent_slots_and_the_lends_queue_while_it_runs`, `without_homebrew_ensure_and_the_lends_refuse_until_git_meets_the_floor`)
   [@test] ../../crates/bd-lease/src/host_git_test.rs (`the_upgrade_waits_for_a_live_host_object_call_and_not_for_a_gone_one`)
 - Each host-object call (`have`, `ingest`, `show`, and `snapshot` and `changes` of Host runs) must be a git user of
@@ -645,16 +633,15 @@ for; one that is no working tree is `not_a_repository` (exit 2).
   the table wakes it, and it looks again every 5 s. The library functions do this, so each caller gets it.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_object_call_waits_for_an_upgrade_of_git_but_a_scan_of_a_lent_run_goes_on`)
 - While a live process upgrades git, a step that would take a slot or run git for the keeper must skip, with the
-  refusal "The git of the host is upgrading" with the command: a fill adds no slot and runs no git (`slot_busy` from
-  `bd lease host fill`), a clean and the clean after a give-back skip, a shrink sets its limit and refuses each slot
+  refusal "The git of the host is upgrading" with the command (`GitUpgrading`): a fill adds no slot and runs no git, a clean and the clean after a give-back skip, a shrink sets its limit and refuses each slot
   past it, and each step of `reclaim` but the queue and the dead fills has the refusal as its `error`, so a later
   `reclaim` takes it up. `bd lease clean --host` skips every host slot with that reason, before any git. The give-back
   of a lent run still runs, as Homebrew waits for it, but its run ref stays for `reclaim`, and `reclaim` deletes no
   ref meanwhile.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_fill_a_clean_a_shrink_and_reclaim_skip_while_git_is_upgrading`)
-- `--ensure` must record its upgrade, its refusal or the ready git under the lock of the table, and only while no live
+- The ensure must record its upgrade, its refusal or the ready git under the lock of the table, and only while no live
   process records an upgrade, also another call of its own process. Else it leaves that record as it is, says once a
-  minute that another upgrade runs and its command, waits for its end and plans the git again. So two `--ensure` never
+  minute that another upgrade runs and its command, waits for its end and plans the git again. So two ensures never
   both run Homebrew.
   [@test] ../../crates/bd-lease/src/host_git_test.rs (`a_second_ensure_never_records_over_the_upgrade_of_a_live_process`)
 - `have` and `show` run one `cat-file` each, `ingest` of a small pack the config, `unpack-objects` and one
@@ -676,19 +663,18 @@ newline and a nested repository without a commit take a copy of the index instea
 dir, removed afterwards): one add of the paths, or of every path above 256 paths or when a path went away meanwhile,
 and one `write-tree`. Both give the same commit for the same tree.
 
-- `bd lease host snapshot --run <id>` must answer the tree of the files of the slot lent to the run as `git add --all`
-  stages them (`tree`: the tracked and the untracked files that git does not ignore, a deletion, a staged deletion and
-  rename, a mode, a link, a gitlink, a filtered file), with `n`, `path`, `head` and `changed` (the count of the status
-  entries); the slot index stays byte for byte. A run without a slot is `no_lease`.
-  [@test] ../../crates/bd-lease/src/host_command_test.rs (`the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command`)
+- `snapshot_run` of a run must answer the tree of the files of the slot lent to the run as `git add --all` stages them
+  (`tree`: the tracked and the untracked files that git does not ignore, a deletion, a staged deletion and rename, a
+  mode, a link, a gitlink, a filtered file), with `n`, `path`, `head` and `changed` (the count of the status entries);
+  the slot index stays byte for byte. A run without a slot is `NoSlot`.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command`)
   [@test] ../../crates/git-ops/src/worktree_snapshot_test.rs (`the_commit_of_a_worktree_is_what_add_all_stages_from_its_files_or_a_copy_of_its_index`, `a_clean_worktree_is_head_and_the_copy_adds_many_paths_at_once`)
   [@test] ../../crates/git-ops/src/worktree_snapshot_test.rs (`a_wide_change_leaves_loose_objects_and_no_pack`)
-- `bd lease host changes --run <id> --base <tree> --patch <file>` must answer the tree as `snapshot` does and, when it
-  differs from `--base`, stream `diff-tree -r -p --binary --full-index --no-renames <base> <tree>` into a new file
-  beside `<file>`, then rename it onto `<file>`, so a link at `<file>` is replaced, never followed (`changed: true`,
-  `patch`, `patch_bytes`). A tree equal to `--base` writes no file (`changed: false`). A base that is no full id is
-  `invalid_arguments`.
-  [@test] ../../crates/bd-lease/src/host_command_test.rs (`the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command`)
+- `changes_run` of a run, a base tree and a patch file must answer the tree as `snapshot_run` does and, when it differs
+  from the base, stream `diff-tree -r -p --binary --full-index --no-renames <base> <tree>` into a new file beside the
+  patch file, then rename it onto the patch file, so a link there is replaced, never followed (`patch_bytes`). A tree
+  equal to the base writes no file.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command`)
   [@test] ../../crates/git-ops/src/worktree_snapshot_test.rs (`the_patch_between_two_trees_applies_and_replaces_a_link_at_its_path`)
 - A scan runs the config, HEAD and its tree (one `log`) and one `status`; when something changed, one `hash-object`,
   one `fast-import` and one `update-ref`.
@@ -710,7 +696,7 @@ and one `write-tree`. Both give the same commit for the same tree.
   kills git too, fails as cancelled and leaves no file. The caller removes the file; a pack file there older than a day
   goes at the next pack. Every id must be full. The host takes the pack with `lease_pool::host_refs::ingest`.
   [@test] ../../crates/git-ops/src/host_client_test.rs (`the_thin_pack_is_a_private_file_that_the_host_takes`, `a_cancelled_pack_fails_and_leaves_no_file`)
-- `apply_patch` must apply the patch of `changes` to the files of the worktree, not its index, all or nothing (`apply
+- `apply_patch` must apply the patch of `changes_run` to the files of the worktree, not its index, all or nothing (`apply
   --whitespace=nowarn`), and answer the count of the files (`apply --numstat`). A patch that does not apply fails and
   changes nothing. It is the one write of the user's working tree beside the guarded update: what the user asked a run
   for (`bd-host run --apply`).
@@ -729,9 +715,7 @@ and one `write-tree`. Both give the same commit for the same tree.
 | 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
 | 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`; `bd lease pick`: `home_branch_switched`, `no_home_branch`, `unchecked_tree` and the refusals of `bd pick` |
 
-- The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`,
-  and `lease_host_lend` … `lease_host_status`, `lease_host_have`, `lease_host_ingest`, `lease_host_show`,
-  `lease_host_git`, `lease_host_snapshot`, `lease_host_changes`).
+- The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)

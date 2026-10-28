@@ -2,21 +2,18 @@
 //! (spec/cli/lease.spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
-use crate::host_command::LeaseHostArgs;
 use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, counted_git};
 use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::host_objects::ShowRefusal;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::{RepositoryDirs, ref_exists, repository_dirs, short_id};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::check_record::{NAMED_PATHS, TreeCheck, check_tree};
 use lease_pool::free_space::available_bytes;
-use lease_pool::host_refs::HostRefRefusal;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool,
@@ -61,9 +58,6 @@ pub enum LeaseCommand {
   /// It deletes what the rules name; --dry-run only reports. A slot with a lease or with a process in it is skipped, and
   /// a host slot that a run has
   Clean(LeaseCleanArgs),
-  /// The host slots of the remote-run agent of this host (yonderd): lend, give back, fill, reclaim, shrink. Never a
-  /// command of a coding agent
-  Host(LeaseHostArgs),
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -153,7 +147,7 @@ pub struct LeaseCleanArgs {
   /// Every free slot of the pool
   #[arg(long)]
   pub free: bool,
-  /// Every idle host slot (`bd host`), each with the rules of its own `.branchdeck.toml`
+  /// Every idle host slot (`bd-host`), each with the rules of its own `.branchdeck.toml`
   #[arg(long, conflicts_with_all = ["free", "dirs"])]
   pub host: bool,
   /// Only say what the rules would free; nothing is deleted
@@ -384,7 +378,7 @@ pub fn unchecked_tree(lease_dir: &str, check: &TreeCheck) -> CliError {
 
 /// `bd update` in the worktree at `top_level`: refused in a lease of the pool (`lease_follows_home`), which follows the
 /// branch it was cut from, not the baseline: an update onto the baseline would move it past that branch, and its pick
-/// would refuse it (`source_on_newer_baseline`). A host slot of `bd host` is no session's lease
+/// would refuse it (`source_on_newer_baseline`). A host slot of `bd-host` is no session's lease
 pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<(), CliError> {
   let Some(lease) = ready_slot_at(git_common_dir, top_level).map_err(lease_error)?.and_then(|slot| slot.lease) else {
     return Ok(());
@@ -1033,9 +1027,6 @@ pub(crate) fn lease_error(error: anyhow::Error) -> CliError {
       HostSlotRefusal::OldGit(_) => ErrorCode::GitNotFound,
     };
     return CliError::new(code, format!("{error:#}"));
-  }
-  if error.downcast_ref::<HostRefRefusal>().is_some() || error.downcast_ref::<ShowRefusal>().is_some() {
-    return CliError::new(ErrorCode::InvalidArguments, format!("{error:#}"));
   }
   if error.downcast_ref::<RepositoryLocked>().is_some() {
     return CliError::new(ErrorCode::Locked, format!("{error:#}"));

@@ -1,5 +1,5 @@
 //! The host slots (spec/cli/lease.spec.md, "Host slots"; "Host slots" in docs/design/git-operations.md): the slots of
-//! the pool that the remote-run agent of a host (yonderd, through `bd lease host`) keeps for the runs of other machines,
+//! the pool that the agent of `bd-host` on a host keeps for the runs of other machines, in process,
 //! each a plain `ready` lease of the holder `bd-host/<n>`
 //! in `leases.json`, and the lend table in `$GIT_COMMON_DIR/branch-deck/host-slots.json`, which lends a slot to one run
 //! for the duration of that run. A remote slot holds no state of its own: the commit comes from the client, and the

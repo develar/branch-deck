@@ -1,5 +1,5 @@
 //! The refs that keep the commits of the runs of a host and the bases of its clients (spec/cli/lease.spec.md, "Host
-//! objects"): `bd lease host ingest` writes the pack of a client and points `refs/branch-deck/host/run/<id>` or
+//! objects"): `ingest` writes the pack of a client and points `refs/branch-deck/host/run/<id>` or
 //! `refs/branch-deck/host/base/<name>` at its commit (`git_ops::host_objects`). When a pack last moved each ref is
 //! `$GIT_COMMON_DIR/branch-deck/host-refs.json`, a state file of its own (`state_file`), whose lock is a leaf as the one
 //! of the host slots: held while the file changes, never across git. The give-back of a run deletes its ref, and

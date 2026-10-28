@@ -265,8 +265,8 @@ pub enum ErrorCode {
   /// `bd lease return` and `adopt`: a process other than bd and its session has its working directory in the worktree;
   /// `processes` names each with its argv and kind. Nothing was changed
   SlotBusy,
-  /// `bd lease return`: the slot is one of the host slots that `bd host` keeps for its runs (`n`); `bd host slots
-  /// --shrink <n>` gives it back to the pool. Nothing was changed
+  /// `bd lease return`: the slot is one of the host slots that `bd-host` keeps for its runs (`n`); `bd-host slots
+  /// --local --shrink <n>` gives it back to the pool. Nothing was changed
   HostSlot,
   /// `bd lease return`: HEAD has commits that no branch, tag or remote branch holds (`commits`): land them first
   /// (`bd pick --from <worktree> --follow` in the shared checkout), or `--confirm-preserved` gives them up

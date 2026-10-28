@@ -73,7 +73,7 @@
 //! - `host_client`: the git of a client of a remote run: the commit it ships, the commits the host may have, the thin
 //!   pack into a private file, and the apply of the changes of the command to the working tree
 //! - `host_objects`: the commits a host has, the pack of a client into its object store, the refs that keep the
-//!   commits of the runs (`refs/branch-deck/host/`), the blob text and the tree ids of a commit (`bd lease host`)
+//!   commits of the runs (`refs/branch-deck/host/`), the blob text and the tree ids of a commit (`bd-host`)
 
 pub mod amend_operations;
 pub mod attributes;

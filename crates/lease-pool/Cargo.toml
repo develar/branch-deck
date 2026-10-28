@@ -23,7 +23,7 @@ sha2 = "0.11.1"
 schemars = { workspace = true, optional = true }
 # the clean rules of `.branchdeck.toml` (`lease_clean`)
 toml = "1.1"
-# the output of Homebrew of `bd lease host git --ensure` (`host_git`)
+# the output of Homebrew of `ensure_host_git` (`host_git`)
 tempfile.workspace = true
 # the ids and the default holders of the leases (`lease`)
 uuid = { version = "1.29", features = ["v4"] }

@@ -1,4 +1,4 @@
-//! The process of Homebrew of `bd lease host git --ensure` (`host_git`): a file of its own, as the git scan takes every
+//! The process of Homebrew of `host_slots::ensure_host_git` (`host_git`): a file of its own, as the git scan takes every
 //! process a file starts beside `GitInfo` for a git (`git_usage_scan_test.rs`)
 
 use anyhow::{Context, Result, bail};

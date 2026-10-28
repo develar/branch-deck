@@ -1,11 +1,10 @@
-//! The git of a host that serves remote runs (`bd lease host git`, spec/cli/lease.spec.md, "Host objects"): its floor,
-//! above `MIN_VERSION` of bd itself, and the Homebrew install or upgrade that `--ensure` runs below it. The runs of other
+//! The git of a host that serves remote runs (spec/cli/lease.spec.md, "Host objects"): its floor, above `MIN_VERSION`
+//! of bd itself, and the Homebrew install or upgrade that `host_slots::ensure_host_git` runs below it. The runs of other
 //! machines and the agent of the host use the git that their `PATH` finds first, with the `bin` directory of Homebrew
 //! before `/usr/bin`, so a host keeps one floor that moves only on purpose instead of a check of each feature they use.
 //! The floor is the newest release of git when the user set the policy (2026-10-27): "a minimum in the code, and `brew
 //! upgrade git`". Homebrew has the newest release, so `brew upgrade git` reaches it. No git user may run while Homebrew
-//! replaces git: the lend table of the host slots is the lock (`host_slots::ensure_host_git`). Ported from
-//! `host_git.rs` of yonderd (IJAI-4792)
+//! replaces git: the lend table of the host slots is the lock (`host_slots::ensure_host_git`)
 
 use crate::host_brew::run_with_deadline;
 use anyhow::{Context, Result, anyhow, bail};

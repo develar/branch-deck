@@ -1,5 +1,5 @@
-//! The steps of the host slots that `bd lease host` and the agent of `bd-host` both take, so the two say and do the same
-//! (spec/cli/lease.spec.md, "Host slots"; spec/cli/host.spec.md, "serve"): the queue line of a lend that waits, and the
+//! The steps of the host slots that the agent of `bd-host` takes (spec/cli/lease.spec.md, "Host slots";
+//! spec/cli/host.spec.md, "serve"): the queue line of a lend that waits, and the
 //! reclaim of a tick of the keeper, which takes up the slots and then deletes the refs that no live run uses
 
 use crate::host_refs::reclaim_refs;

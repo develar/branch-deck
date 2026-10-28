@@ -1999,20 +1999,19 @@ Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `cra
 
 ##### Host slots
 
-yonder (`community/tools/yonder` of the IntelliJ monorepo, IJAI-4792) runs a command of a checkout on another Mac in
-a slot of that host's pool. Until 2026-10-27 it made a host slot the property of one local checkout for 8 hours. So the slot count had no bound, and on
-2026-10-24 fourteen gets cloned the monorepo at once (the clones lock above now prevents that). A remote slot holds no
-state of its own: the commit comes from the client, and the outputs go back to it. So a slot is free once its run
-ended, and the host keeps a fixed set of warm slots that runs borrow (`crates/lease-pool/src/host_slots.rs`). The agent
-of yonder (yonderd) drives them through `bd lease host` (`crates/bd-lease/src/host_command.rs`): a supervisor lends a
-slot for its run (`lend --pid <supervisor> --wait <s>`, one call that waits while the run is queued) and gives it back
-on every way out (`give-back --run`), and a keeper runs `reclaim` and `fill`. A lend answers the `generation` of the
-files of the slot, which a give-back that discarded changes and a clean move before the slot is idle again: yonder keys
-the fingerprints of its prepare steps by it, so a run never skips a step whose output a give-back of the run before
-removed. `bd-host` (`crates/bd-host`, [Host Runs](host-runs.md)) is the move of yonder into Branch Deck: its agent
-calls the same functions of `lease_pool::host_slots`, `host_refs` and `host_git` in process, and its client the
-functions of `git_ops::host_client`, so neither end starts `bd`. Both agents lend from the one lend table of a host
-during the migration. `bd lease host` stays for yonderd until then.
+`bd-host` (`crates/bd-host`, [Host Runs](host-runs.md)) runs a command of a checkout on another Mac in a slot of that
+host's pool. It replaced yonder of the IntelliJ monorepo (IJAI-4792), which until 2026-10-27 made a host slot the
+property of one local checkout for 8 hours. So the slot count had no bound, and on 2026-10-24 fourteen gets cloned the
+monorepo at once (the clones lock above now prevents that). A remote slot holds no state of its own: the commit comes
+from the client, and the outputs go back to it. So a slot is free once its run ended, and the host keeps a fixed set
+of warm slots that runs borrow (`crates/lease-pool/src/host_slots.rs`). The agent of `bd-host` calls the functions of
+`lease_pool::host_slots`, `host_refs` and `host_git` in process, and its client the functions of
+`git_ops::host_client`, so neither end starts `bd`. A supervisor lends a slot for its run (`lend_waiting`, one call
+that waits while the run is queued) and gives it back on every way out (`give_back_run`), and a keeper runs
+`reclaim_all` and `fill`. A lend answers the `generation` of the files of the slot, which a give-back that discarded
+changes and a clean move before the slot is idle again: the agent keys the fingerprints of its prepare steps by it, so
+a run never skips a step whose output a give-back of the run before removed. yonderd drove the same functions through
+`bd lease host` until it was retired on 2026-10-28.
 
 A lend that waits (`host_slots::lend_waiting`) watches `branch-deck/` of the common dir with `notify` before its first
 look, so a give-back between the look and the wait wakes it: the table is replaced by a rename, so the watch is on the
@@ -2063,13 +2062,13 @@ start. The give-back runs off the client's path:
    size of the directories, whose kept units would stay above any limit) passes `branchdeck.hostSlotMaxSize`, or when
    the volume runs low. Without that size, they run after 50 runs or 7 days.
 
-The checkout of a run (`bd lease host checkout --run <id> --commit <id>`, `host_slots::checkout`) moves the slot the
+The checkout of a run (`host_slots::checkout`) moves the slot the
 run has to the commit of the run by the diff, as the get of a reused slot does, but without a `status`: the give-back
 of the last run, the fill and a clean leave the slot clean, and `reset --merge` keeps a local change outside the diff
-silently, so the clean slot is the contract of the give-back. yonderd calls it once the pack of the commit has
+silently, so the clean slot is the contract of the give-back. The supervisor calls it once the pack of the commit has
 arrived, which is why the lend cannot do it. Every file is checked out only after git refused the diff (exit 128,
 never after a signal), and only after the table, read again under its lock, still lends the slot to the same run
-with the same lend: a supervisor that dies leaves its bd running, and by the time that bd falls back, `reclaim` may
+with the same lend: a call of a supervisor that died can still run, and by the time that call falls back, `reclaim` may
 have given the slot back and lent it to another run.
 
 The cost of the give-back is its `status`, and that cost is the repository's `core.fsmonitor`. A `status` that
@@ -2095,8 +2094,8 @@ token.
 The guarantee stays git's: the daemon answers only after the event of its cookie file arrived (else, after 1 s, it
 answers "everything changed"), and a dropped event or a new daemon makes the next `status` walk every file.
 
-The objects of the runs go through bd too (`bd lease host have`, `ingest`, `show`, `git`; `git_ops::host_objects`,
-`lease_pool::host_refs`), so yonderd starts no git. `ingest` takes the pack of a client on stdin and reads its 12-byte
+The objects of the runs go through these functions too (`have`, `ingest`, `show`; `git_ops::host_objects`,
+`lease_pool::host_refs`), so the agent starts no git of its own. `ingest` takes the pack of a client and reads its 12-byte
 header first. A pack of fewer objects than `receive.unpackLimit` (else `transfer.unpackLimit`, else 100) goes to
 `unpack-objects`, as `receive-pack` does with a small push; `unpack-objects` resolves the bases of a thin pack from the
 object store. A larger one goes to `index-pack --stdin --fix-thin`. Until 2026-10-28 every pack of a run became a pack
@@ -2107,7 +2106,7 @@ read a file, not the refs: a run ref without a lend or a ticket goes an hour aft
 moved goes after 14 days. yonderd kept every base ref forever. With `branchdeck.leaseMaintenance` the ingest starts the
 maintenance after the ref, as the give-back does.
 
-The scans of a run (`bd lease host snapshot` before the command, `changes` after it) and the commit of the working
+The scans of a run (`snapshot_run` before the command, `changes_run` after it) and the commit of the working
 tree of a client (`bd-host run`) are one function, `git_ops::worktree_snapshot::worktree_commit`:
 the commit on HEAD of what `git add --all` would stage, without a write of the index. One `status` of the index, read
 only, names the paths; their files become blobs (`hash-object -w --stdin-paths`, which applies the clean filters and
@@ -2139,12 +2138,12 @@ counts it (`CLIENT_WRITE_EXEMPTIONS`).
 
 The git of the host has a floor of its own, `HOST_MIN_VERSION` (2.56.0, `lease_pool::host_git`), above the
 `MIN_VERSION` of bd: the policy of the user since 2026-10-27, a minimum in the code and an automatic `brew upgrade
-git`. `bd lease host git --ensure`, which the keeper of yonderd runs at its start and on each tick, ports the policy of
+git`. `ensure_host_git`, which the keeper of the agent runs at its start and on each tick, ports the policy of
 yonderd's `host_git.rs`. yonderd kept two flocks, `git.lock` of the upgrade and the shared `git-users.lock` of each
 supervisor. Here the lend table is the lock: the upgrade is a record of the table (`git`), so a lend sees it in the
 same read that lends a slot. The upgrade is recorded before it waits, so the queue stops growing behind a run that
 never ends, and Homebrew starts only once no live process acts on a slot. The record is a compare and set under the
-lock: an `--ensure` that finds the upgrade of a live process waits for it, so two never run Homebrew at once.
+lock: an ensure that finds the upgrade of a live process waits for it, so two never run Homebrew at once.
 
 Every git user of the host takes its turn behind a recorded upgrade. A state of a slot names the process that acts on
 it, so the steps that would take a state (a fill, a clean, a shrink, the steps of `reclaim`) skip while a live process
@@ -2157,7 +2156,7 @@ steps skip. So the last look of the upgrade at the slots and `users` stays true 
 this as the shared `git-users.lock` of each supervisor. The wait for the users has no limit. Until 2026-10-28 Homebrew started after an hour anyway, and a run that still used git
 then could fail on a git that Homebrew replaced; a run that never ends is a bug of the agent, not a reason to break
 the others. A refusal stays in the table, so a lend on
-a host whose git stays old refuses at once (`git_not_found`, which yonderd maps to its `old_git`) instead of a run
+a host whose git stays old refuses at once (`OldGit`, which the agent answers as `old_git`) instead of a run
 that fails on a missing feature.
 
 A shrink checks the slot out at the commit it was leased at. That commit is the base of `unlanded_commits`, so the

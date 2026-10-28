@@ -1,5 +1,5 @@
-//! The objects and the refs of the runs that the remote-run agent of a host serves (`bd lease host have`, `ingest`,
-//! `show`; spec/cli/lease.spec.md, "Host objects"): which commits a repository has, the pack of a client written into
+//! The objects and the refs of the runs that the agent of `bd-host` serves (`lease_pool::host_refs`;
+//! spec/cli/lease.spec.md, "Host objects"): which commits a repository has, the pack of a client written into
 //! the object store, the refs under `refs/branch-deck/host/` that keep its commits until the run or the base no longer
 //! needs them, and the blob text and the tree ids of a commit. No lock and no policy: the times of the refs and their
 //! deletion are `lease_pool::host_refs`'

@@ -2097,8 +2097,8 @@ export type ErrorCode =
  */
 "slot_busy" | 
 /**
- *  `bd lease return`: the slot is one of the host slots that `bd host` keeps for its runs (`n`); `bd host slots
- *  --shrink <n>` gives it back to the pool. Nothing was changed
+ *  `bd lease return`: the slot is one of the host slots that `bd-host` keeps for its runs (`n`); `bd-host slots
+ *  --local --shrink <n>` gives it back to the pool. Nothing was changed
  */
 "host_slot" | 
 /**

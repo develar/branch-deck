@@ -1,6 +1,6 @@
 //! The commit of the files of a worktree as `git add --all` stages them (the tracked and the untracked files that git
 //! does not ignore), on HEAD, without a write of its index, its files or its refs: the scans of a host slot before and
-//! after the command of a run (`bd lease host snapshot`, `changes`), and the commit of the working tree of a client
+//! after the command of a run (`lease_pool::host_slots::snapshot_run`, `changes_run`), and the commit of the working tree of a client
 //! (`bd-host run`, `host_client`). spec/cli/lease.spec.md, "Host runs". The patch between two trees
 //! streams into a file, never whole in memory.
 //!
