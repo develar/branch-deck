@@ -137,6 +137,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
 
   return (
     <HoverDescription
+      lazy
       open={open}
       onOpenChange={(nextOpen, details) => {
         if (nextOpen) {

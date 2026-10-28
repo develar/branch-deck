@@ -33,7 +33,7 @@ export interface LandingNodeHoverProps {
  */
 export function LandingNodeHover({ node, subject, trigger, children, onReveal }: LandingNodeHoverProps) {
   return (
-    <HoverDescription>
+    <HoverDescription lazy>
       <PopoverTrigger openOnHover delay={300} nativeButton={false} tabIndex={-1} render={trigger}>
         {children}
       </PopoverTrigger>

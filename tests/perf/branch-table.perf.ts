@@ -35,7 +35,7 @@
 // - resyncIpcBytes: the bytes of the parameters, the answers and the patches of a sync that changes nothing, once no
 //   step waits for a fact;
 // - hoverIpc: the commands a rest of the pointer on a branch row invokes (the review read ahead);
-// - menuIpc: the commands the "⋯" menu of that row invokes, opened by a right click;
+// - menuIpc: the commands the menu of that row invokes, opened by a right click (the one menu of the table);
 // - popoverIpc: the commands the popover of its robot invokes, opened by a hover of its chip.
 // The patches and the bytes of a sync on the Rust side, without the page:
 //   cargo nextest run -p test-server --run-ignored only -E 'test(/patch_bytes/)' --no-capture

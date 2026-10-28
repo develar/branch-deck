@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect
 import type { CSSProperties, KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { Card } from "@/components/ui/card"
+import { BranchMenuItems } from "@/components/branch/BranchActions"
 import { BranchColumnsRoot, ColumnLabel, ColumnTrack } from "@/components/branch/BranchColumns"
 import { BranchFilterBar, BranchFilterEmptyRow } from "@/components/branch/BranchFilterBar"
 import { BranchGraphHelpPopover } from "@/components/branch/BranchGraphHelpPopover"
@@ -12,8 +13,10 @@ import { ParkedBranchesCard } from "@/components/branch/ParkedBranchesCard"
 import { BranchPatronusSection } from "@/components/branch/PatronusChip"
 import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
 import { StackIslandCard } from "@/components/branch/StackIslandCard"
+import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { LoadingLine } from "@/components/shared/LoadingLine"
+import { TableContextMenu, TableMenuBody } from "@/components/shared/TableContextMenu"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useFilteredBranches, useRevealClearsFilter } from "@/hooks/useBranchFilter"
 import { prefetchBranchRowReview, reviewBranchRow, useBranchRowKeys } from "@/hooks/useBranchRowKeys"
@@ -232,63 +235,65 @@ export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
   const showsTable = table.rows.length > 0 || (islands.length === 0 && (visible !== null || parkedRows.length === 0))
 
   return (
-    // the table and its islands: their columns line up (`ColumnTrack`)
-    <BranchColumnsRoot>
-      <Card className="gap-0 py-0" data-cached={cached ? "true" : undefined}>
-        <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
-        <BranchSelectionBar />
-        <NewBranchForm />
-        {showsTable && (
-          <div className="overflow-x-auto">
-            {/* focusable, so a click on a row gives it the focus that Space falls back on */}
-            <table
-              ref={tableRef}
-              tabIndex={-1}
-              // a table the filter left empty is one quiet line, without the column heads
-              className={cn("w-full outline-none", laneCount > 0 && "bd-lanes", table.rows.length === 0 && "[&>thead]:hidden")}
-              style={laneCount > 0 ? ({ "--bd-lane-count": laneCount } as CSSProperties) : undefined}
-              onKeyDown={onTableKeyDown}
-            >
-              <BranchTableHead />
-              <tbody className="bd-branch-rows" {...pathPointer}>
-                {table.rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
-                {renderRows(table.rows, null)}
-              </tbody>
-            </table>
-          </div>
+    // the table and its islands: their columns line up (`ColumnTrack`); one menu for the rows of all of them
+    <TableContextMenu menu={name => <BranchMenuItems name={name} setExpanded={setExpanded} Items={ContextMenuItems} />}>
+      <BranchColumnsRoot>
+        <Card className="gap-0 py-0" data-cached={cached ? "true" : undefined}>
+          <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
+          <BranchSelectionBar />
+          <NewBranchForm />
+          {showsTable && (
+            <div className="overflow-x-auto">
+              {/* focusable, so a click on a row gives it the focus that Space falls back on */}
+              <table
+                ref={tableRef}
+                tabIndex={-1}
+                // a table the filter left empty is one quiet line, without the column heads
+                className={cn("w-full outline-none", laneCount > 0 && "bd-lanes", table.rows.length === 0 && "[&>thead]:hidden")}
+                style={laneCount > 0 ? ({ "--bd-lane-count": laneCount } as CSSProperties) : undefined}
+                onKeyDown={onTableKeyDown}
+              >
+                <BranchTableHead />
+                <TableMenuBody className="bd-branch-rows" {...pathPointer}>
+                  {table.rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
+                  {renderRows(table.rows, null)}
+                </TableMenuBody>
+              </table>
+            </div>
+          )}
+          {isPreviewLoaded && (
+            <Suspense fallback={null}>
+              <BranchPreviewDialog
+                names={branchNames}
+                name={previewGone ? null : previewName}
+                onNameChange={showBranchInPreview}
+                onClose={closeBranchPreview}
+                renderReviewSections={branch => (
+                  <>
+                    <BranchPullRequestSection branchName={branch.name} />
+                    <BranchPatronusSection branchName={branch.name} />
+                  </>
+                )}
+              />
+            </Suspense>
+          )}
+        </Card>
+        {islands.map(island => (
+          <StackIslandCard key={island.root} island={island} filtered={visible !== null} landing={spans}>
+            <IslandTable rows={island.rows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
+              {renderRows(island.shown.rows, island.root)}
+            </IslandTable>
+          </StackIslandCard>
+        ))}
+        {parkedRows.length > 0 && (
+          <ParkedBranchesCard count={parkedRows.filter(row => row.kind === "branch").length}>
+            <IslandTable rows={parkedRows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
+              {renderRows(parkedRows, null)}
+            </IslandTable>
+          </ParkedBranchesCard>
         )}
-        {isPreviewLoaded && (
-          <Suspense fallback={null}>
-            <BranchPreviewDialog
-              names={branchNames}
-              name={previewGone ? null : previewName}
-              onNameChange={showBranchInPreview}
-              onClose={closeBranchPreview}
-              renderReviewSections={branch => (
-                <>
-                  <BranchPullRequestSection branchName={branch.name} />
-                  <BranchPatronusSection branchName={branch.name} />
-                </>
-              )}
-            />
-          </Suspense>
-        )}
-      </Card>
-      {islands.map(island => (
-        <StackIslandCard key={island.root} island={island} filtered={visible !== null} landing={spans}>
-          <IslandTable rows={island.rows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
-            {renderRows(island.shown.rows, island.root)}
-          </IslandTable>
-        </StackIslandCard>
-      ))}
-      {parkedRows.length > 0 && (
-        <ParkedBranchesCard count={parkedRows.filter(row => row.kind === "branch").length}>
-          <IslandTable rows={parkedRows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
-            {renderRows(parkedRows, null)}
-          </IslandTable>
-        </ParkedBranchesCard>
-      )}
-    </BranchColumnsRoot>
+      </BranchColumnsRoot>
+    </TableContextMenu>
   )
 }
 
@@ -318,9 +323,9 @@ function IslandTable({ rows, lastFocusedRef, hotkeys, onKeyDown, pathPointer, ch
       onKeyDown={onKeyDown}
       data-testid="stack-island-table"
     >
-      <tbody className="bd-branch-rows" {...pathPointer}>
+      <TableMenuBody className="bd-branch-rows" {...pathPointer}>
         {children}
-      </tbody>
+      </TableMenuBody>
     </table>
   )
 }

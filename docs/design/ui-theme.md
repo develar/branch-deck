@@ -278,7 +278,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     Undo or of what it did, an error through `notifyError`), as an operation the form started (`inlineSurface`,
     [Running Operations](operations.md)): the progress row with its busy state while it runs, the form again with its
     input after a failure of a form with an input (`keepFormOnFailure`);
-  - closing gives the focus back to the opener, or to the row (`BranchContextMenuRow` is focusable).
+  - closing gives the focus back to the opener, or to the row (`BranchRowElement` is focusable).
 - **Type sizes** come from the scale in `src/index.css`, one role per step. No arbitrary sizes (`text-[13px]`,
   `text-[10px]`, `text-[0.875em]`):
   - `text-xs` (12/16px): meta lines, column headers, key hints, help popovers;

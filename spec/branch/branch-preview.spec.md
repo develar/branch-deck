@@ -6,7 +6,7 @@ targets:
   - ../../src/components/branch/BranchPreviewDialog.tsx
   - ../../src/stores/branch-preview.ts
   - ../../src/components/branch/BranchTableCard.tsx
-  - ../../src/components/branch/BranchContextMenuRow.tsx
+  - ../../src/components/branch/BranchRowElement.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/shared/PreviewDialogFrame.tsx

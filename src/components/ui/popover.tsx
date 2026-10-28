@@ -1,15 +1,40 @@
 // local customisation: `anchor`, `collisionPadding` and `collisionAvoidance` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal and its `container` (the issue popover inside another popup, a dialog or the toasts),
-// `PopoverSectionTitle` (the one head of a section of every popover: help, Activity days, Robots groups)
+// `PopoverSectionTitle` (the one head of a section of every popover: help, Activity days, Robots groups), `lazy` on
+// `Popover`: the root mounts at the first hover or focus of its trigger, a plain element until then (`useLazyRoot`), and
+// the roots in `PopoverContent` mount with their triggers (`EagerRootsContext`)
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
+import { childNodes, EagerRootsContext, LazyRootContext, PlainTrigger, useLazyRoot } from "@/hooks/useLazyRoot"
 
-function Popover({ ...props }: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+/** The props of a popover trigger that only Base UI reads: a plain trigger leaves them out */
+const POPOVER_TRIGGER_ONLY = ["openOnHover", "delay", "closeDelay", "handle", "payload", "nativeButton"]
+
+/**
+ * `lazy`: the root mounts at the first hover or focus of its trigger, or while `open` (`useLazyRoot`); until then the
+ * trigger is a plain element with the ARIA of a closed popover trigger and the content is not rendered
+ */
+function Popover({ lazy = false, ...props }: PopoverPrimitive.Root.Props & { lazy?: boolean }) {
+  const root = useLazyRoot(lazy, props.open === true || props.defaultOpen === true)
+  return (
+    // every root sets the context, so a trigger in its content never reads the root of an outer popover
+    <LazyRootContext value={lazy ? root : null}>{root.armed ? <PopoverPrimitive.Root data-slot="popover" {...props} /> : childNodes(props.children)}</LazyRootContext>
+  )
 }
 
-function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
+function PopoverTrigger({ ref, ...props }: PopoverPrimitive.Trigger.Props) {
+  const lazy = React.use(LazyRootContext)
+  if (lazy !== null && !lazy.armed) {
+    // a trigger rendered as another element than a button is one for assistive technology, as Base UI makes it
+    const closed = {
+      "data-slot": "popover-trigger",
+      "aria-haspopup": "dialog",
+      "aria-expanded": "false",
+      role: props.nativeButton === false ? "button" : undefined,
+    }
+    return <PlainTrigger root={lazy} trigger={props} closed={closed} baseUiOnly={POPOVER_TRIGGER_ONLY} ref={ref} />
+  }
+  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} ref={ref} />
 }
 
 function PopoverContent({
@@ -22,10 +47,15 @@ function PopoverContent({
   collisionPadding,
   collisionAvoidance,
   container,
+  children,
   ...props
 }: PopoverPrimitive.Popup.Props &
   Pick<PopoverPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding" | "collisionAvoidance"> &
   Pick<PopoverPrimitive.Portal.Props, "container">) {
+  // the content of a lazy root that is not mounted yet
+  if (React.use(LazyRootContext)?.armed === false) {
+    return null
+  }
   return (
     // layout-neutral portal element: the popup is the outermost box (E2E visibility checks)
     <PopoverPrimitive.Portal className="contents" container={container}>
@@ -46,7 +76,10 @@ function PopoverContent({
             className,
           )}
           {...props}
-        />
+        >
+          {/* the roots of its content mount with their triggers */}
+          <EagerRootsContext value>{children}</EagerRootsContext>
+        </PopoverPrimitive.Popup>
       </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
   )

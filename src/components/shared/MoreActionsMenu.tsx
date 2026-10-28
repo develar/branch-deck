@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/compon
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { useLazyRoot } from "@/hooks/useLazyRoot"
 import type { MenuItem } from "@/lib/menu"
 
 export interface MoreActionsMenuProps {
@@ -28,9 +29,33 @@ export interface MoreActionsMenuProps {
 
 /**
  * The "⋯" button of a row, inside its `ActionTracks` or `RowActions` (a click doesn't toggle the row): the menu its right-click opens,
- * under a button, so its actions are found without knowing the right-click.
+ * under a button, so its actions are found without knowing the right-click. Its menu and its tooltip mount at the first
+ * hover or focus of the button (`useLazyRoot`), a plain button with the ARIA of a closed menu trigger until then: every
+ * row has one.
  */
 export function MoreActionsMenu({ name, menu, disabled = false, busy = null, stopWaiting = null }: MoreActionsMenuProps) {
+  const root = useLazyRoot(true)
+  if (!root.armed) {
+    // the button of the branch below that the state renders, closed: a menu unless an action runs without Stop Waiting
+    const menuTrigger = busy === null || stopWaiting !== null
+    return (
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="text-muted-foreground"
+        aria-label={`More actions for ${name}`}
+        aria-haspopup={menuTrigger ? "menu" : undefined}
+        aria-expanded={menuTrigger ? "false" : undefined}
+        aria-busy={busy === null ? undefined : true}
+        data-slot="tooltip-trigger"
+        disabled={busy === null ? disabled : !menuTrigger}
+        focusableWhenDisabled={!menuTrigger}
+        {...root.armProps}
+      >
+        {busy === null ? <EllipsisIcon /> : <Spinner />}
+      </Button>
+    )
+  }
   if (busy !== null && stopWaiting !== null) {
     // the action waits for another holder of the repository lock: the hover says whom for, a click offers Stop Waiting
     return (

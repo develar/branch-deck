@@ -20,7 +20,7 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
   return (
     // the item of the state track truncates it at the cap of the track
     <div className="min-w-0">
-      <Tooltip>
+      <Tooltip lazy>
         <TooltipTrigger
           delay={300}
           // the texts are lower case already ("blocked by IJPL-123" keeps its issue key); E2E reads the `branch-status` test id

@@ -8,7 +8,7 @@ targets:
   - ../../src/components/ui/toggle-group.tsx
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchRow.tsx
-  - ../../src/components/branch/BranchContextMenuRow.tsx
+  - ../../src/components/branch/BranchRowElement.tsx
   - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/hooks/useBranchFilter.ts
   - ../../src/hooks/useBranchRowKeys.ts

@@ -32,7 +32,7 @@ export interface StatusChipProps {
 export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange, className }: StatusChipProps) {
   const Root = onActivate === undefined ? Popover : HoverDescription
   return (
-    <Root onOpenChange={onOpenChange}>
+    <Root lazy onOpenChange={onOpenChange}>
       <PopoverTrigger
         openOnHover
         delay={300}

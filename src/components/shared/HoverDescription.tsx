@@ -1,4 +1,4 @@
-import type { Popover as PopoverPrimitive } from "@base-ui/react/popover"
+import type { ComponentProps } from "react"
 import { Popover } from "@/components/ui/popover"
 
 /**
@@ -9,7 +9,7 @@ import { Popover } from "@/components/ui/popover"
  * left), later it closes it, and the pointer that stays opens it no more. A press that opens the description on purpose
  * (the question before a push that drops remote commits) opens it itself, with `preventBaseUIHandler`.
  */
-export function HoverDescription({ onOpenChange, ...props }: PopoverPrimitive.Root.Props) {
+export function HoverDescription({ onOpenChange, ...props }: ComponentProps<typeof Popover>) {
   return (
     <Popover
       {...props}

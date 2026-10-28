@@ -9,6 +9,7 @@ import {
   verifyBranchState,
   verifyBranchStatus,
   getMoreButton,
+  getBranchCommitRow,
   verifyCommitCount,
   expectNothingToPush,
 } from "../helpers/branch-helpers"
@@ -178,6 +179,33 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await testContextMenuCopy(page, "Copy Branch Name", "test-branch")
     await expect(page.getByRole("menu")).toHaveCount(0)
     await verifyBranchState(branchRow, "closed")
+  })
+
+  test("should open the popups of a row from its first hover or focus, and the branch menu only from the row", async ({ page }) => {
+    const branchRow = findBranchRow(page, "test-branch")
+    await waitForBranchSyncComplete(page, "test-branch")
+
+    // the status text mounts its tooltip under the pointer: one hover opens it
+    await branchRow.getByTestId("branch-status").hover()
+    await expect(page.getByRole("tooltip")).toContainText("the push creates it")
+
+    // "⋯" mounts its menu with the focus and keeps the focus: Enter opens the menu
+    await getMoreButton(branchRow).focus()
+    await expect(getMoreButton(branchRow)).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible()
+    await closeMenus(page)
+
+    // a commit under the row opens its own menu, not the branch's
+    await expandBranch(page, branchRow)
+    await openContextMenu(page, getBranchCommitRow(page, "test-branch", "foo"))
+    await expect(page.getByRole("menu")).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Rename…" })).toHaveCount(0)
+    await closeMenus(page)
+
+    // the row opens the branch menu
+    await openContextMenu(page, branchRow)
+    await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible()
   })
 
   test("should keep the actions of the branch menu during a sync, the rewrites enabled", async ({ page }) => {

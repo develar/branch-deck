@@ -5,11 +5,39 @@ import { CommitList } from "@/components/commit/CommitList"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
+import { TableContextMenu, TableMenuBody } from "@/components/shared/TableContextMenu"
+import { TableHeader } from "@/components/shared/TableHeader"
 import type { Commit } from "@/lib/bindings"
+import { copyFocusedBranchRow } from "@/lib/clipboard"
 import type { ActiveInline, InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor } from "@/stores/inline-row-action"
 
 const InlineDeleteConfirmationInput = lazy(() => import("@/components/branch/InlineDeleteConfirmationInput").then(it => ({ default: it.InlineDeleteConfirmationInput })))
+
+/**
+ * The table of a card of kept branches (archived, unapplied): Branch Name, `columns` (hidden on a narrow window),
+ * Actions; one menu for the right-click of its rows, `menu` the items of the row of a name
+ */
+export function KeptBranchTable({ columns, menu, children }: { columns: readonly string[]; menu: (name: string) => ReactNode; children: ReactNode }) {
+  return (
+    <TableContextMenu menu={menu}>
+      <table className="w-full" onKeyDown={copyFocusedBranchRow}>
+        <thead className="border-b border-border">
+          <tr>
+            <TableHeader>Branch Name</TableHeader>
+            {columns.map(column => (
+              <TableHeader key={column} className="hidden w-px px-4 whitespace-nowrap sm:table-cell">
+                {column}
+              </TableHeader>
+            ))}
+            <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
+          </tr>
+        </thead>
+        <TableMenuBody className="divide-y divide-border">{children}</TableMenuBody>
+      </table>
+    </TableContextMenu>
+  )
+}
 
 /** The Actions cell of the row of a kept branch: its "⋯" menu, `menu` the same items as the right-click */
 export function KeptBranchActionsCell({ label, disabled, busy = null, menu }: { label: string; disabled: boolean; busy?: string | null; menu: ReactNode }) {

@@ -59,7 +59,7 @@ export function BranchNameCell({
     <div className="flex min-w-0 items-center gap-2">
       {lanes}
       {canExpand && (
-        <Tooltip>
+        <Tooltip lazy>
           <TooltipTrigger
             render={
               <Button

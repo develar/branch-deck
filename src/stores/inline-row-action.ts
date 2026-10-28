@@ -93,7 +93,7 @@ function isFocusLost(): boolean {
 }
 
 /**
- * Gives the focus back to the opener of the closed form of `branchName`, else to its row (`BranchContextMenuRow` is
+ * Gives the focus back to the opener of the closed form of `branchName`, else to its row (`BranchRowElement` is
  * focusable); only a focus the form had: the user may have moved on while it processed.
  */
 function returnFocus(branchName: string): void {

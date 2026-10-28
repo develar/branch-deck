@@ -1,19 +1,17 @@
 import { memo, useEffect } from "react"
 import type { ComponentType } from "react"
 import { cn } from "cn"
-import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
-import { KeptBranchActionsCell, KeptBranchCommits, KeptBranchRowParts } from "@/components/branch/KeptBranchCommits"
+import { BranchRowElement } from "@/components/branch/BranchRowElement"
+import { KeptBranchActionsCell, KeptBranchCommits, KeptBranchRowParts, KeptBranchTable } from "@/components/branch/KeptBranchCommits"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { HelpPopover } from "@/components/shared/HelpPopover"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
-import { TableHeader } from "@/components/shared/TableHeader"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useRowBusy } from "@/hooks/useRowOperation"
 import { useUnappliedBranchMenu } from "@/hooks/useUnappliedBranchMenu"
-import { copyFocusedBranchRow } from "@/lib/clipboard"
 import { formatCommitCount } from "@/lib/commit"
 import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -23,6 +21,9 @@ import type { UnappliedBranch } from "@/stores/unapplied-branches"
 import { getUnappliedBranch, loadUnappliedCommits, useUnappliedBranch, useUnappliedBranchOrder } from "@/stores/unapplied-branches"
 
 const columnCount = 3
+
+/** The column of the unapplied table between the name and the actions */
+const UNAPPLIED_COLUMNS = ["Remote"] as const
 
 /**
  * The Unapplied card, after the branch table and the Parked card, before the archived branches: the branches an unapply
@@ -43,20 +44,11 @@ export function UnappliedBranchTableCard() {
       header={<SectionCardHeader title="Unapplied" count={order.length} itemSingular="branch" itemPlural="branches" />}
       help={<UnappliedBranchesHelpPopover />}
     >
-      <table className="w-full" onKeyDown={copyFocusedBranchRow}>
-        <thead className="border-b border-border">
-          <tr>
-            <TableHeader>Branch Name</TableHeader>
-            <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Remote</TableHeader>
-            <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {order.map(name => (
-            <UnappliedBranchRow key={name} name={name} expanded={expandedKeys.has(name)} onToggleExpanded={toggleExpanded} />
-          ))}
-        </tbody>
-      </table>
+      <KeptBranchTable columns={UNAPPLIED_COLUMNS} menu={name => <UnappliedBranchMenuItems name={name} Items={ContextMenuItems} />}>
+        {order.map(name => (
+          <UnappliedBranchRow key={name} name={name} expanded={expandedKeys.has(name)} onToggleExpanded={toggleExpanded} />
+        ))}
+      </KeptBranchTable>
     </CollapsibleCard>
   )
 }
@@ -90,20 +82,13 @@ const UnappliedBranchRow = memo(function UnappliedBranchRow({ name, expanded, on
   const toggle = () => onToggleExpanded(name)
   return (
     <>
-      <BranchContextMenuRow
-        name={name}
-        expanded={expanded}
-        processing={working}
-        className={cn(expanded && "bg-muted/50")}
-        onToggle={toggle}
-        menu={<UnappliedBranchMenuItems name={name} Items={ContextMenuItems} />}
-      >
+      <BranchRowElement name={name} expanded={expanded} processing={working} className={cn(expanded && "bg-muted/50")} onToggle={toggle}>
         <BranchNameCell name={branch.branch} summary={branch.subject} expanded={expanded} onToggleExpanded={toggle} />
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap text-muted-foreground sm:table-cell" data-testid="unapplied-branch-remote">
           {remoteText(branch)}
         </td>
         <KeptBranchActionsCell label={branch.branch} disabled={working} busy={busy} menu={<UnappliedBranchMenuItems name={name} Items={DropdownMenuItems} />} />
-      </BranchContextMenuRow>
+      </BranchRowElement>
 
       <KeptBranchRowParts
         name={name}

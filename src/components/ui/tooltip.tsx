@@ -1,21 +1,42 @@
 // local customisation: `role="tooltip"` on the popup; `disableHoverablePopup` by default: a text tooltip closes when the
 // pointer leaves its trigger and never blocks what is under it (a tooltip over the submit of the form above it stayed
-// open while hovered and swallowed the click)
+// open while hovered and swallowed the click); `lazy` on `Tooltip`: the root mounts at the first hover or focus of its
+// trigger, a plain element until then (`useLazyRoot`), for the many tooltips of a table row
 "use client"
 
+import { use } from "react"
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 import { cn } from "cn"
+import { childNodes, LazyRootContext, PlainTrigger, useLazyRoot } from "@/hooks/useLazyRoot"
 
 function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
 }
 
-function Tooltip({ disableHoverablePopup = true, ...props }: TooltipPrimitive.Root.Props) {
-  return <TooltipPrimitive.Root data-slot="tooltip" disableHoverablePopup={disableHoverablePopup} {...props} />
+/** The props of a tooltip trigger that only Base UI reads: a plain trigger leaves them out */
+const TOOLTIP_TRIGGER_ONLY = ["delay", "closeDelay", "closeOnClick", "handle", "payload", "disabled"]
+const CLOSED_TOOLTIP_TRIGGER = { "data-slot": "tooltip-trigger" }
+
+/**
+ * `lazy`: the root mounts at the first hover or focus of its trigger, or while `open` (`useLazyRoot`); until then the
+ * trigger is a plain element and the content is not rendered
+ */
+function Tooltip({ disableHoverablePopup = true, lazy = false, ...props }: TooltipPrimitive.Root.Props & { lazy?: boolean }) {
+  const root = useLazyRoot(lazy, props.open === true || props.defaultOpen === true)
+  return (
+    // every root sets the context, so a trigger in its content never reads the root of an outer tooltip
+    <LazyRootContext value={lazy ? root : null}>
+      {root.armed ? <TooltipPrimitive.Root data-slot="tooltip" disableHoverablePopup={disableHoverablePopup} {...props} /> : childNodes(props.children)}
+    </LazyRootContext>
+  )
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+function TooltipTrigger({ ref, ...props }: TooltipPrimitive.Trigger.Props) {
+  const lazy = use(LazyRootContext)
+  if (lazy !== null && !lazy.armed) {
+    return <PlainTrigger root={lazy} trigger={props} closed={CLOSED_TOOLTIP_TRIGGER} baseUiOnly={TOOLTIP_TRIGGER_ONLY} ref={ref} />
+  }
+  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} ref={ref} />
 }
 
 function TooltipContent({
@@ -27,6 +48,10 @@ function TooltipContent({
   children,
   ...props
 }: TooltipPrimitive.Popup.Props & Pick<TooltipPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset">) {
+  // the content of a lazy root that is not mounted yet
+  if (use(LazyRootContext)?.armed === false) {
+    return null
+  }
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Positioner align={align} alignOffset={alignOffset} side={side} sideOffset={sideOffset} className="isolate z-50">

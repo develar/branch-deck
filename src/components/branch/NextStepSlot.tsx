@@ -223,7 +223,7 @@ export function StepButton({ action, tone, showKeys }: { action: MenuItem; tone:
     return button
   }
   return (
-    <Tooltip>
+    <Tooltip lazy>
       <TooltipTrigger render={button} />
       <TooltipContent className="whitespace-pre-line" data-testid="next-step-hover">
         {action.description}

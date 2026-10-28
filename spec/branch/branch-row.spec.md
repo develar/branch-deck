@@ -7,7 +7,9 @@ targets:
   - ../../crates/sync-core/src/delete_archived_branch.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../src/components/branch/BranchRow.tsx
-  - ../../src/components/branch/BranchContextMenuRow.tsx
+  - ../../src/components/branch/BranchRowElement.tsx
+  - ../../src/components/shared/TableContextMenu.tsx
+  - ../../src/hooks/useLazyRoot.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../crates/domain-policy/src/actions.rs
   - ../../crates/domain-policy/src/landing_node.rs
@@ -509,9 +511,21 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should move the selected branches to a new branch with Move to…`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show a big stack as an island below the table, the commits of a row on its lane only while it is expanded, oldest first`)
-- A right-click must open the branch menu, the same as "⋯" in the Actions cell. A row running an inline action has no
-  menu.
+- A right-click must open the branch menu at the pointer, the same as "⋯" in the Actions cell. A row running an inline
+  action has no menu. The rows of a table share one menu (`TableContextMenu`: the branch table, its stack islands and
+  the Parked card one, the archived and the unapplied tables one each), which opens with the items of the row under the
+  pointer; a right-click outside a row (a commit under it, an inline form) is not the branch's.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display context menu with copy options`)
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open the popups of a row from its first hover or focus, and the branch menu only from the row`)
+- The tooltips, popovers and the "⋯" menu of a row must mount at the first hover or focus of their trigger, not with the
+  row (`useLazyRoot`, [Rendering Performance](../../docs/design/rendering-performance.md) Key Decision 7): until then
+  the trigger has the same look, name and ARIA; one hover opens its popup after the delay it always had, the focus stays
+  on the trigger, a key or a press acts on it as before, and nothing asks the backend. In the content of a popover (the
+  robot's details, the landing overview, the Safe Push popover) the roots mount with their triggers, so a press in a
+  popup a hover opened keeps it open.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open the popups of a row from its first hover or focus, and the branch menu only from the row`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it`)
 - Space over a row must open the [branch preview](branch-preview.spec.md).
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
 - A row with commits must be draggable: it drags the branch, or all selected branches; a collapsed stack root drags its

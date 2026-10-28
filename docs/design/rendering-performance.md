@@ -171,6 +171,35 @@ flowchart LR
    them, the IPC carried them, the page parsed them and the stores kept them, for conflicts nobody opened. A conflict
    in a 5.6 MiB file was 2 × 28 MiB of JSON per sync, now 2 × 1.3 KiB.
 
+7. **Decision**: the roots of Base UI a row would mount for its popups mount when they are first wanted, and a table has
+   one context menu for its rows.
+   - A tooltip or a popover of a row is `lazy` (`<Tooltip lazy>`, `<Popover lazy>`, `<HoverDescription lazy>`: the
+     status text, the name and the stack chip, the node, the chips, the push, the step, the Safe Push button) and the
+     "⋯" of a row (`MoreActionsMenu`) mounts its menu and its tooltip the same way (`useLazyRoot`): until the first
+     pointer over its trigger or focus in it, the trigger is a plain element with the same look, name and ARIA
+     (`PlainTrigger`: `aria-haspopup`, `aria-expanded="false"`), and the content is not rendered. The first intent
+     mounts the root in the same event (`flushSync`: a press that follows meets the real trigger) and replays itself
+     on the trigger that took the place of the plain one: the focus moves to it, the pointer enters and moves over it,
+     so the hover opens its popup after the delay it always had. The root stays from then on; one opened from code (a
+     confirm of a push) mounts while it is open. No IPC: the hover reads ahead what it read before (`hoverIpc`).
+   - In the content of a popover the roots mount with their triggers (`EagerRootsContext`, set by `PopoverContent`):
+     a popup mounts its content as it opens, one at a time, so it has no mount to save; and a trigger swapped under the
+     pointer would close a popup a hover opened, whose safe polygon keeps it open for the element the pointer went to
+     (the `relatedTarget` of the `mouseleave` of its trigger), which the swap took out of the page: the Safe Push of
+     the robot's popover, the steps of the landing overview and the buttons of the Safe Push popover closed their
+     popup under the press.
+   - The right-click of every row of a table opens one menu (`TableContextMenu`, the body a `TableMenuBody`): the
+     branch table, its stack islands and the Parked card share it, the archived and the unapplied tables have one
+     each. The body finds the row by `data-branch-name` and opens the menu of that row at the pointer, none on a row
+     an operation works on (`data-processing`); outside a row (the commits under it, an inline form) the right-click
+     stays the page's.
+
+   **Rationale**: a root of Base UI is a store, its floating context and its interactions; a menu root also a
+   composite list. A row mounted a dozen of them (the context menu, the "⋯" menu and its tooltip, the tooltips of the
+   status text, the folder button and the stack chip, the popovers of the node, the push, the chips), and the 141 rows
+   of `branch_table_large` spent most of their first mount on roots nobody opened (the profile below). A tooltip or a
+   popover is opened on a few rows of a session; a menu at a time.
+
 ### The main thread of a sync
 
 `pnpm perf:table` (`tests/perf/branch-table.perf.ts`, Chromium) measures what a sync costs the page: the script and
@@ -257,6 +286,17 @@ changes nothing. The script of the first sync is the mount of the rows and the p
 listeners did not cost; what is left of B4 goes to s13 (the roots of Base UI mounted on the first hover, one menu of
 the table, the cached frame).
 
+Since s13 the roots of Base UI a row would mount for its popups mount at the first hover or focus of their trigger, and
+a table has one context menu for its rows (Key Decision 7). In three turns on the Mac Studio at a load of 4 to 10, each
+the median of three runs, master `21e7e183`, the stage before the step (`cbc347f37`) and the step in that order: the
+first sync costs 278 / 728 ms of script / task against 574 / 1061 ms before the step and 622 / 1305 ms on master, a sync
+that changes nothing 33 / 87 ms against 50 / 137 and 50 / 130 ms; 52 % less script for the first sync than before the
+step, 55 % less than master. The goal of B4, at most 365 ms of script for the first sync, is reached. The IPC stays as
+it was (`hoverIpc` 1, `menuIpc` 0, `popoverIpc` 1, three commands until the rows). The profile of the first sync
+after the step: 864 ms of a busy main thread against 1,159 ms, React's own work 158 ms against 231 ms; the hooks of
+the roots of Base UI (`fastHooks`, 134 ms with their callees) are gone from the rows; a composite of Base UI still
+spends 31 ms (`CompositeRoot`), for s13-7 to find.
+
 [@test] ../../src/stores/branch-sync.test.ts (`wakes the hooks of a branch only when its own entry changed, those of a field only when the field did`)
 
 What the page no longer derives the session derives on every patch, so its time is a budget too (B10 there, at most
@@ -274,10 +314,10 @@ pending: the messages of the first sync and the commands invoked until its rows 
 patches of the session on the channel of `subscribe_view`, before 2026-10-24 the `SyncEvent`s of the sync command;
 `firstSyncInvokes`), the bytes of a sync that changes nothing (`resyncIpcBytes`: parameters, answers and channel
 messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the intent,
-`page.clock.fastForward`), of its "⋯" menu opened by a right click (`menuIpc`) and of its robot's popover
-(`popoverIpc`). The counts are exact, the same in every run, except the patches: the session sends at most one per
-16 ms of the run, so their number follows how long the sync took. The commands of the app's own timers are left out
-(`withoutAppTimers` of ipc-helpers.ts, as the E2E test of these numbers): the debounced writes of the settings
+`page.clock.fastForward`), of its menu opened by a right click (`menuIpc`, the one menu of the table) and of its
+robot's popover (`popoverIpc`). The counts are exact, the same in every run, except the patches: the session sends at
+most one per 16 ms of the run, so their number follows how long the sync took. The commands of the app's own timers are
+left out (`withoutAppTimers` of ipc-helpers.ts, as the E2E test of these numbers): the debounced writes of the settings
 (`set_setting`: the settled layout of the view, the record of the sync) and the check for updates after the start
 (`check_for_updates`), which fire wherever a run is; the rows before 2026-10-25 count them (3 `set_setting` in the
 first sync of Chromium and 2 in the hover of WebKit once s6 landed). What the session sends, its patches and their bytes

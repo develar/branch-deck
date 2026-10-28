@@ -5,11 +5,11 @@ import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActiveBranchExpanded } from "@/components/branch/ActiveBranchExpanded"
-import { BranchActions, BranchMenuItems } from "@/components/branch/BranchActions"
+import { BranchActions } from "@/components/branch/BranchActions"
 import { ColumnTrack } from "@/components/branch/BranchColumns"
-import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { StackOnDropChip } from "@/components/branch/BranchDropZones"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
+import { BranchRowElement } from "@/components/branch/BranchRowElement"
 import { BranchRowStatus } from "@/components/branch/BranchRowStatus"
 import { LandedChip } from "@/components/branch/LandedChip"
 import { LandingSpanLabel } from "@/components/branch/LandingSpanLabel"
@@ -17,7 +17,6 @@ import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { PassedParentLabel } from "@/components/branch/StackBaseLabel"
 import { StackChip } from "@/components/branch/StackChip"
 import { LaneCell, LaneGutter } from "@/components/branch/StackLanes"
-import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { acceptanceOf, beginCommitDrag, dropTargetState, getBranchDropFacts, useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
@@ -195,7 +194,7 @@ export const BranchRow = memo(function BranchRow({
 
   return (
     <>
-      <BranchContextMenuRow
+      <BranchRowElement
         data-testid="branch-row"
         name={name}
         rowId={name}
@@ -219,7 +218,6 @@ export const BranchRow = memo(function BranchRow({
         onDragStart={canDrag ? onDragStart : undefined}
         onDragEnd={endCommitDrag}
         onToggle={onRowClick}
-        menu={<BranchMenuItems name={name} setExpanded={setExpanded} Items={ContextMenuItems} />}
       >
         <BranchNameCell
           name={name}
@@ -285,7 +283,7 @@ export const BranchRow = memo(function BranchRow({
           <BranchActions branch={branch} setExpanded={setExpanded} stackPushInHeader={stackPushInHeader} />
           <StackOnDropChip name={name} rowOver={isDropOver} />
         </td>
-      </BranchContextMenuRow>
+      </BranchRowElement>
 
       {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
         <tr className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>

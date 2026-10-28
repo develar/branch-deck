@@ -66,7 +66,7 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
   const description = [`Stack of ${root}`, size, ...chips.map(chip => chip.text)].join(" · ")
   if (filtered) {
     return (
-      <Tooltip>
+      <Tooltip lazy>
         <TooltipTrigger
           render={<span className="inline-flex h-5 shrink-0 items-center px-1 text-xs text-muted-foreground tabular-nums" data-testid="stack-chip" data-stack="filtered" />}
         >
@@ -78,7 +78,7 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
   }
   const attention = collapsed ? (chips[0] ?? null) : null
   return (
-    <Tooltip>
+    <Tooltip lazy>
       <TooltipTrigger
         render={
           <button

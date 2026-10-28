@@ -33,7 +33,7 @@ export function PassedParentLabel({ branch }: { branch: Branch }) {
   }
   const base = branch.stack?.effectiveBase ?? baseline
   return (
-    <Tooltip>
+    <Tooltip lazy>
       <TooltipTrigger render={<span className="shrink-0 text-xs text-muted-foreground" data-testid="stack-base" />}>{`on ${base}`}</TooltipTrigger>
       <TooltipContent>{`${describeParentState(passed.parent, passed.state)} · ${branch.name} is built on ${base}`}</TooltipContent>
     </Tooltip>

@@ -27,7 +27,7 @@ export function LandingSpanLabel({ name, fallback }: { name: string; fallback: R
   }
   const subject = formatLandingSubject(landing)
   return (
-    <Tooltip>
+    <Tooltip lazy>
       <TooltipTrigger render={<span className="shrink-0 text-xs text-muted-foreground" data-testid="landing-span" />}>{`lands with ${subject}`}</TooltipTrigger>
       <TooltipContent>{`A ${formatPushMode(landing.robot.pushMode)} of ${subject} lands this branch with it`}</TooltipContent>
     </Tooltip>

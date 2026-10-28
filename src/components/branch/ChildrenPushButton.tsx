@@ -97,7 +97,7 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
   // the stack branch holds the commits of the branches: what the remote lacks of both, each once
   const pushCommits = withStackBranch ? Math.max(push.pushCommits, stack.remoteStatus?.commitsAhead ?? 0) : push.pushCommits
   return (
-    <HoverDescription>
+    <HoverDescription lazy>
       <PopoverTrigger
         openOnHover
         delay={300}

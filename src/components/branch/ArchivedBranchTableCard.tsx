@@ -8,18 +8,16 @@ import { ArchivedBranchesHelpPopover } from "@/components/branch/ArchivedBranche
 import { ArchivedBranchExpanded } from "@/components/branch/ArchivedBranchExpanded"
 import { ArchivedBranchStatusBadge } from "@/components/branch/ArchivedBranchStatusBadge"
 import { ArchivedDateCell } from "@/components/branch/ArchivedDateCell"
-import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
-import { KeptBranchActionsCell, KeptBranchRowParts } from "@/components/branch/KeptBranchCommits"
+import { BranchRowElement } from "@/components/branch/BranchRowElement"
+import { KeptBranchActionsCell, KeptBranchRowParts, KeptBranchTable } from "@/components/branch/KeptBranchCommits"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
-import { TableHeader } from "@/components/shared/TableHeader"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { getSimpleBranchName } from "@/lib/branch"
-import { copyFocusedBranchRow } from "@/lib/clipboard"
 import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
 import { useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
@@ -27,6 +25,9 @@ import { useSurfaceBusy } from "@/stores/indicators"
 import { inlineSurface, openInline, useActiveInlineForRow, withRowProgress } from "@/stores/inline-row-action"
 
 const columnCount = 4
+
+/** The columns of the archived table between the name and the actions */
+const ARCHIVED_COLUMNS = ["Status", "Integrated"] as const
 
 /** Collapsible table of archived branches (collapsed by default). */
 export function ArchivedBranchTableCard() {
@@ -53,21 +54,11 @@ export function ArchivedBranchTableCard() {
       }
       help={<ArchivedBranchesHelpPopover />}
     >
-      <table className="w-full" onKeyDown={copyFocusedBranchRow}>
-        <thead className="border-b border-border">
-          <tr>
-            <TableHeader>Branch Name</TableHeader>
-            <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
-            <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Integrated</TableHeader>
-            <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {order.map(name => (
-            <ArchivedBranchRow key={name} name={name} expanded={expandedKeys.has(name)} onToggleExpanded={toggleExpanded} />
-          ))}
-        </tbody>
-      </table>
+      <KeptBranchTable columns={ARCHIVED_COLUMNS} menu={name => <ArchivedBranchMenuItems name={name} Items={ContextMenuItems} />}>
+        {order.map(name => (
+          <ArchivedBranchRow key={name} name={name} expanded={expandedKeys.has(name)} onToggleExpanded={toggleExpanded} />
+        ))}
+      </KeptBranchTable>
     </CollapsibleCard>
   )
 }
@@ -105,14 +96,13 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
 
   return (
     <>
-      <BranchContextMenuRow
+      <BranchRowElement
         name={name}
         expanded={expanded}
         processing={processing}
         // "Loading commits…" below the row is the progress of its expansion
         className={cn(expanded && "bg-muted/50")}
         onToggle={toggle}
-        menu={<ArchivedBranchMenuItems name={name} Items={ContextMenuItems} />}
       >
         <BranchNameCell
           name={name}
@@ -136,7 +126,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
           <ArchivedDateCell branch={branch} />
         </td>
         <KeptBranchActionsCell label={getSimpleBranchName(name)} disabled={processing} menu={<ArchivedBranchMenuItems name={name} Items={DropdownMenuItems} />} />
-      </BranchContextMenuRow>
+      </BranchRowElement>
 
       <KeptBranchRowParts
         name={name}

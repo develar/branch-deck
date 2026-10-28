@@ -41,7 +41,7 @@ targets:
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/components/branch/BranchRow.tsx
-  - ../../src/components/branch/BranchContextMenuRow.tsx
+  - ../../src/components/branch/BranchRowElement.tsx
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
   - ../../src/stores/commit-move.ts

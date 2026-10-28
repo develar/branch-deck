@@ -61,7 +61,7 @@ function ParkedStatus({ state }: { state: ParkedState }) {
   const what = state.with === null ? "Parked" : `Parked with ${state.with}`
   return (
     <div className="min-w-0">
-      <Tooltip>
+      <Tooltip lazy>
         <TooltipTrigger delay={300} render={<span className="flex h-6 max-w-full items-center gap-2 text-sm text-muted-foreground" data-testid="parked-status" />}>
           <CirclePauseIcon aria-hidden className="size-3.5 shrink-0" />
           <span className="truncate">{what}</span>
