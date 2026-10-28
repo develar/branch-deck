@@ -9,7 +9,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 /// `bd lease host <args>`, which must succeed, its output checked against `bd schema`
-fn host(fixture: &Fixture, output: &str, args: &[&str]) -> Value {
+pub(crate) fn host(fixture: &Fixture, output: &str, args: &[&str]) -> Value {
   let (exit_code, value) = fixture.run(&[&["lease", "host"][..], args].concat());
   assert_eq!(exit_code, 0, "{value}");
   let (_, schema) = fixture.run(&["schema", "--all"]);

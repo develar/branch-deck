@@ -1280,3 +1280,44 @@ fn a_group_dry_run_with_a_description() {
     &[("cat-file", 1), ("config", 2), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 3)],
   );
 }
+
+/// `bd lease host have` is one `cat-file`, `ingest` of a small pack the config, `unpack-objects` and one ref
+/// transaction, `show` one `cat-file`, and the give-back of a run that sent a pack one more ref transaction
+#[test]
+fn the_host_objects_have_ingest_and_show() {
+  let repo = repo_with_branches();
+  let path = repo.path().to_str().unwrap();
+  let base = repo.head();
+  let client = TestRepo::new_empty();
+  client.clone_from(repo.path()).unwrap();
+  let commit = client.create_commit("Client change", "client.txt", "client\n");
+  let pack = client
+    .git_executor()
+    .cmd(&["pack-objects", "--revs", "--thin", "--stdout", "-q"], client.path_str())
+    .stdin(format!("{commit}\n^{base}\n").as_bytes())
+    .bytes()
+    .unwrap();
+  let (_home, environment) = lease_environment(&repo);
+  let context = || LeaseContext::resolve(&environment, None).unwrap();
+
+  let have = context();
+  assert_eq!(git_ops::host_objects::present_commits(&have.git, path, &[base.clone(), commit.clone()]).unwrap(), [base]);
+  assert_git_processes(&have.git, &[("cat-file", 1), ("rev-parse", 1)]);
+  let ingest = context();
+  let target = lease_pool::host_refs::HostRef::Run("run-1".to_string());
+  lease_pool::host_refs::ingest(&ingest.git, &ingest.dirs, &target, &commit, &mut std::io::Cursor::new(pack), ingest.lock_timeout).unwrap();
+  assert_git_processes(&ingest.git, &[("config", 1), ("rev-parse", 1), ("unpack-objects", 1), ("update-ref", 1)]);
+  let show = context();
+  git_ops::host_objects::show_commit(&show.git, path, &commit, Some("client.txt"), &["README.md".to_string()]).unwrap();
+  assert_git_processes(&show.git, &[("cat-file", 1), ("rev-parse", 1)]);
+  let deleted = context();
+  assert!(
+    lease_pool::host_refs::delete_run_ref(&deleted.git, &deleted.dirs, "run-1", deleted.lock_timeout)
+      .unwrap()
+      .is_some()
+  );
+  assert_git_processes(&deleted.git, &[("rev-parse", 1), ("update-ref", 1)]);
+  let none = context();
+  assert_eq!(lease_pool::host_refs::delete_run_ref(&none.git, &none.dirs, "run-1", none.lock_timeout).unwrap(), None);
+  assert_git_processes(&none.git, &[("rev-parse", 1)]);
+}

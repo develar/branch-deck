@@ -18,8 +18,8 @@ use bd_core::output::{WithOperation, write_json};
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::host_command::{
-  LeaseHostArgs, LeaseHostCommand, lease_host_checkout, lease_host_fill, lease_host_give_back, lease_host_lend, lease_host_limit, lease_host_reclaim, lease_host_shrink,
-  lease_host_status,
+  LeaseHostArgs, LeaseHostCommand, lease_host_checkout, lease_host_fill, lease_host_git, lease_host_give_back, lease_host_have, lease_host_ingest, lease_host_lend,
+  lease_host_limit, lease_host_reclaim, lease_host_show, lease_host_shrink, lease_host_status,
 };
 use bd_lease::lease_command::{
   LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status, lease_tree_check,
@@ -563,6 +563,10 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       LeaseHostCommand::Shrink(args) => lease_host_shrink(&context, environment, args).and_then(|output| printed(out, &output)),
       LeaseHostCommand::Limit(args) => lease_host_limit(&context, environment, args).and_then(|output| printed(out, &output)),
       LeaseHostCommand::Status => lease_host_status(&context).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Have(args) => lease_host_have(&context, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Ingest(args) => lease_host_ingest(&context, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Show(args) => lease_host_show(&context, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Git => lease_host_git(&context).and_then(|output| printed(out, &output)),
     }),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),
@@ -643,10 +647,11 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Install(_)
     | Command::Help { .. }
     | Command::Lease(LeaseArgs {
-      command: LeaseCommand::Status(_)
-      | LeaseCommand::Host(LeaseHostArgs {
-        command: LeaseHostCommand::Status,
-      }),
+      command:
+        LeaseCommand::Status(_)
+        | LeaseCommand::Host(LeaseHostArgs {
+          command: LeaseHostCommand::Status | LeaseHostCommand::Have(_) | LeaseHostCommand::Show(_) | LeaseHostCommand::Git,
+        }),
     }) => true,
     Command::Describe(args) => args.title.is_none() && args.body.is_none() && args.body_file.is_none() && !args.clear,
     Command::Update(args) => args.dry_run || (args.status && !args.materialize),

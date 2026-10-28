@@ -9,12 +9,14 @@ use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::host_objects::ShowRefusal;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::{RepositoryDirs, ref_exists, repository_dirs, short_id};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::check_record::{NAMED_PATHS, TreeCheck, check_tree};
 use lease_pool::free_space::available_bytes;
+use lease_pool::host_refs::HostRefRefusal;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool,
@@ -1030,6 +1032,9 @@ pub(crate) fn lease_error(error: anyhow::Error) -> CliError {
       HostSlotRefusal::InvalidConfig { .. } | HostSlotRefusal::ProcessGone(_) => ErrorCode::InvalidArguments,
     };
     return CliError::new(code, format!("{error:#}"));
+  }
+  if error.downcast_ref::<HostRefRefusal>().is_some() || error.downcast_ref::<ShowRefusal>().is_some() {
+    return CliError::new(ErrorCode::InvalidArguments, format!("{error:#}"));
   }
   if error.downcast_ref::<RepositoryLocked>().is_some() {
     return CliError::new(ErrorCode::Locked, format!("{error:#}"));

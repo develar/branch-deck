@@ -68,6 +68,8 @@
 //!
 //! The lease pool:
 //! - `lease_slot`: the git of a slot of `bd lease`, the one other writer of a working tree: a slot is pool property
+//! - `host_objects`: the commits a host has, the pack of a client into its object store, the refs that keep the
+//!   commits of the runs (`refs/branch-deck/host/`), the blob text and the tree ids of a commit (`bd lease host`)
 
 pub mod amend_operations;
 pub mod attributes;
@@ -83,6 +85,7 @@ pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
 pub mod history;
+pub mod host_objects;
 pub mod index_lock;
 pub mod landed_pairing;
 pub mod lease_slot;
@@ -138,6 +141,9 @@ mod copy_commit_test;
 
 #[cfg(test)]
 mod git_command_test;
+
+#[cfg(test)]
+mod host_objects_test;
 
 #[cfg(test)]
 mod history_test;

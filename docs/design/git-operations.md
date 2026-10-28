@@ -1892,6 +1892,18 @@ token.
 The guarantee stays git's: the daemon answers only after the event of its cookie file arrived (else, after 1 s, it
 answers "everything changed"), and a dropped event or a new daemon makes the next `status` walk every file.
 
+The objects of the runs go through bd too (`bd lease host have`, `ingest`, `show`, `git`; `git_ops::host_objects`,
+`lease_pool::host_refs`), so yonderd starts no git. `ingest` takes the pack of a client on stdin and reads its 12-byte
+header first. A pack of fewer objects than `receive.unpackLimit` (else `transfer.unpackLimit`, else 100) goes to
+`unpack-objects`, as `receive-pack` does with a small push; `unpack-objects` resolves the bases of a thin pack from the
+object store. A larger one goes to `index-pack --stdin --fix-thin`. Until 2026-10-28 every pack of a run became a pack
+file of the repository, and each later read of an object looked in one more pack. The ref of the commit is
+`refs/branch-deck/host/run/<id>` until the give-back of the run, or `refs/branch-deck/host/base/<name>` for the base
+of the later packs of a client. `host-refs.json` keeps when a pack last moved each, so the give-back and `reclaim`
+read a file, not the refs: a run ref without a lend or a ticket goes an hour after its pack, a base ref that no pack
+moved goes after 14 days. yonderd kept every base ref forever. With `branchdeck.leaseMaintenance` the ingest starts the
+maintenance after the ref, as the give-back does.
+
 A shrink checks the slot out at the commit it was leased at. That commit is the base of `unlanded_commits`, so the
 snapshot commits of the runs never refuse the return, and the return needs no `--confirm-preserved`. A shrink also
 works without the agent: an abandoned state is free to it. A hand `bd lease return` of a host slot is refused as

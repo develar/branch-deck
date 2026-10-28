@@ -11,6 +11,9 @@
 //! - `host_slots`: the slots that the remote-run agent of a host keeps for the runs of other machines through
 //!   `bd lease host`, plain leases of the holders `bd-host/<n>`, and the lend table that lends each to one run at a
 //!   time, gives it back, cleans and shrinks it
+//! - `host_git`: the floor of the version of the git of a host that serves remote runs
+//! - `host_refs`: the refs that keep the commits of the runs of a host and the bases of its clients (`bd lease host
+//!   ingest`), and when a pack last moved each, which the give-back of a run and `reclaim` read to delete them
 //! - `state_file`: a JSON state file of `branch-deck/` with a lock of its own, of the pool and of the lend table
 //! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot, and its
 //!   `pick_requires_check`
@@ -23,6 +26,8 @@ pub mod agent_workspace;
 pub mod check_record;
 pub mod clone_dir;
 pub mod free_space;
+pub mod host_git;
+pub mod host_refs;
 pub mod host_slots;
 pub mod lease;
 pub mod lease_clean;
@@ -32,3 +37,5 @@ mod state_file;
 mod agent_workspace_test;
 #[cfg(test)]
 mod check_record_test;
+#[cfg(test)]
+mod host_git_test;

@@ -8,14 +8,17 @@ use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
+use git_ops::host_objects::{Stored, present_commits, show_commit};
 use git_ops::revs::is_object_id;
+use lease_pool::host_git::{floor_text, meets_floor};
+use lease_pool::host_refs::{HostRef, ingest, reclaim_refs};
 use lease_pool::host_slots::{
   HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, checkout, describe_state, fill, give_back_run,
-  is_abandoned, lend, lend_waiting, read_host_slots, reclaim, set_limit, shrink,
+  is_abandoned, lend, lend_waiting, live_runs, read_host_slots, reclaim, set_limit, shrink,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::io::Write as _;
+use std::io::{Read, Write as _};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use sync_utils::process_scan::{is_running, process_started};
@@ -45,6 +48,48 @@ pub enum LeaseHostCommand {
   Limit(LeaseHostLimitArgs),
   /// The lend table: each host slot, its state and the queue. Read only
   Status,
+  /// Which of the commits the repository of -C has as commit objects; also the check that -C is a repository. Read only
+  Have(LeaseHostHaveArgs),
+  /// Write the pack of a client (stdin, or --pack) into the repository of -C and point a ref of the host at its commit:
+  /// `run:<id>` until the give-back of the run, `base:<name>` until no pack moved it for 14 days
+  Ingest(LeaseHostIngestArgs),
+  /// The text of a file and the object ids of paths of a commit, from one `cat-file`. Read only
+  Show(LeaseHostShowArgs),
+  /// The git that bd and the runs use: its path, its version and whether it meets the floor of a host. Read only
+  Git,
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeaseHostHaveArgs {
+  /// Full commit ids
+  #[arg(value_name = "COMMIT")]
+  pub commits: Vec<String>,
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeaseHostIngestArgs {
+  /// `run:<id>` (`refs/branch-deck/host/run/<id>`) or `base:<name>` (`refs/branch-deck/host/base/<name>`)
+  #[arg(long = "ref", value_name = "REF")]
+  pub target: String,
+  /// The commit the ref points at once the pack landed, as a full id
+  #[arg(long, value_name = "ID")]
+  pub commit: String,
+  /// Read the pack from this file instead of stdin (`-`)
+  #[arg(long, value_name = "FILE")]
+  pub pack: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeaseHostShowArgs {
+  /// The commit, as a full id
+  #[arg(long, value_name = "ID")]
+  pub commit: String,
+  /// The path of a file of the commit whose text the answer carries (at most 1 MiB)
+  #[arg(long, value_name = "PATH")]
+  pub blob: Option<String>,
+  /// Paths of the commit whose object ids the answer carries: a blob, the tree of a directory, the commit of a gitlink
+  #[arg(long, value_name = "PATH", num_args = 1..)]
+  pub ids: Vec<String>,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -225,6 +270,9 @@ pub struct LeaseHostGiveBackOutput {
   /// dir, also for a run without a slot
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub maintenance_started: bool,
+  /// The run ref of the pack of the run (`ingest --ref run:<id>`), deleted
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub deleted_ref: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -264,6 +312,85 @@ pub struct ReclaimedOutput {
 pub struct LeaseHostReclaimOutput {
   pub schema: SchemaVersion,
   pub reclaimed: Vec<ReclaimedOutput>,
+  /// The refs of the host it deleted: a run ref whose run has no lend and no ticket an hour after its pack, a base ref
+  /// that no pack moved for 14 days
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub deleted_refs: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseHostHaveOutput {
+  pub schema: SchemaVersion,
+  /// The top level of the repository of -C
+  pub repository: String,
+  /// The commits it has, in the order of the arguments
+  pub commits: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StoredOutput {
+  /// `unpack-objects`: below the unpack limit, each object a loose object
+  Loose,
+  /// `index-pack --fix-thin`: a pack of the repository
+  Pack,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseHostIngestOutput {
+  pub schema: SchemaVersion,
+  /// The full ref that points at the commit now
+  #[serde(rename = "ref")]
+  pub full_ref: String,
+  pub commit: String,
+  /// The objects of the pack, from its header
+  pub objects: u32,
+  pub stored: StoredOutput,
+  /// `branchdeck.leaseMaintenance` is true: `git maintenance run --auto --detach` started after the ref
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub maintenance_started: bool,
+}
+
+/// A file of a commit
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ShownBlobOutput {
+  pub path: String,
+  pub id: String,
+  /// Its bytes as text, invalid UTF-8 replaced
+  pub text: String,
+}
+
+/// The object id of a path of a commit
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ShownIdOutput {
+  pub path: String,
+  /// `null` when the commit has nothing at the path
+  pub id: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseHostShowOutput {
+  pub schema: SchemaVersion,
+  pub commit: String,
+  /// With --blob: `null` when the commit has no file at the path
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub blob: Option<Option<ShownBlobOutput>>,
+  /// The paths of --ids, in their order
+  pub ids: Vec<ShownIdOutput>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseHostGitOutput {
+  pub schema: SchemaVersion,
+  /// The git executable bd discovered (Homebrew first)
+  pub path: String,
+  /// Its directory, to put first in the `PATH` of a run; absent for a bare program name
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub dir: Option<String>,
+  pub version: String,
+  /// The lowest git of a host that serves remote runs
+  pub floor: String,
+  pub meets_floor: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -469,7 +596,7 @@ pub fn lease_host_checkout(context: &LeaseContext, environment: &Environment, ar
 /// `bd lease host give-back`
 pub fn lease_host_give_back(context: &LeaseContext, environment: &Environment, args: &LeaseHostRunArgs) -> Result<LeaseHostGiveBackOutput, CliError> {
   let gave_back = give_back_run(&context.git, &params(context, environment), &args.run).map_err(lease_error)?;
-  let maintenance_started = gave_back.maintenance_started;
+  let (maintenance_started, deleted_ref) = (gave_back.maintenance_started, gave_back.deleted_ref);
   Ok(match gave_back.slot {
     Some(gave_back) => LeaseHostGiveBackOutput {
       schema: SchemaVersion,
@@ -481,6 +608,7 @@ pub fn lease_host_give_back(context: &LeaseContext, environment: &Environment, a
       cleaned: gave_back.cleaned.map_or_else(Vec::new, |target| cleaned_output(&target.cleaned)),
       processes_checked: gave_back.processes_checked,
       maintenance_started,
+      deleted_ref,
     },
     None => LeaseHostGiveBackOutput {
       schema: SchemaVersion,
@@ -492,6 +620,7 @@ pub fn lease_host_give_back(context: &LeaseContext, environment: &Environment, a
       cleaned: Vec::new(),
       processes_checked: false,
       maintenance_started,
+      deleted_ref,
     },
   })
 }
@@ -517,9 +646,13 @@ pub fn lease_host_fill(context: &LeaseContext, environment: &Environment) -> Res
 
 /// `bd lease host reclaim`
 pub fn lease_host_reclaim(context: &LeaseContext, environment: &Environment) -> Result<LeaseHostReclaimOutput, CliError> {
-  let reclaimed = reclaim(&context.git, &params(context, environment)).map_err(lease_error)?;
+  let params = params(context, environment);
+  let reclaimed = reclaim(&context.git, &params).map_err(lease_error)?;
+  let live = live_runs(&params).map_err(lease_error)?;
+  let deleted_refs = reclaim_refs(&context.git, &context.dirs, &live, context.lock_timeout).map_err(lease_error)?;
   Ok(LeaseHostReclaimOutput {
     schema: SchemaVersion,
+    deleted_refs,
     reclaimed: reclaimed
       .into_iter()
       .map(|reclaimed| ReclaimedOutput {
@@ -603,5 +736,81 @@ pub fn lease_host_status(context: &LeaseContext) -> Result<LeaseHostStatusOutput
       .collect(),
     queue: table.queue.iter().map(|ticket| ticket.run.clone()).collect(),
     limit: table.limit,
+  })
+}
+
+/// `bd lease host have`: the commits the repository of -C has
+pub fn lease_host_have(context: &LeaseContext, args: &LeaseHostHaveArgs) -> Result<LeaseHostHaveOutput, CliError> {
+  if let Some(bad) = args.commits.iter().find(|commit| !is_object_id(commit)) {
+    return Err(CliError::new(ErrorCode::InvalidArguments, format!("{bad:?} is no full commit id")));
+  }
+  let commits = present_commits(&context.git, &context.dirs.top_level, &args.commits).map_err(lease_error)?;
+  Ok(LeaseHostHaveOutput {
+    schema: SchemaVersion,
+    repository: context.dirs.top_level.clone(),
+    commits,
+  })
+}
+
+/// `bd lease host ingest`: the pack from stdin, or from --pack
+pub fn lease_host_ingest(context: &LeaseContext, args: &LeaseHostIngestArgs) -> Result<LeaseHostIngestOutput, CliError> {
+  let target = HostRef::parse(&args.target).map_err(lease_error)?;
+  let mut input: Box<dyn Read> = match &args.pack {
+    Some(path) if path.as_os_str() != "-" => {
+      Box::new(std::fs::File::open(path).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("Cannot open the pack {}: {error}", path.display())))?)
+    }
+    _ => Box::new(std::io::stdin().lock()),
+  };
+  let ingested = ingest(&context.git, &context.dirs, &target, &args.commit, &mut input, context.lock_timeout).map_err(lease_error)?;
+  Ok(LeaseHostIngestOutput {
+    schema: SchemaVersion,
+    full_ref: ingested.full_ref,
+    commit: args.commit.clone(),
+    objects: ingested.ingested.objects,
+    stored: match ingested.ingested.stored {
+      Stored::Loose => StoredOutput::Loose,
+      Stored::Pack => StoredOutput::Pack,
+    },
+    maintenance_started: ingested.maintenance_started,
+  })
+}
+
+/// `bd lease host show`
+pub fn lease_host_show(context: &LeaseContext, args: &LeaseHostShowArgs) -> Result<LeaseHostShowOutput, CliError> {
+  if !is_object_id(&args.commit) {
+    return Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      format!("--commit must be a full commit id, not {:?}", args.commit),
+    ));
+  }
+  let shown = show_commit(&context.git, &context.dirs.top_level, &args.commit, args.blob.as_deref(), &args.ids).map_err(lease_error)?;
+  Ok(LeaseHostShowOutput {
+    schema: SchemaVersion,
+    commit: args.commit.clone(),
+    blob: args.blob.as_ref().map(|path| {
+      shown.blob.map(|blob| ShownBlobOutput {
+        path: path.clone(),
+        id: blob.id,
+        text: blob.text,
+      })
+    }),
+    ids: args.ids.iter().zip(shown.ids).map(|(path, id)| ShownIdOutput { path: path.clone(), id }).collect(),
+  })
+}
+
+/// `bd lease host git`: the git of the context, discovered as every command of bd discovers it
+pub fn lease_host_git(context: &LeaseContext) -> Result<LeaseHostGitOutput, CliError> {
+  let info = context.git.get_info().map_err(|error| CliError::new(ErrorCode::GitNotFound, format!("{error:#}")))?;
+  let dir = Path::new(&info.path)
+    .parent()
+    .filter(|dir| !dir.as_os_str().is_empty())
+    .map(|dir| dir.to_string_lossy().into_owned());
+  Ok(LeaseHostGitOutput {
+    schema: SchemaVersion,
+    path: info.path.clone(),
+    dir,
+    version: info.version.clone(),
+    floor: floor_text(),
+    meets_floor: meets_floor(&info.version),
   })
 }
