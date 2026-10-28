@@ -4180,7 +4180,8 @@ worktree, keyed by the hash of its path under the version of the schema (`FRAME_
 are tagged by a field, which postcard can't read back), so the start reads it without a git process and a frame of
 another schema is never read. The host reads it when the session opens (`SessionHost::frame`, `SessionEnvironment::frame`:
 the app's in the object cache of the repository, the E2E server's in the memory of a test repository once its test
-built one, `POST /repositories/{id}/warm-start/build`), unless the opener hands it the frame it read
+built one, `POST /repositories/{id}/warm-start/build`, whose quit of the app, `POST …/sessions/close`, answers once
+each session ended and saved its last frame, `Sessions::close_worktree_saved`), unless the opener hands it the frame it read
 (`Sessions::open_seeded`: the start of the app), and the session seeds from it only
 under the same key and schema (`CachedSession::seeds`): the table is `cached` (`RepositoryView.cached`) until a sync of
 this process commits, the structure of each row and the order of the stack branches derived again, each commit with

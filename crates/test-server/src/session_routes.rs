@@ -548,7 +548,8 @@ pub struct ClockAdvanceRequest {
 
 /// The app quits (`POST /repositories/{id}/sessions/close`): its windows close (`AppContext::forget_windows`) and the
 /// sessions of the repository go, so the window that opens it next (a reload) opens a new session, whose facts are
-/// asked anew as at a start of the app
+/// asked anew as at a start of the app; answers once each saved its last frame, which the next start reads
+/// (`warm_start`)
 pub async fn close_sessions(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
   let (path, context) = state
     .repositories
@@ -556,7 +557,7 @@ pub async fn close_sessions(Path(id): Path<String>, State(state): State<Arc<AppS
     .map(|repository| (repository.path.clone(), Arc::clone(&repository.context)))
     .ok_or(StatusCode::NOT_FOUND)?;
   context.forget_windows();
-  state.sessions.close_worktree(&path);
+  state.sessions.close_worktree_saved(&path).await;
   Ok(StatusCode::OK)
 }
 

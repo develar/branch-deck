@@ -26,8 +26,11 @@
 // saved, the robots and the landing needs the first page read included (`reloadWarm`), its first sync held until the
 // rows of the frame are in the page:
 // - warmFirstRowsMs: from the reload until every row of the frame is in the page;
-// - warmFirstSyncScriptMs / warmFirstSyncTaskMs: the script time and the task time of that first sync once released,
-//   until its rows are no longer cached and no step waits for a fact;
+// - warmFirstSyncScriptMs / warmFirstSyncTaskMs: the script time and the task time of the page from the reload until
+//   it holds the view in which the session committed that sync and derived the view of its robots and their landing
+//   needs over it (`get_snapshot` of the server, outside the page): the load, the rows of the frame, the answer of
+//   Patronus and the first sync;
+// - warmFirstSyncPatches / warmFirstSyncBytes: the patches of the session in that time and their bytes;
 // - warmStartInvokes: the commands the page invoked before its first row, its protocol aside (`firstRowsAsks`): the
 //   subscription alone, whose channel carries the rest (B7).
 //
@@ -51,6 +54,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
+import type { RepositoryView, Version } from "../../src/lib/bindings"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { findBranchRow } from "../e2e/helpers/branch-helpers"
 import { reloadWarm } from "../e2e/helpers/common-setup"
@@ -59,7 +63,9 @@ import { INTENT_DWELL_PAST_MS, firstRowsAsks, recordIpcAtFirstRows, resetIpc, se
 import { availableRobots, robot } from "../e2e/helpers/patronus-helpers"
 import { hoverStatusChip } from "../e2e/helpers/review-status-helpers"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
-import { runAndWaitForSync, syncBranches, waitForBranchesLoaded } from "../e2e/helpers/sync-helpers"
+import { runAndWaitForSync, syncBranches, waitForBranchesLoaded, waitForViewVersion } from "../e2e/helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../e2e/helpers/test-repository"
+import { TEST_SERVER_URL } from "../e2e/helpers/test-server-url"
 
 const RUNS = Number(process.env.PERF_RUNS ?? 3)
 /** The branch rows of the template: 120 lone branches and three stacks of seven */
@@ -136,6 +142,8 @@ interface WarmMetrics {
   warmFirstRowsMs: number
   warmFirstSyncScriptMs: number
   warmFirstSyncTaskMs: number
+  warmFirstSyncPatches: number
+  warmFirstSyncBytes: number
   warmStartInvokes: number
 }
 
@@ -180,6 +188,30 @@ async function waitForStepFacts(page: Page): Promise<void> {
   await expect(page.getByTestId("next-step-slot").and(page.locator("[data-waits-for]"))).toHaveCount(0)
 }
 
+/** The view of the session of `repo` as the server has it (`get_snapshot`, outside the page and its counters) */
+async function sessionView(repo: TestRepositoryBuilder): Promise<RepositoryView | null> {
+  const body = JSON.stringify({ repositoryPath: repo.path })
+  const response = await fetch(`${TEST_SERVER_URL}/invoke/get_snapshot`, { method: "POST", headers: { "Content-Type": "application/json" }, body })
+  return (await response.json()) as RepositoryView | null
+}
+
+/**
+ * The session committed its first sync and derived the view of its robots and their landing needs over it, and the
+ * page holds that view
+ */
+async function waitForSettledSession(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  let settled: Version | null = null
+  await expect
+    .poll(async () => {
+      const view = await sessionView(repo)
+      const fresh = view !== null && !view.cached && view.patronus.state.kind === "fresh" && view.patronus.landingNeeds.kind === "fresh"
+      settled = fresh ? view.version : null
+      return fresh
+    })
+    .toBe(true)
+  await waitForViewVersion(page, settled!)
+}
+
 /** The robots of the template: running on ten of its lone branches */
 const ROBOTS = Array.from({ length: 10 }, (_, index) => robot(`feature-${String(index * 12).padStart(3, "0")}`, `robot-${index}`))
 
@@ -208,6 +240,8 @@ test.describe("Branch table performance", () => {
         warmFirstRowsMs: median(warmRuns.map(run => run.warmFirstRowsMs)),
         warmFirstSyncScriptMs: median(warmRuns.map(run => run.warmFirstSyncScriptMs)),
         warmFirstSyncTaskMs: median(warmRuns.map(run => run.warmFirstSyncTaskMs)),
+        warmFirstSyncPatches: median(warmRuns.map(run => run.warmFirstSyncPatches)),
+        warmFirstSyncBytes: median(warmRuns.map(run => run.warmFirstSyncBytes)),
         warmStartInvokes: median(warmRuns.map(run => run.warmStartInvokes)),
       }
     }
@@ -274,27 +308,31 @@ test.describe("Branch table performance", () => {
       await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
       await waitForStepFacts(page)
 
-      // the next start, on the frame the session saved as it closed, its first sync held
+      // the next start, on the frame the session saved as it closed, its first sync held until the rows are in the page
       await recordIpcAtFirstRows(page)
       await repo.holdRemoteAnswers({ hold: ["sync"] })
-      const start = Date.now()
-      await reloadWarm(page, repo)
-      await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
-      const warmFirstRowsMs = Date.now() - start
-      await expect(page.locator("[data-cached=true]")).toBeVisible()
-      await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
       const cdp = await page.context().newCDPSession(page)
       await cdp.send("Performance.enable")
+      let warmFirstRowsMs = 0
       const sync = await timeMainThread(cdp, async () => {
+        const start = Date.now()
+        await reloadWarm(page, repo)
+        await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
+        warmFirstRowsMs = Date.now() - start
+        await expect(page.locator("[data-cached=true]")).toBeVisible()
         await repo.holdRemoteAnswers({ release: ["sync"] })
+        await waitForSettledSession(page, repo)
         await expect(page.locator("[data-cached]")).toHaveCount(0)
         await waitForStepFacts(page)
       })
       const asks = await firstRowsAsks(page)
+      const patches = await settledIpc(page)
       warmRuns.push({
         warmFirstRowsMs,
         warmFirstSyncScriptMs: sync.script,
         warmFirstSyncTaskMs: sync.task,
+        warmFirstSyncPatches: patches.channelMessages["subscribe_view"] ?? 0,
+        warmFirstSyncBytes: patches.channelBytes,
         warmStartInvokes: Object.values(withoutAppTimers(asks?.invokes ?? {})).reduce((sum, count) => sum + count, 0),
       })
     })

@@ -295,7 +295,31 @@ step, 55 % less than master. The goal of B4, at most 365 ms of script for the fi
 it was (`hoverIpc` 1, `menuIpc` 0, `popoverIpc` 1, three commands until the rows). The profile of the first sync
 after the step: 864 ms of a busy main thread against 1,159 ms, React's own work 158 ms against 231 ms; the hooks of
 the roots of Base UI (`fastHooks`, 134 ms with their callees) are gone from the rows; a composite of Base UI still
-spends 31 ms (`CompositeRoot`), for s13-7 to find.
+spends 31 ms (`CompositeRoot`), which s13-7 left: with B4 reached it is no lever of the patches.
+
+s13-7 looked at what the patches of the end of a sync carry (a log of the channel of the page on the same template):
+the first sync sends the next steps and the actions of every subject three times after its commit, with the commit,
+with the view of the robots and with their landing needs (198, 345 and 286 KB). The end of a sync now waits for the
+view of its robots when its commit derives it again, one interval at most, so the two go in one patch
+([Git Operations](git-operations.md#the-table-of-a-session)); the cold first sync keeps its three, as Patronus is asked
+for the robots of a table only once there is one (their view comes about 120 ms after the commit), and a debug build of
+the test server derives the view of 141 rows in about 20 ms, past the interval (a release build within it). The
+patches that went are those of the warm start: the frame lost the landing needs, so the view Patronus answered over
+its table set the step of every row to wait for them and their answer set it back (100 and 78 KB); a frame keeps them
+with their inputs now, by branch name, and the first sync that leaves the tips of the frame computes them not again.
+perf:table measures the warm start (the robots and the needs a first page read in the frame, its first sync held
+until the rows are in the page; the main thread from the reload until the page holds the view of the session with the
+sync committed and the view of its robots and their needs derived over it). Three turns on the Mac Studio at a load of
+5 to 7, each the median of three runs, master `21e7e183`, the stage before the step (`e7212dea0`) and the step:
+
+| 2026-10-28 | first sync, script / task | sync that changes nothing | warm start, script / task | warm start, patches | rows of the frame | commands before the rows |
+|---|---|---|---|---|---|---|
+| master `21e7e183` | 577 / 1194 ms | 48 / 121 ms | — | — | — | — |
+| before the step | 261 / 695 ms | 33 / 82 ms | 219 / 425 ms | 11, 392 KB | 358 ms | 1 |
+| the step | 258 / 704 ms | 32 / 93 ms | 172 / 337 ms | 10, 231 KB | 329 ms | 1 |
+
+The first sync costs 55 % less script than master: B4 (at most 365 ms) holds. The warm start costs 21 % less script
+and task and 41 % fewer bytes, and asks one command before its rows, the subscription (B7).
 
 [@test] ../../src/stores/branch-sync.test.ts (`wakes the hooks of a branch only when its own entry changed, those of a field only when the field did`)
 

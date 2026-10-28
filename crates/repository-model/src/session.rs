@@ -339,6 +339,8 @@ impl Waiter {
 struct Entry {
   mailbox: mpsc::UnboundedSender<Message>,
   life: Arc<SessionLife>,
+  /// Answers once the actor ended and its last frame is saved
+  frames_saved: oneshot::Receiver<()>,
 }
 
 impl Entry {
@@ -744,15 +746,30 @@ impl Sessions {
   /// after it an internal error. The host calls it when the repository goes away (the E2E server's deletion of a test
   /// repository); answers how many it closed
   pub fn close_worktree(&self, worktree: &str) -> usize {
+    self.close(worktree).len()
+  }
+
+  /// `close_worktree`, then waits until each session it closed ended and saved its last frame (`warm_start`), as the
+  /// next start of the app reads it: the E2E server's quit of the app
+  pub async fn close_worktree_saved(&self, worktree: &str) {
+    for saved in self.close(worktree) {
+      let _ = saved.await;
+    }
+  }
+
+  /// Closes the sessions of `worktree`; what answers once each ended and saved its last frame
+  fn close(&self, worktree: &str) -> Vec<oneshot::Receiver<()>> {
     let mut entries = self.lock();
     let closed: Vec<SessionKey> = entries.keys().filter(|key| key.worktree == worktree).cloned().collect();
+    let mut saved = Vec::new();
     for key in &closed {
       if let Some(entry) = entries.remove(key) {
         let _ = entry.mailbox.send(Message::Close);
         self.events.emit(key, SessionEventKind::Closed);
+        saved.push(entry.frames_saved);
       }
     }
-    closed.len()
+    saved
   }
 
   /// Sweeps the sessions every `every` (wall time; what is idle is decided on the session clock) while the registry
@@ -815,8 +832,8 @@ impl Sessions {
     }
     let entry = entries.entry(key.clone()).or_insert_with(|| {
       let life = Arc::new(SessionLife::new(self.clocks.of(key)));
-      let mailbox = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life), Arc::clone(&self.events), frame);
-      Entry { mailbox, life }
+      let (mailbox, frames_saved) = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life), Arc::clone(&self.events), frame);
+      Entry { mailbox, life, frames_saved }
     });
     action(entry);
   }

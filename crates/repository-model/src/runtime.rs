@@ -214,7 +214,7 @@ pub(crate) enum Message {
 /// Starts the actor of the session `key` on `runtime` and answers its mailbox; the actor ends when every sender of the
 /// mailbox is gone (the registry's and those of its runs in flight). The actor and the checks and runs it starts log in
 /// the span `session{worktree prefix}`, a root: the actor outlives the command that opened it and serves the requests of
-/// every window, so it belongs to no one operation
+/// every window, so it belongs to no one operation. The receiver answers once the actor ended and its last frame is saved
 pub(crate) fn spawn_actor(
   runtime: &Handle,
   key: SessionKey,
@@ -222,12 +222,13 @@ pub(crate) fn spawn_actor(
   life: Arc<SessionLife>,
   events: Arc<EventSink>,
   frame: Option<CachedSession>,
-) -> mpsc::UnboundedSender<Message> {
+) -> (mpsc::UnboundedSender<Message>, oneshot::Receiver<()>) {
   let (mailbox, messages) = mpsc::unbounded_channel();
   let span = info_span!(parent: None, "session", worktree = %key.worktree, prefix = %key.prefix);
   let view = View::new(new_epoch());
   let state = TableState::with_prefix(&key.prefix);
-  let frames = span.in_scope(|| FrameSaves::new(&host));
+  let (saved, frames_saved) = oneshot::channel();
+  let frames = span.in_scope(|| FrameSaves::new(&host, saved));
   let actor = Actor {
     key,
     host,
@@ -253,7 +254,7 @@ pub(crate) fn spawn_actor(
     synced_before: false,
   };
   span.in_scope(|| runtime.spawn(actor.run(messages, frame).in_current_span()));
-  mailbox
+  (mailbox, frames_saved)
 }
 
 /// The end of a run whose commit started a derivation of the Patronus view (`Actor::finish_run`): its patch, with every
@@ -283,8 +284,8 @@ struct FrameSaves {
 
 impl FrameSaves {
   /// The saves of the frames of a session, through `host`: a task saves the newest frame it was sent, one at a time,
-  /// until the last one after the actor ended
-  fn new(host: &Arc<dyn SessionHost>) -> Self {
+  /// until the last one after the actor ended, then answers `saved`
+  fn new(host: &Arc<dyn SessionHost>, saved: oneshot::Sender<()>) -> Self {
     let (frames, mut sent) = watch::channel(None::<Arc<CachedSession>>);
     let host = Arc::clone(host);
     tokio::spawn(
@@ -296,6 +297,7 @@ impl FrameSaves {
           let host = Arc::clone(&host);
           let _ = tokio::task::spawn_blocking(in_current_span(move || host.save_frame(&frame))).await;
         }
+        let _ = saved.send(());
       }
       .in_current_span(),
     );

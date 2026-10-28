@@ -578,7 +578,8 @@ export class TestRepositoryBuilder {
 
   /**
    * The app quits: the sessions of the repository go with the subscriptions of their windows (`POST …/sessions/close`),
-   * so a reload opens a new session whose facts are asked anew, as the next start of the app does
+   * so a reload opens a new session whose facts are asked anew, as the next start of the app does; answers once each
+   * saved its last frame, which the next start reads (`warmStartModel`)
    */
   async closeSessions(): Promise<void> {
     await this.setFixture("sessions/close", {})
