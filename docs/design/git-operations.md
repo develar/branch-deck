@@ -1939,6 +1939,16 @@ to the files. That apply is the one write of the user's working tree beside the 
 (`yonder run --apply`), and `git apply` writes all or nothing and leaves the index alone. The worktree safety scan
 counts it (`CLIENT_WRITE_EXEMPTIONS`).
 
+The git of the host has a floor of its own, `HOST_MIN_VERSION` (2.56.0, `lease_pool::host_git`), above the
+`MIN_VERSION` of bd: the policy of the user since 2026-10-27, a minimum in the code and an automatic `brew upgrade
+git`. `bd lease host git --ensure`, which the keeper of yonderd runs at its start and on each tick, ports the policy of
+yonderd's `host_git.rs`. yonderd kept two flocks, `git.lock` of the upgrade and the shared `git-users.lock` of each
+supervisor. Here the lend table is the lock: the upgrade is a record of the table (`git`), so a lend sees it in the
+same read that lends a slot. The upgrade is recorded before it waits, so the queue stops growing behind a run that
+never ends, and Homebrew starts only once no live process acts on a slot. A refusal stays in the table, so a lend on
+a host whose git stays old refuses at once (`git_not_found`, which yonderd maps to its `old_git`) instead of a run
+that fails on a missing feature.
+
 A shrink checks the slot out at the commit it was leased at. That commit is the base of `unlanded_commits`, so the
 snapshot commits of the runs never refuse the return, and the return needs no `--confirm-preserved`. A shrink also
 works without the agent: an abandoned state is free to it. A hand `bd lease return` of a host slot is refused as

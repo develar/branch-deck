@@ -26,6 +26,7 @@ pub mod agent_workspace;
 pub mod check_record;
 pub mod clone_dir;
 pub mod free_space;
+mod host_brew;
 pub mod host_git;
 pub mod host_refs;
 pub mod host_slots;

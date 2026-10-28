@@ -13,6 +13,7 @@
 //! `git_ops::lease_slot`, the gets and the returns are those of `lease`.
 
 use crate::free_space::available_bytes;
+use crate::host_git::{FoundGit, GitPlan, min_version, plan_of, run_brew};
 use crate::host_refs::delete_run_ref;
 use crate::lease::{
   BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, canonical_path, get_host_slot, move_reused_slot,
@@ -27,6 +28,7 @@ use git_ops::revs::RepositoryDirs;
 use git_ops::worktree_snapshot::{CommitText, read_head_commit, worktree_commit, write_tree_patch};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_utils::paths::display_path;
@@ -69,6 +71,19 @@ pub struct HostSlots {
   /// (`set_limit` lifts it)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub limit: Option<u32>,
+  /// The git of the host (`ensure_host_git`): an upgrade that runs, or the refusal of the last check
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub git: Option<HostGitState>,
+}
+
+/// What `ensure_host_git` left in the table
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HostGitState {
+  /// Homebrew installs or upgrades git (`command`): while its process lives, no lend
+  Upgrading { owner: Owner, command: String, since_ms: u64 },
+  /// The git of the host stays below the floor: every lend refuses with this message
+  Refused { message: String },
 }
 
 /// A host slot
@@ -215,6 +230,9 @@ pub enum HostSlotRefusal {
   /// The process of a waiting lend ended: its ticket left the queue
   #[error("The process {0} of the run ended while it waited for a host slot")]
   ProcessGone(u32),
+  /// The git of the host stays below its floor (`host_git`), with the hint
+  #[error("{0}")]
+  OldGit(String),
 }
 
 /// The repository of the host slots
@@ -349,13 +367,17 @@ pub struct Queued {
   pub lent: Vec<(u32, String)>,
   /// The slots in quarantine with the processes that keep them
   pub quarantined: Vec<(u32, Vec<HostProcess>)>,
+  /// Homebrew installs or upgrades git, by this command: no run gets a slot meanwhile
+  pub git_upgrading: Option<String>,
 }
 
 /// Lend a slot to the run of `request`, or put it in the queue. Under the lock of the table, without git: the tickets of
 /// gone processes leave the queue; a run that has a slot gets it again (a repeat is safe); the run's ticket joins the
 /// queue; a run gets an idle slot whose lease `leases.json` still holds as `ready` when fewer runs wait before it than
 /// there are such slots: the slot its affinity used last first, else the one used longest ago. An abandoned lend is not
-/// lent again: `reclaim` gives it back first, since its run may have left processes and changes in it
+/// lent again: `reclaim` gives it back first, since its run may have left processes and changes in it. While a live
+/// process upgrades git (`ensure_host_git`) the run only queues, and while the git of the host stays below its floor a
+/// lend refuses (`OldGit`)
 pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<LendAnswer> {
   let store = params.pool().read()?;
   let ready: HashSet<String> = store
@@ -367,6 +389,14 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
     .collect();
   params.update(|table| {
     table.queue.retain(|ticket| is_running(ticket.pid, ticket.process_started));
+    if let Some(HostGitState::Refused { message }) = &table.git {
+      table.queue.retain(|ticket| ticket.run != request.run);
+      bail!(HostSlotRefusal::OldGit(message.clone()));
+    }
+    let git_upgrading = match &table.git {
+      Some(HostGitState::Upgrading { owner, command, .. }) if owner.is_alive() => Some(command.clone()),
+      _ => None,
+    };
     if let Some(slot) = table.slots.iter().find(|slot| matches!(&slot.state, HostState::Lent(lent) if lent.run == request.run)) {
       return Ok(LendAnswer::Lent(Lend {
         n: slot.n,
@@ -388,7 +418,7 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
     let idle: Vec<usize> = (0..table.slots.len())
       .filter(|&index| table.slots[index].state == HostState::Idle && ready.contains(&table.slots[index].lease_id))
       .collect();
-    if idle.len() > position {
+    if git_upgrading.is_none() && idle.len() > position {
       let affine = |index: &&usize| request.affinity.is_some() && table.slots[**index].affinity.as_deref() == request.affinity;
       let index = idle
         .iter()
@@ -437,8 +467,117 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
           _ => None,
         })
         .collect(),
+      git_upgrading,
     }))
   })
+}
+
+/// How often an upgrade of git looks whether the slots are free, and whether another upgrade ended
+const UPGRADE_POLL: Duration = Duration::from_secs(1);
+/// How long an upgrade waits for the slots that runs and the keeper use. Then Homebrew starts anyway, and the
+/// progress says so
+const USERS_WAIT: Duration = Duration::from_mins(60);
+
+/// What `ensure_host_git` did
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnsuredGit {
+  /// The git the `PATH` of the runs finds now
+  pub found: FoundGit,
+  /// Homebrew installed or upgraded it
+  pub upgraded: bool,
+}
+
+/// Bring the git of the `PATH` of the runs (`path` with the `bin` of Homebrew before `/usr/bin`) to the floor of a
+/// host (`host_git::plan`): at the floor nothing runs, and a refusal of an earlier check goes. Below it, `brew install
+/// git` or `brew upgrade git` runs, with the table as the lock: the upgrade is recorded first, so new lends queue, then
+/// it waits until no slot is lent, filled, cleaned, shrunk or given back by a live process (at most an hour), then
+/// Homebrew runs. A host that can't reach the floor (no Homebrew, a failed upgrade) refuses with `OldGit`, and so does
+/// every lend until a later check finds the floor. The upgrade of another live process is waited for. `progress` hears
+/// the waits and Homebrew
+pub fn ensure_host_git(params: &HostSlotsParams<'_>, path: &OsStr, progress: &dyn Fn(&str)) -> Result<EnsuredGit> {
+  let floor = min_version();
+  let me = Owner::this();
+  let mut said = None::<Instant>;
+  let (plan, found, run_path, brew) = loop {
+    let planned = plan_of(path, floor);
+    let other = params.table().read::<HostSlots>()?.git.and_then(|git| match git {
+      HostGitState::Upgrading { owner, command, .. } if owner.is_alive() && owner != me => Some(command),
+      _ => None,
+    });
+    let Some(command) = other else { break planned };
+    if said.is_none_or(|at| at.elapsed() >= WAIT_PROGRESS) {
+      progress(&format!("another process runs `{command}`"));
+      said = Some(Instant::now());
+    }
+    std::thread::sleep(UPGRADE_POLL);
+  };
+  let settle = |state: Option<HostGitState>| {
+    params.update(|table| {
+      table.git = state;
+      Ok(())
+    })
+  };
+  let (args, brew) = match (plan, brew) {
+    (GitPlan::Ready, _) => {
+      settle(None)?;
+      let found = found.ok_or_else(|| anyhow::anyhow!("The PATH of the host finds no git"))?;
+      return Ok(EnsuredGit { found, upgraded: false });
+    }
+    (GitPlan::Refuse(message), _) => {
+      settle(Some(HostGitState::Refused { message: message.clone() }))?;
+      bail!(HostSlotRefusal::OldGit(message));
+    }
+    (plan, Some(brew)) => (plan.brew_args().unwrap_or(["upgrade", "git"]), brew),
+    (_, None) => bail!("No Homebrew to install git with"),
+  };
+  let command = format!("brew {}", args.join(" "));
+  settle(Some(HostGitState::Upgrading {
+    owner: me.clone(),
+    command: command.clone(),
+    since_ms: now_ms(),
+  }))?;
+  let waiting = Instant::now();
+  let mut said = None::<Instant>;
+  loop {
+    let busy: Vec<String> = params
+      .table()
+      .read::<HostSlots>()?
+      .slots
+      .iter()
+      .filter(|slot| !matches!(slot.state, HostState::Idle | HostState::Quarantined { .. }) && !is_abandoned(&slot.state))
+      .map(|slot| format!("{} is {}", slot.n, describe_state(&slot.state)))
+      .collect();
+    if busy.is_empty() {
+      break;
+    }
+    if waiting.elapsed() >= USERS_WAIT {
+      progress(&format!(
+        "slots are still in use after {} min, so `{command}` starts anyway: a git call of a run can fail while Homebrew replaces git",
+        USERS_WAIT.as_secs() / 60
+      ));
+      break;
+    }
+    if said.is_none_or(|at| at.elapsed() >= WAIT_PROGRESS) {
+      progress(&format!("`{command}` waits for the host slots: {}", busy.join(", ")));
+      said = Some(Instant::now());
+    }
+    std::thread::sleep(UPGRADE_POLL);
+  }
+  let upgraded = run_brew(&brew, args, &run_path, floor, progress);
+  let mine = |table: &HostSlots| matches!(&table.git, Some(HostGitState::Upgrading { owner, .. }) if *owner == me);
+  params.update(|table| {
+    if mine(table) {
+      table.git = match &upgraded {
+        Ok(_) => None,
+        Err(error) => Some(HostGitState::Refused { message: format!("{error:#}") }),
+      };
+    }
+    Ok(())
+  })?;
+  match upgraded {
+    Ok(found) => Ok(EnsuredGit { found, upgraded: true }),
+    Err(error) => bail!(HostSlotRefusal::OldGit(format!("{error:#}"))),
+  }
 }
 
 /// How often a lend that waits (`lend_waiting`) asks the table without a file event: the end of a process, which frees

@@ -1030,6 +1030,7 @@ pub(crate) fn lease_error(error: anyhow::Error) -> CliError {
       HostSlotRefusal::UnknownSlot(_) | HostSlotRefusal::NotLent { .. } | HostSlotRefusal::NoSlot(_) => ErrorCode::NoLease,
       HostSlotRefusal::Busy { .. } => ErrorCode::SlotBusy,
       HostSlotRefusal::InvalidConfig { .. } | HostSlotRefusal::ProcessGone(_) => ErrorCode::InvalidArguments,
+      HostSlotRefusal::OldGit(_) => ErrorCode::GitNotFound,
     };
     return CliError::new(code, format!("{error:#}"));
   }

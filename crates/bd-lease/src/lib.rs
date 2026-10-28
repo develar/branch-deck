@@ -14,6 +14,8 @@ mod clones_lock_test;
 mod host_client_test;
 #[cfg(test)]
 mod host_command_test;
+#[cfg(all(test, unix))]
+mod host_git_test;
 #[cfg(test)]
 mod host_objects_test;
 #[cfg(test)]

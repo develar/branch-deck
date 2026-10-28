@@ -150,7 +150,7 @@ fn show_answers_a_file_and_ids_and_git_answers_the_git_of_the_host() {
   let found = host(&fixture, "lease_host_git", &["git"]);
   assert_eq!(found["floor"], json!("2.56.0"));
   assert!(found["path"].as_str().is_some_and(|path| path.ends_with("git")), "{found}");
-  assert_eq!(found["meets_floor"], json!(lease_pool::host_git::meets_floor(found["version"].as_str().unwrap())));
+  assert!(found["meets_floor"].is_boolean() && found["upgraded"] == json!(false), "{found}");
 }
 
 /// The refusals by their codes: a short id, a ref that is no run or base, a commit the repository lacks, a directory

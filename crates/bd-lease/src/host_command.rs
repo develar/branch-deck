@@ -10,11 +10,11 @@ use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_ops::host_objects::{Stored, present_commits, show_commit};
 use git_ops::revs::is_object_id;
-use lease_pool::host_git::{floor_text, meets_floor};
+use lease_pool::host_git::{find_git, min_version, run_path};
 use lease_pool::host_refs::{HostRef, ingest, reclaim_refs};
 use lease_pool::host_slots::{
-  HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout, describe_state, fill, give_back_run,
-  is_abandoned, lend, lend_waiting, live_runs, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
+  HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout, describe_state, ensure_host_git,
+  fill, give_back_run, is_abandoned, lend, lend_waiting, live_runs, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -55,12 +55,21 @@ pub enum LeaseHostCommand {
   Ingest(LeaseHostIngestArgs),
   /// The text of a file and the object ids of paths of a commit, from one `cat-file`. Read only
   Show(LeaseHostShowArgs),
-  /// The git that bd and the runs use: its path, its version and whether it meets the floor of a host. Read only
-  Git,
+  /// The git the runs find (Homebrew's `bin` before `/usr/bin`): its path, its version and whether it meets the floor
+  /// of a host; with --ensure Homebrew installs or upgrades it below the floor, once no slot is lent
+  Git(LeaseHostGitArgs),
   /// The tree of the slot of a run as `git add --all` stages it, in a copy of the slot index
   Snapshot(LeaseHostRunArgs),
   /// The tree of the slot of a run after its command, and the patch from --base to it in --patch when they differ
   Changes(LeaseHostChangesArgs),
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeaseHostGitArgs {
+  /// Below the floor, `brew install git` (Homebrew has none) or `brew upgrade git`, once no slot is lent; the lends
+  /// queue meanwhile, and refuse while the git stays below the floor
+  #[arg(long)]
+  pub ensure: bool,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -238,6 +247,9 @@ pub struct LeaseHostLendOutput {
   /// With `--wait`: how long the lend waited, in milliseconds; `queued` then means the wait ended
   #[serde(skip_serializing_if = "Option::is_none")]
   pub waited_ms: Option<u64>,
+  /// With `queued`: Homebrew installs or upgrades git by this command, and no run gets a slot meanwhile
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub git_upgrading: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -438,6 +450,8 @@ pub struct LeaseHostGitOutput {
   /// The lowest git of a host that serves remote runs
   pub floor: String,
   pub meets_floor: bool,
+  /// With --ensure: Homebrew installed or upgraded it
+  pub upgraded: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -572,6 +586,7 @@ pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: 
       lent: Vec::new(),
       quarantined: Vec::new(),
       waited_ms,
+      git_upgrading: None,
     },
     LendAnswer::Queued(queued) => LeaseHostLendOutput {
       schema: SchemaVersion,
@@ -589,6 +604,7 @@ pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: 
         })
         .collect(),
       waited_ms,
+      git_upgrading: queued.git_upgrading,
     },
   })
 }
@@ -600,8 +616,12 @@ fn queue_line(run: &str, queued: &Queued, waited: Duration) -> String {
     0 => String::new(),
     count => format!(", {count} in quarantine"),
   };
+  let upgrading = queued
+    .git_upgrading
+    .as_ref()
+    .map_or_else(String::new, |command| format!(", git is upgrading (`{command}`)"));
   format!(
-    "run {run} waits {} s: {} runs ahead, {} slots, lent to {}{quarantined}",
+    "run {run} waits {} s: {} runs ahead, {} slots, lent to {}{quarantined}{upgrading}",
     waited.as_secs(),
     queued.ahead,
     queued.slots,
@@ -845,20 +865,29 @@ pub fn lease_host_show(context: &LeaseContext, args: &LeaseHostShowArgs) -> Resu
   })
 }
 
-/// `bd lease host git`: the git of the context, discovered as every command of bd discovers it
-pub fn lease_host_git(context: &LeaseContext) -> Result<LeaseHostGitOutput, CliError> {
-  let info = context.git.get_info().map_err(|error| CliError::new(ErrorCode::GitNotFound, format!("{error:#}")))?;
-  let dir = Path::new(&info.path)
-    .parent()
-    .filter(|dir| !dir.as_os_str().is_empty())
-    .map(|dir| dir.to_string_lossy().into_owned());
+/// `bd lease host git`: the git that the `PATH` of bd finds with the `bin` of Homebrew before `/usr/bin`, as the runs
+/// get it; with --ensure brought to the floor first (`ensure_host_git`), its waits and Homebrew on stderr
+pub fn lease_host_git(context: &LeaseContext, environment: &Environment, args: &LeaseHostGitArgs) -> Result<LeaseHostGitOutput, CliError> {
+  let path = environment.path.clone().or_else(|| std::env::var_os("PATH")).unwrap_or_default();
+  let floor = min_version();
+  let (found, upgraded) = if args.ensure {
+    let progress = |line: &str| {
+      let _ = writeln!(std::io::stderr(), "bd lease host git: {line}");
+    };
+    let ensured = ensure_host_git(&params(context, environment), &path, &progress).map_err(lease_error)?;
+    (ensured.found, ensured.upgraded)
+  } else {
+    let found = find_git(&run_path(&path).0).ok_or_else(|| CliError::new(ErrorCode::GitNotFound, "The PATH of the host finds no git"))?;
+    (found, false)
+  };
   Ok(LeaseHostGitOutput {
     schema: SchemaVersion,
-    path: info.path.clone(),
-    dir,
-    version: info.version.clone(),
-    floor: floor_text(),
-    meets_floor: meets_floor(&info.version),
+    dir: found.path.parent().filter(|dir| !dir.as_os_str().is_empty()).map(|dir| dir.to_string_lossy().into_owned()),
+    path: found.path.to_string_lossy().into_owned(),
+    meets_floor: found.is_new_enough(floor),
+    version: found.version.map_or(found.text, |version| version.to_string()),
+    floor: floor.to_string(),
+    upgraded,
   })
 }
 

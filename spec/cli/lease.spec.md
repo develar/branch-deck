@@ -605,10 +605,30 @@ for; one that is no working tree is `not_a_repository` (exit 2).
   `invalid_arguments`.
   [@test] ../../crates/bd-lease/src/host_objects_test.rs (`show_answers_a_file_and_ids_and_git_answers_the_git_of_the_host`)
   [@test] ../../crates/git-ops/src/host_objects_test.rs (`show_answers_the_text_of_a_file_and_the_ids_of_paths`)
-- `bd lease host git` must answer the git that bd discovered (`path`, `dir`, `version`), the floor of a host
-  (`floor`, 2.56.0, above the 2.54 of bd itself) and `meets_floor`; a release candidate comes before its release.
+- `bd lease host git` must answer the git that the `PATH` of the runs finds first, the `bin` of Homebrew before
+  `/usr/bin` (`path`, `dir`, `version`), the floor of a host (`floor`, `HOST_MIN_VERSION` 2.56.0, above the 2.54 of
+  bd itself, a constant of the code), `meets_floor` and `upgraded`. A version parses as git prints it (`2.50.1 (Apple
+  Git-155)`, `2.45.1.windows.1`), and a release candidate comes before its release.
   [@test] ../../crates/bd-lease/src/host_objects_test.rs (`show_answers_a_file_and_ids_and_git_answers_the_git_of_the_host`)
-  [@test] ../../crates/lease-pool/src/host_git_test.rs (`a_version_meets_the_floor_from_its_release_on`)
+  [@test] ../../crates/lease-pool/src/host_git_test.rs (`a_version_parses_releases_candidates_and_the_apple_git`, `the_bin_of_homebrew_comes_before_usr_bin`)
+- `bd lease host git --ensure` must bring that git to the floor: nothing at the floor; below it `brew install git`
+  when the `bin` of Homebrew has no git, else `brew upgrade git` (in `/`, `HOMEBREW_AUTO_UPDATE_SECS=0`,
+  `HOMEBREW_NO_INSTALL_CLEANUP=1`, at most 30 min), and `upgraded: true`. While another Homebrew process holds the
+  lock of git (`has already locked`, `already in progress`), it tries again every 10 s and takes a git that meets the
+  floor meanwhile as the end of that process. A host without Homebrew, a git before the one of Homebrew in the
+  `PATH`, and an upgrade that fails or leaves the git below the floor refuse as `git_not_found` (exit 5) with the
+  hint: the install of Homebrew on macOS, a newer source of packages elsewhere. Its waits and Homebrew go to stderr
+  (`bd lease host git: …`). `BD_TEST_HOST_BREW` names a fake Homebrew (`none`: none) and `BD_TEST_HOST_MIN_VERSION`
+  another floor, for a test.
+  [@test] ../../crates/bd-lease/src/host_git_test.rs (`ensure_installs_or_upgrades_git_with_homebrew_below_the_floor`)
+  [@test] ../../crates/lease-pool/src/host_git_test.rs (`the_plan_installs_upgrades_or_refuses_with_a_hint`, `a_lock_of_another_homebrew_process_is_told_by_its_words`)
+- No run may use git while Homebrew replaces it, and the lend table is the lock: `--ensure` records the upgrade in
+  the table first (`git`: `upgrading`, its process and command), then waits until no slot is lent, filled, cleaned,
+  shrunk or given back by a live process (at most an hour, then it says so and goes on), then runs Homebrew. While a
+  live process upgrades, a lend only queues and answers `git_upgrading` with the command, and the queue line of
+  `--wait` says that git is upgrading. A refusal stays in the table (`git`: `refused`): every lend refuses with it as
+  `git_not_found` until a later `--ensure` finds the floor. The upgrade of another live process is waited for.
+  [@test] ../../crates/bd-lease/src/host_git_test.rs (`the_upgrade_waits_for_the_lent_slots_and_the_lends_queue_while_it_runs`, `without_homebrew_ensure_and_the_lends_refuse_until_git_meets_the_floor`)
 - `have` and `show` run one `cat-file` each, `ingest` of a small pack the config, `unpack-objects` and one
   `update-ref`, and the give-back of a run that sent a pack one more `update-ref`.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_objects_have_ingest_and_show`)
