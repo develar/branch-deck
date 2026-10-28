@@ -11,6 +11,7 @@ use crate::fact_sources::{FactSources, Read};
 use crate::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use crate::review_readiness::{ReadinessInputs, branch_review_readiness, kept_review_readiness, readiness_inputs};
 use crate::review_requests::list_review_requests;
+use crate::sign_in::SignIns;
 use domain_policy::reviews::gone_links;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
@@ -18,6 +19,7 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::review_request::{LinkedPullRequest, ReviewRequestsResult, ReviewsAsk};
+use domain_types::sign_in::AuthStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use object_cache::cache::ObjectCache;
@@ -109,6 +111,15 @@ pub trait ServiceHost: Send + Sync + 'static {
 
   /// The links of `numbers` leave the links of `repository`
   fn forget_linked_pull_requests(&self, _key: &SessionKey, _repository: &GitHubRepository, _numbers: &[u32]) {}
+
+  /// The sign-ins of the app's accounts the session of `key` reads (the app's, the test repository's); a host without
+  /// them (`bd`) answers why
+  ///
+  /// # Errors
+  /// Why there are none
+  fn sign_ins(&self, _key: &SessionKey) -> Result<SignIns, ApiError> {
+    Err(ApiError::new(ErrorCode::InvalidArguments, "No sign-ins here: the app signs in to its accounts"))
+  }
 }
 
 /// The reads of the facts over the services of `host`
@@ -310,6 +321,10 @@ impl<H: ServiceHost> FactSources for ServiceFactSources<H> {
 
   fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
     self.host.fetch_moved_remotes(key, asks)
+  }
+
+  fn auth<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<AuthStatus, ApiError>> {
+    Box::pin(async move { Ok(self.host.sign_ins(key)?.status().await) })
   }
 }
 

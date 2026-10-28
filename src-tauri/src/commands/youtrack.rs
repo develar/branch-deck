@@ -1,9 +1,11 @@
 use crate::commands::cli_tools::CliToolActionDone;
 use crate::commands::github::app_user_agent;
+use crate::commands::sign_in::tell_auth_changed;
 use crate::operation::{operation, tauri_error};
 use app_api::api_error::IntoApiError;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::error::ApiError;
+use domain_types::sign_in::Account;
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackUser};
 use remote_facts::youtrack_cli::{hand_token_to_cli, handed_token_file};
 use std::path::{Path, PathBuf};
@@ -22,9 +24,11 @@ pub const YOUTRACK_AUTH_CHANGED_EVENT: &str = "youtrack-auth-changed";
 pub struct YouTrackState {
   /// Shared with the operations of the sessions (`SetIssueState` through `ServiceHost::youtrack`)
   pub service: Arc<YouTrackService>,
-  sign_in: YouTrackSignInSession,
+  /// The session of the sign-ins of the app (`commands::sign_in`), which the commands below run until they go
+  /// through them
+  pub(crate) sign_in: Arc<YouTrackSignInSession>,
   /// The id of the permanent token the app made for the `youtrack` CLI (`remote_facts::youtrack_cli`)
-  handed_token: Option<PathBuf>,
+  pub(crate) handed_token: Option<PathBuf>,
 }
 
 impl YouTrackState {
@@ -35,7 +39,7 @@ impl YouTrackState {
         EnvironmentToken::from_process(),
         app_data_dir.map(token_file),
       )),
-      sign_in: YouTrackSignInSession::default(),
+      sign_in: Arc::default(),
       handed_token: app_data_dir.map(handed_token_file),
     }
   }
@@ -66,6 +70,7 @@ pub async fn start_youtrack_sign_in(youtrack: State<'_, YouTrackState>, url: Str
 pub async fn wait_youtrack_sign_in(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<YouTrackUser, ApiError> {
   operation(async move {
     let user = youtrack.sign_in.wait(&youtrack.service).await.map_err(IntoApiError::into_api_error)?;
+    tell_auth_changed(&app, Account::YouTrack);
     app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(user)
   })
@@ -116,6 +121,7 @@ pub async fn cancel_youtrack_sign_in(youtrack: State<'_, YouTrackState>) -> Resu
 pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackState>, url: String, token: String) -> Result<YouTrackUser, ApiError> {
   operation(async move {
     let user = youtrack.sign_in.save_token(&youtrack.service, &url, &token).await.map_err(ApiError::internal)?;
+    tell_auth_changed(&app, Account::YouTrack);
     app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(user)
   })
@@ -130,6 +136,7 @@ pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackSta
 pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<(), ApiError> {
   operation(async move {
     youtrack.sign_in.sign_out(&youtrack.service).await.map_err(ApiError::internal)?;
+    tell_auth_changed(&app, Account::YouTrack);
     app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ()).map_err(tauri_error)?;
     Ok(())
   })

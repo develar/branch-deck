@@ -1,8 +1,8 @@
 use crate::refresh::{
   ActiveRobots, DetailsRead, FactTiming, ListWindow, MOVED_REMOTE_RETRIES, MovedRemoteFetch, ProfilesRead, READINESS_PARALLEL, ReadState, ReadinessAsks, ReadinessPriority,
-  ReadinessRead, RefreshReason, ServiceState, branch_rules_due, moved_remote_fetch_due, profiles_due, pull_requests_due, pull_requests_follows_up, pull_requests_push_recheck_at,
-  readiness_asks, readiness_due, readiness_priority, review_requests_due, review_requests_follows_up, review_requests_poll_delay, reviews_shown_due, robot_details_due,
-  robot_failing_due, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
+  ReadinessRead, RefreshReason, ServiceState, auth_due, auth_follows_up, branch_rules_due, moved_remote_fetch_due, profiles_due, pull_requests_due, pull_requests_follows_up,
+  pull_requests_push_recheck_at, readiness_asks, readiness_due, readiness_priority, review_requests_due, review_requests_follows_up, review_requests_poll_delay, reviews_shown_due,
+  robot_details_due, robot_failing_due, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
 };
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::pull_request::{PullRequestAvailability, TokenSource};
@@ -420,4 +420,21 @@ fn the_reviews_view_lists_the_rest_of_reviews_when_it_is_older_than_two_minutes_
     retry_at: Some(NOW + Duration::from_secs(60)),
   };
   assert!(!reviews_shown_due(NOW, FactTiming::default(), limited), "a rate limit holds it back");
+}
+
+#[test]
+fn the_sign_ins_are_read_when_the_session_opens_after_a_sign_in_and_on_a_focus_by_the_rule_of_the_lists() {
+  let rows: &[Row] = &[
+    (Manual, Some(0), Some(0), true),
+    (Demand, Some(0), Some(0), true),
+    (Focus, Some(59), Some(200), false),
+    (Focus, Some(200), Some(119), false),
+    (Focus, Some(200), Some(120), true),
+    (Focus, None, None, true),
+    (Sync, None, None, false),
+    (Push, None, None, false),
+    (Poll, None, None, false),
+  ];
+  check_rows(rows, |reason, timing| auth_due(reason, NOW, timing));
+  assert!(auth_follows_up(Manual) && auth_follows_up(Demand) && !auth_follows_up(Focus));
 }

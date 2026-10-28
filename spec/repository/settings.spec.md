@@ -46,7 +46,7 @@ targets:
   - ../../src/components/settings/GitHubSettings.tsx
   - ../../src/components/settings/YouTrackPage.tsx
   - ../../src/components/settings/YouTrackSettings.tsx
-  - ../../src/stores/github-auth.ts
+  - ../../src/stores/auth.ts
   - ../../src/stores/youtrack.ts
   - ../../src/stores/cli-tools.ts
   - ../../src/components/settings/PatronusPage.tsx
@@ -219,7 +219,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should ask the OS for the permission to notify again when the window gets the focus`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open Settings at Notifications from the card menu, whose switches the main window keeps`, `should count the review requests, behind its switch`)
 - GitHub: the token and the app's own sign-in ([GitHub Sign-in](github-sign-in.spec.md)), asked again on each open of
-  the window and when any window signs in or out (`github-auth-changed`).
+  the window and when any window signs in or out (`get_auth_status`, `auth-changed`).
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
 - YouTrack: the sign-in to the YouTrack of the issue links ([YouTrack](youtrack.spec.md)), asked again on each open of
   the window and when any window signs in or out (`youtrack-auth-changed`).
@@ -235,7 +235,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   reason, `ReadFailure`), above the last status when one is known, until a read answers (`readError` of each store);
   Retry says it reads again until the answer.
   [@test] ../../tests/e2e/settings/status-reads.spec.ts (`should say it reads the GitHub sign-in until the answer, and a failed read with Retry`, `should say it reads the YouTrack sign-in until the answer, and a failed read with Retry`, `should say it reads the tools until the answer, and a failed read with Retry`)
-  [@test] ../../src/stores/github-auth.test.ts (`says why a read failed and keeps the last status, until a read answers; Retry reads again, the failure gone meanwhile`)
+  [@test] ../../src/stores/auth.test.ts (`says why a read failed and keeps the last status, until a read answers; Retry reads again, the failure gone meanwhile`)
 - Every page fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
   OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row
   of Repository can show, on Agents the installed skill, a value of the worktree config and an invalid one, on Tools a

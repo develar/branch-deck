@@ -1,6 +1,6 @@
 //! When a fact of the remote is asked again (docs/design/rust-domain-authority.md, "Факты" and "Demand"): the cadence
 //! of the robots of Patronus, of the merge profiles, of the pull requests and branch rules of GitHub, of the review
-//! readiness and of the review requests, as pure functions of the time on the clock of the session (`now`), the timing
+//! readiness, of the review requests and of the sign-ins of the app's accounts, as pure functions of the time on the clock of the session (`now`), the timing
 //! of the fact's requests and the reason that asks. A request in flight takes no second one of its family; a reason
 //! that `*_follows_up` names asks once more after it.
 //!
@@ -448,4 +448,22 @@ fn backoff(failures: u32) -> Duration {
     .checked_pow(failures)
     .and_then(|factor| REVIEW_REQUESTS_POLL_INTERVAL.checked_mul(factor))
     .map_or(REVIEW_REQUESTS_MAX_BACKOFF, |delay| delay.min(REVIEW_REQUESTS_MAX_BACKOFF))
+}
+
+/// A read of the sign-ins of the app's accounts (the fact `auth`): the refresh button, the open of the session (a
+/// window watches it, `Demand`) and a sign-in or a sign-out of any window (`Demand`, which the host asks of every
+/// session) always; a focus by the rule of the lists, at most every minute and when it is older than two minutes; a
+/// sync, a push and the poll's timer never: only the user changes a sign-in, `gh` and `GH_TOKEN` included
+pub fn auth_due(reason: RefreshReason, now: Duration, read: FactTiming) -> bool {
+  match reason {
+    RefreshReason::Manual | RefreshReason::Demand => true,
+    RefreshReason::Focus => focus_due(now, read),
+    RefreshReason::Sync | RefreshReason::Push | RefreshReason::Poll => false,
+  }
+}
+
+/// A sign-in that ended or the refresh button during a read asks once more after it: the read in flight may have
+/// started before the token was kept
+pub const fn auth_follows_up(reason: RefreshReason) -> bool {
+  matches!(reason, RefreshReason::Manual | RefreshReason::Demand)
 }

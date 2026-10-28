@@ -42,7 +42,7 @@ use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_statu
 use commands::commit_files::{get_commit_files, get_commits_files};
 use commands::conflict_fix::{cancel_conflict_fix, find_conflict_fix};
 use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
-use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
+use commands::github::GitHubState;
 use commands::grouping::{commit_body_blocks, preview_group, validate_branch_name};
 use commands::operations::{WindowFetches, cancel_operation, execute, prepare};
 use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
@@ -52,6 +52,7 @@ use commands::repository_config::{get_repository_config, set_repository_config};
 use commands::review_requests::{get_range_files, link_pull_request, unlink_pull_request};
 use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
+use commands::sign_in::{AppSignIns, SignInsState, cancel_sign_in, get_auth_status, sign_in, sign_out};
 use commands::squash_fixups::get_autosquash_plan;
 use commands::stack_operations::{get_stack_independence, preview_move};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
@@ -68,8 +69,11 @@ use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
+use github::sign_in_session::GitHubSignInSession;
 use menu::{configure_app_menu, handle_menu_event, set_auto_sync_menu_checked};
+use remote_facts::sign_in::SignIns;
 use repository_state::RepositoryStateCache;
+use std::sync::Arc;
 use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
@@ -93,11 +97,10 @@ fn specta_builder() -> Builder<tauri::Wry> {
       get_new_pull_request,
       get_new_stack_pull_request,
       search_github_users,
-      get_github_auth_status,
-      start_github_sign_in,
-      wait_github_sign_in,
-      cancel_github_sign_in,
-      sign_out_of_github,
+      get_auth_status,
+      sign_in,
+      cancel_sign_in,
+      sign_out,
       get_youtrack_auth_status,
       start_youtrack_sign_in,
       wait_youtrack_sign_in,
@@ -301,7 +304,12 @@ pub fn run() {
         app.state::<GitCommandExecutor>().inner().clone(),
         app_data_dir.as_deref(),
       ));
-      app.manage(YouTrackState::new(&current_version, app_data_dir.as_deref()));
+      let youtrack = YouTrackState::new(&current_version, app_data_dir.as_deref());
+      let youtrack_session = Arc::clone(&youtrack.sign_in);
+      app.manage(youtrack);
+      let github_session = GitHubSignInSession::new(app_data_dir.as_deref().map(github::token_store::token_file));
+      let sign_in_host = Arc::new(AppSignIns { app: app.handle().clone() });
+      app.manage(SignInsState(SignIns::new(sign_in_host, github_session, youtrack_session)));
       app.manage(CliToolsState::new(app_data_dir.as_deref()));
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));

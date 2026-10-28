@@ -15,6 +15,7 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::review_request::ReviewRequestsResult;
+use domain_types::sign_in::AuthStatus;
 use domain_types::{BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -165,6 +166,10 @@ impl FactSources for Counted {
 
   fn fetch_moved_remotes<'a>(&'a self, _key: &'a SessionKey, _asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
     self.answer("fetch_moved_remotes", ())
+  }
+
+  fn auth<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, Result<AuthStatus, ApiError>> {
+    self.answer("auth", Err(ApiError::internal("a plan reads no sign-in")))
   }
 }
 

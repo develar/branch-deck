@@ -185,6 +185,7 @@ fn facts_change(last: &FactsView, facts: &FactStore) -> Option<FactsChanges> {
     robot_details,
     removed_robot_details,
     review_requests: changed(&last.review_requests, facts.review_requests.view()),
+    auth: changed(&last.auth, facts.auth.fact()),
   };
   (change != FactsChanges::default()).then_some(change)
 }

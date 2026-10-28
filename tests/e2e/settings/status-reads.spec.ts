@@ -49,7 +49,7 @@ test.describe("Settings: the read of a status", () => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await expectStatusRead(page, repo, {
       page: "github",
-      answer: "gitHubAuth",
+      answer: "authStatus",
       reading: "Reading the GitHub sign-in…",
       failure: { testId: "github-auth-error", title: "Cannot read the GitHub sign-in" },
       status: section => section.getByTestId("github-auth"),
@@ -60,7 +60,7 @@ test.describe("Settings: the read of a status", () => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await expectStatusRead(page, repo, {
       page: "youtrack",
-      answer: "youTrackAuth",
+      answer: "authStatus",
       reading: "Reading the YouTrack sign-in…",
       failure: { testId: "youtrack-auth-error", title: "Cannot read the YouTrack sign-in" },
       status: section => section.getByTestId("youtrack-auth"),

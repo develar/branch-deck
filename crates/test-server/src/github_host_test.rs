@@ -252,7 +252,7 @@ async fn signed_out_and_no_access_are_what_the_real_service_makes_of_the_fake() 
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
   let _window = window(&client, addr, &id, &repository_path).await;
-  let status = || post_as(&client, addr, Named::Id(&id), "/invoke/get_github_auth_status", json!({}));
+  let status = || async { post_as(&client, addr, Named::Id(&id), "/invoke/get_auth_status", json!({})).await["github"].clone() };
   assert_eq!(
     status().await,
     json!({"signInAvailable": false, "signedInAs": "user-name", "tokenSource": "branchDeck", "manageUrl": null})
@@ -274,22 +274,24 @@ async fn signed_out_and_no_access_are_what_the_real_service_makes_of_the_fake() 
   }
 }
 
-/// The app's sign-in runs the real session against the device flow of the fake: pending until a fixture authorizes
-/// the code, then the token of the host's user in the token file; a sign-out removes it, a fake `gh` gives its token,
-/// and a deleted repository ends the wait of a sign-in its page left
+/// The app's sign-in runs the real one against the device flow of the fake, its events on the channel of the page: the
+/// code, pending until a fixture authorizes it, then the token of the host's user in the token file; a sign-out removes
+/// it, a fake `gh` gives its token, and a deleted repository ends the wait of a sign-in its page left
 #[tokio::test]
 async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_repository() {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
-  let invoke = |name: &'static str| {
-    let request = command(&client, addr, Named::Id(&id), name, &json!({}));
+  let invoke = |name: &'static str, params: Value| {
+    let request = command(&client, addr, Named::Id(&id), name, &params);
     async move { request.send().await.unwrap().json::<Value>().await.unwrap() }
   };
+  let github_status = || async { invoke("get_auth_status", json!({})).await["github"].clone() };
   let sign_in_log = || async {
     let response = client.get(format!("http://{addr}/repositories/{id}/github-sign-in")).send().await.unwrap();
     response.json::<Value>().await.unwrap()
   };
+  let sign_in = json!({"request": {"provider": "gitHub"}});
   post(
     &client,
     addr,
@@ -297,32 +299,34 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
     json!({"clientId": "client-1", "signedIn": false}),
   )
   .await;
-  assert_eq!(invoke("get_github_auth_status").await["signedInAs"], Value::Null);
+  assert_eq!(github_status().await["signedInAs"], Value::Null);
 
-  let code = invoke("start_github_sign_in").await;
+  let mut messages = Messages::of_channel(command(&client, addr, Named::Id(&id), "sign_in", &sign_in), 7).await;
+  assert_eq!(messages.next().await, json!({"progress": {"kind": "waiting"}}));
   assert_eq!(
-    code,
-    json!({"userCode": "WDJB-MJHT", "verificationUri": "https://github.com/login/device", "expiresIn": 900})
+    messages.next().await,
+    json!({"progress": {"kind": "deviceCode", "code": "WDJB-MJHT", "url": "https://github.com/login/device", "expiresIn": 900}})
   );
-  let wait = tokio::spawn(invoke("wait_github_sign_in"));
   while sign_in_log().await["polls"] == 0 {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
   }
   assert_eq!(sign_in_log().await, json!({"pending": true, "codes": 1, "polls": 1}));
   post(&client, addr, &format!("/repositories/{id}/github-sign-in"), json!({"authorize": true})).await;
-  assert_eq!(wait.await.unwrap(), json!("user-name"));
+  let done = json!({"provider": "gitHub", "login": "user-name"});
+  assert_eq!(messages.next().await, json!({"progress": {"kind": "done", "done": done}}));
+  assert_eq!(messages.next().await, json!({"result": {"status": "ok", "data": done}}));
   assert_eq!(
-    invoke("get_github_auth_status").await,
+    github_status().await,
     json!({"signInAvailable": true, "signedInAs": "user-name", "tokenSource": "branchDeck", "manageUrl": "https://github.com/settings/connections/applications/client-1"})
   );
 
-  assert_eq!(invoke("sign_out_of_github").await, Value::Null);
-  assert_eq!(invoke("get_github_auth_status").await["tokenSource"], Value::Null);
+  assert_eq!(invoke("sign_out", json!({"account": "gitHub"})).await, Value::Null);
+  assert_eq!(github_status().await["tokenSource"], Value::Null);
   post(&client, addr, &format!("/repositories/{id}/github-sign-in"), json!({"ghToken": "gho_from_gh"})).await;
-  assert_eq!(invoke("get_github_auth_status").await["tokenSource"], json!("gh"));
+  assert_eq!(github_status().await["tokenSource"], json!("gh"));
 
-  invoke("start_github_sign_in").await;
-  let wait = tokio::spawn(invoke("wait_github_sign_in"));
+  // a call without a channel answers once it ended
+  let wait = tokio::spawn(invoke("sign_in", sign_in));
   while sign_in_log().await["polls"].as_u64() < Some(2) {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
   }
@@ -331,7 +335,7 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
   assert!(started.elapsed() < std::time::Duration::from_secs(5), "the deletion waited {:?}", started.elapsed());
   assert_eq!(
     wait.await.unwrap(),
-    json!({"status": "error", "error": {"code": "canceled", "message": "the sign-in was canceled", "details": null, "retry": "no", "operation_id": null}})
+    json!({"status": "error", "error": {"code": "canceled", "message": "The sign-in was canceled", "details": null, "retry": "no", "operation_id": null}})
   );
 }
 

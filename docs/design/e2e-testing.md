@@ -168,10 +168,10 @@ Mock implementation:
   or a handler without its command, fails; the fifteen
   handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel; `set_setting`, `get_settings_changes`, `sub_window_loaded` and
   `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
-  `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`,
+  `set_repository_config`, `sign_in`, `sign_out`, `wait_youtrack_sign_in`, `save_youtrack_token`,
   `sign_out_of_youtrack`, `record_activity`, `clear_activity` and `execute` emit the event the backend emits after
   them, `emitAfter`, `activity-changed` of the journal) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (84) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (83) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
@@ -536,18 +536,22 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `search_github_users` call the cores as `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository
   the real `resolve_github_repository` reads; the writes (closes, reviews, `/patronus` comments) are intents of
   `execute`, on the same services.
-- **GitHub sign-in**: `get_github_auth_status`, `start_github_sign_in`, `wait_github_sign_in`, `cancel_github_sign_in`
-  and `sign_out_of_github` (the page's repository by `X-Repository-Id`) call the host's `GitHubSignInSession`
-  (`crates/github/src/sign_in_session.rs`), the core of the app's commands, with the host's service. The fake answers
+- **Sign-ins**: `sign_in` (its events as SSE messages of its channel, as `execute`), `cancel_sign_in`, `sign_out` and
+  `get_auth_status` (the page's repository by `X-Repository-Id`) call the host's `SignIns` (`remote_facts::sign_in`,
+  the core of the app's commands) on the services of the repository (`TestSignIns` of `remote_host.rs`), and a sign-in
+  or a sign-out has the sessions of the repository's worktree read their fact `auth` (after GitHub the pull requests
+  and the review requests too), as the app has all of its sessions; the session reads the fact through
+  `TestFactSources::auth`. The GitHub one runs `GitHubSignInSession` (`crates/github/src/sign_in_session.rs`). The fake answers
   the device flow as GitHub does: `POST /login/device/code` a code (`WDJB-MJHT`, `https://github.com/login/device`, 900
   s, polled every second), `POST /login/oauth/access_token` `authorization_pending` until the codes are authorized,
   then the host's token, whose user `GET /user` names (`user-name`). `POST /repositories/{id}/github-sign-in`
-  (`setGitHubSignIn`) changes what it names: `clientId`, the OAuth app of the build (none by default, as a build
+  (`setGitHubSignIn`; the setup option `gitHubSignIn` before the page opens, since the session reads the sign-ins when
+  the window opens it) changes what it names: `clientId`, the OAuth app of the build (none by default, as a build
   without `BRANCH_DECK_GITHUB_CLIENT_ID`); `authorize`, the user entered the codes issued so far; `signedIn`, the token
   file holds the host's sign-in or none (signed in or out elsewhere); `ghToken`, a fake `gh` that answers it. `GET`
   (`getGitHubSignIn`) answers `pending` (a sign-in waits for its code, as the session holds it), `codes` and `polls`,
-  the requests of the device flow that reached the fake. The page mock emits `github-auth-changed` to every page after
-  a wait or a sign-out succeeded, as the backend does; a deleted repository cancels the sign-in its page left waiting,
+  the requests of the device flow that reached the fake. The page mock emits `auth-changed` to every page after a
+  sign-in or a sign-out succeeded, as the backend does; a deleted repository cancels the sign-in its page left waiting,
   so its deletion does not wait for the code to expire.
 - **GitHub fixture**: `POST /repositories/{id}/pull-requests` (`setPullRequests`, the `pullRequests` setup option) takes
   a `PullRequestsResult` (`availablePullRequests`, `unavailablePullRequests` in `pull-request-helpers.ts`) and what only
@@ -585,7 +589,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   fixture, `review_requests_of`), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
   session's read of the rules of a base, `TestFactSources::branch_rules`), `profiles` (its read of the merge profiles,
-  `TestFactSources::profiles`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings), `sync` (a sync
+  `TestFactSources::profiles`), `authStatus` (the status of the sign-ins: the session's read, `TestFactSources::auth`,
+  and the reads of Settings, `get_auth_status` and `get_youtrack_auth_status`), `cliTools` (the tools of Settings), `sync` (a sync
   run of the session, held in `TestSessionEnvironment::run_setup` before it reads anything: the session's sync runs
   until the release, so a push that waits for it, `WaitingForSync`, is seen waiting; a page hold of the `sync` command
   never reaches the session). A held request reaches its fake and waits at a `FakeGate`

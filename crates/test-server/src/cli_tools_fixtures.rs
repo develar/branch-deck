@@ -56,7 +56,7 @@ impl CliToolsHost {
     self.fakes.get_or_init(|| FakeCliTools::new(&self.root))
   }
 
-  fn environment(&self) -> ToolEnvironment {
+  pub(crate) fn environment(&self) -> ToolEnvironment {
     let fakes = self.fakes();
     ToolEnvironment::isolated(&fakes.bin(), &fakes.home())
   }

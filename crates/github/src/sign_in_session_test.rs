@@ -1,51 +1,23 @@
-use crate::client::GitHubClient;
 use crate::device_flow::DeviceFlowError;
-use crate::fake_github::{DEVICE_VERIFICATION_URI, FAKE_USER_CODE, FakeGitHub, serve};
-use crate::fake_repository::{FakeGitHubRepository, RepositoryState};
+use crate::fake_github::{DEVICE_TOKEN_POLL, DEVICE_VERIFICATION_URI, FAKE_USER_CODE, FakeGitHub, start_sign_in_fake, within_sign_in};
 use crate::service::GitHubService;
 use crate::sign_in_session::{GitHubSignInSession, NO_CLIENT_ID_MESSAGE};
-use crate::token::{TokenChain, TokenSources};
 use crate::token_store::{read_token, token_file};
 use domain_types::pull_request::{GitHubDeviceCode, TokenSource};
-use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
 const TOKEN: &str = "gho_signed_in";
 
-/// A fake GitHub whose repository knows the user `octocat` of `TOKEN` and asks for no pause between two polls of a
-/// device code (the tests step them with holds), a service that asks only with the token file of the temp dir, and a
-/// session of that file
+/// The fake GitHub of a sign-in (`start_sign_in_fake`) and a session of the token file of the temp dir
 async fn setup() -> (Arc<FakeGitHub>, GitHubService, GitHubSignInSession, tempfile::TempDir) {
-  let repository = Arc::new(FakeGitHubRepository::default());
-  repository.set(RepositoryState {
-    token: TOKEN.to_string(),
-    viewer: "octocat".to_string(),
-    ..RepositoryState::default()
-  });
-  let fake = Arc::new(FakeGitHub::with_repository(repository));
-  fake.set_device_interval(0);
-  let url = serve(Arc::clone(&fake)).await;
   let dir = tempfile::tempdir().unwrap();
-  let sources = TokenSources {
-    token_file: Some(token_file(dir.path())),
-    git_credential: false,
-    ..TokenSources::default()
-  };
-  let service = GitHubService::new(GitHubClient::with_urls(&url, &url, "Branch Deck test"), TokenChain::new(sources, GitCommandExecutor::new()));
+  let (fake, service) = start_sign_in_fake(TOKEN, "octocat", dir.path()).await;
   let session = GitHubSignInSession::new(Some(token_file(dir.path())));
   (fake, service, session, dir)
 }
 
-/// The poll of a device code for its token
-const POLL: &str = "/login/oauth/access_token";
-
-/// `steps` within 10 s: a wait that never got to the poll a test holds fails instead of hanging
-async fn within<T>(steps: impl Future<Output = T>) -> T {
-  tokio::time::timeout(std::time::Duration::from_secs(10), steps)
-    .await
-    .expect("the sign-in never got to its poll")
-}
+const POLL: &str = DEVICE_TOKEN_POLL;
 
 #[tokio::test]
 async fn a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_user() {
@@ -76,7 +48,7 @@ async fn a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_u
     fake.authorize_device_codes(TOKEN);
     second.open();
   };
-  let (login, ()) = within(async { tokio::join!(wait, authorize) }).await;
+  let (login, ()) = within_sign_in(async { tokio::join!(wait, authorize) }).await;
   assert_eq!(login.as_deref(), Ok("octocat"));
   assert!(!session.is_pending());
   let stored = read_token(&token_file(dir.path())).unwrap();
@@ -101,7 +73,7 @@ async fn a_cancel_ends_the_wait_and_a_build_without_the_oauth_app_signs_in_nowhe
     session.cancel();
     poll.open();
   };
-  let (waited, ()) = within(async { tokio::join!(wait, cancel) }).await;
+  let (waited, ()) = within_sign_in(async { tokio::join!(wait, cancel) }).await;
   assert_eq!(waited, Err(DeviceFlowError::Canceled));
   assert!(!session.is_pending());
   assert_eq!(
@@ -128,7 +100,7 @@ async fn a_denied_code_ends_the_sign_in_and_is_pending_is_false() {
     fake.deny_device_codes();
     poll.open();
   };
-  let (waited, ()) = within(async { tokio::join!(wait, deny) }).await;
+  let (waited, ()) = within_sign_in(async { tokio::join!(wait, deny) }).await;
   assert_eq!(waited, Err(DeviceFlowError::Denied));
   assert!(!session.is_pending(), "a sign-in that ended with its error is no longer pending");
   assert_eq!(

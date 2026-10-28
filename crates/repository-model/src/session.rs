@@ -418,6 +418,27 @@ impl Sessions {
     version.await.ok().flatten()
   }
 
+  /// Every open session reads a fact of `family` again for `reason`, by the rules of the family, and nothing waits
+  /// for the reads: the host after a change of what all of them read alike (a sign-in or a sign-out of an account)
+  pub fn refresh_all(&self, family: FactFamily, reason: FactRefreshReason) {
+    self.refresh_where(family, reason, |_| true);
+  }
+
+  /// `refresh_all` of the sessions of `worktree` only: the E2E server, whose accounts are of each test repository
+  pub fn refresh_worktree(&self, worktree: &str, family: FactFamily, reason: FactRefreshReason) {
+    self.refresh_where(family, reason, |key| key.worktree == worktree);
+  }
+
+  fn refresh_where(&self, family: FactFamily, reason: FactRefreshReason, of: impl Fn(&SessionKey) -> bool) {
+    let keys: Vec<SessionKey> = self.lock().keys().filter(|key| of(key)).cloned().collect();
+    for key in keys {
+      // the answer of the read goes to no one
+      let (reply, _) = oneshot::channel();
+      let subject = None;
+      self.events.emit(&key, SessionEventKind::Refresh { family, reason, subject, reply });
+    }
+  }
+
   #[must_use]
   pub fn is_open(&self, key: &SessionKey) -> bool {
     self.lock().contains_key(key)

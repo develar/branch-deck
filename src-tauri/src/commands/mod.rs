@@ -21,6 +21,7 @@ pub mod session;
 #[cfg(test)]
 mod session_test;
 pub mod settings;
+pub mod sign_in;
 pub mod squash_fixups;
 pub mod stack_operations;
 pub mod suggest_branch_names;

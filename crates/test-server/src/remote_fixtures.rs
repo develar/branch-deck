@@ -627,7 +627,7 @@ pub async fn get_github_sign_in(Path(id): Path<String>, State(state): State<Arc<
   let (host, _) = host_of(&state, &id)?;
   let count = |path: &str| host.github().requests_to("POST", path).len();
   Ok(Json(serde_json::json!({
-    "pending": host.github_sign_in().is_pending(),
+    "pending": host.sign_ins().github_pending(),
     "codes": count("/login/device/code"),
     "polls": count("/login/oauth/access_token"),
   })))

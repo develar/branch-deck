@@ -5,6 +5,10 @@ style: plain-1
 targets:
   - ../../crates/github/src/device_flow.rs
   - ../../crates/github/src/sign_in_session.rs
+  - ../../crates/remote-facts/src/sign_in.rs
+  - ../../crates/remote-facts/src/scheduler_auth.rs
+  - ../../crates/domain-types/src/sign_in.rs
+  - ../../crates/domain-policy/src/refresh.rs
   - ../../crates/app-api/src/api_error.rs
   - ../../crates/github/src/token_store.rs
   - ../../crates/sync-utils/src/private_file.rs
@@ -12,10 +16,13 @@ targets:
   - ../../crates/github/src/token.rs
   - ../../crates/domain-types/src/pull_request.rs
   - ../../src-tauri/src/commands/github.rs
+  - ../../src-tauri/src/commands/sign_in.rs
   - ../../src-tauri/src/lib.rs
   - ../../crates/bd-core/src/context.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
-  - ../../src/stores/github-auth.ts
+  - ../../crates/test-server/src/remote_host.rs
+  - ../../src/stores/auth.ts
+  - ../../src/lib/sign-in-run.ts
   - ../../src/components/settings/GitHubSettings.tsx
   - ../../src/components/settings/GitHubPage.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
@@ -72,21 +79,46 @@ redirect and without a client secret.
   it; `expired_token`, `access_denied` and `device_flow_disabled` end it with an error, as does the code's
   `expires_in`. A network failure is asked again at the next interval.
   [@test] ../../crates/github/src/device_flow_test.rs (`the_wait_polls_while_pending_slows_down_when_told_and_takes_the_token`, `a_denied_or_expired_code_and_a_cancel_end_the_wait`)
-- One sign-in at a time (`start_github_sign_in`, then `wait_github_sign_in`). A newer one, `cancel_github_sign_in` and
-  a sign-out end the wait of an older one with the error code `canceled` (`DeviceFlowError::Canceled` through
-  `app_api::api_error`, the same in the app and the test server), which is no error: the page tells nothing of it, by
-  the code, never by the words of the error. Tauri does not cancel a command whose promise the page dropped, so a
-  generation counter does (`GitHubSignInSession`, shared by the app's commands and the test server).
+- A sign-in is a command of the app, not an intent of a repository: the token is one for the app and Settings opens
+  without a repository too ([Rust as the Domain Authority](../../docs/design/rust-domain-authority.md), "Решение
+  2026-10-28"). `sign_in({ provider: "gitHub" }, channel)` runs it in a task of its own (`remote_facts::sign_in::SignIns`
+  over `GitHubSignInSession`) and tells its events on the channel of the call, `done` last: `waiting` while GitHub is
+  asked for the code, `deviceCode` (`code`, `url`, the seconds `expiresIn` it has left), `done` with the login; the call
+  answers how it ended. The lock of the sign-ins only registers a run, never spans a request of GitHub.
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_sign_in_joins_the_one_that_runs_hears_its_code_and_ends_with_it`)
+  [@test] ../../crates/test-server/src/github_host_test.rs (`the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_repository`)
+- One sign-in at a time: a second call while one runs (another window, a second click) joins it: it hears the
+  current event (the code, with the seconds left since GitHub gave it), then the rest, and answers the same end; GitHub
+  is asked for one code. A window runs one sign-in of GitHub itself (`runSignIn` of `src/lib/sign-in-run.ts`), its
+  button disabled while it does.
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_sign_in_joins_the_one_that_runs_hears_its_code_and_ends_with_it`)
+  [@test] ../../src/stores/auth.test.ts (`shows the code while GitHub waits for it, then tells who signed in`)
+- `cancel_sign_in("gitHub")` and a sign-out end the sign-in that runs at once with the error code `canceled` (the
+  waiting request dropped, the code forgotten: nothing pending); a sign-in after it starts anew, with a code of its own,
+  never joining the canceled one. `canceled` is no error: the page tells nothing of it, by the code, never by the words
+  of the error.
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_cancel_ends_the_sign_in_at_once_as_canceled_and_the_next_one_starts_anew`, `a_sign_out_cancels_the_sign_in_that_runs_then_removes_the_token`)
   [@test] ../../crates/github/src/sign_in_session_test.rs (`a_cancel_ends_the_wait_and_a_build_without_the_oauth_app_signs_in_nowhere`)
   [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_of_each_contract_case_is_its_json_in_the_fixture`)
-  [@test] ../../src/stores/github-auth.test.ts (`says nothing when canceled, and why when GitHub refused, by the code of the error and not its words`)
+  [@test] ../../src/stores/auth.test.ts (`says nothing when canceled, and why when GitHub refused, by the code of the error and not its words`)
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
-- With the token, the app asks `GET /user` for the login, keeps the token, forgets what GitHub accepted and denied
-  (`TokenChain::forget`), and emits `github-auth-changed` to every window, which asks for the pull requests, the review
-  requests and the status again.
+- With the token, the app asks `GET /user` for the login, keeps the token and forgets what GitHub accepted and denied
+  (`TokenChain::forget`). A sign-in or a sign-out that changed the account tells the host once, however many calls
+  joined it (`SignInHost::changed`): every session reads its fact `auth` again (`AfterWrite`) and lists the pull requests
+  and the review requests again (`Manual`), and every window hears `auth-changed`, on which a window without a session
+  reads `get_auth_status` again.
   [@test] ../../crates/github/src/sign_in_session_test.rs (`a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_user`)
-  [@test] ../../crates/test-server/src/github_host_test.rs (`the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_repository`)
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_sign_in_joins_the_one_that_runs_hears_its_code_and_ends_with_it`)
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`)
+- The status of the sign-ins (`AuthStatus`: GitHub's below, YouTrack's of [YouTrack](youtrack.spec.md)) is the fact
+  `auth` of every session (`FactsView.auth`), read by the rule `domain_policy::refresh::auth_due`: when a window opens
+  the session, after a sign-in or a sign-out of any window and by the refresh button, once more after a read in flight
+  for those; on a focus by the rule of the lists (at least a minute after the last read and when it is two minutes
+  old); never by a sync, a push or a poll. A window of a repository takes it from its session (`applyAuthFacts` of
+  `src/stores/auth.ts`), which keeps the last status until a new session answered and says why a read failed.
+  [@test] ../../crates/domain-policy/src/refresh_test.rs (`the_sign_ins_are_read_when_the_session_opens_after_a_sign_in_and_on_a_focus_by_the_rule_of_the_lists`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_sign_ins_are_read_when_a_window_opens_the_session_after_a_sign_in_and_on_a_late_focus`)
+  [@test] ../../src/stores/auth.test.ts (`comes from the fact of the session, which keeps the last status until it answered and says why a read failed`)
 
 ### The token file
 
@@ -103,7 +135,7 @@ redirect and without a client secret.
 - The token of the file comes after `GH_TOKEN` and `gh`, before git ([Pull Requests](../branch/pull-requests.spec.md#the-token)):
   an organization that restricts OAuth apps has usually approved `gh`, and the Branch Deck app only once an admin did.
   [@test] ../../crates/github/src/token_test.rs (`the_sign_in_of_the_app_comes_after_gh_and_before_git`)
-- Sign Out removes the file and tells every window. "Manage on GitHub" opens
+- Sign Out (`sign_out("gitHub")`) removes the file and tells every window. "Manage on GitHub" opens
   `github.com/settings/connections/applications/<client id>`: the organizations the app may see, and revoking it.
   [@test] ../../crates/github/src/sign_in_session_test.rs (`a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_user`)
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
@@ -111,7 +143,7 @@ redirect and without a client secret.
 ### Settings
 
 - The GitHub page of the Settings window ([Settings](settings.spec.md)) says, asked again on every open of the window
-  and on every sign-in or sign-out of any window (`get_github_auth_status`, `github-auth-changed`):
+  and on every sign-in or sign-out of any window (`get_auth_status`, `auth-changed`):
   - signed in: "Signed in as @octocat", with Sign Out and Manage on GitHub; while `gh` or `GH_TOKEN` comes first,
     "; the token of gh comes first while GitHub accepts it";
   - else the source the app takes first, without git (whose credentials are per repository): "Uses the token of gh";
@@ -131,18 +163,18 @@ redirect and without a client secret.
   "Cannot sign in to GitHub" with the reason; a sign-out "Signed out of GitHub", which says that GitHub keeps the
   authorization until it is revoked there.
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should cancel the sign-in, and sign out`)
-  [@test] ../../src/stores/github-auth.test.ts (`shows the code while GitHub waits for it, then tells who signed in`)
+  [@test] ../../src/stores/auth.test.ts (`shows the code while GitHub waits for it, then tells who signed in`)
 
 ### Where it is offered
 
 - The status line of the pull requests ([Pull Requests](../branch/pull-requests.spec.md#landing-overview)) and of Your
   Turn, after the hint "No GitHub token to see pull requests" or "GitHub rejected the token from gh", has "Sign In…",
   which opens Settings at GitHub; a build without the sign-in has "GitHub Settings…" there, which opens it too: it never names a
-  sign-in the build has not. The build decides which, so the button waits for the status, asked once when such a hint
-  shows (`loadGitHubAuthStatus`). After "SAML SSO" with a URL, "Authorize…", which opens it.
+  sign-in the build has not. The build decides which, so the button waits for the status, the fact `auth` the session
+  of the window reads when it opens. After "SAML SSO" with a URL, "Authorize…", which opens it.
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
   [@test] ../../src/lib/pull-request.test.ts (`offers the sign-in for a missing or rejected token, GitHub Settings in a build without it, and nothing while unknown`)
-  [@test] ../../src/stores/github-auth.test.ts (`asks for the status once, however many hints need it`)
+  [@test] ../../src/stores/auth.test.ts (`comes from the fact of the session, which keeps the last status until it answered and says why a read failed`)
 - The token of the sign-in that can't see the repository (no access, after every other source of the chain) is
   most likely not approved by the organization: the user has a clone of it. The hint says so, "GitHub: no repository
   acme/monorepo (the token from the Branch Deck sign-in). An organization that restricts OAuth apps shows its private
@@ -163,14 +195,17 @@ redirect and without a client secret.
 
 - `cargo nextest run -p github`: the device flow against the fake GitHub (`device_flow_test.rs`), the token file
   (`token_store_test.rs`), the order of the sources (`token_test.rs`).
-- `pnpm test:unit`: `src/stores/github-auth.test.ts`.
+- `cargo nextest run -p remote-facts -E 'test(/sign_in|sign_ins/)'`: the sign-ins of the app, the join, the cancel and the
+  sign-out against the fake GitHub (`sign_in_test.rs`), and when a session reads the fact `auth` (`scheduler_test.rs`).
+- `pnpm test:unit`: `src/stores/auth.test.ts`.
 - `cargo nextest run -p github`: the session from the code to the token file, a cancel and a sign-out against the fake
   GitHub (`sign_in_session_test.rs`); `-p test-server`: the same through the routes of the test server
   (`github_host_test.rs`).
 - `pnpm e2e`: `tests/e2e/github-sign-in/`. The test server runs the sign-in commands through the real session against
   the device flow of a fake GitHub per test repository, a build without the OAuth app until a fixture names one
   (`setGitHubSignIn`: `clientId`, `authorize` for the user entering the code, `signedIn`, `ghToken`), and the page mock
-  emits `github-auth-changed` after a sign-in or a sign-out, as the backend does
+  emits `auth-changed` after a sign-in or a sign-out, as the backend does, and the test server has the sessions of the
+  repository read their fact `auth`
   ([E2E Testing](../../docs/design/e2e-testing.md)).
 - In the app: build with `BRANCH_DECK_GITHUB_CLIENT_ID=<the client id of build-tauri.yml> pnpm install-app`, unset `GH_TOKEN`, move `gh`
   out of `PATH`, sign in from Settings, and check that the pull requests and Your Turn load and `bd safe-push --check`

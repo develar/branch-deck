@@ -39,6 +39,7 @@
 //! - `settings`: the settings of the app that Rust reads (`AppSettings`), the branch prefix of git and the resolved one
 //!   with its source
 //! - `setup`: what in the setup of the machine waits for the user (the Setup dot)
+//! - `sign_in`: the sign-ins of the app's accounts, their events and the status of both accounts (the fact `auth`)
 //! - `stack`: the stacked branches as a sync reports them, the syntax of a stack prefix (`(auth/login)`)
 //! - `update`: the update of the app
 //! - `update_project`: Update Project, the check of the branch against its upstream and the applied update
@@ -83,6 +84,7 @@ pub mod robot_stats;
 pub mod session;
 pub mod settings;
 pub mod setup;
+pub mod sign_in;
 pub mod stack;
 pub mod update;
 pub mod update_project;

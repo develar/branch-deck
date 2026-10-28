@@ -290,6 +290,14 @@ impl FactSources for TestFactSources {
   fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
     self.services.fetch_moved_remotes(key, asks)
   }
+
+  /// Held and failed as `get_auth_status` of the bridge is
+  fn auth<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<domain_types::sign_in::AuthStatus, ApiError>> {
+    Box::pin(async move {
+      self.gate(key, HeldAnswer::AuthStatus, "read the sign-ins").await?;
+      self.services.auth(key).await
+    })
+  }
 }
 
 /// The services of each test repository (`ServiceHost`): its fake Patronus and fake GitHub (`RemoteHost`), the Space
@@ -397,6 +405,11 @@ impl ServiceHost for TestServices {
 
   fn youtrack(&self, key: &SessionKey) -> Result<Arc<youtrack::service::YouTrackService>, ApiError> {
     Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.shared_youtrack_service())
+  }
+
+  /// The sign-ins of the test repository: its fakes are its accounts
+  fn sign_ins(&self, key: &SessionKey) -> Result<remote_facts::sign_in::SignIns, ApiError> {
+    Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.sign_ins().clone())
   }
 
   fn space_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {

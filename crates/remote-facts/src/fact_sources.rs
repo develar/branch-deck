@@ -4,12 +4,13 @@
 //! repository it keeps, `bd` over the services of its command, the E2E server over the fakes of each test repository,
 //! counting and holding the reads as its tests check them around it (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus, of
 //! GitHub for the pull requests and the review requests); the reads of what the session asks about its robots (their details too), the rules of
-//! a base, the merge profiles and the review readiness answer their failure, which the facts keep.
+//! a base, the merge profiles, the review readiness and the sign-ins answer their failure, which the facts keep.
 
 use domain_types::error::ApiError;
 use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use domain_types::review_request::ReviewRequestsResult;
+use domain_types::sign_in::AuthStatus;
 use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::session::SessionKey;
 use std::future::Future;
@@ -67,4 +68,8 @@ pub trait FactSources: Send + Sync + 'static {
   /// Of `asks`, in their order, the answers the object cache keeps that still hold (`review_readiness::kept_review_readiness`),
   /// read without Patronus; `None` for each it doesn't answer
   fn cached_readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>) -> Read<'a, Vec<Option<BranchReviewReadiness>>>;
+
+  /// The sign-ins of the app's accounts as the session of `key` reads them (`sign_in::SignIns::status`): one status of
+  /// the app; a host without them (`bd`) answers why
+  fn auth<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<AuthStatus, ApiError>>;
 }

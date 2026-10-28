@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 84;
+const COMMAND_COUNT: usize = 83;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -45,11 +45,10 @@ const MUTATING: &[&str] = &[
   // the links of Reviews (`repository-state.json`)
   "link_pull_request",
   "unlink_pull_request",
-  // the sign-ins
-  "start_github_sign_in",
-  "wait_github_sign_in",
-  "cancel_github_sign_in",
-  "sign_out_of_github",
+  // the sign-ins (`remote_facts::sign_in`; YouTrack's own commands until they go through it)
+  "sign_in",
+  "cancel_sign_in",
+  "sign_out",
   "start_youtrack_sign_in",
   "wait_youtrack_sign_in",
   "cancel_youtrack_sign_in",
@@ -254,11 +253,11 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
       "save_youtrack_token",
       "set_repository_config",
       "set_setting",
-      "sign_out_of_github",
+      "sign_in",
+      "sign_out",
       "sign_out_of_youtrack",
       "sub_window_drawn",
       "sub_window_loaded",
-      "wait_github_sign_in",
       "wait_youtrack_sign_in"
     ],
     "the handlers of COMMAND_HANDLERS that wrap a route"

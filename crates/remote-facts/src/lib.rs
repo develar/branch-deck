@@ -18,6 +18,10 @@
 //! - `cli_tool_releases`: the newest release of the CLIs of Settings → Tools, once a day
 //! - `youtrack_cli`: the `youtrack` CLI signed in with a permanent token of the app's YouTrack
 //!
+//! The accounts of the app:
+//! - `sign_in`: the sign-ins to GitHub and YouTrack and of the `youtrack` CLI as the app's commands run them, one of each
+//!   provider at a time (a second call joins it), and the status of both accounts (the fact `auth` of the sessions)
+//!
 //! The facts of the sessions:
 //! - `fact_sources`: what the scheduler and the facts of an operation read the remote services with
 //! - `service_sources`: its one implementation over the services of Patronus and GitHub, for every host (the app, `bd`,
@@ -51,6 +55,7 @@ pub mod robot_stats;
 pub mod robot_stats_aggregate;
 pub mod scheduler;
 pub mod service_sources;
+pub mod sign_in;
 pub mod stack_pull_request;
 pub mod youtrack_cli;
 
@@ -72,5 +77,7 @@ mod pull_request_writes_test;
 mod pull_requests_test;
 #[cfg(test)]
 mod review_readiness_test;
+#[cfg(test)]
+mod sign_in_test;
 #[cfg(test)]
 mod youtrack_cli_test;

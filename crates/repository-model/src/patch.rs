@@ -188,8 +188,10 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     robot_details,
     removed_robot_details,
     review_requests,
+    auth,
   } = facts.unwrap_or_default();
   set_if_some(&mut view.facts.review_requests, review_requests);
+  set_if_some(&mut view.facts.auth, auth);
   for key in &removed_readiness {
     view.facts.readiness.remove(key);
   }

@@ -1,7 +1,8 @@
 //! The app's own sign-in to YouTrack (spec/repository/youtrack.spec.md): one browser sign-in at a time through the Hub
 //! of the YouTrack (`sign_in.rs`), from the Hub page to the stored token; a pasted token; a cancel and a sign-out.
-//! Shared by the app's commands, which only tell the windows (`youtrack-auth-changed`), and the E2E test server, which
-//! hosts the same session and service behind a fake YouTrack (`fake_youtrack.rs`).
+//! The core of the YouTrack sign-ins of `remote_facts::sign_in`, and of the app's YouTrack commands that tell the windows
+//! (`youtrack-auth-changed`) until they go through it; the E2E test server hosts the same session and service behind a
+//! fake YouTrack (`fake_youtrack.rs`).
 
 use crate::issue::fetch_me;
 use crate::service::{YouTrackService, expires_at};

@@ -24,6 +24,9 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   if (parsedOptions.reviewRequests !== undefined) {
     await repoBuilder.setReviewRequests(parsedOptions.reviewRequests)
   }
+  if (parsedOptions.gitHubSignIn !== undefined) {
+    await repoBuilder.setGitHubSignIn(parsedOptions.gitHubSignIn)
+  }
   if (parsedOptions.patronus !== undefined) {
     await repoBuilder.setPatronus(parsedOptions.patronus)
   }

@@ -1,3 +1,4 @@
+use crate::channel_commands::{answer_with_progress, progress_channel};
 use crate::remote_host::PAGE_CLOCK_START;
 use app_api::api_error::{IntoApiError, patronus_error};
 use axum::{
@@ -12,11 +13,12 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
 use domain_types::patronus::{PatronusAvailability, PatronusRobotsResult};
-use domain_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest};
+use domain_types::pull_request::{GitHubUser, NewPullRequest};
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
+use domain_types::sign_in::{Account, AuthStatus, SignIn, SignInProvider};
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackUser};
 use file_diffs::model::{
   BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
@@ -409,43 +411,52 @@ pub(crate) async fn holding(state: &AppState, key: &SessionKey) -> Result<tokio:
   Ok(in_flight.read_owned().await)
 }
 
-/// The sign-in of the requesting page's repository, as the app reads it, with the OAuth app of a fixture (none by
-/// default)
-pub async fn get_github_auth_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<GitHubAuthStatus> {
+/// The sign-ins of the requesting page's repository, as the app reads them (`get_auth_status`), with the OAuth app of a
+/// fixture (none by default)
+pub async fn get_auth_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<AuthStatus> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  held_or_failed(&host, HeldAnswer::GitHubAuth, "read the GitHub sign-in").await?;
-  let client_id = host.github_client_id();
-  Ok(Json(host.github_sign_in().status(&host.github_service(), client_id.as_deref()).await))
+  held_or_failed(&host, HeldAnswer::AuthStatus, "read the sign-ins").await?;
+  Ok(Json(host.sign_ins().status().await))
 }
 
-/// Starts the app's sign-in against the device flow of the fake GitHub, as the app does
-pub async fn start_github_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<GitHubDeviceCode> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  let client_id = host.github_client_id();
-  let code = host.github_sign_in().start(&host.github_service(), client_id.as_deref()).await;
-  code.map(Json).map_err(|e| failed("start the GitHub sign-in", e))
+#[derive(Deserialize)]
+pub struct SignInParams {
+  request: SignIn,
 }
 
-/// Waits for the code of the sign-in to be entered (a fixture authorizes it) and keeps the token, as the app does; the
-/// page mock tells the windows (`github-auth-changed`)
-pub async fn wait_github_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<String> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  let client_id = host.github_client_id();
-  let login = host.github_sign_in().wait(&host.github_service(), client_id.as_deref()).await;
-  login.map(Json).map_err(|e| failed("sign in to GitHub", e))
+/// A sign-in of the requesting page's repository, as the app runs it (`remote_facts::sign_in`): its events on the
+/// channel of the page, the device flow of the fake GitHub, the Hub of the fake YouTrack; the page mock tells the windows
+/// (`auth-changed`)
+pub async fn sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<SignInParams>) -> Response {
+  answer_with_progress(progress_channel(&headers), move |progress| async move {
+    let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
+    let done = host.sign_ins().sign_in(params.request, &|event| progress.send(&event)).await;
+    done.map(Json).map_err(|error| failed("sign in", error))
+  })
+  .await
+  .into_response()
 }
 
-/// Ends the wait of the sign-in in progress, as the app does
-pub async fn cancel_github_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<()> {
-  requesting_repository(&state, &headers)?.remote(&state.git_executor).github_sign_in().cancel();
+#[derive(Deserialize)]
+pub struct CancelSignInParams {
+  provider: SignInProvider,
+}
+
+/// Ends the sign-in of a provider that runs, as the app does
+pub async fn cancel_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<CancelSignInParams>) -> CommandResult<()> {
+  requesting_repository(&state, &headers)?.remote(&state.git_executor).sign_ins().cancel(params.provider);
   Ok(Json(()))
 }
 
-/// Removes the token of the sign-in, as the app does; the page mock tells the windows (`github-auth-changed`)
-pub async fn sign_out_of_github(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<()> {
+#[derive(Deserialize)]
+pub struct SignOutParams {
+  account: Account,
+}
+
+/// Removes the token of an account, as the app does; the page mock tells the windows (`auth-changed`)
+pub async fn sign_out(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<SignOutParams>) -> CommandResult<()> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  let signed_out = host.github_sign_in().sign_out(&host.github_service()).await;
-  signed_out.map(Json).map_err(|e| failed("sign out of GitHub", e))
+  host.sign_ins().sign_out(params.account).await.map(Json).map_err(|error| failed("sign out", error))
 }
 
 /// The text a new pull request starts with and the user of the token, as the app reads them: the issue summaries
@@ -476,7 +487,7 @@ pub async fn search_github_users(State(state): State<Arc<AppState>>, Json(params
 /// The YouTrack sign-in of the requesting page's repository, as the app reads it
 pub async fn get_youtrack_auth_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<YouTrackAuthStatus> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  held_or_failed(&host, HeldAnswer::YouTrackAuth, "read the YouTrack sign-in").await?;
+  held_or_failed(&host, HeldAnswer::AuthStatus, "read the YouTrack sign-in").await?;
   Ok(Json(host.youtrack_service().status()))
 }
 

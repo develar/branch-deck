@@ -8,16 +8,8 @@ import { useNow } from "@/hooks/useNow"
 import type { GitHubAuthStatus } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatTokenSource, ORGANIZATION_APPROVAL } from "@/lib/pull-request"
-import {
-  cancelGitHubSignIn,
-  copyCodeAndOpenGitHub,
-  retryGitHubAuthStatus,
-  signOutOfGitHub,
-  startGitHubSignIn,
-  useGitHubAuthReadError,
-  useGitHubAuthStatus,
-  useGitHubSignIn,
-} from "@/stores/github-auth"
+import { cancelSignIn, copyCodeAndOpenGitHub, runSignIn, signOut } from "@/lib/sign-in-run"
+import { retryAuthStatus, useAuthReadError, useAuthStatus, useSignInPhase } from "@/stores/auth"
 
 /**
  * Settings → GitHub: where the token comes from, and the app's own sign-in (spec/repository/github-sign-in.spec.md).
@@ -25,15 +17,15 @@ import {
  * sign-in; a failed read says why, with Retry, above the last status.
  */
 export function GitHubSettings() {
-  const status = useGitHubAuthStatus()
-  const readError = useGitHubAuthReadError()
-  const signIn = useGitHubSignIn()
-  const failure = readError === null ? null : <ReadFailure title="Cannot read the GitHub sign-in" message={readError} testId="github-auth-error" onRetry={retryGitHubAuthStatus} />
+  const status = useAuthStatus()?.github ?? null
+  const readError = useAuthReadError()
+  const signIn = useSignInPhase("gitHub")
+  const failure = readError === null ? null : <ReadFailure title="Cannot read the GitHub sign-in" message={readError} testId="github-auth-error" onRetry={retryAuthStatus} />
   if (status === null) {
     return failure ?? <LoadingLine>Reading the GitHub sign-in…</LoadingLine>
   }
-  if (signIn.phase === "waiting") {
-    return <SignInCode userCode={signIn.userCode} expiresAt={signIn.expiresAt} />
+  if (signIn.phase === "code") {
+    return <SignInCode userCode={signIn.code} expiresAt={signIn.expiresAt} />
   }
   const approvalNote = describeApproval(status)
   return (
@@ -49,13 +41,13 @@ export function GitHubSettings() {
         <div className="flex flex-wrap gap-2">
           {status.signedInAs === null ? (
             status.signInAvailable && (
-              <Button size="xs" variant="outline" disabled={signIn.phase === "starting"} onClick={() => void startGitHubSignIn()}>
-                {signIn.phase === "starting" ? <Spinner data-icon="inline-start" /> : <LogInIcon data-icon="inline-start" />}
+              <Button size="xs" variant="outline" disabled={signIn.phase !== "idle"} onClick={() => void runSignIn({ provider: "gitHub" })}>
+                {signIn.phase === "idle" ? <LogInIcon data-icon="inline-start" /> : <Spinner data-icon="inline-start" />}
                 Sign In to GitHub
               </Button>
             )
           ) : (
-            <Button size="xs" variant="outline" onClick={() => void signOutOfGitHub()}>
+            <Button size="xs" variant="outline" onClick={() => void signOut("gitHub")}>
               <LogOutIcon data-icon="inline-start" />
               Sign Out
             </Button>
@@ -111,7 +103,7 @@ function SignInCode({ userCode, expiresAt }: { userCode: string; expiresAt: numb
           <ExternalLinkIcon data-icon="inline-start" />
           Copy Code and Open GitHub
         </Button>
-        <Button size="xs" variant="ghost" onClick={() => void cancelGitHubSignIn()}>
+        <Button size="xs" variant="ghost" onClick={() => void cancelSignIn("gitHub")}>
           Cancel
         </Button>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -321,3 +321,35 @@ pub async fn start_fake_service(token: &str) -> (Arc<FakeGitHub>, crate::service
   let tokens = crate::token::TokenChain::new(crate::token::TokenSources::fixed(token), git_executor::git_command_executor::GitCommandExecutor::new());
   (fake, crate::service::GitHubService::new(client, tokens))
 }
+
+/// The poll of a device code for its token (`POST`), which a test of a sign-in holds to step it
+pub const DEVICE_TOKEN_POLL: &str = "/login/oauth/access_token";
+
+/// A fake GitHub whose repository knows `viewer` of `token` and asks for no pause between two polls of a device code
+/// (a test steps them with holds), and a service on it that asks only the token file in `dir`, where the app's own
+/// sign-in keeps its token: the tests of the sign-in here and in `remote_facts::sign_in`
+pub async fn start_sign_in_fake(token: &str, viewer: &str, dir: &std::path::Path) -> (Arc<FakeGitHub>, crate::service::GitHubService) {
+  let repository = Arc::new(FakeGitHubRepository::default());
+  repository.set(crate::fake_repository::RepositoryState {
+    token: token.to_owned(),
+    viewer: viewer.to_owned(),
+    ..crate::fake_repository::RepositoryState::default()
+  });
+  let fake = Arc::new(FakeGitHub::with_repository(repository));
+  fake.set_device_interval(0);
+  let url = serve(Arc::clone(&fake)).await;
+  let sources = crate::token::TokenSources {
+    token_file: Some(crate::token_store::token_file(dir)),
+    git_credential: false,
+    ..crate::token::TokenSources::default()
+  };
+  let tokens = crate::token::TokenChain::new(sources, git_executor::git_command_executor::GitCommandExecutor::new());
+  (fake, crate::service::GitHubService::new(GitHubClient::with_urls(&url, &url, "Branch Deck test"), tokens))
+}
+
+/// `steps` within 10 s: a sign-in that never got to the poll its test holds fails instead of hanging
+pub async fn within_sign_in<T>(steps: impl Future<Output = T>) -> T {
+  tokio::time::timeout(std::time::Duration::from_secs(10), steps)
+    .await
+    .expect("the sign-in never got to its poll")
+}

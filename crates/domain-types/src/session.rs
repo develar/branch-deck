@@ -31,6 +31,7 @@ use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
 use crate::review_request::{ReviewEntry, ReviewRequest};
 use crate::rewrite::TableWitness;
+use crate::sign_in::AuthStatus;
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
 use crate::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate, UnappliedBranchInfo};
@@ -176,6 +177,10 @@ pub enum FactFamily {
   /// asks them (`Manual`); a request opened on GitHub, where the user may answer it, makes the next focus ask at once
   /// (`AfterWrite`, answered at once)
   ReviewRequests,
+  /// The sign-ins of the app's accounts (`FactsView::auth`): read when a window opens the session, on a focus by the
+  /// rule of the lists, and at once after a sign-in or a sign-out of any window (`AfterWrite`, which the host asks of
+  /// every session)
+  Auth,
 }
 
 /// Why a window asks a fact again
@@ -446,6 +451,9 @@ pub struct FactsView {
   /// changes and every `RUNNING_DETAILS_REFRESH` while it runs; a robot no window demands any more has none
   pub robot_details: BTreeMap<String, Fact<PatronusRobotDetails>>,
   pub review_requests: ReviewRequestsView,
+  /// The sign-ins of the app's accounts and where their tokens come from (`remote_facts::sign_in`): one status of the
+  /// app, which every session reads by its rule (`domain_policy::refresh::auth_due`)
+  pub auth: Fact<AuthStatus>,
 }
 
 /// The pull requests of others that wait for the user's review ("Your Turn"), as the session listed them: the
@@ -1258,6 +1266,9 @@ pub struct FactsChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub review_requests: Option<ReviewRequestsView>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub auth: Option<Fact<AuthStatus>>,
 }
 
 /// What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went

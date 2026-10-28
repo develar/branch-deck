@@ -153,7 +153,7 @@ test.describe("YouTrack issue popover", () => {
     await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
 
     // the next start can't read the sign-in: an error that says so, Retry in it
-    await repo.holdRemoteAnswers({ fail: ["youTrackAuth"] })
+    await repo.holdRemoteAnswers({ fail: ["authStatus"] })
     await linkIssuesToYouTrack(repo, await youTrackUrlOf(repo))
     await page.reload()
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot read the YouTrack sign-in" })
@@ -166,7 +166,7 @@ test.describe("YouTrack issue popover", () => {
     await expect(page.getByRole("menuitem", { name: "Mark JIRA-456 Fixed" })).toHaveCount(0)
     await page.keyboard.press("Escape")
 
-    await repo.holdRemoteAnswers({ release: ["youTrackAuth"] })
+    await repo.holdRemoteAnswers({ release: ["authStatus"] })
     await toast.getByRole("button", { name: "Retry" }).click()
     await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
     await link.hover()

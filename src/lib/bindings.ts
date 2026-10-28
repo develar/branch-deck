@@ -29,22 +29,23 @@ export const commands = {
 	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_stack_pull_request", { params })),
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>(__TAURI_INVOKE("search_github_users", { params })),
-	/**  The app's own sign-in and where the token comes from, for Settings */
-	getGithubAuthStatus: () => typedError<GitHubAuthStatus, ApiError>(__TAURI_INVOKE("get_github_auth_status")),
-	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
-	startGithubSignIn: () => typedError<GitHubDeviceCode, ApiError>(__TAURI_INVOKE("start_github_sign_in")),
 	/**
-	 *  Waits until the user entered the code of `start_github_sign_in` on GitHub, keeps the token and tells every window;
-	 *  the login. A newer sign-in or `cancel_github_sign_in` ends it with the code `canceled`.
+	 *  The sign-ins of both accounts and where their tokens come from: for a window without a session (Settings); a window
+	 *  of a repository has them as the fact `auth` of its session
 	 */
-	waitGithubSignIn: () => typedError<string, ApiError>(__TAURI_INVOKE("wait_github_sign_in")),
-	/**  Ends the wait of the sign-in in progress, if any */
-	cancelGithubSignIn: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_github_sign_in")),
+	getAuthStatus: () => typedError<AuthStatus, ApiError>(__TAURI_INVOKE("get_auth_status")),
 	/**
-	 *  Removes the token of the app's own sign-in and tells every window; GitHub keeps the authorization until it is
-	 *  revoked there
+	 *  Signs in by `request`, or joins the sign-in of its provider that runs: its events on `events`, `done` last; a cancel
+	 *  ends it with the code `canceled`
 	 */
-	signOutOfGithub: () => typedError<null, ApiError>(__TAURI_INVOKE("sign_out_of_github")),
+	signIn: (request: SignIn, events: Channel<SignInEvent>) => typedError<SignInDone, ApiError>(__TAURI_INVOKE("sign_in", { request, events })),
+	/**  Ends the sign-in of `provider` that runs, if any: its calls answer `canceled` */
+	cancelSignIn: (provider: SignInProvider) => typedError<null, ApiError>(__TAURI_INVOKE("cancel_sign_in", { provider })),
+	/**
+	 *  Removes the token of the app's own sign-in to `account`, after a sign-in of it that runs ended as canceled. GitHub
+	 *  and the Hub keep the authorization until it is revoked there
+	 */
+	signOut: (account: Account) => typedError<null, ApiError>(__TAURI_INVOKE("sign_out", { account })),
 	/**  The YouTrack sign-in and where the token comes from, for Settings and the popovers */
 	getYoutrackAuthStatus: () => typedError<YouTrackAuthStatus, ApiError>(__TAURI_INVOKE("get_youtrack_auth_status")),
 	/**
@@ -373,6 +374,9 @@ export const commands = {
 export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"zoom":1} as const;
 
 /* Types */
+/**  An account of the app, which a sign-out removes the token of */
+export type Account = "gitHub" | "youTrack";
+
 /**  Why an action can't run now, as a code with the facts its words need */
 export type ActionBlocker = 
 /**  A reason of the rules: its build blocked, parked, a robot that holds or lands it, a stack branch not built */
@@ -631,6 +635,12 @@ export type ArchivedSection = {
 	newlyArchived: string[],
 	/**  The integration of the archived branches whose detection reported */
 	integration: { [key in string]: BranchIntegrationInfo },
+};
+
+/**  The sign-ins of the app's accounts and where their tokens come from */
+export type AuthStatus = {
+	github: GitHubAuthStatus,
+	youtrack: YouTrackAuthStatus,
 };
 
 /**  What squashing the fixups of a range does, with the HEAD it was computed for */
@@ -2138,7 +2148,13 @@ export type FactFamily =
  *  asks them (`Manual`); a request opened on GitHub, where the user may answer it, makes the next focus ask at once
  *  (`AfterWrite`, answered at once)
  */
-"reviewRequests";
+"reviewRequests" | 
+/**
+ *  The sign-ins of the app's accounts (`FactsView::auth`): read when a window opens the session, on a focus by the
+ *  rule of the lists, and at once after a sign-in or a sign-out of any window (`AfterWrite`, which the host asks of
+ *  every session)
+ */
+"auth";
 
 /**  Why a window asks a fact again */
 export type FactRefreshReason = 
@@ -2191,6 +2207,7 @@ export type FactsChanges = {
 	removedRobotDetails?: string[],
 	/**  The whole part when it changed: at most 50 requests */
 	reviewRequests?: ReviewRequestsView | null,
+	auth?: Fact<AuthStatus> | null,
 };
 
 /**
@@ -2224,6 +2241,11 @@ export type FactsView = {
 	 */
 	robotDetails: { [key in string]: Fact<PatronusRobotDetails> },
 	reviewRequests: ReviewRequestsView,
+	/**
+	 *  The sign-ins of the app's accounts and where their tokens come from (`remote_facts::sign_in`): one status of the
+	 *  app, which every session reads by its rule (`domain_policy::refresh::auth_due`)
+	 */
+	auth: Fact<AuthStatus>,
 };
 
 /**  A failed build of the dependency chain of a check (never a composite one) */
@@ -2668,16 +2690,6 @@ export type GitHubAuthStatus = {
 	tokenSource: TokenSource | null,
 	/**  The GitHub page of the Branch Deck OAuth app: the organizations it may see, and revoking it */
 	manageUrl: string | null,
-};
-
-/**  A code to enter on GitHub, for the app's own sign-in */
-export type GitHubDeviceCode = {
-	/**  e.g. `WDJB-MJHT` */
-	userCode: string,
-	/**  `https://github.com/login/device` */
-	verificationUri: string,
-	/**  Seconds the code is valid */
-	expiresIn: number,
 };
 
 /**  Where `resolve_github_repository` found the GitHub repository */
@@ -5734,6 +5746,44 @@ export type Sides<T> = {
 	base: T,
 	right: T,
 };
+
+/**  What a window signs in to */
+export type SignIn = 
+/**  The device flow of the Branch Deck OAuth app: a code the user enters on GitHub */
+{ provider: "gitHub" } | 
+/**
+ *  The browser sign-in through the Hub of the YouTrack at `url`; with `token`, the token the user created in YouTrack
+ *  (Profile → Account Security) instead, kept once YouTrack accepted it
+ */
+{ provider: "youTrack"; url: string; token?: string | null } | 
+/**  The one-shot browser sign-in that gets the `youtrack` CLI a permanent token of the YouTrack at `url` */
+{ provider: "youTrackCli"; url: string };
+
+/**  How a sign-in ended */
+export type SignInDone = 
+/**  The token of the GitHub user `login` is kept */
+{ provider: "gitHub"; login: string } | 
+/**  The token of `user` of the YouTrack at `url` is kept */
+{ provider: "youTrack"; url: string; user: YouTrackUser } | 
+/**  The `youtrack` CLI took its token: "Signed youtrack in to yt.example as jane" */
+{ provider: "youTrackCli"; title: string };
+
+/**  What a sign-in tells the windows that run or joined it, in order; the last one is `done`, unless it failed */
+export type SignInEvent = 
+/**
+ *  It asks the service, and the user has nothing to do: the code of GitHub or the page of the Hub is asked, a pasted
+ *  token is checked, the `youtrack` CLI gets its token
+ */
+{ kind: "waiting" } | 
+/**  GitHub waits until the user entered `code` at `url`, for `expires_in` more seconds */
+{ kind: "deviceCode"; code: string; url: string; expiresIn: number } | 
+/**  The Hub waits until the user signed in on the page at `url` in the browser */
+{ kind: "browser"; url: string } | 
+/**  It ended, or the sign-in it joined did */
+{ kind: "done"; done: SignInDone };
+
+/**  Who a sign-in runs with: one sign-in of each at a time, a second call joins it */
+export type SignInProvider = "gitHub" | "youTrack" | "youTrackCli";
 
 /**
  *  A running robot of a branch built on this one, or of its whole stack, whose commit has commits of it: it lands them

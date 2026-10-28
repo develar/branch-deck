@@ -4,13 +4,17 @@
 //! fixed Space token, no `teamcity` CLI; the GitHub token is only the token file of the host's own app data directory,
 //! `<test root>/<id>.app-data` beside the repository (`AppState::app_data_of`), and a fake `gh` a fixture writes
 //! there: no `GH_TOKEN`, no `gh` of the developer, no git credentials, no keychain).
-//! The app's GitHub sign-in runs the real session (`github::sign_in_session`) against the device flow of the fake;
-//! the YouTrack sign-in its session (`youtrack::sign_in_session`) against the Hub of the fake YouTrack, whose page a
-//! test fetches as the browser would.
+//! The sign-ins of the app run the real ones (`remote_facts::sign_in`, `TestSignIns`): GitHub against the device flow
+//! of the fake, YouTrack against the Hub of the fake YouTrack, whose page a test fetches as the browser would; a sign-in
+//! or a sign-out has the sessions of the repository read their facts as the app's does in all of them.
 
+use crate::cli_tools_fixtures::CliToolsHost;
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
 use crate::remote_git_fixtures::FakeRemote;
 use crate::review_fixtures::{ReviewAnswers, review_check_answer};
+use domain_types::error::ApiError;
+use domain_types::session::{FactFamily, FactRefreshReason};
+use domain_types::sign_in::{Account, SignInProvider};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
 use github::client::GitHubClient;
@@ -24,10 +28,12 @@ use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::fake_patronus::{FakePatronus, router};
 use patronus::service::PatronusService;
 use patronus::token::{Token, TokenLookup, TokenStamp};
+use remote_facts::sign_in::{SignInHost, SignIns};
+use repository_model::session::Sessions;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use sync_core::patronus::SpaceRepository;
 use test_utils::fake_server::{FakeGate, FakeServer};
 use youtrack::client::YouTrackClient;
@@ -60,8 +66,7 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::BranchRules
     | HeldAnswer::Profiles
     | HeldAnswer::RepositoryView
-    | HeldAnswer::GitHubAuth
-    | HeldAnswer::YouTrackAuth
+    | HeldAnswer::AuthStatus
     | HeldAnswer::CliTools
     | HeldAnswer::Push
     | HeldAnswer::CreatePullRequest
@@ -84,14 +89,15 @@ pub struct RemoteHost {
   on_space: std::sync::atomic::AtomicBool,
   github: Arc<FakeGitHub>,
   github_server: FakeServer,
-  /// Replaced on each GitHub fixture: no token the chain accepted, denied or rejected before holds
-  github_service: RwLock<Arc<GitHubService>>,
+  /// Replaced on each GitHub fixture: no token the chain accepted, denied or rejected before holds; shared with the
+  /// sign-ins
+  github_service: Arc<RwLock<Arc<GitHubService>>>,
   /// The app data directory of the host (`AppState::app_data_of`): the token files of the sign-ins, and the fake `gh`
   app_data: PathBuf,
-  /// The app's sign-in to GitHub, on the token file of `app_data`
-  github_sign_in: GitHubSignInSession,
+  /// The sign-ins of the app, on the token files of `app_data`
+  sign_ins: SignIns,
   /// The OAuth app of the build: None, as a build without `BRANCH_DECK_GITHUB_CLIENT_ID`, until a fixture names one
-  github_client_id: RwLock<Option<String>>,
+  github_client_id: Arc<RwLock<Option<String>>>,
   /// The `gh` the token chain asks: none until a fixture gives it a token
   gh: RwLock<GhSource>,
   /// What the pre-check answers by branch, in wire form (`review_fixtures::ReviewAnswersFixture`)
@@ -103,7 +109,8 @@ pub struct RemoteHost {
   youtrack_server: FakeServer,
   /// The app's YouTrack service on the token file of `app_data`; a fixture of the sign-in makes it read the file again
   youtrack_service: Arc<YouTrackService>,
-  youtrack_sign_in: YouTrackSignInSession,
+  /// The YouTrack session of the sign-ins, which the YouTrack commands of the bridge run until they go through `sign_ins`
+  youtrack_sign_in: Arc<YouTrackSignInSession>,
   /// The remote of the repository (`.git/upstream.git`) as its pre-receive hook asks it: held and refused pushes
   git_remote: FakeRemote,
   /// A test wrote someone else's commit onto the remote (`POST …/remote/commit`): only then the session fetches the
@@ -148,10 +155,9 @@ pub enum HeldAnswer {
   /// The view of the robots a session derives (`TestSessionEnvironment::before_patronus_view`): what they hold and
   /// land; failed there
   RepositoryView,
-  /// The status of the GitHub sign-in (`get_github_auth_status`, in the bridge)
-  GitHubAuth,
-  /// The status of the YouTrack sign-in (`get_youtrack_auth_status`, in the bridge)
-  YouTrackAuth,
+  /// The status of the sign-ins: the read of the sessions (`TestFactSources::auth`) and `get_auth_status` and
+  /// `get_youtrack_auth_status` of the bridge
+  AuthStatus,
   /// The statuses of the command-line tools of Settings → Tools (`cli_tools_status`, in the bridge)
   CliTools,
   /// A push to the remote of the repository (its pre-receive hook, `remote_git_fixtures`): the remote has the pack and
@@ -188,8 +194,7 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
     | HeldAnswer::BranchRules
     | HeldAnswer::Profiles
     | HeldAnswer::RepositoryView
-    | HeldAnswer::GitHubAuth
-    | HeldAnswer::YouTrackAuth
+    | HeldAnswer::AuthStatus
     | HeldAnswer::CliTools
     | HeldAnswer::Push
     | HeldAnswer::Sync => None,
@@ -198,8 +203,8 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
 
 impl RemoteHost {
   /// The fakes of the repository at `repository_path`, not on Space until a fixture says so, with the app's token files
-  /// in `app_data`; call inside a Tokio runtime
-  pub fn start(git: &GitCommandExecutor, repository_path: &str, app_data: PathBuf) -> Self {
+  /// in `app_data`, the fake CLIs of `cli_tools` and the sessions a sign-in tells; call inside a Tokio runtime
+  pub fn start(git: &GitCommandExecutor, repository_path: &str, app_data: PathBuf, cli_tools: Arc<CliToolsHost>, sessions: Weak<Sessions>) -> Self {
     let patronus = Arc::new(FakePatronus::default());
     patronus.set_status(200);
     patronus.state_only.store(true, Ordering::SeqCst);
@@ -235,8 +240,7 @@ impl RemoteHost {
     let github = Arc::new(FakeGitHub::with_repository(repository));
     let github_server = FakeServer::serve(github::fake_github::router(Arc::clone(&github)));
     std::fs::create_dir_all(&app_data).expect("the app data directory of the test repository");
-    let github_service = RwLock::new(Arc::new(new_github_service(&github_server.url, &app_data, GhSource::None, &git)));
-    let github_sign_in = GitHubSignInSession::new(Some(token_file(&app_data)));
+    let github_service = Arc::new(RwLock::new(Arc::new(new_github_service(&github_server.url, &app_data, GhSource::None, &git))));
     let youtrack = Arc::new(FakeYouTrack::default());
     youtrack.set_clock(PAGE_CLOCK_START);
     let youtrack_server = FakeServer::serve(youtrack::fake_youtrack::router(Arc::clone(&youtrack)));
@@ -245,6 +249,18 @@ impl RemoteHost {
       None,
       Some(youtrack::token_store::token_file(&app_data)),
     ));
+    let github_client_id = Arc::default();
+    let youtrack_sign_in = Arc::new(YouTrackSignInSession::default());
+    let sign_in_host = TestSignIns {
+      github: Arc::clone(&github_service),
+      client_id: Arc::clone(&github_client_id),
+      youtrack: Arc::clone(&youtrack_service),
+      cli_tools,
+      handed_token: remote_facts::youtrack_cli::handed_token_file(&app_data),
+      sessions,
+      worktree: repository_path.to_owned(),
+    };
+    let sign_ins = SignIns::new(Arc::new(sign_in_host), GitHubSignInSession::new(Some(token_file(&app_data))), Arc::clone(&youtrack_sign_in));
     let host = Self {
       patronus,
       patronus_server,
@@ -254,15 +270,15 @@ impl RemoteHost {
       github_server,
       github_service,
       app_data,
-      github_sign_in,
-      github_client_id: RwLock::new(None),
+      sign_ins,
+      github_client_id,
       gh: RwLock::new(GhSource::None),
       review_answers,
       review_pulls: Mutex::default(),
       youtrack,
       youtrack_server,
       youtrack_service,
-      youtrack_sign_in: YouTrackSignInSession::default(),
+      youtrack_sign_in,
       git_remote: FakeRemote::start(repository_path),
       remote_moved_behind: std::sync::atomic::AtomicBool::new(false),
       git,
@@ -399,9 +415,9 @@ impl RemoteHost {
     self.renew_github_service();
   }
 
-  /// The app's sign-in to GitHub, run by the real session
-  pub const fn github_sign_in(&self) -> &GitHubSignInSession {
-    &self.github_sign_in
+  /// The sign-ins of the app, run by the real ones
+  pub const fn sign_ins(&self) -> &SignIns {
+    &self.sign_ins
   }
 
   /// The OAuth app of the build the sign-in runs with; None for a build without it
@@ -425,7 +441,9 @@ impl RemoteHost {
 
   /// Ends the wait of a sign-in in progress: the repository is deleted, and no command may outlive it
   pub fn end_sign_ins(&self) {
-    self.github_sign_in.cancel();
+    for provider in [SignInProvider::GitHub, SignInProvider::YouTrack, SignInProvider::YouTrackCli] {
+      self.sign_ins.cancel(provider);
+    }
     self.youtrack_sign_in.cancel();
   }
 
@@ -449,8 +467,7 @@ impl RemoteHost {
         | HeldAnswer::BranchRules
         | HeldAnswer::Profiles
         | HeldAnswer::RepositoryView
-        | HeldAnswer::GitHubAuth
-        | HeldAnswer::YouTrackAuth
+        | HeldAnswer::AuthStatus
         | HeldAnswer::CliTools
         | HeldAnswer::Sync => Arc::new(FakeGate::default()),
       };
@@ -539,8 +556,8 @@ impl RemoteHost {
     Arc::clone(&self.youtrack_service)
   }
 
-  /// The app's sign-in to YouTrack, run by the real session
-  pub const fn youtrack_sign_in(&self) -> &YouTrackSignInSession {
+  /// The app's sign-in to YouTrack, run by the real session (the YouTrack commands of the bridge)
+  pub fn youtrack_sign_in(&self) -> &YouTrackSignInSession {
     &self.youtrack_sign_in
   }
 
@@ -593,4 +610,51 @@ fn new_github_service(url: &str, app_data_dir: &std::path::Path, gh: GhSource, g
     git_credential: false,
   };
   GitHubService::new(GitHubClient::with_urls(url, url, "Branch Deck test server"), TokenChain::new(sources, git.clone()))
+}
+
+/// What the sign-ins of a test repository run with: its services (the GitHub one as its fixtures renew it), the OAuth
+/// app of its fixture, the fake CLIs, and the sessions of its worktree, which a sign-in or a sign-out has read their
+/// facts again as the app has all of its sessions (the accounts of the server are of each test repository)
+struct TestSignIns {
+  github: Arc<RwLock<Arc<GitHubService>>>,
+  client_id: Arc<RwLock<Option<String>>>,
+  youtrack: Arc<YouTrackService>,
+  cli_tools: Arc<CliToolsHost>,
+  handed_token: PathBuf,
+  sessions: Weak<Sessions>,
+  worktree: String,
+}
+
+impl SignInHost for TestSignIns {
+  fn github(&self) -> Arc<GitHubService> {
+    Arc::clone(&self.github.read().expect("github service lock"))
+  }
+
+  fn github_client_id(&self) -> Option<String> {
+    self.client_id.read().expect("client id lock").clone()
+  }
+
+  fn youtrack(&self) -> Arc<YouTrackService> {
+    Arc::clone(&self.youtrack)
+  }
+
+  fn youtrack_cli(&self) -> (cli_tools::environment::ToolEnvironment, Option<PathBuf>) {
+    (self.cli_tools.environment(), Some(self.handed_token.clone()))
+  }
+
+  fn api_error(&self, error: anyhow::Error) -> ApiError {
+    app_api::api_error::api_error(error)
+  }
+
+  /// As the app's host: the sign-ins read again, and after GitHub the pull requests and the review requests
+  fn changed(&self, account: Account) {
+    let Some(sessions) = self.sessions.upgrade() else {
+      return;
+    };
+    sessions.refresh_worktree(&self.worktree, FactFamily::Auth, FactRefreshReason::AfterWrite);
+    if account == Account::GitHub {
+      sessions.refresh_worktree(&self.worktree, FactFamily::PullRequests, FactRefreshReason::Manual);
+      sessions.refresh_worktree(&self.worktree, FactFamily::ReviewRequests, FactRefreshReason::Manual);
+    }
+  }
 }

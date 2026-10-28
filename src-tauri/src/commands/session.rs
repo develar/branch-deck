@@ -17,6 +17,7 @@ use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::commands::github::GitHubState;
 use crate::commands::patronus::PatronusState;
 use crate::commands::pull_requests::github_repository;
+use crate::commands::sign_in::SignInsState;
 use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
@@ -44,6 +45,7 @@ use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
+use remote_facts::sign_in::SignIns;
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
@@ -269,6 +271,10 @@ impl ServiceHost for AppServices {
 
   fn youtrack(&self, _key: &SessionKey) -> Result<Arc<YouTrackService>, ApiError> {
     Ok(Arc::clone(&self.app.state::<YouTrackState>().service))
+  }
+
+  fn sign_ins(&self, _key: &SessionKey) -> Result<SignIns, ApiError> {
+    Ok(self.app.state::<SignInsState>().0.clone())
   }
 
   fn space_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {

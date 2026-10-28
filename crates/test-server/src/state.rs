@@ -69,6 +69,8 @@ pub struct TestRepository {
   pub review_prune_keeps: std::sync::Mutex<Vec<Vec<u32>>>,
   /// The fake services behind the real ones (`remote_host.rs`), started on the first need; stopped with the repository
   pub remote: std::sync::OnceLock<std::sync::Arc<crate::remote_host::RemoteHost>>,
+  /// The sessions of the server, which a sign-in of the repository's fakes has read the facts of its worktree again
+  pub sessions: std::sync::Weak<repository_model::session::Sessions>,
   /// How often the session of the repository listed and polled the robots, so a test can check its request policy
   pub patronus_list_calls: AtomicU32,
   pub patronus_poll_calls: AtomicU32,
@@ -104,11 +106,10 @@ pub struct TestRepository {
 impl TestRepository {
   /// The fake services of the repository, started now if not yet
   pub fn remote(&self, git: &GitCommandExecutor) -> std::sync::Arc<crate::remote_host::RemoteHost> {
-    std::sync::Arc::clone(
-      self
-        .remote
-        .get_or_init(|| std::sync::Arc::new(crate::remote_host::RemoteHost::start(git, &self.path, self.app_data.clone()))),
-    )
+    std::sync::Arc::clone(self.remote.get_or_init(|| {
+      let (cli_tools, sessions) = (std::sync::Arc::clone(&self.cli_tools), std::sync::Weak::clone(&self.sessions));
+      std::sync::Arc::new(crate::remote_host::RemoteHost::start(git, &self.path, self.app_data.clone(), cli_tools, sessions))
+    }))
   }
 
   /// The fake services once started

@@ -52,6 +52,13 @@ export const SetupRepoOptionsSchema = z.object({
   pullRequests: z.any().optional(),
 
   /**
+   * The app's GitHub sign-in (a `GitHubSignInFixture` of `setGitHubSignIn`: the OAuth app of the build, the token file,
+   * the token of `gh`), set before the page opens: the session reads the sign-ins when the window opens it
+   * Default: undefined - a build without the OAuth app, signed in with the token of the host
+   */
+  gitHubSignIn: z.any().optional(),
+
+  /**
    * What GitHub answers of the review requests (a `ReviewRequestsFixture`, see `review-request-helpers.ts`), set before the first sync
    * Default: undefined - the repository is not on GitHub
    */

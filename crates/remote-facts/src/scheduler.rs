@@ -44,12 +44,17 @@
 //! The details of the robots a window shows them of (`scheduler_details.rs`, `Demand::robot_details`): at once, again when
 //! the robot's status changes and every `RUNNING_DETAILS_REFRESH` while it runs, never once no window demands them.
 //!
+//! The sign-ins of the app's accounts (`scheduler_auth.rs`, the fact `auth`) by `auth_due`: when a window opens the
+//! session, a focus when they are older than two minutes, a sign-in or a sign-out of any window (`AfterWrite`, which the
+//! host asks of every session) and the refresh button always, once more after a read in flight.
+//!
 //! The review readiness (`scheduler_readiness.rs`): the subjects the session tells (`ReadinessDigest`: what a surface
 //! needs and Check Approvals Again at once, each in a call of its own; the shown ones, then the hidden ones that wait for
 //! approvals, at most four at a time after one read of the answers the object cache keeps), again five minutes after
 //! Patronus didn't answer.
 
 use crate::fact_sources::{FactSources, Read};
+use auth::AuthSchedule;
 use details::DetailsSchedule;
 use domain_policy::refresh::{
   FactTiming, ListWindow, RefreshReason, ServiceState, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
@@ -152,6 +157,7 @@ impl Scheduler {
       review_requests: ReviewRequestsSchedule::default(),
       online: None,
       readiness: ReadinessSchedule::default(),
+      auth: AuthSchedule::default(),
     };
     let span = tracing::info_span!("session_facts", worktree = %key.worktree, prefix = %key.prefix);
     span.in_scope(|| tokio::spawn(facts.run(messages).in_current_span()));
@@ -244,6 +250,10 @@ enum Input {
     availability: Option<PullRequestAvailability>,
     version: Option<Version>,
   },
+  /// A read of the sign-ins ended, with the version after its patch (`None`: the session was gone)
+  Auth {
+    version: Option<Version>,
+  },
 }
 
 /// A read of what the session asks about its robots, one of each in flight
@@ -325,6 +335,7 @@ struct SessionFacts {
   github: GitHubSchedule,
   review_requests: ReviewRequestsSchedule,
   readiness: ReadinessSchedule,
+  auth: AuthSchedule,
   /// The machine is online, by the demand of the windows; `None` until a window said it
   online: Option<bool>,
 }
@@ -411,6 +422,7 @@ impl SessionFacts {
       Input::Profiles { failed, version } => self.profiles_read(failed, version),
       Input::Readiness(ended) => self.readiness_ended(ended),
       Input::ReviewRequests { availability, version } => self.review_requests_listed(availability.as_ref(), version),
+      Input::Auth { version } => self.auth_read(version),
     }
   }
 
@@ -425,6 +437,8 @@ impl SessionFacts {
           return;
         }
         self.review_requests_watched();
+        // a window that opens the session needs the sign-ins now: they need no table
+        self.ask_auth(RefreshReason::Demand, None);
         if self.table_committed {
           self.ask_list(RefreshReason::Sync, None);
           self.github_table_committed(None);
@@ -474,6 +488,7 @@ impl SessionFacts {
         FactFamily::Profiles => self.refresh_github(GitHubFamily::Profiles, reason, reply),
         FactFamily::Readiness => self.recheck_readiness(subject, reply),
         FactFamily::ReviewRequests => self.refresh_review_requests(reason, reply),
+        FactFamily::Auth => self.refresh_auth(reason, reply),
       },
     }
   }
@@ -489,6 +504,7 @@ impl SessionFacts {
     self.ask_list(RefreshReason::Focus, None);
     self.ask_pull_requests(RefreshReason::Focus, None);
     self.review_requests_focused();
+    self.ask_auth(RefreshReason::Focus, None);
     self.robots.poll_at = None;
     if robots_poll_due(self.now(), self.robots.last_poll_started, self.robots.digest.active_robots()) {
       self.poll();
@@ -723,6 +739,8 @@ impl SessionFacts {
   }
 }
 
+#[path = "scheduler_auth.rs"]
+mod auth;
 #[path = "scheduler_details.rs"]
 mod details;
 #[path = "scheduler_github.rs"]

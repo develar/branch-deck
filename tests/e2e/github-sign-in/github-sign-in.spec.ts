@@ -20,8 +20,8 @@ test.describe("GitHub sign-in", () => {
   test("should sign in from the hint of a repository without a token, and ask GitHub again", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // GitHub has a pull request of the branch, which the app sees only with a token
     const { pullRequests } = availablePullRequests(pullRequest("JIRA-456", 760))
-    const repo = await setupRepo("issue_links", { pullRequests: { ...unavailablePullRequests({ status: "signedOut" }), pullRequests } })
-    await repo.setGitHubSignIn({ clientId: CLIENT_ID })
+    // a build with the OAuth app: the session reads the sign-ins when the window opens it
+    const repo = await setupRepo("issue_links", { pullRequests: { ...unavailablePullRequests({ status: "signedOut" }), pullRequests }, gitHubSignIn: { clientId: CLIENT_ID } })
     await syncAndWaitForBranches()
 
     const overview = await openLandingOverview(page)
@@ -61,8 +61,7 @@ test.describe("GitHub sign-in", () => {
   })
 
   test("should cancel the sign-in, and sign out", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("issue_links")
-    await repo.setGitHubSignIn({ clientId: CLIENT_ID, signedIn: false })
+    const repo = await setupRepo("issue_links", { gitHubSignIn: { clientId: CLIENT_ID, signedIn: false } })
     await syncAndWaitForBranches()
     const settings = await openSettingsWindow(page, { page: "github" })
     const github = settings.getByTestId("settings-page-github")
@@ -88,8 +87,10 @@ test.describe("GitHub sign-in", () => {
   })
 
   test("should ask an organization to approve the token of the sign-in that can't see the repository", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("issue_links", { pullRequests: unavailablePullRequests({ status: "noAccess", source: "branchDeck", message: "no repository acme/monorepo" }) })
-    await repo.setGitHubSignIn({ clientId: CLIENT_ID })
+    await setupRepo("issue_links", {
+      pullRequests: unavailablePullRequests({ status: "noAccess", source: "branchDeck", message: "no repository acme/monorepo" }),
+      gitHubSignIn: { clientId: CLIENT_ID },
+    })
     await syncAndWaitForBranches()
 
     const overview = await openLandingOverview(page)
@@ -120,7 +121,7 @@ test.describe("GitHub sign-in", () => {
 
     // gh signed in meanwhile: a sign-in or sign-out of any window asks again
     await repo.setGitHubSignIn({ ghToken: "gho_from_gh" })
-    await emitTauriEvent(settings, "github-auth-changed")
+    await emitTauriEvent(settings, "auth-changed")
     await expect(auth).toContainText("Uses the token of gh")
   })
 })

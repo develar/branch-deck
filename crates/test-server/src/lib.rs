@@ -298,11 +298,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/find_conflict_fix", post(tauri_command_bridge::find_conflict_fix))
     .route("/invoke/cancel_conflict_fix", post(tauri_command_bridge::cancel_conflict_fix))
     .route("/invoke/get_autosquash_plan", post(tauri_command_bridge::get_autosquash_plan))
-    .route("/invoke/get_github_auth_status", post(tauri_command_bridge::get_github_auth_status))
-    .route("/invoke/start_github_sign_in", post(tauri_command_bridge::start_github_sign_in))
-    .route("/invoke/wait_github_sign_in", post(tauri_command_bridge::wait_github_sign_in))
-    .route("/invoke/cancel_github_sign_in", post(tauri_command_bridge::cancel_github_sign_in))
-    .route("/invoke/sign_out_of_github", post(tauri_command_bridge::sign_out_of_github))
+    .route("/invoke/get_auth_status", post(tauri_command_bridge::get_auth_status))
+    .route("/invoke/sign_in", post(tauri_command_bridge::sign_in))
+    .route("/invoke/cancel_sign_in", post(tauri_command_bridge::cancel_sign_in))
+    .route("/invoke/sign_out", post(tauri_command_bridge::sign_out))
     .route("/invoke/get_youtrack_auth_status", post(tauri_command_bridge::get_youtrack_auth_status))
     .route("/invoke/start_youtrack_sign_in", post(tauri_command_bridge::start_youtrack_sign_in))
     .route("/invoke/wait_youtrack_sign_in", post(tauri_command_bridge::wait_youtrack_sign_in))
@@ -722,6 +721,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, se
     review_fetch_calls: std::sync::atomic::AtomicU32::new(0),
     review_prune_keeps: std::sync::Mutex::default(),
     remote: std::sync::OnceLock::new(),
+    sessions: Arc::downgrade(&state.sessions),
     patronus_list_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_answered: std::sync::Mutex::new(std::collections::BTreeMap::new()),

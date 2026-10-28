@@ -625,11 +625,12 @@ export const tauriMockScript = () => {
       return config
     },
 
-    // the app's GitHub sign-in: the backend tells every window that it changed (`github-auth-changed`, the
-    // `GITHUB_AUTH_CHANGED_EVENT` of src-tauri), this one and the other pages of a linked sub-window
-    wait_github_sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "github-auth-changed"),
-    sign_out_of_github: async (cmd: string, payload: any) => emitAfter(cmd, payload, "github-auth-changed"),
-    // the app's YouTrack sign-in, likewise (`youtrack-auth-changed`, the `YOUTRACK_AUTH_CHANGED_EVENT` of src-tauri)
+    // the sign-ins of the app: the backend tells every window that an account changed (`auth-changed`, the
+    // `AUTH_CHANGED_EVENT` of src-tauri), this one and the other pages of a linked sub-window; the sessions of the
+    // repository read their fact `auth` in the test server
+    sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "auth-changed"),
+    sign_out: async (cmd: string, payload: any) => emitAfter(cmd, payload, "auth-changed"),
+    // the app's YouTrack sign-in of its own commands (`youtrack-auth-changed`, the `YOUTRACK_AUTH_CHANGED_EVENT` of src-tauri)
     wait_youtrack_sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
     save_youtrack_token: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
     sign_out_of_youtrack: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),

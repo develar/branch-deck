@@ -14,6 +14,7 @@ use domain_types::patronus::{
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult, TokenSource};
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
+use domain_types::sign_in::AuthStatus;
 use pretty_assertions::assert_eq;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, ProblemsRead, RobotsDigest, RobotsRead, Seq};
 use repository_model::moved_remote::MovedRemoteAsk;
@@ -82,6 +83,8 @@ struct ScriptedSources {
   review_reads: Mutex<Vec<bool>>,
   /// What the lists of the review requests answer; available without requests unless a test says otherwise
   review_requests: Mutex<Option<ReviewRequestsResult>>,
+  /// The reads of the sign-ins
+  auth_calls: AtomicU32,
 }
 
 impl ScriptedSources {
@@ -191,6 +194,11 @@ impl FactSources for ScriptedSources {
   fn fetch_moved_remotes<'a>(&'a self, _key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
     lock(&self.github_calls).push(GitHubCall::FetchMoved(asks.into_iter().map(|ask| ask.branch).collect()));
     Box::pin(async {})
+  }
+
+  fn auth<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, Result<AuthStatus, ApiError>> {
+    self.auth_calls.fetch_add(1, Ordering::SeqCst);
+    Box::pin(async { Err(ApiError::internal("the sign-ins are the host's")) })
   }
 
   fn profiles<'a>(&'a self, _key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
@@ -518,8 +526,9 @@ async fn lists_the_full_window_on_the_refresh_button_asked_by_the_user() {
   session.calls();
   let version = session.refresh(FactRefreshReason::Manual).await;
   assert_eq!(session.calls(), vec![full(false)]);
-  // the first lists of the robots, the pull requests and the review requests were 1, 2 and 3
-  assert_eq!(version, Some(Version { epoch: 1, seq: 4 }), "the version of the view after the list's patch");
+  // the read of the sign-ins of the open was 1, the first lists of the robots, the pull requests and the review
+  // requests 2, 3 and 4
+  assert_eq!(version, Some(Version { epoch: 1, seq: 5 }), "the version of the view after the list's patch");
 }
 
 #[tokio::test]
@@ -541,7 +550,7 @@ async fn does_not_ask_again_for_a_repository_that_is_not_on_space_until_the_refr
 async fn lists_the_robot_a_start_needs_at_once_since_shortly_before_the_last_list() {
   let session = Harness::watched().await;
   session.calls();
-  assert_eq!(session.refresh(FactRefreshReason::AfterWrite).await, Some(Version { epoch: 1, seq: 4 }));
+  assert_eq!(session.refresh(FactRefreshReason::AfterWrite).await, Some(Version { epoch: 1, seq: 5 }));
   assert_eq!(session.calls(), vec![since(120)]);
 }
 
@@ -563,9 +572,9 @@ async fn the_refresh_button_and_a_start_during_a_list_ask_once_more_after_it() {
   assert_eq!(session.calls(), vec![full(false)]);
   assert_eq!(
     (start.await.unwrap(), manual.await.unwrap()),
-    // after the robots, the pull requests and the review requests the table listed (1, 2, 3), the pull requests and
-    // the review requests of the focus (4, 5)
-    (Some(Version { epoch: 1, seq: 6 }), Some(Version { epoch: 1, seq: 6 }))
+    // after the sign-ins of the open (1), the robots, the pull requests and the review requests the table listed (2, 3,
+    // 4), the pull requests, the review requests and the sign-ins of the focus (5, 6, 7)
+    (Some(Version { epoch: 1, seq: 8 }), Some(Version { epoch: 1, seq: 8 }))
   );
 }
 
@@ -1358,4 +1367,41 @@ async fn the_reviews_view_reads_the_rest_of_reviews_with_the_review_requests_whi
   assert_eq!(session.review_reads(), vec![false], "hidden: the poll lists the requests alone");
   session.send(shown(true)).await;
   assert_eq!(session.review_reads(), vec![true], "older than two minutes: read when it shows again");
+}
+
+/// The reads of the sign-ins asked since the last call
+fn auth_reads(harness: &Harness) -> u32 {
+  harness.sources.auth_calls.swap(0, Ordering::SeqCst)
+}
+
+#[tokio::test]
+async fn the_sign_ins_are_read_when_a_window_opens_the_session_after_a_sign_in_and_on_a_late_focus() {
+  let harness = Harness::new();
+  harness.send(SessionEventKind::Watched(true)).await;
+  assert_eq!(auth_reads(&harness), 1, "the open reads them, before any table");
+  harness.send(committed()).await;
+  harness.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(auth_reads(&harness), 0, "a sync never reads them, a focus right after the open neither");
+
+  // a sign-in of any window: the host asks every session, which reads at once and answers the version after it
+  let (reply, answer) = oneshot::channel();
+  harness
+    .send(SessionEventKind::Refresh {
+      family: FactFamily::Auth,
+      reason: FactRefreshReason::AfterWrite,
+      subject: None,
+      reply,
+    })
+    .await;
+  assert_eq!(auth_reads(&harness), 1);
+  assert!(answer.await.unwrap().is_some());
+
+  harness.send(SessionEventKind::Focus(false)).await;
+  harness.advance(119).await;
+  harness.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(auth_reads(&harness), 0, "younger than two minutes");
+  harness.send(SessionEventKind::Focus(false)).await;
+  harness.advance(1).await;
+  harness.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(auth_reads(&harness), 1, "a focus by the rule of the lists");
 }

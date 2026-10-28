@@ -54,6 +54,9 @@
 //! from the demand on, gone with it; what they name beyond a list goes onto the robots (`RobotsFact::details_answer`).
 //! The review requests of others (`review_request_facts::ReviewRequestsFact`, the part `facts.reviewRequests`) with
 //! the news of the new ones.
+//!
+//! The sign-ins of the app's accounts (`auth`, the part `facts.auth`): `Loading` until the read of the open, `Stale`
+//! with the reason after a read that failed, one status of the app in every session.
 
 use crate::branch_table::{BranchTable, RemoteFacts, remote_fact};
 use crate::derive::landed_subject;
@@ -79,6 +82,7 @@ use domain_types::repository_view::PatronusView;
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::Version;
 use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView};
+use domain_types::sign_in::AuthStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -309,6 +313,8 @@ pub enum FactResult {
     id: String,
     result: Result<Box<PatronusRobotDetails>, ApiError>,
   },
+  /// The sign-ins of the app's accounts
+  Auth(Result<AuthStatus, ApiError>),
 }
 
 /// What applying an answer left: the version of the view after its patch and what the scheduler asks about the robots
@@ -374,6 +380,8 @@ pub struct FactStore {
   pub robot_details: BTreeMap<String, FactRecord<PatronusRobotDetails>>,
   /// The pull requests of others that wait for the user's review
   pub review_requests: ReviewRequestsFact,
+  /// The sign-ins of the app's accounts: `Loading` until the read of the open
+  pub auth: FactRecord<AuthStatus>,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
   /// The remote tip of each branch whose commits of others were told (`tell_remote_commits`)
@@ -401,6 +409,7 @@ impl FactStore {
       readiness: ReadinessFact::default(),
       robot_details: BTreeMap::new(),
       review_requests: ReviewRequestsFact::default(),
+      auth: FactRecord::loading(),
       news: Vec::new(),
       last_news: 0,
       told_remote_tips: HashMap::new(),
@@ -471,6 +480,7 @@ impl FactStore {
         };
         (record.answer(observation, result.map(|details| *details)) == Applied::Applied) | robots
       }
+      FactResult::Auth(result) => self.auth.answer(observation, result) == Applied::Applied,
     }
   }
 

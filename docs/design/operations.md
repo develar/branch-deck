@@ -47,6 +47,12 @@ deletes of an archived and an unapplied branch, and their Undo), the pushes, the
 and YouTrack, Update Project, the Fetch of a merge toast and Dismiss Landed are operations of the session
 ([Rewrites](#rewrites), [Update Project](#update-project)).
 
+What has no repository as its subject is no operation of a session: the sign-in of an account (the token is one for
+the app, and Settings opens without a repository) is a command of the app, `sign_in` with its events on the channel of
+the call, `cancel_sign_in` and `sign_out` (`remote_facts::sign_in`, [GitHub Sign-In](../../spec/repository/github-sign-in.spec.md)).
+It joins as an operation does: one sign-in of each provider runs, a second call hears its current event and gets its
+end; its status is the fact `auth` of every session, which the host has read again after a sign-in or a sign-out.
+
 ## Design
 
 ```mermaid
