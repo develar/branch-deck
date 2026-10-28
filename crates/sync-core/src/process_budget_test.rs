@@ -593,9 +593,9 @@ fn a_squash() {
   );
 }
 
-/// The app's edit of the message of the oldest commit (the Tauri command `reword`): the regroup's snapshot and one
-/// `fast-import` of the recreated commits before the repository lock, under it the witness of the snapshot's refs
-/// (`for-each-ref`) and one ref transaction
+/// The app's edit of the message of the oldest commit (its rewrite `Reword`, `reword_request_core`): the regroup's
+/// snapshot and one `fast-import` of the recreated commits before the repository lock, under it the witness of the
+/// snapshot's refs (`for-each-ref`) and one ref transaction
 #[test]
 fn the_app_reword() {
   let (repo, commits) = alpha_and_beta_on_origin();

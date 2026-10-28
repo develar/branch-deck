@@ -1,5 +1,5 @@
-//! The engine of the operations of the remote (docs/design/rust-domain-authority.md, "Планирование и исполнение
-//! операций", "Конкурентность"): an intent of the user or an agent (`domain_types::operation::Intent`) is admitted over
+//! The engine of the operations of a repository, of the remote and of its rewrites and updates
+//! (docs/design/rust-domain-authority.md, "Планирование и исполнение операций", "Конкурентность"): an intent of the user or an agent (`domain_types::operation::Intent`) is admitted over
 //! the operations that run or wait in its session, runs the effects its plan orders, and ends with an outcome its caller
 //! and every window see. The app and `bd` are two adapters of it: the same intents, plans and outcomes, the same
 //! admission, the same witness. It sits above the model and the facts (`repository-model`, the rules of
@@ -61,6 +61,10 @@
 //!   GitHub shows the approved commit, its robot looked for a while after the reply
 //! - `review_fetch`: the fetch of the pull request a review window shows (`Intent::FetchReview`), into its review refs
 //!   unless its commits are local
+//! - `rewrite`: the rewrites of the checked out branch and of the refs of Branch Deck and their undo
+//!   (`Intent::Rewrite`): `Resource::Head` held, what the intent names resolved on HEAD as it is when it runs (its
+//!   `TableWitness`, the new ids of the rewrites before it, the commit keys after a sync), the core of `history-rewrite`,
+//!   `sync-core`, `trial-check` or `update-core` run with that HEAD expected, then the sync that shows it asked
 //! - `update`: the fetch of the baseline (`Intent::FetchBaseline`), Update Project (`Intent::UpdateProject`: its fetch the
 //!   `FetchBaseline` of the session, then HEAD held for the check and the move of `update_core::update_project`, then
 //!   the sync) and the dismissal of what landed with an update

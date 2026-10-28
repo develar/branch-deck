@@ -165,7 +165,8 @@ disabled, no drag, no push; a push or a start never holds its row.
 The session orders the rewrites of the app; another process (an agent's `bd pick --follow`, a `bd` rewrite) or a push
 of the app may still hold the repository lock when a rewrite reaches its core. An operation of the app waits for the
 app's own ones in the line of its process (a fair queue before the file lock, in the order they came, never refused),
-then for another process as long as the holder lives ([Git Operations](git-operations.md), "Repository lock"), and its
+then for another process as long as the holder lives (the undo of a pick and of an update for a bound, as `bd undo`;
+[Git Operations](git-operations.md), "Repository lock"), and its
 step in the view says whom for: `waitingForLock` with the holder ("Waiting for `bd pick` (pid 4242, for 12 s)", told
 again about once a second, `presentLockWait`), `queued` behind another operation (the busy state of that one).
 `operationBusyOf` (`src/stores/indicators.ts`, `presentOperationBusy`) says it in place of the busy state, so every
@@ -389,8 +390,8 @@ operation.
    **Rationale**: a double click is no mistake to report; the caller of the second start gets the first one's result.
 3. **Decision**: a rewrite of the engine (`Rewrite`, `operations::rewrite`) and Update Project (`operations::update`)
    end once they asked the sync that shows what they changed, and their `execute` answers once that sync ended (a
-   rewrite's toast comes then, an update's with its outcome); the record of a rewrite on the page, and the run of an
-   update, last until that answer.
+   rewrite's toast comes then, an update's with its outcome); the indicator of the surface that started a rewrite, and
+   the run of an update on the page, last until that answer.
    **Rationale**: the row shows the state before the rewrite until the sync; offering the action again then is what
    ran it three times. In Rust a second click joins the running rewrite, and a rewrite after it names its commits on
    what the first left (its `TableWitness`, the new ids the first reported, the commit keys), so it needs no wait for
@@ -399,10 +400,17 @@ operation.
    writes.
    A rewrite names the repository of its click (`RewriteRunSpec.repositoryPath`), and so does its Undo: one of a repository the main window no longer shows (an Undo clicked after a switch) runs in the
    session of that repository, which syncs it.
-4. **Decision**: no `expect_head` for the regroups.
-   **Rationale**: an unstack writes only `refs/branch-deck/stack-parents`, HEAD may stay; the registry closes the
-   double start in the app (the same intent joins, in every window), and a `bd` process meanwhile gets the exact error
-   under the lock.
+4. **Decision**: every rewrite of the app expects the HEAD its witness resolved, the regroups too
+   (`RewriteOptions::expect_head`, `RegroupOptions::expect_head`, `MoveCommitsParams::expect_head`); an undo expects
+   none, its token moves each ref back with compare-and-swap.
+   **Rationale**: the rewrite names its commits on the table its window showed, and the session resolves them on the
+   HEAD it reads once it is admitted ([Conflicts](#conflicts)); the core must write on that HEAD, or it would act on
+   commits nobody named. Two rewrites of the app never meet there: the queue of the session runs the second on what
+   the first left. A `bd` rewrite that moved HEAD between that read and the lock makes it `head_moved`
+   (`retry: after_reread`), nothing written; one that moved only the stores (a `bd unstack` of the same branch) leaves
+   HEAD, so the core computes once more under the lock on what it left, and the second Unstack is `invalid_plan`. The
+   registry closes the double start in the app (the same intent joins, in every window), and the record of a `bd`
+   rewrite shows it on the rows (decision 7).
 5. **Decision**: the identical error toast updates in place (`notifyError` passes an id of the title and the
    description; Base UI updates the open toast of that id).
    **Rationale**: a poll or two surfaces must not stack copies of one error; Activity still records each.

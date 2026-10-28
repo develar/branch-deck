@@ -59,8 +59,8 @@ pub fn reword_result(outcome: &RegroupOutcome, request: &RewordRequest) -> Rewor
   }
 }
 
-/// `reword_core` for the app (the Tauri command `reword` and the E2E server): its result with the undo token, and its
-/// refusals told as the app's user can act on them
+/// `reword_core` for the app (its rewrite `Reword` of the engine, `operations::rewrite`): its result with the undo
+/// token, and its refusals told as the app's user can act on them
 pub fn reword_request_core(git_executor: &GitCommandExecutor, request: &RewordRequest, options: &RegroupOptions) -> Result<RewordResult> {
   let outcome = reword_core(git_executor, &request.repository_path, &request.rewords, options).map_err(app_error)?;
   Ok(reword_result(&outcome, request))

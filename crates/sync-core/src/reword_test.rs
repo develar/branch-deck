@@ -28,8 +28,8 @@ fn reword(repo: &TestRepo, rewords: &[CommitReword]) -> Result<RegroupOutcome, R
   reword_core(repo.git_executor(), path(repo), rewords, &RegroupOptions::default())
 }
 
-/// The reword of the app (the Tauri command `reword`): whole messages, the result with the undo token, the errors as the
-/// app tells them
+/// The reword of the app (its rewrite `Reword`, `reword_request_core`): whole messages, the result with the undo
+/// token, the errors as the app tells them
 fn app_reword(repo: &TestRepo, rewords: &[(&str, &str)]) -> anyhow::Result<RewordResult> {
   let request = RewordRequest {
     repository_path: path(repo).to_string(),

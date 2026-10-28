@@ -1,7 +1,7 @@
 # E2E Testing Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-24  
+**Updated:** 2026-10-28  
 **Tags:** [testing, playwright, mocking, snapshots]
 
 ## Problem
@@ -165,7 +165,7 @@ Mock implementation:
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
-  or a handler without its command, fails; the fifteen
+  or a handler without its command, fails; the twelve
   handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel; `set_setting`, `get_settings_changes`, `sub_window_loaded` and
   `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
   `set_repository_config`, `sign_in` (not of the `youtrack` CLI, which changes no account), `sign_out`,
@@ -183,13 +183,14 @@ Mock implementation:
   the command run on the server: a rewrite binds
   `const response = await route.fetch()` and passes that binding as the `response` of its `fulfill`; a `fulfill` of
   any other value, also one named `response`, is an answer, and a fetch bound any other way fails the scan). A write
-  (`MUTATING`: the Patronus, GitHub and YouTrack writes, the sign-ins, the git writes, the app's settings) has no page
+  (`MUTATING`: `execute` and `cancel_operation` of the engine, `ENGINE`, and the commands of the app, `APP_COMMANDS`
+  with their reasons: the sign-ins, the settings writers, the journal of the page, the tools, the app) has no page
   answer: the test server runs it behind the fake of its service and the test asserts the fake's log
   ([Remote services](#remote-services)); a push goes to the remote of the repository, and the test asserts what that
   remote has and took ([The remote of a repository](#the-remote-of-a-repository)); its failure stays
   `routeCommandError`, the one page answer that is no route count. The page answers of the read commands are pinned per
-  command (`ROUTED_IN_PAGE`, five commands: a refused landing gate, a conflict of the target, the repository config, the
-  status of the agent CLI and the read ahead of a branch review, states that neither the fixtures of the fakes nor the
+  command (`ROUTED_IN_PAGE`, three commands: the repository config, the status of the agent CLI and the read ahead of a
+  branch review, states that neither the fixtures of the fakes nor the
   templates make yet; no fact of a session is among them). An answer
   counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
   `helpers/` or a spec's own, through the helpers it calls) counts its answers once per call, not once per definition,

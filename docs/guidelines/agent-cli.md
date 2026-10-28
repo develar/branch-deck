@@ -1,7 +1,7 @@
 # Agent CLI (`bd`)
 
 **Status:** Active  
-**Updated:** 2026-10-27  
+**Updated:** 2026-10-28  
 **Tags:** [cli, agents, json]
 
 ## Summary
@@ -37,8 +37,11 @@ its time from the admission; [Journal](../design/git-operations.md#journal)). A 
 `pick` that write are recorded too, before they take any lock (`bd_core::operation_record::recorded`): the app's
 windows show them on their rows ("bd: Unstacking beta…") and Activity lists them, but HEAD, which they hold, makes no
 other process `busy`: the repository lock orders the rewrites of the app and of every `bd`, and a rewrite of the app
-meanwhile is waited for (`locked` after the bounded wait). A dry run, `bd update --status` and `bd check --fix`, which
-write nothing, are no record.
+meanwhile is waited for (`locked` after the bounded wait). A dry run, `bd update --status` (without `--materialize`)
+and `bd check --fix`, which write nothing, are no record. The other commands that write are no operation of the
+repository either: `sync` (a sync takes no lock and moves each ref by compare-and-swap, as the app's), `describe` (the
+`branch.<name>.description` of git config, no ref), `lease` and `workspace` (the pool's own `leases.json`, under its
+own lock), `operation forget` (it writes the registry itself) and `install` (the skill files, no repository).
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or

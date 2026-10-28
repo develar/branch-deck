@@ -134,7 +134,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code; an E2E spec or helper changed: also `pnpm lint:e2e-pins` (`command_registry_test.rs`: no page answer of a write, the pinned page answers only go down; `pnpm e2e` doesn't run it) |
 | code anywhere | `pnpm lint:cpd`: fix a clone with a helper, constant or fixture; `// jscpd:ignore-start` / `// jscpd:ignore-end` only for an intentional duplication, with the reason in the comment |
 | code anywhere | `pnpm lint:arch` (`scripts/lint-arch.mjs`): no branch on the words of an error, no `kind` of an error, a code in every `routeCommandError`, no polling timer in `src/stores` or `src/hooks` (`poll-timer`: a fact is the session's), no rule of the domain in the page (`rule-module`: a deleted rule module, an export of `src/lib` or `src/hooks` named `can…`, `needs…`, `allows…`, `…Blocker`, `…Decision`, `is…Blocked`; the rules are `domain-policy`'s, the page presents them); an exception is an `ALLOWLIST` entry with its reason |
-| a fact of the session (a family, its refresh rule, the scheduler, the demand) | `cargo nextest run -p domain-policy -p remote-facts -E 'test(/refresh|scheduler/)'` and `cargo nextest run -p repository-model -E 'test(/facts|session/)'`; the e2e of the family moves the session's clock with `repo.advanceBackendClock(ms)` and asserts the counters of the fakes ([Session facts](docs/design/git-operations.md#session-facts)) |
+| a fact of the session (a family, `auth` of the sign-ins among them, its refresh rule, the scheduler, the demand) | `cargo nextest run -p domain-policy -p remote-facts -E 'test(/refresh|scheduler/)'` and `cargo nextest run -p repository-model -E 'test(/facts|session/)'`; `auth` also `cargo nextest run -p remote-facts -E 'test(/sign_in/)'` (the sign-ins its host reads); the e2e of the family moves the session's clock with `repo.advanceBackendClock(ms)` and asserts the counters of the fakes ([Session facts](docs/design/git-operations.md#session-facts)) |
 | the next step, the Safe Push decision or `plan()` of `bd safe-push`; the sync, `patronus_view`, the robot list, the review scan or what the session derives (`repository_model::derive`) | `cargo nextest run -p bd-remote -E 'test(/scenario/)'`: one expectation per case that the app's session and `bd` both answer; the cases in `crates/domain-policy/cases/` updated in the same commit, the diff reviewed like code ([Scenario table](docs/design/rust-domain-authority.md#таблица-сценариев)) |
 | a rule of `domain-policy` (a file of the [rule index](#rule-index)) or what the view derives of it | `cargo nextest run -p domain-policy` (the table test of each rule beside it, `<rule>_test.rs`) and `cargo nextest run -p repository-model -E 'test(/derive|action_view|state/)'` (the parts of the view, `derive_budget_test.rs` its time); then the scenario table (the row above), and the page's presenter of what changed (`src/presenters/*.test.ts`) |
 | a `Reason` code (`domain_types::reason`), an action or a blocker of an action (`domain_types::actions`) | `UPDATE_REASON_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/reason/)'` writes `crates/domain-policy/reasons.json`, `UPDATE_ACTION_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/action_catalog/)'` `crates/domain-policy/actions.json`; `src/presenters/reasons.test.ts` and `actions.test.ts` word them code by code, so a code without words fails `pnpm test:unit` |
@@ -401,8 +401,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   follow reads the mark of an interrupted move with them and lets those files follow first, `lock_prepared_move`,
   `lock_checked_undo`; a write of the stores alone has the compare-and-swap of its transaction as its witness); a ref
   that moved meanwhile computes the rewrite once more under the lock, where another HEAD than `expect_head` is
-  `HeadMoved`. All through their options (`RewriteOptions`: `held_lock`,
-  `lock_wait`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push` and
+  `HeadMoved`. All through their options (`RewriteOptions` or `RegroupOptions`: `held_lock`, `lock_wait`, `expect_head`
+  checked by `ensure_expected_head`, `repository_lock.rs`; a move, the conflict fix and an undo take a `LockWait`
+  beside the check their request carries); then `bd push` and
   `bd safe-push` (only their sync, then again the witness of their refs and the freeze of their push in the engine,
   `operations::land_execute`; the reads of the remote, the trial, the retargets, the cancel, the network push and the
   robot start without it; a ref that moved meanwhile is `plan_changed`), the app's pushes (`execute` of the intent
@@ -516,17 +517,21 @@ The checklist:
   entry of every caller: a rewrite of the checked-out branch
   takes `&RewriteOptions`, reads and computes on the oids it read once (checking the expected HEAD there), then takes
   the lock for the witness of those refs and the CAS write (`RewriteOptions::lock_prepared`).
-- **operations**: an action on the remote is an intent of its family in `crates/operations/` (`prepare` and `execute`
-  of `engine`): it runs in `engine::run`, admitted by `registry` over the resources it names (`domain_policy::admission`), its
-  steps the `operations` part of the view, and checks its `witness` before the first effect (`plan_changed`). A write
+- **operations**: an action on the remote, a rewrite of the checked-out branch and Update Project are an intent of its
+  family in `crates/operations/` (`prepare` and `execute` of `engine`; a rewrite and an update are `execute` alone): it
+  runs in `engine::run`, admitted by `registry` over the resources it names (`domain_policy::admission`), its steps the
+  `operations` part of the view, and checks its `witness` before the first effect (`plan_changed`). A write
   to Patronus, GitHub or YouTrack and the leased push are effects of a plan, called only from `crates/operations`
   (`remote_write_scan_test.rs`, exact counts per file). What
   its plan reads of the remote is `needs::needs(intent)`, read by `facts::fill` through the one reader of every host
   (`remote_facts::service_sources::ServiceFactSources`) into its session; `bd`'s is a one-shot session of its sync
   (`repository_model::one_shot::OneShot`, its services `bd_core::services::BdServices`), never a reader of its own.
 - **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
-  JSON object with `schema`, errors as `CliError` with an `ErrorCode`; a Tauri command is `run_blocking` of the core,
-  and the E2E server routes it to the same core.
+  JSON object with `schema`, errors as `CliError` with an `ErrorCode`, and records a rewrite, an update, a pick and an
+  operation of the remote in the operations registry (`bd_core::operation_record`); a read of the app is a Tauri
+  command, `run_blocking` of the core, a write `execute` of its intent or a command of the app in `APP_COMMANDS`
+  (`command_registry_test.rs`, with its reason: what has no repository as its subject); the E2E server routes each to
+  the same core.
 - **Reuse a helper** before writing a parser or a process: `ref_transaction`, `commit_writer`, `commit_chain`,
   `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `snapshot`, `repository_lock`
   and `regroup` in `history_rewrite`; `repo_facts`, `baseline` and `remote_command` in `sync_core`.
@@ -790,9 +795,9 @@ crates/
 ├── trial-check/     # The trial checks (`bd check`, the conflict fix, the landing gate), `bd move-hunk`, the diff scan and the symbol summaries of the commits
 ├── update-core/     # Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`, and their undo
 ├── lease-pool/      # The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)
-├── remote-facts/    # What GitHub and Patronus know of the branches, over HTTP: pull requests, review requests, branch rules, review readiness, the Patronus command, the Safe Push statistics; the scheduler of the session facts (`scheduler`, read through the hosts' `FactSources`)
+├── remote-facts/    # What GitHub and Patronus know of the branches, over HTTP: pull requests, review requests, branch rules, review readiness, the Patronus command, the Safe Push statistics; the sign-ins of the app's accounts (`sign_in`, one per provider, the reader of the fact `auth`); the scheduler of the session facts (`scheduler`, read through the hosts' `FactSources`)
 ├── repository-model/ # The model of a repository for the page and bd: the sessions (the table state, its syncs and patches, their facts) and the one-shot session of a `bd` command (`one_shot`), the table of the last sync, the Patronus view the session derives (one rule, the robot of each row) with the landing needs the host computes, what the rules decide of them for the view (`derive`, `action_view`), the guards of the app's push and robot actions; no trial check
-├── operations/      # The engine of the operations of the remote: the in-process registry (the `operations` part of the view, admitted by `domain_policy::admission`), the registry of the repository between processes (`registry_file`, its watch `registry_watch`, the lost starts `reconcile` and `forget`), the journal of the operations that ended (`journal`), the frame every family runs in, the witness of a plan, the facts a plan needs and their reads (`needs`, `facts::fill`), every intent of the remote (`prepare`, `execute`, `cancel_operation`): the start (`land`, `land_execute`), the push (`push`), the robot (`robot`), the pull requests (`pull_request`, `close`, `review`), the issue (`issue`)
+├── operations/      # The engine of the operations of a repository: the in-process registry (the `operations` part of the view, admitted by `domain_policy::admission`), the registry of the repository between processes (`registry_file`, its watch `registry_watch`, the lost starts `reconcile` and `forget`), the journal of the operations that ended (`journal`), the frame every family runs in, the witness of a plan, the facts a plan needs and their reads (`needs`, `facts::fill`), every intent (`prepare`, `execute`, `cancel_operation`): the start (`land`, `land_execute`), the push (`push`), the robot (`robot`), the pull requests (`pull_request`, `close`, `review`), the issue (`issue`), the review fetch (`review_fetch`), the rewrites and their undo (`rewrite`), Update Project, Fetch and Dismiss Landed (`update`)
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the requests and answers of the rewrite cores (`rewrite`), the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── domain-policy/   # The pure rules of the domain, one file per rule ([Rule Index](#rule-index): `facts`, `robot_match`, `push`, `stack`, `parked`, `attention`, `holds`, `land`, `landed`, `pull_request`, `review`, `readiness`, `landing_needs`, `next_step`, `landing_node`, `actions`, `admission`, `news`, `refresh`, `reasons`), only domain-types: no git, no IO, no runtime; `cases/` holds the scenario table both sides answer, `reasons.json` and `actions.json` the catalogs the presenters word
 ├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
@@ -801,7 +806,7 @@ crates/
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI: the `Cli`, the dispatch, `bd schema`, the help texts, the process budgets (docs/guidelines/agent-cli.md)
-├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries, the summaries of a check that `bd check` and `bd safe-push` print, the remote services of a command and the host of its reads of the facts (`services`)
+├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries, the summaries of a check that `bd check` and `bd safe-push` print, the remote services of a command and the host of its reads of the facts (`services`), the record of its operation in the operations registry and its entry in the journal (`operation_record`)
 ├── bd-lease/        # `bd lease`: the worktrees of the lease pool; its tests run bd through the fixtures of bd-cli
 ├── bd-remote/       # The bd commands of the remote: status, push, safe-push, request-review, robot, the landed branches
 ├── bd-rewrite/      # The bd commands that read and rewrite the commits by their messages: group, reword, fold, check, suggest

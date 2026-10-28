@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-27  
+**Updated:** 2026-10-28  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import, lease]
 
 ## Problem
@@ -447,8 +447,10 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    and subject without the prefix (`CommitKey`, read off the table when the request came; a key two commits share finds
    neither); an ungroup takes the commits
    of its branch there. A branch goes by its name. A commit none of them finds is `plan_changed`, nothing written.
-4. **The core** runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`, `RegroupOptions`) and
-   the lock waited for as long as its holder lives (`LockWait::WhileHeld`): the step of the operation is
+4. **The core** runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`, `RegroupOptions`,
+   `MoveCommitsParams`; another process that moved HEAD before the lock makes it `head_moved`, nothing written) and
+   the lock waited for as long as its holder lives (`LockWait::WhileHeld`; the undo of a pick and of an update waits
+   `DEFAULT_LOCK_TIMEOUT`, as `bd undo` does): the step of the operation is
    `WaitingForLock` with the holder its record names, then `Rewriting`; `cancel_operation` ends the wait (`canceled`,
    no ref moved, the objects it computed deleted with their temporary refs). The core takes the lock itself, after it
    computed on the snapshot it read: under it only its witness and its write ([Regroup, rename,
@@ -547,8 +549,9 @@ after their record went into the operations registry of the repository ("Operati
 `bd_core::operation_record::recorded`: `RewriteIntent::Group` of the plan, `Rename`, `Restack`, `Unstack`, `Reword`,
 on the HEAD of `--expect-head`), before the lock; the record leaves before the `--sync`, which runs after the release.
 A rewrite of the app and one of `bd` meanwhile make each other neither busy nor joined: the second finds its witness
-moved once it takes the lock after the first, computes once more under it and runs on what the first left (a second
-unstack of beta: `invalid_plan`, "beta is not stacked").
+moved once it takes the lock after the first and computes once more under it, on what the first left when HEAD is
+still the one it expects (a second unstack of beta: `invalid_plan`, "beta is not stacked"; `bd` without
+`--expect-head` expects none); a HEAD the first moved is `head_moved` for an app's rewrite, nothing written.
 
 `bd reword` (`crates/history-rewrite/src/reword.rs`) gives the regroup whole new messages by id (`Change::messages`,
 a `--subject` keeps the body it reads from the snapshot), cleaned up as `git commit` does, before the
@@ -556,9 +559,10 @@ plan's prefixes apply; a message equal to the old one after the cleanup changes 
 commit as a plan would, with step 4's check, and the fixups of a target whose prefix changes follow it. The mapping
 note of a commit whose text (not only its prefix) changed is not carried: its copy must be rebuilt with the message.
 
-The app's edit of a message (the Tauri command `reword`, `reword_request_core` in `reword.rs`, which the E2E server
-routes too) is the same reword: whole messages by full id, `RegroupOptions::default()` (the lock and its 10 s wait,
-no expected HEAD), and the answer carries the new ids, `previousHead`, `newHead` and the undo token. Its refusals are
+The app's edit of a message (the rewrite `Reword` of the engine, `reword_request_core` in `reword.rs`) is the same
+reword: whole messages by full id, the `RegroupOptions` of every rewrite of the app (the HEAD of its witness expected,
+the lock waited for while its holder lives), and the answer carries the new ids, `previousHead`, `newHead` and the undo
+token. Its refusals are
 told for the app: an id that is no longer ahead of the baseline is "Commit <id> is no longer on the current branch,
 sync and try again" (the list was read before a terminal reworded or dropped it).
 
@@ -635,7 +639,10 @@ built on it, which carries its commits.
   ref that moved is read and written once more under the lock, and only a second move is `parked_moved`. `unpark_core` reads only the store
   (one `cat-file --batch`) and drops a line also of a branch without commits here. Both take several branches (the
   app's drag of a selection, the undo of one) and write all their lines in one store commit, or none when one of them
-  is refused; the processes are the same for one branch or many. Neither has an undo token: the other one is the undo.
+  is refused; the processes are the same for one branch or many. In `bd` neither has an undo token: the other one is
+  the undo. The app's rewrites `park` and `unpark` answer the `parked:P1..P2` token of the store commit they wrote on
+  (`ParkOutcome::previous_commit`), whose undo moves the store back with CAS, so an undo after a newer write of the
+  store is stale instead of losing that write.
 - A rename carries the line: the parked `old` becomes the parked `new` with its note, in the transaction of the rename
   (a third store of `regroup_with`; a parked `new`, a merge, keeps its own note). The undo token gets the part
   `parked:P1..P2` after `stacks:`; a failed transaction names the ref that moved in the order HEAD, issue groups,
@@ -664,8 +671,11 @@ branch takes it in its core, each a `*_core(…, &RewriteOptions)` or a core wit
 (`crates/history-rewrite/src/repository_lock.rs`): `lock_wait`, `held_lock` for a caller that holds the lock already
 (`bd group` that writes branch descriptions after the regroup), so the core takes none and computes under it, and
 `expect_head`, the HEAD the request was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`,
-one check for every core). The app's cores without options (a move, a rename, a restack, an undo of a regroup, the
-squash undo, the unapply and reapply undo, the conflict fix, Update Project) take a `LockWait` themselves.
+one check for every core). A rename, a restack, an unstack and a reword take `RegroupOptions` (the same fields and
+`dry_run`); a core whose request carries its own check takes a `LockWait` beside it: a move (`MoveCommitsParams` with
+its `expect_head`), the conflict fix (its fingerprint), an undo (its token's compare-and-swap: of a regroup, the squash
+undo `restore_branch_head_core`, the unapply and reapply undo; the undo of a pick and of an update a bound) and Update
+Project (its witness of HEAD and the upstream).
 
 The lock is held for the witness and the write, never for a computation (C11 and Invariant 1 of [Rust as the Domain Authority](rust-domain-authority.md)). The regroup
 (the move, rename, restack, unstack, the conflict fix, the reword of the app and of `bd`, `bd group`) and its undo,
@@ -3045,7 +3055,8 @@ names of its files anywhere else):
 - **The lock**: every change is a read-modify-write under `operations.lock` (the line of the process, then a `flock`
   waited for at most 2 s, then `locked`), held for that file operation only, never across git, HTTP, an `await` or the
   actor of a session; the file is written to a temporary file and renamed over, so a read without the lock sees one
-  whole state. It is not the repository lock, which `bd` holds across its sync: an admission never waits for a sync.
+  whole state. It is not the repository lock, which `bd push` and `bd safe-push` hold across their sync: an admission
+  never waits for a sync.
 - **Admission**: an operation goes into the file before its session admits it (the app on the blocking pool, before
   the actor of the session sees it, `Registry::admit`; `bd` after its plan, before its run; a rewrite, an update or a
   pick of `bd` before the command takes any lock, `bd_core::operation_record::recorded`). A record of another
@@ -3653,7 +3664,8 @@ Code: `crates/bd-remote/src/robot_command.rs`.
 #### GitHub credentials
 
 The GitHub API is asked with the first token of a chain (`crates/github/src/token.rs`): `GH_TOKEN`/`GITHUB_TOKEN`,
-`gh auth token`, then the password git stores for github.com. The last one is the only git process of the chain:
+`gh auth token`, the token of the app's own sign-in, then the password git stores for github.com. The last one is the
+only git process of the chain:
 
 - `git -c credential.interactive=false credential fill` with `protocol=https`, `host=github.com` and
   `path=<owner>/<name>.git` on stdin, in the repository (its local `credential.helper` and `useHttpPath` apply);
@@ -3673,6 +3685,12 @@ so a repository GitHub accepted a token for never waits for a slow `credential f
 
 It reads nothing of the working tree and writes nothing; the worktree safety scan allows it. GitHub itself is asked
 over HTTP (`GitHubService`, `crates/github/src/service.rs`); the only `gh` process is `gh auth token` of the chain.
+
+The app's own sign-in is the command `sign_in` of the app with its events on the channel of the call, `cancel_sign_in`
+and `sign_out` (`remote_facts::sign_in::SignIns` over `github::sign_in_session`: the device flow, one sign-in at a time,
+a second call joins it; [GitHub Sign-In](../../spec/repository/github-sign-in.spec.md)), never git: the token it keeps
+or removes makes the chain forget what it knew (`TokenChain::forget`), so the next request takes the first source
+again, and the sessions read their fact `auth` again ([Session facts](#session-facts)).
 
 The token of the app's own sign-in (and of the YouTrack sign-in) is a secret of `sync_utils::secret_store`. On macOS,
 once the app or `bd` called `enable_keychain` at its start, it is a generic password of the login keychain, service
@@ -4085,6 +4103,7 @@ landing of a session](#the-landing-of-a-session)).
 | merge profiles | `facts.profiles` | `profiles` (of the target of the baseline) | `profiles_due` | — |
 | review readiness | `facts.readiness`, by subject | `readiness`, `cached_readiness` (the object cache) | `readiness_due`, `readiness_priority` | — |
 | review requests | `facts.reviewRequests`; the rest of Reviews derived into `reviews` | `review_requests` (with the rest of Reviews while `Demand::reviews`) | `review_requests_due`, `review_requests_poll_delay`, `reviews_shown_due` | `write_review` |
+| sign-ins | `facts.auth`, one status of the app | `auth` (`SignIns::status` of the host) | `auth_due`, `auth_follows_up` | — (a sign-in or a sign-out has every session read it, `AfterWrite`) |
 | landing needs | `patronus.landingNeeds`, by branch | the host (`SessionEnvironment::landing_needs`) | when their inputs change | — |
 | the Patronus view | `patronus.view`, by branch and stack root | derived by the session (`facts::derive_patronus`) | when its inputs change | — |
 
@@ -4193,6 +4212,19 @@ a list gives them) and the last pull request of every number, so the actions of 
 (`Demand::review_windows`) stay. The view derives the sections (`domain_policy::reviews`) and the actions of each pull
 request to review by `pull:<number>` (`domain_policy::actions::review_actions`, the target of the baseline from the
 sync's `TableHeader::target_branch`): no git of their own.
+
+The sign-ins of the app's accounts (`facts.auth`, `Fact<AuthStatus>`: GitHub and YouTrack, where each token comes
+from): one status of the app in every session, read through `FactSources::auth`, which asks the host's one reader
+(`remote_facts::sign_in::SignIns::status`; `bd` has none and answers why). The scheduler (`scheduler_auth.rs`) reads
+it by `auth_due` when a window begins to watch the session, on a focus by the rule of the lists, at once for the
+refresh button and after a sign-in or a sign-out of any window, and never for a sync, a push or a poll: only the user
+changes a sign-in. A sign-in is no operation of a session ([Running Operations](operations.md)): the command `sign_in`
+of the app runs it, and once it changed an account its host has every session read the fact again
+(`SignInHost::changed`: `Sessions::refresh_all(Auth, AfterWrite)`, after GitHub the pull requests and the review
+requests too, `Manual`) and tells the windows without a session (`auth-changed`, on which they ask `get_auth_status`,
+the same reader). A reason that follows up (`auth_follows_up`: the button, a sign-in) asks once more after a read in
+flight, which may have started before the token was kept. The page keeps the status of its window
+(`src/stores/auth.ts`, `applyAuthFacts`, `useAuthSync`).
 
 #### The Patronus view
 

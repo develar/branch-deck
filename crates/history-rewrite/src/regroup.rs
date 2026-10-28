@@ -54,13 +54,6 @@ pub struct RegroupOptions<'a> {
   pub held_lock: Option<&'a RepositoryLock>,
 }
 
-impl<'a> RegroupOptions<'a> {
-  /// The options of a regroup of the app: no expected HEAD, the lock waited for as `lock_wait` says
-  pub fn waiting(lock_wait: LockWait<'a>) -> Self {
-    Self { lock_wait, ..Self::default() }
-  }
-}
-
 /// A commit ahead of the baseline after the regroup
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegroupedCommit {
