@@ -6,7 +6,7 @@ import { showEventToast, toastKeys } from "@/lib/event-toast"
 import type { MenuItem } from "@/lib/menu"
 import { runFailure, runIntent } from "@/lib/run-intent"
 import { sessionRepositoryPath } from "@/model/store"
-import { FIXED_STATE, loadIssue } from "@/stores/youtrack"
+import { FIXED_STATE, loadIssue } from "@/stores/youtrack-issues"
 
 /**
  * The actions of a YouTrack issue (spec/repository/youtrack.spec.md), for every surface that renders them: the popover

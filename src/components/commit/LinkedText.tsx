@@ -6,7 +6,7 @@ import type { InlineSegment } from "@/lib/inline-code"
 import { parseTextSegments, useIssuePatterns } from "@/lib/issue-links"
 import type { CompiledIssuePattern } from "@/lib/issue-links"
 import { youTrackKeyOf } from "@/lib/youtrack"
-import { useYouTrackUrl } from "@/stores/youtrack"
+import { useYouTrackUrl } from "@/stores/auth"
 
 export interface LinkedTextProps {
   text: string

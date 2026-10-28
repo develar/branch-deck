@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react"
 import { Popover, PopoverContent } from "@/components/ui/popover"
-import { useYouTrackUrl } from "@/stores/youtrack"
+import { useYouTrackUrl } from "@/stores/auth"
 
 const IssueDetails = lazy(() => import("@/components/issue/IssueDetails").then(module => ({ default: module.IssueDetails })))
 

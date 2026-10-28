@@ -47,7 +47,7 @@ targets:
   - ../../src/components/settings/YouTrackPage.tsx
   - ../../src/components/settings/YouTrackSettings.tsx
   - ../../src/stores/auth.ts
-  - ../../src/stores/youtrack.ts
+  - ../../src/stores/youtrack-issues.ts
   - ../../src/stores/cli-tools.ts
   - ../../src/components/settings/PatronusPage.tsx
   - ../../src/components/settings/BranchPrefixSetting.tsx
@@ -219,10 +219,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should ask the OS for the permission to notify again when the window gets the focus`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open Settings at Notifications from the card menu, whose switches the main window keeps`, `should count the review requests, behind its switch`)
 - GitHub: the token and the app's own sign-in ([GitHub Sign-in](github-sign-in.spec.md)), asked again on each open of
-  the window and when any window signs in or out (`get_auth_status`, `auth-changed`).
+  the window and when any window signs in or out (`get_auth_status`: at the start of the window, again on each later
+  open, `useAuthStatusOnOpen` of the Settings page, and on `auth-changed`, `useAuthSync` of every window).
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
-- YouTrack: the sign-in to the YouTrack of the issue links ([YouTrack](youtrack.spec.md)), asked again on each open of
-  the window and when any window signs in or out (`youtrack-auth-changed`).
+- YouTrack: the sign-in to the YouTrack of the issue links ([YouTrack](youtrack.spec.md)), the `youtrack` part of the
+  same status, read with GitHub's in one read.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should ask to sign in again once the sign-in expired`)
 - Patronus: how Branch Deck and bd read the robots ([Patronus](#patronus)).
 - Agents: how coding agents work ([Agents](#agents)).

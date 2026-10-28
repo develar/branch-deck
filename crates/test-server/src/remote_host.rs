@@ -39,7 +39,6 @@ use test_utils::fake_server::{FakeGate, FakeServer};
 use youtrack::client::YouTrackClient;
 use youtrack::fake_youtrack::FakeYouTrack;
 use youtrack::service::YouTrackService;
-use youtrack::sign_in_session::YouTrackSignInSession;
 use youtrack::token_store::StoredToken as YouTrackToken;
 
 /// The Space project and repository of a test repository on Space (its origin is a local path, so the host holds it)
@@ -109,8 +108,6 @@ pub struct RemoteHost {
   youtrack_server: FakeServer,
   /// The app's YouTrack service on the token file of `app_data`; a fixture of the sign-in makes it read the file again
   youtrack_service: Arc<YouTrackService>,
-  /// The YouTrack session of the sign-ins, which the YouTrack commands of the bridge run until they go through `sign_ins`
-  youtrack_sign_in: Arc<YouTrackSignInSession>,
   /// The remote of the repository (`.git/upstream.git`) as its pre-receive hook asks it: held and refused pushes
   git_remote: FakeRemote,
   /// A test wrote someone else's commit onto the remote (`POST …/remote/commit`): only then the session fetches the
@@ -155,8 +152,8 @@ pub enum HeldAnswer {
   /// The view of the robots a session derives (`TestSessionEnvironment::before_patronus_view`): what they hold and
   /// land; failed there
   RepositoryView,
-  /// The status of the sign-ins: the read of the sessions (`TestFactSources::auth`) and `get_auth_status` and
-  /// `get_youtrack_auth_status` of the bridge
+  /// The status of the sign-ins: the read of the sessions (`TestFactSources::auth`) and `get_auth_status` of the
+  /// bridge
   AuthStatus,
   /// The statuses of the command-line tools of Settings → Tools (`cli_tools_status`, in the bridge)
   CliTools,
@@ -250,7 +247,6 @@ impl RemoteHost {
       Some(youtrack::token_store::token_file(&app_data)),
     ));
     let github_client_id = Arc::default();
-    let youtrack_sign_in = Arc::new(YouTrackSignInSession::default());
     let sign_in_host = TestSignIns {
       github: Arc::clone(&github_service),
       client_id: Arc::clone(&github_client_id),
@@ -260,7 +256,7 @@ impl RemoteHost {
       sessions,
       worktree: repository_path.to_owned(),
     };
-    let sign_ins = SignIns::new(Arc::new(sign_in_host), GitHubSignInSession::new(Some(token_file(&app_data))), Arc::clone(&youtrack_sign_in));
+    let sign_ins = SignIns::new(Arc::new(sign_in_host), GitHubSignInSession::new(Some(token_file(&app_data))));
     let host = Self {
       patronus,
       patronus_server,
@@ -278,7 +274,6 @@ impl RemoteHost {
       youtrack,
       youtrack_server,
       youtrack_service,
-      youtrack_sign_in,
       git_remote: FakeRemote::start(repository_path),
       remote_moved_behind: std::sync::atomic::AtomicBool::new(false),
       git,
@@ -444,7 +439,6 @@ impl RemoteHost {
     for provider in [SignInProvider::GitHub, SignInProvider::YouTrack, SignInProvider::YouTrackCli] {
       self.sign_ins.cancel(provider);
     }
-    self.youtrack_sign_in.cancel();
   }
 
   /// Holds `answers` at their fakes from now on: a request waits there until `release_answers`
@@ -554,11 +548,6 @@ impl RemoteHost {
   /// The YouTrack of the repository for the operations of its session (`ServiceHost::youtrack`)
   pub fn shared_youtrack_service(&self) -> Arc<YouTrackService> {
     Arc::clone(&self.youtrack_service)
-  }
-
-  /// The app's sign-in to YouTrack, run by the real session (the YouTrack commands of the bridge)
-  pub fn youtrack_sign_in(&self) -> &YouTrackSignInSession {
-    &self.youtrack_sign_in
   }
 
   /// The token file holds `token` from now on, or none; the service reads it again

@@ -6,15 +6,17 @@
 //! A fourth source, the E2E tests (`tests/e2e/**/*.ts`), is held by a ratchet: a test answers a command in the page
 //! only where [`ROUTED_IN_PAGE`] pins it, never a write of [`MUTATING`] (a push included: it goes to the remote of the
 //! repository, `remote_git_fixtures`). An answer counts where it is given: a helper that answers
-//! (`routeReviewRequirement`, a spec's own function) counts once per call, not once per definition. The sources are read as text, as the git scan tests read theirs
-//! (`source_scan_test.rs` of git-executor).
+//! (`routeReviewRequirement`, a spec's own function) counts once per call, not once per definition. Every command is
+//! a read ([`READS`]) or a write, and a write is the engine's ([`ENGINE`]) or a command of the app ([`APP_COMMANDS`],
+//! with the reason no session admits it): the exit criterion of s11 of docs/design/rust-domain-authority.md. The
+//! sources are read as text, as the git scan tests read theirs (`source_scan_test.rs` of git-executor).
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 83;
+const COMMAND_COUNT: usize = 75;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -37,42 +39,131 @@ const RAW_ROUTES: &[(&str, &str)] = &[(
 /// test answers one in the page (`routeCommand`, or a `page.route` of `/invoke/<name>` that fulfills): the test server
 /// runs it on the real core, behind the fakes of the remote services, and the test asserts what the fake got (its
 /// log, `getPatronusLog`, `getGitHubLog`, `getYouTrack`). The failure of a write stays a page answer
-/// (`routeCommandError`), as does a hold that lets the call go on to the server (`holdCommand`, `recordCommand`)
+/// (`routeCommandError`), as does a hold that lets the call go on to the server (`holdCommand`, `recordCommand`).
+/// Each is either of the engine ([`ENGINE`]) or a command of the app ([`APP_COMMANDS`])
 const MUTATING: &[&str] = &[
-  // the operations of the remote and the rewrites (`operations::engine`)
   "execute",
   "cancel_operation",
-  // the links of Reviews (`repository-state.json`)
+  "sync",
+  "set_window_focus",
+  "cancel_symbol_search",
+  "cancel_conflict_fix",
+  "record_activity",
+  "clear_activity",
+  "set_setting",
+  "set_repository_config",
   "link_pull_request",
   "unlink_pull_request",
-  // the sign-ins (`remote_facts::sign_in`; YouTrack's own commands until they go through it)
+  "set_auto_sync_menu_checked",
+  "install_agent_cli",
+  "install_update",
+  "restart_app",
+  "run_cli_tool_action",
+  "cancel_cli_tool_action",
   "sign_in",
   "cancel_sign_in",
   "sign_out",
-  "start_youtrack_sign_in",
-  "wait_youtrack_sign_in",
-  "cancel_youtrack_sign_in",
-  "save_youtrack_token",
-  "sign_out_of_youtrack",
-  // git: the sync and its focus, the cancels of the reads (a push, a rewrite and a review fetch are intents, `execute`)
-  "cancel_symbol_search",
-  "sync",
-  "set_window_focus",
-  "cancel_conflict_fix",
-  // the app
-  "record_activity",
-  "clear_activity",
-  "set_repository_config",
-  "set_auto_sync_menu_checked",
-  "set_setting",
-  "install_agent_cli",
-  // the CLIs of Settings → Tools, on the fakes of the repository
-  "run_cli_tool_action",
-  "cancel_cli_tool_action",
-  "start_youtrack_cli_sign_in",
-  "wait_youtrack_cli_sign_in",
-  "install_update",
-  "restart_app",
+];
+
+/// The commands that write nothing: reads of the repository, the remote services and the app, the subscription of a
+/// window to its session and what it reads there (its demand, a fact asked again), and the windows. Every command of
+/// `collect_commands!` is here or in [`MUTATING`], never in both: a new command says which it is
+const READS: &[&str] = &[
+  // the session of a window: its view, its demand, the facts it asks again, the plan of an intent before `execute`
+  "get_snapshot",
+  "subscribe_view",
+  "unsubscribe_view",
+  "set_demand",
+  "refresh_facts",
+  "prepare",
+  // the repository and its commits
+  "resolve_branch_prefix",
+  "check_git_setup",
+  "get_repository_config",
+  "validate_repository_path",
+  "preview_move",
+  "preview_group",
+  "validate_branch_name",
+  "commit_body_blocks",
+  "find_conflict_fix",
+  "get_stack_independence",
+  "get_autosquash_plan",
+  "suggest_branch_names",
+  "get_archived_branch_commits",
+  "get_unapplied_branch_commits",
+  "get_uncommitted_changes",
+  "get_commit_files",
+  "get_commits_files",
+  "get_file_diffs",
+  "get_file_merges",
+  "get_blob_texts",
+  "find_declaration",
+  "find_usages",
+  "get_range_files",
+  "get_branch_review",
+  "get_file_owners",
+  "prefetch_branch_review",
+  // the remote services and the accounts
+  "get_new_pull_request",
+  "get_new_stack_pull_request",
+  "search_github_users",
+  "get_auth_status",
+  "get_youtrack_issue",
+  "get_robot_stats",
+  "get_robot_failure",
+  "get_robot_commit_map",
+  // the app: its journal, its settings, its update, its CLIs
+  "read_activity",
+  "get_settings_changes",
+  "check_for_updates",
+  "get_update_status",
+  "agent_cli_command",
+  "agent_cli_status",
+  "cli_tools_status",
+  "get_setup_items",
+  // the windows
+  "browse_repository",
+  "open_sub_window",
+  "sub_window_loaded",
+  "sub_window_drawn",
+  "sub_window_ready",
+  "show_window_menu",
+];
+
+/// The writes of the engine: every operation of a repository is an intent of its session, admitted by the registry
+/// over the resources it names (the pushes, the starts, the rewrites, Update Project, the review fetch; `operations`)
+const ENGINE: &[&str] = &["execute", "cancel_operation"];
+
+const SESSION_TICKETS: &str = "the session's own tickets: a sync and a focus ask the session to read, never admitted as an operation";
+const CANCELED_READ: &str = "the cancel of a read: it ends the read of this window, which wrote nothing";
+const PAGE_JOURNAL: &str = "the page's journal of the app data directory, one writer (`operations::journal`) under its lock";
+const SETTINGS_WRITER: &str = "a settings writer of no repository's session, serialized per file (docs/design/rust-domain-authority.md, \"Решение 2026-10-28\")";
+const THE_APP: &str = "the app itself: its menu, its CLI, its update and its restart";
+const TOOLS: &str = "the CLIs of Settings → Tools, one action of a tool at a time (`cli_tools`)";
+const ACCOUNTS: &str = "an account of the app, one sign-in of a provider at a time (`remote_facts::sign_in`): no repository is its subject";
+
+/// The writes that are commands of the app, not intents: what has no repository as its subject, each with its one
+/// writer (docs/design/rust-domain-authority.md, "Решение 2026-10-28"); the reason says which
+const APP_COMMANDS: &[(&str, &str)] = &[
+  ("sync", SESSION_TICKETS),
+  ("set_window_focus", SESSION_TICKETS),
+  ("cancel_symbol_search", CANCELED_READ),
+  ("cancel_conflict_fix", CANCELED_READ),
+  ("record_activity", PAGE_JOURNAL),
+  ("clear_activity", PAGE_JOURNAL),
+  ("set_setting", SETTINGS_WRITER),
+  ("set_repository_config", SETTINGS_WRITER),
+  ("link_pull_request", SETTINGS_WRITER),
+  ("unlink_pull_request", SETTINGS_WRITER),
+  ("set_auto_sync_menu_checked", THE_APP),
+  ("install_agent_cli", THE_APP),
+  ("install_update", THE_APP),
+  ("restart_app", THE_APP),
+  ("run_cli_tool_action", TOOLS),
+  ("cancel_cli_tool_action", TOOLS),
+  ("sign_in", ACCOUNTS),
+  ("cancel_sign_in", ACCOUNTS),
+  ("sign_out", ACCOUNTS),
 ];
 
 /// The read commands that E2E tests still answer in the page, with the number of answers in `tests/e2e` (a call of a
@@ -250,15 +341,12 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
       "get_file_merges",
       "get_settings_changes",
       "record_activity",
-      "save_youtrack_token",
       "set_repository_config",
       "set_setting",
       "sign_in",
       "sign_out",
-      "sign_out_of_youtrack",
       "sub_window_drawn",
-      "sub_window_loaded",
-      "wait_youtrack_sign_in"
+      "sub_window_loaded"
     ],
     "the handlers of COMMAND_HANDLERS that wrap a route"
   );
@@ -947,6 +1035,48 @@ fn the_ratchet_names_commands_of_the_app() {
   }
   for (name, _) in ROUTED_IN_PAGE {
     assert!(!mutating.contains(name), "`{name}` writes: it cannot be pinned in ROUTED_IN_PAGE");
+  }
+}
+
+/// Every command of `collect_commands!` is a read or a write, never both, so a new one is classified where it lands
+#[test]
+fn every_command_is_a_read_or_a_write() {
+  let commands: BTreeSet<String> = app_commands().into_iter().collect();
+  let reads: BTreeSet<&str> = READS.iter().copied().collect();
+  assert_eq!(reads.len(), READS.len(), "READS names a command twice");
+  let both: Vec<&&str> = reads.iter().filter(|name| MUTATING.contains(name)).collect();
+  assert!(both.is_empty(), "both a read and a write: {both:?}");
+  let classified: BTreeSet<String> = READS.iter().chain(MUTATING).map(|name| (*name).to_owned()).collect();
+  assert_eq!(
+    commands, classified,
+    "every command of collect_commands! is in READS or in MUTATING (with ENGINE or APP_COMMANDS)"
+  );
+}
+
+/// The exit criterion of s11 (docs/design/rust-domain-authority.md): `collect_commands!` holds no write but the
+/// engine's and the commands of the app, each of those with its reason
+#[test]
+fn every_write_is_the_engines_or_a_command_of_the_app() {
+  let commands: BTreeSet<String> = app_commands().into_iter().collect();
+  let app: BTreeSet<&str> = APP_COMMANDS.iter().map(|(name, _)| *name).collect();
+  assert_eq!(app.len(), APP_COMMANDS.len(), "APP_COMMANDS names a command twice");
+  let engine: BTreeSet<&str> = ENGINE.iter().copied().collect();
+  assert!(
+    engine.is_disjoint(&app),
+    "a write is either the engine's or a command of the app: {:?}",
+    engine.intersection(&app).collect::<Vec<_>>()
+  );
+  let mutating: BTreeSet<&str> = MUTATING.iter().copied().collect();
+  let classified: BTreeSet<&str> = engine.union(&app).copied().collect();
+  assert_eq!(
+    mutating, classified,
+    "a write of collect_commands! is an intent of the engine (`execute`), or a command of the app in APP_COMMANDS with the reason no session admits it"
+  );
+  for (name, reason) in APP_COMMANDS {
+    assert!(!reason.trim().is_empty(), "`{name}` of APP_COMMANDS says no reason");
+  }
+  for name in engine.iter().chain(&app) {
+    assert!(commands.contains(*name), "`{name}` is no command of collect_commands!");
   }
 }
 

@@ -5,16 +5,16 @@ import { LinkedText } from "@/components/commit/LinkedText"
 import { IssueHoverHost } from "@/components/issue/IssueHoverHost"
 import { useMainMenuKeys } from "@/hooks/useMainMenuKeys"
 import { useZoom } from "@/hooks/useZoom"
-import { useYouTrackAuthSync } from "@/stores/youtrack"
+import { useAuthSync } from "@/stores/auth"
 
 /**
- * The root of every window: the page of its route, the tooltips, the toasts, the issue popover, the zoom and the keys
- * of the main menu.
+ * The root of every window: the page of its route, the tooltips, the toasts, the issue popover, the sign-ins, the zoom
+ * and the keys of the main menu.
  */
 export function App() {
   useZoom()
-  // every window knows whether the links of the YouTrack issues show the issue
-  useYouTrackAuthSync()
+  // every window knows the sign-ins: whether the links of the YouTrack issues show the issue, what GitHub gives
+  useAuthSync()
   // the keys of the main menu where it replaces the native menu (a custom title bar on Windows and Linux)
   useMainMenuKeys()
 

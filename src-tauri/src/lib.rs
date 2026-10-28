@@ -61,10 +61,7 @@ use commands::window_management::{
   BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_drawn, sub_window_loaded, sub_window_ready,
 };
 use commands::window_menu::show_window_menu;
-use commands::youtrack::{
-  YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, sign_out_of_youtrack, start_youtrack_cli_sign_in,
-  start_youtrack_sign_in, wait_youtrack_cli_sign_in, wait_youtrack_sign_in,
-};
+use commands::youtrack::{YouTrackState, get_youtrack_issue};
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
@@ -101,12 +98,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       sign_in,
       cancel_sign_in,
       sign_out,
-      get_youtrack_auth_status,
-      start_youtrack_sign_in,
-      wait_youtrack_sign_in,
-      cancel_youtrack_sign_in,
-      save_youtrack_token,
-      sign_out_of_youtrack,
       get_youtrack_issue,
       link_pull_request,
       unlink_pull_request,
@@ -172,8 +163,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       run_cli_tool_action,
       cancel_cli_tool_action,
       get_setup_items,
-      start_youtrack_cli_sign_in,
-      wait_youtrack_cli_sign_in,
     ])
     // the fields of `appSettings` Rust reads, with their defaults: the page takes both from here, so the two never
     // disagree on a default (`src/stores/settings/appSettings.ts`)
@@ -305,11 +294,10 @@ pub fn run() {
         app_data_dir.as_deref(),
       ));
       let youtrack = YouTrackState::new(&current_version, app_data_dir.as_deref());
-      let youtrack_session = Arc::clone(&youtrack.sign_in);
       app.manage(youtrack);
       let github_session = GitHubSignInSession::new(app_data_dir.as_deref().map(github::token_store::token_file));
       let sign_in_host = Arc::new(AppSignIns { app: app.handle().clone() });
-      app.manage(SignInsState(SignIns::new(sign_in_host, github_session, youtrack_session)));
+      app.manage(SignInsState(SignIns::new(sign_in_host, github_session)));
       app.manage(CliToolsState::new(app_data_dir.as_deref()));
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));

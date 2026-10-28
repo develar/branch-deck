@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { AuthStatus, Fact, FactsView, GitHubAuthStatus, SignInEvent } from "@/lib/bindings"
-import { runSignIn } from "@/lib/sign-in-run"
-import { applyAuthFacts, authStore, refreshAuthStatus, retryAuthStatus } from "@/stores/auth"
+import { openSignInPageAgain, runSignIn } from "@/lib/sign-in-run"
+import { applyAuthFacts, authStore, refreshAuthStatus, retryAuthStatus, tellReadFailures } from "@/stores/auth"
 import { emptyView } from "@/test-support/fake-sessions"
 
 const { backend } = vi.hoisted(() => ({
@@ -15,7 +15,9 @@ const { backend } = vi.hoisted(() => ({
     statusFailure: null as string | null,
   },
 }))
-const { notifyError, showToast } = vi.hoisted(() => ({ notifyError: vi.fn(), showToast: vi.fn() }))
+const { notifyError, showToast, openUrl } = vi.hoisted(() => ({ notifyError: vi.fn(), showToast: vi.fn(), openUrl: vi.fn(async (_url: string) => {}) }))
+/** The repository of the session the window holds, and the reads of its facts the window asked */
+const { session } = vi.hoisted(() => ({ session: { path: null as string | null, refreshed: [] as unknown[][] } }))
 
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
@@ -35,7 +37,15 @@ vi.mock("@/lib/bindings", () => ({
 }))
 vi.mock("@/lib/errors", () => ({ notifyError, getErrorCode: (error: { code?: string }) => error.code }))
 vi.mock("@/lib/toast-message", () => ({ showToast }))
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }))
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }))
+vi.mock("@/model/store", () => ({
+  onSessionFacts: () => () => {},
+  sessionRepositoryPath: () => session.path,
+  refreshSessionFacts: async (...args: unknown[]) => {
+    session.refreshed.push(args)
+    return true
+  },
+}))
 
 const signedIn: GitHubAuthStatus = { signInAvailable: true, signedInAs: "octocat", tokenSource: "branchDeck", manageUrl: "https://github.com/settings/connections/applications/c" }
 const youtrack: AuthStatus["youtrack"] = { url: null, signedInAs: null, source: null, problem: null, signedInAt: null, manageUrl: null }
@@ -63,8 +73,11 @@ beforeEach(() => {
   backend.finish = null
   backend.status = null
   backend.statusFailure = null
+  session.path = null
+  session.refreshed = []
   notifyError.mockClear()
   showToast.mockClear()
+  openUrl.mockClear()
 })
 
 describe("the sign-in of a window", () => {
@@ -107,6 +120,39 @@ describe("the sign-in of a window", () => {
   })
 })
 
+describe("the sign-in to YouTrack", () => {
+  const url = "https://youtrack.example.com"
+  const hubPage = `${url}/hub/api/rest/oauth2/auth?state=s`
+
+  it("opens the Hub page once the sign-in waits for the browser, again on request, then tells who signed in where", async () => {
+    const run = runSignIn({ provider: "youTrack", url })
+    backend.channel!.onmessage({ kind: "waiting" })
+    expect(openUrl).not.toHaveBeenCalled()
+    backend.channel!.onmessage({ kind: "browser", url: hubPage })
+    expect(authStore.getState().signIns.youTrack).toEqual({ phase: "browser", url: hubPage })
+    expect(openUrl).toHaveBeenCalledWith(hubPage)
+    // the tab was closed: the same page again
+    await openSignInPageAgain("youTrack")
+    expect(openUrl.mock.calls).toEqual([[hubPage], [hubPage]])
+
+    const done = { provider: "youTrack" as const, url, user: { login: "jane", fullName: "Jane Doe" } }
+    backend.channel!.onmessage({ kind: "done", done })
+    backend.finish!({ status: "ok", data: done })
+    expect(await run).toEqual(done)
+    expect(authStore.getState().signIns.youTrack).toEqual({ phase: "idle" })
+    expect(showToast).toHaveBeenCalledWith({ title: "Signed in to youtrack.example.com as Jane Doe" })
+  })
+
+  it("says why YouTrack refused a pasted token, and answers null, so the field keeps it", async () => {
+    const run = runSignIn({ provider: "youTrack", url, token: "perm-wrong" })
+    await settle()
+    backend.finish!({ status: "error", error: internalError("YouTrack rejected the token") })
+    expect(await run).toBeNull()
+    expect(notifyError).toHaveBeenCalledWith("Cannot sign in to YouTrack", expect.objectContaining({ message: "YouTrack rejected the token" }))
+    expect([openUrl.mock.calls, showToast.mock.calls]).toEqual([[], []])
+  })
+})
+
 describe("the status of the sign-ins", () => {
   it("comes from the fact of the session, which keeps the last status until it answered and says why a read failed", () => {
     applyAuthFacts(factsWith({ value: status, state: { kind: "fresh" }, seq: 3, observedAt: 1 }), null)
@@ -138,5 +184,35 @@ describe("the status of the sign-ins", () => {
     expect(authStore.getState().readError).toBeNull()
     await settle()
     expect(authStore.getState()).toMatchObject({ status, readError: null })
+  })
+
+  it("tells a failed read once, as an error with Retry, and keeps the last status until a read answers", async () => {
+    const stop = tellReadFailures()
+    backend.status = status
+    await refreshAuthStatus()
+    backend.statusFailure = "the keychain is locked"
+    await refreshAuthStatus()
+    await refreshAuthStatus()
+    // the links keep their YouTrack: a failure is no sign-out
+    expect(authStore.getState()).toMatchObject({ status, readError: "the keychain is locked" })
+    expect(notifyError).toHaveBeenCalledTimes(1)
+    const [title, , action] = notifyError.mock.calls[0]! as unknown as [string, unknown, { children: string; onClick: () => void }]
+    expect([title, action.children]).toEqual(["Cannot read the GitHub and YouTrack sign-ins", "Retry"])
+
+    backend.statusFailure = null
+    action.onClick()
+    await settle()
+    expect(authStore.getState()).toMatchObject({ status, readError: null })
+    expect(notifyError).toHaveBeenCalledTimes(1)
+    stop()
+  })
+
+  it("has the session of the window read its fact on Retry, and a window without one read it itself", async () => {
+    session.path = "/repo"
+    authStore.setState({ readError: "the token file is unreadable" })
+    retryAuthStatus()
+    await settle()
+    expect(session.refreshed).toEqual([["/repo", "auth", "manual"]])
+    expect(authStore.getState().readError).toBeNull()
   })
 })

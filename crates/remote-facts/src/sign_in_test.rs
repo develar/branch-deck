@@ -10,8 +10,11 @@ use github::token_store::{read_token, token_file};
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use youtrack::client::YouTrackClient;
+use youtrack::fake_youtrack::start_fake;
 use youtrack::service::YouTrackService;
+use youtrack::sign_in::SignInError as YouTrackSignInError;
 
 const TOKEN: &str = "gho_signed_in";
 const POLL: &str = DEVICE_TOKEN_POLL;
@@ -45,9 +48,12 @@ impl SignInHost for Host {
 
   /// `canceled` by the error of the core, as `app_api::api_error` answers it
   fn api_error(&self, error: anyhow::Error) -> ApiError {
-    match error.downcast_ref::<DeviceFlowError>() {
-      Some(DeviceFlowError::Canceled) => ApiError::new(ErrorCode::Canceled, error.to_string()),
-      _ => ApiError::internal(error.to_string()),
+    let canceled = matches!(error.downcast_ref::<DeviceFlowError>(), Some(DeviceFlowError::Canceled))
+      || matches!(error.downcast_ref::<YouTrackSignInError>(), Some(YouTrackSignInError::Canceled));
+    if canceled {
+      ApiError::new(ErrorCode::Canceled, error.to_string())
+    } else {
+      ApiError::internal(error.to_string())
     }
   }
 
@@ -73,11 +79,7 @@ async fn setup() -> Setup {
     dir: dir.path().to_path_buf(),
     changed: Mutex::default(),
   });
-  let sign_ins = SignIns::new(
-    Arc::clone(&host) as Arc<dyn SignInHost>,
-    GitHubSignInSession::new(Some(token_file(dir.path()))),
-    Arc::default(),
-  );
+  let sign_ins = SignIns::new(Arc::clone(&host) as Arc<dyn SignInHost>, GitHubSignInSession::new(Some(token_file(dir.path()))));
   Setup { fake, host, sign_ins, _dir: dir }
 }
 
@@ -197,4 +199,80 @@ async fn a_sign_out_cancels_the_sign_in_that_runs_then_removes_the_token() {
     [Account::GitHub, Account::GitHub],
     "the sign-in, then the sign-out; never the canceled one"
   );
+}
+
+/// The events a sign-in tells until the page of the Hub, which it answers
+async fn hub_page(events: &mut UnboundedReceiver<SignInEvent>) -> String {
+  loop {
+    match events.recv().await {
+      Some(SignInEvent::Browser { url }) => return url,
+      Some(SignInEvent::Waiting) => {}
+      other => panic!("{other:?} before the page of the Hub"),
+    }
+  }
+}
+
+#[tokio::test]
+async fn a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first() {
+  let setup = setup().await;
+  let (fake, url) = start_fake().await;
+  let browser = SignIn::YouTrack { url: url.clone(), token: None };
+  let ((first_tx, mut first_rx), (second_tx, mut second_rx)) = (unbounded_channel(), unbounded_channel());
+  let (first_sink, second_sink) = (move |event| drop(first_tx.send(event)), move |event| drop(second_tx.send(event)));
+  let first = setup.sign_ins.sign_in(browser.clone(), &first_sink);
+  let joined = async {
+    let page = hub_page(&mut first_rx).await;
+    let second = setup.sign_ins.sign_in(browser.clone(), &second_sink);
+    let back = async {
+      assert_eq!(hub_page(&mut second_rx).await, page, "the joined call hears the page of the one that runs");
+      // the browser comes back from the Hub
+      reqwest::get(&page).await.unwrap().status()
+    };
+    tokio::join!(second, back)
+  };
+  let (first, (second, back)) = tokio::join!(first, joined);
+  assert_eq!(back, 200);
+  let jane = domain_types::youtrack::YouTrackUser {
+    login: "jane".to_owned(),
+    full_name: "Jane Doe".to_owned(),
+  };
+  let done = SignInDone::YouTrack { url: url.clone(), user: jane };
+  assert_eq!((first, second), (Ok(done.clone()), Ok(done)));
+  assert_eq!(fake.requests_to("GET", "/api/config").len(), 1, "the YouTrack is asked for its Hub once");
+  assert_eq!(setup.changed(), [Account::YouTrack], "one sign-in, however many calls joined it");
+
+  // a pasted token is kept once YouTrack accepted it
+  let pasted = |token: &str| SignIn::YouTrack {
+    url: url.clone(),
+    token: Some(token.to_owned()),
+  };
+  setup.sign_ins.sign_in(pasted("perm-wrong"), &|_| {}).await.unwrap_err();
+  assert_eq!(setup.changed(), [Account::YouTrack], "a refused token changed no account");
+  fake.accept_token("perm-right");
+  setup.sign_ins.sign_in(pasted("perm-right"), &|_| {}).await.unwrap();
+  let status = setup.sign_ins.status().await.youtrack;
+  assert_eq!(status.source, Some(domain_types::youtrack::YouTrackTokenSource::PastedToken));
+  assert_eq!(setup.changed(), [Account::YouTrack, Account::YouTrack]);
+
+  // the sign-in of the `youtrack` CLI shares the session: the app's that waits for the browser ends first
+  let (app_tx, mut app_rx) = unbounded_channel();
+  let app_sink = move |event| drop(app_tx.send(event));
+  let app = setup.sign_ins.sign_in(browser.clone(), &app_sink);
+  let cli = async {
+    hub_page(&mut app_rx).await;
+    let (cli_tx, mut cli_rx) = unbounded_channel();
+    let cli_sink = move |event| drop(cli_tx.send(event));
+    let cli = setup.sign_ins.sign_in(SignIn::YouTrackCli { url: url.clone() }, &cli_sink);
+    let cancel = async {
+      let page = hub_page(&mut cli_rx).await;
+      assert!(page.contains("0-0-0-0-0"), "the page of the CLI's sign-in asks Hub itself: {page}");
+      assert!(setup.sign_ins.youtrack_pending());
+      setup.sign_ins.cancel(SignInProvider::YouTrackCli);
+    };
+    tokio::join!(cli, cancel).0
+  };
+  let (app, cli) = tokio::join!(app, cli);
+  assert_eq!((app.map_err(|e| e.code), cli.map_err(|e| e.code)), (Err(ErrorCode::Canceled), Err(ErrorCode::Canceled)));
+  assert!(!setup.sign_ins.youtrack_pending(), "nothing waits for the browser after the cancel");
+  assert_eq!(setup.changed(), [Account::YouTrack, Account::YouTrack], "neither ended sign-in changed an account");
 }

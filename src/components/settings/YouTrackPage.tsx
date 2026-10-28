@@ -1,20 +1,11 @@
-import { useEffect } from "react"
 import { SettingsSection } from "@/components/settings/SettingRow"
 import { YouTrackSettings } from "@/components/settings/YouTrackSettings"
-import { useTauriListen } from "@/hooks/useTauriListen"
-import { refreshYouTrackAuthStatus } from "@/stores/youtrack"
 
 /**
- * Settings → YouTrack: the sign-in, asked again on each open of the window (`openCount`) and on a sign-in or sign-out of
- * any window (`youtrack-auth-changed`)
+ * Settings → YouTrack: the sign-in, read on each open of the window and on a sign-in or sign-out of any window
+ * (`useAuthStatusOnOpen` of the Settings page, `useAuthSync` of every window)
  */
-export function YouTrackPage({ openCount }: { openCount: number }) {
-  useEffect(() => {
-    void refreshYouTrackAuthStatus()
-  }, [openCount])
-  useTauriListen("youtrack-auth-changed", () => {
-    void refreshYouTrackAuthStatus()
-  })
+export function YouTrackPage() {
   return (
     <SettingsSection title="YouTrack" description="Hover an issue key to see the issue, and mark it fixed once its work lands">
       <YouTrackSettings />

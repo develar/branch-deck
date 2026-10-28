@@ -19,7 +19,7 @@ use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::sign_in::{Account, AuthStatus, SignIn, SignInProvider};
-use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackUser};
+use domain_types::youtrack::YouTrackIssueAnswer;
 use file_diffs::model::{
   BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
 };
@@ -482,59 +482,6 @@ pub async fn search_github_users(State(state): State<Arc<AppState>>, Json(params
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let users = core_search_github_users(&host.github_service(), &params.repository_path, &repository, &params.query).await;
   users.map(Json).map_err(|failure| failed(operation, failure_message(&failure)))
-}
-
-/// The YouTrack sign-in of the requesting page's repository, as the app reads it
-pub async fn get_youtrack_auth_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<YouTrackAuthStatus> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  held_or_failed(&host, HeldAnswer::AuthStatus, "read the YouTrack sign-in").await?;
-  Ok(Json(host.youtrack_service().status()))
-}
-
-#[derive(Deserialize)]
-pub struct YouTrackUrlParams {
-  url: String,
-}
-
-/// Starts the browser sign-in to the YouTrack at `url` (the fake's), as the app does: the Hub page a test fetches
-pub async fn start_youtrack_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<YouTrackUrlParams>) -> CommandResult<YouTrackSignIn> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  let started = host.youtrack_sign_in().start(host.youtrack_service(), &params.url).await;
-  started.map(Json).map_err(|e| failed("start the YouTrack sign-in", e))
-}
-
-/// Waits for the browser to come back from the Hub page and keeps the tokens, as the app does; the page mock tells the
-/// windows (`youtrack-auth-changed`)
-pub async fn wait_youtrack_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<YouTrackUser> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  let user = host.youtrack_sign_in().wait(host.youtrack_service()).await;
-  user.map(Json).map_err(|e| failed("sign in to YouTrack", e))
-}
-
-/// Ends the wait of the sign-in in progress, as the app does
-pub async fn cancel_youtrack_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<()> {
-  requesting_repository(&state, &headers)?.remote(&state.git_executor).youtrack_sign_in().cancel();
-  Ok(Json(()))
-}
-
-#[derive(Deserialize)]
-pub struct SaveYouTrackTokenParams {
-  url: String,
-  token: String,
-}
-
-/// Keeps a pasted token once the fake YouTrack accepted it, as the app does; the page mock tells the windows
-pub async fn save_youtrack_token(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<SaveYouTrackTokenParams>) -> CommandResult<YouTrackUser> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  let user = host.youtrack_sign_in().save_token(host.youtrack_service(), &params.url, &params.token).await;
-  user.map(Json).map_err(|e| failed("keep the YouTrack token", e))
-}
-
-/// Removes the token of the sign-in, as the app does; the page mock tells the windows
-pub async fn sign_out_of_youtrack(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<()> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  let signed_out = host.youtrack_sign_in().sign_out(host.youtrack_service()).await;
-  signed_out.map(Json).map_err(|e| failed("sign out of YouTrack", e))
 }
 
 #[derive(Deserialize)]

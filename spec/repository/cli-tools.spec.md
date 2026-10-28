@@ -17,6 +17,8 @@ targets:
   - ../../src-tauri/src/commands/cli_tools.rs
   - ../../src-tauri/src/commands/patronus.rs
   - ../../src/stores/cli-tools.ts
+  - ../../src/lib/sign-in-run.ts
+  - ../../crates/remote-facts/src/sign_in.rs
   - ../../src/lib/cli-tools.ts
   - ../../src/components/settings/ToolsPage.tsx
   - ../../src/components/settings/AgentsPage.tsx
@@ -160,8 +162,14 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
   expires or was refused). Windows, without `script`, shows `teamcity auth login` to run in a terminal.
 - `youtrack` signed in to no instance, with the app signed in to a YouTrack, offers Use Branch Deck Sign-In
   (`signInWith`): one browser sign-in, after which the CLI has a permanent token of that YouTrack
-  ([YouTrack](youtrack.spec.md#the-youtrack-cli)); the row waits with "Waiting for the browser…" and Open in Browser.
-  Without the app's sign-in it shows `youtrack auth login` to run in a terminal.
+  ([YouTrack](youtrack.spec.md#the-youtrack-cli)). It is the sign-in of the app's commands, `sign_in({ provider:
+  "youTrackCli", url }, channel)` (`signInYoutrackWithApp` of `src/stores/cli-tools.ts`): the row waits with
+  "Waiting for the browser…" and Open in Browser once the channel tells the Hub page (`browser`), which opens in the
+  browser, then "Signing youtrack in…" while the token is made and handed over; Cancel is `cancel_sign_in`. A failure is
+  "Cannot sign youtrack in" with the reason, a cancel says nothing. Without the app's sign-in it shows `youtrack auth
+  login` to run in a terminal.
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should sign youtrack in with a permanent token of the app's YouTrack sign-in, through one browser sign-in`)
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
 - A read of the status asked while one runs runs once more after it: the one running may have started before the
   change.
 

@@ -1,4 +1,4 @@
-use crate::test_support::{Named, create_repository, post, post_as, start_test_server};
+use crate::test_support::{Messages, Named, command, create_repository, post, post_as, start_test_server};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -23,31 +23,26 @@ async fn with_issue(client: &reqwest::Client, addr: SocketAddr, fixture: Value) 
   (id, path, endpoint, url)
 }
 
-/// A browser sign-in, a Mark Fixed and an expired sign-in run the real session and service against the fake YouTrack
+/// A browser sign-in, a Mark Fixed and an expired sign-in run the real sign-ins and service against the fake YouTrack
 /// of the repository; the fixture endpoint reads back what reached it
 #[tokio::test]
-async fn the_youtrack_commands_run_the_real_session_and_service_against_the_fake() {
+async fn the_youtrack_commands_run_the_real_sign_ins_and_service_against_the_fake() {
   let (addr, client) = (start_test_server().await, reqwest::Client::new());
   let fields = json!([{"name": "Priority", "value": "Major"}]);
   let (id, path, fixture, url) = with_issue(&client, addr, json!({"fields": fields})).await;
 
-  let started = invoke(
-    &client,
-    addr,
-    &id,
-    "start_youtrack_sign_in",
-    json!({"url": format!("{}/issue/ABC-1", url.as_str().unwrap())}),
-  )
-  .await;
-  let authorize_url = started["authorizeUrl"].as_str().unwrap().to_string();
-  let waiting = tokio::spawn({
-    let (client, id) = (client.clone(), id.clone());
-    async move { invoke(&client, addr, &id, "wait_youtrack_sign_in", json!({})).await }
-  });
+  let request = json!({"request": {"provider": "youTrack", "url": format!("{}/issue/ABC-1", url.as_str().unwrap())}});
+  let mut messages = Messages::of_channel(command(&client, addr, Named::Id(&id), "sign_in", &request), 3).await;
+  assert_eq!(messages.next().await, json!({"progress": {"kind": "waiting"}}));
+  let browser = messages.next().await;
+  let authorize_url = browser["progress"]["url"].as_str().unwrap().to_owned();
+  assert_eq!(browser["progress"]["kind"], "browser", "{browser}");
   // the browser: the Hub page redirects back to the listener of the sign-in
   assert_eq!(reqwest::get(&authorize_url).await.unwrap().status(), 200);
-  assert_eq!(waiting.await.unwrap(), json!({"login": "jane", "fullName": "Jane Doe"}));
-  let status = invoke(&client, addr, &id, "get_youtrack_auth_status", json!({})).await;
+  let done = json!({"provider": "youTrack", "url": url, "user": {"login": "jane", "fullName": "Jane Doe"}});
+  assert_eq!(messages.next().await, json!({"progress": {"kind": "done", "done": done}}));
+  assert_eq!(messages.next().await, json!({"result": {"status": "ok", "data": done}}));
+  let status = invoke(&client, addr, &id, "get_auth_status", json!({})).await["youtrack"].clone();
   assert_eq!((&status["url"], &status["source"]), (&url, &json!("signIn")));
 
   // Mark Fixed is an intent of the session of the repository, with its YouTrack

@@ -1,15 +1,14 @@
 //! The app's own sign-in to YouTrack (spec/repository/youtrack.spec.md): one browser sign-in at a time through the Hub
 //! of the YouTrack (`sign_in.rs`), from the Hub page to the stored token; a pasted token; a cancel and a sign-out.
-//! The core of the YouTrack sign-ins of `remote_facts::sign_in`, and of the app's YouTrack commands that tell the windows
-//! (`youtrack-auth-changed`) until they go through it; the E2E test server hosts the same session and service behind a
-//! fake YouTrack (`fake_youtrack.rs`).
+//! The core of the YouTrack sign-ins of `remote_facts::sign_in`, which the app's commands and the E2E test server run
+//! (the test server against a fake YouTrack, `fake_youtrack.rs`).
 
 use crate::issue::fetch_me;
 use crate::service::{YouTrackService, expires_at};
 use crate::sign_in::{Hub, PendingSignIn, SignInError, SignInPurpose, finish_sign_in, start_sign_in_for};
 use crate::token_store::{RefreshGrant, StoredToken};
 use crate::url::normalize_base_url;
-use domain_types::youtrack::{YouTrackSignIn, YouTrackUser};
+use domain_types::youtrack::YouTrackUser;
 use std::sync::Mutex;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument};
@@ -25,6 +24,12 @@ impl std::fmt::Debug for CliGrant {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("CliGrant").field("base", &self.base).field("hub", &self.hub).finish_non_exhaustive()
   }
+}
+
+/// The page of the Hub a started sign-in opens in the browser
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubPage {
+  pub authorize_url: String,
 }
 
 /// The browser sign-in of one app; the tokens go to the token file of its service
@@ -57,21 +62,21 @@ impl YouTrackSignInSession {
 
   /// Starts the browser sign-in to the YouTrack at `url`, which replaces the one before: the Hub page to open. `wait`
   /// waits for the browser to come back.
-  pub async fn start(&self, service: &YouTrackService, url: &str) -> Result<YouTrackSignIn, String> {
+  pub async fn start(&self, service: &YouTrackService, url: &str) -> Result<HubPage, String> {
     self.start_with(service, url, SignInPurpose::App).await
   }
 
   /// Starts the one-shot sign-in that gets the `youtrack` CLI its token (`SignInPurpose::PermanentToken`): the Hub page
   /// to open; `wait_for_cli` waits for it. It replaces any sign-in before, as `start` does
-  pub async fn start_for_cli(&self, service: &YouTrackService, url: &str) -> Result<YouTrackSignIn, String> {
+  pub async fn start_for_cli(&self, service: &YouTrackService, url: &str) -> Result<HubPage, String> {
     self.start_with(service, url, SignInPurpose::PermanentToken).await
   }
 
   #[instrument(skip(self, service))]
-  async fn start_with(&self, service: &YouTrackService, url: &str, purpose: SignInPurpose) -> Result<YouTrackSignIn, String> {
+  async fn start_with(&self, service: &YouTrackService, url: &str, purpose: SignInPurpose) -> Result<HubPage, String> {
     let base = normalize_base_url(url)?;
     let pending = start_sign_in_for(&service.client, &base, purpose).await.map_err(|e| e.to_string())?;
-    let answer = YouTrackSignIn {
+    let answer = HubPage {
       authorize_url: pending.authorize_url.clone(),
     };
     let mut state = self.state();

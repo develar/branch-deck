@@ -22,6 +22,7 @@ import type { SettingsPageId } from "@/lib/settings-pages"
 import { SETTINGS_PAGES } from "@/lib/settings-pages"
 import { resolveSettingsPage } from "@/lib/settings-window"
 import type { SettingsTarget } from "@/lib/settings-window"
+import { useAuthStatusOnOpen } from "@/stores/auth"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { appSettingsStore, setSettingsPage } from "@/stores/settings/appSettings"
 import { useSetupEntries, useSetupTracking } from "@/stores/setup"
@@ -80,6 +81,8 @@ export function SettingsPage() {
     }
   })
   useEffect(() => focusOpened(), [openCount])
+  // the sign-ins of GitHub and YouTrack: a token of gh or of the environment may have come meanwhile
+  useAuthStatusOnOpen(openCount)
   useSetupTracking({ readTools: false })
   const toolsNeedYou = useSetupEntries().some(entry => "tool" in entry.item)
 
@@ -125,10 +128,10 @@ export function SettingsPage() {
             <NotificationsPage openCount={openCount} />
           </SettingsPanel>
           <SettingsPanel id="github">
-            <GitHubPage openCount={openCount} />
+            <GitHubPage />
           </SettingsPanel>
           <SettingsPanel id="youtrack">
-            <YouTrackPage openCount={openCount} />
+            <YouTrackPage />
           </SettingsPanel>
           <SettingsPanel id="patronus">
             <PatronusPage />

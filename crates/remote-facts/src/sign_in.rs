@@ -54,7 +54,7 @@ pub struct SignIns {
 struct Inner {
   host: Arc<dyn SignInHost>,
   github: GitHubSignInSession,
-  youtrack: Arc<YouTrackSignInSession>,
+  youtrack: YouTrackSignInSession,
   runs: Mutex<HashMap<SignInProvider, Run>>,
   next_run: AtomicU64,
 }
@@ -89,14 +89,13 @@ const fn shares_session(provider: SignInProvider, other: SignInProvider) -> bool
 }
 
 impl SignIns {
-  /// The sign-ins of `host`, on the GitHub session of its token file and its YouTrack session (shared with the YouTrack
-  /// commands of the app until they go through here)
-  pub fn new(host: Arc<dyn SignInHost>, github: GitHubSignInSession, youtrack: Arc<YouTrackSignInSession>) -> Self {
+  /// The sign-ins of `host`, on the GitHub session of its token file; the YouTrack session is theirs alone
+  pub fn new(host: Arc<dyn SignInHost>, github: GitHubSignInSession) -> Self {
     Self {
       inner: Arc::new(Inner {
         host,
         github,
-        youtrack,
+        youtrack: YouTrackSignInSession::default(),
         runs: Mutex::new(HashMap::new()),
         next_run: AtomicU64::new(1),
       }),
@@ -230,6 +229,11 @@ impl SignIns {
   /// A sign-in of GitHub waits for its code (the E2E server's fixture of the sign-in)
   pub fn github_pending(&self) -> bool {
     self.inner.github.is_pending()
+  }
+
+  /// A sign-in of YouTrack or of the `youtrack` CLI waits for the browser (the E2E server's fixture of the YouTrack)
+  pub fn youtrack_pending(&self) -> bool {
+    self.inner.youtrack.is_pending()
   }
 }
 

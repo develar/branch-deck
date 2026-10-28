@@ -1,5 +1,4 @@
 // @spec spec/repository/github-sign-in.spec.md
-import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, unavailablePullRequests, VIEWER_LOGIN } from "../helpers/pull-request-helpers"
@@ -7,14 +6,10 @@ import { openLandingOverview } from "../helpers/review-status-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
+import { pendingCommands } from "../helpers/wait-helpers"
 
 /** The OAuth app of the build in these tests: the test server's build has none until a test names it */
 const CLIENT_ID = "client-1"
-
-/** The commands of `page` whose answer has not come yet (`__ipcStats` of the page mock) */
-function pendingCommands(page: Page): Promise<number> {
-  return page.evaluate(() => (window as unknown as { __ipcStats: { pending: number } }).__ipcStats.pending)
-}
 
 test.describe("GitHub sign-in", () => {
   test("should sign in from the hint of a repository without a token, and ask GitHub again", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -1,7 +1,8 @@
-// The sign-ins of the app's accounts from the page (spec/repository/github-sign-in.spec.md): `sign_in` runs one in
-// Rust (`remote_facts::sign_in`), or joins the one of its provider that runs, and tells its events on the channel of the
-// call; the page shows where it is (`SignInPhase` of `src/stores/auth.ts`) and words how it ended. The status that
-// follows a sign-in or a sign-out comes as the fact `auth` of the session, or by `auth-changed` in a window without one.
+// The sign-ins of the app's accounts from the page (spec/repository/github-sign-in.spec.md, youtrack.spec.md):
+// `sign_in` runs one in Rust (`remote_facts::sign_in`), or joins the one of its provider that runs, and tells its events
+// on the channel of the call; the page shows where it is (`SignInPhase` of `src/stores/auth.ts`), opens the page of the
+// Hub in the browser when the sign-in waits for it, and words how it ended. The status that follows a sign-in or a
+// sign-out comes as the fact `auth` of the session, or by `auth-changed` in a window without one.
 import { Channel } from "@tauri-apps/api/core"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import type { Account, SignIn, SignInDone, SignInEvent, SignInProvider } from "@/lib/bindings"
@@ -54,7 +55,12 @@ export async function runSignIn(request: SignIn): Promise<SignInDone | null> {
   }
   setSignInPhase(provider, { phase: "waiting" })
   const events = new Channel<SignInEvent>()
-  events.onmessage = event => setSignInPhase(provider, phaseOf(event, Date.now()))
+  events.onmessage = event => {
+    setSignInPhase(provider, phaseOf(event, Date.now()))
+    if (event.kind === "browser") {
+      void openSignInPage(event.url)
+    }
+  }
   const result = await commands.signIn(request, events)
   setSignInPhase(provider, IDLE_SIGN_IN)
   if (result.status === "error") {
@@ -71,6 +77,19 @@ export async function runSignIn(request: SignIn): Promise<SignInDone | null> {
 export async function cancelSignIn(provider: SignInProvider): Promise<void> {
   setSignInPhase(provider, IDLE_SIGN_IN)
   await commands.cancelSignIn(provider)
+}
+
+/** Opens the page of the Hub in the browser, where the user signs in to YouTrack */
+export async function openSignInPage(url: string): Promise<void> {
+  await openUrl(url).catch((error: unknown) => notifyError("Cannot open the YouTrack sign-in", error))
+}
+
+/** Opens the page of the sign-in of `provider` that waits for the browser again (after the tab was closed) */
+export async function openSignInPageAgain(provider: SignInProvider): Promise<void> {
+  const signIn = getSignInPhase(provider)
+  if (signIn.phase === "browser") {
+    await openSignInPage(signIn.url)
+  }
 }
 
 /** Copies the code of the sign-in to GitHub and opens the page of GitHub where it is entered */

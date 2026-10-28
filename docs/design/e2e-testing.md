@@ -168,10 +168,10 @@ Mock implementation:
   or a handler without its command, fails; the fifteen
   handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel; `set_setting`, `get_settings_changes`, `sub_window_loaded` and
   `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
-  `set_repository_config`, `sign_in`, `sign_out`, `wait_youtrack_sign_in`, `save_youtrack_token`,
-  `sign_out_of_youtrack`, `record_activity`, `clear_activity` and `execute` emit the event the backend emits after
+  `set_repository_config`, `sign_in` (not of the `youtrack` CLI, which changes no account), `sign_out`,
+  `record_activity`, `clear_activity` and `execute` emit the event the backend emits after
   them, `emitAfter`, `activity-changed` of the journal) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (83) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (75) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
@@ -590,7 +590,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
   session's read of the rules of a base, `TestFactSources::branch_rules`), `profiles` (its read of the merge profiles,
   `TestFactSources::profiles`), `authStatus` (the status of the sign-ins: the session's read, `TestFactSources::auth`,
-  and the reads of Settings, `get_auth_status` and `get_youtrack_auth_status`), `cliTools` (the tools of Settings), `sync` (a sync
+  and the read of a window without a session, `get_auth_status`), `cliTools` (the tools of Settings), `sync` (a sync
   run of the session, held in `TestSessionEnvironment::run_setup` before it reads anything: the session's sync runs
   until the release, so a push that waits for it, `WaitingForSync`, is seen waiting; a page hold of the `sync` command
   never reaches the session). A held request reaches its fake and waits at a `FakeGate`
@@ -601,15 +601,16 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `{ fail: [a], release: [a] }` fails the request held at `a`. `GET` (`getArrivedAnswers`)
   names the held answers a request reached: a test waits for that (`expect.poll`) before it asserts the page before
   the answer, so the assertion is never vacuous, then releases and asserts the page after it. Set before the sync whose
-  answers it holds (a reload keeps it: the next start of the page); the deletion of the repository releases what is
+  answers it holds (a reload keeps it: the next start of the page), or before the page opens by the setup option
+  `remoteAnswers` (the reads of the session's open meet it, its sign-ins among them); the deletion of the repository releases what is
   still held, so no command outlives its test ([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer)).
 - **YouTrack**: the host holds `FakeYouTrack` (`crates/youtrack/src/fake_youtrack.rs`), a YouTrack with its Hub
   built in at `/hub`, on its own port (`youTrackUrlOf(repo)`, `http://127.0.0.1:<port>`: a test links the issue keys
   there, `linkIssuesToYouTrack(page, url)`), and the app's `YouTrackService` on the token file of the host's app data
-  directory (no `YOUTRACK_TOKEN`, no keychain). `get_youtrack_auth_status`, `start_youtrack_sign_in`,
-  `wait_youtrack_sign_in`, `cancel_youtrack_sign_in`, `save_youtrack_token`, `sign_out_of_youtrack` (the session of
-  `crates/youtrack/src/sign_in_session.rs`, the core of the app's commands) and `get_youtrack_issue` (the service) run
-  for the page's repository (`X-Repository-Id`), and Mark Fixed, the `SetIssueState` of `execute`, with the service of
+  directory (no `YOUTRACK_TOKEN`, no keychain). The sign-ins of YouTrack and of the `youtrack` CLI are `sign_in`,
+  `cancel_sign_in` and `sign_out` of the host's `SignIns` (over `crates/youtrack/src/sign_in_session.rs`, as in the
+  app), `get_auth_status` reads its status and `get_youtrack_issue` the service, all for the page's repository
+  (`X-Repository-Id`), and Mark Fixed, the `SetIssueState` of `execute`, with the service of
   the session's repository (`ServiceHost::youtrack`). The fake answers as
   YouTrack does: `api/config` names the Hub; the Hub page of `localhost-auth` (`api/rest/oauth2/auth`) redirects back to
   the app's listener with a code at once, a user who approved before, and a client or a redirect it does not accept to
@@ -619,8 +620,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (Open, In Progress, Fixed, Duplicate, Verified, the last three resolved) and the single-value fields of the fixture,
   the values of the state field, and `api/commands` (`State <value>` sets it and its resolved time, the page's clock;
   another command is a 400 with YouTrack's message). The browser of a sign-in is `completeYouTrackSignIn(page)`: Node
-  fetches the Hub page the app opened and follows its redirect to the listener, as the browser does. The page mock
-  emits `youtrack-auth-changed` to every page after a wait, a saved token or a sign-out succeeded, as the backend does.
+  fetches the Hub page the app opened (on the `browser` event of the sign-in's channel) and follows its redirect to the
+  listener, as the browser does. A sign-in or a sign-out has the sessions of the repository read their fact `auth`,
+  and the page mock emits `auth-changed` to every page, as the backend does.
 - **YouTrack fixture and log**: `POST /repositories/{id}/youtrack` (`setYouTrack`, the `youtrack` setup option, set
   before the page opens so the window starts with its sign-in) takes `issues` (`openIssue`, `resolvedIssue` in
   `youtrack-helpers.ts`), `me`, `tokens` (created in Account Security) and `signedIn`: the token file holds a browser

@@ -2,8 +2,8 @@ import { useRef, useState } from "react"
 import { CreatePullRequestDialogFrame, CreatePullRequestForm } from "@/components/branch/CreatePullRequestDialog"
 import type { CreatePullRequestActions } from "@/components/branch/CreatePullRequestDialog"
 import { askMainWindow } from "@/hooks/useMainWindowLink"
-import { BRANCH_REVIEW_WINDOW } from "@/lib/branch-review"
 import type { CreatePullRequestContext } from "@/lib/pull-request-dialog"
+import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
 import type { BranchReviewRequest } from "@/types/sub-window"
 
 /**

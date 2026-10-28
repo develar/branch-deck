@@ -1,13 +1,11 @@
 import { GitHubSettings } from "@/components/settings/GitHubSettings"
 import { SettingsSection } from "@/components/settings/SettingRow"
-import { useAuthStatusRead } from "@/stores/auth"
 
 /**
- * Settings → GitHub: where the token comes from and the app's own sign-in, read on each open of the window
- * (`openCount`) and on a sign-in or sign-out of any window (`auth-changed`)
+ * Settings → GitHub: where the token comes from and the app's own sign-in, read on each open of the window and on a
+ * sign-in or sign-out of any window (`useAuthStatusOnOpen` of the Settings page, `useAuthSync` of every window)
  */
-export function GitHubPage({ openCount }: { openCount: number }) {
-  useAuthStatusRead(openCount)
+export function GitHubPage() {
   return (
     <SettingsSection title="GitHub" description="Pull requests and the requests for your review">
       <GitHubSettings />

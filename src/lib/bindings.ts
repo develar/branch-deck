@@ -46,27 +46,6 @@ export const commands = {
 	 *  and the Hub keep the authorization until it is revoked there
 	 */
 	signOut: (account: Account) => typedError<null, ApiError>(__TAURI_INVOKE("sign_out", { account })),
-	/**  The YouTrack sign-in and where the token comes from, for Settings and the popovers */
-	getYoutrackAuthStatus: () => typedError<YouTrackAuthStatus, ApiError>(__TAURI_INVOKE("get_youtrack_auth_status")),
-	/**
-	 *  Starts the browser sign-in to the YouTrack at `url`: the Hub page to open. `wait_youtrack_sign_in` waits for the
-	 *  browser to come back.
-	 */
-	startYoutrackSignIn: (url: string) => typedError<YouTrackSignIn, ApiError>(__TAURI_INVOKE("start_youtrack_sign_in", { url })),
-	/**
-	 *  Waits until the browser came back from the Hub page of `start_youtrack_sign_in`, then keeps the tokens and tells
-	 *  every window; the user. A newer sign-in or `cancel_youtrack_sign_in` ends it with the code `canceled`.
-	 */
-	waitYoutrackSignIn: () => typedError<YouTrackUser, ApiError>(__TAURI_INVOKE("wait_youtrack_sign_in")),
-	/**  Ends the wait of the sign-in in progress, if any */
-	cancelYoutrackSignIn: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_youtrack_sign_in")),
-	/**  Keeps a token the user created in YouTrack (Profile → Account Security), once YouTrack accepted it */
-	saveYoutrackToken: (url: string, token: string) => typedError<YouTrackUser, ApiError>(__TAURI_INVOKE("save_youtrack_token", { url, token })),
-	/**
-	 *  Removes the token of the app's own sign-in. The Hub keeps the authorization until it is revoked there (Account
-	 *  Security of the YouTrack profile).
-	 */
-	signOutOfYoutrack: () => typedError<null, ApiError>(__TAURI_INVOKE("sign_out_of_youtrack")),
 	/**  The issue of `key` for the popover, from the YouTrack the token is for */
 	getYoutrackIssue: (key: string) => typedError<YouTrackIssueAnswer, ApiError>(__TAURI_INVOKE("get_youtrack_issue", { key })),
 	/**
@@ -358,16 +337,6 @@ export const commands = {
 	 *  from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides
 	 */
 	getSetupItems: (skips: SetupSkip[]) => typedError<SetupEntry[], ApiError>(__TAURI_INVOKE("get_setup_items", { skips })),
-	/**
-	 *  Starts the one-shot browser sign-in that gets the `youtrack` CLI a permanent token of the YouTrack at `url`: the Hub
-	 *  page to open; `wait_youtrack_cli_sign_in` waits for it. It replaces a sign-in in progress
-	 */
-	startYoutrackCliSignIn: (url: string) => typedError<YouTrackSignIn, ApiError>(__TAURI_INVOKE("start_youtrack_cli_sign_in", { url })),
-	/**
-	 *  Waits for the browser to come back from the Hub page of `start_youtrack_cli_sign_in`, then makes the permanent token
-	 *  and signs the `youtrack` CLI in with it; the token the app made before is revoked. `cancel_youtrack_sign_in` ends it
-	 */
-	waitYoutrackCliSignIn: () => typedError<CliToolActionDone, ApiError>(__TAURI_INVOKE("wait_youtrack_cli_sign_in")),
 };
 
 /* Constants */
@@ -7035,11 +7004,6 @@ export type YouTrackIssueAnswer = { status: "found"; issue: YouTrackIssue } |
 { status: "signInProblem"; problem: YouTrackAuthProblem } | 
 /**  YouTrack answers 404 also for an issue the user may not see */
 { status: "notFound" } | { status: "error"; message: string };
-
-/**  The page to open in the browser for the app's own sign-in; `wait_youtrack_sign_in` waits for its answer */
-export type YouTrackSignIn = {
-	authorizeUrl: string,
-};
 
 /**  The state field of an issue: the field whose type is a state (`StateIssueCustomField`) */
 export type YouTrackState = {

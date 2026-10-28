@@ -5,9 +5,9 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdToast } from "../helpers/toast-helpers"
+import { closeToast, holdToast } from "../helpers/toast-helpers"
 import type { YouTrackFixture } from "../helpers/youtrack-helpers"
-import { issueKeyLink, linkIssuesToYouTrack, openIssue, resolvedIssue, youTrackUrlOf } from "../helpers/youtrack-helpers"
+import { issueKeyLink, linkIssuesToYouTrack, openIssue, openYouTrackSettings, resolvedIssue, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
 /** The repository of the issue_links template with its keys linked to its fake YouTrack, which holds `youtrack` */
 async function setUp(
@@ -101,17 +101,22 @@ test.describe("YouTrack issue popover", () => {
   })
 
   test("should leave the links of a signed-out user as they are", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setUp(page, setupRepo, syncAndWaitForBranches, { issues: [openIssue("JIRA-456")] })
+    // the user created the token perm-right in Account Security of the YouTrack
+    const repo = await setUp(page, setupRepo, syncAndWaitForBranches, { issues: [openIssue("JIRA-456")], tokens: ["perm-right"] })
     const url = await youTrackUrlOf(repo)
     const link = issueKeyLink(page, "JIRA-456")
     await expect(link).toHaveAttribute("href", `${url}/issue/JIRA-456`)
     await expect(link).not.toHaveAttribute("data-issue-key")
     await link.hover()
 
-    // signed in in another window: the backend tells every window, and the same hover shows the issue; the first one
-    // asked nothing
-    await repo.setYouTrack({ signedIn: "signIn" })
-    await emitTauriEvent(page, "youtrack-auth-changed")
+    // signed in in Settings: the session of the main window reads the sign-ins again, and the same hover shows the
+    // issue; the first one asked nothing
+    const { auth } = await openYouTrackSettings(page)
+    await auth.getByRole("button", { name: "Use a Token Instead" }).click()
+    const form = auth.getByTestId("youtrack-token-form")
+    await form.getByLabel("Token", { exact: true }).fill("perm-right")
+    await form.getByRole("button", { name: "Save Token" }).click()
+    await expect(auth).toHaveAttribute("data-status", "signedIn")
     await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
     await page.mouse.move(0, 0)
     await link.hover()
@@ -148,15 +153,12 @@ test.describe("YouTrack issue popover", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setUp(page, setupRepo, syncAndWaitForBranches, OPEN_ISSUES)
-    const link = issueKeyLink(page, "JIRA-456")
-    await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
-
-    // the next start can't read the sign-in: an error that says so, Retry in it
-    await repo.holdRemoteAnswers({ fail: ["authStatus"] })
+    // the start can't read the sign-ins: an error that says so, Retry in it
+    const repo = await setupRepo("issue_links", { youtrack: OPEN_ISSUES, remoteAnswers: { fail: ["authStatus"] } })
     await linkIssuesToYouTrack(repo, await youTrackUrlOf(repo))
-    await page.reload()
-    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot read the YouTrack sign-in" })
+    await syncAndWaitForBranches()
+    const link = issueKeyLink(page, "JIRA-456")
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot read the GitHub and YouTrack sign-ins" })
     await expect(toast).toContainText("the fixture fails this read")
     // without a status the link is a plain link, and the menu has no Mark Fixed
     await expect(link).toBeVisible()
@@ -166,12 +168,25 @@ test.describe("YouTrack issue popover", () => {
     await expect(page.getByRole("menuitem", { name: "Mark JIRA-456 Fixed" })).toHaveCount(0)
     await page.keyboard.press("Escape")
 
+    // Retry has the session read them again
     await repo.holdRemoteAnswers({ release: ["authStatus"] })
     await toast.getByRole("button", { name: "Retry" }).click()
     await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
     await link.hover()
     await expect(page.getByTestId("issue-popover").getByTestId("issue-state")).toHaveText("Open")
     await page.mouse.move(0, 0)
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Mark JIRA-456 Fixed" })).toBeVisible()
+    await page.keyboard.press("Escape")
+    // the error stays until the user closes it
+    await closeToast(toast)
+
+    // a later read of the session fails (a focus two minutes after the last answer): said again, and no sign-out
+    await repo.holdRemoteAnswers({ fail: ["authStatus"] })
+    await repo.advanceBackendClock(121_000)
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(toast).toContainText("the fixture fails this read")
+    await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Mark JIRA-456 Fixed" })).toBeVisible()
   })

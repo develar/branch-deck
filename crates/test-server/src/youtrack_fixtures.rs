@@ -1,6 +1,6 @@
 //! What the fake YouTrack of a test repository holds (`POST /repositories/{id}/youtrack`) and what reached it (`GET`):
 //! the issues, the user of every token, the tokens it accepts and the sign-in in the token file of the app; the real
-//! service and sign-in session read and write them (`remote_host.rs`).
+//! service and sign-ins read and write them (`remote_host.rs`).
 
 use crate::remote_fixtures::{FixtureResult, host_of};
 use crate::remote_host::PAGE_CLOCK_START;
@@ -109,7 +109,7 @@ pub async fn get_youtrack(Path(id): Path<String>, State(state): State<Arc<AppSta
     .collect();
   Ok(Json(serde_json::json!({
     "url": host.youtrack_url(),
-    "pending": host.youtrack_sign_in().is_pending(),
+    "pending": host.sign_ins().youtrack_pending(),
     "commands": host.youtrack().commands(),
     "lookups": lookups,
     "meTokens": me_tokens,

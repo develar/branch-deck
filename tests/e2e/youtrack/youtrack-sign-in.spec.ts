@@ -1,7 +1,7 @@
 // @spec spec/repository/youtrack.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { waitForApiResponse } from "../helpers/wait-helpers"
+import { pendingCommands } from "../helpers/wait-helpers"
 import { completeYouTrackSignIn, issueKeyLink, linkIssuesToYouTrack, openIssue, openYouTrackSettings, youTrackHost, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
 test.describe("YouTrack sign-in", () => {
@@ -65,11 +65,10 @@ test.describe("YouTrack sign-in", () => {
     const waiting = youtrack.getByTestId("youtrack-sign-in-waiting")
     await expect(waiting).toContainText("Waiting for the browser…")
     await expect.poll(async () => (await repo.getYouTrack()).pending).toBe(true)
-    const waitEnded = waitForApiResponse(settings, "/invoke/wait_youtrack_sign_in")
     await waiting.getByRole("button", { name: "Cancel" }).click()
     await expect(auth.getByRole("button", { name: "Sign In to YouTrack" })).toBeEnabled()
-    // the backend ended the wait with the code `canceled`, which is no error
-    await waitEnded
+    // the backend ended the sign-in with the code `canceled`, which is no error
+    await expect.poll(() => pendingCommands(settings)).toBe(0)
     expect((await repo.getYouTrack()).pending).toBe(false)
     await expect(settings.locator("[data-slot=toast]")).toHaveCount(0)
 

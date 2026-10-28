@@ -8,34 +8,24 @@ import { ReadFailure } from "@/components/settings/SettingRow"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { YouTrackAuthStatus } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { cancelSignIn, openSignInPageAgain, runSignIn, signOut } from "@/lib/sign-in-run"
 import { formatTimestamp } from "@/lib/time"
 import { formatYouTrackHost, suggestYouTrackUrls, youTrackTokensPage } from "@/lib/youtrack"
+import type { SignInPhase } from "@/stores/auth"
+import { retryAuthStatus, useAuthReadError, useAuthStatus, useSignInPhase } from "@/stores/auth"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
-import {
-  cancelYouTrackSignIn,
-  openYouTrackSignInPage,
-  retryYouTrackAuthStatus,
-  saveYouTrackToken,
-  signOutOfYouTrack,
-  startYouTrackSignIn,
-  useYouTrackAuthReadError,
-  useYouTrackAuthStatus,
-  useYouTrackSignIn,
-} from "@/stores/youtrack"
-import type { YouTrackSignInPhase } from "@/stores/youtrack"
 
 /**
  * Settings → YouTrack (spec/repository/youtrack.spec.md): who is signed in to which YouTrack, else the URL to sign in
  * to, offered from the issue links of `.idea/vcs.xml`. Sign In opens the Hub of the YouTrack in the browser; a token
- * created in YouTrack can be pasted instead. Until the first answer the page says it reads the sign-in; a failed read
- * says why, with Retry, above the last status.
+ * created in YouTrack can be pasted instead: both are `sign_in` of YouTrack (`runSignIn`), one at a time. Until the
+ * first answer the page says it reads the sign-in; a failed read says why, with Retry, above the last status.
  */
 export function YouTrackSettings() {
-  const status = useYouTrackAuthStatus()
-  const readError = useYouTrackAuthReadError()
-  const signIn = useYouTrackSignIn()
-  const failure =
-    readError === null ? null : <ReadFailure title="Cannot read the YouTrack sign-in" message={readError} testId="youtrack-auth-error" onRetry={retryYouTrackAuthStatus} />
+  const status = useAuthStatus()?.youtrack ?? null
+  const readError = useAuthReadError()
+  const signIn = useSignInPhase("youTrack")
+  const failure = readError === null ? null : <ReadFailure title="Cannot read the YouTrack sign-in" message={readError} testId="youtrack-auth-error" onRetry={retryAuthStatus} />
   if (status === null) {
     return failure ?? <LoadingLine>Reading the YouTrack sign-in…</LoadingLine>
   }
@@ -69,7 +59,7 @@ function SignedIn({ status, url }: { status: YouTrackAuthStatus; url: string }) 
       </div>
       <div className="flex flex-wrap gap-2">
         {status.source !== "environment" && (
-          <Button size="xs" variant="outline" onClick={() => void signOutOfYouTrack()}>
+          <Button size="xs" variant="outline" onClick={() => void signOut("youTrack")}>
             <LogOutIcon data-icon="inline-start" />
             Sign Out
           </Button>
@@ -99,8 +89,7 @@ function describeSignIn(status: YouTrackAuthStatus): string {
   }
 }
 
-function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouTrackSignInPhase["phase"] }) {
-  const starting = phase === "starting"
+function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: SignInPhase["phase"] }) {
   // the list itself: a selector that builds a new array would render again and again
   const projects = useRecentProjects(items => items)
   const candidates = suggestYouTrackUrls(projects)
@@ -112,16 +101,19 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouT
   const tokenId = useId()
   const source = candidates.find(candidate => candidate.url === url)
   const noUrl = url.trim() === ""
+  // the token is checked by YouTrack before it is kept; the field stays when it was refused
   const save = () => {
     setSaving(true)
-    void saveYouTrackToken(url, token).then(saved => {
+    void runSignIn({ provider: "youTrack", url, token }).then(done => {
       setSaving(false)
-      if (saved) {
+      if (done !== null) {
         setToken("")
         setPasting(false)
       }
     })
   }
+  // asking the YouTrack for its Hub, before the page opens
+  const starting = phase === "waiting" && !saving
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="youtrack-auth" data-status={status.problem ?? "signedOut"}>
       {status.problem !== null && (
@@ -140,7 +132,7 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouT
           spellCheck={false}
           autoComplete="off"
           data-settings-focus="youtrack-url"
-          disabled={phase === "waiting"}
+          disabled={phase === "browser"}
           onChange={event => setUrl(event.target.value)}
         />
         {(source !== undefined || noUrl) && (
@@ -158,12 +150,12 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouT
           </div>
         )}
       </div>
-      {phase === "waiting" ? (
+      {phase === "browser" ? (
         <WaitingForBrowser />
       ) : (
         <div className="flex flex-col gap-1">
           <div>
-            <Button size="xs" variant="outline" disabled={starting || noUrl} onClick={() => void startYouTrackSignIn(url)}>
+            <Button size="xs" variant="outline" disabled={phase !== "idle" || noUrl} onClick={() => void runSignIn({ provider: "youTrack", url })}>
               {starting ? <Spinner data-icon="inline-start" /> : <LogInIcon data-icon="inline-start" />}
               Sign In to YouTrack
             </Button>
@@ -171,7 +163,7 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouT
           <p className="text-xs text-muted-foreground">Opens YouTrack in the browser. The sign-in renews itself until YouTrack ends it.</p>
         </div>
       )}
-      {phase !== "waiting" &&
+      {phase !== "browser" &&
         (pasting ? (
           <div className="flex flex-col gap-3 rounded-lg border border-border p-3" data-testid="youtrack-token-form">
             <div className="flex flex-col gap-1.5">
@@ -217,11 +209,11 @@ function WaitingForBrowser() {
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm" data-testid="youtrack-sign-in-waiting">
       <p className="text-muted-foreground">Sign in to YouTrack in the browser tab that opened, then return here</p>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="xs" variant="outline" onClick={() => void openYouTrackSignInPage()}>
+        <Button size="xs" variant="outline" onClick={() => void openSignInPageAgain("youTrack")}>
           <ExternalLinkIcon data-icon="inline-start" />
           Open the Page Again
         </Button>
-        <Button size="xs" variant="ghost" onClick={() => void cancelYouTrackSignIn()}>
+        <Button size="xs" variant="ghost" onClick={() => void cancelSignIn("youTrack")}>
           Cancel
         </Button>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

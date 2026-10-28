@@ -24,14 +24,19 @@ targets:
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../crates/test-server/src/youtrack_fixtures.rs
   - ../../src/lib/youtrack.ts
-  - ../../src/stores/youtrack.ts
+  - ../../src/stores/youtrack-issues.ts
+  - ../../src/stores/auth.ts
+  - ../../src/lib/sign-in-run.ts
+  - ../../crates/remote-facts/src/sign_in.rs
+  - ../../crates/domain-types/src/sign_in.rs
+  - ../../src-tauri/src/commands/sign_in.rs
+  - ../../crates/test-server/src/remote_host.rs
   - ../../src/components/settings/YouTrackSettings.tsx
   - ../../src/components/settings/YouTrackPage.tsx
   - ../../src/components/commit/LinkedText.tsx
   - ../../src/components/issue/IssueHoverHost.tsx
   - ../../src/components/issue/IssueDetails.tsx
   - ../../src/components/ui/popover.tsx
-  - ../../src/lib/issue-actions.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/App.tsx
 ---
@@ -93,7 +98,7 @@ client takes a pasted token.
   literal address: RFC 8252), `scope=<service id>`, `access_type=offline`, a `state` and an S256 PKCE challenge of 32
   random bytes each. The app opens it in the browser; "Open the Page Again" opens it again.
   [@test] ../../crates/youtrack/src/sign_in_test.rs (`the_hub_is_the_one_the_youtrack_names`, `the_browser_answer_is_traded_for_tokens_with_the_verifier_of_the_challenge`)
-  [@test] ../../src/stores/youtrack.test.ts (`opens the Hub page, waits for the browser, then tells who signed in where`)
+  [@test] ../../src/stores/auth.test.ts (`opens the Hub page once the sign-in waits for the browser, again on request, then tells who signed in where`)
 - Before the browser opens, a request of the page without following redirects tells whether the Hub knows the
   client: a redirect to `/auth/oauth/error` is "This YouTrack does not allow the browser sign-in of apps: use a token
   instead".
@@ -105,17 +110,27 @@ client takes a pasted token.
   names the user.
   [@test] ../../crates/youtrack/src/sign_in_test.rs (`only_the_answer_of_this_sign_in_is_taken`, `the_browser_answer_is_traded_for_tokens_with_the_verifier_of_the_challenge`)
   [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`the_browser_sign_in_keeps_the_tokens_of_the_hub_and_marks_an_issue_fixed_with_them`)
-- One sign-in at a time (`start_youtrack_sign_in`, then `wait_youtrack_sign_in`); a newer one, Cancel and a sign-out
-  end the wait of an older one with the error code `canceled` (`SignInError::Canceled` through `app_api::api_error`),
-  which is no error: the page tells nothing of it, by the code, never by the words of the error (a generation
-  counter, as for GitHub). The session
-  (`youtrack::sign_in_session`: start, wait, cancel, a pasted token, sign-out) is the core of the app's commands,
-  which only tell the windows (`youtrack-auth-changed`), and of the E2E test server's routes.
+- A sign-in is a command of the app, not an intent of a repository: the token is one for the app and Settings opens
+  without a repository too ([Rust as the Domain Authority](../../docs/design/rust-domain-authority.md), "Решение
+  2026-10-28"). `sign_in({ provider: "youTrack", url }, channel)` runs it in a task of its own
+  (`remote_facts::sign_in::SignIns` over `youtrack::sign_in_session`) and tells its events on the channel of the call:
+  `waiting` while the YouTrack is asked for its Hub, `browser` with the Hub page, which the page opens in the browser
+  ("Open the Page Again" opens it again), and `done` with the YouTrack and its user; the call answers how it ended.
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
+  [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_sign_ins_and_service_against_the_fake`)
+  [@test] ../../src/stores/auth.test.ts (`opens the Hub page once the sign-in waits for the browser, again on request, then tells who signed in where`)
+- One sign-in at a time: a second call while one runs (another window, a second click) joins it: it hears the Hub page
+  of the one that runs, then its end; the YouTrack is asked for one Hub. A sign-in of the `youtrack` CLI shares the
+  session ([The youtrack CLI](#the-youtrack-cli)): one of either ends the other first, as canceled. Cancel and a sign-out
+  end the sign-in that runs at once with the error code `canceled` (`SignInError::Canceled` through
+  `app_api::api_error`; the listener closed, nothing pending), which is no error: the page tells nothing of it, by the
+  code, never by the words of the error. A sign-in that changed the account tells the host once, however many calls
+  joined it: every session reads its fact `auth` again and every window hears `auth-changed`, as for GitHub ([GitHub
+  Sign-In](github-sign-in.spec.md#sign-in)).
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
   [@test] ../../crates/youtrack/src/sign_in_test.rs (`a_canceled_sign_in_stops_waiting`)
   [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`a_canceled_sign_in_ends_its_wait_and_a_pasted_token_is_kept_once_youtrack_accepts_it`)
   [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_of_each_contract_case_is_its_json_in_the_fixture`)
-  [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_session_and_service_against_the_fake`)
-  [@test] ../../src/stores/youtrack.test.ts (`says nothing when canceled, and why when the Hub refused, by the code of the error and not its words`)
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should cancel the browser sign-in, and paste a token instead`)
 
 ### A pasted token, the environment
@@ -123,9 +138,12 @@ client takes a pasted token.
 - "Use a Token Instead" shows a password field for a token created in Account Security of the YouTrack profile,
   "Create Token…" (opens `<url>/users/me?tab=account-security`) and "Save Token", which keeps it once
   `GET /api/users/me` accepted it; a refused token is "Cannot sign in to YouTrack" with the reason, and the field stays.
-  The token lives only in the field until then: never in a persisted store, a log or an error text.
+  The token lives only in the field until then: never in a persisted store, a log or an error text. Save Token is the
+  sign-in of YouTrack with the token (`sign_in({ provider: "youTrack", url, token })`): one at a time with the browser
+  sign-in, and the same tells of a changed account.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should cancel the browser sign-in, and paste a token instead`)
-  [@test] ../../src/stores/youtrack.test.ts (`is false and says why when YouTrack rejects the token`)
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
+  [@test] ../../src/stores/auth.test.ts (`says why YouTrack refused a pasted token, and answers null, so the field keeps it`)
 - `YOUTRACK_TOKEN` with `YOUTRACK_BASE_URL`, the variables of the `youtrack` CLI, come before the token file:
   "Uses the token of YOUTRACK_TOKEN for <host>", without Sign Out.
   [@test] ../../crates/youtrack/src/service_test.rs (`the_environment_comes_before_the_token_file`)
@@ -176,9 +194,17 @@ client takes a pasted token.
 
 ### Settings
 
-- The YouTrack page of Settings ([Settings](settings.spec.md)), asked again on each open of the window and on every
-  sign-in or sign-out of any window (`get_youtrack_auth_status`, `youtrack-auth-changed`), says what the sign-in is
-  for: "Hover an issue key to see the issue, and mark it fixed once its work lands".
+- The status of the sign-in is the `youtrack` part of the status of both accounts (`AuthStatus`), read as GitHub's is
+  ([GitHub Sign-In](github-sign-in.spec.md#sign-in)): a window of a repository (the main window, the review window of
+  a branch) takes it from the fact `auth` of its session, any other window reads `get_auth_status` at its start and on
+  `auth-changed`, Settings again on each open of its window (`useAuthSync`, `useAuthStatusOnOpen` of
+  `src/stores/auth.ts`). The answers of the popovers go once the sign-in changed (another YouTrack, user, token or
+  sign-in time), not for a problem the YouTrack found with the same token; a popover that shows asks again
+  (`src/stores/youtrack-issues.ts`).
+  [@test] ../../src/stores/youtrack-issues.test.ts (`forgets the answers once the YouTrack sign-in changed, not for a problem of the same sign-in`)
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should leave the links of a signed-out user as they are`)
+- The YouTrack page of Settings ([Settings](settings.spec.md)) says what the sign-in is for: "Hover an issue key to see
+  the issue, and mark it fixed once its work lands".
   - Signed out: the URL with its source ("From .idea/vcs.xml of <repository>"), or, empty, "The address you open
     YouTrack at, e.g. https://youtrack.example.com"; "Sign In to YouTrack" (disabled without a URL) with "Opens
     YouTrack in the browser. The sign-in renews itself until YouTrack ends it." under it; below, as a link, "Use a
@@ -200,11 +226,13 @@ client takes a pasted token.
 - The toasts: "Signed in to youtrack.example.com as Jane Doe"; "Cannot sign in to YouTrack" with the reason; "Signed
   out of YouTrack", which says that YouTrack keeps the token until it is revoked in Account Security.
 - A read of the status that fails is no sign-out: the last status stays (its links keep their popovers), the page
-  says why with Retry ([Settings](settings.spec.md#pages)), the main window tells it once per failure as the error
-  "Cannot read the YouTrack sign-in" with Retry, and every window reads it again on its next focus. Without any status
-  the links show no popover and the menus no Mark Fixed until a read answers.
+  says why with Retry ([Settings](settings.spec.md#pages)), and the main window tells it once per failure as the
+  error "Cannot read the GitHub and YouTrack sign-ins" with Retry, which has its session read the fact `auth` again
+  (a window without a session reads `get_auth_status`); the session reads it again by its rule too (on a focus at
+  most every minute, when it is two minutes old). Without any status the links show no popover and the menus no Mark
+  Fixed until a read answers.
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should say a failed read of the sign-in with Retry, never signed out for the session, and show the issues once a read answers`)
-  [@test] ../../src/stores/youtrack.test.ts (`tells a failed read once, as an error with Retry, and keeps the last status until a read answers`)
+  [@test] ../../src/stores/auth.test.ts (`tells a failed read once, as an error with Retry, and keeps the last status until a read answers`, `has the session of the window read its fact on Retry, and a window without one read it itself`)
 
 ### The issue popover
 
@@ -227,8 +255,11 @@ client takes a pasted token.
 - It shows the key, the summary, the state ("Open"; resolved: "Fixed · resolved 1 hour ago" in `text-success`) and the
   single-value fields with a value (enum, user, version, owned, build) by the names YouTrack gives them, in its order:
   a field is told by its `$type`, never by its name. It asks when it opens (`get_youtrack_issue`, the backend keeps an
-  answer a minute); "Not found, or no access" (YouTrack answers 404 for both), "Cannot load ABC-1: <reason>" with Try
-  Again, and for a rejected or expired sign-in the reason with "YouTrack Settings…", which opens Settings at YouTrack.
+  answer a minute; a second ask while one runs waits for it); "Not found, or no access" (YouTrack answers 404 for both),
+  "Cannot load ABC-1: <reason>" with Try Again, and for a rejected or expired sign-in the reason with "YouTrack
+  Settings…", which opens Settings at YouTrack; such an answer has the window read the sign-ins again, so every surface
+  of it knows the problem.
+  [@test] ../../src/stores/youtrack-issues.test.ts (`asks an issue once while it is asked, and a sign-in problem has the window read the sign-ins again`)
   [@test] ../../crates/youtrack/src/issue_test.rs (`an_issue_shows_its_state_and_its_single_value_fields_by_type`, `a_resolved_issue_does_not_ask_for_the_values_of_its_state`)
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show a resolved issue without Mark Fixed, and send an expired sign-in to Settings`)
 - Its actions come from one builder (`getIssueActions`): Mark Fixed (an open issue with a state field) and Open in
@@ -254,7 +285,7 @@ client takes a pasted token.
   "Cannot undo the Fixed state of ABC-1" with YouTrack's reason (`notifyError`, so in Activity too).
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
   [@test] ../../crates/operations/src/issue_test.rs (`a_change_of_the_state_of_an_issue_is_its_one_effect_and_its_undo_the_same_intent`)
-  [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_session_and_service_against_the_fake`)
+  [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_sign_ins_and_service_against_the_fake`)
 - Surfaces: the popover of every key (the rows, the commits, the preview, the toasts, the merge toast of a robot
   among them), and "Mark ABC-1 Fixed" in the menu of a branch whose issue key is of the YouTrack: the keyboard path,
   where the work landed. Patronus marks an issue fixed itself only for a commit that says so ("fixed ABC-1", also
@@ -295,7 +326,7 @@ client takes a pasted token.
   scripted answers (the fake of `github::fake_github`), and the session against `FakeYouTrack` (`fake_youtrack.rs`, the
   `fake` feature: a YouTrack with a built-in Hub that redirects its page back with a code, trades it for the verifier
   of its challenge, and keeps issues and the commands that change them; `sign_in_session_test.rs`).
-- `pnpm test:unit`: `src/lib/youtrack.test.ts`, `src/stores/youtrack.test.ts`.
+- `pnpm test:unit`: `src/lib/youtrack.test.ts`, `src/stores/auth.test.ts`, `src/stores/youtrack-issues.test.ts`.
 - `pnpm e2e`: `tests/e2e/youtrack/` (the sign-in, the popover). Every YouTrack command runs the real session and service
   of the test server against the `FakeYouTrack` of the test repository ([E2E Testing → Remote
   services](../../docs/design/e2e-testing.md#remote-services)); a test sets its issues and the sign-in of the token file

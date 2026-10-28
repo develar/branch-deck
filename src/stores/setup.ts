@@ -52,8 +52,8 @@ export function refreshSetup(): Promise<void> {
 
 /**
  * Keeps the items of a window current: read on mount (the first read of the app runs the CLIs, later ones take their
- * last statuses), when the CLIs were read again (`setup-changed`), on a sign-in to YouTrack and on a skip. The main
- * window also reads the CLIs every 6 hours (`readTools`)
+ * last statuses), when the CLIs were read again (`setup-changed`), on a sign-in or a sign-out (`auth-changed`) and on a
+ * skip. The main window also reads the CLIs every 6 hours (`readTools`)
  */
 export function useSetupTracking({ readTools }: { readTools: boolean }): void {
   const skips = useStore(appSettingsStore, state => state.setupSkips)
@@ -61,7 +61,7 @@ export function useSetupTracking({ readTools }: { readTools: boolean }): void {
     void refreshSetup()
   }, [skips])
   useTauriListen("setup-changed", () => void refreshSetup())
-  useTauriListen("youtrack-auth-changed", () => void refreshSetup())
+  useTauriListen("auth-changed", () => void refreshSetup())
   useEffect(() => {
     if (!readTools) {
       return

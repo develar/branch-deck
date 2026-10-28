@@ -1,10 +1,10 @@
 import { Channel } from "@tauri-apps/api/core"
-import { openUrl } from "@tauri-apps/plugin-opener"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { CliTool, CliToolAction, CliToolProgress, CliToolStatus } from "@/lib/bindings"
+import type { CliTool, CliToolAction, CliToolProgress, CliToolStatus, SignInEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
+import { getErrorCode, notifyError } from "@/lib/errors"
+import { cancelSignIn, openSignInPage, signedInTitle } from "@/lib/sign-in-run"
 import { showToast } from "@/lib/toast-message"
 
 /*
@@ -129,8 +129,9 @@ export async function runCliToolAction(tool: CliTool, action: CliToolAction, lat
 }
 
 /**
- * Signs `youtrack` in with a token of the app's YouTrack sign-in (`status.signInWith`): a one-shot sign-in in the
- * browser, then Rust makes a permanent token and hands it to the CLI; the row waits meanwhile, with the page to open
+ * Signs `youtrack` in with a token of the app's YouTrack sign-in (`status.signInWith`): `sign_in` of the `youtrack` CLI,
+ * a one-shot sign-in in the browser, then Rust makes a permanent token and hands it to the CLI; the row waits meanwhile,
+ * with the page to open, which opens when the sign-in waits for it
  */
 export async function signInYoutrackWithApp(url: string): Promise<void> {
   const tool = "youtrack"
@@ -138,19 +139,22 @@ export async function signInYoutrackWithApp(url: string): Promise<void> {
     return
   }
   setRunning(tool, { action: "signIn", line: "Starting…", url: null })
-  try {
-    const started = await commands.startYoutrackCliSignIn(url)
-    if (started.status === "error") {
-      notifyError(failedTitle("signIn", tool), started.error)
-      return
+  const events = new Channel<SignInEvent>()
+  events.onmessage = event => {
+    const page = cliToolsStore.getState().running[tool]?.url ?? null
+    if (event.kind === "browser") {
+      setRunning(tool, { action: "signIn", line: "Waiting for the browser…", url: event.url })
+      void openSignInPage(event.url)
+    } else if (event.kind === "waiting" && page !== null) {
+      // the browser came back: the token is made and handed to the CLI
+      setRunning(tool, { action: "signIn", line: "Signing youtrack in…", url: page })
     }
-    const page = started.data.authorizeUrl
-    setRunning(tool, { action: "signIn", line: "Waiting for the browser…", url: page })
-    await openUrl(page).catch((error: unknown) => notifyError("Cannot open the YouTrack sign-in", error))
-    const result = await commands.waitYoutrackCliSignIn()
+  }
+  try {
+    const result = await commands.signIn({ provider: "youTrackCli", url }, events)
     if (result.status === "ok") {
-      showToast({ title: result.data.title })
-    } else if (result.error.code !== "canceled") {
+      showToast({ title: signedInTitle(result.data) })
+    } else if (getErrorCode(result.error) !== "canceled") {
       notifyError(failedTitle("signIn", tool), result.error)
     }
   } finally {
@@ -162,7 +166,7 @@ export async function signInYoutrackWithApp(url: string): Promise<void> {
 /** Ends the action running for `tool`; its command answers the code `canceled`, which toasts nothing */
 export function cancelCliToolAction(tool: CliTool): void {
   if (tool === "youtrack" && cliToolsStore.getState().running[tool]?.action === "signIn") {
-    void commands.cancelYoutrackSignIn()
+    void cancelSignIn("youTrackCli")
     return
   }
   void commands.cancelCliToolAction(tool)

@@ -49,9 +49,17 @@ and YouTrack, Update Project, the Fetch of a merge toast and Dismiss Landed are 
 
 What has no repository as its subject is no operation of a session: the sign-in of an account (the token is one for
 the app, and Settings opens without a repository) is a command of the app, `sign_in` with its events on the channel of
-the call, `cancel_sign_in` and `sign_out` (`remote_facts::sign_in`, [GitHub Sign-In](../../spec/repository/github-sign-in.spec.md)).
+the call, `cancel_sign_in` and `sign_out` (`remote_facts::sign_in`: GitHub, YouTrack and the `youtrack` CLI;
+[GitHub Sign-In](../../spec/repository/github-sign-in.spec.md), [YouTrack](../../spec/repository/youtrack.spec.md)).
 It joins as an operation does: one sign-in of each provider runs, a second call hears its current event and gets its
 end; its status is the fact `auth` of every session, which the host has read again after a sign-in or a sign-out.
+
+So every command of the app that writes is `execute` or `cancel_operation` of the engine, or a command of the app
+with its one writer and the reason no session admits it: the ticket of a sync and the focus of a window (the session's
+own), the cancel of a read, the page's journal, the writers of the settings (`set_setting`, `set_repository_config`,
+the links of Reviews, each serialized per file), the app itself (its menu, its CLI, its update, its restart), the CLIs
+of Settings → Tools and the accounts. `crates/test-server/src/command_registry_test.rs` holds the lists (`READS`,
+`MUTATING` of `ENGINE` and `APP_COMMANDS` with their reasons), and a new command is classified there.
 
 ## Design
 

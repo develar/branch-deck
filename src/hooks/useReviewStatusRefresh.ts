@@ -7,7 +7,6 @@ import { tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
 import { tellRemoteCommitsNews } from "@/lib/remote-commits-news"
 import { setDemandFocused } from "@/model/demand"
 import { onSessionFacts } from "@/model/store"
-import { applyAuthFacts } from "@/stores/auth"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { applySessionFacts } from "@/stores/patronus"
 import { applyPullRequestsFacts, refreshPullRequests } from "@/stores/pull-requests"
@@ -32,9 +31,9 @@ function isAwaiting(): boolean {
  * of the session, `tellRobotNews`) are told once; which commits a running robot covers, once its branch changed since
  * it started (`watchRobotCoverage`). The review requests of others are the session's too, with their news
  * (`applyReviewRequestsFacts`: after a sync, on a focus, every five minutes focused or not, and while a subject waits
- * for approvals each of those polls lists the pull requests too). The status of the sign-ins is the session's fact
- * `auth` (`applyAuthFacts`), and a sign-in or a sign-out of GitHub in any window has the session read it, the pull
- * requests and the review requests again at once. The session asks the readiness of the shown subjects
+ * for approvals each of those polls lists the pull requests too; a sign-in or a sign-out of GitHub in any window has the
+ * session list them again at once, and read its fact `auth`, which `useAuthSync` of every window takes). The session
+ * asks the readiness of the shown subjects
  * whose next step depends on it (the demand of the window), the whole stack of an island header too; while a row or
  * such a header waits for an approval
  * (Awaiting), a focus asks the session for the pull requests at once (the user comes back from asking for it); the
@@ -51,7 +50,6 @@ export function useReviewStatusRefresh(): void {
         applyRobotDetailsFacts(repositoryPath, view.facts, changes?.facts ?? null)
         applyReviewRequestsFacts(repositoryPath, view.facts, changes?.facts ?? null, news)
         applyReviewsView(repositoryPath, view, changes)
-        applyAuthFacts(view.facts, changes?.facts ?? null)
         tellRobotNews(repositoryPath, news)
         approvalNewsOf(news).forEach(tellReadinessNews)
         tellRemoteCommitsNews(repositoryPath, news)

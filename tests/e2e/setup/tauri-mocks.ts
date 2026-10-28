@@ -627,13 +627,9 @@ export const tauriMockScript = () => {
 
     // the sign-ins of the app: the backend tells every window that an account changed (`auth-changed`, the
     // `AUTH_CHANGED_EVENT` of src-tauri), this one and the other pages of a linked sub-window; the sessions of the
-    // repository read their fact `auth` in the test server
-    sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "auth-changed"),
+    // repository read their fact `auth` in the test server. A sign-in of the `youtrack` CLI changes no account of the app
+    sign_in: async (cmd: string, payload: any) => (payload?.request?.provider === "youTrackCli" ? proxyToTestServer(cmd, payload) : emitAfter(cmd, payload, "auth-changed")),
     sign_out: async (cmd: string, payload: any) => emitAfter(cmd, payload, "auth-changed"),
-    // the app's YouTrack sign-in of its own commands (`youtrack-auth-changed`, the `YOUTRACK_AUTH_CHANGED_EVENT` of src-tauri)
-    wait_youtrack_sign_in: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
-    save_youtrack_token: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
-    sign_out_of_youtrack: async (cmd: string, payload: any) => emitAfter(cmd, payload, "youtrack-auth-changed"),
 
     // a write of a journal of Activity: the backend tells every window `activity-changed` (`ACTIVITY_CHANGED_EVENT` of
     // src-tauri), after a write of the page and after an operation of the remote ended, which the watch of the registry

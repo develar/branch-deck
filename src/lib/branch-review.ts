@@ -9,14 +9,6 @@ import type { Branch, BranchSyncState } from "@/stores/branch-sync"
 import type { BranchReviewGroup, BranchReviewWindowData } from "@/types/sub-window"
 
 /**
- * The label of the review window of a branch: one window, reused for the next branch. The window subscribes to the
- * session of its repository itself for the heads a sync built (`settledReviewTable`); its link
- * (`@/lib/sub-window-link`) sends the actions of each branch of its chain (`BranchReviewWindowState`), and carries
- * the actions it asks for (`BranchReviewRequest`) with their refusals.
- */
-export const BRANCH_REVIEW_WINDOW = "branch-review"
-
-/**
  * Where a review of a branch starts: the part of its stack (the branch itself, all of it down to the baseline, or the
  * part between two branches by name), the files (a reviewer group, an owner), a commit of the part, a file: the
  * "Review Changes" of the Safe Push popover opens it at a group or a file.

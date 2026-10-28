@@ -188,6 +188,11 @@ export async function routeCommandError(
   await page.route(`**/invoke/${command}`, route => route.fulfill({ json: { status: "error", error: answer } }), options)
 }
 
+/** The commands of `page` whose answer has not come yet (`__ipcStats` of the page mock): 0 once a streamed one ended */
+export function pendingCommands(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as { __ipcStats: { pending: number } }).__ipcStats.pending)
+}
+
 /**
  * Wait for a specific API response
  */

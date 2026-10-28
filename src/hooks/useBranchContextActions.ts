@@ -29,6 +29,7 @@ import { NO_NEXT_STEP } from "@/presenters/next-step"
 import { getRetargetCommand } from "@/presenters/pull-request-url"
 import { firstPushPending, firstPushWait, getPushButtonNow, isLandingPushAvailable } from "@/presenters/push-button"
 import { getRequestReviewItem } from "@/presenters/review"
+import { authStore } from "@/stores/auth"
 import type { Branch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
@@ -56,7 +57,7 @@ import { getReadinessTarget, recheckReviewReadiness, reviewReadinessStore } from
 import { safePushStore } from "@/stores/safe-push"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
-import { getYouTrackKeyOfIssue, youTrackAuthStore } from "@/stores/youtrack"
+import { getYouTrackKeyOfIssue } from "@/stores/youtrack-issues"
 
 /** The actions Rust offers of the subject `key` now (`RepositoryView.actions`: a branch, `stack:<root>`, `robot:<id>`) */
 export function actionsOf(key: string): readonly ActionState[] | undefined {
@@ -580,7 +581,7 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
 /**
  * The states of every store a menu of a branch or a whole stack reads: the view (its actions, its steps and the
  * operations of the session), the robots, the pull requests and the readiness its words still read, the busy states
- * this window gave its operations, the starts that run, the settings, a move of commits, the YouTrack sign-in; a change
+ * this window gave its operations, the starts that run, the settings, a move of commits, the sign-ins; a change
  * of any is a new menu
  */
 export function menuSources(): readonly unknown[] {
@@ -593,7 +594,7 @@ export function menuSources(): readonly unknown[] {
     safePushStore.getState(),
     repositorySettingsStore.getState(),
     commitMoveStore.getState(),
-    youTrackAuthStore.getState(),
+    authStore.getState(),
   ]
 }
 
@@ -606,7 +607,7 @@ export function useMenuStores<T>(select: () => T): T {
   useStore(safePushStore, select)
   useStore(repositorySettingsStore, select)
   useStore(commitMoveStore, select)
-  useStore(youTrackAuthStore, select)
+  useStore(authStore, select)
   return useStore(indicatorsStore, select)
 }
 

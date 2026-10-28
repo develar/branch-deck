@@ -10,7 +10,7 @@ import { getIssueActions } from "@/lib/issue-actions"
 import { openSettings } from "@/lib/settings-window"
 import { formatRelativeTime } from "@/lib/time"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { loadIssue, useIssueEntry } from "@/stores/youtrack"
+import { loadIssue, useIssueEntry } from "@/stores/youtrack-issues"
 
 /**
  * The issue of the popover (spec/repository/youtrack.spec.md): its key and summary, its state, its single-value fields
@@ -21,6 +21,13 @@ export function IssueDetails({ issueKey }: { issueKey: string }) {
     void loadIssue(issueKey)
   }, [issueKey])
   const entry = useIssueEntry(issueKey)
+  // the answers go with a change of the YouTrack sign-in: a popover that shows asks again
+  const forgotten = entry === undefined
+  useEffect(() => {
+    if (forgotten) {
+      void loadIssue(issueKey)
+    }
+  }, [issueKey, forgotten])
   if (entry === undefined) {
     // a reopened popover shows the issue it knows while it asks again
     return (

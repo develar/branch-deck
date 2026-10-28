@@ -52,14 +52,6 @@ pub struct YouTrackAuthStatus {
   pub manage_url: Option<String>,
 }
 
-/// The page to open in the browser for the app's own sign-in; `wait_youtrack_sign_in` waits for its answer
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct YouTrackSignIn {
-  pub authorize_url: String,
-}
-
 /// A single-value field of an issue, by the name YouTrack gives it: "Priority: Major", "Assignee: Jane Doe"
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
