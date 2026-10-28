@@ -111,10 +111,15 @@ fn a_busy_error_names_the_operation_of_another_process_that_holds() {
 #[test]
 fn an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried() {
   for code in [ErrorCode::HeadMoved, ErrorCode::GroupsMoved, ErrorCode::StacksMoved, ErrorCode::ParkedMoved] {
+    assert!(code.moved_ref(), "{code:?}");
     let error = ApiError::new(code, "Branch master moved").in_undo();
     assert_eq!((error.code, error.retry, error.message.as_str()), (ErrorCode::UndoStale, Retry::No, "Branch master moved"));
   }
   assert_eq!(ErrorCode::InvalidPlan.in_undo(), ErrorCode::InvalidArguments);
+  // a plan that changed, a failure after a write: no ref the request was made on moved
+  for code in [ErrorCode::PlanChanged, ErrorCode::GitError, ErrorCode::Internal] {
+    assert!(!code.moved_ref(), "{code:?}");
+  }
   for code in [ErrorCode::Locked, ErrorCode::UncommittedOverlap, ErrorCode::Internal, ErrorCode::Canceled] {
     assert_eq!(ApiError::new(code, "").in_undo(), ApiError::new(code, ""));
   }

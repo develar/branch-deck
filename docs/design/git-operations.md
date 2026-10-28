@@ -460,8 +460,11 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    rewrite waited for it (`bd update`, `bd pick`, a `bd` rewrite, a commit) makes the core refuse the HEAD it expected
    (`head_moved`, nothing written); the engine then resolves the rewrite again on HEAD as it is now (step 3) and runs
    its core once more, on what the other process left, at most three runs (`resolve_and_run`): a branch by its name,
-   its commits by their keys once the sync shows that HEAD, `plan_changed` when they are gone. A core that failed on
-   the HEAD it expected answers its own failure.
+   its commits by their keys once the sync shows that HEAD, `plan_changed` when they are gone. Only a refusal of a
+   moved ref runs it again (`head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`: `ErrorCode::moved_ref`,
+   nothing written); a core that failed on the HEAD it expected, or after it moved HEAD itself (an amend whose index
+   could not follow, its `git reset -q` advice kept), answers its own failure. A Stop Waiting that came once the wait
+   had taken the lock runs no core after it (`canceled`): the next wait would take the free lock without a look at it.
 5. **The end**: the operation asks the sync that shows what it changed (`SyncReason::AfterRewrite`, the effect `Sync`;
    none when the core changed nothing) and ends: it does not wait for that sync, a rewrite queued behind it runs beside
    it, and the sync of the one after joins its chain as one follow-up. Its request answers once that sync ended, with

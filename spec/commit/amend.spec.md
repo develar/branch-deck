@@ -67,6 +67,10 @@ tree is never written, and the user's other staged work stays staged.
 - The amended files must show as unmodified afterwards: their working-tree versions are staged, like
   `git commit -- <paths>` does, replacing a partly staged version.
   [@test] ../../crates/git-ops/src/amend_operations_test.rs (`amend_keeps_unrelated_staged_changes`)
+- An amend whose index cannot follow the branch it moved (a file unreadable since the amend was computed, the index
+  lock of another process past its wait) must answer that failure, with the advice to run `git reset -q`: the branch
+  was rewritten once, and the amend never runs again on the HEAD it wrote itself.
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_amend_whose_index_cannot_follow_the_branch_it_moved_answers_that_and_runs_once`)
 
 ### Refusals
 

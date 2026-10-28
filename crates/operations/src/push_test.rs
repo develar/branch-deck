@@ -11,7 +11,9 @@ use domain_types::operation::{EffectStatus, Intent, NewsKey, OperationEvent, Ope
 use domain_types::session::SyncReason;
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::rewrite_guard::HeadMoved;
 use github::service::GitHubService;
+use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions, lock_repository_as_another_process};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::ObjectCache;
@@ -197,10 +199,16 @@ impl Services {
   }
 }
 
-/// A core's failure in the words of its context chain, as a test reads it
+/// A core's failure in the words of its context chain, as a test reads it, with the code of a moved ref as
+/// `app_api::api_error` gives it (the engine runs a rewrite again only after one: `resolve_and_run`)
 impl RewriteHost for Services {
   fn rewrite_error(&self, error: anyhow::Error) -> ApiError {
-    ApiError::internal(format!("{error:#}"))
+    let moved = error
+      .downcast_ref::<RegroupError>()
+      .and_then(RegroupError::code)
+      .or_else(|| error.downcast_ref::<HeadMoved>().map(|_| ErrorCode::HeadMoved))
+      .filter(|code| code.moved_ref());
+    ApiError::new(moved.unwrap_or(ErrorCode::Internal), format!("{error:#}"))
   }
 
   fn undo_error(&self, error: anyhow::Error) -> ApiError {

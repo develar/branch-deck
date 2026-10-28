@@ -358,14 +358,20 @@ impl ErrorCode {
     }
   }
 
-  /// The code of this error when an undo fails with it: a ref that moved on since the operation (HEAD, the issue
-  /// groups, the stack parents, the parked branches) makes the token stale (`UndoStale`: the same undo can never
-  /// succeed), and a plan the token names is a wrong argument (`InvalidArguments`); any other code stays. The one rule
-  /// of `bd undo` and of the undo commands of the app
+  /// Whether a ref the request was made on moved before anything was written (HEAD, the issue groups, the stack
+  /// parents, the parked branches): the refusal of the compare-and-swap of a rewrite, which a request built again on
+  /// the refs as they are now may pass, never a failure that came after a write
+  pub const fn moved_ref(self) -> bool {
+    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved)
+  }
+
+  /// The code of this error when an undo fails with it: a ref that moved on since the operation (`moved_ref`) makes
+  /// the token stale (`UndoStale`: the same undo can never succeed), and a plan the token names is a wrong argument
+  /// (`InvalidArguments`); any other code stays. The one rule of `bd undo` and of the undo commands of the app
   #[must_use]
   pub const fn in_undo(self) -> Self {
     match self {
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved => Self::UndoStale,
+      code if code.moved_ref() => Self::UndoStale,
       Self::InvalidPlan => Self::InvalidArguments,
       code => code,
     }

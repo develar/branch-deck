@@ -431,6 +431,13 @@ impl Fixture {
   }
 }
 
+/// The change of another process that commits `subject` (its `file`) on top while it holds the lock
+fn commit_on_top(subject: &'static str, file: &'static str) -> impl FnOnce(&Fixture, &RepositoryLock) + Send {
+  move |fixture, _| {
+    fixture.repo.create_commit(subject, file, "on top\n");
+  }
+}
+
 /// A rewrite that waits for the lock another process holds while that process moves HEAD (`bd update`, `bd pick`, a
 /// `bd` rewrite, a commit of an agent) runs on the HEAD it left: its core refuses the HEAD it did not expect, and the
 /// rewrite is resolved again on HEAD and runs once more. An Unstack goes by the name of its branch, a move finds its
@@ -439,11 +446,6 @@ impl Fixture {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rewrite_waiting_for_the_lock_of_another_process_runs_on_the_head_it_left() {
   let fixture = fixture(true).await;
-  let commit_on_top = |subject: &'static str, file: &'static str| {
-    move |fixture: &Fixture, _: &RepositoryLock| {
-      fixture.repo.create_commit(subject, file, "on top\n");
-    }
-  };
   let unstacked = fixture
     .while_another_process_moves_head(&unstack(&fixture.witness().await), commit_on_top("(alpha) Alpha 2", "alpha2.txt"))
     .await;
@@ -514,4 +516,82 @@ async fn an_unapply_queued_behind_a_reword_of_its_branch_unapplies_what_the_rewo
   assert_eq!(refused.unwrap_err().code, ErrorCode::PlanChanged);
   assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "nothing was written");
   assert_eq!(fixture.subjects(), ["(gamma) Beta", "(alpha) Alpha"]);
+}
+
+/// An unapply and a reword waiting for the lock another process holds while that process commits on top of the
+/// branches run on the HEAD it left: the reword finds its commit by its key once the sync shows that HEAD, the unapply
+/// takes the commits of its branch the same way and waits for the sync that builds their copies, which its core checks;
+/// both are applied, and the unapplied branch keeps the reworded commit
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unapply_and_a_reword_waiting_for_the_lock_of_another_process_run_on_the_head_it_left() {
+  let fixture = fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let reworded = fixture
+    .while_another_process_moves_head(&reword(&beta, "(alpha/beta) Beta, reworded", &witness), commit_on_top("(alpha) Alpha 4", "alpha4.txt"))
+    .await;
+  assert!(matches!(&reworded.unwrap().result, OperationResult::Rewrite(result) if matches!(result.as_ref(), RewriteResult::Reworded(_))));
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha 4", "(alpha/beta) Beta, reworded", "(alpha) Alpha"]);
+
+  fixture.synced().await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta, reworded"), fixture.witness().await);
+  let unapplied = fixture
+    .while_another_process_moves_head(&unapply("beta", std::slice::from_ref(&beta), &witness), commit_on_top("(alpha) Alpha 5", "alpha5.txt"))
+    .await;
+  assert_eq!(undo_and_sync(&unapplied.unwrap()), (Some(UndoKind::Unapply), true));
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha 5", "(alpha) Alpha 4", "(alpha) Alpha"]);
+  let kept = fixture.repo.git(&["log", "-1", "--format=%s", "refs/heads/test/unapplied/beta"]);
+  assert!(kept.ends_with("Beta, reworded"), "{kept}");
+}
+
+/// A Stop Waiting that comes as the holder of the lock moves HEAD and lets the lock go, within one poll of the wait,
+/// stops the rewrite: a core that took the lock refused the HEAD it did not expect, and no core runs after it, so
+/// nothing is written on the HEAD the other process left (`canceled`)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_waiting_as_the_holder_moves_head_and_lets_the_lock_go_writes_nothing() {
+  let fixture = fixture(true).await;
+  let held = fixture.lock();
+  let unstack = unstack(&fixture.witness().await);
+  let moved = async {
+    let operations = fixture.until(waits_with(1)).await;
+    fixture.repo.create_commit("(alpha) Alpha 2", "alpha2.txt", "on top\n");
+    assert!(fixture.registry.cancel(&operations[0].id));
+    drop(held);
+  };
+  let (refused, ()) = within_a_minute(Box::pin(async { tokio::join!(fixture.rewrite(&unstack), moved) })).await;
+  assert_eq!(refused.unwrap_err().code, ErrorCode::Canceled);
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha 2", "(alpha/beta) Beta", "(alpha) Alpha"], "nothing was written");
+}
+
+/// An amend whose index cannot follow the branch it moved (a file unreadable since the amend was computed, an index
+/// lock of another process past its wait) answers that failure as it is, the advice to `git reset -q` kept: HEAD moved
+/// once, and the rewrite never runs again on the HEAD its own core wrote
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_amend_whose_index_cannot_follow_the_branch_it_moved_answers_that_and_runs_once() {
+  use std::os::unix::fs::PermissionsExt;
+  let fixture = fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let file = fixture.repo.path().join("beta.txt");
+  std::fs::write(&file, "beta, amended\n").unwrap();
+  let amend = RewriteIntent::Amend {
+    branch_name: "beta".to_owned(),
+    original_commit_id: beta,
+    files: vec!["beta.txt".to_owned()],
+    witness,
+  };
+  let held = fixture.lock();
+  let unreadable = async {
+    // the amend was computed before the lock: the file is read again only to stage it once the branch moved
+    fixture.until(waits_with(1)).await;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(std::fs::File::open(&file).is_err(), "the file is unreadable: the tests run as a user that is not root");
+    drop(held);
+  };
+  let (failed, ()) = within_a_minute(Box::pin(async { tokio::join!(fixture.rewrite(&amend), unreadable) })).await;
+  std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+  let failed = failed.unwrap_err();
+  assert!(failed.message.contains("The branch was rewritten, but the index could not follow it"), "{failed:?}");
+  let reflog = fixture.repo.git(&["reflog", "--format=%gs", "HEAD"]);
+  let amends = reflog.lines().filter(|line| line.starts_with("branch-deck: amend")).count();
+  assert_eq!(amends, 1, "HEAD moved once: {reflog}");
 }

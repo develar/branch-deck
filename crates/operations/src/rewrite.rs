@@ -20,9 +20,10 @@
 //! runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`): it reads and computes before the
 //! repository lock, which it takes itself only for the witness of what it read and its compare-and-swap write, and
 //! computes once more under the lock when a ref moved meanwhile (`history_rewrite::repository_lock::lock_prepared`). A
-//! core that failed on a HEAD another process moved while it waited for the lock (`bd update`, a `bd` rewrite, a
-//! commit) ran on a HEAD the rewrite was not resolved on: the rewrite is resolved again on HEAD as it is now and its
-//! core runs once more, on what the other process left (`resolve_and_run`, at most three runs). The operation ends once
+//! core that refused a HEAD another process moved while it waited for the lock (`bd update`, a `bd` rewrite, a commit;
+//! a moved ref, `ErrorCode::moved_ref`, nothing written) ran on a HEAD the rewrite was not resolved on: the rewrite is
+//! resolved again on HEAD as it is now and its core runs once more, on what the other process left (`resolve_and_run`,
+//! at most three runs, none after a Stop Waiting); any other failure is the core's answer. The operation ends once
 //! it asked the sync that shows what it changed (`SyncReason::AfterRewrite`), not when that sync ends, with what the
 //! core answered and its undo (`Outcome::undo`); the request answers once that sync ended, with the version of its last
 //! patch (`Outcome::version_after`), which the toast of the window waits for. An undo names no table: its token moves
@@ -242,13 +243,16 @@ pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: Rew
 const RUNS_ON_A_MOVED_HEAD: usize = 3;
 
 /// `rewrite` resolved on HEAD as it is now and run by its core (`resolve`, `run_core`): its resolution, the HEAD its
-/// core expected and what it answered. A core that failed while HEAD is no longer the one it expected (another process
-/// moved it while the rewrite waited for the lock: `bd update`, `bd pick`, a `bd` rewrite, a commit) ran on a HEAD the
-/// rewrite was not resolved on, so the rewrite is resolved again on HEAD as it is now and its core runs once more on
-/// what the other one left, up to `RUNS_ON_A_MOVED_HEAD` times
+/// core expected and what it answered. A core that refused a moved ref (`ErrorCode::moved_ref`: nothing written) while
+/// HEAD is no longer the one it expected (another process moved it while the rewrite waited for the lock: `bd update`,
+/// `bd pick`, a `bd` rewrite, a commit) ran on a HEAD the rewrite was not resolved on, so the rewrite is resolved again
+/// on HEAD as it is now and its core runs once more on what the other one left, up to `RUNS_ON_A_MOVED_HEAD` times.
+/// Any other failure is the core's own, also one after it moved HEAD itself (an amend whose index could not follow):
+/// it answers as it is. A Stop Waiting that came once the wait before had taken the lock runs no core after it
 ///
 /// # Errors
-/// What `resolve` and the core refused, the core's failure on a HEAD that did not move; `canceled` after a stopped wait
+/// What `resolve` and the core refused, the core's failure on a HEAD that did not move or after a write; `canceled`
+/// after a stopped wait
 async fn resolve_and_run(
   sessions: &Sessions,
   key: &SessionKey,
@@ -258,6 +262,7 @@ async fn resolve_and_run(
   planned: &RewritePlan,
 ) -> Result<(RewriteIntent, Option<String>, Ran), ApiError> {
   let (mut resolved, mut expect_head) = resolve(sessions, key, hosts, rewrite, planned).await?;
+  let canceled = guard.canceled();
   let mut runs = 0;
   loop {
     runs += 1;
@@ -265,13 +270,18 @@ async fn resolve_and_run(
       Ok(ran) => return Ok((resolved, expect_head, ran)),
       Err(failed) => failed,
     };
-    if expect_head.is_none() || failed.code == ErrorCode::Canceled || runs == RUNS_ON_A_MOVED_HEAD {
+    if expect_head.is_none() || !failed.code.moved_ref() || runs == RUNS_ON_A_MOVED_HEAD {
       return Err(failed);
     }
     let (again, head) = resolve(sessions, key, hosts, rewrite, planned).await?;
     if head == expect_head {
       // HEAD is the one the core expected: the failure is the core's own
       return Err(failed);
+    }
+    // the user stopped the wait after the one before took the lock: the lock of the next run, free now, would be taken
+    // without a look at it, on a HEAD the user never waited for
+    if canceled.load(Ordering::SeqCst) {
+      return Err(wait_stopped());
     }
     debug!(error = %failed.message, "HEAD moved while the core ran: the rewrite runs once more on HEAD as it is now");
     (resolved, expect_head) = (again, head);

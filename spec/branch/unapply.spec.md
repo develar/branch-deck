@@ -130,7 +130,7 @@ puts its commits back on top of the current branch, their files and their groupi
   other commits (a reword that took the commit to another branch) is `plan_changed`, nothing written. A HEAD another
   process moved while it waited for the lock makes it resolve and run once more on that HEAD.
   [@test] ../../crates/operations/src/rewrite_test.rs (`an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through_the_engine`, `a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
-  [@test] ../../crates/operations/src/rewrite_test.rs (`an_unapply_queued_behind_a_reword_of_its_branch_unapplies_what_the_reword_left`, `a_rewrite_waiting_for_the_lock_of_another_process_runs_on_the_head_it_left`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_unapply_queued_behind_a_reword_of_its_branch_unapplies_what_the_reword_left`, `an_unapply_and_a_reword_waiting_for_the_lock_of_another_process_run_on_the_head_it_left`)
   [@test] ../../src/lib/rewrite-run.test.ts (`shows whom a rewrite of the engine waits for and stops the wait by its operation`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
