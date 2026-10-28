@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.36.0](https://github.com/develar/branch-deck/compare/v0.35.0...v0.36.0) (2026-10-28)
+
+
+### Features
+
+* **lease:** bd host snapshot, pack and apply are the git of a client of a remote run, and the scans build the commit of a worktree from its files, without an index copy ([8d4b379](https://github.com/develar/branch-deck/commit/8d4b3790bc027e8fc51798737c97ec3eb7eedb91))
+* **lease:** bd lease host have, ingest, show and git answer the git of the runs of a host, so yonderd starts no git ([b7d721d](https://github.com/develar/branch-deck/commit/b7d721dfffd39c344a77a66c2460c26d611c7a48))
+* **lease:** bd lease host lend --wait waits for a host slot in one call, and a give-back starts the maintenance of branchdeck.leaseMaintenance ([7ab4b33](https://github.com/develar/branch-deck/commit/7ab4b3380af6e083759f76b4342fa0b2bafaadae))
+* **lease:** bd lease host snapshot and changes scan the slot of a run in a copy of its index, in the untracked mode of the repository, and stream the patch into a file ([10f4939](https://github.com/develar/branch-deck/commit/10f49392e2d6611eb3cf166ee98bc2bf2947f8a8))
+
 ## [0.35.0](https://github.com/develar/branch-deck/compare/v0.34.0...v0.35.0) (2026-10-28)
 
 
