@@ -122,7 +122,7 @@ This spec is a draft of the port. A requirement names the test that will cover i
 | Agent | `~/.config/bd-host/agent/identity.crt`, `identity.key` | The certificate and the key of the agent |
 | Agent | `~/.config/bd-host/agent/clients` | The allow list: one `<64 hex> <name>` line per client |
 | Agent | `~/.cache/bd-host/runs/<run>/` | `spec.json`, `events.log`, `exit.json`, `supervisor.log`, `outputs/`, `changes.patch` |
-| Agent | `~/.cache/bd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared` |
+| Agent | `~/.cache/bd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared` (in `~/.cache/yonderd/slots/` while it exists) |
 | Agent | `~/Library/LaunchAgents/com.jetbrains.bd-host.plist`, `~/Library/Logs/bd-host.log` | The LaunchAgent and its log |
 | Checkout | `<git dir>/branch-deck/host/runs/<run>.json`, `<run>.patch` | The run record and the patch of `--apply` |
 
@@ -455,6 +455,10 @@ creates = ["node_modules"]             # a missing path runs the step again
   another code than 0 ends the run with `prepare_failed`. The fingerprints are keyed by the `generation` of the slot,
   so a give-back that discarded changes or a clean runs each step again.
   [@test] ../../crates/host-agent/src/prepare_test.rs (`a_prepare_step_runs_when_its_inputs_change_or_a_created_path_is_missing`)
+- While `~/.cache/yonderd/slots/` exists, the agent must keep the fingerprints there and not in
+  `~/.cache/bd-host/slots/`. Both agents lend the same slots, and their files have the same format. So a step that
+  yonderd ran over the work of bd-host in a slot runs again for bd-host.
+  [@test] ../../crates/host-agent/src/home_test.rs (`the_fingerprints_of_a_slot_are_shared_with_yonderd_while_it_has_its_cache`)
 
 ### version, schema, skill
 

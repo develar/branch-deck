@@ -77,9 +77,13 @@ impl Home {
     self.cache_dir().join("upgrade.lock")
   }
 
-  /// The fingerprints of the prepare steps per host slot (`slots::Prepared`): `~/.cache/bd-host/slots/`
+  /// The fingerprints of the prepare steps per host slot (`prepare::Prepared`): `~/.cache/bd-host/slots/`. While
+  /// yonderd has its cache, both agents lend the same slots, so they share `~/.cache/yonderd/slots/`, whose files
+  /// have the same format and fingerprints. A step that one agent ran in a slot is then current for the other, and a
+  /// step that the other ran over it runs again
   pub fn slots_dir(&self) -> PathBuf {
-    self.cache_dir().join("slots")
+    let yonderd = self.dir.join(yonder::CACHE_DIR).join("slots");
+    if yonderd.is_dir() { yonderd } else { self.cache_dir().join("slots") }
   }
 
   /// The plist of the `LaunchAgent`
@@ -116,3 +120,7 @@ pub mod yonder {
   /// The refs of the packs of yonderd before Branch Deck kept them
   pub const REFS: &str = "refs/yonder/";
 }
+
+#[cfg(test)]
+#[path = "home_test.rs"]
+mod home_test;
