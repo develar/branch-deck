@@ -311,7 +311,7 @@ pub struct RepositorySlots {
 
 /// One step of a run and its duration: `git`, `slot`, `pack_wait`, `checkout`, `prepare`, `command`, `stage`. A client
 /// adds its own steps, such as `pack`, `upload` and `fetch`, when it reports a run
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Phase {
   pub name: String,
   pub ms: u64,

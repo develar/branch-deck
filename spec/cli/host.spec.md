@@ -5,6 +5,10 @@ style: plain-1
 targets:
   - ../../crates/bd-host/src/main.rs
   - ../../crates/bd-host/src/cli.rs
+  - ../../crates/bd-host/src/schema.rs
+  - ../../crates/bd-host/src/skill.rs
+  - ../../crates/bd-host/skill/SKILL.md
+  - ../../crates/host-agent/src/table.rs
   - ../../crates/host-link/src/lib.rs
   - ../../crates/host-client/src/lib.rs
   - ../../crates/host-agent/src/lib.rs
@@ -149,13 +153,13 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
 - Ctrl+C before `Start` must run nothing on the host and exit 130 (`interrupted`). Ctrl+C after it must send `Cancel`
   and stop the pack, and the output follows to the end of the run. A second press stops the follow at once with 130,
   and the run goes on on the host.
-  Test (planned): `crates/bd-host/tests/cli.rs` (`ctrl_c_before_the_start_runs_nothing_and_after_it_cancels_the_run`)
+  [@test] ../../crates/host-client/src/run_test.rs (`ctrl_c_before_the_start_reaches_no_host`, `ctrl_c_cancels_the_run_and_follows_it_to_its_end`, `a_second_ctrl_c_stops_the_follow_at_once`)
 - The stdout of `bd-host run` must hold only the stdout of the command, line by line as it comes. Every line of
   bd-host and every stderr line of the host go to the stderr. The lines of bd-host start with `bd-host: `:
   `bd-host: run <id> of <commit> on <alias>` first, `bd-host: running in <slot> (slot <n>): load …, nice …, … open
   files, git <version>, the login environment of <shell> from <age> ago` right before the command, and
   `bd-host: phases: pack 3.1s, upload 2.0s, slot 0.1s, … total 10m13s` at the end.
-  Test (planned): `crates/bd-host/tests/cli.rs` (`stdout_holds_only_the_command_and_the_lines_of_bd_host_go_to_stderr`)
+  [@test] ../../crates/bd-host/tests/cli.rs (`stdout_holds_only_the_command_and_the_lines_of_bd_host_go_to_stderr`)
 - A follow that lost its connection must connect again with waits from 1 s up to 30 s and go on from the last offset
   it showed. After 10 min without a reply it refuses with `timed_out` (exit 255) and names `bd-host follow`. A follow
   that the agent answers with `unknown_run` after the start exits 255, never 75: whether the command ran is unknown.
@@ -185,7 +189,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   the parse of its command line: a run that exited, a refusal and an interrupt. It writes nothing else there, and it
   closes the descriptor after the object. A descriptor that is not open refuses with `usage` (exit 2) before anything
   runs.
-  Test (planned): `crates/bd-host/tests/cli.rs` (`the_report_goes_to_its_descriptor_on_every_way_out`)
+  [@test] ../../crates/bd-host/tests/cli.rs (`the_report_goes_to_its_descriptor_on_every_way_out`)
 - The report must have the shape of the golden JSON below. `exit` is the exit code of `bd-host`. `command_exit` is the
   exit code of the command, `null` when it did not run or its end is unknown; a command that a signal ended answers
   128 plus the signal number. `refusal` is `null`, or `{"code", "message"}` with a code of the table below. `run`,
@@ -240,7 +244,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
 
 - A fetch or a forget of a run that goes on must refuse with `bad_request`. A run id that the agent does not keep
   refuses with `unknown_run`. Each of these commands exits 0, or 255 with a refusal, or 2 for a usage error.
-  Test (planned): `crates/bd-host/tests/cli.rs` (`follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent`)
+  [@test] ../../crates/bd-host/tests/cli.rs (`follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent`)
 
 ### hello
 
@@ -283,7 +287,8 @@ bd-host slots <alias> [--json]
 bd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
 ```
 
-- `bd-host slots <alias>` must ask the agent for the lend table of each repository that it served (`Request::Slots`):
+- `bd-host slots <alias>` must ask the agent for the lend table of each repository that it served since its first
+  `Start` (`Request::Slots`):
   each slot, its state, its run, its affinity, its last use, and the queue. It writes nothing. The reply carries each
   table as the JSON of its `host-slots.json`, so the protocol keeps no second shape of the table.
   [@test] ../../crates/host-link/src/proto_test.rs (`the_slots_of_the_agent_carry_the_lend_table_as_the_pool_writes_it`)
@@ -291,7 +296,8 @@ bd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
   the host slots past `n` back to the pool in its own process (`lease_pool::host_slots::shrink`), also without a running
   `serve`, and keeps `n` as the limit of later fills. `--sizes` measures the directories that the clean rules of each
   slot name.
-  Test (planned): `crates/bd-host/tests/cli.rs` (`slots_shows_the_lend_table_and_shrinks_it_without_the_agent`)
+  [@test] ../../crates/bd-host/tests/cli.rs (`slots_shows_the_lend_table_and_shrinks_it_without_the_agent`)
+  [@test] ../../crates/host-agent/src/table_test.rs (`the_lines_of_a_table_name_the_limit_the_queue_and_each_slot`, `the_sizes_measure_the_directories_of_the_clean_rules_of_each_slot`)
 
 ### setup
 
@@ -351,9 +357,13 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   `unreachable`. A run goes on through the restart.
   [@test] ../../crates/host-agent/src/upgrade_test.rs (`the_watchdog_brings_back_the_previous_binary_when_the_new_one_does_not_listen`)
 - `upgrade` must also replace an installed copy of the skill of another build that has no local edits, and say so.
+  [@test] ../../crates/bd-host/src/skill_test.rs (`a_refresh_replaces_only_an_unedited_copy_of_another_build`)
 
 ### serve
 
+- `serve` and the commands that the agent starts itself (`supervise`, `check --plist`, `watchdog`, `dump-env`, all
+  hidden) are commands of `bd-host` on macOS and Linux (`host_agent::command`). A refusal of one of them exits by its
+  code before any run, such as 75 for `lease_failed`.
 - `bd-host serve [--port 7742]` must print one JSON line `{"listening": "<address>", "fingerprint": "<64 hex>"}`,
   then log on stderr. It answers the requests of the protocol, starts one supervisor per `Start`, and runs the keeper
   thread.
@@ -426,12 +436,14 @@ creates = ["node_modules"]             # a missing path runs the step again
   [@test] ../../crates/host-link/src/proto_test.rs (`the_version_line_names_the_build_and_a_check_adds_the_launch_agent`, `a_hello_names_the_binary_and_the_features_of_this_build`, `an_upgrade_and_its_reply_have_a_tagged_json_shape`)
 - `bd-host schema` must print one JSON object: the protocol schema and port, every refusal code of the table below
   with its exit code and words, the exit codes, and the JSON schemas of the report and of the hello.
-  Test (planned): `crates/bd-host/src/report_test.rs` (`schema_lists_every_code_and_the_shapes_of_the_report_and_the_hello`)
+  [@test] ../../crates/bd-host/src/schema_test.rs (`schema_lists_every_code_and_the_shapes_of_the_report_and_the_hello`)
+  [@test] ../../crates/bd-host/tests/cli.rs (`schema_and_version_answer_one_json_object`)
 - `bd-host skill install [--dir <dir>] [--force]` must write the skill `bd-host` into `~/.claude/skills/bd-host/`
-  with its references, from the files that the binary carries. The marker `.bd-host-skill.sha256` lists the SHA-256 of
+  from the files that the binary carries: `SKILL.md` (`crates/bd-host/skill/SKILL.md`), and this spec and
+  [Host Runs](../../docs/design/host-runs.md) as `references/spec.md` and `references/design.md`. The marker `.bd-host-skill.sha256` lists the SHA-256 of
   each file. A copy whose files differ from the marker has local edits: an install refuses with `skill_edited`
   (exit 255), and `--force` replaces it. `bd-host skill print` prints `SKILL.md`.
-  Test (planned): `crates/bd-host/src/skill_test.rs` (`skill_install_replaces_a_copy_of_another_build_and_keeps_local_edits`)
+  [@test] ../../crates/bd-host/src/skill_test.rs (`skill_install_replaces_a_copy_of_another_build_and_keeps_local_edits`, `a_copy_without_a_marker_or_with_a_missing_file_counts_as_edited`)
 
 ### Refusal codes
 

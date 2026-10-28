@@ -15,7 +15,7 @@ pub const REPORT_SCHEMA: u32 = 1;
 
 /// The report of one run: one JSON object and a line end on the descriptor of `--report-fd`, on every way out after the
 /// parse of the command line
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RunReport {
   pub schema: u32,
@@ -93,7 +93,7 @@ pub fn command_exit_code(code: i32) -> u8 {
 }
 
 /// The hello of `bd-host hello --json`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HelloReport {
   pub schema: u32,
@@ -107,7 +107,7 @@ pub struct HelloReport {
 }
 
 /// What the agent named in its hello
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AgentHello {
   /// The version of Branch Deck
@@ -122,7 +122,7 @@ pub struct AgentHello {
 }
 
 /// What this client is
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClientHello {
   pub version: String,
@@ -159,7 +159,7 @@ impl HelloReport {
 }
 
 /// The answer of `bd-host hello --json` for a refusal: `{"schema": 1, "alias", "refusal": {"code", "message"}}`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HelloRefusal {
   pub schema: u32,

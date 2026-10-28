@@ -602,8 +602,18 @@ name = "bd-host"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "git-executor",
+ "host-agent",
+ "host-client",
  "host-link",
+ "libc",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
  "serde_json",
+ "sync-utils",
+ "tempfile",
+ "test-utils",
 ]
 
 [[package]]
@@ -2902,6 +2912,7 @@ dependencies = [
  "host-link",
  "libc",
  "pretty_assertions",
+ "schemars 1.2.3",
  "serde",
  "serde_json",
  "sync-utils",
@@ -2917,6 +2928,7 @@ dependencies = [
  "pretty_assertions",
  "rcgen",
  "rustls",
+ "schemars 1.2.3",
  "serde",
  "serde_json",
  "sha2 0.11.1",

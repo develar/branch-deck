@@ -25,7 +25,7 @@ use crate::{cleanup, keeper, login_env, run_env, tuning, upgrade};
 use git_ops::revs::is_object_id;
 use host_link::channel::{Channel, Frame, LinkError, ServerTls};
 use host_link::digest::{is_sha256, sha256_file};
-use host_link::identity::Identity;
+use host_link::identity::{Fingerprint, Identity};
 use host_link::proto::{MAX_BINARY, PackTarget, Reply, RepositorySlots, Request, SCHEMA_VERSION, is_run_id};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_slots::read_host_slots;
@@ -108,6 +108,54 @@ pub(crate) struct Agent {
   failed_handshakes: Tally,
 }
 
+/// The first line of `serve` on its stdout: `{"listening": "<address>", "fingerprint": "<64 hex>"}`
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ListeningLine {
+  pub listening: SocketAddr,
+  pub fingerprint: Fingerprint,
+}
+
+impl ListeningLine {
+  /// The first line of a `serve` child from its stdout, which a test or a caller reads before it connects
+  pub fn read(stdout: impl io::Read) -> io::Result<Self> {
+    let mut line = String::new();
+    io::BufRead::read_line(&mut io::BufReader::new(stdout), &mut line)?;
+    serde_json::from_str(&line).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, format!("{error}: {line:?}")))
+  }
+}
+
+/// Starts `command`, a binary with the agent commands, as `serve` on a free port of the loopback address, with
+/// `PROCESS_TEST_ENV` and its stderr into `log`. Answers the child and its first line. The process tests of the agent
+/// and of bd-host start their agent with it
+pub fn spawn_on_loopback(mut command: std::process::Command, log: std::fs::File) -> io::Result<(std::process::Child, ListeningLine)> {
+  let mut child = command
+    .envs(PROCESS_TEST_ENV)
+    .args(["serve", "--bind", "127.0.0.1", "--port", "0"])
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(log)
+    .spawn()?;
+  let stdout = child.stdout.take().ok_or_else(|| io::Error::other("serve has no stdout"))?;
+  match ListeningLine::read(stdout) {
+    Ok(line) => Ok((child, line)),
+    Err(error) => {
+      let _ = child.kill();
+      let _ = child.wait();
+      Err(error)
+    }
+  }
+}
+
+/// The environment of a process test of `serve`: no login shell and no power assertions of the developer, a keeper
+/// that wakes every 500 ms, and the git of the developer as the git of the host, so no Homebrew runs
+pub const PROCESS_TEST_ENV: [(&str, &str); 5] = [
+  ("GIT_CONFIG_NOSYSTEM", "1"),
+  ("BD_HOST_TEST_SHELL", "none"),
+  ("BD_HOST_TEST_CAFFEINATE", "none"),
+  ("BD_HOST_TEST_KEEPER_MS", "500"),
+  ("BD_TEST_HOST_MIN_VERSION", "2.0.0"),
+];
+
 /// Listens on `bind:port` and serves each connection. Prints one JSON line with the address and the fingerprint on `out`
 /// once it listens. It answers only when it cannot listen
 pub fn serve(options: ServeOptions, out: &mut dyn Write) -> Result<(), Refusal> {
@@ -126,8 +174,11 @@ pub fn serve(options: ServeOptions, out: &mut dyn Write) -> Result<(), Refusal> 
   let exe = std::env::current_exe().map_err(|error| Refusal::new(Code::AgentError, format!("cannot find the agent binary: {error}")))?;
   let listener = TcpListener::bind(SocketAddr::new(bind, port)).map_err(|error| Refusal::new(Code::AgentError, format!("cannot listen on {bind}:{port}: {error}")))?;
   let address = listener.local_addr().map_err(|error| Refusal::new(Code::AgentError, error.to_string()))?;
-  let line = serde_json::json!({"listening": address.to_string(), "fingerprint": identity.fingerprint().to_string()});
-  let _ = writeln!(out, "{line}").and_then(|()| out.flush());
+  let line = ListeningLine {
+    listening: address,
+    fingerprint: identity.fingerprint(),
+  };
+  let _ = writeln!(out, "{}", serde_json::to_string(&line).unwrap_or_default()).and_then(|()| out.flush());
   match run_env::raise_open_files() {
     Ok(limit) => log(&format!("the open-files limit is {limit}")),
     Err(error) => log(&format!("cannot raise the open-files limit: {error}")),

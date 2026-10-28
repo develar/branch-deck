@@ -16,6 +16,8 @@ sha2 = "0.11.1"
 # the messages of the protocol (`proto`)
 serde.workspace = true
 serde_json.workspace = true
+# the JSON schemas of a refusal and of a step, which `bd-host schema` prints (`refusal`, `proto`)
+schemars.workspace = true
 # the errors of the link, of `[host]` and the refusals (`channel`, `config`, `refusal`)
 thiserror.workspace = true
 # `[host]` of `.branchdeck.toml` and `.yonder.toml` (`config`)

@@ -240,11 +240,7 @@ impl Code {
         "The pack of the commit did not come within 30 min, or sent no chunk for 2 min.",
       ),
       Self::SlotTimeout => ("slot_timeout", ExitRule::Always(Exit::NotRun), "The run got no host slot within an hour."),
-      Self::LeaseFailed => (
-        "lease_failed",
-        ExitRule::Always(Exit::NotRun),
-        "The lend failed. The message has the error of the pool.",
-      ),
+      Self::LeaseFailed => ("lease_failed", ExitRule::Always(Exit::NotRun), "The lend failed. The message has the error of the pool."),
       Self::OldGit => (
         "old_git",
         ExitRule::Always(Exit::NotRun),
@@ -359,9 +355,21 @@ impl<'de> Deserialize<'de> for Code {
   }
 }
 
+/// The JSON schema of a code: one of the names of the table
+impl schemars::JsonSchema for Code {
+  fn schema_name() -> std::borrow::Cow<'static, str> {
+    "RefusalCode".into()
+  }
+
+  fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let names: Vec<&str> = Self::ALL.iter().map(|code| code.name()).collect();
+    schemars::json_schema!({ "type": "string", "enum": names })
+  }
+}
+
 /// A refusal: its code and a message for a person. It prints as `<code>: <message>`, and bd-host puts `bd-host: ` before
 /// it on the stderr
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, thiserror::Error)]
 #[error("{code}: {message}")]
 pub struct Refusal {
   pub code: Code,

@@ -12,11 +12,32 @@ publish = false
 name = "bd-host"
 path = "src/main.rs"
 
-# The port adds `host-agent`, `host-client` and `serde`, and `schemars` for `bd-host schema`
 [dependencies]
+# the protocol, the refusal codes, the SHA-256 of this binary
 host-link = { path = "../host-link" }
+# the client: run, follow, cancel, fetch, forget, runs, hello, slots, setup over ssh, upgrade, the report
+host-client = { path = "../host-client" }
+# the git of the client (`GitInfo::discover_for_cli`)
+git-executor = { path = "../git-executor" }
+# the renames and removals of the skill files
+sync-utils = { path = "../sync-utils" }
 clap = { version = "4.6", features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
+# the JSON schemas of the report and of the hello (`schema`)
+schemars.workspace = true
+
+# The agent runs only on Unix: serve, supervise, setup --agent, the lend table of `slots --local`; the descriptor of
+# `--report-fd`
+[target.'cfg(unix)'.dependencies]
+host-agent = { path = "../host-agent" }
+libc = "0.2.191"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+# a repository of a process test
+test-utils = { path = "../test-utils" }
 
 [build-dependencies]
 serde_json.workspace = true

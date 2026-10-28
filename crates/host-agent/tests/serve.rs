@@ -5,13 +5,14 @@
 #![cfg(unix)]
 #![expect(clippy::tests_outside_test_module, reason = "a Cargo integration test has no #[cfg(test)] module")]
 
+use host_agent::serve::spawn_on_loopback;
 use host_link::allow::AllowList;
 use host_link::channel::{Channel, ClientTls};
 use host_link::identity::{Fingerprint, Identity};
 use host_link::proto::{FileKind, PackTarget, Phase, Reply, Request, RunSpec, Stream};
 use pretty_assertions::assert_eq;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -71,30 +72,13 @@ impl World {
   /// Starts `serve` on a loopback port
   fn serve(&self) -> Agent<'_> {
     let log = fs::File::create(self.home.path().join("serve.log")).expect("the serve log");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_host-agent-test"))
-      .env("HOME", self.home.path())
-      .env("GIT_CONFIG_NOSYSTEM", "1")
-      // the login shell and the power assertions of the developer stay out of the tests
-      .env("BD_HOST_TEST_SHELL", "none")
-      .env("BD_HOST_TEST_CAFFEINATE", "none")
-      .env("BD_HOST_TEST_KEEPER_MS", "500")
-      // the git of the developer serves the tests, so no Homebrew runs
-      .env("BD_TEST_HOST_MIN_VERSION", "2.0.0")
-      .args(["serve", "--bind", "127.0.0.1", "--port", "0"])
-      .stdin(Stdio::null())
-      .stdout(Stdio::piped())
-      .stderr(log)
-      .spawn()
-      .expect("serve started");
-    let mut line = String::new();
-    BufReader::new(child.stdout.take().expect("the stdout")).read_line(&mut line).expect("the first line");
-    let listening: serde_json::Value = serde_json::from_str(&line).unwrap_or_else(|error| panic!("{error}: {line:?}"));
-    let address: SocketAddr = listening["listening"].as_str().expect("the address").parse().expect("an address");
-    let fingerprint: Fingerprint = listening["fingerprint"].as_str().expect("the fingerprint").parse().expect("a fingerprint");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_host-agent-test"));
+    command.env("HOME", self.home.path());
+    let (child, listening) = spawn_on_loopback(command, log).expect("serve listens");
     Agent {
       child,
-      address,
-      fingerprint,
+      address: listening.listening,
+      fingerprint: listening.fingerprint,
       world: self,
     }
   }

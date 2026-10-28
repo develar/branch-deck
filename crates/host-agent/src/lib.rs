@@ -12,6 +12,7 @@
 //! - `supervise`: one run from the lend of its slot to `exit.json` and the give-back
 //! - `run`: the run directory and its files
 //! - `repo`, `slots`, `run_git`, `keeper`: the repositories, the host slots and the git of the host, in process
+//! - `table`: the lend table for `bd-host slots`: its lines, `--local`, `--shrink` and `--sizes`
 //! - `setup`: `setup --agent`, `--import-yonder`, `--retire-yonderd`, and the `LaunchAgent`
 //! - `upgrade`: the install of a new binary and its watchdog
 //! - `login_env`, `run_env`, `prepare`: the environment and the prepare steps of a run
@@ -45,6 +46,7 @@ pub mod supervise;
   reason = "the calls of libc that std has no safe form of: flock, process groups, signals, rlimit, the user database, kqueue"
 )]
 mod sys;
+pub mod table;
 mod tally;
 mod tuning;
 pub mod upgrade;

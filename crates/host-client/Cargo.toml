@@ -22,6 +22,8 @@ sync-utils = { path = "../sync-utils" }
 # the host files, the run records and the report of a run
 serde.workspace = true
 serde_json.workspace = true
+# the JSON schemas of the report and of the hello, which `bd-host schema` prints (`report`)
+schemars.workspace = true
 
 # The fetch: `O_NOFOLLOW` of the open of a part
 [target.'cfg(unix)'.dependencies]
