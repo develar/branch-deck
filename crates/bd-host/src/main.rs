@@ -8,7 +8,7 @@
 //! - `skill`: the agent skill of this build that `skill install` writes
 
 mod cli;
-#[expect(unsafe_code, reason = "a descriptor that the caller hands over by its number has no safe form in std")]
+#[cfg_attr(unix, expect(unsafe_code, reason = "a descriptor that the caller hands over by its number has no safe form in std"))]
 mod report_fd;
 mod schema;
 mod skill;
