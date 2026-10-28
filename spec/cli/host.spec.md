@@ -348,7 +348,7 @@ bd-host setup --retire-yonderd
   deletes, or that is in the bundle of the app. A file that is there stays.
   [@test] ../../crates/host-agent/src/setup_test.rs (`the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent`)
 - `bd-host setup --import-yonder` must take what yonder has on this machine, so no new pairing and no ssh is needed:
-  the identity and the host files of the client from `~/.config/yonder` (each host file with the port 7742), and the
+  the identity and the host files of the client from `~/.config/yonder` (each host file with the port 7742, also in its cached addresses), and the
   identity and the allow list of the agent from `~/.config/yonderd`, then the LaunchAgent as `--agent` writes it. It
   copies, so yonder keeps working. An identity or a host file that bd-host has already stays. The clients of the allow
   list of yonderd join the allow list of bd-host, and a client that it names keeps its name. It prints what it took. A

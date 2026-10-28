@@ -423,6 +423,15 @@ fn import_hosts(from: &Path, to: &Path) -> std::io::Result<Vec<String>> {
     let mut host: serde_json::Value = serde_json::from_slice(&fs::read(&file)?).map_err(std::io::Error::other)?;
     if let Some(fields) = host.as_object_mut() {
       fields.insert("port".to_owned(), DEFAULT_PORT.into());
+      // the client tries the cached addresses first, so they get the port of bd-host too
+      if let Some(addresses) = fields.get_mut("addresses").and_then(serde_json::Value::as_array_mut) {
+        for address in addresses.iter_mut() {
+          if let Some(mut socket) = address.as_str().and_then(|text| text.parse::<SocketAddr>().ok()) {
+            socket.set_port(DEFAULT_PORT);
+            *address = socket.to_string().into();
+          }
+        }
+      }
     }
     private_dir(to)?;
     write_private(&target, &serde_json::to_vec_pretty(&host).map_err(std::io::Error::other)?)?;

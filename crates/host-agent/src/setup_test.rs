@@ -159,7 +159,11 @@ fn import_yonder_takes_the_identities_the_hosts_and_the_allow_list() {
   let client = Identity::load_or_create(&yonder_client).expect("the client of yonder");
   let agent = Identity::load_or_create(&yonder_agent).expect("the agent of yonder");
   private_dir(&yonder_client.join("hosts")).expect("the hosts");
-  fs::write(yonder_client.join("hosts/studio.json"), r#"{"alias":"studio","port":7741,"hostname":"studio.local"}"#).expect("a host file");
+  fs::write(
+    yonder_client.join("hosts/studio.json"),
+    r#"{"alias":"studio","port":7741,"hostname":"studio.local","addresses":["192.168.1.2:7741","[fe80::1%15]:7741"]}"#,
+  )
+  .expect("a host file");
   let mut theirs = AllowList::default();
   let laptop = Identity::generate().expect("a laptop").fingerprint();
   theirs.add(laptop, "laptop").expect("a name");
@@ -176,6 +180,11 @@ fn import_yonder_takes_the_identities_the_hosts_and_the_allow_list() {
   assert_eq!(Identity::load(&home.identity_dir()).expect("the agent").fingerprint(), agent.fingerprint());
   let host: serde_json::Value = serde_json::from_str(&read(&home.client_dir().join("hosts/studio.json"))).expect("the host file");
   assert_eq!((host["port"].as_u64(), host["hostname"].as_str()), (Some(u64::from(DEFAULT_PORT)), Some("studio.local")));
+  assert_eq!(
+    host["addresses"],
+    serde_json::json!([format!("192.168.1.2:{DEFAULT_PORT}"), format!("[fe80::1%15]:{DEFAULT_PORT}")]),
+    "the cached addresses get the port of bd-host, or the client reaches yonderd"
+  );
   assert_eq!(AllowList::read(&home.allow_file()).expect("the allow list").name(&laptop), Some("laptop"));
 
   let mut again = Vec::new();
