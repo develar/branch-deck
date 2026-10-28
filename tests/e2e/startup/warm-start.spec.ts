@@ -81,17 +81,23 @@ test.describe("The warm start", () => {
     expect(asked).toContain("subscribe_view")
     expect(asked).not.toContain("resolve_branch_prefix")
 
-    // the next start shows the frame the sync saved, the same way
+    // the next start shows the frame the sync saved, the same way: with its first sync held, as a sync that ends before
+    // the rows are in the document is recorded by the page (`set_setting` of `repositoryState`) before them
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
     await reloadWarm(page, repo)
     await expect(findBranchRow(page, "oauth")).toBeVisible()
+    await expect(page.locator("[data-cached=true]")).toBeVisible()
     await expectRowsWithTheSubscriptionAlone(page)
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
+    await expect(page.locator("[data-cached]")).toHaveCount(0)
   })
 
   test("says a push of the rows of the frame waits for the first sync, and offers it once the sync committed", async ({ page, setupRepo }) => {
     const repo = await startWarmWithTheSyncHeld(page, setupRepo)
     await openContextMenu(page, findBranchRow(page, "docs"))
     // the one commit of docs to push, and its key
-    const push = page.getByRole("menuitem", { name: /^Push \(1\)/ })
+    const push = page.getByRole("menuitem", { name: /^Push Branch \(1\)/ })
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await push.hover()
     await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for the first sync" })).toBeVisible()
