@@ -1,14 +1,15 @@
-//! Every Tauri command that can fail is an operation with an id of its own (`sync_utils::operation_id::OperationId`): its
-//! body runs inside the span `operation{operation_id}`, a child of the command's `#[instrument]` span, so a log line of it
-//! reads `execute{…}:operation{operation_id=…}: …`, and an error leaves with the id (`ApiError.operation_id`),
-//! the key from the Activity entry of the error to the command's lines in the app's log
-//! (docs/design/async-patterns.md#operation-spans).
+//! Every command of the app that can fail is an operation with an id of its own
+//! (`sync_utils::operation_id::OperationId`): its body runs inside the span `operation{operation_id}`, a child of the
+//! command's `#[instrument]` span, so a log line of it reads `execute{…}:operation{operation_id=…}: …`, and an error
+//! leaves with the id (`ApiError.operation_id`), the key from the Activity entry of the error to the command's lines in
+//! the app's log (docs/design/async-patterns.md#operation-spans). The app and the e2e server run the same bodies, so an
+//! error of the server names its operation too.
 //!
 //! An async command wraps its body in [`operation`], a synchronous one (it runs on the main thread) in [`operation_now`];
 //! a blocking step of the body, git or the file system, runs through [`run_blocking`], which alone is the operation of a
 //! command that has only that step. `command_scan_test.rs` checks every command.
 
-use app_api::api_error::IntoApiError;
+use crate::api_error::IntoApiError;
 use domain_types::error::ApiError;
 use std::future::Future;
 use sync_utils::operation_id::OperationId;
@@ -53,12 +54,6 @@ where
     return step.await;
   }
   operation(step).await
-}
-
-/// A failure of Tauri itself (a window, an event, the store of the settings): `internal` with its words
-#[expect(clippy::needless_pass_by_value, reason = "used as `map_err(tauri_error)`")]
-pub fn tauri_error(error: tauri::Error) -> ApiError {
-  ApiError::internal(error.to_string())
 }
 
 /// `error` with the operation it came out of; an error that already names one keeps it

@@ -1,9 +1,10 @@
 use crate::channel_commands::{answer_with_progress, progress_channel};
+use crate::invoke::{CommandResult, Rejection, failed};
 use crate::remote_host::PAGE_CLOCK_START;
 use app_api::api_error::{IntoApiError, patronus_error};
 use axum::{
   extract::State,
-  http::{HeaderMap, StatusCode, header},
+  http::{HeaderMap, StatusCode},
   response::{
     IntoResponse, Json, Response,
     sse::{Event, KeepAlive, Sse},
@@ -20,11 +21,9 @@ use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::sign_in::{Account, AuthStatus, SignIn, SignInProvider};
 use domain_types::youtrack::YouTrackIssueAnswer;
-use file_diffs::model::{
-  BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
-};
+use file_diffs::model::{FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetFileDiffsParams, GetFileMergesParams};
 use file_diffs::service::FileDiffs;
-use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
+use git_ops::commit_files::{CommitFiles, DiffSubject, read_diff_files};
 use object_cache::cache::ObjectCache;
 use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
@@ -42,7 +41,6 @@ use sync_core::repository_config::{
   with_stacks_off_clashes, write_global_config, write_repository_config,
 };
 use sync_core::robot_commits::robot_failure_report;
-use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
@@ -52,40 +50,6 @@ use crate::remote_host::RemoteHost;
 use crate::state::AppState;
 
 use crate::state::TestRepository;
-
-/// How a command fails: with its `ApiError`, answered the way Tauri rejects a command (`{ status: "error", error:
-/// <ApiError> }` with status 200, which the page mock hands to the bindings: the same JSON as the app,
-/// `api_error_contract_test.rs`), or with a failure of the server itself, a panicked command (500). A type of the
-/// server only because axum's `IntoResponse` can't be implemented for `ApiError` outside `domain-types`.
-pub enum Rejection {
-  Error(ApiError),
-  Panicked,
-}
-
-impl From<ApiError> for Rejection {
-  fn from(error: ApiError) -> Self {
-    Self::Error(error)
-  }
-}
-
-impl IntoResponse for Rejection {
-  fn into_response(self) -> Response {
-    match self {
-      Self::Error(error) => Json(serde_json::json!({ "status": "error", "error": error })).into_response(),
-      Self::Panicked => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    }
-  }
-}
-
-/// The rejection of `operation` with `error` (a core's error through `api_error`, a message as `internal`). An error is
-/// the expected answer of an error-path test, not a failure of the server, so it is logged at debug
-pub(crate) fn failed(operation: &str, error: impl IntoApiError) -> Rejection {
-  let error = error.into_api_error();
-  tracing::debug!("Cannot {operation}: {}", error.message);
-  Rejection::Error(error)
-}
-
-pub(crate) type CommandResult<T> = Result<Json<T>, Rejection>;
 
 /// Runs a command off the async runtime, as the app runs its git work (`spawn_blocking`)
 pub(crate) async fn run_command<T, E, F>(operation: &'static str, command: F) -> CommandResult<T>
@@ -128,40 +92,6 @@ where
     Ok(Event::default().event(event_name).data(serde_json::to_string(&event).unwrap()))
   });
   Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive"))
-}
-
-#[derive(Deserialize)]
-pub struct ValidateRepositoryPathRequest {
-  path: String,
-}
-
-pub async fn validate_repository_path(Json(request): Json<ValidateRepositoryPathRequest>) -> Json<String> {
-  // Use production validation logic
-  match sync_core::repository_validation::validate_path(&request.path) {
-    Ok(()) => Json(String::new()),
-    Err(e) => Json(e.to_string()),
-  }
-}
-
-#[derive(Deserialize)]
-pub struct GetBranchPrefixRequest {
-  #[serde(rename = "repositoryPath")]
-  repository_path: String,
-}
-
-/// `resolve_branch_prefix` of the app with the local `branchdeck.branchPrefix` only, never the user's global config, so
-/// the tests are deterministic (a local prefix is the repository's own), and the app's prefix of the test's settings;
-/// an empty path (the settings without a repository) has no git prefix
-pub async fn resolve_branch_prefix(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<ResolvedBranchPrefix> {
-  if request.repository_path.is_empty() {
-    let settings = requesting_repository(&state, &headers).map_or_default(|repository| repository.store.app());
-    return Ok(Json(app_settings::resolve::resolve_branch_prefix(
-      &GitBranchPrefix::default(),
-      settings.global_user_branch_prefix.as_deref(),
-    )));
-  }
-  let inputs = prefix_inputs(&state, &request.repository_path)?;
-  run_command("read the branch prefix", move || inputs.fresh(&request.repository_path)).await
 }
 
 /// What a command of the sync family resolves the prefix of a test repository with, as the app's `PrefixInputs`: the
@@ -237,12 +167,11 @@ pub fn read_local_branch_prefix(git_executor: &git_executor::git_command_executo
   }
 }
 
-/// The git of the config commands of a test repository: its global config is the repository's own file
-/// (`AppState::global_config_of`), never the one of the developer, for a read and for a write
+/// The git of the config commands of a test repository, the git of its app (`AppState::context_of`): its global config
+/// is the repository's own file (`AppState::global_config_of`), never the one of the developer, for a read and for a
+/// write
 pub(crate) fn config_git(state: &AppState, repository_path: &str) -> Result<git_executor::git_command_executor::GitCommandExecutor, Rejection> {
-  let repository = repository_by_path(state, repository_path)?;
-  let global_config = state.global_config_of(&repository.id);
-  Ok(state.git_executor.with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy()))
+  Ok(repository_by_path(state, repository_path)?.context.git.clone())
 }
 
 /// The production read without the system config, its global config the repository's own file (`config_git`), so the
@@ -254,11 +183,6 @@ fn read_test_repository_config(git_executor: &git_executor::git_command_executor
     .collect();
   let config = repository_config_from_entries(&entries, read_origin_facts(git_executor, repository_path)?);
   Ok(with_stacks_off_clashes(git_executor, repository_path, config))
-}
-
-pub async fn get_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<RepositoryConfig> {
-  let git_executor = config_git(&state, &request.repository_path)?;
-  run_command("read the repository settings", move || read_test_repository_config(&git_executor, &request.repository_path)).await
 }
 
 #[derive(Deserialize)]
@@ -285,46 +209,6 @@ pub async fn set_repository_config(State(state): State<Arc<AppState>>, Json(requ
       inputs.fresh(&request.repository_path)?;
     }
     read_test_repository_config(&git_executor, &request.repository_path)
-  })
-  .await
-}
-
-/// The production check for a test repository (the template sets user.name and user.email); a fixed suggestion without
-/// one, so the first run does not depend on the identity of the machine
-pub async fn check_git_setup(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<sync_core::git_setup::GitSetup> {
-  if request.repository_path.is_empty() || ensure_repository_exists(&state, &request.repository_path).is_err() {
-    return Ok(Json(sync_core::git_setup::GitSetup {
-      git_error: None,
-      identity_error: None,
-      suggested_branch_prefix: "test-user".to_string(),
-    }));
-  }
-  let git_executor = state.git_executor.clone();
-  run_command("check the git setup", move || {
-    anyhow::Ok(sync_core::git_setup::check_git_setup(&git_executor, &request.repository_path))
-  })
-  .await
-}
-
-/// The preview of a move of the "Move to…" form: the core's dry run, nothing written (`preview_move` of the app)
-pub async fn preview_move(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<history_rewrite::move_commits::MovePreviewParams>,
-) -> CommandResult<domain_types::rewrite::MoveCommitsResult> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("preview a move", move || history_rewrite::move_commits::preview_move_core(&git_executor, &params)).await
-}
-
-/// Without the object cache, as every command of the mock server
-pub async fn get_stack_independence(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<trial_check::check::StackIndependenceParams>,
-) -> CommandResult<trial_check::check::StackIndependence> {
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let git_executor = state.git_executor.clone();
-  run_command("check the stack independence", move || {
-    trial_check::check::get_stack_independence(&git_executor, &ObjectCache::disabled(), &branch_prefix, &params)
   })
   .await
 }
@@ -371,18 +255,6 @@ pub async fn find_conflict_fix(
 /// A search of the mock server runs to its end
 pub async fn cancel_conflict_fix() -> Json<()> {
   Json(())
-}
-
-pub async fn get_autosquash_plan(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<history_rewrite::autosquash::GetAutosquashPlanParams>,
-) -> CommandResult<history_rewrite::autosquash::AutosquashPlan> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("get the autosquash plan", move || {
-    history_rewrite::autosquash::get_autosquash_plan_core(&git_executor, &params.repository_path)
-  })
-  .await
 }
 
 /// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known
@@ -627,15 +499,6 @@ pub async fn get_branch_review(
   .await
 }
 
-pub async fn get_file_owners(State(state): State<Arc<AppState>>, Json(params): Json<git_ops::ownership::GetFileOwnersParams>) -> CommandResult<Vec<git_ops::ownership::FileOwner>> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the owners of files", move || {
-    git_ops::ownership::read_file_owners(&git_executor, &params.repository_path, &params.baseline_branch, &params.paths)
-  })
-  .await
-}
-
 /// The fake services of the repository at `path` (`remote_host.rs`), started now if not yet; the repository is not held
 pub(crate) fn remote_of(state: &AppState, path: &str) -> Result<Arc<RemoteHost>, Rejection> {
   Ok(repository_by_path(state, path)?.remote(&state.git_executor))
@@ -762,85 +625,8 @@ pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(param
   Ok(Json(BranchNameSuggestionOutcome::Suggested { names }))
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetArchivedBranchCommitsRequest {
-  repository_path: String,
-  branch_name: String,
-}
-
-/// The commits of an archived branch, as the app reads them
-pub async fn get_archived_branch_commits(
-  State(state): State<Arc<AppState>>,
-  Json(request): Json<GetArchivedBranchCommitsRequest>,
-) -> CommandResult<Vec<domain_types::commit::Commit>> {
-  own_commits(
-    &state,
-    request,
-    "read the commits of the archived branch",
-    branch_integration::archive::get_archived_branch_commits,
-  )
-  .await
-}
-
-/// The commits of an unapplied branch, as the app reads them
-pub async fn get_unapplied_branch_commits(
-  State(state): State<Arc<AppState>>,
-  Json(request): Json<GetArchivedBranchCommitsRequest>,
-) -> CommandResult<Vec<domain_types::commit::Commit>> {
-  own_commits(
-    &state,
-    request,
-    "read the commits of the unapplied branch",
-    branch_integration::archive::get_unapplied_branch_commits,
-  )
-  .await
-}
-
-/// The own commits of the kept branch of `request` by `read`, from the baseline of the repository
-async fn own_commits(
-  state: &AppState,
-  request: GetArchivedBranchCommitsRequest,
-  what: &'static str,
-  read: fn(&git_executor::git_command_executor::GitCommandExecutor, &str, &str, &str, &str) -> anyhow::Result<Vec<domain_types::commit::Commit>>,
-) -> CommandResult<Vec<domain_types::commit::Commit>> {
-  let inputs = prefix_inputs(state, &request.repository_path)?;
-  run_command(what, move || {
-    let branch_prefix = inputs.branch_prefix(&request.repository_path)?;
-    let baseline_branch = history_rewrite::baseline::detect_baseline_branch(&inputs.git, &request.repository_path)?;
-    read(&inputs.git, &request.repository_path, &branch_prefix, &request.branch_name, &baseline_branch)
-  })
-  .await
-}
-
-pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(params): Json<GetUncommittedChangesParams>) -> CommandResult<UncommittedChangesResult> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the uncommitted changes", move || core_get_uncommitted_changes(&git_executor, params)).await
-}
-
 // The commit files commands run real git on the fixture repository, without the object cache: an LMDB environment
 // per test repository would stay open (and keep its files) for the life of the server
-
-pub async fn get_commit_files(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitFilesParams>) -> CommandResult<CommitFiles> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the files of a commit", move || {
-    read_commit_files_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), std::slice::from_ref(&params.commit_id))?
-      .pop()
-      .ok_or_else(|| anyhow::anyhow!("No files read for {}", params.commit_id))
-  })
-  .await
-}
-
-pub async fn get_commits_files(State(state): State<Arc<AppState>>, Json(params): Json<GetCommitsFilesParams>) -> CommandResult<Vec<CommitFiles>> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the files of commits", move || {
-    read_commit_files_cached(&git_executor, &params.repository_path, &ObjectCache::disabled(), &params.commit_ids)
-  })
-  .await
-}
 
 /// The events of the app's channel as SSE events named `fileDiff`, once all are known; a failed read answers with its
 /// error instead. Without the object cache and with fresh memory caches: each read of a test runs git
@@ -879,23 +665,6 @@ where
     let _ = sender.send(event);
   }
   Ok(sse_events(receiver, event_name))
-}
-
-pub async fn get_blob_texts(State(state): State<Arc<AppState>>, Json(params): Json<GetBlobTextsParams>) -> CommandResult<Vec<BlobText>> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the texts of blobs", move || {
-    FileDiffs::default().blob_texts(&git_executor, &params.repository_path, &params.blobs)
-  })
-  .await
-}
-
-/// The highlighting of one blob as the app answers it: raw bytes (`application/octet-stream`), or the error of a command
-pub async fn get_blob_syntax(State(state): State<Arc<AppState>>, Json(params): Json<GetBlobSyntaxParams>) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  let Json(bytes) = run_command("highlight a blob", move || FileDiffs::default().blob_syntax(&git_executor, &params)).await?;
-  Ok(([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response())
 }
 
 pub async fn find_declaration(State(state): State<Arc<AppState>>, Json(params): Json<FindDeclarationParams>) -> CommandResult<FoundDeclarations> {

@@ -4,8 +4,8 @@
 //! repository (`clear_activity`). A write tells every window `activity-changed`, as the watch of a repository does when
 //! its journal changed (`RegistryFiles::on_journal`): the windows read the log again.
 
-use crate::commands::branch_prefix::Settings;
-use crate::operation::{operation, run_blocking};
+use crate::api::Settings;
+use app_api::operation::{operation, run_blocking};
 use app_settings::journals::activity_projects;
 use domain_types::activity::{ActivityLog, ClearActivityParams, PageActivity, PageEntry};
 use domain_types::error::ApiError;

@@ -2754,8 +2754,8 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   head's key would answer the commit's files with the range's.
 
 Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.rs`,
-`crates/object-cache/src/commit_files.rs`, `src-tauri/src/commands/commit_files.rs`, `crates/file-diffs/src/range_files.rs`,
-`src-tauri/src/repository_state.rs`.
+`crates/object-cache/src/commit_files.rs`, `crates/app-api/src/reads/commits.rs`, `crates/file-diffs/src/range_files.rs`,
+`crates/app-api/src/repository_state.rs`.
 
 #### File diffs
 
@@ -3897,7 +3897,7 @@ no operation.
 - **Branch prefix**: the backend's order (`resolve_branch_prefix` of `crates/app-settings/src/resolve.rs`, used by
   `bd` and by every command of the app that names branches: the sync family, Patronus, the push, the pull requests,
   the branch review and the stack independence, which take the repository path alone, `PrefixInputs` in
-  `src-tauri/src/commands/branch_prefix.rs`; the operations of the remote get it through the key of their session) puts the specific prefix first: the repository's own (local,
+  `crates/app-api/src/context.rs`; the operations of the remote get it through the key of their session) puts the specific prefix first: the repository's own (local,
   worktree or command scope), then the app's `globalUserBranchPrefix`, then the global or system one, and names where
   the prefix came from (`ResolvedBranchPrefix`). `get_branch_prefix_from_git_config_sync` reads the value with its scope
   in one `git config -z --show-scope --get`, for the page's `resolve_branch_prefix` and for the first command of a

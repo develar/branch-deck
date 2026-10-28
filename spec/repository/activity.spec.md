@@ -40,7 +40,7 @@ targets:
   - ../../src/components/branch/DroppedCommitList.tsx
   - ../../src/lib/command.ts
   - ../../src/lib/errors.ts
-  - ../../src-tauri/src/operation.rs
+  - ../../crates/app-api/src/operation.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/app-api/src/api_error.rs
   - ../../src/lib/landed.ts
@@ -171,7 +171,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`)
 - The entry of an error a command returned keeps the operation it names as `operationId`, the key to the command's
   lines in the app's log: every command that can fail runs its body as an operation, the `operation{operation_id=…}`
-  span of `src-tauri/src/operation.rs`, and its error carries the id (`ApiError.operation_id`); the app's log keeps
+  span of `crates/app-api/src/operation.rs`, and its error carries the id (`ApiError.operation_id`); the app's log keeps
   the lines for days (the retention as the comment of `LOG_FILE_BYTES` in `src-tauri/src/lib.rs` describes it). The page
   log line of the error carries it as `operation_id`. A page step that throws what a command returned throws it as a
   `commandFailure` (`src/lib/errors.ts`), which keeps the id up to the `notifyError` of its caller, and a review write
@@ -184,8 +184,8 @@ tells the present, its line of the last day opens Activity at its Robots.
   [@test] ../../src/lib/errors.test.ts (`is what the page throws for a failed command: no new Error of its message drops the operation`)
   [@test] ../../src/lib/errors.test.ts (`returns the operation an ApiError names, and nothing for any other error`)
   [@test] ../../src/lib/errors.test.ts (`passes the operation an ApiError names to the backend log line, as operation_id`)
-  [@test] ../../src-tauri/src/command_scan_test.rs (`every_command_has_a_span_and_a_fallible_one_runs_as_an_operation`)
-  [@test] ../../src-tauri/src/command_scan_test.rs (`a_body_is_one_operation_only_without_work_outside_it`)
+  [@test] ../../crates/app-api/src/command_scan_test.rs (`every_command_has_a_span_and_a_fallible_one_runs_as_an_operation`)
+  [@test] ../../crates/app-api/src/command_scan_test.rs (`a_body_is_one_operation_only_without_work_outside_it`)
   [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`every_closure_or_future_handed_to_another_thread_carries_the_span_of_its_caller`)
   [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`the_scan_reads_the_argument_of_a_spawn_past_strings_nested_calls_and_line_breaks`)
   [@test] ../../src-tauri/src/tracing_log_test.rs (`the_async_lines_of_a_command_and_its_blocking_step_name_one_operation`)

@@ -26,6 +26,9 @@ pub struct AppState {
   /// The clocks the sessions age on, one per test repository: each stands still, so no session of a test goes away by
   /// itself, and moves only by its test
   pub session_clocks: std::sync::Arc<WorktreeClocks>,
+  /// The git directories and the GitHub repository of each test repository, as the app keeps them, without the object
+  /// cache (docs/design/e2e-testing.md, decision 8); forgotten with the repository
+  pub repository_state: app_api::repository_state::RepositoryStateCache,
 }
 
 impl AppState {
@@ -34,6 +37,23 @@ impl AppState {
   /// and two tests that run at once never share one. Deleted with the repository
   pub fn global_config_of(&self, repository_id: &str) -> PathBuf {
     self.test_root_dir.path().join(format!("{repository_id}.gitconfig"))
+  }
+
+  /// The app of the test repository `repository_id`, what its commands of app-api run with: the git of a test machine
+  /// (the global config of the repository, `global_config_of`, and no system config), the settings of its page, its own
+  /// memory of the diffs, and the git prefixes and the repository state of the server
+  pub fn context_of(&self, repository_id: &str, settings: &std::sync::Arc<app_settings::service::SettingsService>) -> app_api::context::AppContext {
+    let global_config = self.global_config_of(repository_id);
+    app_api::context::AppContext {
+      git: self
+        .git_executor
+        .with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy())
+        .with_env("GIT_CONFIG_NOSYSTEM", "1"),
+      settings: std::sync::Arc::clone(settings),
+      prefixes: self.branch_prefixes.clone(),
+      repository_state: self.repository_state.clone(),
+      file_diffs: file_diffs::service::FileDiffs::default(),
+    }
   }
 
   /// The app data directory of a test repository's fake services (`remote_host.rs`): the token files of the sign-ins
@@ -54,7 +74,9 @@ pub struct TestRepository {
   pub in_flight: std::sync::Arc<tokio::sync::RwLock<()>>,
   /// The settings of the page: the writer of the app on `settings.json` and `repository-state.json` in `app_data`,
   /// which `set_setting` and the `/store` fixture routes change
-  pub store: app_settings::service::SettingsService,
+  pub store: std::sync::Arc<app_settings::service::SettingsService>,
+  /// What the commands of app-api run with for this repository (`AppState::context_of`)
+  pub context: std::sync::Arc<app_api::context::AppContext>,
   /// How often the app asked for pull requests, so a test can check the refresh policy
   pub pull_request_calls: AtomicU32,
   /// What the session reads of the review requests and how `fetch_review_head` fails (E2E never runs gh); not on GitHub until a

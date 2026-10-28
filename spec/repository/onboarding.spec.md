@@ -36,7 +36,7 @@ targets:
   - ../../src/components/settings/AgentsPage.tsx
   - ../../src/lib/branch-prefix.ts
   - ../../src/stores/repository.ts
-  - ../../src-tauri/src/commands/branch_prefix.rs
+  - ../../crates/app-api/src/reads/repository.rs
   - ../../crates/app-settings/src/resolve.rs
   - ../../crates/app-settings/src/branch_prefixes.rs
   - ../../crates/app-settings/src/service.rs
@@ -264,7 +264,9 @@ alert with the reason and the next step, never a raw Git error.
   origin/master or origin/main, and no upstream").
   [@test] ../../crates/history-rewrite/src/baseline_test.rs (`a_repository_without_commits_says_so`, `no_local_baseline_names_each_branch_once`, `no_remote_baseline_names_each_branch_once`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says that a repository without commits has nothing to sync yet`)
-- A saved repository that no longer exists is an error alert, Sync disabled, until another one is selected.
+- A saved repository that no longer exists is an error alert, "Repository not accessible: <path>", Sync disabled, until
+  another one is selected.
+  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_directory_that_is_gone_is_not_accessible`)
   [@test] ../../tests/e2e/repository/saved-path-validation.spec.ts (`should display error for non-existent repository path`, `should clear error when valid repository is selected`)
 
 ### Grouping

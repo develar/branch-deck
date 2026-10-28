@@ -23,6 +23,7 @@ use tower_http::trace::TraceLayer;
 pub mod activity_routes;
 pub mod channel_commands;
 pub mod cli_tools_fixtures;
+pub mod invoke;
 pub mod remote_fixtures;
 pub mod remote_git_fixtures;
 pub mod remote_host;
@@ -184,6 +185,7 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       registry,
       sessions,
       session_clocks,
+      repository_state: app_api::repository_state::RepositoryStateCache::without_object_caches(),
     }
   });
   // the facts of the sessions, read on the same clocks from the fakes of each test repository
@@ -202,7 +204,8 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
 }
 
 pub fn create_app(state: Arc<AppState>) -> Router {
-  Router::new()
+  // the commands of app-api, one route each (`invoke.rs`)
+  invoke::command_routes(Router::new())
     // Repository management endpoints
     .route("/repositories", post(create_repository))
     .route("/repositories/{id}", get(get_repository))
@@ -270,11 +273,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
     .route("/store/{repo_id}/{key}", axum::routing::delete(delete_store_value))
-    // Tauri command endpoints
-    .route("/invoke/validate_repository_path", post(tauri_command_bridge::validate_repository_path))
-    .route("/invoke/resolve_branch_prefix", post(tauri_command_bridge::resolve_branch_prefix))
-    .route("/invoke/check_git_setup", post(tauri_command_bridge::check_git_setup))
-    .route("/invoke/get_repository_config", post(tauri_command_bridge::get_repository_config))
+    // the handwritten command endpoints, until their commands move to app-api
     .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
     .route("/invoke/read_activity", post(activity_routes::read_activity))
     .route("/invoke/record_activity", post(activity_routes::record_activity))
@@ -291,14 +290,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/link_pull_request", post(session_routes::link_pull_request))
     .route("/invoke/unlink_pull_request", post(session_routes::unlink_pull_request))
     .route("/invoke/sync", post(session_routes::sync))
-    .route("/invoke/preview_move", post(tauri_command_bridge::preview_move))
     .route("/invoke/preview_group", post(session_routes::preview_group))
-    .route("/invoke/validate_branch_name", post(session_routes::validate_branch_name))
-    .route("/invoke/commit_body_blocks", post(session_routes::commit_body_blocks))
-    .route("/invoke/get_stack_independence", post(tauri_command_bridge::get_stack_independence))
     .route("/invoke/find_conflict_fix", post(tauri_command_bridge::find_conflict_fix))
     .route("/invoke/cancel_conflict_fix", post(tauri_command_bridge::cancel_conflict_fix))
-    .route("/invoke/get_autosquash_plan", post(tauri_command_bridge::get_autosquash_plan))
     .route("/invoke/get_auth_status", post(tauri_command_bridge::get_auth_status))
     .route("/invoke/sign_in", post(tauri_command_bridge::sign_in))
     .route("/invoke/cancel_sign_in", post(tauri_command_bridge::cancel_sign_in))
@@ -310,19 +304,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_branch_review", post(tauri_command_bridge::get_branch_review))
     .route("/invoke/get_new_stack_pull_request", post(tauri_command_bridge::get_new_stack_pull_request))
     .route("/invoke/prefetch_branch_review", post(tauri_command_bridge::prefetch_branch_review))
-    .route("/invoke/get_file_owners", post(tauri_command_bridge::get_file_owners))
     .route("/invoke/get_robot_stats", post(tauri_command_bridge::get_robot_stats))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
-    .route("/invoke/get_archived_branch_commits", post(tauri_command_bridge::get_archived_branch_commits))
-    .route("/invoke/get_unapplied_branch_commits", post(tauri_command_bridge::get_unapplied_branch_commits))
-    .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
-    .route("/invoke/get_commit_files", post(tauri_command_bridge::get_commit_files))
-    .route("/invoke/get_commits_files", post(tauri_command_bridge::get_commits_files))
     .route("/invoke/get_file_diffs", post(tauri_command_bridge::get_file_diffs))
     .route("/invoke/get_file_merges", post(tauri_command_bridge::get_file_merges))
-    .route("/invoke/get_blob_texts", post(tauri_command_bridge::get_blob_texts))
-    .route("/invoke/get_blob_syntax", post(tauri_command_bridge::get_blob_syntax))
     .route("/invoke/find_declaration", post(tauri_command_bridge::find_declaration))
     .route("/invoke/find_usages", post(tauri_command_bridge::find_usages))
     .route("/invoke/cancel_symbol_search", post(tauri_command_bridge::cancel_symbol_search))
@@ -701,11 +687,14 @@ fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, se
   for (key, value) in values {
     set_fixture_value(&store, key, value.clone())?;
   }
+  write_test_identity(&state.global_config_of(id))?;
+  let store = Arc::new(store);
   let repo = TestRepository {
     id: id.to_string(),
     path: path.to_string(),
     app_data,
     in_flight: Arc::default(),
+    context: Arc::new(state.context_of(id, &store)),
     store,
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
     review_requests: std::sync::RwLock::default(),
@@ -732,6 +721,18 @@ fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, se
   };
   state.repositories.insert(id.to_string(), repo);
   Ok(())
+}
+
+/// The identity of the test machine, in the global config of a test repository: what `git var` finds outside a
+/// repository (the first run of the welcome card, a `NO_REPO` path), as the developer's global config gives the app one.
+/// A repository's own identity (the templates set `user.name` and `user.email`) wins
+const TEST_IDENTITY: &str = "[user]\n\tname = Test User\n\temail = test-user@example.com\n";
+
+fn write_test_identity(global_config: &std::path::Path) -> Result<(), StatusCode> {
+  std::fs::write(global_config, TEST_IDENTITY).map_err(|e| {
+    tracing::error!(path = %global_config.display(), error = %e, "cannot write the global config of the test repository");
+    StatusCode::INTERNAL_SERVER_ERROR
+  })
 }
 
 pub async fn get_repository(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -969,6 +970,8 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
   }
+  // the git directories and the GitHub repository the commands kept of it
+  state.repository_state.forget(&repo.path);
   // the writer saves what is pending now, not when the repository is dropped after its app data is gone
   if let Err(e) = repo.store.flush() {
     tracing::warn!("Failed to save the settings of {id}: {e}");

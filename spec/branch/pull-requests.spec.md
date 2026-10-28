@@ -13,7 +13,7 @@ targets:
   - ../../crates/sync-core/src/github_repository.rs
   - ../../src-tauri/src/commands/github.rs
   - ../../src-tauri/src/commands/pull_requests.rs
-  - ../../src-tauri/src/repository_state.rs
+  - ../../crates/app-api/src/repository_state.rs
   - ../../src/stores/pull-requests.ts
   - ../../src/lib/pull-request.ts
   - ../../src/lib/check-counts.ts
@@ -124,7 +124,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   `config.worktree` stay as they are, at most 10 minutes (the global config and the Space settings may name it too):
   a refresh of the pull requests, the review requests and the user search runs no git for it, and a change in
   Settings → Repository is read at the next one.
-  [@test] ../../src-tauri/src/repository_state_test.rs (`the_github_repository_is_kept_until_the_config_changes`)
+  [@test] ../../crates/app-api/src/repository_state_test.rs (`the_github_repository_is_kept_until_the_config_changes`)
 - Otherwise a remote on another host, a local path or no `origin` must report "not on GitHub" without asking GitHub.
   [@test] ../../crates/sync-core/src/github_repository_test.rs (`rejects_remote_urls_outside_github`)
   [@test] ../../crates/sync-core/src/github_repository_test.rs (`a_remote_outside_github_has_no_github_repository`)

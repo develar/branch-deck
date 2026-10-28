@@ -91,7 +91,7 @@ targets:
   - ../../crates/repository-model/src/table.rs
   - ../../crates/repository-model/src/session.rs
   - ../../crates/operations/src/push.rs
-  - ../../src-tauri/src/commands/archived_branches.rs
+  - ../../crates/app-api/src/reads/commits.rs
   - ../../src/lib/git/delete-kept-branch.ts
   - ../../src/model/store.ts
 ---

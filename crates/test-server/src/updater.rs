@@ -9,8 +9,9 @@ use axum::http::StatusCode;
 use domain_types::update::{UpdateInfo, UpdateStatus};
 use serde::Deserialize;
 
+use crate::invoke::{CommandResult, Rejection, failed};
 use crate::state::{AppState, TestRepository};
-use crate::tauri_command_bridge::{CommandResult, Rejection, failed, requesting_repository};
+use crate::tauri_command_bridge::requesting_repository;
 
 /// The version the app of an E2E test runs
 pub const TEST_APP_VERSION: &str = "0.0.0-test";

@@ -1,6 +1,6 @@
-use crate::operation::operation;
+use app_api::operation::operation;
 #[cfg(feature = "auto-update")]
-use crate::operation::run_blocking;
+use app_api::operation::run_blocking;
 use domain_types::error::ApiError;
 #[cfg(feature = "auto-update")]
 use tracing::info;

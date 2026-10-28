@@ -48,7 +48,7 @@ export function describeError(error: unknown): string {
 
 /**
  * The operation a failed command names (`ApiError.operation_id`, set by `operation`, `operation_now` or the one
- * `run_blocking` step of `src-tauri/src/operation.rs`): the id of its log lines, `operation{operation_id=…}`; undefined
+ * `run_blocking` step of `crates/app-api/src/operation.rs`): the id of its log lines, `operation{operation_id=…}`; undefined
  * for any other error
  */
 export function getErrorOperationId(error: unknown): string | undefined {

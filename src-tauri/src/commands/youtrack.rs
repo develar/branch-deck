@@ -2,7 +2,7 @@
 //! (`commands::sign_in`), and the issue of a popover (spec/repository/youtrack.spec.md)
 
 use crate::commands::github::app_user_agent;
-use crate::operation::operation;
+use app_api::operation::operation;
 use domain_types::error::ApiError;
 use domain_types::youtrack::YouTrackIssueAnswer;
 use remote_facts::youtrack_cli::handed_token_file;

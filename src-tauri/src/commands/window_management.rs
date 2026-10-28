@@ -1,8 +1,9 @@
-use crate::operation::{operation, tauri_error};
+use crate::api::{Settings, tauri_error};
 use crate::presentation::{Presentation, next_presentation};
 use crate::settings::init_script as settings_init_script;
 use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
 use crate::zoom::{apply_zoom, sub_window_min_size};
+use app_api::operation::operation;
 use app_settings::service::SettingsService;
 use app_settings::windows::window_changes_since;
 use domain_types::error::ApiError;
@@ -331,7 +332,7 @@ pub struct OpenSubWindowParams {
 #[tauri::command]
 #[instrument(skip(app_handle, state, settings, params), fields(window_id = %params.window_id, url = %params.url))]
 #[specta::specta]
-pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, settings: State<'_, SettingsService>, params: OpenSubWindowParams) -> Result<(), ApiError> {
+pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowState>, settings: Settings<'_>, params: OpenSubWindowParams) -> Result<(), ApiError> {
   operation(async move {
     let _open = state.open_lock.lock().await;
     let open = state.next_open(params.opened_at);
@@ -402,12 +403,7 @@ pub async fn open_sub_window(app_handle: AppHandle, state: State<'_, SubWindowSt
 #[tauri::command]
 #[instrument(skip(app_handle, webview, state, settings))]
 #[specta::specta]
-pub async fn sub_window_loaded(
-  app_handle: AppHandle,
-  webview: Webview,
-  state: State<'_, SubWindowState>,
-  settings: State<'_, SettingsService>,
-) -> Result<SubWindowLoaded, ApiError> {
+pub async fn sub_window_loaded(app_handle: AppHandle, webview: Webview, state: State<'_, SubWindowState>, settings: Settings<'_>) -> Result<SubWindowLoaded, ApiError> {
   operation(async move {
     let label = webview.label().to_string();
     let (loaded, deadline) = state.loaded(&label, &settings);

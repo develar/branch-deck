@@ -29,7 +29,8 @@ async fn a_failed_command_answers_with_its_api_error() {
   assert_eq!(answer["status"], "error");
   assert!(!answer["error"]["message"].as_str().unwrap().is_empty(), "{answer}");
 
-  let answer: Value = command(
+  // the body of the app fails as in the app, and its error names its operation
+  let mut answer: Value = command(
     &client,
     addr,
     Named::Id(&id),
@@ -42,13 +43,10 @@ async fn a_failed_command_answers_with_its_api_error() {
   .json()
   .await
   .unwrap();
-  assert_eq!(
-    answer,
-    json!({
-      "status": "error",
-      "error": { "code": "internal", "message": "Repository not accessible: /no/such/repository", "details": null, "retry": "no", "operation_id": null }
-    })
-  );
+  let operation_id = answer["error"]["operation_id"].take();
+  assert_eq!(operation_id.as_str().map(str::len), Some(26), "{answer}");
+  assert_eq!((answer["status"].as_str(), answer["error"]["code"].as_str()), (Some("error"), Some("internal")), "{answer}");
+  assert!(!answer["error"]["message"].as_str().unwrap_or_default().is_empty(), "{answer}");
 }
 
 /// The deletion at the end of a test removes the files once the command still running for the repository ended, also

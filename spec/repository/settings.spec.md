@@ -66,7 +66,8 @@ targets:
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/app-settings/src/resolve.rs
   - ../../crates/app-settings/src/branch_prefixes.rs
-  - ../../src-tauri/src/commands/branch_prefix.rs
+  - ../../crates/app-api/src/context.rs
+  - ../../crates/app-api/src/reads/repository.rs
   - ../../crates/app-settings/src/windows.rs
   - ../../crates/domain-types/src/settings.rs
   - ../../crates/sync-core/src/repository_config.rs
@@ -537,7 +538,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   by the resolved prefix; a sync of a repository without a prefix is refused ("Cannot sync without a branch prefix: set
   one in Settings → General"). The commands of Patronus, of a push, of a pull request, of the branch review and of the
   independence of a stack name the repository only too and resolve the prefix the same way (`PrefixInputs` of
-  `src-tauri/src/commands/branch_prefix.rs`, [Patronus](../branch/patronus.spec.md)). The conflict fix
+  `crates/app-api/src/context.rs`, [Patronus](../branch/patronus.spec.md)). The conflict fix
   (`find_conflict_fix`), whose parameters `bd` shares, gets the prefix the page shows, the last answer of
   `resolve_branch_prefix`.
   [@test] ../../crates/app-settings/src/branch_prefixes_test.rs (`git_is_read_once_per_repository_and_the_app_prefix_of_each_command_applies`, `a_failed_read_keeps_nothing`, `a_refresh_replaces_the_git_prefix_and_a_clear_forgets_every_repository`)

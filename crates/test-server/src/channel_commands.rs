@@ -3,7 +3,7 @@
 //! the channel `{"progress": …}` while the command runs, then its answer `{"result": …}` (`{ status, data }` or
 //! `{ status, error }`, as `run_command` answers). Without the header (a direct call of a test), the answer alone.
 
-use crate::tauri_command_bridge::{CommandResult, Rejection};
+use crate::invoke::{CommandResult, Rejection};
 use axum::Json;
 use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};

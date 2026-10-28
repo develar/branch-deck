@@ -1,12 +1,10 @@
-use crate::commands::branch_prefix::PrefixInputs;
-use crate::operation::{operation, run_blocking};
-use app_settings::branch_prefixes::BranchPrefixes;
-use app_settings::service::SettingsService;
+use crate::api::{Prefixes, Settings};
+use app_api::context::PrefixInputs;
+use app_api::operation::{operation, run_blocking};
 use domain_types::error::ApiError;
 use file_diffs::range_files::RangeFilesCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::DiffSubject;
-use git_ops::ownership::{FileOwner, GetFileOwnersParams, read_file_owners};
 use serde::Deserialize;
 use specta::Type;
 use std::sync::Arc;
@@ -40,8 +38,8 @@ pub struct PrefetchBranchReviewParams {
 pub async fn get_branch_review(
   git_executor: State<'_, GitCommandExecutor>,
   memo: State<'_, BranchReviewMemo>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
   params: GetBranchReviewParams,
 ) -> Result<Arc<BranchReview>, ApiError> {
   let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
@@ -51,16 +49,6 @@ pub async fn get_branch_review(
     memo.get(&inputs.git, &branch_prefix, &params)
   })
   .await
-}
-
-/// The code owners of paths by the `OWNERSHIP` files of the baseline, from one `cat-file --batch`; a path without an
-/// owner is left out
-#[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, paths = params.paths.len()))]
-#[specta::specta]
-pub async fn get_file_owners(git_executor: State<'_, GitCommandExecutor>, params: GetFileOwnersParams) -> Result<Vec<FileOwner>, ApiError> {
-  let git = (*git_executor).clone();
-  run_blocking(move || read_file_owners(&git, &params.repository_path, &params.baseline_branch, &params.paths)).await
 }
 
 /// Reads in the background what the review window of a branch asks for first: its parts (`get_branch_review`) and the
@@ -73,8 +61,8 @@ pub async fn prefetch_branch_review(
   git_executor: State<'_, GitCommandExecutor>,
   memo: State<'_, BranchReviewMemo>,
   range_files: State<'_, RangeFilesCache>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
   params: PrefetchBranchReviewParams,
 ) -> Result<(), ApiError> {
   operation(async move {

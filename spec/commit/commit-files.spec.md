@@ -6,8 +6,8 @@ targets:
   - ../../crates/git-ops/src/commit_files.rs
   - ../../crates/object-cache/src/commit_files.rs
   - ../../crates/file-diffs/src/range_files.rs
-  - ../../src-tauri/src/commands/commit_files.rs
-  - ../../src-tauri/src/repository_state.rs
+  - ../../crates/app-api/src/reads/commits.rs
+  - ../../crates/app-api/src/repository_state.rs
   - ../../src/stores/commit-files.ts
   - ../../src/hooks/useCommitFiles.ts
   - ../../src/lib/commit-files.ts
@@ -40,6 +40,7 @@ targets:
   - ../../crates/text-diff/src/model.rs
   - ../../crates/object-cache/src/file_diff.rs
   - ../../src-tauri/src/commands/file_diffs.rs
+  - ../../crates/app-api/src/reads/blobs.rs
   - ../../crates/test-utils/src/repo_template.rs
   - ../../src/components/conflict/CollapsibleFileHeader.tsx
   - ../../src/components/diff/LazyDiffViews.tsx
@@ -99,7 +100,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [@test] ../../crates/object-cache/src/cache_test.rs (`round_trip`)
 - The object cache must live in the common git directory of the repository, which the app resolves once per
   repository. Outside a repository the cache is disabled, and the files are still read.
-  [@test] ../../src-tauri/src/repository_state_test.rs (`object_cache_lives_in_the_common_dir_of_the_repository`)
+  [@test] ../../crates/app-api/src/repository_state_test.rs (`object_cache_lives_in_the_common_dir_of_the_repository`)
 - A commit id must be a full object id: an abbreviation, a ref or an option is refused.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`refuses_what_is_not_an_object_id`)
 - Nothing must write to a ref, the index or the working tree.
@@ -408,7 +409,7 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/git-ops/src/commit_files_test.rs`, `crates/object-cache/src/cache_test.rs`,
-  `src-tauri/src/repository_state_test.rs`, `crates/file-diffs/src/range_files_test.rs`.
+  `crates/app-api/src/repository_state_test.rs`, `crates/file-diffs/src/range_files_test.rs`.
 - `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/lib/file-tree.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/file-diffs.test.ts`, `src/stores/blob-texts.test.ts`, `src/lib/diff/*.test.ts`.
 - `pnpm e2e`: `tests/e2e/commit-files`, on the `issue_links` and `commit_tree` templates (nested directories, a Kotlin

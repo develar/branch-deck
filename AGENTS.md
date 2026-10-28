@@ -612,10 +612,12 @@ The checklist:
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.
 - **Rust**: `snake_case` for variables, functions and modules; `tracing` for structured logging, `#[instrument]` to
   trace a function's entry, exit and arguments; proper `Result` types, not strings.
-- **Operations and spans** ([Operation spans](docs/design/async-patterns.md#operation-spans)): every Tauri command has
-  `#[instrument]`, with `skip_all` and a field or two when an argument holds a collection; a command that can fail runs
-  its body as an operation (`operation`, `operation_now`, or its one blocking step `run_blocking`;
-  `src-tauri/src/operation.rs`), so its error names the `operation_id` of its log lines (`command_scan_test.rs`). A
+- **Operations and spans** ([Operation spans](docs/design/async-patterns.md#operation-spans)): every command of the
+  app (a body of the registry of app-api, a handwritten Tauri command) has `#[instrument]`, with `skip_all` and a field
+  or two when an argument holds a collection; a command that can fail runs its body as an operation (`operation`,
+  `operation_now`, or its one blocking step `run_blocking`; `crates/app-api/src/operation.rs`), so its error names the
+  `operation_id` of its log lines; the object cache, the git directories and the GitHub repository only in that step
+  (`crates/app-api/src/command_scan_test.rs`). A
   closure or future handed to another thread carries the caller's span: `sync_utils::span::in_current_span(…)` or
   `.in_current_span()` (`crates/git-executor/src/thread_span_scan_test.rs`).
 - **Clippy**: pedantic, nursery and cargo plus the restriction lints that catch defects (`[workspace.lints]` in
@@ -798,7 +800,8 @@ src/
 ├── index.css        # Tailwind and the theme tokens
 └── main.tsx         # App entry (store handlers, router)
 src-tauri/src/
-├── commands/        # Tauri commands
+├── api.rs           # The Tauri wrappers of the commands of app-api, generated from its registry (`for_each_command!`)
+├── commands/        # The handwritten Tauri commands, until their family moves to app-api
 ├── lib.rs           # Command registration (`specta_builder`, exported to bindings.ts by bindings_test.rs)
 └── …                # title_bar.rs, menu.rs, zoom.rs, …
 crates/
@@ -814,7 +817,7 @@ crates/
 ├── operations/      # The engine of the operations of a repository: the in-process registry (the `operations` part of the view, admitted by `domain_policy::admission`), the registry of the repository between processes (`registry_file`, its watch `registry_watch`, the lost starts `reconcile` and `forget`), the journal of the operations that ended (`journal`), the frame every family runs in, the witness of a plan, the facts a plan needs and their reads (`needs`, `facts::fill`), every intent (`prepare`, `execute`, `cancel_operation`): the start (`land`, `land_execute`), the push (`push`), the robot (`robot`), the pull requests (`pull_request`, `close`, `review`), the issue (`issue`), the review fetch (`review_fetch`), the rewrites and their undo (`rewrite`), Update Project, Fetch and Dismiss Landed (`update`)
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the requests and answers of the rewrite cores (`rewrite`), the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── domain-policy/   # The pure rules of the domain, one file per rule ([Rule Index](#rule-index): `facts`, `robot_match`, `push`, `stack`, `parked`, `attention`, `holds`, `land`, `land_direct`, `landed`, `pull_request`, `review`, `readiness`, `landing_needs`, `landing_route`, `next_step`, `landing_node`, `actions`, `admission`, `news`, `refresh`, `reasons`), only domain-types: no git, no IO, no runtime; `cases/` holds the scenario table both sides answer, `reasons.json` and `actions.json` the catalogs the presenters word
-├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
+├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: the one list of the commands (`commands.rs`, `for_each_command!`, the grammar of `registry.rs`), their bodies by family (`reads/`), `AppContext`, the operation frame (`operation`), the repository state cache; `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
 ├── app-settings/    # The settings of the app for the app and bd: the one writer of `settings.json` and `repository-state.json` (`SettingsService`: patches, versions, a debounced atomic save), the tolerant load, the keys of each window, the order of the branch prefixes with its source (`resolve_branch_prefix`, `BranchPrefixes`); no Tauri, no git
 ├── cli-tools/       # The teamcity and youtrack CLIs of Settings → Tools: status, install and update through Homebrew; no git, no service
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)

@@ -62,10 +62,14 @@ modules by area; the layers are the
   `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
   `docs/guidelines/agent-cli.md`), a read-only command in `read_only!` (`agent_help.rs`); bd's own lock goes to the core
   as `held_lock` only when bd writes more under it. No git of its own.
-- **The app** (`src-tauri/src/commands/<op>.rs`): `#[tauri::command]` `#[specta::specta]` that calls
-  `run_blocking(move || <op>_core(..))`, registered in `src-tauri/src/lib.rs`, `src/lib/bindings.ts` regenerated
-  (`UPDATE_BINDINGS=1` on `the_bindings_are_what_the_export_writes`, `bindings_test.rs`); the E2E server routes the
-  command to the same core (`crates/test-server/src/lib.rs`, `tauri_command_bridge.rs`).
+- **The app**: a read is one entry of the registry of app-api (`for_each_command!` in `crates/app-api/src/commands.rs`,
+  the grammar in `registry.rs`) with its body in a family module (`crates/app-api/src/reads/`), `async fn(&AppContext,
+  params)` that calls `run_blocking(move || <op>_core(..))`; the app's `#[tauri::command]` wrapper (`src-tauri/src/api.rs`)
+  and the E2E server's route (`crates/test-server/src/invoke.rs`) come from the entry, and its name goes into
+  `collect_commands!` of `src-tauri/src/lib.rs`. A command the registry has no family for yet is handwritten in
+  `src-tauri/src/commands/<op>.rs` and routed by the E2E server to the same core (`crates/test-server/src/lib.rs`,
+  `tauri_command_bridge.rs`). Either way `src/lib/bindings.ts` is regenerated (`UPDATE_BINDINGS=1` on
+  `the_bindings_are_what_the_export_writes`, `bindings_test.rs`).
 - **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test of the
   operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, of `history-rewrite` too;
   `crates/update-core/src/`, `crates/trial-check/src/`, `crates/remote-facts/src/`, `crates/operations/src/` and

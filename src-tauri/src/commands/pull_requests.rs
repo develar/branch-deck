@@ -1,10 +1,10 @@
-use crate::commands::branch_prefix::PrefixInputs;
+use crate::api::Settings;
 use crate::commands::github::GitHubState;
 use crate::commands::youtrack::YouTrackState;
-use crate::operation::{operation, run_blocking};
-use crate::repository_state::RepositoryStateCache;
+use app_api::context::PrefixInputs;
+use app_api::operation::{operation, run_blocking};
+use app_api::repository_state::RepositoryStateCache;
 use app_settings::branch_prefixes::BranchPrefixes;
-use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::pull_request::{GitHubUser, NewPullRequest};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -60,7 +60,7 @@ pub async fn get_new_stack_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
-  settings: State<'_, SettingsService>,
+  settings: Settings<'_>,
   prefixes: State<'_, BranchPrefixes>,
   params: GetNewStackPullRequestParams,
 ) -> Result<NewPullRequest, ApiError> {

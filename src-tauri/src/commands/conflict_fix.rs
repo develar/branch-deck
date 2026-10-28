@@ -1,5 +1,6 @@
-use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
-use crate::operation::run_blocking;
+use crate::api::{Prefixes, Settings};
+use app_api::context::PrefixInputs;
+use app_api::operation::run_blocking;
 use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,7 +28,7 @@ fn cancel_running() {
 #[instrument(skip(git_executor, repository_state, settings, prefixes))]
 pub async fn find_conflict_fix(
   git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, crate::repository_state::RepositoryStateCache>,
+  repository_state: State<'_, app_api::repository_state::RepositoryStateCache>,
   settings: Settings<'_>,
   prefixes: Prefixes<'_>,
   params: FindConflictFixParams,

@@ -125,8 +125,9 @@ sequenceDiagram
    (`repository-state.json`) and the page's later patches of the key apply to the value the writer has; an init script
    that edits `__TAURI_STORE__` changes only what the page starts from.
 
-8. **Decision**: The commands of the test server run without the object cache (`ObjectCache::disabled()`); not for
-   determinism, the app's cache answers by content
+8. **Decision**: The commands of the test server run without the object cache (`ObjectCache::disabled()`; the
+   commands of app-api by the context of a test repository, `RepositoryStateCache::without_object_caches` of
+   `AppState::context_of`); not for determinism, the app's cache answers by content
    **Rationale**: Measured 2026-10-24 on the 197 tests of patronus-actions, next-step, commit-files, stacked-branches,
    update-project and move-commits, with a fresh cache per test repository where the app keeps it
    (`$GIT_COMMON_DIR/branch-deck/cache`, opened on its first command, closed before its files go) for every command
@@ -160,8 +161,20 @@ Template system:
 
 Mock implementation:
 - **IPC Interception**: the mock script's `__TAURI_INTERNALS__.invoke` redirects every Tauri command
+- **The commands of app-api**: a command of the registry of app-api (`for_each_command!` in
+  `crates/app-api/src/commands.rs`) has one generic route, `/invoke/<name>` of `crates/test-server/src/invoke.rs`, which
+  runs the app's body in the `AppContext` of the test repository the request names (`X-Repository-Id`), built when
+  the repository is (`AppState::context_of`): the settings of its page, its own memory of the diffs, no object cache
+  (decision 8), and the git of a test machine, `GIT_CONFIG_GLOBAL` the repository's own file and `GIT_CONFIG_NOSYSTEM`,
+  whose identity is Test User <test-user@example.com> (`TEST_IDENTITY`: what `git var` finds outside a repository,
+  the first run's suggestion `test-user`; a template's own identity wins inside it). So the server answers what the app
+  answers, an unknown path included, with no code of its own. It answers the value Tauri resolves the `invoke` with, the
+  bytes of a raw command (`get_blob_syntax`), or its error (below) with the operation it names, as the app's.
+  [@test] ../../crates/test-server/src/invoke_test.rs (`a_read_of_app_api_answers_what_the_app_answers`, `a_raw_command_answers_its_bytes`, `the_arguments_of_a_command_are_its_params_or_its_named_arguments`)
+  [@test] ../../crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)
 - **Command registry**: three lists name the commands: `collect_commands!` of `src-tauri/src/lib.rs`, the
-  `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and `COMMAND_HANDLERS` of `tauri-mocks.ts`. The mock
+  `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and of `invoke.rs` (`app_api::commands::COMMANDS`), and
+  `COMMAND_HANDLERS` of `tauri-mocks.ts`. The mock
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
@@ -215,7 +228,7 @@ Mock implementation:
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: <ApiError> }`: the
   `ApiError` of `domain-types` (`{ code, message, details, retry, operation_id }`) that the app's command rejects
   with, made by the same `app_api::api_error::api_error` from the core's error (`Rejection` in
-  `tauri_command_bridge.rs`, a type of the server only because axum's `IntoResponse` can't be implemented for
+  `invoke.rs`, a type of the server only because axum's `IntoResponse` can't be implemented for
   `ApiError` there; logged at debug: it is the expected answer of an error-path test). The mock rejects with the whole
   error, marked `name: "ApiError"`; the bindings return it as `{ status: "error", error }` (an `Error` instance they
   would throw), and the page branches on `code`, never on `message` (`pnpm lint:arch`). A test fails a command with
@@ -226,7 +239,7 @@ Mock implementation:
   Any other answer is a bug of the mock, thrown and logged: 405 a command the server does not implement, 500 a command
   that panicked, 410 a page that outlived its repository. The adapters' contract: both answer the JSON of
   `crates/app-api/fixtures/api_errors.json` for each case of `app_api::api_error::contract_cases`, the app with the id
-  of the operation besides.
+  of the operation besides (and the server for a command of app-api, which runs the app's body).
   [@test] ../../src-tauri/src/api_error_contract_test.rs (`a_command_of_the_app_rejects_with_the_api_error_json_of_the_contract`)
   [@test] ../../crates/test-server/src/api_error_contract_test.rs (`a_command_of_the_server_answers_the_api_error_json_of_the_contract`)
   [@test] ../../crates/test-server/src/api_error_contract_test.rs (`a_panicked_command_of_the_server_fails_the_request`)

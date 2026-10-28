@@ -2,16 +2,16 @@
 //! to listen (`get_settings_changes`; a sub-window gets its catch-up from `sub_window_loaded`); the writer and the
 //! events are `crate::settings`
 
-use crate::operation::operation_now;
+use crate::api::Settings;
 use crate::settings::emit_change;
 use app_api::api_error::api_error;
-use app_settings::service::SettingsService;
+use app_api::operation::operation_now;
 use app_settings::windows::window_changes_since;
 use domain_types::error::ApiError;
 use domain_types::settings::{SettingsChange, SettingsPatch};
 use serde::Deserialize;
 use specta::Type;
-use tauri::{AppHandle, State, Webview};
+use tauri::{AppHandle, Webview};
 use tracing::instrument;
 
 #[derive(Debug, Deserialize, Type)]
@@ -27,7 +27,7 @@ pub struct SetSettingParams {
 #[specta::specta]
 #[instrument(skip(app, webview, service, params), fields(window = webview.label(), key = params.patch.key()))]
 #[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle, the webview and the state of a command by value")]
-pub fn set_setting(app: AppHandle, webview: Webview, service: State<'_, SettingsService>, params: SetSettingParams) -> Result<SettingsChange, ApiError> {
+pub fn set_setting(app: AppHandle, webview: Webview, service: Settings<'_>, params: SetSettingParams) -> Result<SettingsChange, ApiError> {
   operation_now(|| {
     let change = service
       .set(params.patch, webview.label())
@@ -44,6 +44,6 @@ pub fn set_setting(app: AppHandle, webview: Webview, service: State<'_, Settings
 #[specta::specta]
 #[instrument(skip(webview, service), fields(window = webview.label()))]
 #[expect(clippy::needless_pass_by_value, reason = "tauri passes the webview and the state of a command by value")]
-pub fn get_settings_changes(webview: Webview, service: State<'_, SettingsService>, since: u32) -> Result<Vec<SettingsChange>, ApiError> {
+pub fn get_settings_changes(webview: Webview, service: Settings<'_>, since: u32) -> Result<Vec<SettingsChange>, ApiError> {
   operation_now(|| Ok(window_changes_since(&service, webview.label(), since)))
 }

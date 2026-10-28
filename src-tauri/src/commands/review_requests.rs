@@ -1,6 +1,7 @@
-use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
+use crate::api::{Prefixes, Settings};
 use crate::commands::session::{AppServices, SessionsState, session_key};
-use crate::operation::{operation, run_blocking};
+use app_api::context::PrefixInputs;
+use app_api::operation::{operation, run_blocking};
 use domain_types::error::ApiError;
 use domain_types::review_request::{GetRangeParams, LinkPullRequestParams, LinkedPullRequestAnswer, UnlinkPullRequestParams};
 use file_diffs::range_files::RangeFilesCache;

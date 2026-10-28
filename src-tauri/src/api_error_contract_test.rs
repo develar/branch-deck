@@ -4,8 +4,8 @@
 //! (`crates/test-server/src/api_error_contract_test.rs`); the one difference is the id of the operation, which only the
 //! app gives.
 
-use crate::operation::run_blocking;
 use app_api::api_error::{CONTRACT_JSON, contract_cases};
+use app_api::operation::run_blocking;
 use pretty_assertions::assert_eq;
 use serde_json::{Map, Value};
 use tauri::ipc::InvokeError;

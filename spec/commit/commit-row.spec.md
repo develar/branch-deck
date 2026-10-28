@@ -34,6 +34,7 @@ targets:
   - ../../src/hooks/usePreviewGroup.ts
   - ../../src/hooks/useDebouncedRead.ts
   - ../../src-tauri/src/commands/grouping.rs
+  - ../../crates/app-api/src/reads/grammar.rs
   - ../../crates/sync-utils/src/commit_body.rs
   - ../../crates/sync-utils/src/commit_subject.rs
   - ../../crates/sync-utils/src/issue_pattern.rs

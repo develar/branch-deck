@@ -1,6 +1,5 @@
-use crate::operation::run_blocking;
+use app_api::operation::run_blocking;
 use domain_types::error::ApiError;
-use serde::Deserialize;
 use sync_core::repository_validation::BrowseResult;
 use tracing::instrument;
 
@@ -23,28 +22,6 @@ pub async fn browse_repository(app_handle: tauri::AppHandle) -> Result<BrowseRes
       },
     };
     Ok::<_, ApiError>(result)
-  })
-  .await
-}
-
-#[derive(Debug, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ValidateRepositoryPathParams {
-  pub path: String,
-}
-
-/// Validates that a repository path exists and is a git repository
-/// Returns empty string if valid, error message if invalid
-#[tauri::command]
-#[specta::specta]
-#[instrument]
-pub async fn validate_repository_path(params: ValidateRepositoryPathParams) -> Result<String, ApiError> {
-  run_blocking(move || {
-    let message = match sync_core::repository_validation::validate_path(&params.path) {
-      Ok(()) => String::new(),
-      Err(e) => e.to_string(),
-    };
-    Ok::<_, ApiError>(message)
   })
   .await
 }

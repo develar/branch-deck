@@ -1,17 +1,14 @@
-//! The grammar of what the page shows and the user types, answered by Rust so the page keeps none of its own: the group a
-//! typed message or branch name puts a commit into (`preview_group`, the grouping of the session's table), the check of a
-//! typed branch name (`validate_branch_name`) and the blocks of a commit body (`commit_body_blocks`, the grammar the
-//! body of a pull request is written from). Reads: no git, no lock, no effect.
+//! The group a typed message or branch name puts a commit into (`preview_group`, the grouping of the session's table),
+//! answered by Rust so the page keeps no grammar of its own; the rest of that grammar is `app_api::reads::grammar`. A
+//! read: no git, no lock, no effect.
 
-use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
+use crate::api::{Prefixes, Settings};
 use crate::commands::session::{SessionsState, session_key};
-use crate::operation::operation;
-use domain_types::branch_names::{BranchNameCheck, ValidateBranchNameParams, check_branch_name};
-use domain_types::commit::{CommitBodyParams, CommitGroup, PreviewGroupParams};
-use domain_types::commit_body::CommitBodyBlock;
+use app_api::context::PrefixInputs;
+use app_api::operation::operation;
+use domain_types::commit::{CommitGroup, PreviewGroupParams};
 use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;
-use sync_utils::commit_body::{body_blocks, message_body};
 use tauri::State;
 use tracing::instrument;
 
@@ -35,23 +32,4 @@ pub async fn preview_group(
     Ok(state.sessions().preview_group(&key, &params.message).await)
   })
   .await
-}
-
-/// What a typed branch name is and the name the branch gets (`domain_types::branch_names::check_branch_name`); the page
-/// words the state
-#[tauri::command]
-#[instrument(skip_all)]
-#[specta::specta]
-#[expect(clippy::needless_pass_by_value, reason = "Tauri hands a command its arguments by value")]
-pub fn validate_branch_name(params: ValidateBranchNameParams) -> BranchNameCheck {
-  check_branch_name(&params.name, params.rules)
-}
-
-/// The blocks of the body of `message`, the lines after its subject line (`sync_utils::commit_body::body_blocks`)
-#[tauri::command]
-#[instrument(skip_all)]
-#[specta::specta]
-#[expect(clippy::needless_pass_by_value, reason = "Tauri hands a command its arguments by value")]
-pub fn commit_body_blocks(params: CommitBodyParams) -> Vec<CommitBodyBlock> {
-  body_blocks(message_body(&params.message))
 }

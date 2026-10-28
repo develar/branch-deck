@@ -10,13 +10,14 @@
 //! `refresh_facts`.
 
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
+use crate::invoke::{CommandResult, Rejection, failed};
 use crate::remote_host::HeldAnswer;
 use crate::state::AppState;
 use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
-  CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, github_of, held_or_failed, holding, keep_answered, patronus_new_api_of, rejected, remote_of,
-  repository_by_path, requesting_repository, review_requests_of, space_of,
+  branch_prefix_now, branch_prefix_of, github_of, held_or_failed, holding, keep_answered, patronus_new_api_of, rejected, remote_of, repository_by_path, requesting_repository,
+  review_requests_of, space_of,
 };
 use app_api::api_error::{api_error, no_branch_prefix, patronus_error};
 use axum::Json;
@@ -520,16 +521,6 @@ pub async fn preview_group(
 ) -> CommandResult<Option<domain_types::commit::CommitGroup>> {
   let key = session_key(&state, &params.repository_path).await?;
   Ok(Json(state.sessions.preview_group(&key, &params.message).await))
-}
-
-/// The check of a typed branch name (`validate_branch_name` of the app)
-pub async fn validate_branch_name(Json(params): Json<domain_types::branch_names::ValidateBranchNameParams>) -> Json<domain_types::branch_names::BranchNameCheck> {
-  Json(domain_types::branch_names::check_branch_name(&params.name, params.rules))
-}
-
-/// The blocks of a commit body (`commit_body_blocks` of the app)
-pub async fn commit_body_blocks(Json(params): Json<domain_types::commit::CommitBodyParams>) -> Json<Vec<domain_types::commit_body::CommitBodyBlock>> {
-  Json(sync_utils::commit_body::body_blocks(sync_utils::commit_body::message_body(&params.message)))
 }
 
 pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Json<SessionRequest>) -> CommandResult<Option<RepositoryView>> {

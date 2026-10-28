@@ -1,14 +1,18 @@
-//! The rules of a Tauri command's span and operation (docs/design/async-patterns.md#operation-spans), checked on the
-//! sources of `src-tauri`: every `#[tauri::command]` has an `#[instrument]` span; a command that can fail
-//! (`Result<_, ApiError>`) runs its body as an operation (`operation`, `operation_now`, or the one blocking step
-//! `run_blocking`); and the span records no argument that holds a collection, whose Debug text a line of the log would
-//! carry whole (`skip_all` and a field or two instead, as `add_issue_reference` does).
+//! The rules of a command's span and operation (docs/design/async-patterns.md#operation-spans), checked on the sources:
+//! the bodies of the commands of the registry (`commands.rs` names the body of each entry) and the handwritten
+//! `#[tauri::command]`s of `src-tauri` that have no entry yet (its `api.rs`, the wrappers of the entries, aside). Every
+//! command has an `#[instrument]` span; a command that can fail (`Result<_, ApiError>`) runs its body as an operation
+//! (`operation`, `operation_now`, or the one blocking step `run_blocking`); the span records no argument that holds a
+//! collection, whose Debug text a line of the log would carry whole (`skip_all` and a field or two instead); and an
+//! async body opens the object cache, and a body of the registry reads the git directories and the GitHub repository
+//! (`RepositoryStateCache`), only in a blocking step.
 
+use crate::commands::COMMANDS;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// A `#[tauri::command]` of the sources
+/// A command of the sources: a handwritten `#[tauri::command]`, or the body of an entry of the registry
 struct Command {
   /// `src-tauri/src/commands/patronus.rs:122`
   place: String,
@@ -35,7 +39,7 @@ fn rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
 }
 
 fn workspace() -> PathBuf {
-  Path::new(env!("CARGO_MANIFEST_DIR")).join("..").canonicalize().expect("workspace directory")
+  Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("workspace directory")
 }
 
 /// Splits `text` at the commas outside brackets
@@ -61,9 +65,71 @@ fn split_top_level(text: &str) -> Vec<String> {
   parts.into_iter().map(|part| part.trim().to_owned()).filter(|part| !part.is_empty()).collect()
 }
 
-/// The commands of one source file
-fn commands_of(path: &Path, text: &str) -> Vec<Command> {
-  let relative = path.strip_prefix(workspace()).unwrap_or(path).to_string_lossy().replace('\\', "/");
+fn is_function(line: &str) -> bool {
+  let line = line.trim_start();
+  line.starts_with("pub fn ") || line.starts_with("pub async fn ")
+}
+
+/// The function whose signature starts at `lines[at]`, with `instrument` its attribute; it ends at the first `}` of
+/// column 0
+fn function_at(place: String, lines: &[&str], mut at: usize, instrument: Option<String>) -> Command {
+  let mut signature = String::new();
+  while !lines[at].trim_end().ends_with('{') {
+    signature.push_str(lines[at].trim());
+    signature.push(' ');
+    at += 1;
+  }
+  signature.push_str(lines[at].trim());
+  let body_start = at + 1;
+  let mut end = body_start;
+  while lines[end] != "}" {
+    end += 1;
+  }
+  let name = signature
+    .split("fn ")
+    .nth(1)
+    .and_then(|rest| rest.split(['(', '<']).next())
+    .expect("the name of the command")
+    .to_owned();
+  let open = signature.find('(').expect("the arguments of the command");
+  let mut depth = 0;
+  let close = signature[open..]
+    .char_indices()
+    .find(|(_, c)| {
+      match c {
+        '(' => depth += 1,
+        ')' => depth -= 1,
+        _ => {}
+      }
+      depth == 0
+    })
+    .map(|(offset, _)| open + offset)
+    .expect("the end of the arguments");
+  let arguments = split_top_level(&signature[open + 1..close])
+    .into_iter()
+    .map(|argument| {
+      let (name, type_name) = argument.split_once(':').expect("name: Type");
+      (name.trim().trim_start_matches("mut ").to_owned(), type_name.trim().to_owned())
+    })
+    .collect();
+  let returns = signature[close..].split("->").nth(1).map_or_default(str::trim);
+  Command {
+    place,
+    name,
+    instrument,
+    arguments,
+    fallible: returns.starts_with("Result<") && returns.contains("ApiError>"),
+    asynchronous: signature.contains("async fn "),
+    body: lines[body_start..end].join("\n"),
+  }
+}
+
+fn relative(path: &Path) -> String {
+  path.strip_prefix(workspace()).unwrap_or(path).to_string_lossy().replace('\\', "/")
+}
+
+/// The handwritten `#[tauri::command]`s of one source file
+fn tauri_commands_of(path: &Path, text: &str) -> Vec<Command> {
   let lines: Vec<&str> = text.lines().collect();
   let mut commands = Vec::new();
   let mut index = 0;
@@ -74,77 +140,100 @@ fn commands_of(path: &Path, text: &str) -> Vec<Command> {
     }
     let mut instrument = None;
     let mut at = index + 1;
-    while !lines[at].trim_start().starts_with("pub fn ") && !lines[at].trim_start().starts_with("pub async fn ") {
+    while !is_function(lines[at]) {
       let attribute = lines[at].trim();
       if attribute.starts_with("#[instrument") {
         instrument = Some(attribute.to_owned());
       }
       at += 1;
     }
-    let mut signature = String::new();
-    while !lines[at].trim_end().ends_with('{') {
-      signature.push_str(lines[at].trim());
-      signature.push(' ');
-      at += 1;
-    }
-    signature.push_str(lines[at].trim());
-    let body_start = at + 1;
-    let mut end = body_start;
-    while lines[end] != "}" {
-      end += 1;
-    }
-    let name = signature
-      .split("fn ")
-      .nth(1)
-      .and_then(|rest| rest.split(['(', '<']).next())
-      .expect("the name of the command")
-      .to_owned();
-    let open = signature.find('(').expect("the arguments of the command");
-    let mut depth = 0;
-    let close = signature[open..]
-      .char_indices()
-      .find(|(_, c)| {
-        match c {
-          '(' => depth += 1,
-          ')' => depth -= 1,
-          _ => {}
-        }
-        depth == 0
-      })
-      .map(|(offset, _)| open + offset)
-      .expect("the end of the arguments");
-    let arguments = split_top_level(&signature[open + 1..close])
-      .into_iter()
-      .map(|argument| {
-        let (name, type_name) = argument.split_once(':').expect("name: Type");
-        (name.trim().trim_start_matches("mut ").to_owned(), type_name.trim().to_owned())
-      })
-      .collect();
-    let returns = signature[close..].split("->").nth(1).map_or_default(str::trim);
-    commands.push(Command {
-      place: format!("{relative}:{}", index + 1),
-      name,
-      instrument,
-      arguments,
-      fallible: returns.starts_with("Result<") && returns.contains("ApiError>"),
-      asynchronous: signature.contains("async fn "),
-      body: lines[body_start..end].join("\n"),
-    });
-    index = end;
+    commands.push(function_at(format!("{}:{}", relative(path), index + 1), &lines, at, instrument));
+    index = at + 1;
   }
   commands
 }
 
-fn commands() -> Vec<Command> {
+/// An entry of `for_each_command!` in `commands.rs`: its name, its kind and the path of its body under `$crate::`
+fn registry_entries(text: &str) -> Vec<(String, String, String)> {
+  let mut entries = Vec::new();
+  for line in text.lines().map(str::trim) {
+    let mut words = line.splitn(3, ' ');
+    let (Some(class), Some(kind), Some(rest)) = (words.next(), words.next(), words.next()) else {
+      continue;
+    };
+    if !matches!(class, "read") {
+      continue;
+    }
+    let name = rest.split('(').next().expect("the name of the entry");
+    let body = rest
+      .rsplit_once("= $crate::")
+      .and_then(|(_, body)| body.strip_suffix(';'))
+      .unwrap_or_else(|| panic!("the entry `{name}` names no body as `= $crate::<module>::<function>;` on its line"));
+    entries.push((name.to_owned(), kind.to_owned(), body.to_owned()));
+  }
+  entries
+}
+
+/// The body of the entry `name`: the function at `body` (`reads::commits::get_commit_files`) of this crate
+fn registry_body(name: &str, body: &str) -> Command {
+  let (module, function) = body.rsplit_once("::").expect("a body in a module");
+  let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(module.replace("::", "/"));
+  let file = [source.with_extension("rs"), source.join("mod.rs")]
+    .into_iter()
+    .find(|file| file.is_file())
+    .unwrap_or_else(|| panic!("{name}: no module file for {module}"));
+  let text = fs::read_to_string(&file).expect("readable source");
+  let lines: Vec<&str> = text.lines().collect();
+  let at = lines
+    .iter()
+    .position(|line| is_function(line) && line.contains(&format!("fn {function}(")))
+    .unwrap_or_else(|| panic!("{name}: no `pub fn {function}(` in {}", relative(&file)));
+  let attributes = lines[..at].iter().rev().take_while(|line| line.starts_with("#[") || line.starts_with("///"));
+  let instrument = attributes.map(|line| line.trim()).find(|line| line.starts_with("#[instrument")).map(str::to_owned);
+  function_at(format!("{}:{}", relative(&file), at + 1), &lines, at, instrument)
+}
+
+/// The bodies of the registry, checked against the compiled list: no entry escapes the scan
+fn registry_bodies() -> Vec<Command> {
+  let text = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands.rs")).expect("commands.rs");
+  let entries = registry_entries(&text);
+  let names: Vec<&str> = entries.iter().map(|(name, _, _)| name.as_str()).collect();
+  let compiled: Vec<&str> = COMMANDS.iter().map(|command| command.name).collect();
+  assert_eq!(names, compiled, "the scan reads the entries of commands.rs one per line: the parse needs an update");
+  entries
+    .iter()
+    .map(|(name, kind, body)| {
+      let command = registry_body(name, body);
+      assert_eq!(
+        command.fallible,
+        kind != "plain",
+        "{name}: a `{kind}` body answers {}a `Result<_, ApiError>`",
+        if command.fallible { "" } else { "no " }
+      );
+      command
+    })
+    .collect()
+}
+
+/// The handwritten commands of the app that have no entry yet
+fn tauri_commands() -> Vec<Command> {
   let mut files = Vec::new();
   rust_files(&workspace().join("src-tauri/src"), &mut files);
+  let generated = workspace().join("src-tauri/src/api.rs");
   let mut commands: Vec<Command> = files
     .iter()
-    .flat_map(|path| commands_of(path, &fs::read_to_string(path).expect("readable source")))
+    .filter(|path| **path != generated)
+    .flat_map(|path| tauri_commands_of(path, &fs::read_to_string(path).expect("readable source")))
     .collect();
   commands.sort_by(|a, b| a.name.cmp(&b.name));
-  // the commands of the app go down as the actions move onto `execute`: the bound only proves the parse found them
-  assert!(commands.len() > 30, "the scan found {} commands, is src-tauri laid out differently?", commands.len());
+  // the handwritten commands go down as they move into the registry: the bound only proves the parse found them
+  assert!(commands.len() > 20, "the scan found {} commands, is src-tauri laid out differently?", commands.len());
+  commands
+}
+
+fn commands() -> Vec<Command> {
+  let mut commands = registry_bodies();
+  commands.extend(tauri_commands());
   commands
 }
 
@@ -352,14 +441,15 @@ fn blocking_spans(body: &str) -> Vec<std::ops::Range<usize>> {
     .collect()
 }
 
-/// The lines of an async `body` that open the object cache on the worker: neither inside a `run_blocking(…)` nor in a
+/// The lines of an async `body` that call one of `calls` on the worker: neither inside a `run_blocking(…)` nor in a
 /// `move ||` closure a core runs off the workers
-fn object_cache_on_the_worker(body: &str) -> Vec<String> {
+fn blocking_on_the_worker(body: &str, calls: &[&str]) -> Vec<String> {
   let spans = blocking_spans(body);
   let mut offset = 0;
   let mut lines = Vec::new();
   for line in body.split_inclusive('\n') {
-    if let Some(at) = line.find("object_cache(")
+    let at = calls.iter().filter_map(|call| line.find(call)).min();
+    if let Some(at) = at
       && !line.contains("move ||")
       && !spans.iter().any(|span| span.contains(&(offset + at)))
     {
@@ -370,22 +460,50 @@ fn object_cache_on_the_worker(body: &str) -> Vec<String> {
   lines
 }
 
-#[test]
-fn an_async_command_opens_the_object_cache_off_the_async_workers() {
+/// The lines of the async `commands` that call one of `calls` on the worker, one report line each
+fn blocking_report(commands: &[Command], calls: &[&str]) -> Vec<String> {
   let mut report = Vec::new();
-  for command in commands().iter().filter(|command| command.asynchronous) {
-    for line in object_cache_on_the_worker(&command.body) {
+  for command in commands.iter().filter(|command| command.asynchronous) {
+    for line in blocking_on_the_worker(&command.body, calls) {
       report.push(format!("  {} ({}): {line}", command.name, command.place));
     }
   }
+  report
+}
+
+#[test]
+fn an_async_command_opens_the_object_cache_off_the_async_workers() {
+  let report = blocking_report(&commands(), &["object_cache("]);
   assert!(
     report.is_empty(),
     "the first open of the object cache runs `rev-parse` and opens LMDB, which blocks a worker of the async runtime: open it inside `run_blocking(…)` (docs/design/async-patterns.md):\n{}",
     report.join("\n")
   );
   assert_eq!(
-    object_cache_on_the_worker("  let cache = repository_state.object_cache(&git, &path);\n  run_blocking(move || {\n    let cache = state.object_cache(&git, &path);\n  })"),
+    blocking_on_the_worker(
+      "  let cache = repository_state.object_cache(&git, &path);\n  run_blocking(move || {\n    let cache = state.object_cache(&git, &path);\n  })",
+      &["object_cache("]
+    ),
     ["let cache = repository_state.object_cache(&git, &path);"]
+  );
+}
+
+/// The reads of `RepositoryStateCache` besides the object cache: a `rev-parse` on the first call for a repository, the
+/// GitHub repository up to 3 git processes
+#[test]
+fn a_body_of_the_registry_reads_the_git_directories_and_the_github_repository_off_the_async_workers() {
+  let report = blocking_report(&registry_bodies(), &["git_common_dir(", "github_repository("]);
+  assert!(
+    report.is_empty(),
+    "the git directories and the GitHub repository of a repository are read by git on their first call, which blocks a worker of the async runtime: read them inside `run_blocking(…)` (docs/design/async-patterns.md):\n{}",
+    report.join("\n")
+  );
+  assert_eq!(
+    blocking_on_the_worker(
+      "  let dir = state.git_common_dir(&git, &path)?;\n  run_blocking(move || state.github_repository(&git, &path)).await",
+      &["git_common_dir(", "github_repository("]
+    ),
+    ["let dir = state.git_common_dir(&git, &path)?;"]
   );
 }
 
@@ -408,7 +526,7 @@ pub fn note_thing(window: Window, count: u32) {
   let _ = (window, count);
 }
 ";
-  let commands = commands_of(Path::new("x.rs"), text);
+  let commands = tauri_commands_of(Path::new("x.rs"), text);
   assert_eq!(commands.len(), 2);
   assert_eq!(commands[0].name, "get_thing");
   assert_eq!(
@@ -422,4 +540,12 @@ pub fn note_thing(window: Window, count: u32) {
   assert_eq!(commands[0].instrument.as_deref(), Some("#[instrument(skip(git_executor), fields(x = 1))]"));
   assert_eq!(commands[1].name, "note_thing");
   assert!(!commands[1].fallible && commands[1].instrument.is_none());
+}
+
+/// Each entry names its body, a function of its own name, and the scan finds it
+#[test]
+fn the_scan_reads_the_body_of_every_entry_of_the_registry() {
+  let names: Vec<String> = registry_bodies().into_iter().map(|body| body.name).collect();
+  let compiled: Vec<&str> = COMMANDS.iter().map(|command| command.name).collect();
+  assert_eq!(names, compiled);
 }

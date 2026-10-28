@@ -1,5 +1,6 @@
 //! The three registries of the Tauri commands, held together: the commands of the app (`collect_commands!` in
-//! `src-tauri/src/lib.rs`), the routes of this server (`/invoke/<name>` in `lib.rs`) and the handlers of the page mock
+//! `src-tauri/src/lib.rs`), the routes of this server (`/invoke/<name>` in `lib.rs`, and one of `invoke.rs` for every
+//! command of the registry of app-api, `app_api::commands::COMMANDS`) and the handlers of the page mock
 //! (`COMMAND_HANDLERS` in `tests/e2e/setup/tauri-mocks.ts`). The mock proxies every command it does not handle to this
 //! server, and a command without a route answers 405, which fails the test ("Unimplemented Tauri command"). So every
 //! command either has a route or is named in [`PAGE_MOCKED`] with the reason it never reaches Rust in an E2E test.
@@ -189,15 +190,13 @@ fn app_commands() -> Vec<String> {
   names
 }
 
-/// The command names of the `/invoke/<name>` routes of this server (`/invoke/browse_repository/{repo_id}` names
-/// `browse_repository`)
+/// The command names of the `/invoke/<name>` routes of this server: the handwritten ones of `lib.rs`
+/// (`/invoke/browse_repository/{repo_id}` names `browse_repository`) and the one of every command of app-api
+/// (`invoke::command_routes`)
 fn server_routes() -> Vec<String> {
   let text = read_workspace_file("crates/test-server/src/lib.rs");
-  text
-    .split("\"/invoke/")
-    .skip(1)
-    .map(|rest| rest.split(['"', '/']).next().expect("a route name").to_owned())
-    .collect()
+  let handwritten = text.split("\"/invoke/").skip(1).map(|rest| rest.split(['"', '/']).next().expect("a route name").to_owned());
+  handwritten.chain(app_api::commands::COMMANDS.iter().map(|command| command.name.to_owned())).collect()
 }
 
 /// The top-level keys of `COMMAND_HANDLERS` in the page mock, plugin prefixes (`plugin:event`) included
@@ -256,6 +255,17 @@ fn the_app_registers_the_pinned_number_of_commands() {
     "collect_commands! has {} commands: route the new one in crates/test-server/src/lib.rs (or name it in PAGE_MOCKED with its reason), then update COMMAND_COUNT",
     commands.len()
   );
+}
+
+/// The class of a command of app-api is the list it is in here, until the classes replace the lists (s12-app-api of
+/// docs/design/rust-domain-authority.md)
+#[test]
+fn every_read_of_app_api_is_a_read() {
+  let reads: BTreeSet<&str> = READS.iter().copied().chain(RAW_ROUTES.iter().map(|(name, _)| *name)).collect();
+  for command in app_api::commands::COMMANDS {
+    assert_eq!(command.class, app_api::registry::CommandClass::Read, "{}", command.name);
+    assert!(reads.contains(command.name), "{} is a read of app-api: name it in READS", command.name);
+  }
 }
 
 #[test]

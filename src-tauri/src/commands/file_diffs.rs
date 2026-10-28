@@ -1,11 +1,9 @@
-use crate::operation::{operation, run_blocking};
-use crate::repository_state::RepositoryStateCache;
 use crate::window_requests::WindowRequests;
+use app_api::operation::{operation, run_blocking};
+use app_api::repository_state::RepositoryStateCache;
 use domain_types::error::ApiError;
 use file_diffs::accio::{AccioCli, SymbolIndex};
-use file_diffs::model::{
-  BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
-};
+use file_diffs::model::{FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetFileDiffsParams, GetFileMergesParams};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -91,28 +89,6 @@ async fn stream_to<E: serde::Serialize + Clone + Send + 'static>(
     })
   })
   .await
-}
-
-/// The texts of blobs by id, for the diff views: mostly from the blobs that `get_file_diffs` read, else one
-/// `cat-file --batch`; a file of the working tree by its path, when its bytes still have the id
-#[tauri::command]
-#[instrument(skip(git_executor, file_diffs, params), fields(repository_path = %params.repository_path, blobs = params.blobs.len()))]
-#[specta::specta]
-pub async fn get_blob_texts(git_executor: State<'_, GitCommandExecutor>, file_diffs: State<'_, FileDiffs>, params: GetBlobTextsParams) -> Result<Vec<BlobText>, ApiError> {
-  let git = (*git_executor).clone();
-  let file_diffs = (*file_diffs).clone();
-  run_blocking(move || file_diffs.blob_texts(&git, &params.repository_path, &params.blobs)).await
-}
-
-/// The tree-sitter highlighting of the lines a view asks for of one blob (`file_diffs::syntax`): raw bytes, which the
-/// typed bindings cannot say, so it has its own handler (`raw_invoke_handler` in `lib.rs`) and its own call in the view
-/// (`src/lib/diff/highlight/backend-syntax.ts`). From the blobs the diffs read, else one `cat-file --batch`
-#[tauri::command]
-#[instrument(skip(git_executor, file_diffs, params), fields(id = %params.blob.id, path = %params.file_path))]
-pub async fn get_blob_syntax(git_executor: State<'_, GitCommandExecutor>, file_diffs: State<'_, FileDiffs>, params: GetBlobSyntaxParams) -> Result<tauri::ipc::Response, ApiError> {
-  let git = (*git_executor).clone();
-  let file_diffs = (*file_diffs).clone();
-  run_blocking(move || file_diffs.blob_syntax(&git, &params)).await.map(tauri::ipc::Response::new)
 }
 
 /// The symbol search of each window, the accio of its Go to Declaration or Find Usages: a newer search of the window,

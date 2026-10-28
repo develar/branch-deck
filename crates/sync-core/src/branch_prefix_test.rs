@@ -2,7 +2,7 @@ use crate::branch_prefix::{get_branch_prefix_from_git_config_sync, parse_scoped_
 use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_utils::git_test_utils::TestRepo;
-use tracing::{debug, warn};
+use tracing::warn;
 
 //noinspection SpellCheckingInspection
 #[test]
@@ -98,16 +98,13 @@ fn test_get_branch_prefix_empty_path() {
   assert!(result.is_ok(), "Should not error when using global config");
 }
 
+/// A saved repository whose directory is gone says so, with its path, as the page shows it
 #[test]
-fn test_get_branch_prefix_invalid_directory() {
+fn a_directory_that_is_gone_is_not_accessible() {
   let git_executor = GitCommandExecutor::new();
 
-  let result = get_branch_prefix_from_git_config_sync(&git_executor, "/non/existent/directory");
-  assert!(result.is_err(), "Should return error for invalid directory (like git does)");
-
-  let error_message = result.unwrap_err().to_string();
-  debug!(error_message, "Actual error message");
-  assert!(error_message.contains("Failed to access repository"), "Error should mention failed to access repository");
+  let error = get_branch_prefix_from_git_config_sync(&git_executor, "/non/existent/directory").unwrap_err();
+  assert_eq!(error.to_string(), "Repository not accessible: /non/existent/directory");
 }
 
 fn git_prefix(prefix: &str, repository_scoped: bool) -> GitBranchPrefix {

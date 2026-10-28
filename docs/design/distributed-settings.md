@@ -187,7 +187,7 @@ sequenceDiagram
   `SettingsFile::load`), so it runs with the same values and defaults without the app; it resolves the branch prefix
   with `resolve_branch_prefix` and names its source in `bd status` (`prefix_source`).
 - The branch prefix in the app: a command that names branches resolves it in Rust per command, from the repository
-  path alone (`PrefixInputs` in `src-tauri/src/commands/branch_prefix.rs`: the app's prefix from the writer's
+  path alone (`PrefixInputs` in `crates/app-api/src/context.rs`: the app's prefix from the writer's
   `AppSettings`, the git prefix from `BranchPrefixes` of `crates/app-settings/src/branch_prefixes.rs`, a memo by path
   that each read of the git config refreshes); so do the sync family, Patronus, the push, the pull requests, the branch
   review and the independence of a stack, and the views of the last sync are kept by the prefix resolved. Only the
@@ -238,7 +238,7 @@ Optimizations:
   `SettingsChange`, `GitBranchPrefix`, `ResolvedBranchPrefix`)
 - Writer: `crates/app-settings/src/service.rs`, `crates/app-settings/src/file.rs`, `crates/app-settings/src/windows.rs`
 - Branch prefix: `crates/app-settings/src/resolve.rs`, `crates/app-settings/src/branch_prefixes.rs`,
-  `src-tauri/src/commands/branch_prefix.rs`
+  `crates/app-api/src/context.rs`, `crates/app-api/src/reads/repository.rs`
 - Backend: `src-tauri/src/settings.rs`, `src-tauri/src/commands/settings.rs`, `src-tauri/src/commands/window_management.rs`,
   `restart_app` in `src-tauri/src/title_bar.rs`, the flush on exit in `src-tauri/src/lib.rs`
 - `bd`: `app_settings_of` in `crates/bd-core/src/context.rs`

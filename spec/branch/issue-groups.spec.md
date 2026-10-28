@@ -29,7 +29,7 @@ targets:
   - ../../crates/bd-rewrite/src/suggest.rs
   - ../../crates/commit-clustering/src/clustering.rs
   - ../../crates/domain-types/src/error.rs
-  - ../../src-tauri/src/commands/stack_operations.rs
+  - ../../crates/app-api/src/reads/commits.rs
   - ../../src/lib/stack.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/hooks/useCommitMoveList.ts

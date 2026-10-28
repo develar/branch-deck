@@ -49,6 +49,7 @@ targets:
   - ../../src-tauri/src/commands/branch_review.rs
   - ../../crates/sync-core/src/branch_review.rs
   - ../../crates/git-ops/src/ownership.rs
+  - ../../crates/app-api/src/reads/commits.rs
 ---
 
 # Branch Review

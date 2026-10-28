@@ -10,8 +10,8 @@ use tracing::{instrument, warn};
 pub const BRANCH_PREFIX_CONFIG_KEY: &str = "branchdeck.branchPrefix";
 
 /// Get the branch prefix from git config: one `git config -z --show-scope --get branchdeck.branchPrefix`, with git's
-/// precedence (the last scope wins); the global config alone for an empty `repository_path`.
-/// Behaves like git: returns error if directory doesn't exist or isn't accessible
+/// precedence (the last scope wins); the global config alone for an empty `repository_path`. A directory that is gone
+/// (a saved repository deleted since) is `Repository not accessible: <path>`, which the page shows as it is
 #[instrument(skip(git_executor))]
 pub fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<GitBranchPrefix> {
   // a missing or too old git is reported as itself, with the install hint, not as an inaccessible repository
@@ -20,6 +20,10 @@ pub fn get_branch_prefix_from_git_config_sync(git_executor: &GitCommandExecutor,
   // If no repository path provided, use global config directly
   if repository_path.is_empty() {
     return Ok(get_global_branch_prefix(git_executor));
+  }
+  // no git can start in it
+  if !std::path::Path::new(repository_path).is_dir() {
+    return Err(anyhow::anyhow!("Repository not accessible: {repository_path}"));
   }
 
   match git_executor.execute_command_with_status(&["config", "-z", "--show-scope", "--get", BRANCH_PREFIX_CONFIG_KEY], repository_path) {

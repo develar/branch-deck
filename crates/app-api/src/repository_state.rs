@@ -19,7 +19,8 @@ use tracing::{debug, instrument};
 pub struct RepositoryStateCache {
   cache: Cache<String, Arc<KnownIssueConfig>>,
   dirs: Cache<String, Arc<RepositoryDirs>>,
-  object_caches: Cache<String, ObjectCache>,
+  /// None: every repository runs without its object cache (`without_object_caches`)
+  object_caches: Option<Cache<String, ObjectCache>>,
   github_repositories: Cache<String, Arc<KnownGitHubRepository>>,
 }
 
@@ -64,8 +65,17 @@ impl RepositoryStateCache {
       // never stale: a repository doesn't move its git directories; an evicted cache closes its environment once no
       // operation holds it (`EnvHandle`)
       dirs: Cache::new(100),
-      object_caches: Cache::new(100),
+      object_caches: Some(Cache::new(100)),
       github_repositories: Cache::builder().max_capacity(100).time_to_live(GITHUB_REPOSITORY_TTL).build(),
+    }
+  }
+
+  /// The e2e server's: every repository runs without its object cache, which a test would only miss
+  /// (docs/design/e2e-testing.md, decision 8)
+  pub fn without_object_caches() -> Self {
+    Self {
+      object_caches: None,
+      ..Self::new()
     }
   }
 
@@ -122,10 +132,14 @@ impl RepositoryStateCache {
   }
 
   /// The object cache of the repository (`$GIT_COMMON_DIR/branch-deck/cache`), shared with `bd`. The first call for a
-  /// path resolves the common git directory (`dirs`): call from a blocking context. Without it the cache is disabled
+  /// path resolves the common git directory (`dirs`): call from a blocking context. Without it, and
+  /// `without_object_caches`, the cache is disabled
   #[instrument(skip(self, git))]
   pub fn object_cache(&self, git: &GitCommandExecutor, repository_path: &str) -> ObjectCache {
-    if let Some(cache) = self.object_caches.get(repository_path) {
+    let Some(object_caches) = &self.object_caches else {
+      return ObjectCache::disabled();
+    };
+    if let Some(cache) = object_caches.get(repository_path) {
       return cache;
     }
     let Some(dirs) = self.dirs(git, repository_path) else {
@@ -133,7 +147,7 @@ impl RepositoryStateCache {
       return ObjectCache::disabled();
     };
     let cache = ObjectCache::open(Path::new(&dirs.git_common_dir));
-    self.object_caches.insert(repository_path.to_string(), cache.clone());
+    object_caches.insert(repository_path.to_string(), cache.clone());
     cache
   }
 
@@ -159,6 +173,19 @@ impl RepositoryStateCache {
     };
     self.github_repositories.insert(repository_path.to_string(), Arc::new(known));
     Ok(repository)
+  }
+
+  /// Forgets what is kept for `repository_path`, its object cache closed once no operation holds it: the e2e server
+  /// forgets the repository of a test before it deletes its files
+  pub fn forget(&self, repository_path: &str) {
+    self.cache.invalidate(repository_path);
+    self.dirs.invalidate(repository_path);
+    self.github_repositories.invalidate(repository_path);
+    if let Some(object_caches) = &self.object_caches {
+      object_caches.invalidate(repository_path);
+      // the evicted cache drops now, not at the next maintenance of the map
+      object_caches.run_pending_tasks();
+    }
   }
 }
 

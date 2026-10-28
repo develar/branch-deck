@@ -3,8 +3,9 @@
 //! settings (`subscribe_view`) and the journal of the page in its app data directory. The page reads the log again
 //! after its own writes; a test reads it through the page.
 
+use crate::invoke::CommandResult;
 use crate::state::AppState;
-use crate::tauri_command_bridge::{CommandResult, requesting_repository, run_command};
+use crate::tauri_command_bridge::{requesting_repository, run_command};
 use app_settings::journals::activity_projects;
 use axum::Json;
 use axum::extract::State;

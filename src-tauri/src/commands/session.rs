@@ -12,17 +12,18 @@
 //! A subscription is recorded under the page that asked for it (`WindowSubscriptions`), so one that answers after its
 //! page went away (the command awaited the prefix and the session meanwhile) ends at once.
 
+use crate::api::{Prefixes, Settings};
 use crate::commands::activity::emit_activity_changed;
-use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::commands::github::GitHubState;
 use crate::commands::patronus::PatronusState;
 use crate::commands::pull_requests::github_repository;
 use crate::commands::sign_in::SignInsState;
 use crate::commands::youtrack::YouTrackState;
-use crate::operation::{operation, run_blocking};
-use crate::repository_state::RepositoryStateCache;
 use crate::settings::emit_change;
 use app_api::api_error::{api_error, no_branch_prefix, undo_error};
+use app_api::context::PrefixInputs;
+use app_api::operation::{operation, run_blocking};
+use app_api::repository_state::RepositoryStateCache;
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::journals::remember_journal;
 use app_settings::linked_pull_requests::{forget, linked};
@@ -221,7 +222,7 @@ impl SessionEnvironment for AppEnvironment {
     // discovery rejects a too old git, once per process, before any event
     git.get_info()?;
     let config = ConfigSnapshot::read(&git, &key.worktree)?;
-    let settings = self.app.state::<SettingsService>().app();
+    let settings = self.app.state::<Arc<SettingsService>>().app();
     let resolved = self.app.state::<BranchPrefixes>().refresh(&settings, &key.worktree, config.branch_prefix());
     Ok(RunSetup {
       options: SyncOptions {
@@ -239,7 +240,7 @@ impl SessionEnvironment for AppEnvironment {
   }
 
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
-    self.app.state::<SettingsService>().app().auto_sync_on_focus
+    self.app.state::<Arc<SettingsService>>().app().auto_sync_on_focus
   }
 
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs> {
@@ -292,7 +293,7 @@ impl ServiceHost for AppServices {
   }
 
   fn new_api(&self, _key: &SessionKey) -> bool {
-    self.app.state::<SettingsService>().app().patronus_new_api
+    self.app.state::<Arc<SettingsService>>().app().patronus_new_api
   }
 
   fn object_cache<'a>(&'a self, key: &'a SessionKey) -> Read<'a, ObjectCache> {
@@ -316,18 +317,18 @@ impl ServiceHost for AppServices {
   }
 
   fn linked_pull_requests(&self, _key: &SessionKey, repository: &GitHubRepository) -> Vec<LinkedPullRequest> {
-    linked(&self.app.state::<SettingsService>(), &repository.full_name())
+    linked(&self.app.state::<Arc<SettingsService>>(), &repository.full_name())
   }
 
   fn link_pull_request(&self, _key: &SessionKey, repository: &GitHubRepository, link: LinkedPullRequest) -> Result<(), ApiError> {
     let change =
-      app_settings::linked_pull_requests::link(&self.app.state::<SettingsService>(), &repository.full_name(), link).map_err(|error| ApiError::internal(error.to_string()))?;
+      app_settings::linked_pull_requests::link(&self.app.state::<Arc<SettingsService>>(), &repository.full_name(), link).map_err(|error| ApiError::internal(error.to_string()))?;
     emit_change(&self.app, &change);
     Ok(())
   }
 
   fn forget_linked_pull_requests(&self, _key: &SessionKey, repository: &GitHubRepository, numbers: &[u32]) {
-    match forget(&self.app.state::<SettingsService>(), &repository.full_name(), numbers) {
+    match forget(&self.app.state::<Arc<SettingsService>>(), &repository.full_name(), numbers) {
       Ok(Some(change)) => emit_change(&self.app, &change),
       Ok(None) => {}
       Err(error) => warn!(%error, "cannot forget the links of Reviews"),

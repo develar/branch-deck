@@ -3,29 +3,40 @@ name = "app-api"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The adapters' crate of the app and the e2e server: the one conversion of a core's error into the `ApiError` a command answers"
+description = "The adapters' crate of the app and the e2e server: the registry of the commands, their bodies and context, and the one conversion of a core's error into the `ApiError` a command answers"
 publish = false
 
 [dependencies]
 domain-types = { path = "../domain-types", features = ["specta"] }
-# the typed errors of the cores that reach a command of the app
+# the cores the bodies of the commands call, and their typed errors that reach a command of the app
 app-settings = { path = "../app-settings" }
+branch-integration = { path = "../branch-integration" }
 cli-tools = { path = "../cli-tools" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 github = { path = "../github" }
 history-rewrite = { path = "../history-rewrite" }
+object-cache = { path = "../object-cache" }
 sync-core = { path = "../sync-core" }
+sync-utils = { path = "../sync-utils" }
+trial-check = { path = "../trial-check" }
 update-core = { path = "../update-core" }
 youtrack = { path = "../youtrack" }
 anyhow.workspace = true
+moka.workspace = true
+serde.workspace = true
+# the parameters of the commands are types of the bindings
+specta.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 # `error_cases`: the typed errors with the one code bd and the app answer for each
 update-core = { path = "../update-core", features = ["fixtures"] }
 serde_json.workspace = true
 pretty_assertions = { workspace = true }
+tempfile.workspace = true
 
 [features]
 default = []

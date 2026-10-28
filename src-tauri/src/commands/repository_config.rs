@@ -1,11 +1,10 @@
-use crate::operation::{operation, run_blocking, tauri_error};
-use app_settings::branch_prefixes::BranchPrefixes;
-use app_settings::service::SettingsService;
+use crate::api::{Prefixes, Settings, tauri_error};
+use app_api::operation::{operation, run_blocking};
 use domain_types::error::ApiError;
 use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
-use sync_core::repository_config::{RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, read_repository_config, set_config};
+use sync_core::repository_config::{RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, set_config};
 use tauri::{AppHandle, Emitter, State};
 use tracing::instrument;
 
@@ -22,12 +21,6 @@ pub struct RepositoryConfigChanged {
 
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct GetRepositoryConfigParams {
-  pub repository_path: String,
-}
-
-#[derive(Debug, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
 pub struct SetRepositoryConfigParams {
   pub repository_path: String,
   pub change: RepositoryConfigChange,
@@ -35,15 +28,6 @@ pub struct SetRepositoryConfigParams {
   #[serde(default)]
   #[specta(optional)]
   pub scope: WriteScope,
-}
-
-/// The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository
-#[tauri::command]
-#[instrument(skip(git_executor))]
-#[specta::specta]
-pub async fn get_repository_config(git_executor: State<'_, GitCommandExecutor>, params: GetRepositoryConfigParams) -> Result<RepositoryConfig, ApiError> {
-  let git = (*git_executor).clone();
-  run_blocking(move || read_repository_config(&git, &params.repository_path)).await
 }
 
 /// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
@@ -55,8 +39,8 @@ pub async fn get_repository_config(git_executor: State<'_, GitCommandExecutor>, 
 pub async fn set_repository_config(
   app: AppHandle,
   git_executor: State<'_, GitCommandExecutor>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
   params: SetRepositoryConfigParams,
 ) -> Result<RepositoryConfig, ApiError> {
   operation(async move {

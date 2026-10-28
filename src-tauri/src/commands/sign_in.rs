@@ -8,8 +8,8 @@
 use crate::commands::github::GitHubState;
 use crate::commands::session::SessionsState;
 use crate::commands::youtrack::YouTrackState;
-use crate::operation::operation;
 use app_api::api_error::api_error;
+use app_api::operation::operation;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::error::ApiError;
 use domain_types::session::{FactFamily, FactRefreshReason};

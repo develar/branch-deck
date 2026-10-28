@@ -1,10 +1,10 @@
-use crate::commands::branch_prefix::PrefixInputs;
+use crate::api::Settings;
 use crate::commands::github::app_user_agent;
-use crate::operation::{operation, run_blocking};
-use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::patronus_error;
+use app_api::context::PrefixInputs;
+use app_api::operation::{operation, run_blocking};
+use app_api::repository_state::RepositoryStateCache;
 use app_settings::branch_prefixes::BranchPrefixes;
-use app_settings::service::SettingsService;
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
 use domain_types::patronus::PatronusAvailability;
@@ -98,7 +98,7 @@ pub async fn get_robot_stats(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
-  settings: State<'_, SettingsService>,
+  settings: Settings<'_>,
   prefixes: State<'_, BranchPrefixes>,
   params: GetRobotStatsParams,
   events: Channel<RobotStatsEvent>,
@@ -148,7 +148,7 @@ pub async fn get_robot_stats(
 pub async fn get_robot_failure(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
-  settings: State<'_, SettingsService>,
+  settings: Settings<'_>,
   prefixes: State<'_, BranchPrefixes>,
   params: GetRobotFailureParams,
 ) -> Result<RobotFailureReport, ApiError> {
@@ -175,7 +175,7 @@ pub async fn get_robot_failure(
 #[specta::specta]
 pub async fn get_robot_commit_map(
   git_executor: State<'_, GitCommandExecutor>,
-  settings: State<'_, SettingsService>,
+  settings: Settings<'_>,
   prefixes: State<'_, BranchPrefixes>,
   params: GetRobotCommitMapParams,
 ) -> Result<RobotCommitMap, ApiError> {

@@ -116,9 +116,12 @@ Sync pipeline (`sync_core::sync::sync_branches`):
 
 ### Operation spans
 
-Every Tauri command that can fail (`Result<_, ApiError>`) and every `bd` run is an operation with an id of its own
-(`sync_utils::operation_id::OperationId`, a ULID: 48 bits of milliseconds, 80 random bits, so the ids of the app and
-of every `bd` process never collide and sort by time). `src-tauri/src/command_scan_test.rs` checks the commands:
+Every command of the app that can fail (`Result<_, ApiError>`) and every `bd` run is an operation with an id of its
+own (`sync_utils::operation_id::OperationId`, a ULID: 48 bits of milliseconds, 80 random bits, so the ids of the app
+and of every `bd` process never collide and sort by time). `crates/app-api/src/command_scan_test.rs` checks the
+commands, as their sources read: the bodies of the entries of the registry of app-api (`commands.rs` names the body of
+each, which the app's wrapper of `src-tauri/src/api.rs` and the E2E server's route of `invoke.rs` both call, so the
+server's error names its operation too) and the handwritten `#[tauri::command]`s of `src-tauri`:
 - Every command has an `#[instrument]` span, its `State`, `AppHandle` and window arguments skipped. An argument that
   holds a collection (a `Vec`, a map, through nested structs) is skipped too, with a field or two in its place
   (`skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len())`), because every line
@@ -126,13 +129,16 @@ of every `bd` process never collide and sort by time). `src-tauri/src/command_sc
   list of robots, would write tens of KB per call. `#[instrument]` with `fields` comes before `#[specta::specta]`, which
   rejects the `%` of a field.
 - The body of an async command runs in `operation(async move { … }).await`, of a synchronous one (on the main thread) in
-  `operation_now(|| { … })` (`src-tauri/src/operation.rs`): the span `operation{operation_id}`, a child of the command's
+  `operation_now(|| { … })` (`crates/app-api/src/operation.rs`): the span `operation{operation_id}`, a child of the command's
   span, so a line reads `close_pull_request{…}:operation{operation_id=…}: message`. A blocking step of the body, git or
   the file system, runs through `run_blocking` on the pool, inside the caller's span; a command whose body is that one
   step needs no `operation`: `run_blocking` alone is the operation then (a task-local tells it whether one is open).
   Opening the object cache is such a step: its first open runs `rev-parse --git-common-dir` and opens LMDB, so an async
   command opens it inside `run_blocking` or in a `move ||` closure a core runs off the workers
-  (`an_async_command_opens_the_object_cache_off_the_async_workers`; `get_robot_stats` opened it on the worker).
+  (`an_async_command_opens_the_object_cache_off_the_async_workers`; `get_robot_stats` opened it on the worker). A body
+  of the registry reads the other parts of `RepositoryStateCache` there too, `git_common_dir` (a `rev-parse` on the
+  first call for a repository) and `github_repository` (up to 3 git processes)
+  (`a_body_of_the_registry_reads_the_git_directories_and_the_github_repository_off_the_async_workers`).
 - An error leaves with the id: `ApiError.operation_id` (an error that names one keeps it), which the page records
   with its Activity entry (`operationId`) and in its log line of the error. An error raised outside a command has none.
 - An operation of the remote that a session runs (`operations::engine::run`, the `execute` command) opens a root span

@@ -5,9 +5,10 @@
 //! the freeze, then the effects), its steps, the progress of its push and its outcome sent to the channel of the window
 //! that asked; `cancel_operation` stops one that waits for the lock or whose next effect has not started.
 
-use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
+use crate::api::{Prefixes, Settings};
 use crate::commands::session::{SessionsState, session_key};
-use crate::operation::operation;
+use app_api::context::PrefixInputs;
+use app_api::operation::operation;
 use domain_types::error::ApiError;
 use domain_types::operation::{CancelOperationParams, ExecuteParams, Intent, OperationEvent, OperationId, Outcome, Plan, PrepareParams};
 use git_executor::git_command_executor::GitCommandExecutor;

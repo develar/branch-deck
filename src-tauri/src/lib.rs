@@ -1,10 +1,9 @@
+pub mod api;
 pub mod auto_update;
 pub mod commands;
 pub mod legacy_model_cache;
 pub mod menu;
-pub mod operation;
 pub mod presentation;
-pub mod repository_state;
 pub mod settings;
 pub mod title_bar;
 pub mod tracing_log;
@@ -16,15 +15,11 @@ mod api_error_contract_test;
 #[cfg(test)]
 mod bindings_test;
 #[cfg(test)]
-mod command_scan_test;
-#[cfg(test)]
 mod log_rotation_test;
 #[cfg(test)]
 mod menu_test;
 #[cfg(test)]
 mod presentation_test;
-#[cfg(test)]
-mod repository_state_test;
 #[cfg(test)]
 mod title_bar_test;
 #[cfg(test)]
@@ -32,31 +27,34 @@ mod tracing_log_test;
 #[cfg(test)]
 mod zoom_test;
 
+// clippy lints a glob import only outside a test build
+#[cfg_attr(
+  not(test),
+  expect(
+    clippy::wildcard_imports,
+    reason = "the wrappers of app-api, one per entry of its `for_each_command!`: the names are the registry's"
+  )
+)]
+use api::generated::*;
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
 use commands::activity::{clear_activity, read_activity, record_activity};
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
-use commands::archived_branches::{get_archived_branch_commits, get_unapplied_branch_commits};
-use commands::branch_prefix::{check_git_setup, resolve_branch_prefix};
-use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branch_review};
+use commands::branch_review::{get_branch_review, prefetch_branch_review};
 use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
-use commands::commit_files::{get_commit_files, get_commits_files};
 use commands::conflict_fix::{cancel_conflict_fix, find_conflict_fix};
-use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
+use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_file_diffs, get_file_merges};
 use commands::github::GitHubState;
-use commands::grouping::{commit_body_blocks, preview_group, validate_branch_name};
+use commands::grouping::preview_group;
 use commands::operations::{WindowFetches, cancel_operation, execute, prepare};
 use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
 use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
-use commands::repository_browser::{browse_repository, validate_repository_path};
-use commands::repository_config::{get_repository_config, set_repository_config};
+use commands::repository_browser::browse_repository;
+use commands::repository_config::set_repository_config;
 use commands::review_requests::{get_range_files, link_pull_request, unlink_pull_request};
 use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
 use commands::sign_in::{AppSignIns, SignInsState, cancel_sign_in, get_auth_status, sign_in, sign_out};
-use commands::squash_fixups::get_autosquash_plan;
-use commands::stack_operations::{get_stack_independence, preview_move};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
-use commands::uncommitted_changes::get_uncommitted_changes;
 use commands::window_management::{
   BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_drawn, sub_window_loaded, sub_window_ready,
 };
@@ -65,11 +63,12 @@ use commands::youtrack::{YouTrackState, get_youtrack_issue};
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
+use app_api::context::AppContext;
+use app_api::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::sign_in_session::GitHubSignInSession;
 use menu::{configure_app_menu, handle_menu_event, set_auto_sync_menu_checked};
 use remote_facts::sign_in::SignIns;
-use repository_state::RepositoryStateCache;
 use std::sync::Arc;
 use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
@@ -305,7 +304,7 @@ pub fn run() {
       // the one writer of settings.json and repository-state.json: every window starts from its copy and changes it
       // through `set_setting`
       let app_data_dir = app.path().app_data_dir().unwrap_or_default();
-      let settings_service = settings::open_settings(&app_data_dir)?;
+      let settings_service = Arc::new(settings::open_settings(&app_data_dir)?);
       settings::report_save_errors(&settings_service, app.handle().clone());
       let app_settings = settings_service.app();
 
@@ -321,6 +320,14 @@ pub fn run() {
       let windows = app.state::<SubWindowState>();
       let open = windows.next_open(epoch_millis());
       let init_script = format!("{settings_script} {} {}", open_script(&open), title_bar_script());
+      // the state of the commands of app-api, which shares its parts with the handwritten commands
+      app.manage(AppContext {
+        git: app.state::<GitCommandExecutor>().inner().clone(),
+        settings: Arc::clone(&settings_service),
+        prefixes: app.state::<app_settings::branch_prefixes::BranchPrefixes>().inner().clone(),
+        repository_state: app.state::<RepositoryStateCache>().inner().clone(),
+        file_diffs: app.state::<file_diffs::service::FileDiffs>().inner().clone(),
+      });
       app.manage(settings_service);
 
       let zoom = app_settings.zoom;
@@ -351,7 +358,7 @@ pub fn run() {
     .run(|app_handle, event| {
       // the app quits: the settings changed within the debounce of the writer reach the file first
       if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
-        if let Some(service) = app_handle.try_state::<app_settings::service::SettingsService>()
+        if let Some(service) = app_handle.try_state::<Arc<app_settings::service::SettingsService>>()
           && let Err(e) = service.flush()
         {
           tracing::error!(error = %e, "the settings changed last are lost");

@@ -3,7 +3,8 @@
 //! of `crates/app-api/fixtures/api_errors.json`, the same the app rejects with (`src-tauri/src/api_error_contract_test.rs`).
 
 use crate::channel_commands::answer_with_progress;
-use crate::tauri_command_bridge::{failed, run_command};
+use crate::invoke::failed;
+use crate::tauri_command_bridge::run_command;
 use app_api::api_error::{CONTRACT_JSON, contract_cases};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;

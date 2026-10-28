@@ -1,4 +1,4 @@
-use crate::operation::run_blocking;
+use app_api::operation::run_blocking;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::error::ApiError;
 use git_executor::git_command_executor::GitCommandExecutor;

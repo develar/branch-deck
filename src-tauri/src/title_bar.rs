@@ -1,6 +1,6 @@
-use crate::operation::operation_now;
+use crate::api::Settings;
 use app_api::api_error::api_error;
-use app_settings::service::SettingsService;
+use app_api::operation::operation_now;
 use domain_types::error::ApiError;
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsPatch};
 use serde::Serialize;
@@ -245,7 +245,7 @@ pub fn macos_double_click(action: Option<&str>) -> DoubleClick {
 #[instrument(skip(app_handle, webview, service))]
 #[specta::specta]
 #[expect(clippy::needless_pass_by_value, reason = "tauri passes the app handle, the webview and the state of a command by value")]
-pub fn restart_app(app_handle: tauri::AppHandle, webview: tauri::Webview, service: tauri::State<'_, SettingsService>, system_title_bar: bool) -> Result<(), ApiError> {
+pub fn restart_app(app_handle: tauri::AppHandle, webview: tauri::Webview, service: Settings<'_>, system_title_bar: bool) -> Result<(), ApiError> {
   operation_now(|| {
     let mut fields = serde_json::Map::new();
     fields.insert("systemTitleBar".to_owned(), serde_json::Value::Bool(system_title_bar));
