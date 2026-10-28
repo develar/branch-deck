@@ -220,7 +220,8 @@ The family in the engine is `Intent::Rewrite` ([Rewrite in the engine](git-opera
 each holds `Resource::Head` (a delete only `Resource::Ref` of the branch it drops, a reapply that ref too), so a second
 click joins it, another rewrite of the process (an undo too) waits in the queue of the session and is decided again on
 what it left, and a push waits behind it without holding HEAD (`RunningGuard::wait_behind`); a wait for the lock is its step `WaitingForLock`, stopped by
-`cancel_operation`; every step the queue gives it (`Queued` behind another, then the step it starts at) goes to its
+`cancel_operation`, and on a table seeded from a frame its wait for the first sync of the session is the step
+`WaitingForSync`, stopped the same way (`RunningGuard::stopped`; decision 3); every step the queue gives it (`Queued` behind another, then the step it starts at) goes to its
 caller as the view shows it.
 
 The rewrites of `bd` (`bd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `park`, `unpark`, `unapply`,
@@ -400,7 +401,12 @@ operation.
    what the first left (its `TableWitness`, the new ids the first reported, the commit keys), so it needs no wait for
    the sync, which would hold every rewrite queued behind it for as long; for the same reason no sync disables a
    rewrite (C14). A push is the one that waits for the rewrites before it and their sync: it sends refs the sync
-   writes.
+   writes. The one wait of a rewrite for a sync is on a table seeded from the frame of an earlier run
+   (`TableState::cached`, s13-warm-start): what the window named there is of no HEAD this process read, so the rewrite,
+   admitted and holding HEAD, waits for the first sync of the session to commit (its step `WaitingForSync`, joining
+   the sync the session started as it opened; Stop Waiting ends it, `canceled`), then resolves what it named on that
+   table, by the keys the frame kept; a press on the frame is never lost nor refused, and the rewrites queued behind it
+   wait no longer than they would for it.
    A rewrite names the repository of its click (`RewriteRunSpec.repositoryPath`), and so does its Undo: one of a repository the main window no longer shows (an Undo clicked after a switch) runs in the
    session of that repository, which syncs it.
 4. **Decision**: every rewrite of the app expects the HEAD its witness resolved, the regroups too

@@ -198,6 +198,12 @@ only the stack parents ref.
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_triple_unstack_is_one_rewrite_with_one_outcome`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_triple_unstack_of_the_app_and_bd_is_one_rewrite_journaled_once_by_each`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`)
+- Unstack pressed on the table a start shows from the frame of the start before (`RepositoryView.cached`, until the
+  first sync of the session commits) must not be lost or refused: the rewrite is admitted at once, holding HEAD, and
+  waits in the session for that sync (the step `WaitingForSync`; the sync the session started as it opened serves
+  both), nothing written meanwhile; then it runs on the table that sync read, and asks its own sync after it. Stop
+  Waiting ends the wait with `canceled`, nothing written, the first sync going on.
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_unstack_on_a_seeded_table_waits_for_the_first_sync_and_runs_once_it_committed`, `a_stop_waiting_for_the_first_sync_is_canceled_and_the_sync_goes_on`)
 
 ### A stacked branch that builds alone
 

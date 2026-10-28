@@ -438,8 +438,15 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
 2. **Admission**: every rewrite holds `Resource::Head` (a delete holds only the ref it deletes, and a reapply that ref
    too, so a push or a delete of the unapplied branch waits for it): a second click of the same rewrite joins the first, any other rewrite of the process waits behind it in the queue (an undo too, never
    refused), a push and a start run beside it. Between processes the repository lock orders them.
-3. **What it names, now**: once admitted, one `for-each-ref` of the checked out branch and the three stores reads the
-   witness of now. HEAD as the intent saw it: its ids hold. Else a rewrite of this process moved HEAD since
+3. **What it names, now**: on a table seeded from the frame of an earlier run (`TableState::cached`, "The sessions and
+   their hosts" below) what the window named is of no HEAD this process read: the rewrite, admitted and holding what
+   it needs, first waits for the first sync of the session to commit, its step `WaitingForSync` (`SyncReason::Open`
+   joins the sync the session started as it opened, so one run serves both); `cancel_operation` ends that wait with
+   `canceled` (the sync goes on), a failed sync answers its error (the table is still the frame), nothing written
+   either way. Then it resolves as on any table, the keys of what it named read off the frame, which kept the
+   author's email and the subject of each commit (`warm_start::CommitIdentity`): a commit the frame named is found on
+   a HEAD another process moved while the app was closed. Once admitted, one `for-each-ref` of the checked out branch
+   and the three stores reads the witness of now. HEAD as the intent saw it: its ids hold. Else a rewrite of this process moved HEAD since
    (`TableState::rewrites`, the last 16, each with the new ids its core reported, `RewriteResult::rewritten`; one that
    only added commits keeps the others; an added issue reference reports every commit it recreated and the new HEAD,
    `AddIssueReferenceResult::new_commit_ids` and `new_head`, since its key changes the subject a key would find them
@@ -4145,8 +4152,10 @@ checks, the timing of the patches (on a paused clock), the prefix check, two wor
 
 The frame of a session (`warm_start.rs`, s13-warm-start): what a later start shows before its first sync. A frame
 (`CachedSession`) is the key of the session, the parts of its table as the last sync committed them (the header with
-the prefix, the order, the rows, the stack branches, the sections; while a sync runs, the table it started from) and
-the facts of the remote services as the view has them (the robots, the Patronus view with its landing needs, the pull
+the prefix, the order, the rows, the stack branches, the sections; while a sync runs, the table it started from; and
+by id, of each commit of the rows and of the unassigned ones, the author's email and the subject that its view leaves
+out, `CommitIdentity`, which a rewrite pressed on the seeded table finds it again by) and the facts of the remote
+services as the view has them (the robots, the Patronus view with its landing needs, the pull
 requests, the rules, the merge profiles of the table's baseline, the readiness, the review requests, the sign-ins);
 the parts the rules decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need
 the user) are not kept but derived again from the frame by the binary that reads it, and the details of the robots go
@@ -4156,7 +4165,8 @@ are tagged by a field, which postcard can't read back), so the start reads it wi
 another schema is never read. The host reads it when the session opens (`SessionHost::frame`; the app's through
 `SessionEnvironment::frame_cache`, a disabled cache until the hosts keep frames), and the session seeds from it only
 under the same key and schema (`CachedSession::seeds`): the table is `cached` (`RepositoryView.cached`) until a sync of
-this process commits, the structure of each row and the order of the stack branches derived again; each fact of the
+this process commits, the structure of each row and the order of the stack branches derived again, each commit with
+its identity; a rewrite pressed meanwhile waits for that commit ("Rewrite in the engine", step 3); each fact of the
 frame that stood is `Cached` until an answer of this process, and a failure of that first read leaves what a failure
 without an answer leaves (`Unavailable`, the value gone: the robots, the pull requests and the review requests of the
 frame go with it), since no observation of this process stands behind it. The robots of a frame derive no Patronus

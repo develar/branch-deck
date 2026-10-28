@@ -6,7 +6,11 @@
 //! what the ones before it left (a second click of the same rewrite joins the first); between processes the repository
 //! lock orders their writes, and a wait for another holder is the step `WaitingForLock` with its holder, which
 //! `Registry::cancel` stops (`canceled`, nothing changed). A rewrite waits for no sync, which writes no HEAD, but to find
-//! what it names on a HEAD the table does not show yet (below).
+//! what it names on a HEAD the table does not show yet (below), and on a table seeded from the frame of an earlier run
+//! (`TableState::cached`, docs/design/rust-domain-authority.md, "s13-warm-start"): what a window named there is of no
+//! HEAD this process read, so the rewrite, admitted and holding what it needs, waits for the first sync of the session
+//! to commit (the step `WaitingForSync`, joining the sync the session started as it opened; Stop Waiting ends it with
+//! `canceled`, a failed sync with its error), then resolves what it names as below.
 //!
 //! An intent names its commits and branches on the table its window showed (`TableWitness`). Once admitted, the rewrite
 //! reads what it names now (one `for-each-ref` of the checked out branch and the three stores, `read_witness`): HEAD is
@@ -14,9 +18,10 @@
 //! goes through the new ids its core reported (`TableState::rewrites`); else, and for an id they may have changed
 //! without naming it, the session's table is brought to HEAD (the sync that runs, `SyncReason::Open`) and the id is the
 //! commit of the same author, author time and subject without the prefix (`CommitKey`, read off the table when the
-//! request came). An unapply, whose core checks that the virtual branch is the copies of its commits, waits for the sync
-//! that builds them at HEAD either way, and its branch there must be the commits it named. A commit none of them finds,
-//! or an unapply's branch with other commits, changes the plan (`plan_changed`), and nothing is written. The core then
+//! request came, a seeded one with the identities its frame kept, `warm_start::CommitIdentity`). An unapply, whose core
+//! checks that the virtual branch is the copies of its commits, waits for the sync that builds them at HEAD either way,
+//! and its branch there must be the commits it named. A commit none of them finds, or an unapply's branch with other
+//! commits, changes the plan (`plan_changed`), and nothing is written. The core then
 //! runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`): it reads and computes before the
 //! repository lock, which it takes itself only for the witness of what it read and its compare-and-swap write, and
 //! computes once more under the lock when a ref moved meanwhile (`history_rewrite::repository_lock::lock_prepared`). A
@@ -262,7 +267,7 @@ async fn resolve_and_run(
   rewrite: &RewriteIntent,
   planned: &RewritePlan,
 ) -> Result<(RewriteIntent, Option<String>, Ran), ApiError> {
-  let (mut resolved, mut expect_head) = resolve(sessions, key, hosts, rewrite, planned).await?;
+  let (mut resolved, mut expect_head) = resolve(sessions, key, hosts, guard, rewrite, planned).await?;
   let canceled = guard.canceled();
   let mut runs = 0;
   loop {
@@ -280,7 +285,7 @@ async fn resolve_and_run(
     if canceled.load(Ordering::SeqCst) {
       return Err(wait_stopped());
     }
-    let (again, head) = resolve(sessions, key, hosts, rewrite, planned).await?;
+    let (again, head) = resolve(sessions, key, hosts, guard, rewrite, planned).await?;
     if head == expect_head {
       // HEAD is the one the core expected: the failure is the core's own
       return Err(failed);
@@ -296,6 +301,8 @@ struct Seen {
   branch: String,
   shown: Shown,
   links: Vec<RewriteLink>,
+  /// The table is the frame of an earlier run, which no sync of this process committed yet (`TableState::cached`)
+  cached: bool,
 }
 
 /// What the table of a session shows of HEAD
@@ -327,27 +334,73 @@ impl Shown {
 }
 
 /// What the session knows of HEAD now
-async fn seen(sessions: &Sessions, key: &SessionKey) -> Option<Seen> {
+async fn seen_now(sessions: &Sessions, key: &SessionKey) -> Option<Seen> {
   sessions
     .read(key, |state, _| Seen {
       branch: state.header().branch.clone(),
       shown: Shown::of(state),
       links: state.rewrites().to_vec(),
+      cached: state.cached(),
     })
     .await
 }
 
-/// `rewrite` with the ids it names on HEAD as it is now (an ungroup as the move back of the commits of its branch), and
-/// the HEAD its core expects (the module's header): an undo as it is; a rewrite whose session never grouped as it was
-/// asked, with the HEAD of its witness
+/// Waits until the first sync of the session of `key` committed its table, seeded from the frame of an earlier run
+/// (`TableState::cached`), whose HEAD and rows this process never read: the step `WaitingForSync` meanwhile, the sync
+/// the session started as it opened (`SyncReason::Open` joins it, one run serves both) or one that it starts, then
+/// `Checking`
 ///
 /// # Errors
-/// `plan_changed` for a commit that is gone, or an unapply whose branch has other commits now; a failed read of git
-async fn resolve(sessions: &Sessions, key: &SessionKey, hosts: Hosts<'_>, rewrite: &RewriteIntent, planned: &RewritePlan) -> Result<(RewriteIntent, Option<String>), ApiError> {
+/// `canceled` once the user stopped the wait (`Registry::cancel`), the sync goes on; what the sync failed with, the
+/// table still the frame; `plan_changed` of `rewrite` when no sync committed for another reason; nothing was written
+async fn after_first_sync(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, rewrite: &RewriteIntent) -> Result<(), ApiError> {
+  guard.step(OperationStep::WaitingForSync);
+  let synced = tokio::select! {
+    synced = sessions.sync(key, SyncReason::Open).wait() => synced,
+    () = guard.stopped() => return Err(sync_wait_stopped()),
+  };
+  if sessions.read(key, |state, _| state.cached()).await.unwrap_or(true) {
+    let intent = Intent::Rewrite(Box::new(rewrite.clone()));
+    return Err(
+      synced
+        .err()
+        .unwrap_or_else(|| plan_changed(&intent, Some("no sync of this process committed the table yet"))),
+    );
+  }
+  guard.step(OperationStep::Checking);
+  Ok(())
+}
+
+/// The error of a rewrite whose wait for the first sync of its session the user stopped: nothing changed
+fn sync_wait_stopped() -> ApiError {
+  ApiError::new(ErrorCode::Canceled, "The wait for the first sync was stopped; nothing changed")
+}
+
+/// `rewrite` with the ids it names on HEAD as it is now (an ungroup as the move back of the commits of its branch), and
+/// the HEAD its core expects (the module's header): an undo as it is; on a table seeded from a frame, once the first
+/// sync of the session committed (`after_first_sync`); a rewrite whose session never grouped as it was asked, with the
+/// HEAD of its witness
+///
+/// # Errors
+/// `plan_changed` for a commit that is gone, or an unapply whose branch has other commits now; a failed read of git;
+/// what the wait for the first sync answered
+async fn resolve(
+  sessions: &Sessions,
+  key: &SessionKey,
+  hosts: Hosts<'_>,
+  guard: &RunningGuard,
+  rewrite: &RewriteIntent,
+  planned: &RewritePlan,
+) -> Result<(RewriteIntent, Option<String>), ApiError> {
   let Some(asked) = rewrite.witness() else {
     return Ok((rewrite.clone(), None));
   };
-  let Some(seen) = seen(sessions, key).await.filter(|seen| !seen.branch.is_empty()) else {
+  let mut seen = seen_now(sessions, key).await;
+  if seen.as_ref().is_some_and(|seen| seen.cached) {
+    after_first_sync(sessions, key, guard, rewrite).await?;
+    seen = seen_now(sessions, key).await;
+  }
+  let Some(seen) = seen.filter(|seen| !seen.branch.is_empty()) else {
     return Ok((ungrouped(rewrite, planned_commits(&planned.plan)), Some(asked.head.clone())));
   };
   let (git, path, branch) = (hosts.services.git(), key.worktree.clone(), seen.branch.clone());

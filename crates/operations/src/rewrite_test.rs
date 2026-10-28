@@ -1,21 +1,30 @@
 use crate::events::NoEvents;
-use crate::push::push_test::{Fixture, OFFLINE, alone, fixture, waits_for_the_agent};
+use crate::push::push_test::{Fixture, OFFLINE, alone, fixture, registry_on, test_host, waits_for_the_agent};
 use crate::rewrite::execute_rewrite;
 use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
-use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationStep, Outcome, RunningOperation};
+use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationStep, Outcome, Resource, RunningOperation};
+use domain_types::repository_view::PatronusView;
 use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind};
-use domain_types::session::SyncReason;
+use domain_types::session::{SyncReason, ViewPatch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions};
 use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use pretty_assertions::assert_eq;
+use repository_model::facts::{Needs, PatronusOf};
+use repository_model::patronus_view::ContentMemo;
+use repository_model::session::{RunReporter, SessionHost, SessionKey, Subscriber, SubscriberGone, SyncRun};
+use repository_model::warm_start::{CachedSession, frame_of};
+use std::collections::HashSet;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use sync_core::sync_inputs::SyncInputs;
+use tokio::sync::watch;
 
 impl Fixture {
   /// HEAD and the stores of the table the session shows now, which a window names a rewrite on
@@ -68,6 +77,30 @@ fn move_to(commits: &[String], target: &str, witness: &TableWitness) -> RewriteI
 /// `body` with every task it waits on, within a minute
 async fn within_a_minute<T>(body: Pin<Box<dyn Future<Output = T> + Send + '_>>) -> T {
   tokio::time::timeout(Duration::from_mins(1), body).await.unwrap()
+}
+
+impl Fixture {
+  /// `rewrite` run by the engine beside `meanwhile`, what the test does while it waits, within a minute
+  async fn rewrite_while(&self, rewrite: &RewriteIntent, meanwhile: impl Future<Output = ()> + Send) -> Result<Outcome, ApiError> {
+    let (answer, ()) = within_a_minute(Box::pin(async { tokio::join!(self.rewrite(rewrite), meanwhile) })).await;
+    answer
+  }
+
+  /// `answer` is of a rewrite whose wait the user stopped: `canceled`, HEAD still `head`, the operation gone
+  async fn assert_stopped(&self, answer: Result<Outcome, ApiError>, head: &str) {
+    assert_eq!(answer.unwrap_err().code, ErrorCode::Canceled);
+    assert_eq!(self.repo.rev_parse("HEAD").unwrap(), head, "nothing was written");
+    assert_eq!(self.operations().await, Vec::new());
+  }
+}
+
+/// `answer` is a move of the regroup
+fn assert_moved(answer: Result<Outcome, ApiError>) {
+  let outcome = answer.unwrap();
+  assert!(
+    matches!(&outcome.result, OperationResult::Rewrite(result) if matches!(result.as_ref(), RewriteResult::Moved(_))),
+    "{outcome:?}"
+  );
 }
 
 /// The operations of the view once the first waits for the lock of the agent and the others are in the view
@@ -302,10 +335,7 @@ async fn a_push_clicked_during_a_rewrite_waits_behind_it_and_its_sync_and_pushes
       .until(|operations| waits_for_the_agent(operations) && operations.len() == 2 && matches!(operations[1].step, OperationStep::Queued { .. }))
       .await;
     assert_eq!(operations[1].step, OperationStep::Queued { behind: operations[0].id.clone() }, "{operations:?}");
-    assert!(
-      !operations[1].resources.contains(&domain_types::operation::Resource::Head),
-      "it holds no HEAD: {operations:?}"
-    );
+    assert!(!operations[1].resources.contains(&Resource::Head), "it holds no HEAD: {operations:?}");
     drop(held);
   };
   let push_later = async {
@@ -360,10 +390,8 @@ async fn a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told(
     let operations = fixture.until(waits_with(1)).await;
     assert!(fixture.registry.cancel(&operations[0].id));
   };
-  let (refused, ()) = within_a_minute(Box::pin(async { tokio::join!(fixture.rewrite(&unstack), stop) })).await;
-  assert_eq!(refused.unwrap_err().code, ErrorCode::Canceled);
-  assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "nothing was written");
-  assert_eq!(fixture.operations().await, Vec::new());
+  let refused = fixture.rewrite_while(&unstack, stop).await;
+  fixture.assert_stopped(refused, &head).await;
   drop(held);
 }
 
@@ -664,4 +692,186 @@ async fn an_amend_waiting_for_the_lock_of_another_process_that_rewrites_below_it
   assert_ne!(fixture.commit("(alpha/beta) Beta"), beta, "the copy the reword left was amended");
   assert_eq!(fixture.repo.git(&["show", "HEAD:beta.txt"]), "beta, amended");
   assert_eq!(fixture.repo.git(&["status", "--porcelain"]), "", "the amended file is staged as HEAD has it");
+}
+
+/// The host of the sessions of a start after the one that saved `frame`: the worktree was synced before, so a session
+/// seeds from the frame as it opens and syncs (`SyncReason::Open`); each sync waits until the test releases the syncs
+struct Seeded {
+  host: Arc<dyn SessionHost>,
+  frame: CachedSession,
+  released: watch::Receiver<bool>,
+  runs: Arc<AtomicUsize>,
+}
+
+impl SessionHost for Seeded {
+  fn inputs(&self, key: &SessionKey) -> Option<SyncInputs> {
+    self.host.inputs(key)
+  }
+
+  fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
+    self.runs.fetch_add(1, Ordering::SeqCst);
+    let (run, mut released) = (self.host.run(key, reporter), self.released.clone());
+    Box::pin(async move {
+      let _ = released.wait_for(|released| *released).await;
+      run.await
+    })
+  }
+
+  fn syncs_on_focus(&self, key: &SessionKey) -> bool {
+    self.host.syncs_on_focus(key)
+  }
+
+  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+    self.host.derive_patronus(key, of, memo)
+  }
+
+  fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError> {
+    self.host.landing_needs(key, landed)
+  }
+
+  fn frame(&self, _key: &SessionKey) -> Option<CachedSession> {
+    Some(self.frame.clone())
+  }
+
+  fn synced_before(&self, _key: &SessionKey) -> bool {
+    true
+  }
+}
+
+/// The syncs of a seeded start, held until `release`
+struct HeldSyncs {
+  release: watch::Sender<bool>,
+  runs: Arc<AtomicUsize>,
+}
+
+impl HeldSyncs {
+  fn release(&self) {
+    self.release.send_replace(true);
+  }
+
+  /// The syncs the sessions ran so far
+  fn runs(&self) -> usize {
+    self.runs.load(Ordering::SeqCst)
+  }
+}
+
+/// A window of the app, which shows the table of the session it subscribed to
+struct Window;
+
+impl Subscriber for Window {
+  fn send(&self, _patch: &ViewPatch) -> Result<(), SubscriberGone> {
+    Ok(())
+  }
+}
+
+/// A start after the one of `fixture(true)`: the frame its session saved, as the object cache keeps it (through JSON),
+/// then `meanwhile` while the app was closed (another process moves HEAD), then the registry of the new start and a
+/// window on its session, which seeded from that frame as it opened; its syncs held. What `meanwhile` answered
+async fn seeded<T>(meanwhile: impl FnOnce(&Fixture) -> T) -> (Fixture, HeldSyncs, T) {
+  let earlier = fixture(true).await;
+  let key = earlier.key.clone();
+  let frame = earlier
+    .registry
+    .sessions()
+    .read(&earlier.key, move |state, facts| frame_of(&key, state, facts))
+    .await
+    .unwrap();
+  let frame: CachedSession = serde_json::from_value(serde_json::to_value(&frame).unwrap()).unwrap();
+  let answered = meanwhile(&earlier);
+  let Fixture { repo, registry, .. } = earlier;
+  drop(registry);
+  let (release, released) = watch::channel(false);
+  let runs = Arc::new(AtomicUsize::new(0));
+  let host = Seeded {
+    host: test_host(),
+    frame,
+    released,
+    runs: Arc::clone(&runs),
+  };
+  let (registry, key) = registry_on(&repo, Arc::new(host), false).await;
+  let (_, view) = registry.sessions().subscribe(&key, Box::new(Window)).await.unwrap();
+  assert!(view.cached, "the window shows the frame");
+  (Fixture { repo, registry, key }, HeldSyncs { release, runs }, answered)
+}
+
+impl Fixture {
+  /// The table of the session is the frame of an earlier start still
+  async fn cached(&self) -> bool {
+    self.registry.sessions().read(&self.key, |state, _| state.cached()).await.unwrap()
+  }
+
+  /// The operation of the view once it waits for the first sync of the session
+  async fn until_waiting_for_sync(&self) -> RunningOperation {
+    let operations = self.until(|operations| operations.len() == 1 && operations[0].step == OperationStep::WaitingForSync).await;
+    operations[0].clone()
+  }
+}
+
+/// Unstack pressed on the table a start seeded from the frame of the start before waits for the first sync of the
+/// session, which the session started as it opened: the step `WaitingForSync`, HEAD held, nothing written; once that
+/// sync committed, it runs on the table it read. One sync served both, then the one the rewrite asked
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unstack_on_a_seeded_table_waits_for_the_first_sync_and_runs_once_it_committed() {
+  let (fixture, syncs, ()) = seeded(|_| ()).await;
+  let (head, witness) = (fixture.repo.rev_parse("HEAD").unwrap(), fixture.witness().await);
+  assert!(fixture.cached().await, "the session seeded from the frame");
+  let first_sync = async {
+    let waiting = fixture.until_waiting_for_sync().await;
+    assert_eq!(waiting.resources, [Resource::Head]);
+    assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "nothing is written while it waits");
+    syncs.release();
+  };
+  assert_moved(fixture.rewrite_while(&unstack(&witness), first_sync).await);
+  assert_eq!(fixture.subjects(), ["(beta) Beta", "(alpha) Alpha"]);
+  assert!(!fixture.cached().await);
+  assert_eq!(syncs.runs(), 2, "the sync of the open, which the wait joined, and the one after the rewrite");
+}
+
+/// A move pressed on a seeded table whose HEAD another process moved after the frame was saved (`bd reword` of the
+/// commit under it) finds what it names once the first sync committed: the commit of the same key (`CommitKey`, of the
+/// identity the frame kept), the copy the reword left
+#[tokio::test(flavor = "multi_thread")]
+async fn a_move_on_a_seeded_table_whose_head_moved_since_moves_the_commit_of_its_key() {
+  let reword_alpha = |earlier: &Fixture| {
+    let beta = earlier.commit("(alpha/beta) Beta");
+    let request = RewordRequest {
+      repository_path: earlier.repo.path_str().to_owned(),
+      rewords: vec![CommitReword {
+        commit: earlier.commit("(alpha) Alpha"),
+        text: RewordText::Message("(alpha) Alpha, reworded".to_owned()),
+      }],
+    };
+    reword_request_core(&GitCommandExecutor::new(), &request, &RegroupOptions::default()).unwrap();
+    beta
+  };
+  let (fixture, syncs, beta) = seeded(reword_alpha).await;
+  let witness = fixture.witness().await;
+  assert_ne!(fixture.commit("(alpha/beta) Beta"), beta, "the frame names the commit the reword replaced");
+  let first_sync = async {
+    fixture.until_waiting_for_sync().await;
+    syncs.release();
+  };
+  assert_moved(fixture.rewrite_while(&move_to(std::slice::from_ref(&beta), "gamma", &witness), first_sync).await);
+  assert_eq!(fixture.subjects(), ["(gamma) Beta", "(alpha) Alpha, reworded"]);
+}
+
+/// Stop Waiting on a rewrite that waits for the first sync of a seeded session ends the wait at once: `canceled`,
+/// nothing written, the operation gone; the sync goes on and commits the table, no other sync runs
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_waiting_for_the_first_sync_is_canceled_and_the_sync_goes_on() {
+  let (fixture, syncs, ()) = seeded(|_| ()).await;
+  let (head, witness) = (fixture.repo.rev_parse("HEAD").unwrap(), fixture.witness().await);
+  let stop = async {
+    let waiting = fixture.until_waiting_for_sync().await;
+    assert!(fixture.registry.cancel(&waiting.id));
+  };
+  let refused = fixture.rewrite_while(&unstack(&witness), stop).await;
+  fixture.assert_stopped(refused, &head).await;
+  assert!(fixture.cached().await, "the first sync is still held");
+
+  syncs.release();
+  fixture.registry.sessions().sync(&fixture.key, SyncReason::Open).wait().await.unwrap();
+  assert!(!fixture.cached().await);
+  assert_eq!(syncs.runs(), 1, "the sync the session started as it opened, joined by the open");
+  assert_eq!(fixture.subjects(), ["(alpha/beta) Beta", "(alpha) Alpha"]);
 }

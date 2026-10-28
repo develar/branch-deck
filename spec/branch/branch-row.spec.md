@@ -12,6 +12,8 @@ targets:
   - ../../crates/domain-policy/src/actions.rs
   - ../../crates/domain-policy/src/landing_node.rs
   - ../../crates/repository-model/src/action_view.rs
+  - ../../crates/operations/src/rewrite.rs
+  - ../../crates/repository-model/src/warm_start.rs
   - ../../src/presenters/actions.ts
   - ../../src/lib/robot-run.ts
   - ../../src/components/shared/InlineForm.tsx
@@ -647,6 +649,15 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`, `a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites enabled`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack from the menu during a held sync once that sync ended, without a refusal, one sync for the rewrite`)
+- On the cached frame of an earlier run (`RepositoryView.cached`) the rewrites must stay enabled too, and a start of
+  one must never be refused: it goes to the session at once and waits there, holding HEAD and writing nothing, until
+  the first sync of the session commits (the step `WaitingForSync`, on the sync the session started as it opened;
+  Stop Waiting ends it with `canceled`, a failed sync answers its error), then runs on the table that sync read. The
+  commits the frame named are found there as after any HEAD another process moved: the same ids on the same HEAD,
+  else the commits of the same author, author time and subject (the frame keeps each commit's email and subject),
+  and the plan changed when none is.
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_unstack_on_a_seeded_table_waits_for_the_first_sync_and_runs_once_it_committed`, `a_move_on_a_seeded_table_whose_head_moved_since_moves_the_commit_of_its_key`, `a_stop_waiting_for_the_first_sync_is_canceled_and_the_sync_goes_on`)
+  [@test] ../../crates/repository-model/src/warm_start_test.rs (`a_frame_reads_back_from_the_object_cache_as_it_was_written`)
 - An action of the menu must run once ([Running Operations](../../docs/design/operations.md)): while its intent runs or
   waits in the session, its item is running (disabled, a spinner in place of its icon, its busy state as the reason:
   "Unstacking oauth…", "Waits for Moving 1 commit to docs…", whom it waits for while another holder has the repository

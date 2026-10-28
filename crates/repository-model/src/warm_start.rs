@@ -2,9 +2,10 @@
 //! and their hosts"): the frame of a session, which a later start of the app shows before its first sync.
 //!
 //! - **What a frame is** (`CachedSession`): the key of its session, the parts of its table as the last sync committed
-//!   them (`CachedTable`: the header with the prefix, the order, the rows, the stack branches, the sections) and the
-//!   facts of the remote services as the view had them (`CachedFacts`: the robots, the Patronus view, the pull
-//!   requests, the rules, the merge profiles, the readiness, the review requests, the sign-ins). The parts the rules
+//!   them (`CachedTable`: the header with the prefix, the order, the rows, the stack branches, the sections, and of each
+//!   commit what its view leaves out but a rewrite finds it again by, `CommitIdentity`) and the facts of the remote
+//!   services as the view had them (`CachedFacts`: the robots, the Patronus view, the pull requests, the rules, the
+//!   merge profiles, the readiness, the review requests, the sign-ins). The parts the rules
 //!   decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need the user) are not
 //!   kept: the session derives them again from the frame, by the rules of the binary that reads it, as from every
 //!   state. No running sync, no operation, no news: a frame is of no process.
@@ -20,6 +21,7 @@
 use crate::facts::FactStore;
 use crate::session::SessionKey;
 use crate::table::TableState;
+use domain_types::commit::Commit;
 use domain_types::patronus::PatronusStartOptions;
 use domain_types::pull_request::BranchRules;
 use domain_types::session::{BranchView, Fact, PatronusPart, PullRequestsView, ReviewRequestsView, RobotsView, SubjectReadiness, TableHeader, TableSections};
@@ -59,6 +61,36 @@ pub struct CachedTable {
   pub branches: BTreeMap<String, BranchView>,
   pub stacks: BTreeMap<String, StackBranchUpdate>,
   pub sections: TableSections,
+  /// By original id, of each commit of the rows and of the unassigned ones
+  pub identities: BTreeMap<String, CommitIdentity>,
+}
+
+/// What a frame keeps of a commit beside its row, whose view leaves it out: what finds the commit again on a HEAD that
+/// moved since (`git_ops::landed_pairing::CommitKey`, the author's email, the author time of the row and the subject),
+/// so a rewrite asked on the seeded table resolves the commits it names once the first sync commits
+/// (`operations::rewrite`)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitIdentity {
+  pub author_email: String,
+  /// The first line of the message as git has it, the prefix kept
+  pub subject: String,
+}
+
+impl CommitIdentity {
+  /// The identity of `commit`
+  #[must_use]
+  pub fn of(commit: &Commit) -> Self {
+    Self {
+      author_email: commit.author_email.clone(),
+      subject: commit.subject.clone(),
+    }
+  }
+
+  /// `commit`, which a frame seeded without them, with this identity
+  pub fn restore(self, commit: &mut Commit) {
+    commit.author_email = self.author_email;
+    commit.subject = self.subject;
+  }
 }
 
 /// The facts of the remote services a frame keeps, as the view had them; the details of the robots go with the demand

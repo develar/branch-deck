@@ -48,7 +48,7 @@ use sync_core::transfer_progress::TransferProgress;
 use sync_utils::operation_tally::OperationTally;
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{Notify, oneshot, watch};
 use tracing::{Instrument, debug};
 
 /// How an operation ended, which the requests that joined it get too
@@ -210,6 +210,8 @@ struct Channel {
   events: Arc<dyn EventSink>,
   /// Set by `Registry::cancel`: the operation stops waiting for the lock and makes no effect after it
   canceled: Arc<AtomicBool>,
+  /// Woken by `Registry::cancel`: an async wait of the operation ends with it (`RunningGuard::stopped`)
+  stop: Arc<Notify>,
 }
 
 /// The channels of a registry; the lock is held only for a lookup or an entry, never across a wait
@@ -365,12 +367,13 @@ impl Registry {
     }
   }
 
-  /// Stops the operation `op` of this process (`cancel_operation`): a wait for the repository lock ends with `canceled`,
-  /// and no effect starts after it; an effect that runs (a push that sends) goes to its end. `false` for an operation
-  /// that ended, or of another process
+  /// Stops the operation `op` of this process (`cancel_operation`): a wait for the repository lock or for the first
+  /// sync of its session ends with `canceled`, and no effect starts after it; an effect that runs (a push that sends)
+  /// goes to its end. `false` for an operation that ended, or of another process
   pub fn cancel(&self, op: &OperationId) -> bool {
     lock(&self.channels).get(op).is_some_and(|channel| {
       channel.canceled.store(true, Ordering::SeqCst);
+      channel.stop.notify_waiters();
       true
     })
   }
@@ -510,6 +513,7 @@ fn decide(
       waiting,
       events,
       canceled: Arc::new(AtomicBool::new(false)),
+      stop: Arc::new(Notify::new()),
     },
   );
   state.apply_operation(OperationPatch::Admitted(RunningOperation {
@@ -748,6 +752,25 @@ impl RunningGuard {
     lock(&self.channels)
       .get(&self.id)
       .map_or_else(|| Arc::new(AtomicBool::new(false)), |channel| Arc::clone(&channel.canceled))
+  }
+
+  /// Ends once the user stopped the operation (`Registry::cancel`), at once when they did already: an async wait of it
+  /// (the first sync of a seeded session, `rewrite`) ends with the stop. Never for an operation the registry has no
+  /// channel of
+  pub async fn stopped(&self) {
+    let signal = lock(&self.channels).get(&self.id).map(|channel| (Arc::clone(&channel.canceled), Arc::clone(&channel.stop)));
+    let Some((canceled, stop)) = signal else {
+      return std::future::pending().await;
+    };
+    loop {
+      // listening before the flag is read: a stop between the two still wakes it
+      let mut notified = std::pin::pin!(stop.notified());
+      notified.as_mut().enable();
+      if canceled.load(Ordering::SeqCst) {
+        return;
+      }
+      notified.await;
+    }
   }
 
   /// Its record in the registry of its repository, which tells the other processes what its start sends; none when

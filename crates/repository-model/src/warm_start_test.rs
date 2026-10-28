@@ -4,6 +4,7 @@ use crate::session::SessionKey;
 use crate::table::TableState;
 use crate::table::table_test::{grouped, grouping, remote_status, run_sync, sync_events, unapplied};
 use crate::warm_start::{CachedSession, FRAME_SCHEMA, frame_of, read_frame, write_frame};
+use domain_types::commit::Commit;
 use domain_types::fixtures::{pull_request, review_request, robot};
 use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus, PatronusRobotsResult};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
@@ -69,18 +70,25 @@ pub(crate) fn answered_facts() -> FactStore {
 }
 
 /// A frame reads back from the object cache as it was written: the parts of the table and the facts through JSON (the
-/// view's parts are tagged by a field), one frame per worktree, which the next save replaces
+/// view's parts are tagged by a field), one frame per worktree, which the next save replaces. The table it seeds has
+/// each commit with the author's email and the subject its view leaves out, which find the commit again on a moved
+/// HEAD (`CommitKey`)
 #[test]
 fn a_frame_reads_back_from_the_object_cache_as_it_was_written() {
   let dir = tempfile::tempdir().unwrap();
   let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
-  let frame = frame_of(&key(), &synced_state(), &answered_facts());
+  let state = synced_state();
+  let frame = frame_of(&key(), &state, &answered_facts());
   write_frame(&cache, &frame);
   let read = read_frame(&cache, "/repo").unwrap();
   // the notes a sync reads with the commits are no part of a view, nor of a frame
   assert_eq!(serde_json::to_value(&read).unwrap(), serde_json::to_value(&frame).unwrap());
   assert!(read.seeds(&key()));
   assert_eq!(read_frame(&cache, "/other"), None);
+  let identity = |commit: &Commit| (commit.id.clone(), commit.author_email.clone(), commit.author_timestamp, commit.subject.clone());
+  let seeded = TableState::from_cached("user", read.table);
+  assert_eq!(seeded.commits().map(identity).collect::<Vec<_>>(), state.commits().map(identity).collect::<Vec<_>>());
+  assert!(seeded.commits().all(|commit| !commit.author_email.is_empty() && !commit.subject.is_empty()));
 
   let mut later = frame;
   later.table.order.reverse();

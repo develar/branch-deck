@@ -34,7 +34,7 @@
 
 use crate::derive;
 use crate::facts::{Seq, Sequence};
-use crate::warm_start::CachedTable;
+use crate::warm_start::{CachedTable, CommitIdentity};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::commit::Commit;
 use domain_types::error::{ApiError, ErrorCode};
@@ -63,6 +63,15 @@ pub(crate) struct TableParts {
   /// Not a part of the view, whose rows mark none of them: branch -> the commits the sync did not copy, oldest first,
   /// because an earlier commit failed or the branch was not built (`CommitsBlocked`; `bd sync` lists them)
   pub(crate) blocked: HashMap<String, Vec<String>>,
+}
+
+impl TableParts {
+  /// The commits ahead of the baseline the grouping placed: of the branches in the order of the table, then the
+  /// unassigned ones
+  fn commits(&self) -> impl Iterator<Item = &Commit> {
+    let branches = self.order.iter().filter_map(|name| self.branches.get(name));
+    branches.flat_map(|branch| branch.commits.iter()).chain(self.sections.unassigned.iter())
+  }
 }
 
 /// The branch table of a session, folded from the events of its syncs
@@ -189,17 +198,24 @@ impl TableState {
 
   /// The table of a session of `prefix` seeded from the frame an earlier run saved (`warm_start`): `cached` until a sync
   /// of this process commits, the structure of each row and the order of the stack branches derived again, as a
-  /// grouping derives them
+  /// grouping derives them, and each commit with what its view left out of the frame (`CommitIdentity`)
   #[must_use]
   pub fn from_cached(prefix: &str, table: CachedTable) -> Self {
     let CachedTable {
       mut header,
       order,
-      branches,
+      mut branches,
       stacks,
-      sections,
+      mut sections,
+      mut identities,
     } = table;
     prefix.clone_into(&mut header.prefix);
+    let commits = branches.values_mut().flat_map(|branch| branch.commits.iter_mut()).chain(sections.unassigned.iter_mut());
+    for commit in commits {
+      if let Some(identity) = identities.remove(&commit.id) {
+        identity.restore(commit);
+      }
+    }
     let mut parts = TableParts {
       header,
       order,
@@ -228,6 +244,7 @@ impl TableState {
       branches: parts.branches.clone(),
       stacks: parts.stacks.clone(),
       sections: parts.sections.clone(),
+      identities: parts.commits().map(|commit| (commit.id.clone(), CommitIdentity::of(commit))).collect(),
     }
   }
 
@@ -250,8 +267,7 @@ impl TableState {
   /// The commits ahead of the baseline the last grouping placed: of the branches in the order of the table, then the
   /// unassigned ones
   pub fn commits(&self) -> impl Iterator<Item = &Commit> {
-    let branches = self.parts.order.iter().filter_map(|name| self.parts.branches.get(name));
-    branches.flat_map(|branch| branch.commits.iter()).chain(self.parts.sections.unassigned.iter())
+    self.parts.commits()
   }
 
   /// The rewrites of this process that moved HEAD, oldest first (`RewriteLink`)

@@ -26,7 +26,7 @@ use remote_facts::service_sources::ServiceHost;
 use repository_model::facts::Needs;
 use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
-use repository_model::session::{OneClock, SessionKey, Sessions};
+use repository_model::session::{OneClock, SessionHost, SessionKey, Sessions};
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
@@ -81,15 +81,20 @@ pub(crate) async fn fixture(synced: bool) -> Fixture {
   Fixture { repo, registry, key }
 }
 
+/// The host of the sessions of the tests: their syncs run with git as the app's do
+pub(crate) fn test_host() -> Arc<dyn SessionHost> {
+  Arc::new(GitSessionHost::new(GitCommandExecutor::new(), TestEnvironment))
+}
+
 /// The registry of the sessions of `repo` under the prefix of the tests, its session synced unless `synced` is false:
 /// recorded in the registry file of the repository as the app's
 pub(crate) async fn registry_of(repo: &TestRepo, synced: bool) -> (Registry, SessionKey) {
-  let host = GitSessionHost::new(GitCommandExecutor::new(), TestEnvironment);
-  let sessions = Arc::new(Sessions::new(
-    tokio::runtime::Handle::current(),
-    Arc::new(host),
-    Arc::new(OneClock(Arc::new(TestClock::new()))),
-  ));
+  registry_on(repo, test_host(), synced).await
+}
+
+/// `registry_of` with the sessions on `host`
+pub(crate) async fn registry_on(repo: &TestRepo, host: Arc<dyn SessionHost>, synced: bool) -> (Registry, SessionKey) {
+  let sessions = Arc::new(Sessions::new(tokio::runtime::Handle::current(), host, Arc::new(OneClock(Arc::new(TestClock::new())))));
   let key = SessionKey {
     worktree: repo.path_str().to_string(),
     prefix: PREFIX.to_string(),
