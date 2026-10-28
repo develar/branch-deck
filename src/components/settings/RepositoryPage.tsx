@@ -10,6 +10,7 @@ import { ConfigRow } from "@/components/settings/ConfigRow"
 import { ReadFailure } from "@/components/settings/SettingRow"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { LoadingLine } from "@/components/shared/LoadingLine"
+import type { RepositoryConfigRead } from "@/hooks/useRepositoryConfig"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
 import type { ConfigSetting, RepositoryConfig, RepositoryConfigChange } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -62,7 +63,7 @@ export function RepositoryPage() {
 }
 
 function RepositorySettings({ path }: { path: string }) {
-  const { state, retry, startWrite } = useRepositoryConfig(path)
+  const { state, retry, showWritten } = useRepositoryConfig(path)
   const name = repositoryName(path)
   return (
     <div className="flex flex-col gap-4" data-testid="repository-settings">
@@ -73,12 +74,12 @@ function RepositorySettings({ path }: { path: string }) {
       </p>
       {state.status === "loading" && <LoadingLine>Reading the settings…</LoadingLine>}
       {state.status === "error" && <ReadFailure title={`Cannot read the settings of ${name}`} message={state.message} testId="repository-settings-error" onRetry={retry} />}
-      {state.status === "loaded" && <ConfigRows path={path} config={state.config} startWrite={startWrite} />}
+      {state.status === "loaded" && <ConfigRows path={path} config={state.config} showWritten={showWritten} />}
     </div>
   )
 }
 
-function ConfigRows({ path, config, startWrite }: { path: string; config: RepositoryConfig; startWrite: (key: RepositoryConfigKey) => (answer: RepositoryConfig | null) => void }) {
+function ConfigRows({ path, config, showWritten }: { path: string; config: RepositoryConfig; showWritten: RepositoryConfigRead["showWritten"] }) {
   const appPrefix = normalizeBranchPrefix(useAppSettings(state => state.globalUserBranchPrefix))
   const [writing, setWriting] = useState<RepositoryConfigKey | null>(null)
   const [drafts, setDrafts] = useState<Partial<Record<TextKey, string>>>({})
@@ -90,22 +91,19 @@ function ConfigRows({ path, config, startWrite }: { path: string; config: Reposi
   const write = (change: RepositoryConfigChange): Promise<boolean> => {
     const title = writeErrorTitle(change, config.stacks.fallbackValue, path)
     setWriting(change.key)
-    const answered = startWrite(change.key)
     return commands
       .setRepositoryConfig({ repositoryPath: path, change })
       .then(
         result => {
           if (result.status === "error") {
             notifyError(title, result.error)
-            answered(null)
             return false
           }
-          answered(result.data)
+          showWritten(result.data)
           return true
         },
         (error: unknown) => {
           notifyError(title, error)
-          answered(null)
           return false
         },
       )

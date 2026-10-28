@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
+import { settledIpc } from "../helpers/ipc-helpers"
 import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
 import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
@@ -165,7 +166,7 @@ test.describe("Settings → Repository", () => {
 
   test("should keep a prefix saved while a switch's write runs, when the switch's older answer comes last", async ({ page, setupRepo }) => {
     // the template sets branchdeck.branchPrefix user-name in .git/config, stacked branches off
-    await setupRepo("simple")
+    const repo = await setupRepo("simple")
     const window = await openRepositorySettings(page)
     const toggle = row(window, "stacks").getByRole("switch", { name: "Stacked branches" })
     const field = row(window, "branchPrefix").getByRole("textbox", { name: "Branch prefix" })
@@ -177,7 +178,7 @@ test.describe("Settings → Repository", () => {
     await toggle.click()
     await switchWrite.ran
 
-    // the prefix is saved meanwhile, and answered first
+    // the prefix is saved meanwhile, and answered first: read after both writes, it holds the switch too
     const prefixWrite = window.waitForResponse(response => response.url().endsWith("/invoke/set_repository_config"))
     await field.click()
     await expect(field).toBeFocused()
@@ -185,13 +186,20 @@ test.describe("Settings → Repository", () => {
     await field.press("Enter")
     await prefixWrite
     await expect(field).toHaveValue("team")
-
-    // the switch's answer comes last: it never takes the prefix back, and the settings are read again
-    const readAgain = window.waitForResponse(response => response.url().endsWith("/invoke/get_repository_config"))
-    switchWrite.release()
-    await readAgain
     await expect(toggle).toBeChecked()
+
+    // the switch's answer comes last, with the old prefix and one write fewer: the page has read it, and keeps the prefix
+    switchWrite.release()
+    await settledIpc(window)
     await expect(field).toHaveValue("team")
+    await expect(toggle).toBeChecked()
+
+    // a read again counts as many writes or more (the server writes for other tests too) and is taken: the focus finds
+    // a prefix set in a terminal meanwhile, which no write of the app counts
+    await repo.setBranchPrefixInTerminal("terminal")
+    await emitTauriEvent(window, "tauri://focus")
+    await expect(field).toHaveValue("terminal")
+    await expect(toggle).toBeChecked()
   })
 
   test("should name the branches by the repository's own prefix over the app's, in the main window too", async ({ page, setupRepo }) => {

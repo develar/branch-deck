@@ -28,8 +28,8 @@ import { onSettingFieldKey } from "@/lib/setting-field"
  * backend's rule checks in place (`isValidPushSizeLimit`).
  */
 export function PushSizeLimitSetting({ path }: { path: string }) {
-  const { state, retry, startWrite } = useRepositoryConfig(path)
-  const config = useConfigWrite(path, startWrite)
+  const { state, retry, showWritten } = useRepositoryConfig(path)
+  const config = useConfigWrite(path, showWritten)
   const [draft, setDraft] = useState<string | null>(null)
   const setting = state.status === "loaded" ? state.config.pushSizeLimit : null
   const name = repositoryName(path)

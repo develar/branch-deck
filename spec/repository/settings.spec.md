@@ -414,13 +414,18 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   with valid typing (⌘W, the close button) saves it first (`onCloseRequested`).
   [@test] ../../src/lib/repository-config.test.ts (`takes owner/name without whitespace, as the backend does`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should write nothing when the repository is switched while a field holds typing`, `should save valid typing when the window closes, and nothing else`)
-- Two writes at once both land, and the page shows both: a prefix saved while a switch's write runs is not taken back
-  when the switch answers last, with the prefix it read before (`ConfigWrites`: while writes overlap, each answer gives
-  only the setting it wrote, then the settings are read again); a write of the app never fails on another write of the
-  app, and a `config.lock` of another process is waited for up to a second.
-  [@test] ../../src/lib/repository-config.test.ts (`keeps a newer write when an older one answers last, and reads again once both answered`, `reads again after overlapping writes even when one failed`, `gives the page the whole answer of a write alone, and nothing new for a failed one`)
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should keep a prefix saved while a switch's write runs, when the switch's older answer comes last`)
+- Two writes at once both land: a write of the app never fails on another write of the app, and a `config.lock` of
+  another process is waited for up to a second.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`two_writes_at_once_both_succeed`, `a_write_waits_for_a_config_lock_another_process_holds`, `a_write_fails_on_a_config_lock_that_stays`)
+- Answers in order: every answer of the settings, of a read and of a write, counts the config writes of the app before
+  its read (`seq`, one counter of the process for the local and the global config), and the page shows an answer only
+  if it counts as many as the settings shown or more (`newer`). So a prefix saved while a switch's write runs is not
+  taken back when the switch answers last, with the prefix it read before, nor by a read a focus started before a
+  write; a read again of as many writes is taken, with what a `git config` or `bd` changed meanwhile. A failed write
+  changes nothing shown, and an answer for another repository is dropped.
+  [@test] ../../src/lib/repository-config.test.ts (`keeps the newest of answers that arrive in reverse order`, `takes an answer of as many writes: a read again finds a git config of meanwhile`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should keep a prefix saved while a switch's write runs, when the switch's older answer comes last`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`two_writes_at_once_both_succeed`)
 - A failed write is a toast in the words of the change (`notifyError`): "Cannot turn on stacked branches in app",
   "Cannot turn off …", "Cannot change the symbol dependencies of app", "Cannot change the GitHub repository of app",
   "Cannot change the branch prefix of app".

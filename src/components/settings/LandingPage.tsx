@@ -47,7 +47,7 @@ function LandingSections({ path, read }: { path: string; read: RepositoryConfigR
       <SettingsSection title="Route into master" description="How the work of the repository lands into master, in the app and bd">
         {read?.state.status === "loading" && <LoadingLine>Reading the settings…</LoadingLine>}
         {read?.state.status === "error" && <ConfigReadError testId="setting-landing-error" message={read.state.message} onRetry={read.retry} />}
-        {config !== null && read !== null && <LandingRouteRow path={path} config={config} startWrite={read.startWrite} />}
+        {config !== null && read !== null && <LandingRouteRow path={path} config={config} showWritten={read.showWritten} />}
         {/* how the robots are read, while a robot lands the repository */}
         {patronus && (
           <SettingSwitch
@@ -78,8 +78,8 @@ function LandingSections({ path, read }: { path: string; read: RepositoryConfigR
  * config names it, which the line under it says), written to `.git/config` of the repository; "Use Default" removes it.
  * The main window syncs after a write (`repository_config_changed`), so its rows take the steps of the route
  */
-function LandingRouteRow({ path, config, startWrite }: { path: string; config: RepositoryConfig; startWrite: RepositoryConfigRead["startWrite"] }) {
-  const { write, writing } = useConfigWrite(path, startWrite)
+function LandingRouteRow({ path, config, showWritten }: { path: string; config: RepositoryConfig; showWritten: RepositoryConfigRead["showWritten"] }) {
+  const { write, writing } = useConfigWrite(path, showWritten)
   const setting = config.landing
   const route = effectiveRoute(config)
   const set = (value: LandingSetting | null) => void write({ key: "landing", value }, "local", writeErrorTitle({ key: "landing", value }, false, path))

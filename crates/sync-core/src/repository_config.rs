@@ -23,6 +23,7 @@ use history_rewrite::issue_groups::ISSUE_GROUPS;
 use history_rewrite::stack::STACKS_CONFIG_KEY;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
@@ -155,6 +156,10 @@ pub struct RepositoryConfig {
   /// With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
   /// with (`with_stacks_off_clashes`); empty with stacked branches off
   pub stacks_off_clashes: Vec<FlatNameClash>,
+  /// The config writes this process had made when the read began (`config_writes`): an answer with a larger one holds
+  /// more writes, so the page keeps it over a smaller one that arrives later. 0 outside `read_repository_config`; `bd`
+  /// ignores it
+  pub seq: u32,
 }
 
 /// The route of a repository that names none, and why: `origin` pushes to Space or not
@@ -408,6 +413,7 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
     detected_github_repository: origin.detected_github_repository,
     landing_default: LandingDefault::of(origin.on_space),
     stacks_off_clashes: Vec::new(),
+    seq: 0,
   }
 }
 
@@ -481,14 +487,22 @@ fn text_setting(value: Option<&str>, validate: fn(&str) -> Result<&str, String>)
 
 /// The settings of the repository: one `git config`, and for the detected GitHub repository one or two more (the
 /// push URL of `origin`, the Space settings), with stacked branches on the clashes of turning them off; the global
-/// config alone for an empty `repository_path`
+/// config alone for an empty `repository_path`. `seq` is taken before the config is read, so the answer holds every
+/// write it counts
 #[instrument(skip(git))]
 pub fn read_repository_config(git: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryConfig> {
+  let seq = config_writes();
   let entries = read_config_entries(git, repository_path)?;
   if repository_path.is_empty() {
-    return Ok(repository_config_from_entries(&entries, OriginFacts::default()));
+    return Ok(RepositoryConfig {
+      seq,
+      ..repository_config_from_entries(&entries, OriginFacts::default())
+    });
   }
-  let config = repository_config_from_entries(&entries, read_origin_facts(git, repository_path)?);
+  let config = RepositoryConfig {
+    seq,
+    ..repository_config_from_entries(&entries, read_origin_facts(git, repository_path)?)
+  };
   Ok(with_stacks_off_clashes(git, repository_path, config))
 }
 
@@ -600,9 +614,19 @@ fn config_file_writes(key: &str) -> Arc<Mutex<()>> {
   Arc::clone(writes.entry(key.to_string()).or_default())
 }
 
+/// The writes of a config file (`run_config_write`) this process has made: one counter for the local and the global
+/// files, as an answer of the settings of a repository holds both
+static CONFIG_WRITES: AtomicU32 = AtomicU32::new(0);
+
+/// How many config writes this process has made (`RepositoryConfig.seq`): a read that takes it before it reads the
+/// config holds at least those writes
+fn config_writes() -> u32 {
+  CONFIG_WRITES.load(Ordering::Acquire)
+}
+
 /// `git config <file option> --replace-all <key> <value>`, or `--unset-all` for `None`: a key that is not set is no
 /// error to unset. One write of the file at a time in this process, and a file that another process holds locked is
-/// tried again for about a second
+/// tried again for about a second; a write done counts in `CONFIG_WRITES` before the next write of the file starts
 fn run_config_write(git: &GitCommandExecutor, repository_path: &str, file: &str, config_key: &str, value: Option<&str>) -> Result<()> {
   let args: Vec<&str> = match value {
     Some(value) => vec!["config", file, "--replace-all", config_key, value],
@@ -616,6 +640,7 @@ fn run_config_write(git: &GitCommandExecutor, repository_path: &str, file: &str,
     let (output, exit_code) = git.execute_command_with_status(&args, repository_path)?;
     // 5: the key to unset is not set
     if exit_code == 0 || (value.is_none() && exit_code == 5) {
+      CONFIG_WRITES.fetch_add(1, Ordering::Release);
       return Ok(());
     }
     if exit_code != CONFIG_LOCKED_EXIT_CODE || Instant::now() + wait > deadline {

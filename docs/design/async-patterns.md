@@ -140,11 +140,11 @@ server's error names its operation too) and the handwritten `#[tauri::command]`s
   the file system, runs through `run_blocking` on the pool, inside the caller's span; a command whose body is that one
   step needs no `operation`: `run_blocking` alone is the operation then (a task-local tells it whether one is open).
   Opening the object cache is such a step: its first open runs `rev-parse --git-common-dir` and opens LMDB, so an async
-  command opens it inside `run_blocking` or in a `move ||` closure a core runs off the workers
-  (`an_async_command_opens_the_object_cache_off_the_async_workers`; `get_robot_stats` opened it on the worker). A body
-  of the registry reads the other parts of `RepositoryStateCache` there too, `git_common_dir` (a `rev-parse` on the
-  first call for a repository) and `github_repository` (up to 3 git processes)
-  (`a_body_of_the_registry_reads_the_git_directories_and_the_github_repository_off_the_async_workers`).
+  function of `app-api` (a body of the registry, a helper of one, a method) opens it inside `run_blocking` or in a
+  `move ||` closure a core runs off the workers (`get_robot_stats` opened it on the worker), and reads the other parts
+  of `RepositoryStateCache` there too, `git_common_dir` (a `rev-parse` on the first call for a repository) and
+  `github_repository` (up to 3 git processes); the services of a session read them off the workers themselves
+  (`an_async_function_makes_the_blocking_reads_off_the_async_workers`).
 - An error leaves with the id: `ApiError.operation_id` (an error that names one keeps it), which the page records
   with its Activity entry (`operationId`) and in its log line of the error. An error raised outside a command has none.
 - An operation of the remote that a session runs (`operations::engine::run`, the `execute` command) opens a root span

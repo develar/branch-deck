@@ -5,18 +5,28 @@
 //
 // The edits (`EDITS`): `safe_push`, `clustering`, `lease`, `sync`, `check_command` and `update_command` change a bd
 // command; `remote` (`list_pull_requests`), `check` (`check_plan`), `update` (`update_project_core`) and `lease_pool`
-// (`pool_dir`) change a core of sync-core, so the split of sync-core is measured by the same edit before and after.
+// (`pool_dir`) change a core of sync-core, so the split of sync-core is measured by the same edit before and after;
+// `app_api` (`get_commit_files`) changes a body of the command registry of the app, which neither bd nor sync-core
+// builds on.
 //   pnpm perf:bd-rebuild summarize <out>
 //   pnpm perf:bd-rebuild compare <out> <other out>
+//   pnpm perf:bd-rebuild rebuilt <edit>
 //
 // An edit inserts `let _ = std::hint::black_box(<n>u32);` into the body of one function, a new `n` per run, and the
-// original bytes come back at the end, also on Ctrl-C. The file is found by its name in `crates/*/src/`, so an edit
+// original bytes come back at the end, also on Ctrl-C. The file is found by its path under `crates/*/src/`, so an edit
 // names the same function before and after a move (of two files of that name, the one with the function); the crate of its directory is its owner. Per edit, each scenario
 // is built once untimed, then timed `--runs` times:
-//   own        cargo nextest run -p <owner> --no-run   the inner loop of the owner's tests
-//   cli        cargo nextest run -p bd-cli --no-run    the tests of the crate with the `Cli`
-//   bin        cargo build -p bd-cli                   the `bd` binary
-//   workspace  cargo nextest run --workspace --no-run  with --workspace, 3 runs at most
+//   own        cargo nextest run -p <owner> --no-run       the inner loop of the owner's tests
+//   cli        cargo nextest run -p bd-cli --no-run        the tests of the crate with the `Cli`
+//   bin        cargo build -p bd-cli                       the `bd` binary
+//   host       cargo nextest run -p test-server --no-run   the tests of the e2e host of the registry (`app_api` only)
+//   workspace  cargo nextest run --workspace --no-run      with --workspace, 3 runs at most
+// An edit of a bd crate or of sync-core builds own, cli and bin; `app_api` own and host.
+//
+// `rebuilt` builds each scenario of the edit once, makes the edit and prints the crates each build compiles again
+// (its `Compiling` lines; the builds run in turn, so a crate one compiled is fresh for the next), then all of them, and
+// restores the file: `rebuilt app_api` shows that a change of a body of app-api compiles app-api and test-server, not
+// sync-core.
 // A run waits until no other `rustc` runs (other checkouts build on the same machine), at most ten minutes, and is
 // marked contended after that. `--clean` first times `cargo build -p bd-cli` and the test build of every bd crate after
 // `cargo clean -p` of the bd crates, with the dependencies built. `--phases` runs `own` once more with `-Z time-passes`
@@ -46,14 +56,23 @@ const EDITS = {
   check: ["check.rs", "pub fn check_plan("],
   update: ["update_project.rs", "pub fn update_project_core("],
   lease_pool: ["lease.rs", "pub fn pool_dir("],
+  app_api: ["reads/commits.rs", "pub async fn get_commit_files(", ["own", "host"]],
 }
+/** The build of each scenario of an edit whose crate is `owner` */
+const SCENARIOS = {
+  own: owner => ["nextest", "run", "-p", owner, "--no-run"],
+  cli: () => ["nextest", "run", "-p", "bd-cli", "--no-run"],
+  bin: () => ["build", "-p", "bd-cli"],
+  host: () => ["nextest", "run", "-p", "test-server", "--no-run"],
+}
+const DEFAULT_SCENARIOS = ["own", "cli", "bin"]
 const WAIT_LIMIT_MS = 10 * 60 * 1000
 /** The library of the bd commands outside `crates/bd-*` (`bd-clustering` until the split of sync-core), so that
  * `--clean` cleans and builds the same code before and after the rename */
 const BD_LIBRARIES = ["commit-clustering"]
 
 const [command, ...rest] = process.argv.slice(2)
-const commands = { measure, summarize, compare }
+const commands = { measure, summarize, compare, rebuilt }
 if (!Object.hasOwn(commands, command)) {
   console.error(`usage: pnpm perf:bd-rebuild ${Object.keys(commands).join("|")} … (see the header of scripts/perf/bd-rebuild.mjs)`)
   process.exit(2)
@@ -117,14 +136,8 @@ function measure(args) {
   }
 
   for (const edit of edits) {
-    const [file, anchor] = EDITS[edit]
-    const source = sourceFile(file, anchor)
-    const owner = source.split("/")[1]
-    const scenarios = [
-      { scenario: "own", build: ["nextest", "run", "-p", owner, "--no-run"], count: runs },
-      { scenario: "cli", build: ["nextest", "run", "-p", "bd-cli", "--no-run"], count: runs },
-      { scenario: "bin", build: ["build", "-p", "bd-cli"], count: runs },
-    ]
+    const { source, anchor, owner, builds } = editOf(edit)
+    const scenarios = builds.map(({ scenario, build }) => ({ scenario, build, count: runs }))
     if (options.get("workspace")) {
       scenarios.push({ scenario: "workspace", build: ["nextest", "run", "--workspace", "--no-run"], count: Math.min(runs, 3) })
     }
@@ -170,6 +183,62 @@ function measure(args) {
     cargo(["nextest", "run", "-p", owner, "--no-run"])
   }
   summarize([out])
+}
+
+/** The file, the anchor and the owner of `edit`, with the build of each of its scenarios */
+function editOf(edit) {
+  if (!Object.hasOwn(EDITS, edit)) {
+    fail(`no edit ${edit}; known: ${Object.keys(EDITS).join(", ")}`)
+  }
+  const [file, anchor, scenarios = DEFAULT_SCENARIOS] = EDITS[edit]
+  const source = sourceFile(file, anchor)
+  const owner = source.split("/")[1]
+  return { source, anchor, owner, builds: scenarios.map(scenario => ({ scenario, build: SCENARIOS[scenario](owner) })) }
+}
+
+/** Builds each scenario of the edit, makes it once and prints the crates each build of the change compiles */
+function rebuilt(args) {
+  const { positional } = parse(args)
+  const edit = positional[0] ?? fail(`usage: rebuilt <edit>; known: ${Object.keys(EDITS).join(", ")}`)
+  const { source, anchor, builds } = editOf(edit)
+  for (const { build } of builds) {
+    cargo(build)
+  }
+  const original = readFileSync(path.join(root, source))
+  const restore = () => writeFileSync(path.join(root, source), original)
+  const onSignal = () => {
+    restore()
+    process.exit(130)
+  }
+  process.once("SIGINT", onSignal)
+  try {
+    writeFileSync(path.join(root, source), withChange(original.toString("utf8"), anchor, 1, source))
+    const crates = new Set()
+    for (const { scenario, build } of builds) {
+      console.log(`${edit}/${scenario}: cargo ${build.join(" ")}`)
+      for (const line of compiled(build)) {
+        console.log(`  ${line}`)
+        crates.add(line.split(" ")[1])
+      }
+    }
+    console.log(`${edit} compiles: ${[...crates].join(", ")}`)
+  } finally {
+    restore()
+    process.removeListener("SIGINT", onSignal)
+  }
+}
+
+/** The `Compiling <crate> <version> (<path>)` lines of `cargo args` */
+function compiled(args) {
+  const result = spawnSync("cargo", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "ignore", "pipe"], maxBuffer: 64 << 20 })
+  if (result.status !== 0) {
+    process.stderr.write(result.stderr)
+    fail(`cargo ${args.join(" ")} exited with ${result.status}`)
+  }
+  return result.stderr
+    .split("\n")
+    .map(line => line.trim())
+    .filter(line => line.startsWith("Compiling "))
 }
 
 function machine() {

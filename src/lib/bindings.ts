@@ -5182,6 +5182,12 @@ export type RepositoryConfig = {
 	 *  with (`with_stacks_off_clashes`); empty with stacked branches off
 	 */
 	stacksOffClashes: FlatNameClash[],
+	/**
+	 *  The config writes this process had made when the read began (`config_writes`): an answer with a larger one holds
+	 *  more writes, so the page keeps it over a smaller one that arrives later. 0 outside `read_repository_config`; `bd`
+	 *  ignores it
+	 */
+	seq: number,
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */

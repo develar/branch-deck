@@ -506,30 +506,46 @@ fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
 }
 
 /// Settings → Repository saves a typed prefix on blur and a switch at once: two writes of the app, each answering the
-/// settings read again, never a "Cannot set …" for a `config.lock` the other write held
+/// settings read again, never a "Cannot set …" for a `config.lock` the other write held. Each answer counts more writes
+/// (`seq`) than the one before it of its thread, and a read after them counts them all, so the page keeps the newest
 #[test]
 fn two_writes_at_once_both_succeed() {
   let test_repo = TestRepo::new();
   let git = test_repo.git_executor();
   let path = test_repo.path_str();
 
-  std::thread::scope(|scope| {
+  let (switches, prefixes) = std::thread::scope(|scope| {
     let switches = scope.spawn(|| {
-      for round in 0..50 {
-        set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(round % 2 == 0))).unwrap();
-      }
+      (0..50)
+        .map(|round| set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(round % 2 == 0))).unwrap().seq)
+        .collect::<Vec<_>>()
     });
     let prefixes = scope.spawn(|| {
-      for round in 0..50 {
-        set_repository_config(git, path, &RepositoryConfigChange::BranchPrefix(Some(format!("jane{round}")))).unwrap();
-      }
+      (0..50)
+        .map(|round| {
+          set_repository_config(git, path, &RepositoryConfigChange::BranchPrefix(Some(format!("jane{round}"))))
+            .unwrap()
+            .seq
+        })
+        .collect::<Vec<_>>()
     });
-    switches.join().unwrap();
-    prefixes.join().unwrap();
+    (switches.join().unwrap(), prefixes.join().unwrap())
   });
 
+  for answers in [&switches, &prefixes] {
+    assert!(
+      answers.windows(2).all(|pair| pair[0] < pair[1]),
+      "each answer of a thread counts its own write more: {answers:?}"
+    );
+  }
   let config = read_repository_config(git, path).unwrap();
   assert_eq!((config.stacks.value, config.branch_prefix.value.as_deref()), (false, Some("jane49")));
+  let newest = switches.iter().chain(&prefixes).max().copied();
+  assert_eq!(
+    (Some(config.seq), config.seq),
+    (newest, 100),
+    "the read after both threads counts the 100 writes, as the newest answer does"
+  );
 }
 
 /// A `config.lock` of another process (`bd describe`, a `git config` of the user) released within the second is waited

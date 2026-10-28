@@ -3884,9 +3884,11 @@ no operation.
   worktree; `git config` exits with 255) is tried again with a growing pause for up to a second, which git 2.56 also
   does itself and 2.54 and 2.55 do not (`two_writes_at_once_both_succeed`,
   `a_write_waits_for_a_config_lock_another_process_holds`, `a_write_fails_on_a_config_lock_that_stays`). Two writes
-  that overlap answer in any order, and the older answer may lack the newer write: the page then takes from each
-  answer only the setting it wrote and reads the settings again once both answered (`ConfigWrites`,
-  `src/lib/repository-config.ts`).
+  that overlap answer in any order, and the older answer may lack the newer write: every answer of the settings, of a
+  read and of a write, carries `seq`, the config writes of the process before its read (`CONFIG_WRITES`, one counter
+  for the local and the global files, counted after each write while its file's mutex is held, read before the
+  config), and the page shows an answer only if its `seq` is not smaller than the one shown (`newer`,
+  `src/lib/repository-config.ts`), so no answer read before a write takes it back and no second read follows.
 - **Global write**: `set_repository_config` with `scope: "global"` (`WriteScope`, local when omitted) writes the same
   key to the user's global config instead: `git config --global --replace-all`, or `--unset-all`, with the same
   validation. No scope refuses it, because it is the value of every repository; a repository whose local, worktree or

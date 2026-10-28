@@ -108,4 +108,5 @@ const EMPTY_CONFIG: RepositoryConfig = {
   detectedGithubRepository: null,
   landingDefault: { route: "pullRequest", onSpace: false },
   stacksOffClashes: [],
+  seq: 0,
 }

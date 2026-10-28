@@ -58,6 +58,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
     { branch: "auth/login", beside: "auth" },
     { branch: "auth/session", beside: "auth" },
   ],
+  seq: 0,
 }
 
 /** The main window opens Settings again (the native menu, a button) at `target`, the window shows the new open */

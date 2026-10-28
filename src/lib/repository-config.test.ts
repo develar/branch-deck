@@ -2,7 +2,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ConfigSetting, RepositoryConfig } from "@/lib/bindings"
 import {
-  ConfigWrites,
   describeAppPrefixSource,
   describeDetectedGitHubRepository,
   describeFallback,
@@ -10,6 +9,7 @@ import {
   detectedGitHubRepositoryText,
   isValidGitHubRepository,
   isValidPushSizeLimit,
+  newer,
   overriddenReason,
   repositoryName,
   resetLabel,
@@ -148,7 +148,7 @@ describe("describeGlobalSource", () => {
   })
 })
 
-describe("ConfigWrites", () => {
+describe("newer", () => {
   const text = (value: string | null): ConfigSetting<string | null> => ({
     value,
     scope: value === null ? null : "local",
@@ -157,7 +157,8 @@ describe("ConfigWrites", () => {
     fallbackValue: null,
     fallbackScope: null,
   })
-  const config = (stacks: boolean, prefix: string | null): RepositoryConfig => ({
+  /** The settings an answer read after `seq` writes of the backend */
+  const config = (seq: number, stacks: boolean, prefix: string | null): RepositoryConfig => ({
     stacks: setting({ value: stacks, scope: "local", localSet: true }),
     symbols: { value: "on", scope: null, localSet: false, invalid: null, fallbackValue: "on", fallbackScope: null },
     githubRepository: text(null),
@@ -170,39 +171,25 @@ describe("ConfigWrites", () => {
     detectedGithubRepository: null,
     landingDefault: { route: "pullRequest", onSpace: false },
     stacksOffClashes: [],
+    seq,
+  })
+  /** What the page shows once the answers arrived in this order */
+  const shownAfter = (shown: RepositoryConfig, ...answers: RepositoryConfig[]) => answers.reduce((page, answer) => (newer(page, answer) ? answer : page), shown)
+
+  it("keeps the newest of answers that arrive in reverse order", () => {
+    const read = config(0, false, "jane")
+    // the switch is flipped, then a prefix saved while its write runs: the switch's answer was read before the prefix
+    const switchAnswer = config(1, true, "jane")
+    const prefixAnswer = config(2, true, "team")
+    expect(shownAfter(read, prefixAnswer, switchAnswer)).toBe(prefixAnswer)
+    expect(shownAfter(read, switchAnswer, prefixAnswer)).toBe(prefixAnswer)
+    // a read that a focus started before the writes answers last
+    expect(shownAfter(read, prefixAnswer, switchAnswer, config(0, false, "jane"))).toBe(prefixAnswer)
   })
 
-  it("gives the page the whole answer of a write alone, and nothing new for a failed one", () => {
-    const writes = new ConfigWrites()
-    const shown = config(false, "jane")
-    writes.start()
-    expect(writes.finish("stacks", config(true, "team"), shown)).toEqual({ config: config(true, "team"), readAgain: false })
-    writes.start()
-    expect(writes.finish("stacks", null, shown)).toEqual({ config: shown, readAgain: false })
-  })
-
-  it("keeps a newer write when an older one answers last, and reads again once both answered", () => {
-    const writes = new ConfigWrites()
-    let shown = config(false, "jane")
-    // the switch is flipped, then a prefix saved while its write runs; the switch's answer was read before the prefix
-    writes.start()
-    writes.start()
-    const prefixAnswer = writes.finish("branchPrefix", config(true, "team"), shown)
-    expect(prefixAnswer).toEqual({ config: config(false, "team"), readAgain: false })
-    shown = prefixAnswer.config!
-    expect(writes.finish("stacks", config(true, "jane"), shown)).toEqual({ config: config(true, "team"), readAgain: true })
-
-    // the next write alone is whole again
-    writes.start()
-    expect(writes.finish("stacks", config(false, "team"), config(true, "team"))).toEqual({ config: config(false, "team"), readAgain: false })
-  })
-
-  it("reads again after overlapping writes even when one failed", () => {
-    const writes = new ConfigWrites()
-    const shown = config(false, "jane")
-    writes.start()
-    writes.start()
-    expect(writes.finish("stacks", null, shown)).toEqual({ config: shown, readAgain: false })
-    expect(writes.finish("branchPrefix", config(false, "team"), shown)).toEqual({ config: config(false, "team"), readAgain: true })
+  it("takes an answer of as many writes: a read again finds a git config of meanwhile", () => {
+    const written = config(2, true, "team")
+    const readAgain = config(2, true, "bd")
+    expect(shownAfter(written, readAgain)).toBe(readAgain)
   })
 })

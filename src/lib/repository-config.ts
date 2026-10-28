@@ -291,50 +291,13 @@ export function writeErrorTitle(change: RepositoryConfigChange, fallbackStacks: 
   }
 }
 
-/** What a page shows after a write answered: the settings, and whether to read them again */
-export interface ConfigWriteOutcome {
-  config: RepositoryConfig | null
-  readAgain: boolean
-}
-
 /**
- * The writes of one page of Settings (`set_repository_config`), each answering the settings read again. Two writes at
- * once (a prefix saved on blur, then a switch) answer in any order, and the older answer may lack the newer write: while
- * writes overlap, an answer gives the page only the setting it wrote, and once the last of them answered the page reads
- * the settings again. A write alone gives the page its whole answer
+ * Whether the page takes `answer`, the settings a read or a write of Settings answered, over the settings it shows. Two
+ * writes at once (a prefix saved on blur, then a switch) answer in any order, and so does a read that a focus started
+ * beside a write: each answer counts the config writes of the backend before its read (`seq`), so one that counts
+ * fewer lacks a write the shown settings hold. One that counts as many holds the same writes and is taken: a read
+ * again on focus finds a `git config` or a `bd` of meanwhile
  */
-export class ConfigWrites {
-  private running = 0
-  private overlapped = false
-
-  /** A write starts */
-  start(): void {
-    this.running++
-    if (this.running > 1) {
-      this.overlapped = true
-    }
-  }
-
-  /** The write of `key` answered `answer` (null: it failed), while the page shows `shown` */
-  finish(key: RepositoryConfigKey, answer: RepositoryConfig | null, shown: RepositoryConfig | null): ConfigWriteOutcome {
-    this.running--
-    if (!this.overlapped) {
-      return { config: answer ?? shown, readAgain: false }
-    }
-    const config = answer === null || shown === null ? shown : withWrittenSetting(shown, answer, key)
-    if (this.running > 0) {
-      return { config, readAgain: false }
-    }
-    this.overlapped = false
-    return { config, readAgain: true }
-  }
-}
-
-/** `shown` with the setting of `key` that a write answered (and the clashes, which only the stacks change) */
-function withWrittenSetting(shown: RepositoryConfig, answer: RepositoryConfig, key: RepositoryConfigKey): RepositoryConfig {
-  const config: RepositoryConfig = { ...shown, [key]: answer[key] }
-  if (key === "stacks") {
-    config.stacksOffClashes = answer.stacksOffClashes
-  }
-  return config
+export function newer(shown: RepositoryConfig, answer: RepositoryConfig): boolean {
+  return answer.seq >= shown.seq
 }

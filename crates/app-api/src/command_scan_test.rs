@@ -4,10 +4,10 @@
 //! an `#[instrument]` span; a command that can fail (`Result<_, ApiError>`) runs its body as an operation
 //! (`operation`, `operation_now`, or the one blocking step `run_blocking`); a command of a session has both from the
 //! frame of its kind (`registry.rs`), so its body opens neither; the span records no argument that holds a
-//! collection, whose Debug text a line of the log would carry whole (`skip_all` and a field or two instead); and an
-//! async body opens the object cache, and a body of the registry reads the git directories and the GitHub repository
-//! (`RepositoryStateCache`), only in a blocking step, or through the services of its session, whose host reads them
-//! off the workers. The key of a session is built in one place, `context.rs`.
+//! collection, whose Debug text a line of the log would carry whole (`skip_all` and a field or two instead); and every
+//! async function of the crate (a body, a helper of one, a method) opens the object cache and reads the git
+//! directories and the GitHub repository (`RepositoryStateCache`) only in a blocking step, or through the services of
+//! its session, whose host reads them off the workers. The key of a session is built in one place, `context.rs`.
 
 use crate::commands::COMMANDS;
 use std::collections::{BTreeMap, HashSet};
@@ -526,50 +526,87 @@ fn blocking_on_the_worker(body: &str, calls: &[&str]) -> Vec<String> {
   lines
 }
 
-/// The lines of the async `commands` that call one of `calls` on the worker, one report line each
-fn blocking_report(commands: &[Command], calls: &[&str]) -> Vec<String> {
-  let mut report = Vec::new();
-  for command in commands.iter().filter(|command| command.asynchronous) {
-    for line in blocking_on_the_worker(&command.body, calls) {
-      report.push(format!("  {} ({}): {line}", command.name, command.place));
+/// An async function of the sources of this crate: a body of the registry, a helper of one, a method
+struct AsyncFunction {
+  name: String,
+  /// `crates/app-api/src/reads/commits.rs:47`
+  place: String,
+  body: String,
+}
+
+/// Whether `line` starts an async function, a method too
+fn is_async_function(line: &str) -> bool {
+  let line = line.trim_start();
+  ["async fn ", "pub async fn ", "pub(crate) async fn "].iter().any(|start| line.starts_with(start))
+}
+
+/// Every async function of the sources of this crate: its body ends at the first `}` of the indentation of its
+/// signature
+fn async_functions() -> Vec<AsyncFunction> {
+  let mut files = Vec::new();
+  rust_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+  let mut functions = Vec::new();
+  for file in &files {
+    let text = fs::read_to_string(file).expect("readable source");
+    let lines: Vec<&str> = text.lines().collect();
+    for (at, line) in lines.iter().enumerate().filter(|(_, line)| is_async_function(line)) {
+      let closing = format!("{}}}", &line[..line.len() - line.trim_start().len()]);
+      let open = (at..lines.len()).find(|index| lines[*index].trim_end().ends_with('{')).expect("the body of the function");
+      let end = (open + 1..lines.len()).find(|index| lines[*index] == closing).expect("the end of the function");
+      functions.push(AsyncFunction {
+        name: line
+          .split("fn ")
+          .nth(1)
+          .and_then(|rest| rest.split(['(', '<']).next())
+          .expect("the name of the function")
+          .to_owned(),
+        place: format!("{}:{}", relative(file), at + 1),
+        body: lines[open + 1..end].join("\n"),
+      });
     }
   }
-  report
+  functions
 }
 
-#[test]
-fn an_async_command_opens_the_object_cache_off_the_async_workers() {
-  let report = blocking_report(&commands(), &["object_cache("]);
-  assert!(
-    report.is_empty(),
-    "the first open of the object cache runs `rev-parse` and opens LMDB, which blocks a worker of the async runtime: open it inside `run_blocking(…)` (docs/design/async-patterns.md):\n{}",
-    report.join("\n")
-  );
-  assert_eq!(
-    blocking_on_the_worker(
-      "  let cache = repository_state.object_cache(&git, &path);\n  run_blocking(move || {\n    let cache = state.object_cache(&git, &path);\n  })\n  let kept = ctx.services.object_cache(&key).await;",
-      &["object_cache("]
-    ),
-    ["let cache = repository_state.object_cache(&git, &path);"]
-  );
-}
+/// The reads that block on their first call: the object cache (`rev-parse --git-common-dir`, then LMDB), and of
+/// `RepositoryStateCache` the git directories (a `rev-parse` on the first call for a repository) and the GitHub
+/// repository (up to 3 git processes)
+const BLOCKING_READS: [&str; 3] = ["object_cache(", "git_common_dir(", "github_repository("];
 
-/// The reads of `RepositoryStateCache` besides the object cache: a `rev-parse` on the first call for a repository, the
-/// GitHub repository up to 3 git processes
+/// Every async function of the crate, a helper of a body and a method too, makes the blocking reads in a blocking step
+/// (`run_blocking`, a `move ||` closure of a core) or through the services of its session
 #[test]
-fn a_body_of_the_registry_reads_the_git_directories_and_the_github_repository_off_the_async_workers() {
-  let report = blocking_report(&registry_bodies(), &["git_common_dir(", "github_repository("]);
+fn an_async_function_makes_the_blocking_reads_off_the_async_workers() {
+  let functions = async_functions();
+  let report: Vec<String> = functions
+    .iter()
+    .flat_map(|function| {
+      blocking_on_the_worker(&function.body, &BLOCKING_READS)
+        .into_iter()
+        .map(move |line| format!("  {} ({}): {line}", function.name, function.place))
+    })
+    .collect();
   assert!(
     report.is_empty(),
-    "the git directories and the GitHub repository of a repository are read by git on their first call, which blocks a worker of the async runtime: read them inside `run_blocking(…)` (docs/design/async-patterns.md):\n{}",
+    "the object cache, the git directories and the GitHub repository are read by git on their first call, which blocks a worker of the async runtime: read them inside `run_blocking(…)` (docs/design/async-patterns.md):\n{}",
     report.join("\n")
   );
+
+  // every async body of the registry is among them, and so is a helper that opens the object cache
+  let names: HashSet<&str> = functions.iter().map(|function| function.name.as_str()).collect();
+  let missed: Vec<String> = registry_bodies()
+    .into_iter()
+    .filter(|command| command.asynchronous && !names.contains(command.name.as_str()))
+    .map(|command| command.name)
+    .collect();
+  assert!(missed.is_empty(), "the scan misses async bodies of the registry: {missed:?}");
+  assert!(names.contains("read_files"), "the scan reads the helpers of the bodies too");
   assert_eq!(
     blocking_on_the_worker(
-      "  let dir = state.git_common_dir(&git, &path)?;\n  run_blocking(move || state.github_repository(&git, &path)).await",
-      &["git_common_dir(", "github_repository("]
+      "  let cache = repository_state.object_cache(&git, &path);\n  let dir = state.git_common_dir(&git, &path)?;\n  run_blocking(move || {\n    let cache = state.object_cache(&git, &path);\n  })\n  run_blocking(move || state.github_repository(&git, &path)).await\n  let kept = ctx.services.object_cache(&key).await;",
+      &BLOCKING_READS
     ),
-    ["let dir = state.git_common_dir(&git, &path)?;"]
+    ["let cache = repository_state.object_cache(&git, &path);", "let dir = state.git_common_dir(&git, &path)?;"]
   );
 }
 

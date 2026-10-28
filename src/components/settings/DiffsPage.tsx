@@ -88,8 +88,8 @@ function onOff(value: boolean): string {
  * config and the command line win over both, so the switch is disabled then, with that reason.
  */
 function ResolveByWordsSetting({ path }: { path: string }) {
-  const { state, retry, startWrite } = useRepositoryConfig(path)
-  const config = useConfigWrite(path, startWrite)
+  const { state, retry, showWritten } = useRepositoryConfig(path)
+  const config = useConfigWrite(path, showWritten)
   const writing = config.writing
   const setting = state.status === "loaded" ? state.config.resolveByWords : null
   const name = repositoryName(path)
