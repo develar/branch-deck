@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Updated:** 2026-10-28  
-**Tags:** [tests, e2e, nextest, studio, bd-host, yonder]
+**Tags:** [tests, e2e, nextest, studio, bd-host]
 
 ## Summary
 
@@ -23,14 +23,7 @@ bd-host run studio --apply -- pnpm lint:backend              # the edits of carg
 bd-host run studio --apply -- pnpm e2e-up                    # the rewritten snapshots come back here
 ```
 
-## The migration from yonder
-
-yonder (the client `~/.local/bin/yonder`, the agent `yonderd` on port 7741, `community/tools/yonder` of the IntelliJ
-monorepo) did these runs before. Both agents serve the Studio side by side and lend from its one lend table, so a run
-of either one waits for the same slots. Until the user ran `bd-host setup --import-yonder` on this Mac and on the
-Studio, `bd-host run studio` refuses with `no_host` (75): run `yonder run studio` with the same arguments then, never
-the heavy command here. Until the app bundle carries bd-host, this Mac can have no `bd-host` at all, and the shell
-exits 127: the same rule applies. The arguments are the same, but `--holder` is `--affinity` in bd-host.
+yonder of the IntelliJ monorepo did these runs until 2026-10-28, when bd-host took them over and yonderd was retired.
 
 ## Use
 
@@ -38,13 +31,12 @@ exits 127: the same rule applies. The arguments are the same, but `--holder` is 
   repository ("Host slots" of [bd lease](../../spec/cli/lease.spec.md)) and lends one to each run for that run only:
   the slot this checkout used last, else the one used longest ago; with all four lent, a run waits and says so once a
   minute. Nothing is kept or given back by hand. `bd-host slots studio` shows the lend table.
-- **What this repository asks of the host** is `.yonder.toml` in its root, which bd-host reads while
-  `.branchdeck.toml` has no `[host]` table: the `outputs` that come back into the same paths here (`tests/results`,
+- **What this repository asks of the host** is `[host]` of `.branchdeck.toml` in its root: the `outputs` that come back into the same paths here (`tests/results`,
   `playwright-report`, the nextest junit), `E2E_PORT` per slot, and `pnpm install` when the lockfile or package.json
   changed. A step and the command run in the login environment of the user there, with 65536 open files and `nice` 10
   (`--nice <n>`).
 - **Exit codes**: the command's own; 75 when the Studio did not run it (unreachable, a refusal before the command):
-  run the same command here then, except for `no_host` (above); 130 after Ctrl+C, which cancels the run there.
+  run the same command here then; 130 after Ctrl+C, which cancels the run there.
   `bd-host schema` lists every refusal code with its exit code.
 - **Output**: stdout is only the stdout of the command. stderr has the lines of bd-host, and the run ends with
   `bd-host: phases: … command …, total …`: read that line before you guess where the time went.
@@ -52,5 +44,6 @@ exits 127: the same rule applies. The arguments are the same, but `--holder` is 
 ## Measured
 
 On 2026-10-24, with yonder, Studio load 4 to 22: `cargo nextest run --workspace` 4 min 7 s in a new slot (243.7 s of
-tests), `pnpm e2e` 2 min 34 s, an `--apply` of `cargo fmt` 2.1 s, a rerun of the same tree sends no pack. bd-host has no
-measurement on the Studio yet: no `bd-host serve` runs there.
+tests), `pnpm e2e` 2 min 34 s, an `--apply` of `cargo fmt` 2.1 s, a rerun of the same tree sends no pack. On
+2026-10-28, with bd-host: `cargo nextest run --workspace --no-fail-fast` 4 min 48 s in a warm slot (239.6 s of tests,
+3605 tests), and 0.6 s of it before the command.

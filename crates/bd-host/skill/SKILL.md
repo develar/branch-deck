@@ -12,7 +12,7 @@ many runs, or a measurement that needs a quiet machine.
 
 `bd-host skill install` writes this skill into `~/.claude/skills/bd-host/`. The full documents of this build are in
 `references/`: `spec.md` (the contract: every command, the files, `[host]`, the refusal codes, the report of a run)
-and `design.md` (why, the slot model, the processes, the upgrade and the migration from yonder).
+and `design.md` (why, the slot model, the processes and the upgrade).
 
 ## Who runs what
 

@@ -98,7 +98,7 @@ TMPDIR=/Volumes/bd-tests/ cargo nextest run --workspace
 diskutil eject "$device"
 ```
 
-Neither CI nor `yonder run studio` does it: on a RAM disk the temporary directory of a test is no symlink, and the tests of
+Neither CI nor `bd-host run studio` does it: on a RAM disk the temporary directory of a test is no symlink, and the tests of
 the macOS symlink of `/var` (`git_canonical_path`) would pass without one.
 
 Of the 73,704, about three quarters are the code under test itself: each bd or sync operation reads the same

@@ -144,7 +144,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - In a lease of the pool `bd update` onto the baseline must be refused as `lease_follows_home` (exit 4), the message
   naming `bd lease pick` and the owner of the shared checkout: the lease follows the branch it was cut from, and an
   update onto a newer baseline would make its pick refuse it (`source_on_newer_baseline`). `--dry-run`, `--status`,
-  `--continue` and `--abort` go on there; a host slot of `bd host` is no lease of a session.
+  `--continue` and `--abort` go on there; a host slot of `bd-host` is no lease of a session.
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort`)
 - The update that `bd lease pick` runs after its pick conflicted must go onto the branch the lease was cut from, a
   local branch, without a fetch (`UpdateOptions::onto`): on the detached HEAD of the lease (`branch: "HEAD"`), the

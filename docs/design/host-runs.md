@@ -7,22 +7,21 @@
 ## Problem
 
 A heavy check (the full `cargo nextest run --workspace`, `pnpm e2e`, a test suite of the IntelliJ monorepo) runs on
-another Mac of the user, the host. Until now yonder did this. yonder lives in `community/tools/yonder` of the IntelliJ
-monorepo: a client, the agent `yonderd` and the link that they share. It calls Branch Deck as child processes:
-`bd lease host lend|give-back|have|ingest|show|snapshot|changes|git` on the host and `bd host snapshot|pack|apply` on
-the client.
+another Mac of the user, the host. Until 2026-10-28 yonder did this. yonder lived in `community/tools/yonder` of the
+IntelliJ monorepo: a client, the agent `yonderd` and the link that they shared. It called Branch Deck as child
+processes: `bd lease host lend|give-back|have|ingest|show|snapshot|changes|git` on the host and `bd host
+snapshot|pack|apply` on the client.
 
-That seam is the cost. Each git step of a run is a `bd` process with a JSON answer. The tests of yonderd fake bd in a
-shell script (`FAKE_BD`). The host needs a bd of the same features as the agent, and the two ship in two release
-cycles of two repositories. The slot policy and the git rules live in Branch Deck already (`lease_pool::host_slots`,
-the scan tests), so yonder keeps only the transport and the processes.
+That seam was the cost. Each git step of a run was a `bd` process with a JSON answer. The tests of yonderd faked bd in
+a shell script (`FAKE_BD`). The host needed a bd of the same features as the agent, and the two shipped in two release
+cycles of two repositories. The slot policy and the git rules lived in Branch Deck already (`lease_pool::host_slots`,
+the scan tests), so yonder kept only the transport and the processes.
 
 ## Solution Overview
 
 The remote runs move into this workspace as one binary, `bd-host`. It is the client and the agent. It calls
 `lease-pool`, `git-ops` and `git-executor` in process, so no `bd` child runs and no JSON crosses a process boundary.
-The protocol is new (host-link, schema 1, port 7742). So `bd-host serve` and `yonderd` (port 7741) run side by side on
-one host during the migration, and both lend from the same lend table.
+The protocol is new (host-link, schema 1, port 7742).
 
 `bd-host` is a binary of its own. Neither `bd` nor the app links it, so the app binary does not grow. On macOS the app
 bundle carries it as a file (`BranchDeck.app/Contents/MacOS/bd-host`), and `bd install` links
@@ -54,7 +53,7 @@ flowchart LR
 
 | Crate | Content | Depends on |
 |---|---|---|
-| `host-link` | The identity files and their import from yonder, TLS 1.3 with pinned certificates, the frames, the protocol, the allow list, the relay through `/usr/bin/nc`, the refusal codes, `[host]` of `.branchdeck.toml` | rustls, rcgen, `sync-utils` |
+| `host-link` | The identity files, TLS 1.3 with pinned certificates, the frames, the protocol, the allow list, the relay through `/usr/bin/nc`, the refusal codes, `[host]` of `.branchdeck.toml` | rustls, rcgen, `sync-utils` |
 | `host-client` | The run, the commit of the working tree, the thin pack, the follow, the cancel, the fetch, the base sync, the host files, the upgrade | `host-link`, `git-ops`, `git-executor` |
 | `host-agent` | `serve`, the supervisor, the run directories, the login environment, the prepare steps, the keeper, the power assertions, the upgrade | `host-link`, `lease-pool`, `git-ops`, `git-executor` |
 | `bd-host` | The CLI of both ends | `host-agent`, `host-client`, `host-link` |
@@ -111,19 +110,13 @@ same schema runs, and the client adds one line that names `bd-host upgrade <alia
 The agent links `lease-pool`, so the host needs no `bd` binary of the same version. The strict gates of revision 5
 (an installed app only, `origin/master` only) are left out: the user installs local builds.
 
-### Migration from yonderd
+### The migration from yonderd
 
-1. yonderd keeps its lends in the same `host-slots.json` already. So `bd-host serve` on 7742 and `yonderd` on 7741
-   share the slots of a host, and no adopt step exists.
-2. `bd-host setup --import-yonder` takes the identity and the allow list of the agent from `~/.cache/yonderd`, and the
-   identity and the host files of the client from `~/.config/yonder`. So both ends keep their fingerprints, and no new
-   pairing and no ssh is needed. The first install on a host is a yonder run of `bd-host setup --import-yonder`.
-3. A commit without `[host]` in `.branchdeck.toml` gets the `.yonder.toml` of the commit, until the monorepo moved.
-4. `bd-host setup --retire-yonderd` waits until no yonderd run lives, boots out `com.jetbrains.yonderd`, deletes the
-   refs `refs/yonder/*` and `~/.cache/yonderd`. Only the user starts it.
-
-The `bd lease host …` and `bd host …` commands of bd stay while yonderd and the yonder client call them. Their removal
-is a later step.
+The migration ended on 2026-10-28. During it, `bd-host serve` on 7742 and yonderd on 7741 served the Studio side by
+side and lent from one `host-slots.json`. `bd-host setup --import-yonder` copied the identities, the host files and
+the allow list of yonder, so no new pairing was needed. `bd-host setup --retire-yonderd` then removed yonderd, its
+cache and its refs `refs/yonder/*`. After that, the import, the retire, the `.yonder.toml` fallback of `[host]`, and
+the `bd lease host …` and `bd host …` commands of bd were removed.
 
 ## Key Decisions
 
@@ -134,7 +127,7 @@ is a later step.
    **Rationale**: `bd-core` reaches the HTTP clients and the engine of the operations. The agent needs none of them.
    The refusal codes of a host run are a contract of their own, with the exits 75, 130 and 255.
 3. **Decision**: A new protocol, not schema 3 of yonder.
-   **Rationale**: A new port lets both agents run side by side. `Pack` names its target (`{"run": …}` or
+   **Rationale**: A new port let both agents run side by side during the migration. `Pack` names its target (`{"run": …}` or
    `{"base": …}`) instead of a ref of `refs/yonder/`, and `RunSpec` has no `reference`.
 4. **Decision**: The rustls provider of the app (`aws-lc-rs`), not `ring`.
    **Rationale**: The workspace links `aws-lc-rs` through reqwest already, so no second provider comes in.
@@ -153,5 +146,5 @@ is a later step.
   stale output. The same risk exists today within one checkout.
 - A daemon that leaves the slot directory escapes the process scan of the give-back. The process group kill of the
   run catches what stays in the group.
-- The port is large (about 22,000 lines with the tests). yonderd serves until the migration ends, so a slow port
-  breaks nothing.
+- The port was large (about 22,000 lines with the tests). yonderd served until the migration ended, so a slow port broke
+  nothing.
