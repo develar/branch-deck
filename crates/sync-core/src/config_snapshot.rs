@@ -5,7 +5,9 @@
 use crate::github_repository::GitHubRepository;
 use crate::push_size::{DEFAULT_PUSH_SIZE_LIMIT, PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
 use crate::remote_url::split_owner_and_name;
-use crate::repository_config::{ConfigEntry, GLOBAL_PUSH_ROUTE_REASON, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries};
+use crate::repository_config::{
+  ConfigEntry, GLOBAL_PUSH_ROUTE_REASON, OriginFacts, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries,
+};
 use anyhow::{Result, anyhow};
 use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
 use domain_types::settings::GitBranchPrefix;
@@ -89,7 +91,7 @@ impl ConfigSnapshot {
 
   /// The settings as Settings → Repository resolves them, without the detected GitHub repository
   pub fn settings(&self) -> RepositoryConfig {
-    repository_config_from_entries(&self.entries, None)
+    repository_config_from_entries(&self.entries, OriginFacts::default())
   }
 
   /// `branchdeck.stacks`, a git boolean, off when unset; an error for a value git would refuse

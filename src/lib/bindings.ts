@@ -3179,6 +3179,14 @@ export type LandingAllowances = {
 	bypassRules?: boolean,
 };
 
+/**  The route of a repository that names none, and why: `origin` pushes to Space or not */
+export type LandingDefault = {
+	/**  Patronus on Space, the pull request elsewhere; never a push */
+	route: LandingSetting,
+	/**  The push URL of `origin` is a repository on Space */
+	onSpace: boolean,
+};
+
 /**  How the user gets the missing declaration, or the change of a dangling use, into what lands */
 export type LandingFix = 
 /**  Stack `branch`, the root of what lands, on `onto`, the branch of the commit it needs: the start lands it too */
@@ -3279,7 +3287,24 @@ export type LandingRemote = {
 	 *  local baseline
 	 */
 	target: string | null,
+	/**
+	 *  The remote of the baseline (`origin` of `origin/master`), whose push URL a push into the target goes by; `None`
+	 *  for a local baseline
+	 */
+	remote?: string | null,
 };
+
+/**  The route of a repository into master, each with its gate (`domain_policy::landing_route::route`) */
+export type LandingRoute = 
+/**  A Safe Push of Patronus; refused off Space */
+{ kind: "patronus"; gate: RouteGate } | 
+/**
+ *  A push of the copy into the target on `remote` (the remote of the baseline; `None` for a local baseline, which the
+ *  gate refuses), by the write access and the rules of the target as GitHub tells them
+ */
+{ kind: "push"; gate: RouteGate; remote: string | null } | 
+/**  A merge of the pull request on GitHub, by the user's write access; without it the route stays and others merge */
+{ kind: "pullRequest"; merge: RouteGate };
 
 /**
  *  The route a repository names (`branchdeck.landing`); unset, the route is Patronus on Space and the pull request
@@ -4377,10 +4402,10 @@ export type PlannedEffect =
 { kind: "fetchReview"; number: number } | 
 /**
  *  The copy of `subject` (the tip of its virtual branch, of a whole stack its stack branch), `tip`, is pushed into the
- *  branch of the baseline on its remote, `target` ("master"): a fast-forward the server takes or refuses whole
- *  (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
+ *  branch of the baseline on its remote `remote` ("origin"), `target` ("master"): a fast-forward the server takes or
+ *  refuses whole (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
  */
-{ kind: "pushBaseline"; subject: Subject; tip: string; target: string };
+{ kind: "pushBaseline"; subject: Subject; tip: string; remote: string; target: string };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -4976,6 +5001,8 @@ export type RepositoryConfig = {
 	agentSubjectBranch: ConfigSetting<boolean>,
 	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
 	detectedGithubRepository: DetectedGitHubRepository | null,
+	/**  The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`) */
+	landingDefault: LandingDefault,
 	/**
 	 *  With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
 	 *  with (`with_stacks_off_clashes`); empty with stacked branches off
@@ -5068,6 +5095,12 @@ export type RepositoryView = {
 	reviews: ReviewsView,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
+	/**
+	 *  The route of the repository into master with its gate (`domain_policy::landing_route::route`), over what its last
+	 *  grouping read of git, the facts of GitHub the session holds and the refusal of the server of its last push into
+	 *  the target
+	 */
+	route: LandingRoute,
 	/**  What the remote services answered, beside the table */
 	facts: FactsView,
 	/**
@@ -5768,6 +5801,24 @@ export type RobotsView = {
 	/**  By id, the failed robots of the table whose problems Patronus didn't give, with why */
 	problemsFailed: { [key in string]: string },
 };
+
+/**  The facts of GitHub a gate reads */
+export type RouteFact = 
+/**  What the token may do in the repository (the listing of the pull requests) */
+{ kind: "permission" } | 
+/**  The rules of the target (`branch_rules`) */
+{ kind: "targetRules" };
+
+/**  Whether a route may land now */
+export type RouteGate = 
+/**  Nothing known holds it: what is not known of the remote, the server answers */
+{ kind: "open" } | 
+/**  A fact of GitHub has no answer yet, or its read `failed`: never read as "no" */
+{ kind: "wait"; fact: RouteFact; failed: ApiError | null } | 
+/**  It may land once the user accepts `confirmations`, in their order */
+{ kind: "confirm"; confirmations: Reason[] } | 
+/**  It can't land: `reason` */
+{ kind: "refused"; reason: Reason };
 
 /**  An action of a row of Settings → Tools */
 export type RunCliToolActionParams = {
@@ -6650,6 +6701,7 @@ export type TableChanges = {
 	landed?: LandedSection | null,
 	reviews?: ReviewsView | null,
 	patronus?: PatronusChange | null,
+	route?: LandingRoute | null,
 	facts?: FactsChanges | null,
 	/**  The news since the patch before, oldest first */
 	news?: News[],

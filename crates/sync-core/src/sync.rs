@@ -561,7 +561,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     parked: grouping.parked.entries,
     stack_branches: stack_branches.reported_roots(),
     target_branch: crate::patronus::target_branch_of(facts.upstream.as_ref()),
-    landing,
+    landing: Box::new(landing),
   })?;
 
   let tree_id_cache = seeded_tree_cache(tree_id_cache, branches.values().flatten());

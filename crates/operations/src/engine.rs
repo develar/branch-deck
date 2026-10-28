@@ -16,11 +16,12 @@
 //! it and is decided again. An operation that waited in the queue runs on the plan the ones it waited for left, while
 //! the user accepted what it asks (`Accepted::decided_again`): a push and the Safe Push pressed right after it are one
 //! push and one start. A start of a repository that lands by a push into the target reserves the remote-tracking ref of
-//! the target (`refs/remotes/origin/master`: two landings into it wait for each other, a fetch of it waits for the push)
-//! and runs without Patronus; once its push landed, Update Project with its fetch follows as an operation of its own
-//! (`domain_policy::land_direct::update_after`), admitted as any update: the start holds no HEAD in its network part.
+//! the target on the remote its plan names (`refs/remotes/origin/master`: two landings into it wait for each other, a
+//! fetch of it waits for the push) and runs without Patronus; once its push landed, Update Project with its fetch
+//! follows as an operation of its own (`domain_policy::land_direct::update_after`), admitted as any update, its events
+//! to the caller of the start: the start holds no HEAD in its network part.
 
-use crate::events::{EventSink, NoEvents};
+use crate::events::EventSink;
 use crate::land_execute::{self, Accepted, Planned, StartServices, Steps};
 use crate::land_session::{SessionStart, pull_request_start, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
@@ -37,7 +38,6 @@ use domain_types::session::Version;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::session::{SessionKey, Sessions};
 use std::sync::Arc;
-use sync_core::push::PUSH_REMOTE;
 use sync_core::transfer_progress::TransferProgress;
 use tracing::Instrument;
 
@@ -190,7 +190,9 @@ pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, S
 /// which starts no robot, `pull_request_start`) with its steps in the view and its progress and outcome to `events`, on
 /// what the operations it queued behind left (the push of its branch pressed just before it: the start pushes nothing
 /// more); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows as an operation of
-/// its own (`land_direct::update_after`), its steps in the view; the answer is the start's
+/// its own (`land_direct::update_after`), its steps in the view and, after the start's `Done`, its events and its own
+/// `Done` to `events`; the answer is the start's, after the update: an update refused before its first effect (a lock
+/// another process holds) sends no `Done` of its own
 ///
 /// # Errors
 /// What refused the start before its first effect (`land_execute::execute`), a lock another process holds, a session
@@ -214,8 +216,9 @@ pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, acc
   if let Ok(outcome) = &answer
     && let Some(Intent::UpdateProject { fetch }) = update_after(&outcome.effects)
   {
-    // its own outcome is told in the view and the journal: the caller hears the start's
-    drop(Box::pin(update::execute_update(registry, key, fetch, hosts, Arc::new(NoEvents))).await);
+    // the caller hears its steps, the progress of its fetch and its outcome after the start's `Done`, on the same
+    // channel (the toast of the push says how the update went); the answer is the start's
+    drop(Box::pin(update::execute_update(registry, key, fetch, hosts, events)).await);
   }
   answer
 }
@@ -312,8 +315,8 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
       }
       PlannedEffect::CancelRobot { robot_id } => resources.push(Resource::Robot { id: robot_id.clone() }),
       // the remote-tracking ref of the target: a fetch of it, and another landing into it, wait for the push
-      PlannedEffect::PushBaseline { target, .. } => resources.push(Resource::Ref {
-        name: format!("refs/remotes/{PUSH_REMOTE}/{target}"),
+      PlannedEffect::PushBaseline { remote, target, .. } => resources.push(Resource::Ref {
+        name: format!("refs/remotes/{remote}/{target}"),
       }),
       _ => {}
     }

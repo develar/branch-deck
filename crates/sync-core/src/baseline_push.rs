@@ -30,6 +30,10 @@ pub struct BaselinePush<'a> {
   pub repository_path: &'a str,
   /// The baseline as the sync named it (`origin/master`): its remote and the branch there are what the push goes to
   pub baseline: &'a str,
+  /// The remote and the branch there the plan of the push named (`origin`, `master`): a baseline that tracks another
+  /// one now is refused before anything is sent
+  pub remote: &'a str,
+  pub target: &'a str,
   /// The commit pushed: the copy as the witness of the start froze it
   pub tip: &'a str,
   /// `branchdeck.pushSizeLimit`; `None` for no check
@@ -70,6 +74,16 @@ pub fn push_baseline(git_executor: &GitCommandExecutor, push: &BaselinePush<'_>,
   let Some(upstream) = resolve_baseline_upstream(git_executor, path, push.baseline)? else {
     bail!("The baseline {} is a local branch: no remote branch takes the push", push.baseline);
   };
+  if upstream.remote != push.remote || upstream.remote_ref.strip_prefix("refs/heads/") != Some(push.target) {
+    bail!(
+      "The baseline {} tracks {} of {} now, not {} of {}: nothing was pushed",
+      push.baseline,
+      upstream.remote_ref,
+      upstream.remote,
+      push.target,
+      push.remote
+    );
+  }
   if let Some(limit) = push.size_limit
     && let Some(too_large) = check_push_size(git_executor, path, &[push.tip], &upstream.remote, limit)?
   {

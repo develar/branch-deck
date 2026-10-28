@@ -13,7 +13,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::{read_head, repository_dirs};
 use std::path::{Path, PathBuf};
-use sync_core::repository_config::{ConfigSetting, read_config_entries, repository_config_from_entries};
+use sync_core::repository_config::{ConfigSetting, OriginFacts, read_config_entries, repository_config_from_entries};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, get_uncommitted_changes};
 use tracing::instrument;
 
@@ -74,7 +74,7 @@ pub struct AgentWorkspace {
 pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&Path>) -> Result<AgentWorkspace> {
   let Some(dirs) = repository_dirs(git, directory)? else {
     // no working tree to edit: the global settings, for what they say
-    let config = repository_config_from_entries(&read_config_entries(git, "")?, None);
+    let config = repository_config_from_entries(&read_config_entries(git, "")?, OriginFacts::default());
     return Ok(AgentWorkspace {
       kind: WorkspaceKind::None,
       lease: config.agent_lease,
@@ -90,7 +90,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
       pool_unusable: None,
     });
   };
-  let config = repository_config_from_entries(&read_config_entries(git, &dirs.top_level)?, None);
+  let config = repository_config_from_entries(&read_config_entries(git, &dirs.top_level)?, OriginFacts::default());
   let top_level = canonical_path(Path::new(&dirs.top_level));
 
   let (slots, _) = lease_status_core(Path::new(&dirs.git_common_dir), false)?;
@@ -204,7 +204,7 @@ pub struct AgentDefaults {
 /// be run, as `bd workspace` would find none either
 pub fn agent_defaults(git: Option<&GitCommandExecutor>) -> AgentDefaults {
   let entries = git.and_then(|git| read_config_entries(git, "").ok()).unwrap_or_default();
-  let config = repository_config_from_entries(&entries, None);
+  let config = repository_config_from_entries(&entries, OriginFacts::default());
   AgentDefaults {
     lease: config.agent_lease.value,
     subject_branch: config.agent_subject_branch.value,

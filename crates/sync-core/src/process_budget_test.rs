@@ -902,6 +902,8 @@ fn a_push_into_the_baseline() {
   let push = BaselinePush {
     repository_path: repo.path_str(),
     baseline: "origin/master",
+    remote: "origin",
+    target: "master",
     tip: &tip,
     size_limit: Some(50 << 20),
   };

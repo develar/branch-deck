@@ -291,10 +291,11 @@ pub enum SyncEvent {
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(optional))]
     store_tips: StoreTips,
-    /// What the route into master is decided on of git: `branchdeck.landing` and where the remotes push
+    /// What the route into master is decided on of git: `branchdeck.landing` and where the remotes push (boxed: the
+    /// largest event stays small)
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(optional))]
-    landing: LandingRemote,
+    landing: Box<LandingRemote>,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },

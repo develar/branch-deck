@@ -96,15 +96,15 @@ pub struct RouteFacts<'a> {
 #[must_use]
 pub fn route(facts: &RouteFacts<'_>) -> LandingRoute {
   let remote = facts.remote;
-  match remote.setting {
-    None if remote.on_space => LandingRoute::Patronus { gate: RouteGate::Open },
-    Some(LandingSetting::Patronus) => LandingRoute::Patronus {
+  match remote.setting.unwrap_or_else(|| LandingSetting::default_for(remote.on_space)) {
+    LandingSetting::Patronus => LandingRoute::Patronus {
       gate: if remote.on_space { RouteGate::Open } else { refused(Reason::NotOnSpace) },
     },
-    Some(LandingSetting::Push) => LandingRoute::Push {
+    LandingSetting::Push => LandingRoute::Push {
       gate: with_refusal(push_gate(facts), facts),
+      remote: remote.remote.clone(),
     },
-    None | Some(LandingSetting::PullRequest) => LandingRoute::PullRequest { merge: merge_gate(facts) },
+    LandingSetting::PullRequest => LandingRoute::PullRequest { merge: merge_gate(facts) },
   }
 }
 

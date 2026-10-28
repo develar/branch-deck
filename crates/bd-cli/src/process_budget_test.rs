@@ -2,7 +2,9 @@
 //! `sync_core::process_budget_test` counts the cores: a change that runs fewer processes lowers the numbers here.
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
-use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, canonical, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
+use crate::fixture_test::{
+  EMPTY_GLOBAL_CONFIG, PREFIX, canonical, commit_all, commit_subjects, context_with_the_config_prefix, environment, git, repo_with_baseline, run_in, write,
+};
 use crate::remote_fixture_test::{
   AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, repo_with_remote, robot as robot_json, stack_remote_moved_back, their_fix_on_auth,
 };
@@ -13,6 +15,7 @@ use clap::Parser;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
 use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_get_reporting, lease_return};
 use bd_lease::workspace_command::workspace_with;
+use bd_remote::land_command::{LandArgs, LandOutput, land};
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
 use bd_remote::robot_command::{RobotArgs, robot};
@@ -1126,6 +1129,63 @@ fn a_safe_push_start() {
   assert!(output.robot.is_some() && output.pushed.len() == 1, "{output:?}");
   assert_safe_push_processes(&context, &with_more(SAFE_PUSH_CHECK, &[("cat-file", 1), ("for-each-ref", 3), ("log", 1), ("push", 1)]));
 }
+
+/// `bd land auth` with the flags `flags` sets, in a repository whose `origin` (off GitHub and off Space) has its master
+/// and that lands by a push into it: the context the command ran in, and what it answered
+fn land_by_push(flags: impl FnOnce(&mut LandArgs)) -> (RepoContext, LandOutput) {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  git(&repo, &["push", "-q", remote.path().to_str().unwrap(), "refs/remotes/origin/master:refs/heads/master"]);
+  git(&repo, &["config", "branchdeck.landing", "push"]);
+  let context = context(&repo);
+  let mut args = LandArgs {
+    branch: "auth".to_string(),
+    ..LandArgs::default()
+  };
+  flags(&mut args);
+  let output = land(&context, &args, &environment(repo.path())).unwrap();
+  (context, output)
+}
+
+/// `bd land auth --check` of a repository that lands by a push into a remote off GitHub and off Space: the sync, then
+/// what the push is decided on, nothing pushed
+#[test]
+fn a_land_check_by_a_push() {
+  let (context, output) = land_by_push(|args| args.check = true);
+  assert!(!output.landed, "{output:?}");
+  assert_processes(&context, LAND_CHECK);
+}
+
+/// `bd land auth --without-checks`: what `a_land_check_by_a_push` decides on, then the run of the engine: the witness
+/// before the lock and under it (`for-each-ref` each, the checked out branch `symbolic-ref`), the push of the copy into
+/// master by the push URL of `origin` (the upstream of the baseline and its URL: `for-each-ref`, `remote` twice; `push`,
+/// with the size check of what it adds: `log`, `cat-file`)
+#[test]
+fn a_land_by_a_push() {
+  let (context, output) = land_by_push(|args| args.without_checks = true);
+  assert!(output.landed, "{output:?}");
+  let run = [("cat-file", 1), ("for-each-ref", 3), ("log", 1), ("push", 1), ("remote", 2), ("symbolic-ref", 1)];
+  assert_processes(&context, &with_more(LAND_CHECK, &run));
+}
+
+/// What `bd land auth --check` runs by a push (`a_land_check_by_a_push`): the sync (its listing of the remotes with
+/// their push URLs, `remote`), the push URL of `origin` for Space (`remote`), and the trial of the landing gate in the
+/// session of the sync's report (`log`, `cat-file`); no fetch, no check against the newest target: a push is its own
+const LAND_CHECK: &[(&str, u32)] = &[
+  ("cat-file", 3),
+  ("config", 1),
+  ("fast-import", 2),
+  ("for-each-ref", 2),
+  ("log", 6),
+  ("merge-base", 1),
+  ("notes", 1),
+  ("remote", 2),
+  ("rev-list", 1),
+  ("rev-parse", 1),
+  ("show-ref", 1),
+  ("symbolic-ref", 1),
+  ("update-ref", 1),
+  ("var", 1),
+];
 
 /// `bd safe-push form --check` of a branch stacked on auth: what `a_safe_push_check` runs, and the trial build of form
 /// alone (`alone`) in the same trial session as the dangling references, so no second `log` or `for-each-ref`: its

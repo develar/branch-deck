@@ -132,10 +132,10 @@ fakes; both sides read that.
 | `stackPullRequest` | `true` | the open #12 of `{prefix}/stack/<root>` in the search |
 | `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below |
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | the profile of the start (`--profile`); the last robot's options |
-| `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` · `withoutChecks` | the flags of `bd` of the same names, the choices of the popover (`Land`); `withoutChecks` the one of `bd land` |
+| `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` · `withoutChecks` · `bypassRules` | the flags of `bd` of the same names, the choices of the popover (`Land`); `withoutChecks` and `bypassRules` the ones of `bd land` |
 | `route` | `push` | `branchdeck.landing push`: the repository lands by a push of the copy into the target, `bd land` its side |
-| `permission` | `read` | `remote.origin.pushurl` github.com/acme/monorepo, and the listing of the pull requests names `viewerPermission: READ` |
-| `rules` | `keep` · `dismiss` · `unknown` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none, `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500 |
+| `permission` | `read` · `write` | `remote.origin.pushurl` github.com/acme/monorepo, and the listing of the pull requests names `viewerPermission: READ` or `WRITE` |
+| `rules` | `keep` · `dismiss` · `unknown` · `statusChecks` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none, `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500, `statusChecks` the rule `required_status_checks` |
 | `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) |
 | `landed` | `inBaseline` · `byContent` | `inBaseline`: origin/master gets every commit of the branch rebuilt (`cherry-pick -x`), fetched, HEAD keeps them until the update; `byContent`: `land_auth_by_content` after `bd push` (`LANDED_SUBJECTS` only), one commit left |

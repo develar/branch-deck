@@ -1,5 +1,5 @@
 use crate::branch_table::BranchTable;
-use crate::facts::{FactResult, Needs, PatronusOf, RobotsDigest, RobotsRead, derive_patronus};
+use crate::facts::{BaselineRefusal, FactResult, Needs, PatronusOf, RobotsDigest, RobotsRead, derive_patronus};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::PullRequestWrite;
 use crate::readiness_facts::ReadinessAnswer;
@@ -10,10 +10,11 @@ use crate::table::RemoteSubject;
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{pull_request, robot};
-use domain_types::landing::{LandingFix, LandingRefusal, StackCommit};
-use domain_types::landing_route::{LandingRemote, LandingSetting};
+use domain_types::landing::{BaselinePush, LandedBy, LandingFix, LandingRefusal, StackCommit};
+use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, RouteGate};
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState, ViewerPermission};
+use domain_types::reason::Reason;
 use domain_types::repository_view::{LandingNeeds, PatronusView};
 use domain_types::session::{
   BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, Version, ViewPatch,
@@ -58,6 +59,8 @@ struct Script {
   pace: Duration,
   result: Result<SyncReport, ApiError>,
   gate: Option<Arc<Notify>>,
+  /// The table the run leaves; empty for most scripts, whose tables are of no repository
+  table: BranchTable,
 }
 
 /// A host whose runs play scripts in order and whose fingerprint is what the test sets
@@ -82,12 +85,36 @@ impl ScriptedHost {
 
   fn push_gated(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>, gate: Option<Arc<Notify>>) {
     let pace = Duration::ZERO;
-    self.scripts.lock().unwrap().push_back(Script { events, pace, result, gate });
+    self.scripts.lock().unwrap().push_back(Script {
+      events,
+      pace,
+      result,
+      gate,
+      table: BranchTable::default(),
+    });
+  }
+
+  /// A run that leaves `table`
+  fn push_table(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>, table: BranchTable) {
+    let pace = Duration::ZERO;
+    self.scripts.lock().unwrap().push_back(Script {
+      events,
+      pace,
+      result,
+      gate: None,
+      table,
+    });
   }
 
   /// A run whose events stream over time: `pace` after each
   fn push_paced(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>, pace: Duration) {
-    self.scripts.lock().unwrap().push_back(Script { events, pace, result, gate: None });
+    self.scripts.lock().unwrap().push_back(Script {
+      events,
+      pace,
+      result,
+      gate: None,
+      table: BranchTable::default(),
+    });
   }
 
   fn set_inputs(&self, rest: u64) {
@@ -121,10 +148,8 @@ impl SessionHost for ScriptedHost {
       if let Some(gate) = script.gate {
         gate.notified().await;
       }
-      script.result.map(|report| SyncedTable {
-        report,
-        table: BranchTable::default(),
-      })
+      let table = script.table;
+      script.result.map(|report| SyncedTable { report, table })
     })
   }
 
@@ -1275,15 +1300,90 @@ async fn a_push_route_reads_the_rules_of_the_target() {
     on_space: false,
     push_repository: Some("acme/monorepo".to_owned()),
     target: Some("main".to_owned()),
+    remote: Some("origin".to_owned()),
   };
   if let SyncEvent::BranchesGrouped { landing: read, .. } = &mut events[0] {
-    *read = landing.clone();
+    **read = landing.clone();
   }
   let (key, _window) = synced_window(&sessions, &host, "/repo", events).await;
   assert_eq!(snapshot(&sessions, &key).await.header.landing, landing);
   let ticket = sessions.begin(&key).await.unwrap();
   let applied = sessions.apply_facts(&key, ticket, FactResult::PullRequests(approved_listing(None))).await.unwrap();
   assert_eq!(applied.rule_bases, vec!["main".to_owned(), "master".to_owned()]);
+}
+
+/// What a push into the target told the session: the copy it landed lands its subject at the tip it pushed, until a
+/// fetch shows it, so a second click pushes nothing; a refusal of the server stays for the gate of the route, which asks
+/// about it before the next push, and a push that lands forgets it. The route reaches the view as its own part
+#[tokio::test]
+async fn a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_stays_for_the_gate() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let mut events = auth_built();
+  // off GitHub: no gate but the server's
+  if let SyncEvent::BranchesGrouped { landing, .. } = &mut events[0] {
+    **landing = LandingRemote {
+      setting: Some(LandingSetting::Push),
+      target: Some("master".to_owned()),
+      remote: Some("origin".to_owned()),
+      ..LandingRemote::default()
+    };
+  }
+  // the table of the sync: `auth` built at its copy
+  let table = BranchTable {
+    prefix: "test".to_owned(),
+    baseline: "origin/master".to_owned(),
+    branches: vec![grouped("auth", &["a1"])],
+    tips: [("test/virtual/auth".to_owned(), "copy-a1".to_owned())].into(),
+    ..BranchTable::default()
+  };
+  host.push_table(events, Ok(report(false, &[])), table);
+  let key = key("/repo");
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  let open = LandingRoute::Push {
+    gate: RouteGate::Open,
+    remote: Some("origin".to_owned()),
+  };
+  assert_eq!(snapshot(&sessions, &key).await.route, open);
+  assert_eq!(snapshot(&sessions, &key).await.landed_states.get("auth"), None);
+
+  let pushed = |tip: &str| BaselinePush {
+    tip: tip.to_owned(),
+    upstream: "origin/master".to_owned(),
+  };
+  let refusal = BaselineRefusal {
+    target: "master".to_owned(),
+    message: "remote: master is protected".to_owned(),
+  };
+  sessions.tell_baseline_push(&key, Vec::new(), Some(refusal)).await.unwrap();
+  let view = snapshot(&sessions, &key).await;
+  assert_eq!(
+    view.route,
+    LandingRoute::Push {
+      gate: RouteGate::Confirm {
+        confirmations: vec![Reason::BaselineRefusedPush {
+          target: "master".to_owned(),
+          message: "remote: master is protected".to_owned(),
+        }],
+      },
+      remote: Some("origin".to_owned()),
+    }
+  );
+  assert_eq!(view.landed_states.get("auth"), None, "a refused push landed nothing");
+
+  sessions.tell_baseline_push(&key, vec![("auth".to_owned(), pushed("copy-a1"))], None).await.unwrap();
+  let view = snapshot(&sessions, &key).await;
+  assert_eq!(view.route, open, "the server took this one");
+  assert_eq!(
+    view.landed_states.get("auth").map(|landed| &landed.by),
+    Some(&LandedBy::Baseline {
+      upstream: "origin/master".to_owned()
+    })
+  );
+  // a copy built anew since (another tip) is new work
+  sessions.tell_baseline_push(&key, vec![("auth".to_owned(), pushed("older-copy"))], None).await.unwrap();
+  assert_eq!(snapshot(&sessions, &key).await.landed_states.get("auth"), None);
 }
 
 /// The Patronus part of the session's view once `done` says it is, asked again until then (the view and the landing

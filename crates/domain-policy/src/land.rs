@@ -391,7 +391,7 @@ struct SubjectPart<'a> {
 #[must_use]
 pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
   match facts.route {
-    LandingRoute::Push { gate } => crate::land_direct::decide_push(facts, land, gate),
+    LandingRoute::Push { gate, remote } => crate::land_direct::decide_push(facts, land, gate, remote.as_deref()),
     // the merge of a pull request on GitHub has no way of its own yet: the start is the robot's, as before the routes
     LandingRoute::Patronus { gate } => decide_robot(facts, land, Some(gate)),
     LandingRoute::PullRequest { .. } => decide_robot(facts, land, None),

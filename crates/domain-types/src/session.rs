@@ -23,7 +23,7 @@ use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::landing::{LandDecisions, Landed, LandedPullRequest};
-use crate::landing_route::LandingRemote;
+use crate::landing_route::{LandingRemote, LandingRoute};
 use crate::next_step::NextStepView;
 use crate::operation::{OperationId, RunningOperation};
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
@@ -391,6 +391,10 @@ pub struct RepositoryView {
   pub reviews: ReviewsView,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
+  /// The route of the repository into master with its gate (`domain_policy::landing_route::route`), over what its last
+  /// grouping read of git, the facts of GitHub the session holds and the refusal of the server of its last push into
+  /// the target
+  pub route: LandingRoute,
   /// What the remote services answered, beside the table
   pub facts: FactsView,
   /// The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
@@ -1196,6 +1200,9 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub patronus: Option<PatronusChange>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub route: Option<LandingRoute>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub facts: Option<FactsChanges>,

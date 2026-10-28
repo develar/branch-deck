@@ -330,7 +330,7 @@ impl TableState {
       } => {
         self.set_step(SyncStep::Building);
         let header = &mut self.parts.header;
-        header.landing = landing;
+        header.landing = *landing;
         header.baseline_branch = baseline_branch;
         header.target_branch = target_branch;
         header.head = head;

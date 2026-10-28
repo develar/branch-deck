@@ -38,7 +38,7 @@ use sync_core::branch_name_suggestion::clean_names;
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_core::patronus::{SpaceRepository, required_target_branch};
 use sync_core::repository_config::{
-  ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries,
+  ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, read_config_entries, read_origin_facts, repository_config_from_entries,
   with_stacks_off_clashes, write_global_config, write_repository_config,
 };
 use sync_core::robot_commits::robot_failure_report;
@@ -252,7 +252,7 @@ fn read_test_repository_config(git_executor: &git_executor::git_command_executor
     .into_iter()
     .filter(|entry| matches!(entry.scope, ConfigScope::Local | ConfigScope::Global))
     .collect();
-  let config = repository_config_from_entries(&entries, detect_github_repository(git_executor, repository_path)?);
+  let config = repository_config_from_entries(&entries, read_origin_facts(git_executor, repository_path)?);
   Ok(with_stacks_off_clashes(git_executor, repository_path, config))
 }
 

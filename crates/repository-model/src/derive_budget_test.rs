@@ -119,7 +119,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     head: String::new(),
     branch: String::new(),
     store_tips: domain_types::session::StoreTips::default(),
-    landing: domain_types::landing_route::LandingRemote::default(),
+    landing: Box::default(),
   }];
   for branch in &branches {
     for commit in &branch.commits {

@@ -402,6 +402,7 @@ async fn a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_t
   let push = PlannedEffect::PushBaseline {
     subject: land.subject.clone(),
     tip: copy.clone(),
+    remote: "origin".to_owned(),
     target: "master".to_owned(),
   };
   assert_eq!((plan.blockers.clone(), plan.effects.clone()), (Vec::new(), vec![push.clone()]));
@@ -409,17 +410,31 @@ async fn a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_t
     fingerprint: plan.fingerprint.clone(),
     confirmations: plan.confirmations.clone(),
   };
+  let heard = Arc::new(Heard::default());
   let outcome = within_a_minute(Box::pin(crate::engine::execute(
     &registry,
     &key,
     Intent::Land(land),
     accepted,
     OFFLINE.hosts(),
-    Arc::new(Heard::default()),
+    Arc::clone(&heard) as Arc<dyn EventSink>,
   )))
   .await
   .unwrap();
   assert_eq!(effects(&outcome), [(push, "done")], "the update is no effect of the start");
+  // the caller hears the start end, then the update that follows it on the same channel: its steps and its outcome
+  let done: Vec<Outcome> = heard
+    .take()
+    .into_iter()
+    .filter_map(|event| match event {
+      OperationEvent::Done { outcome } => Some(*outcome),
+      _ => None,
+    })
+    .collect();
+  assert_eq!(done.len(), 2, "{done:?}");
+  assert_eq!(done[0].op, outcome.op);
+  assert!(matches!(done[1].result, OperationResult::Update(_)), "{:?}", done[1].result);
+  assert!(done[1].effects.iter().any(|record| record.effect == PlannedEffect::Update), "{:?}", done[1].effects);
   assert_eq!(repo.git(&["--git-dir", ".git/origin.git", "rev-parse", "refs/heads/master"]), copy);
   assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), copy, "the update fetched it");
   assert_eq!(repo.git(&["log", "--format=%s", "origin/master..HEAD"]), "(alpha/beta) Beta");

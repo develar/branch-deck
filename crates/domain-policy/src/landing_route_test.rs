@@ -16,6 +16,7 @@ fn on_github(setting: Option<LandingSetting>) -> LandingRemote {
     on_space: false,
     push_repository: Some(REPOSITORY.to_owned()),
     target: Some("master".to_owned()),
+    remote: Some("origin".to_owned()),
   }
 }
 
@@ -26,6 +27,7 @@ fn on_space(setting: Option<LandingSetting>) -> LandingRemote {
     on_space: true,
     push_repository: None,
     target: Some("master".to_owned()),
+    remote: Some("origin".to_owned()),
   }
 }
 
@@ -47,7 +49,10 @@ fn decide(remote: &LandingRemote, github: GitHubFacts<'_>, rules: TargetRules<'_
 }
 
 fn push(gate: RouteGate) -> LandingRoute {
-  LandingRoute::Push { gate }
+  LandingRoute::Push {
+    gate,
+    remote: Some("origin".to_owned()),
+  }
 }
 
 fn merge(gate: RouteGate) -> LandingRoute {
@@ -182,7 +187,8 @@ fn a_push_waits_for_the_facts_of_github_and_never_reads_a_missing_one_as_no() {
     LandingRoute::Push {
       gate: RouteGate::Refused {
         reason: Reason::NoWriteAccess { .. }
-      }
+      },
+      ..
     }
   ));
 }
@@ -211,7 +217,10 @@ fn a_push_elsewhere_than_the_repository_of_the_facts_has_no_gate() {
   };
   assert!(matches!(
     decide(&on_github(Some(LandingSetting::Push)), upper, unread),
-    LandingRoute::Push { gate: RouteGate::Refused { .. } }
+    LandingRoute::Push {
+      gate: RouteGate::Refused { .. },
+      ..
+    }
   ));
   let local = LandingRemote {
     push_repository: None,
@@ -352,10 +361,13 @@ fn a_refusal_of_the_server_in_this_session_is_asked_before_the_next_push() {
   );
   assert!(matches!(
     with_refusal(listed(Read), TargetRules::Pending),
-    LandingRoute::Push { gate: RouteGate::Refused { .. } }
+    LandingRoute::Push {
+      gate: RouteGate::Refused { .. },
+      ..
+    }
   ));
   assert!(matches!(
     with_refusal(GitHubFacts::Pending, TargetRules::Pending),
-    LandingRoute::Push { gate: RouteGate::Wait { .. } }
+    LandingRoute::Push { gate: RouteGate::Wait { .. }, .. }
   ));
 }

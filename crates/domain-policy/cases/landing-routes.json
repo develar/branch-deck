@@ -92,5 +92,29 @@
         "lands": ["auth"]
       }
     }
+  },
+  {
+    "id": "push-to-master-asks-for-the-required-status-checks",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a push into a GitHub repository whose master requires status checks: the gate asks for them beside what CI did not check, and bd pushes nothing without --bypass-rules",
+    "spec": ["spec/branch/landing-routes.spec.md#gates", "spec/branch/landing-routes.spec.md#push-to-master", "spec/cli/agent-cli.spec.md#bd-land"],
+    "given": {
+      "route": "push",
+      "permission": "write",
+      "rules": "statusChecks",
+      "flags": ["withoutChecks"]
+    },
+    "expect": {
+      "step": {
+        "row": "push",
+        "kind": "pushToBaseline",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "confirmations": ["unchecked", "routeRule"],
+        "into": "master",
+        "lands": ["auth"]
+      }
+    }
   }
 ]

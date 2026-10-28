@@ -2,12 +2,13 @@
 //! (`BranchGrouping`): what `bd status`, `bd robot` and the other reads of `bd` start from.
 
 use crate::baseline::BaselineUpstream;
-use crate::repo_facts::{BaselineListing, read_baseline_listing};
+use crate::repo_facts::{BaselineListing, landing_remote_of, read_baseline_listing};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
 use branch_integration::common::ListedBranch;
 use domain_types::GroupedBranchInfo;
 use domain_types::commit::Commit;
+use domain_types::landing_route::LandingRemote;
 use domain_types::stack::BranchStack;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
@@ -54,6 +55,9 @@ pub struct BranchGrouping {
   pub forest: Option<StackForest>,
   /// With stacked branches on, where each branch with commits goes, as a sync places it
   pub placements: Option<IndexMap<String, BranchStack>>,
+  /// What the route into master is decided on of git, from the push URLs of the listing (`landing_remote_of`), without
+  /// the setting, which is the config of the caller's command
+  pub landing: LandingRemote,
 }
 
 /// Group the commits ahead of the baseline by prefix, issue group or issue key: the first phase of a sync without its
@@ -78,6 +82,7 @@ pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, r
     upstream,
     branches: listed,
     remote_tips,
+    push_urls,
     ..
   } = read_baseline_listing(git_executor, repository_path, head_branch.as_deref(), Some(branch_prefix), false)?;
   let commits = get_commit_list(git_executor, repository_path, &baseline_branch)?;
@@ -106,7 +111,9 @@ pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, r
     )),
     _ => None,
   };
+  let landing = landing_remote_of(&push_urls, upstream.as_ref(), None);
   Ok(BranchGrouping {
+    landing,
     head,
     head_branch,
     // bd reads the whole descriptions where it prints them

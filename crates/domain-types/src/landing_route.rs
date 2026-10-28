@@ -38,6 +38,13 @@ impl LandingSetting {
     }
   }
 
+  /// The route of a repository that names none: Patronus where `origin` pushes to Space (the monorepo must not lose
+  /// Safe Push to a missing key), the pull request elsewhere; never a push, which only the user names
+  #[must_use]
+  pub const fn default_for(on_space: bool) -> Self {
+    if on_space { Self::Patronus } else { Self::PullRequest }
+  }
+
   /// The value Branch Deck writes
   #[must_use]
   pub const fn config_value(self) -> &'static str {
@@ -65,6 +72,10 @@ pub struct LandingRemote {
   /// The branch of the baseline on its remote (`master` of `origin/master`), which a push lands into; `None` for a
   /// local baseline
   pub target: Option<String>,
+  /// The remote of the baseline (`origin` of `origin/master`), whose push URL a push into the target goes by; `None`
+  /// for a local baseline
+  #[serde(default)]
+  pub remote: Option<String>,
 }
 
 /// The route of a repository into master, each with its gate (`domain_policy::landing_route::route`)
@@ -74,10 +85,24 @@ pub struct LandingRemote {
 pub enum LandingRoute {
   /// A Safe Push of Patronus; refused off Space
   Patronus { gate: RouteGate },
-  /// A push of the copy into the target, by the write access and the rules of the target as GitHub tells them
-  Push { gate: RouteGate },
+  /// A push of the copy into the target on `remote` (the remote of the baseline; `None` for a local baseline, which the
+  /// gate refuses), by the write access and the rules of the target as GitHub tells them
+  Push { gate: RouteGate, remote: Option<String> },
   /// A merge of the pull request on GitHub, by the user's write access; without it the route stays and others merge
   PullRequest { merge: RouteGate },
+}
+
+impl Default for LandingRoute {
+  /// The route of a table read before any sync (the default `LandingRemote`): the pull request, waiting for what GitHub
+  /// tells of the permission
+  fn default() -> Self {
+    Self::PullRequest {
+      merge: RouteGate::Wait {
+        fact: RouteFact::Permission,
+        failed: None,
+      },
+    }
+  }
 }
 
 /// Whether a route may land now

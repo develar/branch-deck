@@ -10,6 +10,8 @@ fn push<'a>(repo: &'a TestRepo, tip: &'a str, size_limit: Option<u64>) -> Baseli
   let push = BaselinePush {
     repository_path: repo.path_str(),
     baseline: "origin/master",
+    remote: "origin",
+    target: "master",
     tip,
     size_limit,
   };
@@ -63,5 +65,24 @@ fn the_server_refusing_the_push_is_said_in_its_words_and_a_large_push_never_goes
     matches!(&pushed, BaselinePushed::Refused { message } if message.contains("[remote rejected]") && message.contains("master is protected")),
     "{pushed:?}"
   );
+  assert_eq!(remote_master(&repo), base);
+}
+
+/// The push goes to the remote and the branch its plan named: a baseline that tracks another one now sends nothing
+#[test]
+fn a_baseline_that_tracks_another_remote_than_the_plan_named_pushes_nothing() {
+  let repo = stack_ahead_of_bare_origin();
+  let base = remote_master(&repo);
+  let alpha = repo.rev_parse("test/virtual/alpha").unwrap();
+  let push = BaselinePush {
+    repository_path: repo.path_str(),
+    baseline: "origin/master",
+    remote: "upstream",
+    target: "master",
+    tip: &alpha,
+    size_limit: None,
+  };
+  let error = push_baseline(repo.git_executor(), &push, &mut |_| {}).unwrap_err();
+  assert!(error.to_string().contains("not master of upstream"), "{error:#}");
   assert_eq!(remote_master(&repo), base);
 }

@@ -1,8 +1,8 @@
 use crate::config_snapshot::SymbolMode;
 use crate::github_repository::GitHubRepositorySource;
 use crate::repository_config::{
-  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, GLOBAL_PUSH_ROUTE_REASON, RepositoryConfigChange, WriteScope, parse_config_entries,
-  read_config_entries, read_repository_config, repository_config_from_entries, set_config, set_repository_config,
+  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, GLOBAL_PUSH_ROUTE_REASON, LandingDefault, OriginFacts, RepositoryConfigChange, WriteScope,
+  parse_config_entries, read_config_entries, read_repository_config, repository_config_from_entries, set_config, set_repository_config,
 };
 use domain_types::landing_route::LandingSetting;
 use pretty_assertions::assert_eq;
@@ -46,7 +46,7 @@ fn parses_the_scoped_entries_of_get_regexp() {
 
 #[test]
 fn nothing_set_is_the_defaults() {
-  let config = repository_config_from_entries(&[], None);
+  let config = repository_config_from_entries(&[], OriginFacts::default());
   assert_eq!(config.stacks, unset(false));
   assert_eq!(config.symbols, unset(SymbolMode::On));
   assert_eq!(config.github_repository, unset(None));
@@ -57,6 +57,7 @@ fn nothing_set_is_the_defaults() {
   assert_eq!(config.agent_lease, unset(true));
   assert_eq!(config.agent_subject_branch, unset(false));
   assert_eq!(config.detected_github_repository, None);
+  assert_eq!(config.landing_default, LandingDefault::of(false));
 }
 
 #[test]
@@ -73,7 +74,10 @@ fn the_last_scope_wins_and_keys_are_case_insensitive() {
       entry(ConfigScope::Command, "branchdeck.branchprefix", Some(" cli ")),
       entry(ConfigScope::System, "branchdeck.githubrepository", Some("acme/fork")),
     ],
-    Some(detected.clone()),
+    OriginFacts {
+      detected_github_repository: Some(detected.clone()),
+      on_space: false,
+    },
   );
   assert_eq!(
     config.stacks,
@@ -121,7 +125,7 @@ fn invalid_values_fall_back_to_the_default_and_say_why() {
       entry(ConfigScope::Local, "branchdeck.githubrepository", Some("acme")),
       entry(ConfigScope::Local, "branchdeck.branchprefix", Some("jane doe")),
     ],
-    None,
+    OriginFacts::default(),
   );
   assert_eq!(
     (config.stacks.value, config.stacks.invalid.as_deref()),
@@ -138,7 +142,7 @@ fn invalid_values_fall_back_to_the_default_and_say_why() {
   // a key without a value is a `true` for git, but not a symbol mode
   let config = repository_config_from_entries(
     &[entry(ConfigScope::Local, "branchdeck.stacks", None), entry(ConfigScope::Local, "branchdeck.symbols", None)],
-    None,
+    OriginFacts::default(),
   );
   assert_eq!((config.stacks.value, config.stacks.invalid), (true, None));
   assert!(config.symbols.invalid.is_some());
@@ -151,7 +155,7 @@ fn an_empty_text_is_not_set() {
       entry(ConfigScope::Local, "branchdeck.branchprefix", Some(" / ")),
       entry(ConfigScope::Local, "branchdeck.githubrepository", None),
     ],
-    None,
+    OriginFacts::default(),
   );
   assert_eq!(
     (config.branch_prefix.value, config.branch_prefix.scope, config.branch_prefix.invalid),
@@ -352,6 +356,35 @@ fn the_detected_github_repository_ignores_the_configured_one() {
   );
 }
 
+/// The route of an unset key follows the host of `origin`, read with the detected GitHub repository from one read of
+/// its push URL: Patronus on Space, the pull request elsewhere and without `origin`, never a push
+#[test]
+fn the_default_route_follows_the_host_of_origin_in_the_one_read_of_its_push_url() {
+  let test_repo = TestRepo::new();
+  let read = || read_repository_config(test_repo.git_executor(), test_repo.path_str()).unwrap();
+  assert_eq!(read().landing_default, LandingDefault::of(false));
+  test_repo.add_remote("origin", "git@github.com:acme/app.git").unwrap();
+  let git = counting();
+  let config = read_repository_config(&git, test_repo.path_str()).unwrap();
+  assert_eq!(
+    config.landing_default,
+    LandingDefault {
+      route: LandingSetting::PullRequest,
+      on_space: false,
+    }
+  );
+  // the config and the push URL of origin, which names the GitHub repository too
+  assert_eq!(processes(&git), [("config".to_string(), 1), ("remote".to_string(), 1)]);
+  test_repo.git(&["remote", "set-url", "origin", "ssh://git@git.jetbrains.team/ij/app.git"]);
+  assert_eq!(
+    read().landing_default,
+    LandingDefault {
+      route: LandingSetting::Patronus,
+      on_space: true,
+    }
+  );
+}
+
 #[test]
 fn the_fallback_is_the_last_global_or_system_value_parsed() {
   let config = repository_config_from_entries(
@@ -361,7 +394,7 @@ fn the_fallback_is_the_last_global_or_system_value_parsed() {
       entry(ConfigScope::Local, "branchdeck.symbols", Some("on")),
       entry(ConfigScope::Global, "branchdeck.stacks", Some("maybe")),
     ],
-    None,
+    OriginFacts::default(),
   );
   assert_eq!(
     (config.symbols.value, config.symbols.fallback_value, config.symbols.fallback_scope),
@@ -541,7 +574,7 @@ fn a_write_fails_on_a_config_lock_that_stays() {
 
 #[test]
 fn the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset() {
-  let landing = |entries: &[ConfigEntry]| repository_config_from_entries(entries, None).landing;
+  let landing = |entries: &[ConfigEntry]| repository_config_from_entries(entries, OriginFacts::default()).landing;
   assert_eq!(landing(&[]), unset(None));
   let local = landing(&[entry(ConfigScope::Local, "branchdeck.landing", Some("pull-request"))]);
   assert_eq!(

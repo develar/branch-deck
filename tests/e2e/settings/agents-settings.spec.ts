@@ -106,5 +106,6 @@ const EMPTY_CONFIG: RepositoryConfig = {
   agentLease: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   agentSubjectBranch: { value: false, scope: null, localSet: false, invalid: null, fallbackValue: false, fallbackScope: null },
   detectedGithubRepository: null,
+  landingDefault: { route: "pullRequest", onSpace: false },
   stacksOffClashes: [],
 }

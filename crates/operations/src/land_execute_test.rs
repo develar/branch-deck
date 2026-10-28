@@ -476,6 +476,7 @@ fn push_alpha(tip: &str) -> Vec<PlannedEffect> {
   vec![PlannedEffect::PushBaseline {
     subject: Subject::branch("alpha"),
     tip: tip.to_string(),
+    remote: "origin".to_string(),
     target: "master".to_string(),
   }]
 }

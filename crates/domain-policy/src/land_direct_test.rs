@@ -55,7 +55,10 @@ impl World {
   fn decide(&self, gate: RouteGate, land: &Land) -> LandDecision {
     let robots = Robots::new(&[]);
     let profiles = Fact::<PatronusStartOptions>::default();
-    let route = LandingRoute::Push { gate };
+    let route = LandingRoute::Push {
+      gate,
+      remote: Some("origin".to_owned()),
+    };
     let chain = ["auth", "login"].map(|name| LandsBranch {
       name,
       landed_whole: false,
@@ -104,6 +107,7 @@ fn push_effect(tip: &str) -> PlannedEffect {
   PlannedEffect::PushBaseline {
     subject: Subject::branch("login"),
     tip: tip.to_string(),
+    remote: "origin".to_string(),
     target: "master".to_string(),
   }
 }
@@ -308,7 +312,10 @@ fn a_whole_stack_pushes_its_stack_branch_only_once_the_sync_built_it() {
   let decide_stack = |stack: &StackBranchUpdate, last_commit| {
     let robots = Robots::new(&[]);
     let profiles = Fact::<PatronusStartOptions>::default();
-    let route = LandingRoute::Push { gate: OPEN };
+    let route = LandingRoute::Push {
+      gate: OPEN,
+      remote: Some("origin".to_owned()),
+    };
     let facts = LandFacts {
       route: &route,
       target: "master",
@@ -349,6 +356,7 @@ fn a_whole_stack_pushes_its_stack_branch_only_once_the_sync_built_it() {
       vec![PlannedEffect::PushBaseline {
         subject: Subject::whole_stack("auth"),
         tip: "stack-tip".to_string(),
+        remote: "origin".to_string(),
         target: "master".to_string(),
       }],
       vec!["auth".to_string(), "login".to_string()]

@@ -106,6 +106,10 @@ async fn another_token_another_repository_a_missing_branch_and_a_refusal_fail_as
   assert!(matches!(branch.unwrap_err(), GitHubError::NoAccess { status: 404, .. }));
   let rules: Value = client.get(TOKEN, &["repos", "acme", "monorepo", "rules", "branches", "master"], &[]).await.unwrap();
   assert_eq!(rules, json!([]));
+  repository.update(|state| state.required_status_checks = true);
+  let rules: Value = client.get(TOKEN, &["repos", "acme", "monorepo", "rules", "branches", "master"], &[]).await.unwrap();
+  assert_eq!(rules[0]["type"], json!("required_status_checks"));
+  repository.update(|state| state.required_status_checks = false);
 
   repository.update(|state| state.refusal = Some(FakeAnswer::status(404, json!({"message": "no repository acme/monorepo"}))));
   assert_eq!(

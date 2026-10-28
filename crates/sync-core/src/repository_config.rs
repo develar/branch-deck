@@ -7,8 +7,10 @@
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
 use crate::config_snapshot::{SYMBOLS_CONFIG_KEY, SymbolMode};
-use crate::github_repository::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_source};
+use crate::github_repository::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_of};
+use crate::patronus::parse_space_repository;
 use crate::push_size::{PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
+use crate::remote_url::origin_push_url;
 use crate::remote_url::split_owner_and_name;
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
@@ -148,9 +150,40 @@ pub struct RepositoryConfig {
   pub agent_subject_branch: ConfigSetting<bool>,
   /// The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set
   pub detected_github_repository: Option<DetectedGitHubRepository>,
+  /// The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`)
+  pub landing_default: LandingDefault,
   /// With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
   /// with (`with_stacks_off_clashes`); empty with stacked branches off
   pub stacks_off_clashes: Vec<FlatNameClash>,
+}
+
+/// The route of a repository that names none, and why: `origin` pushes to Space or not
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandingDefault {
+  /// Patronus on Space, the pull request elsewhere; never a push
+  pub route: LandingSetting,
+  /// The push URL of `origin` is a repository on Space
+  pub on_space: bool,
+}
+
+impl LandingDefault {
+  #[must_use]
+  pub const fn of(on_space: bool) -> Self {
+    Self {
+      route: LandingSetting::default_for(on_space),
+      on_space,
+    }
+  }
+}
+
+/// What Settings reads of `origin`, from its push URL (one process, and the Space settings for the mirror of a Space
+/// repository): the GitHub repository it names, and whether it pushes to Space
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OriginFacts {
+  pub detected_github_repository: Option<DetectedGitHubRepository>,
+  pub on_space: bool,
 }
 
 /// A branch whose ref git cannot hold beside another one: `<prefix>/virtual/auth/login` needs a directory where
@@ -348,8 +381,9 @@ pub fn parse_config_entries(output: &str) -> Vec<ConfigEntry> {
   entries
 }
 
-/// The settings the entries resolve to (the last entry of a key wins), with the detected GitHub repository
-pub fn repository_config_from_entries(entries: &[ConfigEntry], detected_github_repository: Option<DetectedGitHubRepository>) -> RepositoryConfig {
+/// The settings the entries resolve to (the last entry of a key wins), with what `origin` tells: the detected GitHub
+/// repository and the default route
+pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFacts) -> RepositoryConfig {
   RepositoryConfig {
     stacks: resolve_setting(entries, RepositoryConfigKey::Stacks, false, |value| bool_setting(value, false)),
     symbols: resolve_setting(entries, RepositoryConfigKey::Symbols, SymbolMode::default(), |value| {
@@ -371,7 +405,8 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], detected_github_r
     landing: landing_setting(entries),
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
     agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, false, |value| bool_setting(value, false)),
-    detected_github_repository,
+    detected_github_repository: origin.detected_github_repository,
+    landing_default: LandingDefault::of(origin.on_space),
     stacks_off_clashes: Vec::new(),
   }
 }
@@ -451,9 +486,9 @@ fn text_setting(value: Option<&str>, validate: fn(&str) -> Result<&str, String>)
 pub fn read_repository_config(git: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryConfig> {
   let entries = read_config_entries(git, repository_path)?;
   if repository_path.is_empty() {
-    return Ok(repository_config_from_entries(&entries, None));
+    return Ok(repository_config_from_entries(&entries, OriginFacts::default()));
   }
-  let config = repository_config_from_entries(&entries, detect_github_repository(git, repository_path)?);
+  let config = repository_config_from_entries(&entries, read_origin_facts(git, repository_path)?);
   Ok(with_stacks_off_clashes(git, repository_path, config))
 }
 
@@ -502,12 +537,20 @@ pub fn flat_name_clashes(git: &GitCommandExecutor, repository_path: &str) -> Res
   )
 }
 
-/// `detect_github_repository_source` as Settings → Repository shows it
-pub fn detect_github_repository(git: &GitCommandExecutor, repository_path: &str) -> Result<Option<DetectedGitHubRepository>> {
-  Ok(detect_github_repository_source(git, repository_path)?.map(|(repository, source)| DetectedGitHubRepository {
+/// What Settings shows of `origin` (`OriginFacts`): one read of its push URL for the detected GitHub repository
+/// (`detect_github_repository_source`) and for the host of the default route
+pub fn read_origin_facts(git: &GitCommandExecutor, repository_path: &str) -> Result<OriginFacts> {
+  let Some(url) = origin_push_url(git, repository_path)? else {
+    return Ok(OriginFacts::default());
+  };
+  let detected = detect_github_repository_of(git, repository_path, &url)?.map(|(repository, source)| DetectedGitHubRepository {
     full_name: repository.full_name(),
     source,
-  }))
+  });
+  Ok(OriginFacts {
+    detected_github_repository: detected,
+    on_space: parse_space_repository(&url).is_some(),
+  })
 }
 
 /// `write_repository_config`, then the settings read again

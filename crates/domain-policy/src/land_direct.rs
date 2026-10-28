@@ -29,10 +29,11 @@ use domain_types::patronus::PatronusPushMode;
 use domain_types::pull_request::{ChecksState, PullRequest, PullRequestState, ReviewDecision};
 use domain_types::reason::Reason;
 
-/// What a push of the copy of the subject of `land` into the target does and what stands in its way over `facts`, with
-/// `gate` the gate of the route (module docs)
+/// What a push of the copy of the subject of `land` into the target on `remote` does and what stands in its way over
+/// `facts`, with `gate` the gate of the route (module docs); a local baseline (no `remote`), which the gate refuses,
+/// has no effect
 #[must_use]
-pub(crate) fn decide_push(facts: &LandFacts<'_>, land: &Land, gate: &RouteGate) -> LandDecision {
+pub(crate) fn decide_push(facts: &LandFacts<'_>, land: &Land, gate: &RouteGate, remote: Option<&str>) -> LandDecision {
   let mut decision = LandDecision::default();
   if land.mode == PatronusPushMode::DryRun {
     decision.blockers.push(Reason::DryRunNeedsPatronus);
@@ -99,10 +100,11 @@ pub(crate) fn decide_push(facts: &LandFacts<'_>, land: &Land, gate: &RouteGate) 
     }
   }
   decision.confirmations.extend(asked.iter().map(|reason| Confirmation::RouteRule { reason: reason.clone() }));
-  if let Some(tip) = tip {
+  if let (Some(tip), Some(remote)) = (tip, remote) {
     decision.effects.push(PlannedEffect::PushBaseline {
       subject: land.subject.clone(),
       tip: tip.to_owned(),
+      remote: remote.to_owned(),
       target: facts.target.to_owned(),
     });
   }

@@ -184,6 +184,16 @@ impl Fixture {
     change(&mut self);
     self
   }
+
+  /// The branch of a repository that lands by a push into the target of `origin`, behind `gate`
+  pub(crate) fn pushing(gate: RouteGate) -> Self {
+    Self::branch().with(|it| {
+      it.route = LandingRoute::Push {
+        gate,
+        remote: Some("origin".to_owned()),
+      }
+    })
+  }
 }
 
 /// A robot of auth on its tip `t1`
@@ -1094,7 +1104,7 @@ fn every_row_with_every_fact_without_a_fresh_answer_never_answers_an_action_the_
 /// then "Push to master", disabled with the refusal of the gate; a Dry Run is a robot of Patronus, never offered
 #[test]
 fn a_push_into_the_target_is_the_step_of_its_route_and_its_gate_holds_it_back() {
-  let push = |gate: RouteGate| Fixture::branch().with(|it| it.route = LandingRoute::Push { gate });
+  let push = Fixture::pushing;
   let no_dry_run = rule(Reason::DryRunNeedsPatronus);
   let push_step = StepKind::PushToBaseline { target: "master".to_string() };
   assert_eq!(shape(&push(RouteGate::Open).step()), (StepRow::Push, push_step.clone(), None, no_dry_run.clone()));

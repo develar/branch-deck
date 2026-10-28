@@ -3608,8 +3608,9 @@ Where the repository lands by a push (`branchdeck.landing=push`, [Landing Routes
 a start (`Intent::Land`, the app's and `bd land`'s) pushes the copy the sync built of its subject into the branch of
 the baseline on its remote: the tip of the virtual branch of a piece (the branch with what it is built on), of a whole
 stack its stack branch, only one the sync `Built`. The plan is the app's start (`domain_policy::land_direct`, the tail of
-`land::decide` for the route), its effect `PlannedEffect::PushBaseline`; the run is the frame of every start
-(`operations::land_execute`):
+`land::decide` for the route), its effect `PlannedEffect::PushBaseline`, which names the remote of the baseline
+(`origin` of `origin/master`, `LandingRemote::remote` of the listing of the sync) and its branch there; the run is the
+frame of every start (`operations::land_execute`):
 
 1. Before the lock: the cheap witness. The plan witnesses the tip of the copy, the remote-tracking ref of the baseline
    at the commit the copies were built on (`upstream_head` of the update check of the sync), and the checked out branch
@@ -3620,7 +3621,8 @@ stack its stack branch, only one the sync `Built`. The plan is the app's start (
 2. Under the repository lock: the full witness, one `for-each-ref`; nothing else.
 3. After the lock: `sync_core::baseline_push::push_baseline`, through the policy of every remote git
    (`execute_remote_command_with_progress_configured`): the upstream of the baseline (`resolve_baseline_upstream`:
-   `remote`, `symbolic-ref`, `for-each-ref`), the size check of what it adds (`check_push_size`, one `log`, one
+   `remote`, `symbolic-ref`, `for-each-ref`; one that is no longer the remote and the branch the plan named pushes
+   nothing), the size check of what it adds (`check_push_size`, one `log`, one
    `cat-file`), the first push URL of its remote (`remote get-url --push`, with `pushurl` and `pushInsteadOf`), then
    `git -c remote.<r>.url= -c remote.<r>.pushurl= push --progress --porcelain --end-of-options <url> <tip>:refs/heads/<target>`.
    - No `+` and no lease: a commit that is no fast-forward the server refuses whole, atomically.
@@ -3640,7 +3642,9 @@ What it answers:
   engine runs Update Project with its fetch as an operation of its own (`engine::execute_land`,
   `domain_policy::land_direct::update_after`), admitted as any update: the start holds no HEAD. Its replay drops the
   originals whose copies landed: their changes are in the new baseline, so they become empty (`git replay`, "Update
-  project"). `bd land` updates nothing: it names `bd update`.
+  project"). Its steps, the progress of its fetch and its outcome go to the caller of the start after the start's own
+  `Done`, on the same channel, and the start answers after it; an update refused before its first effect sends no
+  `Done` of its own. `bd land` updates nothing: it names `bd update`.
 - `[rejected] (fetch first)` or `(non-fast-forward)`: the target moved since the copy was built on it. The start fetches
   the baseline (`fetch_baseline`, which joins a fetch of any process that runs), asks the sync that builds the copies
   anew on it, and fails as `baseline_moved`; no push goes again by itself.
@@ -3649,7 +3653,8 @@ What it answers:
   (`Reason::BaselineRefusedPush`), and a push that lands forgets them.
 - Over the size limit: `push_too_large`, nothing sent.
 
-The start reserves the remote-tracking ref of the target (`Resource::Ref`, `refs/remotes/origin/<target>`): two landings
+The start reserves the remote-tracking ref of the target on the remote its plan names (`Resource::Ref`,
+`refs/remotes/<remote>/<target>`): two landings
 into it wait for each other in the process, a fetch of it waits for the push, and across processes the record of the
 other one makes it `busy`.
 
@@ -3836,7 +3841,8 @@ no operation.
   `git config -z --show-scope --get-regexp` of the seven keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
   `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing` and `descriptions`. A sync reads it once for the stack setting, the
-  route into master (sent in `BranchesGrouped` with the push URLs of its listing, `RepoFacts::landing_remote`) and the
+  route into master (sent in `BranchesGrouped` with the push URLs of its listing, `RepoFacts::landing_remote`; `bd status`
+  takes the same of the listing of its grouping, `BranchGrouping::landing`) and the
   description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it
   before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `bd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.

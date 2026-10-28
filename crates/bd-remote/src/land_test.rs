@@ -75,3 +75,21 @@ fn a_repository_that_lands_through_its_pull_request_is_not_landed_by_bd_yet() {
   let (exit_code, output) = run_in(&repo, &["land", "auth", "--check"]);
   assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("not_on_space")), "{output}");
 }
+
+/// `bd status` decides the steps by the route of the repository, as `bd land --check` does: a branch of a repository
+/// that lands by a push has no Dry Run of Patronus, and its push into master waits for the pull requests GitHub lists
+/// (whether CI passed on its tip), which `bd status` doesn't read
+#[test_log::test]
+fn bd_status_decides_the_steps_by_the_route_of_the_repository() {
+  let (repo, _remote) = landing_by_push();
+  let (exit_code, synced) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{synced}");
+  let (exit_code, status) = run_in(&repo, &["status"]);
+  assert_eq!(exit_code, 0, "{status}");
+  let step = &status["branches"][0]["next_step"];
+  assert_eq!((&step["step"], &step["waits_for"]), (&json!("pending"), &json!("pull_requests")), "{status}");
+  assert_eq!(
+    step["dry_run_blocked"],
+    json!("a Dry Run is a robot of Patronus, and the repository lands by a push into its target")
+  );
+}

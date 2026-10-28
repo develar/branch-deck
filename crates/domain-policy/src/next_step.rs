@@ -291,7 +291,7 @@ pub fn next_step(facts: &StepFacts<'_>) -> NextStep {
   let general = start_reason(facts, facts.start, landed.as_ref());
   let dry_run = start_reason(facts, facts.dry_run_start, landed.as_ref());
   let mut step = match facts.route {
-    LandingRoute::Push { gate } => push_step(facts, slot, gate, general, landed.as_ref()),
+    LandingRoute::Push { gate, .. } => push_step(facts, slot, gate, general, landed.as_ref()),
     LandingRoute::Patronus { .. } | LandingRoute::PullRequest { .. } => decide(facts, slot, general, dry_run, landed.as_ref()),
   };
   step.landed = landed;

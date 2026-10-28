@@ -168,6 +168,7 @@ describe("ConfigWrites", () => {
     agentLease: setting({}),
     agentSubjectBranch: setting({}),
     detectedGithubRepository: null,
+    landingDefault: { route: "pullRequest", onSpace: false },
     stacksOffClashes: [],
   })
 

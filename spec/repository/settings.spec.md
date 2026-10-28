@@ -371,6 +371,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   repository's own config: a global write of it is refused, and a global or system one reads as unset, with the reason.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`, `a_push_route_is_written_only_to_the_local_config`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_route_comes_from_git_config_and_is_none_without_it`, `a_push_route_of_the_global_config_is_none`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_default_route_follows_the_host_of_origin_in_the_one_read_of_its_push_url`)
   [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
 - A row names where its value comes from only when it is not the default, without the value its control shows: "Set
   in this repository" for `.git/config`, "Set in your global Git config", "Set in the system Git config"

@@ -42,6 +42,8 @@ targets:
   - ../../crates/repository-model/src/facts.rs
   - ../../crates/repository-model/src/session.rs
   - ../../crates/bd-remote/src/land_command.rs
+  - ../../crates/bd-remote/src/status.rs
+  - ../../crates/sync-core/src/grouping.rs
   - ../../src/presenters/next-step.ts
   - ../../src/presenters/land.ts
   - ../../src/presenters/actions.ts
@@ -96,16 +98,21 @@ target, read before anything is pushed.
 - Unset, the route must be Patronus when the push URL of `origin` is on Space (`git.jetbrains.team`), and the pull
   request elsewhere; never a push. This is an exception to "a rule changes only by an explicit value"
   ([Agent Workspace](../cli/workspace.spec.md)): the host of `origin` does not change by itself, and the monorepo must
-  not lose Safe Push to a missing key. Patronus named off Space must be refused (`notOnSpace`).
+  not lose Safe Push to a missing key. Patronus named off Space must be refused (`notOnSpace`). One function names the
+  default (`LandingSetting::default_for`), for the rule and for Settings, whose read of the repository's settings
+  tells it with its reason (`RepositoryConfig.landingDefault`: the route and whether `origin` pushes to Space) from the
+  push URL of `origin` it reads for the detected GitHub repository, no process of its own.
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`the_setting_names_the_route_and_unset_it_follows_the_host`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_default_route_follows_the_host_of_origin_in_the_one_read_of_its_push_url`)
 
 ### What a sync reads for it
 
 - A sync must read the route's facts of git without a process of its own: the setting with its config, and the push
   URL of each remote from its listing of the remotes (`git remote -v`, one process as `git remote` was, with
   `pushInsteadOf` applied). It sends them in `BranchesGrouped` (`landing`): the setting, whether `origin` pushes to
-  Space, the github.com repository the remote of the baseline pushes to, and the branch of the baseline there (`master`
-  of `origin/master`; none for a local baseline). The session keeps them in the header of its view.
+  Space, the github.com repository the remote of the baseline pushes to, the branch of the baseline there (`master` of
+  `origin/master`) and its remote (`origin`; none of both for a local baseline). The session keeps them in the header
+  of its view. The grouping of `bd status` reads them from the same listing (`BranchGrouping.landing`).
   [@test] ../../crates/sync-core/src/repo_facts_test.rs (`the_remotes_come_with_their_push_urls`, `the_landing_remote_is_read_with_the_facts_of_a_sync`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_push_route_reads_the_rules_of_the_target`)
 
@@ -132,8 +139,10 @@ target, read before anything is pushed.
 
 - One rule must decide the route and its gate for the app and `bd` (`domain_policy::landing_route::route`): open, a
   wait for a fact (with the reason of a read that failed), confirmations the user accepts, or a refusal with its
-  reason (`Reason`, worded by the page in `src/presenters/reasons.ts` and by `bd` in `refusal_words.rs`).
+  reason (`Reason`, worded by the page in `src/presenters/reasons.ts` and by `bd` in `refusal_words.rs`). The view of the
+  session carries it as a part of its own (`RepositoryView.route`), patched when it changes.
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`the_facts_of_the_session_read_as_the_rule_takes_them`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_stays_for_the_gate`)
   [@test] ../../src/presenters/reasons.test.ts (`words every reason of the catalog Rust writes as the page says it`)
 - A push must be refused below write access (`noWriteAccess`), for rules no unsigned copy passes
   (`baselineRequiresSignatures`), and for a writer by a rule of a pull request, of the merge queue or of restricted
@@ -142,6 +151,7 @@ target, read before anything is pushed.
   named no permission of. Required status checks, which a push lands without, are a confirmation
   (`baselineRequiresStatusChecks`). A local baseline has no remote branch to push into (`localBaseline`).
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_push_is_gated_by_the_write_access_and_the_rules_of_the_target`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 - A gate must wait for the permission and for the rules while they have no answer, and while their read failed, with
   the reason; never "no". The permission is read first: below write access no rule is waited for.
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_push_waits_for_the_facts_of_github_and_never_reads_a_missing_one_as_no`)
@@ -176,11 +186,13 @@ target, read before anything is pushed.
   so must the changes requested on its pull request and what the gate asks (`routeRule`); `bd land` accepts them only by
   `--without-checks` and `--bypass-rules`.
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_checks_that_did_not_pass_on_the_tip_and_the_changes_requested_are_confirmations`, `bd_accepts_the_checks_and_what_the_gate_asks_only_by_their_flags`)
-- The push must go by the first push URL of the remote of the baseline, `<tip>:refs/heads/<target>`, without `+` and
+- The push must go by the first push URL of the remote of the baseline that its plan names
+  (`PlannedEffect::PushBaseline.remote`, whose remote-tracking ref of the target the start reserves; a baseline that
+  tracks another remote or branch by the time it runs pushes nothing), `<tip>:refs/heads/<target>`, without `+` and
   without a lease, after the size check, with the configured remote of the URL cleared so its remote-tracking ref stays
   (only the fetch of the baseline writes it); the witness under the repository lock holds the tip of the copy, the
   remote-tracking ref of the baseline the copies were built on and the checked out branch at the HEAD the sync grouped.
-  [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_copy_built_on_the_target_lands_as_a_fast_forward_and_the_tracking_ref_stays`)
+  [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_copy_built_on_the_target_lands_as_a_fast_forward_and_the_tracking_ref_stays`, `a_baseline_that_tracks_another_remote_than_the_plan_named_pushes_nothing`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_push_into_the_baseline`)
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_push_into_the_target_lands_the_copy_as_a_fast_forward_and_tells_what_it_landed`)
 - A target that moved must refuse the push as no fast-forward: the start fetches the baseline (`fetch_baseline`, joining
@@ -194,8 +206,11 @@ target, read before anything is pushed.
 - A push that landed must land its subject at once, each branch of what it landed at the tip it pushed, until a fetch
   shows it (`landed_state`: "Landed in origin/master"): a second click pushes nothing. Then Update Project with its fetch
   follows as an operation of its own (`land_direct::update_after`, run by the engine), whose replay drops the originals
-  whose copies landed; `bd land` names `bd update` instead.
+  whose copies landed; the caller of the start hears its steps and its outcome on the channel of the start, after the
+  start's own (the toast of the push tells how the update went), and the answer of the start comes after it; `bd land`
+  names `bd update` instead.
   [@test] ../../crates/domain-policy/src/landed_test.rs (`a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_stays_for_the_gate`)
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_update_follows_only_a_push_into_the_target_that_landed`)
   [@test] ../../crates/operations/src/update_test.rs (`a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
@@ -207,5 +222,8 @@ target, read before anything is pushed.
   [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_push_into_the_target_offers_its_push_with_the_reason_of_its_step_and_no_start_of_the_robot`)
   [@test] ../../src/presenters/next-step.test.ts (`row push: Push to master by the branches it lands, its start disabled with the refusal of the gate of the route`)
-- `bd land` must land by the same plan ([Agent CLI](../cli/agent-cli.spec.md#bd-land)).
-  [@test] ../../crates/bd-remote/src/land_test.rs (`a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`)
+- `bd land` must land by the same plan ([Agent CLI](../cli/agent-cli.spec.md#bd-land)), its sync and its trial with no
+  fetch and no check against the newest target (a push is its own), and `bd status` must decide the steps by the same
+  route over what its grouping read of git, GitHub not asked: the gate of a push into a repository on GitHub waits.
+  [@test] ../../crates/bd-remote/src/land_test.rs (`a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`, `bd_status_decides_the_steps_by_the_route_of_the_repository`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_land_check_by_a_push`, `a_land_by_a_push`)

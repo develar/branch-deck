@@ -5,7 +5,7 @@
 //! identity of every part a patch does not carry.
 
 use crate::action_view::{ActionSources, actions_of};
-use crate::derive::{attention_of, landed_states_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
+use crate::derive::{attention_of, landed_states_of, landing_route_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::review_view::{review_actions_of, reviews_view};
@@ -138,6 +138,7 @@ impl View {
       landed: changed(&last.sections.landed, &parts.sections.landed),
       reviews: changed(&last.reviews, &reviews),
       patronus: patronus_change(&last.patronus, facts.patronus.part()),
+      route: changed(&last.route, &landing_route_of(&parts.header, facts)),
       facts: facts_change(&last.facts, facts),
       news: new_news(&last.news, facts.news()),
     };

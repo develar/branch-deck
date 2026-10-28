@@ -16,6 +16,7 @@ import type {
   IssueLead,
   LandDecisions,
   Landed,
+  LandingRoute,
   NextStepView,
   OperationId,
   PullRequestView,
@@ -283,13 +284,18 @@ export interface BranchSyncState {
    * `operations::registry`): the moves of rows they make are laid over the nodes (`src/presenters/running-move.ts`)
    */
   operations: Readonly<Record<OperationId, RunningOperation>>
+  /**
+   * The route of the repository into master with its gate, as Rust decides it (`RepositoryView.route`,
+   * `domain_policy::landing_route`); null before a view
+   */
+  route: LandingRoute | null
 }
 
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
- * `nextSteps`, `actions`, `attention`), and its operations
+ * `nextSteps`, `actions`, `attention`), its operations and its route
  */
-export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "operations"> = {
+export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "operations" | "route"> = {
   pushes: {},
   openPullRequests: {},
   lands: {},
@@ -298,6 +304,7 @@ export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequest
   actions: {},
   attention: {},
   operations: {},
+  route: null,
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -842,6 +849,16 @@ export function getLandedState(subject: string): Landed | undefined {
  */
 export function useRobotAttention(): Readonly<Record<string, RobotAttention>> {
   return useStore(branchSyncStore, state => state.attention)
+}
+
+/** The route of the repository into master with its gate, as Rust decides it (`RepositoryView.route`); null before a view */
+export function getLandingRoute(): LandingRoute | null {
+  return branchSyncStore.getState().route
+}
+
+/** `getLandingRoute` of a component: the same object while no patch changes it */
+export function useLandingRoute(): LandingRoute | null {
+  return useStore(branchSyncStore, state => state.route)
 }
 
 /** The branches stacked directly on `name`, newest first */

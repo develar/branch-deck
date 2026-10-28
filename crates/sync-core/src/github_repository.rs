@@ -99,7 +99,11 @@ pub fn resolve_github_repository_with(
 
 /// The GitHub repository of the push URL of `origin`, else the Space mirror the committed Space settings name (one
 /// `cat-file`)
-fn detect_github_repository_of(git_executor: &GitCommandExecutor, repository_path: &str, origin_url: &str) -> Result<Option<(GitHubRepository, GitHubRepositorySource)>> {
+pub(crate) fn detect_github_repository_of(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  origin_url: &str,
+) -> Result<Option<(GitHubRepository, GitHubRepositorySource)>> {
   if let Some(repository) = parse_github_repository(origin_url) {
     return Ok(Some((repository, GitHubRepositorySource::Origin)));
   }

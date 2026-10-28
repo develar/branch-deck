@@ -426,6 +426,12 @@ pub struct GitHubFixture {
   /// The rules of every branch dismiss the approvals of a pull request on a push
   #[serde(default)]
   pub dismiss_stale_reviews_on_push: bool,
+  /// The rules of every branch require status checks, which a push into the target lands without
+  #[serde(default)]
+  pub required_status_checks: bool,
+  /// What the token may do in the repository (`READ`, `WRITE`, `MAINTAIN`, `ADMIN`); unset is `WRITE`
+  #[serde(default)]
+  pub viewer_permission: Option<String>,
   /// The number of the next pull request created; one more than the highest of the fixture without it
   #[serde(default)]
   pub next_number: Option<u32>,
@@ -559,6 +565,8 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
     users: fixture.users,
     missing_branches: fixture.missing_branches,
     dismiss_stale_reviews_on_push: fixture.dismiss_stale_reviews_on_push,
+    required_status_checks: fixture.required_status_checks,
+    viewer_permission: fixture.viewer_permission.clone(),
     clock: PAGE_CLOCK_START,
     // the host keeps the replies and the pull request nodes of the fixtures before
     patronus_replies: std::collections::BTreeMap::new(),

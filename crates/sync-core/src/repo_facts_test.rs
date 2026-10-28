@@ -244,6 +244,7 @@ fn the_landing_remote_is_read_with_the_facts_of_a_sync() {
       on_space: false,
       push_repository: Some("acme/app".to_string()),
       target: Some("master".to_string()),
+      remote: Some("origin".to_string()),
     }
   );
 

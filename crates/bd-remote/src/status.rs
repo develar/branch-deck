@@ -11,11 +11,13 @@ use bd_core::services::session_key;
 use bd_core::stack_summary::StackSummary;
 use domain_policy::facts::{Repository, Robots};
 use domain_policy::landed::LandedFacts;
+use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route};
 use domain_policy::next_step::PatronusStanding;
 use domain_policy::parked::parked_state;
 use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_namespace, to_final_branch_name};
+use domain_types::error::ErrorCode;
 use domain_types::landing::{LandingFix, LandingRefusal, Subject};
-use domain_types::landing_route::{LandingRoute, RouteGate};
+use domain_types::landing_route::{LandingRemote, LandingRoute};
 use domain_types::next_step::StepKind;
 use domain_types::repository_view::LandingNeeds;
 use domain_types::session::{Fact, FactState, LandedSection, PullRequestsView, RobotsHead, RobotsView, stack_readiness_key, stack_root_of_readiness_key};
@@ -36,9 +38,6 @@ use sync_core::grouping::BranchGrouping;
 use sync_core::stack_branch::read_stack_branches;
 use tracing::debug;
 use trial_check::landing_gate::landing_needs_of;
-
-/// The route the steps of `bd status` are decided by: the robot of Patronus, which a grouping without a sync reads
-const ROBOT_ROUTE: LandingRoute = LandingRoute::Patronus { gate: RouteGate::Open };
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
@@ -544,7 +543,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     let steps = if args.brief {
       HashMap::new()
     } else {
-      next_steps_of_status(&grouping, &table, &facts, read.head, landing_needs.is_some())
+      next_steps_of_status(&grouping, &table, &facts, read.head, landing_needs.is_some(), &route_of_status(context, &grouping)?)
     };
     (landed_branches(&facts), landing_needs, steps)
   };
@@ -692,10 +691,39 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   })
 }
 
+/// The route of the repository into master as the app's session decides it (`domain_policy::landing_route::route`),
+/// over what the grouping read of git (the push URLs of its listing) and the setting of the command's config; GitHub is
+/// not asked, so the gate of a push into a repository on GitHub waits for it, as the steps that need a pull request do
+fn route_of_status(context: &RepoContext, grouping: &BranchGrouping) -> Result<LandingRoute, CliError> {
+  let setting = context
+    .config()?
+    .landing()
+    .map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+  let remote = LandingRemote {
+    setting,
+    ..grouping.landing.clone()
+  };
+  Ok(route(&RouteFacts {
+    remote: &remote,
+    baseline: &grouping.baseline_branch,
+    github: GitHubFacts::Pending,
+    rules: TargetRules::Pending,
+    refused: None,
+  }))
+}
+
 /// The next step of every branch and whole stack of `table`, as the app's rows show it, over what `bd status` read:
-/// the robots and how Patronus answered (`head`), the Patronus view and its landing needs (`needs_known`: the check ran);
-/// no pull request, readiness or why a robot failed, which the steps that need them wait for
-fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &OneShot, head: Fact<RobotsHead>, needs_known: bool) -> HashMap<String, NextStepSummary> {
+/// the robots and how Patronus answered (`head`), the Patronus view and its landing needs (`needs_known`: the check ran),
+/// the route of the repository; no pull request, readiness or why a robot failed, which the steps that need them wait
+/// for
+fn next_steps_of_status(
+  grouping: &BranchGrouping,
+  table: &BranchTable,
+  facts: &OneShot,
+  head: Fact<RobotsHead>,
+  needs_known: bool,
+  route: &LandingRoute,
+) -> HashMap<String, NextStepSummary> {
   let rows = grouped_rows(table);
   let robots = RobotsView {
     head,
@@ -723,8 +751,7 @@ fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &
   let landed = landed_states(table, &table.remote, &landed, &pull_requests);
   let readiness = |_: &str| None;
   let sources = StepSources {
-    // a grouping read without a sync reads no route: the steps of the robot, as before the routes
-    route: &ROBOT_ROUTE,
+    route,
     table,
     remote: &table.remote,
     rows: &rows,

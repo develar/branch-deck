@@ -73,24 +73,26 @@ impl RepoFacts {
   }
 
   /// What the route into master is decided on of git, from these facts and `setting` (`ConfigSnapshot::landing`): no
-  /// process. `origin` pushes to Space (`find_space_repository`), the remote of the baseline to a github.com repository
+  /// process (`landing_remote_of`)
   pub(crate) fn landing_remote(&self, setting: Option<LandingSetting>) -> LandingRemote {
-    let push_url = |remote: &str| self.push_urls.get(remote).map(String::as_str);
-    LandingRemote {
-      setting,
-      on_space: push_url("origin").and_then(parse_space_repository).is_some(),
-      push_repository: self
-        .upstream
-        .as_ref()
-        .and_then(|upstream| push_url(&upstream.remote))
-        .and_then(parse_github_repository)
-        .map(|repository| repository.full_name()),
-      target: self
-        .upstream
-        .as_ref()
-        .and_then(|upstream| upstream.remote_ref.strip_prefix("refs/heads/"))
-        .map(str::to_string),
-    }
+    landing_remote_of(&self.push_urls, self.upstream.as_ref(), setting)
+  }
+}
+
+/// What the route into master is decided on of git, from the push URLs of a listing of the remotes, the remote branch
+/// behind the baseline and `setting` (`ConfigSnapshot::landing`): no process. `origin` pushes to Space
+/// (`find_space_repository`), the remote of the baseline to a github.com repository
+pub(crate) fn landing_remote_of(push_urls: &HashMap<String, String>, upstream: Option<&BaselineUpstream>, setting: Option<LandingSetting>) -> LandingRemote {
+  let push_url = |remote: &str| push_urls.get(remote).map(String::as_str);
+  LandingRemote {
+    setting,
+    on_space: push_url("origin").and_then(parse_space_repository).is_some(),
+    push_repository: upstream
+      .and_then(|upstream| push_url(&upstream.remote))
+      .and_then(parse_github_repository)
+      .map(|repository| repository.full_name()),
+    target: upstream.and_then(|upstream| upstream.remote_ref.strip_prefix("refs/heads/")).map(str::to_string),
+    remote: upstream.map(|upstream| upstream.remote.clone()),
   }
 }
 

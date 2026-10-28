@@ -83,6 +83,11 @@ pub struct RepositoryState {
   pub missing_branches: BTreeSet<String>,
   /// The rules of every branch dismiss the approvals of a pull request on a push
   pub dismiss_stale_reviews_on_push: bool,
+  /// The rules of every branch require status checks (`required_status_checks`), which a push into it lands without
+  pub required_status_checks: bool,
+  /// What the token may do in the repository, as the listing of the pull requests names it (`viewerPermission`:
+  /// `READ`, `WRITE`, `ADMIN`, …); `None` is `WRITE`
+  pub viewer_permission: Option<String>,
   /// Unix seconds: when a pull request a test creates is updated, and a comment created
   pub clock: u32,
   /// How the Patronus bot answers a `/patronus` comment, by pull request number; accepted for one not named
@@ -238,11 +243,16 @@ impl FakeGitHubRepository {
         Some(sha) => FakeAnswer::ok(json!({"name": branch.join("/"), "commit": {"sha": sha}})),
         None => not_found("Branch not found"),
       }),
-      ("GET", ["rules", "branches", ..]) => Some(FakeAnswer::ok(if state.dismiss_stale_reviews_on_push {
-        json!([{"type": "pull_request", "parameters": {"dismiss_stale_reviews_on_push": true, "required_approving_review_count": 1}}])
-      } else {
-        json!([])
-      })),
+      ("GET", ["rules", "branches", ..]) => {
+        let mut rules = Vec::new();
+        if state.dismiss_stale_reviews_on_push {
+          rules.push(json!({"type": "pull_request", "parameters": {"dismiss_stale_reviews_on_push": true, "required_approving_review_count": 1}}));
+        }
+        if state.required_status_checks {
+          rules.push(json!({"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "build"}], "strict_required_status_checks_policy": false}}));
+        }
+        Some(FakeAnswer::ok(Value::Array(rules)))
+      }
       _ => None,
     }
   }
@@ -373,7 +383,11 @@ impl FakeGitHubRepository {
     }
     if query.contains("search(") {
       let pulls: Vec<PullRequest> = state.pulls.iter().map(|pull| self.resolved(&pull.pull_request, state)).collect();
-      return Some(FakeAnswer::ok(json!({"data": search_data(&state.owner, &state.viewer, pulls)})));
+      let mut data = search_data(&state.owner, &state.viewer, pulls);
+      if let Some(permission) = &state.viewer_permission {
+        data["repository"]["viewerPermission"] = json!(permission);
+      }
+      return Some(FakeAnswer::ok(json!({ "data": data })));
     }
     if query.contains("pullRequest(number: $number)") {
       let number = variables["number"].as_u64().and_then(|number| u32::try_from(number).ok()).unwrap_or_default();

@@ -2,7 +2,7 @@ use crate::landing_node::{NodeFacts, is_users_move, landing_node};
 use crate::next_step_test::{Fixture, failed, failure, fresh, group, missing, open, readiness, reviewer, robot_on_tip, signed_out};
 use domain_types::fixtures::{robot_of, whole_stack_robot_of};
 use domain_types::landing::{Landed, LandedBy};
-use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
+use domain_types::landing_route::{RouteFact, RouteGate};
 use domain_types::next_step::{LandingNode, LandingNodeKind, NodeLabel, StackPullRequest, StepFact, StepFailure, StepKind};
 use domain_types::patronus::{MissingApprovalsReason, PatronusAvailability, PatronusPushMode, PatronusRobotStatus, ReviewReadiness, UnknownReadinessReason};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestBase, ReviewerState};
@@ -250,7 +250,7 @@ fn a_filled_node_is_the_users_move() {
 /// an answer a wait that nobody counts yet, a running Safe Push that holds the branch a wait
 #[test]
 fn a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits() {
-  let push = |gate: RouteGate| Fixture::branch().with(|it| it.route = LandingRoute::Push { gate });
+  let push = Fixture::pushing;
   let ready = node(&push(RouteGate::Open).with(|it| it.readiness = None));
   assert!(matches!(
     (ready.kind, &ready.label),

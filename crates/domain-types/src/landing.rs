@@ -467,9 +467,9 @@ pub enum PlannedEffect {
   /// (`Intent::FetchReview`)
   FetchReview { number: u32 },
   /// The copy of `subject` (the tip of its virtual branch, of a whole stack its stack branch), `tip`, is pushed into the
-  /// branch of the baseline on its remote, `target` ("master"): a fast-forward the server takes or refuses whole
-  /// (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
-  PushBaseline { subject: Subject, tip: String, target: String },
+  /// branch of the baseline on its remote `remote` ("origin"), `target` ("master"): a fast-forward the server takes or
+  /// refuses whole (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
+  PushBaseline { subject: Subject, tip: String, remote: String, target: String },
 }
 
 impl PlannedEffect {

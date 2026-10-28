@@ -49,7 +49,6 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
-use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::patronus::target_branch_of;
 use trial_check::landing_gate::check_landing_gate;
 
@@ -147,8 +146,11 @@ const UNAPPLIED_LAND: &str = "nothing was pushed: reapply it to land it";
 /// what CI did not check without `--without-checks`, a push the server refused (`baseline_refused`) or a target that
 /// moved (`baseline_moved`)
 pub fn land(context: &RepoContext, args: &LandArgs, environment: &Environment) -> Result<LandOutput, CliError> {
-  let config = ConfigSnapshot::read(&context.git, &context.repository).map_err(|error| CliError::new(ErrorCode::GitError, format!("{error:#}")))?;
-  let setting = config.landing().map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+  // the config of the command, which its sync reads again from the same snapshot
+  let setting = context
+    .config()?
+    .landing()
+    .map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
   // the route by the rule of the app; its gate reads the facts of GitHub, which the push reads itself
   let remote = LandingRemote {
     setting,

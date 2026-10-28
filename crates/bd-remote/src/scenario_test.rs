@@ -209,6 +209,7 @@ enum GivenRoute {
 #[serde(rename_all = "camelCase")]
 enum GivenPermission {
   Read,
+  Write,
 }
 
 impl Default for Given {
@@ -251,6 +252,8 @@ enum Rules {
   Dismiss,
   /// GitHub fails the read (500)
   Unknown,
+  /// The status checks are required (`required_status_checks`), which a push into the target lands without
+  StatusChecks,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -411,6 +414,8 @@ enum Flag {
   AllowUnknownRules,
   /// `--without-checks` of `bd land`: what CI did not check, accepted
   WithoutChecks,
+  /// `--bypass-rules` of `bd land`: what the gate of the route asks, accepted
+  BypassRules,
 }
 
 impl Given {
@@ -551,7 +556,7 @@ impl Given {
       allow_unknown_review: false,
       cancel_running: self.has(Flag::CancelRunning),
       allow_without_checks: self.has(Flag::WithoutChecks),
-      ..LandingAllowances::default()
+      bypass_rules: self.has(Flag::BypassRules),
     }
   }
 
@@ -562,9 +567,9 @@ impl Given {
       whole_stack: self.subject == GivenSubject::WholeStack,
       check,
       without_checks: self.has(Flag::WithoutChecks),
+      bypass_rules: self.has(Flag::BypassRules),
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
-      ..LandArgs::default()
     }
   }
 
@@ -816,17 +821,26 @@ impl Situation {
         }
       }
     }
-    if let (Some(GivenPermission::Read), Some(github)) = (given.permission, &github) {
+    if let (Some(permission), Some(github)) = (given.permission, &github) {
+      let permission = match permission {
+        GivenPermission::Read => "READ",
+        GivenPermission::Write => "WRITE",
+      };
       github.answer(
         "POST",
         "/graphql",
-        FakeAnswer::ok(json!({"data": {"repository": {"viewerPermission": "READ"}, "search": {"nodes": pull_requests}}})),
+        FakeAnswer::ok(json!({"data": {"repository": {"viewerPermission": permission}, "search": {"nodes": pull_requests}}})),
       );
     }
     match (given.rules, &github) {
       (Rules::Keep, _) | (_, None) => {}
       (Rules::Dismiss, Some(github)) => github.answer("GET", MASTER_RULES, FakeAnswer::ok(dismissing_rules())),
       (Rules::Unknown, Some(github)) => github.answer("GET", MASTER_RULES, FakeAnswer::status(500, json!({"message": "Server Error"}))),
+      (Rules::StatusChecks, Some(github)) => github.answer(
+        "GET",
+        MASTER_RULES,
+        FakeAnswer::ok(json!([{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "build"}]}}])),
+      ),
     }
     if given.target == Target::Unprotected {
       *space.fake.start_options.lock().unwrap() = Some(json!({"supported": false, "emergencySupported": false, "profiles": []}));
@@ -936,6 +950,9 @@ impl Situation {
       let mut args = vec!["--prefix", PREFIX, "land", given.branch.as_str()];
       if given.has(Flag::WithoutChecks) {
         args.push("--without-checks");
+      }
+      if given.has(Flag::BypassRules) {
+        args.push("--bypass-rules");
       }
       if given.subject == GivenSubject::WholeStack {
         args.push("--whole-stack");
