@@ -126,12 +126,7 @@ impl FactSources for Counted {
   }
 
   fn branch_rules<'a>(&'a self, _key: &'a SessionKey, _branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
-    self.answer(
-      "rules",
-      Ok(BranchRules {
-        dismiss_stale_reviews_on_push: false,
-      }),
-    )
+    self.answer("rules", Ok(BranchRules::default()))
   }
 
   fn profiles<'a>(&'a self, _key: &'a SessionKey, _baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {

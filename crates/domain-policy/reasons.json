@@ -280,5 +280,44 @@
   {
     "code": "pullRequestMerged",
     "number": 7
+  },
+  {
+    "code": "notOnSpace"
+  },
+  {
+    "code": "noWriteAccess",
+    "repository": "develar/branch-deck",
+    "target": "master"
+  },
+  {
+    "code": "baselineRequiresPullRequest",
+    "target": "master"
+  },
+  {
+    "code": "baselineRequiresMergeQueue",
+    "target": "master"
+  },
+  {
+    "code": "baselineRestrictsUpdates",
+    "target": "master"
+  },
+  {
+    "code": "baselineRequiresSignatures",
+    "target": "master"
+  },
+  {
+    "code": "baselineRequiresStatusChecks",
+    "target": "master"
+  },
+  {
+    "code": "localBaseline",
+    "baseline": "master"
+  },
+  {
+    "code": "gitHubMirror",
+    "repository": "JetBrains/intellij-community"
+  },
+  {
+    "code": "notOnGitHub"
   }
 ]

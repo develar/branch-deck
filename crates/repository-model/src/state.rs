@@ -209,8 +209,16 @@ fn keyed_facts_change<'a, T: PartialEq + Clone + 'a>(
 fn pull_requests_change(last: &PullRequestsView, now: &PullRequestsView) -> Option<PullRequestsChange> {
   let (pull_requests, removed_pull_requests) = diff_keyed(&last.pull_requests, &now.pull_requests);
   let (stack_pull_requests, removed_stack_pull_requests) = diff_keyed(&last.stack_pull_requests, &now.stack_pull_requests);
+  let head = changed(&last.head, &now.head);
+  // they change only with an answer, which changes the head
+  let (repository, viewer_permission) = match head {
+    Some(_) => (now.repository.clone(), now.viewer_permission),
+    None => (None, None),
+  };
   let change = PullRequestsChange {
-    head: changed(&last.head, &now.head),
+    repository,
+    viewer_permission,
+    head,
     pull_requests,
     removed_pull_requests,
     stack_pull_requests,

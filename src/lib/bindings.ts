@@ -910,13 +910,24 @@ export type BranchReviewSegment = {
 };
 
 /**
- *  What the rules of a branch do to the pull requests into it (`remote_facts::branch_rules`): a fact of the session for
- *  the bases of the open pull requests someone approved, which the Safe Push popover and the Request Review form read
- *  before a push takes the approvals away
+ *  What the rules of a branch do to the pull requests into it and to a push into it (`remote_facts::branch_rules`): a
+ *  fact of the session for the bases of the open pull requests someone approved, which the Safe Push popover and the
+ *  Request Review form read before a push takes the approvals away, and for the target of the baseline while the
+ *  repository lands by a push (`domain_policy::landing_route`)
  */
 export type BranchRules = {
 	/**  A push of new commits dismisses the approvals of a pull request into the branch */
 	dismissStaleReviewsOnPush: boolean,
+	/**  A change reaches the branch only through a pull request (the rule `pull_request`) */
+	requiresPullRequest?: boolean,
+	/**  Every commit pushed into the branch is signed (`required_signatures`) */
+	requiresSignatures?: boolean,
+	/**  Status checks pass before a change reaches the branch (`required_status_checks`) */
+	requiredStatusChecks?: boolean,
+	/**  A change reaches the branch only through the merge queue (`merge_queue`) */
+	mergeQueue?: boolean,
+	/**  Only the users the ruleset lets bypass it update the branch (`update`) */
+	restrictsUpdates?: boolean,
 };
 
 /**  The table a branch is a row of: the main one, or the Parked card of the branches kept local */
@@ -3171,6 +3182,42 @@ file: string; line: number; usedBy: StackCommit; declaredBy: StackCommit; fix: L
  */
 landingIn?: RobotOf | null };
 
+/**
+ *  What the route is decided on of git, as a sync reads it with its listing and its config (no process of its own):
+ *  the setting, and where the remotes push. A table read before any sync has the default
+ */
+export type LandingRemote = {
+	/**  `branchdeck.landing`; `None` unset */
+	setting: LandingSetting | null,
+	/**  The push URL of `origin` is a repository on Space (`git.jetbrains.team`), where Patronus lands */
+	onSpace: boolean,
+	/**
+	 *  `owner/name` of the github.com repository the push URL of the baseline's remote names; `None` for another host,
+	 *  and for a local baseline
+	 */
+	pushRepository: string | null,
+	/**
+	 *  The branch of the baseline on its remote (`master` of `origin/master`), which a push lands into; `None` for a
+	 *  local baseline
+	 */
+	target: string | null,
+};
+
+/**
+ *  The route a repository names (`branchdeck.landing`); unset, the route is Patronus on Space and the pull request
+ *  elsewhere (`domain_policy::landing_route::route`)
+ */
+export type LandingSetting = 
+/**  A Safe Push of Patronus lands it: the robot rebases it onto the target, runs the checks and pushes */
+"patronus" | 
+/**
+ *  A push of the copy into the branch of the baseline on its remote lands it, as a fast-forward; only the repository's
+ *  own config names it (`git config --local`), never the global one
+ */
+"push" | 
+/**  A merge of its pull request on GitHub lands it */
+"pullRequest";
+
 /**  What the user's merged robots landed */
 export type LandingValue = {
 	/**  Over the merges whose changes were read; null without one */
@@ -4419,6 +4466,12 @@ export type PullRequestView = {
 /**  What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went */
 export type PullRequestsChange = {
 	head?: Fact<PullRequestAvailability> | null,
+	/**
+	 *  With a head, the repository of the listing that stands and what the token may do there, which change only with
+	 *  an answer, and every answer changes the head; without a head they stay
+	 */
+	repository?: string | null,
+	viewerPermission?: ViewerPermission | null,
 	pullRequests?: { [key in string]: PullRequest },
 	removedPullRequests?: string[],
 	stackPullRequests?: { [key in string]: PullRequest },
@@ -4435,6 +4488,13 @@ export type PullRequestsChange = {
  */
 export type PullRequestsView = {
 	head: Fact<PullRequestAvailability>,
+	/**  `owner/name` of the GitHub repository of the listing that stands; `None` without one */
+	repository: string | null,
+	/**
+	 *  What the token may do in that repository, as the listing named it; `None` without one or when GitHub named none:
+	 *  never "no access"
+	 */
+	viewerPermission: ViewerPermission | null,
 	/**  By virtual branch name (without the `{prefix}/virtual/` namespace) */
 	pullRequests: { [key in string]: PullRequest },
 	/**  By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's */
@@ -4649,7 +4709,36 @@ export type Reason =
  *  Patronus rebases what lands onto the newest target first, and `commit` (a copy of the virtual branch) conflicts with
  *  it in `files`: the robot would fail at once
  */
-{ code: "targetConflict"; commit: string; files: string[] };
+{ code: "targetConflict"; commit: string; files: string[] } | 
+/**  The repository lands by Patronus (`branchdeck.landing`), and `origin` is not on Space: no robot lands it */
+{ code: "notOnSpace" } | 
+/**
+ *  The token may not push into `repository` (`viewerPermission` below write): neither a push into `target` nor a merge
+ *  of a pull request lands from it
+ */
+{ code: "noWriteAccess"; repository: string; target: string } | 
+/**
+ *  The rules of `target` take a change only through a pull request: a push into it is refused, unless the user may
+ *  bypass the rule (a maintainer or an admin, whom a ruleset may let)
+ */
+{ code: "baselineRequiresPullRequest"; target: string } | 
+/**  The rules of `target` take a change only through the merge queue */
+{ code: "baselineRequiresMergeQueue"; target: string } | 
+/**  The rules of `target` let only the users a ruleset lets bypass it update it */
+{ code: "baselineRestrictsUpdates"; target: string } | 
+/**  The rules of `target` take only signed commits, and the copies Branch Deck writes are unsigned */
+{ code: "baselineRequiresSignatures"; target: string } | 
+/**  The rules of `target` require status checks to pass, which a push of the copy lands without */
+{ code: "baselineRequiresStatusChecks"; target: string } | 
+/**  The baseline `baseline` is a local branch: no remote branch takes a push of what lands */
+{ code: "localBaseline"; baseline: string } | 
+/**
+ *  The pull requests are in `repository`, which `origin` doesn't push to (a mirror): a merge there lands nothing
+ *  into the target of `origin`
+ */
+{ code: "gitHubMirror"; repository: string } | 
+/**  The pull requests of the branches are not on GitHub: none is merged there */
+{ code: "notOnGitHub" };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";
@@ -4785,6 +4874,11 @@ export type RepositoryConfig = {
 	pushSizeLimit: ConfigSetting<string | null>,
 	/**  `branchdeck.resolveByWords`, on by default */
 	resolveByWords: ConfigSetting<boolean>,
+	/**
+	 *  `branchdeck.landing`: unset by default, which is Patronus on Space and the pull request elsewhere; a `push` of the
+	 *  global or the system config is unset, with the reason (`GLOBAL_PUSH_ROUTE_REASON`)
+	 */
+	landing: ConfigSetting<LandingSetting | null>,
 	/**  `branchdeck.agentLease`, on by default */
 	agentLease: ConfigSetting<boolean>,
 	/**  `branchdeck.agentSubjectBranch`, off by default */
@@ -4799,7 +4893,7 @@ export type RepositoryConfig = {
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
-export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null };
+export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "landing"; value?: LandingSetting | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null };
 
 /**  The journal of the repository of one or more recent projects (the worktrees of one repository share it) */
 export type RepositoryJournal = {
@@ -6481,6 +6575,11 @@ export type TableHeader = {
 	branch: string,
 	/**  The tips of the refs of Branch Deck the commits were grouped with */
 	storeTips: StoreTips,
+	/**
+	 *  What the route into master is decided on of git (`branchdeck.landing`, where the remotes push), as the last
+	 *  grouping read it
+	 */
+	landing: LandingRemote,
 };
 
 /**  The sections below the branch table */
@@ -6855,6 +6954,13 @@ export type ViewSubscription = {
 	id: number,
 	view: RepositoryView,
 };
+
+/**
+ *  What the user of the token may do in a GitHub repository (GitHub's `RepositoryPermission`, `viewerPermission`),
+ *  weakest first: a push into a branch needs `Write`, and only `Maintain` and `Admin` may bypass the rules of a branch
+ *  where a ruleset lets them (the API of the rules doesn't tell whether it does)
+ */
+export type ViewerPermission = "read" | "triage" | "write" | "maintain" | "admin";
 
 export type WeekCount = {
 	/**  Unix seconds of the local Monday 00:00 */

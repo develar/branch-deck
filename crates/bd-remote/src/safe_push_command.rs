@@ -67,7 +67,7 @@ use domain_types::session::{Fact, FactState, LandedSection, ParkedMember, PullRe
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::service::{GitHubFailure, GitHubService};
 use operations::land::{LandHost, one_shot_plan};
-use operations::land_execute::{Accepted, Planned, PullRequestText, Started, Steps, execute};
+use operations::land_execute::{Accepted, Planned, PullRequestText, Started, Steps, execute, refusal_code};
 use operations::needs::{FactNeed, needs};
 use operations::push::Sent;
 use operations::robot_start::github_request_failure;
@@ -1608,10 +1608,28 @@ impl Told<'_> {
       Reason::DropsRemote { branch, behind } => self.drops_refusal(branch, *behind),
       Reason::TargetConflict { .. } => Refusal::new(ErrorCode::TargetConflict, self.target_check.and_then(|summary| summary.message.clone()).unwrap_or_default())
         .with_next_step(format!("{} update", context.bd), true),
-      Reason::Draft { .. } | Reason::Unprotected { .. } => Refusal::new(ErrorCode::PatronusRefused, start_refusal_text(reason, what, self.session.robots())),
-      // the reasons of a review request, never of a start
-      Reason::NeedsPush { .. } => Refusal::new(ErrorCode::NeedsPush, start_refusal_text(reason, what, self.session.robots())),
-      Reason::NoReviewer { .. } => Refusal::new(ErrorCode::NoReviewer, start_refusal_text(reason, what, self.session.robots())),
+      // in the words of the guards, with the code of the engine: a draft, a target Patronus doesn't protect; the reasons of
+      // a review request and of a push up to a commit of a rewritten branch, never of a start; parked; the gates of the
+      // routes into master, never of a Safe Push
+      Reason::Draft { .. }
+      | Reason::Unprotected { .. }
+      | Reason::NeedsPush { .. }
+      | Reason::NoReviewer { .. }
+      | Reason::CantPush { .. }
+      | Reason::RewrittenSincePush { .. }
+      | Reason::Parked { .. }
+      | Reason::StackParked { .. }
+      | Reason::NoStackBranch { .. }
+      | Reason::NotOnSpace
+      | Reason::NotOnGitHub
+      | Reason::GitHubMirror { .. }
+      | Reason::LocalBaseline { .. }
+      | Reason::NoWriteAccess { .. }
+      | Reason::BaselineRequiresSignatures { .. }
+      | Reason::BaselineRequiresPullRequest { .. }
+      | Reason::BaselineRequiresMergeQueue { .. }
+      | Reason::BaselineRestrictsUpdates { .. }
+      | Reason::BaselineRequiresStatusChecks { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
       Reason::OtherBase { number, base, target } => {
         let message = format!(
           "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"
@@ -1631,11 +1649,7 @@ impl Told<'_> {
           .iter()
           .fold(Refusal::new(ErrorCode::PushDismissesApprovals, message), |refusal, step| refusal.with_next_step(step, true))
       }
-      // a push up to a commit of a rewritten branch is never a start's
-      Reason::CantPush { .. } | Reason::RewrittenSincePush { .. } => Refusal::new(ErrorCode::PushRefused, start_refusal_text(reason, what, self.session.robots())),
-      Reason::Parked { .. } | Reason::StackParked { .. } => Refusal::new(ErrorCode::Parked, start_refusal_text(reason, what, self.session.robots())),
       Reason::LandingRefused { refusal } => Refusal::new(ErrorCode::MissingDeclaration, refusal.reason()),
-      Reason::NoStackBranch { .. } => Refusal::new(ErrorCode::StackNotBuilt, start_refusal_text(reason, what, self.session.robots())),
       Reason::Blocked { .. } | Reason::LastCommit { .. } | Reason::Descendant { .. } | Reason::Ancestor { .. } | Reason::Held { .. } | Reason::StackHeld { .. } => {
         let robot = robot_command(context, &refusing_subject(reason, &self.subject()));
         Refusal::new(ErrorCode::RobotRunning, start_refusal_text(reason, what, self.session.robots())).with_next_step(robot, false)

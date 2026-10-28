@@ -1,6 +1,7 @@
 use crate::branch_prefix::get_branch_prefix_from_git_config_sync;
 use crate::config_snapshot::{ConfigSnapshot, SymbolMode};
 use crate::github_repository::GitHubRepository;
+use domain_types::landing_route::LandingSetting;
 use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
@@ -185,4 +186,31 @@ fn the_mode_comes_from_git_config_and_is_on_without_it() {
   assert_eq!(mode().unwrap(), SymbolMode::Off);
   repo.set_config("branchdeck.symbols", "maybe").unwrap();
   mode().unwrap_err();
+}
+
+/// The route an operation reads: unset is none (the rule decides by the host), a value other than the three refuses
+#[test]
+fn the_route_comes_from_git_config_and_is_none_without_it() {
+  let repo = TestRepo::new();
+  let landing = || snapshot(&repo).landing();
+  assert_eq!(landing().unwrap(), None);
+  repo.set_config("branchdeck.landing", "push").unwrap();
+  assert_eq!(landing().unwrap(), Some(LandingSetting::Push));
+  repo.set_config("branchdeck.landing", "Pull-Request").unwrap();
+  assert_eq!(landing().unwrap(), Some(LandingSetting::PullRequest));
+  repo.set_config("branchdeck.landing", "merge").unwrap();
+  assert_eq!(landing().unwrap_err().to_string(), "branchdeck.landing: merge is not patronus, push or pull-request");
+}
+
+/// A push of the global config is unset for an operation too: it lands nothing into master of a repository that names
+/// no route of its own
+#[test]
+fn a_push_route_of_the_global_config_is_none() {
+  let repo = TestRepo::new();
+  let global = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(global.path(), "[branchdeck]\n\tlanding = push\n").unwrap();
+  let git = repo.git_executor().with_env("GIT_CONFIG_GLOBAL", global.path().to_str().unwrap());
+  assert_eq!(ConfigSnapshot::read(&git, repo.path_str()).unwrap().landing().unwrap(), None);
+  repo.set_config("branchdeck.landing", "push").unwrap();
+  assert_eq!(ConfigSnapshot::read(&git, repo.path_str()).unwrap().landing().unwrap(), Some(LandingSetting::Push));
 }

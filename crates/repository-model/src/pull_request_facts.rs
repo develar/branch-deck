@@ -4,7 +4,8 @@
 //!
 //! - A listing replaces the pull requests when GitHub listed them, and when it can't list them for good (no token, a
 //!   rejected one, SSO, no access, not on GitHub: no listing stands, never "no pull request"); a failure GitHub recovers
-//!   from (an error, the rate limit) keeps the last listing, `Stale` with the reason.
+//!   from (an error, the rate limit) keeps the last listing, `Stale` with the reason. What the token may do in the
+//!   repository (`viewer_permission`) goes with the listing the same way.
 //! - A write of the app (a retarget, a close, the reviewers it asked, a pull request it created) changes the pull
 //!   request at once and takes its number when it applies: a listing that started before (its number is older) keeps
 //!   the pull request as the write left it, so the search that answered before the write never rolls it back and the
@@ -110,6 +111,7 @@ impl PullRequestsFact {
     }
     let PullRequestsResult {
       availability,
+      viewer_permission,
       pull_requests,
       stack_pull_requests,
     } = result;
@@ -123,9 +125,16 @@ impl PullRequestsFact {
       // GitHub listed them, listed none, or can't list them: no pull request stands but the app's own
       let listed = self.listing(false, pull_requests, seq, observation.at);
       let stacks = self.listing(true, stack_pull_requests, seq, observation.at);
-      changed |= self.view.pull_requests != listed || self.view.stack_pull_requests != stacks;
+      let repository = match &availability {
+        PullRequestAvailability::Available { owner, name } => Some(format!("{owner}/{name}")),
+        _ => None,
+      };
+      changed |=
+        self.view.pull_requests != listed || self.view.stack_pull_requests != stacks || self.view.repository != repository || self.view.viewer_permission != viewer_permission;
       self.view.pull_requests = listed;
       self.view.stack_pull_requests = stacks;
+      self.view.repository = repository;
+      self.view.viewer_permission = viewer_permission;
       self.listed = matches!(availability, PullRequestAvailability::Available { .. });
       // a write the listing saw needs keeping no more
       self.written.retain(|_, written| *written > seq);

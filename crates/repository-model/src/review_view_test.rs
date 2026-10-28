@@ -16,32 +16,11 @@ use std::collections::BTreeMap;
 /// A table synced on `origin/master`, which Patronus pushes into `master`
 fn synced() -> TableState {
   let mut state = TableState::new();
-  let SyncEvent::BranchesGrouped {
-    branches,
-    baseline_branch,
-    stacks,
-    issue_groups,
-    stack_parents,
-    parked,
-    stack_branches,
-    ..
-  } = grouping(Vec::new())
-  else {
-    unreachable!()
-  };
-  state.apply(SyncEvent::BranchesGrouped {
-    branches,
-    baseline_branch,
-    stacks,
-    issue_groups,
-    stack_parents,
-    parked,
-    stack_branches,
-    target_branch: Some("master".to_owned()),
-    head: String::new(),
-    branch: String::new(),
-    store_tips: domain_types::session::StoreTips::default(),
-  });
+  let mut grouped = grouping(Vec::new());
+  if let SyncEvent::BranchesGrouped { target_branch, .. } = &mut grouped {
+    *target_branch = Some("master".to_owned());
+  }
+  state.apply(grouped);
   state
 }
 

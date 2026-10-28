@@ -1,5 +1,7 @@
 use crate::pull_requests::{PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, list_pull_requests, parse_pull_requests};
-use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource};
+use domain_types::pull_request::{
+  ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource, ViewerPermission,
+};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
 use github::service::GitHubService;
@@ -313,6 +315,8 @@ async fn lists_pull_requests_of_the_push_remote_repository() {
     }
   );
   assert_eq!(result.pull_requests.keys().collect::<Vec<_>>(), vec!["auth", "done", "draft-work"]);
+  // what the token may do there, from the same query
+  assert_eq!(result.viewer_permission, Some(ViewerPermission::Write));
 
   let request = &requests[0];
   assert_eq!(request.authorization.as_deref(), Some("Bearer t0ken"));
@@ -402,6 +406,7 @@ async fn a_token_without_read_org_is_asked_again_without_teams() {
   );
   let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
   assert!(matches!(result.availability, PullRequestAvailability::Available { .. }), "{result:?}");
+  assert_eq!(result.viewer_permission, Some(ViewerPermission::Read));
   let queries: Vec<serde_json::Value> = fake.requests_to("POST", "/graphql").iter().map(|request| request.json()["query"].clone()).collect();
   assert_eq!(queries, [serde_json::json!(PULL_REQUESTS_QUERY), serde_json::json!(PULL_REQUESTS_QUERY_WITHOUT_TEAMS)]);
   assert!(PULL_REQUESTS_QUERY.contains("... on Team { slug }") && !PULL_REQUESTS_QUERY_WITHOUT_TEAMS.contains("Team"));

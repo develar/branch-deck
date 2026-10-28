@@ -23,6 +23,7 @@ export const CONFIG_KEYS: Record<RepositoryConfigKey, string> = {
   branchPrefix: "branchdeck.branchPrefix",
   pushSizeLimit: "branchdeck.pushSizeLimit",
   resolveByWords: "branchdeck.resolveByWords",
+  landing: "branchdeck.landing",
   agentLease: "branchdeck.agentLease",
   agentSubjectBranch: "branchdeck.agentSubjectBranch",
 }
@@ -251,6 +252,8 @@ export function writeErrorTitle(change: RepositoryConfigChange, fallbackStacks: 
       return `Cannot change the push size limit of ${name}`
     case "resolveByWords":
       return `Cannot change how ${name} resolves conflicts by words`
+    case "landing":
+      return `Cannot change how ${name} lands into master`
     case "agentLease":
       return `Cannot change where agents work in ${name}`
     case "agentSubjectBranch":

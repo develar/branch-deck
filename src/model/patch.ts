@@ -125,12 +125,17 @@ function patchedFacts(facts: FactsView, change: FactsChanges): FactsView {
 }
 
 /**
- * The pull requests after a patch: its head when it names one, the pull requests it names replace theirs, those it
- * removes go; one it doesn't name keeps its object, so a row that reads one doesn't render again
+ * The pull requests after a patch: its head when it names one, with the repository and the permission of that answer,
+ * the pull requests it names replace theirs, those it removes go; one it doesn't name keeps its object, so a row that
+ * reads one doesn't render again
  */
 function patchedPullRequests(part: PullRequestsView, change: PullRequestsChange): PullRequestsView {
+  // the repository and the permission change only with an answer, which changes the head
+  const answered = change.head != null
   return {
     head: change.head ?? part.head,
+    repository: answered ? (change.repository ?? null) : part.repository,
+    viewerPermission: answered ? (change.viewerPermission ?? null) : part.viewerPermission,
     pullRequests: keyed(part.pullRequests, change.pullRequests, change.removedPullRequests),
     stackPullRequests: keyed(part.stackPullRequests, change.stackPullRequests, change.removedStackPullRequests),
   }

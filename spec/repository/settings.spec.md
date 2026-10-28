@@ -364,6 +364,14 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   `branchdeck.githubRepository`, [Pull Requests](../branch/pull-requests.spec.md)) and Branch prefix ("Used here
   instead of the prefix in General", `branchdeck.branchPrefix`, [Branch prefix order](#branch-prefix-order)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
+- The route into master, `branchdeck.landing` (`patronus`, `push`, `pull-request`; unset: Patronus on Space, the pull
+  request elsewhere), is read and written with these keys (`RepositoryConfig.landing`, the change `landing`; "Cannot
+  change how app lands into master"), and a sync and every `bd` command read it in their one read of the config; the
+  page has no row of it yet ([Landing Routes](../branch/landing-routes.spec.md)). A `push` is taken only from the
+  repository's own config: a global write of it is refused, and a global or system one reads as unset, with the reason.
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`, `a_push_route_is_written_only_to_the_local_config`)
+  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_route_comes_from_git_config_and_is_none_without_it`, `a_push_route_of_the_global_config_is_none`)
+  [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
 - A row names where its value comes from only when it is not the default, without the value its control shows: "Set
   in this repository" for `.git/config`, "Set in your global Git config", "Set in the system Git config"
   (`describeSource`). Two rows also name the source of their default: the GitHub repository the remote it was detected

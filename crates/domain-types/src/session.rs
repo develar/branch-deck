@@ -23,10 +23,11 @@ use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::landing::{LandDecisions, Landed, LandedPullRequest};
+use crate::landing_route::LandingRemote;
 use crate::next_step::NextStepView;
 use crate::operation::{OperationId, RunningOperation};
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
-use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView};
+use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView, ViewerPermission};
 use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
 use crate::review_request::{ReviewEntry, ReviewRequest};
@@ -539,6 +540,11 @@ pub struct SubjectReadiness {
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestsView {
   pub head: Fact<PullRequestAvailability>,
+  /// `owner/name` of the GitHub repository of the listing that stands; `None` without one
+  pub repository: Option<String>,
+  /// What the token may do in that repository, as the listing named it; `None` without one or when GitHub named none:
+  /// never "no access"
+  pub viewer_permission: Option<ViewerPermission>,
   /// By virtual branch name (without the `{prefix}/virtual/` namespace)
   pub pull_requests: BTreeMap<String, PullRequest>,
   /// By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's
@@ -653,6 +659,9 @@ pub struct TableHeader {
   pub branch: String,
   /// The tips of the refs of Branch Deck the commits were grouped with
   pub store_tips: StoreTips,
+  /// What the route into master is decided on of git (`branchdeck.landing`, where the remotes push), as the last
+  /// grouping read it
+  pub landing: LandingRemote,
 }
 
 impl TableHeader {
@@ -1279,6 +1288,14 @@ pub struct PullRequestsChange {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub head: Option<Fact<PullRequestAvailability>>,
+  /// With a head, the repository of the listing that stands and what the token may do there, which change only with
+  /// an answer, and every answer changes the head; without a head they stay
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub repository: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub viewer_permission: Option<ViewerPermission>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub pull_requests: BTreeMap<String, PullRequest>,

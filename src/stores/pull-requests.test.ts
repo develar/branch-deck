@@ -65,7 +65,7 @@ const AVAILABLE: PullRequestAvailability = { status: "available", owner: "JetBra
 
 /** The facts of a view whose pull requests head is `head` with `pullRequests` */
 function facts(head: Fact<PullRequestAvailability>, pullRequests: Record<string, PullRequest> = {}): FactsView {
-  return { ...emptyView().facts, pullRequests: { head, pullRequests, stackPullRequests: {} } }
+  return { ...emptyView().facts, pullRequests: { head, repository: null, viewerPermission: null, pullRequests, stackPullRequests: {} } }
 }
 
 function head(value: PullRequestAvailability | null, state: Fact<PullRequestAvailability>["state"]): Fact<PullRequestAvailability> {

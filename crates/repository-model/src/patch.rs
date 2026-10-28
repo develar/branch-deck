@@ -317,17 +317,23 @@ fn apply_patronus_change(part: &mut PatronusPart, change: PatronusChange) {
   set_if_some(&mut view.restarts, restarts);
 }
 
-/// The pull requests after a patch: its head when it names one, the pull requests it names replace theirs, those it
-/// removes go
+/// The pull requests after a patch: its head when it names one, with the repository and the permission of that answer,
+/// the pull requests it names replace theirs, those it removes go
 fn apply_pull_requests_change(view: &mut PullRequestsView, change: PullRequestsChange) {
   let PullRequestsChange {
     head,
+    repository,
+    viewer_permission,
     pull_requests,
     removed_pull_requests,
     stack_pull_requests,
     removed_stack_pull_requests,
   } = change;
-  set_if_some(&mut view.head, head);
+  if let Some(head) = head {
+    view.head = head;
+    view.repository = repository;
+    view.viewer_permission = viewer_permission;
+  }
   for name in &removed_pull_requests {
     view.pull_requests.remove(name);
   }

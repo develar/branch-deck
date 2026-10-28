@@ -135,6 +135,7 @@ describe("the rows of Settings → Repository", () => {
     expect(writeErrorTitle({ key: "pushSizeLimit", value: "200M" }, false, "/repo/app")).toBe("Cannot change the push size limit of app")
     expect(writeErrorTitle({ key: "agentLease", value: null }, false, "/repo/app")).toBe("Cannot change where agents work in app")
     expect(writeErrorTitle({ key: "agentSubjectBranch", value: true }, false, "/repo/app")).toBe("Cannot change how agents write commit subjects in app")
+    expect(writeErrorTitle({ key: "landing", value: "push" }, false, "/repo/app")).toBe("Cannot change how app lands into master")
   })
 })
 
@@ -163,6 +164,7 @@ describe("ConfigWrites", () => {
     branchPrefix: text(prefix),
     pushSizeLimit: text(null),
     resolveByWords: setting({}),
+    landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
     agentLease: setting({}),
     agentSubjectBranch: setting({}),
     detectedGithubRepository: null,

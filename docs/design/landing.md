@@ -1,7 +1,7 @@
 # Landing Work into Master
 
 **Status:** Implemented  
-**Updated:** 2026-10-27  
+**Updated:** 2026-10-28  
 **Tags:** [product, stacks, patronus, pull-requests]
 
 ## Problem
@@ -49,7 +49,8 @@ Two words are used for what lands, never for anything else:
 The specs are the contract of each part:
 [Stacked Branches](../../spec/branch/stacked-branches.spec.md), [Patronus](../../spec/branch/patronus.spec.md),
 [Next Step](../../spec/branch/next-step.spec.md), [Stack Island](../../spec/branch/stack-island.spec.md),
-[Pull Requests](../../spec/branch/pull-requests.spec.md) and [Whole Stack](../../spec/branch/whole-stack.spec.md).
+[Pull Requests](../../spec/branch/pull-requests.spec.md), [Whole Stack](../../spec/branch/whole-stack.spec.md) and
+[Landing Routes](../../spec/branch/landing-routes.spec.md).
 
 ## Design
 
@@ -68,6 +69,26 @@ The specs are the contract of each part:
   - *Rationale:* the trial build checks lines and names, not a compiler, and a stored stack parent doesn't say why the
     branch was stacked. Landing what it is built on is always right; landing it alone is right only when the user
     says so.
+
+### Routes
+
+- **The unit of landing is a robot, a push or a merge.** A repository has one route into master: a Safe Push of
+  Patronus (the robot rebases, runs the checks and pushes), a push of the copy into the branch of the baseline on its
+  remote (a fast-forward, the copies with the clean subjects), or a merge of the pull request on GitHub. A piece and a
+  whole stack are what lands on every route; the route only says how.
+- **The route is a fact of the repository.** `branchdeck.landing` of its git config names it (`patronus`, `push`,
+  `pull-request`), read by the sync with its config and sent in `BranchesGrouped` with where its remotes push, so the
+  session, `bd` and the rule (`domain_policy::landing_route`) read one value. Unset, the host of `origin` decides:
+  Patronus on Space, the pull request elsewhere; never a push, which skips the robot and the CI of a pull request and
+  is named only by the repository's own config.
+  - *Rationale:* a route is named, not detected, except where the host decides it for good: `origin` does not move off
+    Space by itself, and the monorepo must not lose Safe Push to a missing key.
+- **Each route has a gate.** Before anything is pushed, the rule reads what GitHub tells of the user and the target:
+  the write access (`viewerPermission` of the listing of the pull requests, no request of its own) and the rules of the
+  target (`rules/branches/<target>`, read only for a push route). A fact without an answer waits; a fact of another
+  repository than the one the remote pushes to counts for nothing, and the server answers.
+
+The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
 
 ### A piece: a branch and what it is built on
 

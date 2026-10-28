@@ -24,6 +24,8 @@
 //! - `issue_navigation`: the issue links of the IntelliJ IDEA configuration
 //! - `landed`: the landed commits and branches
 //! - `landing`: what refuses a Safe Push or a Dry Run before the push, and the fix of each refusal
+//! - `landing_route`: how the work of a repository lands into master (a robot, a push, a merge), the setting that names
+//!   it and the gate of each route
 //! - `operation`: the operations of the remote: what is asked (`Intent`), what it would do (`Plan`), how it ended
 //!   (`Outcome`), what its caller hears (`OperationEvent`), the operations of a session that run or wait
 //!   (`RunningOperation`) with the resources they hold and the admission of a new one (`Admission`)
@@ -49,6 +51,7 @@
 use crate::commit::Commit;
 use crate::conflict::{MergeConflictInfo, WordResolutionSummary};
 use crate::issue_navigation::IssueNavigationConfig;
+use crate::landing_route::LandingRemote;
 use crate::session::StoreTips;
 use crate::update_project::UpdateCheck;
 use serde::{Deserialize, Serialize};
@@ -70,6 +73,7 @@ pub mod fixtures;
 pub mod issue_navigation;
 pub mod landed;
 pub mod landing;
+pub mod landing_route;
 pub mod next_step;
 pub mod operation;
 pub mod patronus;
@@ -287,6 +291,10 @@ pub enum SyncEvent {
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(optional))]
     store_tips: StoreTips,
+    /// What the route into master is decided on of git: `branchdeck.landing` and where the remotes push
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    landing: LandingRemote,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },

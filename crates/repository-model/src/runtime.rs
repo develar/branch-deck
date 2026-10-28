@@ -44,6 +44,7 @@ use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost
 use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
+use domain_policy::landing_route::rules_target;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::PullRequestReviewEvent;
@@ -367,10 +368,7 @@ impl Actor {
         let _ = reply.send(Some(AppliedFacts {
           version: self.view.version(),
           robots,
-          approved_bases: self
-            .facts
-            .pull_requests
-            .approved_bases(self.facts.table.value().map(|table| table.baseline.as_str()), &self.key.prefix),
+          rule_bases: self.rule_bases(),
           moved_remotes,
         }));
       }
@@ -561,6 +559,19 @@ impl Actor {
     if changed {
       self.events.emit(&self.key, SessionEventKind::Robots { digest, version });
     }
+  }
+
+  /// The branches whose rules are read (`AppliedFacts::rule_bases`): the bases of the approved open pull requests, and
+  /// the target of the baseline while the repository lands by a push into it on GitHub, sorted, each once
+  fn rule_bases(&self) -> Vec<String> {
+    let baseline = self.facts.table.value().map(|table| table.baseline.as_str());
+    let mut bases = self.facts.pull_requests.approved_bases(baseline, &self.key.prefix);
+    if let Some(target) = rules_target(&self.state.header().landing)
+      && let Err(at) = bases.binary_search_by(|base| base.as_str().cmp(target))
+    {
+      bases.insert(at, target.to_owned());
+    }
+    bases
   }
 
   /// What the scheduler asks about the robots now (`facts::robots_digest`), with the robots the demand asks about

@@ -1,12 +1,15 @@
 //! GitHub pull request status of the virtual branches: one GraphQL search of the user's pull requests per call, asked
-//! with the token chain (`github::service`). The writes are the Patronus command comment (`patronus_command.rs`), a new
+//! with the token chain (`github::service`), with what the token may do in the repository (`viewerPermission`, which the
+//! route into master reads). The writes are the Patronus command comment (`patronus_command.rs`), a new
 //! pull request with its assignee and reviewers (`pull_request_create.rs`), and the retarget, the close and the review
 //! of a pull request (`pull_request_writes.rs`). GitHub is not git: it never
 //! touches the repository, and every failure of a read is an availability, not an error.
 
 use anyhow::Result;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
-use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
+use domain_types::pull_request::{
+  ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, ViewerPermission,
+};
 use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::Deserialize;
@@ -101,12 +104,17 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
     .await;
   match answer {
     Ok(data) => {
+      let viewer_permission = data
+        .repository
+        .and_then(|repository| repository.viewer_permission)
+        .and_then(|permission| ViewerPermission::parse(&permission));
       let (pull_requests, stack_pull_requests) = to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
       PullRequestsResult {
         availability: PullRequestAvailability::Available {
           owner: repository.owner.clone(),
           name: repository.name.clone(),
         },
+        viewer_permission,
         pull_requests,
         stack_pull_requests,
       }
@@ -201,8 +209,15 @@ pub fn failure_message(failure: &GitHubFailure) -> String {
 #[derive(Debug, Deserialize)]
 pub struct PullRequestsData {
   /// Null when the token can't see the repository
-  repository: Option<serde_json::Value>,
+  repository: Option<GhRepository>,
   search: Option<GhSearch>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhRepository {
+  /// `ADMIN`, `MAINTAIN`, `WRITE`, `TRIAGE`, `READ`; null when GitHub names none
+  viewer_permission: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

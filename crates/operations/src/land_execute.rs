@@ -612,12 +612,10 @@ pub fn refusal_of(planned: &Planned, robots: &[PatronusRobot]) -> Option<ApiErro
   Some(refusal(blocker, &planned.plan, &planned.subject, robots))
 }
 
-/// The first blocker of `plan` as the start answers it: the code `bd` refuses it with, in the words of the guards; a
-/// refusal of the landing gate with every refusal of it among its blockers (each with its fix), a conflict with the
-/// target with its commit and files
-fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRobot]) -> ApiError {
-  let blockers = plan.blockers.as_slice();
-  let code = match reason {
+/// The code a start, a push or a review request is refused with for `reason`, as `bd` fails with it
+#[must_use]
+pub fn refusal_code(reason: &Reason) -> ErrorCode {
+  match reason {
     Reason::Landed { .. } | Reason::StackLanded { .. } | Reason::LandedIn { .. } | Reason::PullRequestMerged { .. } => ErrorCode::Landed,
     // a merged Safe Push landed the branch whole: nothing of it is left to push
     Reason::Held { hold, .. } if hold.kind == HoldKind::Landed => ErrorCode::Landed,
@@ -626,7 +624,17 @@ fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRo
       ..
     } => ErrorCode::StackConflict,
     Reason::StackNotBuilt { .. } | Reason::NoStackBranch { .. } => ErrorCode::StackNotBuilt,
-    Reason::DropsRemote { .. } | Reason::CantPush { .. } | Reason::RewrittenSincePush { .. } => ErrorCode::PushRefused,
+    // the gates of a push into the target (`domain_policy::landing_route`) too: the server would refuse it
+    Reason::DropsRemote { .. }
+    | Reason::CantPush { .. }
+    | Reason::RewrittenSincePush { .. }
+    | Reason::NoWriteAccess { .. }
+    | Reason::BaselineRequiresPullRequest { .. }
+    | Reason::BaselineRequiresMergeQueue { .. }
+    | Reason::BaselineRestrictsUpdates { .. }
+    | Reason::BaselineRequiresSignatures { .. }
+    | Reason::BaselineRequiresStatusChecks { .. }
+    | Reason::LocalBaseline { .. } => ErrorCode::PushRefused,
     Reason::TargetConflict { .. } => ErrorCode::TargetConflict,
     Reason::Draft { .. } | Reason::Unprotected { .. } => ErrorCode::PatronusRefused,
     Reason::NeedsPush { .. } => ErrorCode::NeedsPush,
@@ -642,7 +650,18 @@ fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRo
     Reason::Blocked { .. } | Reason::LastCommit { .. } | Reason::Descendant { .. } | Reason::Ancestor { .. } | Reason::Held { .. } | Reason::StackHeld { .. } => {
       ErrorCode::RobotRunning
     }
-  };
+    // no robot lands off Space, no pull request of GitHub merges it
+    Reason::NotOnSpace => ErrorCode::NotOnSpace,
+    Reason::GitHubMirror { .. } | Reason::NotOnGitHub => ErrorCode::NoPullRequest,
+  }
+}
+
+/// The first blocker of `plan` as the start answers it: the code `bd` refuses it with, in the words of the guards; a
+/// refusal of the landing gate with every refusal of it among its blockers (each with its fix), a conflict with the
+/// target with its commit and files
+fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRobot]) -> ApiError {
+  let blockers = plan.blockers.as_slice();
+  let code = refusal_code(reason);
   let review = matches!(plan.intent, Intent::RequestReview { .. });
   // a draft asks nobody: GitHub marks it ready for review
   let code = if review && matches!(reason, Reason::Draft { .. }) {

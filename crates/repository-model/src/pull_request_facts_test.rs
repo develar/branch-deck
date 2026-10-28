@@ -5,7 +5,7 @@ use crate::facts::{Observation, Seq};
 use crate::pull_request_facts::{CREATED_KEEP, PullRequestSubject, PullRequestWrite, PullRequestsFact, PushedHead};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::pull_request;
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, Reviewer, ReviewerState, TokenSource};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, Reviewer, ReviewerState, TokenSource, ViewerPermission};
 use domain_types::session::FactState;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -95,6 +95,26 @@ fn a_late_listing_keeps_the_retarget_the_reviewers_and_the_close_written_after_i
   fact.answer(at(6, 13), listing(&[auth.clone(), login, docs.clone(), ui_listed]));
   assert_eq!(fact.view().pull_requests["auth"], auth);
   assert_eq!(fact.view().pull_requests["docs"], docs);
+}
+
+/// The repository of a listing and what the token may do there go with the listing: a failure GitHub recovers from
+/// keeps them as the pull requests, one without a listing to stand on has none, never "no access"
+#[test]
+fn the_permission_of_the_token_goes_with_the_listing() {
+  let mut fact = PullRequestsFact::default();
+  let listed = |permission| PullRequestsResult {
+    viewer_permission: permission,
+    ..listing(&[pull_request("auth", 1)])
+  };
+  assert!(fact.answer(at(1, 10), listed(Some(ViewerPermission::Maintain))));
+  let held = |fact: &PullRequestsFact| (fact.view().repository.clone(), fact.view().viewer_permission);
+  assert_eq!(held(&fact), (Some("acme/monorepo".to_owned()), Some(ViewerPermission::Maintain)));
+  fact.answer(at(2, 11), PullRequestsResult::unavailable(PullRequestAvailability::Error { message: "offline".to_owned() }));
+  assert_eq!(held(&fact), (Some("acme/monorepo".to_owned()), Some(ViewerPermission::Maintain)));
+  assert!(fact.answer(at(3, 12), listed(Some(ViewerPermission::Read))));
+  assert_eq!(fact.view().viewer_permission, Some(ViewerPermission::Read));
+  fact.answer(at(4, 13), PullRequestsResult::unavailable(PullRequestAvailability::SignedOut));
+  assert_eq!(held(&fact), (None, None));
 }
 
 /// Before the first answer the pull requests are loading; a listing that fails without one is unavailable with the

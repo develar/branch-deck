@@ -119,6 +119,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     head: String::new(),
     branch: String::new(),
     store_tips: domain_types::session::StoreTips::default(),
+    landing: domain_types::landing_route::LandingRemote::default(),
   }];
   for branch in &branches {
     for commit in &branch.commits {
@@ -200,6 +201,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
   facts.apply(
     at(4),
     FactResult::PullRequests(PullRequestsResult {
+      viewer_permission: None,
       availability: PullRequestAvailability::Available {
         owner: "acme".to_owned(),
         name: "monorepo".to_owned(),
