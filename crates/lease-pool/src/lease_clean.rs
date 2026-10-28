@@ -90,11 +90,16 @@ pub(crate) fn read_parsed<T>(path: &Path, parse: impl FnOnce(&str) -> Result<T>)
 /// The key of `[lease]` by which `bd lease pick` refuses a tree that no green build or test recorded (`check_record`)
 const PICK_REQUIRES_CHECK: &str = "pick_requires_check";
 
-/// The `[lease]` table of the text of a `.branchdeck.toml`, `None` without one. An unknown key is an error
+/// The tables of `.branchdeck.toml` that another reader owns: `[host]` is the one of the remote runs of `bd-host`
+/// (`host_link::config`), which checks its keys itself
+const OTHER_TABLES: [&str; 1] = ["host"];
+
+/// The `[lease]` table of the text of a `.branchdeck.toml`, `None` without one. An unknown key is an error; a table of
+/// [`OTHER_TABLES`] stays unread
 fn lease_table(text: &str) -> Result<Option<toml::Table>> {
   let mut table: toml::Table = text.parse()?;
-  if let Some(key) = table.keys().find(|key| *key != "lease") {
-    bail!("unknown key {key:?}; the file has only a [lease] table");
+  if let Some(key) = table.keys().find(|key| *key != "lease" && !OTHER_TABLES.contains(&key.as_str())) {
+    bail!("unknown key {key:?}; the file has only the tables [lease] and [host]");
   }
   let Some(lease) = table.remove("lease") else { return Ok(None) };
   let toml::Value::Table(lease) = lease else { bail!("`lease` is not a table") };

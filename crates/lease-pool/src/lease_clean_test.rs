@@ -40,6 +40,14 @@ fn the_rules_are_cargo_and_delete_with_their_defaults() {
   assert_eq!(parse_clean_rules("[lease]\n").unwrap(), []);
 }
 
+/// `[host]` belongs to the remote runs of bd-host, so the rules and the pick check read past it, whatever it holds
+#[test]
+fn the_host_table_of_the_remote_runs_stays_unread() {
+  let text = "[lease]\npick_requires_check = true\nclean = [{ delete = \"out\" }]\n\n[host]\noutputs = [\"out/x\"]\nunknown = 1\n";
+  assert_eq!(parse_clean_rules(text).unwrap().len(), 1);
+  assert!(crate::lease_clean::parse_pick_requires_check(text).unwrap());
+}
+
 /// An unknown key or kind, a wrong type and a bad age are errors of the whole file
 #[test]
 fn unknown_keys_and_kinds_are_errors() {

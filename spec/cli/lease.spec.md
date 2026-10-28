@@ -399,6 +399,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`, `nested_deletes_keep_only_the_whitelist`)
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
+- The table `[host]` belongs to the remote runs of `bd-host` (spec/cli/host.spec.md), which checks its keys. The rules
+  and `pick_requires_check` must read past it, whatever it holds. A bd before this rule refuses a file with `[host]`
+  and then applies no clean rule.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_host_table_of_the_remote_runs_stays_unread`)
 - A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with
   `..`, names `.git`, names the checkout itself, has a symlink on its way (a `cargo` dir that is one too), holds a file
   that git tracks (one `ls-files -z` of the paths of all rules), or has an `except` entry that is no name of an entry;
