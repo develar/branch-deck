@@ -397,6 +397,19 @@ pub fn assert_dry_run(output: &Value, head: &str) {
 }
 
 /// One commit per subject, each adding its own file, 100 s apart; returns their ids
+/// Commits `(message, file, content)` one by one, each with its file written, `commit_all` 100 s apart; returns the ids,
+/// oldest first
+pub fn commit_files(repo: &TestRepo, commits: &[(&str, &str, &str)]) -> Vec<String> {
+  commits
+    .iter()
+    .zip(0..)
+    .map(|(&(message, file, content), index)| {
+      write(repo, file, content);
+      commit_all(repo, message, 1_700_000_000 + index * 100)
+    })
+    .collect()
+}
+
 pub fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
   let mut ids = Vec::new();
   for (index, subject) in subjects.iter().enumerate() {

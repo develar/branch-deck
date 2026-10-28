@@ -7,7 +7,7 @@ pub mod schema;
 
 use crate::agent_help::{
   AGENT_HELP, CHECK_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP,
-  SAFE_PUSH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
+  SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::install::{InstallArgs, install};
 use crate::schema::{SchemaArgs, schema};
@@ -43,6 +43,7 @@ use bd_rewrite::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use bd_rewrite::park_command::{ParkArgs, UnparkArgs, park, unpark};
 use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UnstackArgs, group, rename, restack, unstack};
+use bd_rewrite::squash_command::{SquashArgs, SquashOutput, squash};
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
 use bd_update::pick_command::{CheckRecordOutput, HomePick, LeasePickOutput, PickArgs, PickOutcome, PickOutput, TreeCheckOutput, TreeCheckState, pick, pick_into};
@@ -158,6 +159,9 @@ enum Command {
   /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets, keeping HEAD's tree
   #[command(after_help = "Outputs and refusals: `bd fold --help`", after_long_help = FOLD_HELP)]
   Fold(FoldArgs),
+  /// Squash the commits the user asked to squash into the oldest of them, keeping HEAD's tree
+  #[command(after_help = "Outputs and refusals: `bd squash --help`", after_long_help = SQUASH_HELP)]
+  Squash(SquashArgs),
   /// Move the changes of one file from one commit into another, keeping HEAD's tree
   ///
   /// All of its changes, or the blocks --block names; both commits ahead of the baseline. `hunk_conflict` (exit 4) when a
@@ -541,6 +545,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       print_summary(out, context().and_then(run), UpdateCommandOutput::exit_code)
     }
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Squash(args) => print_summary(out, context().and_then(|context| squash(&context, args)), SquashOutput::exit_code),
     Command::Lease(LeaseArgs { command: LeaseCommand::Get(args) }) => lease_context(None)
       .and_then(|context| lease_get(&context, environment, args))
       .and_then(|output| printed(out, &output)),
@@ -686,6 +691,7 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Unstack(UnstackArgs { rewrite, .. })
     | Command::Reword(RewordArgs { rewrite, .. }) => rewrite.dry_run,
     Command::Fold(args) => args.dry_run,
+    Command::Squash(args) => args.dry_run,
     Command::MoveHunk(args) => args.dry_run,
     Command::Pick(args) => args.dry_run,
     Command::Lease(LeaseArgs {

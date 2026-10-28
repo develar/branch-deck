@@ -158,7 +158,8 @@ written, except by Update Project and the finish of its resolve session (their o
    **A second named exception: the refs `fast-import` moves.** Notes are written in the `fast-import` stream of their
    batch, one notes commit per notes ref, `from <notes ref>^0` when the ref exists (`write_notes_to_refs` and
    `write_commits_with_notes` in `crates/git-ops/src/commit_writer.rs`): the mapping and stack notes of a sync, the
-   mapping notes of a reword and of a move of a hunk, the detection notes
+   mapping notes of a reword and of a move of a hunk, the mapping notes a squash carries to the commits it replays
+   (`write_notes_on_existing`, before its ref transaction), the detection notes
    (`crates/branch-integration/src/detection_notes.rs`). fast-import moves the notes ref itself when the stream ends,
    with the reflog message `fast-import`: it reads the ref again, refuses a new tip that does not contain that value
    ("not updating … new tip … does not contain …", exit code 1, so the operation fails), and moves the ref with that
@@ -166,7 +167,7 @@ written, except by Update Project and the finish of its resolve session (their o
    fast-forward, not the exact old value of a transaction: a notes ref moved back to an ancestor of the `from` commit
    meanwhile would be moved forward again. The notes of a sync and of the detection are only a cache, so their lost
    write fails nothing (`write_cache_notes`): it runs once more, from the tip the other writer left (its notes kept),
-   and a second loss is a warning; a later sync writes them
+   and a second loss is a warning; a later sync writes them, as it does for the carried notes of a squash
    (`a_sync_that_loses_the_notes_ref_to_another_writer_writes_again_and_finishes`,
    `a_detection_write_that_loses_its_ref_runs_again_and_never_fails`). The mapping notes a rewrite carries to its new
    commits (`write_commits_with_notes`) go once more too, the same stream from the tip the other writer left (the
@@ -881,29 +882,44 @@ Code: `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/unapply.rs`, `cr
 
 #### Squash
 
-The user selects commits; they are squashed into the oldest one, which keeps its place and its author. The newer ones
-leave the history, as fixups do with `rebase --autosquash`, and the commits in between stay. A squash is a rewrite
+The user selects commits (an agent names them to `bd squash`); they are squashed into the oldest one, which keeps its
+place and its author. The newer ones leave the history, as fixups do with `rebase --autosquash`, and the commits in between stay. A squash is a rewrite
 plan with one `Replace` step per group (`SquashGroup`: a target, the folded commits and a `SquashMessage`, either a new
 text or the target's own message and encoding):
 
 1. Read the first-parent history down to the oldest target (see "Rewrite history") and the positions of the commits;
    each must be on it, the folded ones newer than the target. The history has the trees of the commits and of their
-   parents; one `cat-file --batch` reads the targets, for their authors and messages (a kept message is taken from
+   parents, and their mapping notes (`History::read_to_with_notes`, `%N` in the same `log`); one `cat-file --batch` reads the targets, for their authors and messages (a kept message is taken from
    there, not read twice).
 2. Replay the kept commits before the target, if an earlier step changed the history.
 3. Compute the squashed tree, starting from the target's tree, then applying each folded commit oldest first as a
    cherry-pick (merge base: its parent's tree). All merges of the plan, of every group, go to one interactive
    `merge-tree --write-tree --stdin -z` (`CommitChain::merge`), each line answered before the next, as the next
-   merge starts from its tree. A conflict refuses the squash, as does a result without changes.
+   merge starts from its tree. A conflict refuses the squash, as does a result without changes: a `RewriteRefused`
+   (`squash_conflict` with the commits and the files of the merge, `squash_empty`), carried in
+   `CopyCommitError::Other`, so `refused_in` finds it under the error of any core, for the app and `bd` alike.
 4. Write the commit with `fast-import`: the target's author and the current user as committer.
 5. Replay the rest up to HEAD (`git replay`, as for a drop).
-6. Check, before any ref moves:
+6. List the new history down to the parent of the oldest target with its trees (one `log --first-parent
+   --format=%H %T`), then check, before any ref moves:
    - the new HEAD tree equals the old one, so the index and the working tree are already right and a dirty tree is
-     fine (one `rev-parse` of the replayed tip; the old tree is the history's);
-   - the commit count matches, because `replay` silently drops a commit that becomes empty.
+     fine (the listing has the tree of the replayed tip; the old tree is the history's);
+   - the commit count matches, because `replay` silently drops a commit that becomes empty (`squash_empty`).
+   A replayed commit whose new tree and parent tree are the source its mapping note records keeps that note: those
+   are the commits after the newest folded one, whose virtual copies the next sync then reuses, since `replay` gave
+   them a new committer and a copy made again would get a new id. The squashed commit and the commits between the
+   target and the newest folded one change their trees and keep none; the originals keep theirs, for an undo.
 7. Take the repository lock: steps 1 to 6 ran before it. Read the witness, HEAD and its branch (one `for-each-ref`);
    HEAD elsewhere runs steps 1 to 6 once more under the lock, where a HEAD other than the expected one is `HeadMoved`.
-   Move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary refs.
+   Write the carried notes first (`notes get-ref` and one `fast-import` from `<notes ref>^0`, best effort as
+   `write_cache_notes`), so a sync the move wakes finds them; a note on a commit the branch never reaches harms
+   nothing. Then move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary
+   refs.
+
+`bd squash <into> <commit>…` finds its commits first (`select_squash`: the commits ahead of the baseline with one
+`log` and the grouping stores, no lock): all ahead of the baseline, `<into>` the oldest, every one in its branch, and a
+message that keeps the squashed commit there (the message of `<into>` by default). Its `--dry-run` runs steps 1 to 6
+and drops the commits (`check_squash_commits_core`). `bd fold` runs the same plan, so its conflicts have the same codes.
 
 **Undo** moves the branch back to the old HEAD with a CAS on the new one (`branch-deck: undo squash`), its checks
 before the lock and the witness of HEAD under it (`check_restore`, `CheckedRestore`). It is refused if
@@ -912,7 +928,8 @@ reads the branch again, and only a branch elsewhere is `HeadMoved`; the app answ
 in the words of `HeadMoved::undo_message`), or if the two trees differ; equal trees mean the index and the working tree
 need no change.
 
-Code: `crates/git-ops/src/squash_commits.rs`, `crates/git-ops/src/rewrite_plan.rs`, `crates/history-rewrite/src/squash.rs`.
+Code: `crates/git-ops/src/squash_commits.rs`, `crates/git-ops/src/rewrite_plan.rs`, `crates/history-rewrite/src/squash.rs`,
+`crates/bd-rewrite/src/squash_command.rs`.
 
 #### Squash fixups
 

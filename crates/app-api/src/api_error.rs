@@ -14,6 +14,7 @@ use git_ops::index_lock::IndexLocked;
 use git_ops::pick::PickRefusal;
 use git_ops::revs::DetachedHead;
 use git_ops::rewrite_guard::HeadMoved;
+use git_ops::rewrite_plan::refused_in;
 use git_ops::unapply::{DropRefused, MoveBlocked};
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, NotAnUpdate, PendingUpdate, RefLocked, UndoBlocked};
 use github::device_flow::DeviceFlowError;
@@ -270,6 +271,13 @@ fn classify_branch_moves(error: &anyhow::Error) -> Option<Classified> {
   }
   if error.downcast_ref::<DropRefused>().is_some() {
     return Some((ErrorCode::DropConflict, None));
+  }
+  if let Some(refused) = refused_in(error) {
+    let details = ErrorDetails::Conflict {
+      commits: refused.commits.clone(),
+      paths: refused.paths.clone(),
+    };
+    return Some((refused.code(), Some(details)));
   }
   if let Some(blocked) = error.downcast_ref::<MoveBlocked>() {
     return paths(&blocked.paths);

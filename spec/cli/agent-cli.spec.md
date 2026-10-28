@@ -46,6 +46,8 @@ targets:
   - ../../crates/bd-remote/src/robot_command.rs
   - ../../crates/bd-remote/src/request_review_command.rs
   - ../../crates/bd-rewrite/src/fold_command.rs
+  - ../../crates/bd-rewrite/src/squash_command.rs
+  - ../../crates/history-rewrite/src/squash.rs
   - ../../crates/bd-rewrite/src/move_hunk_command.rs
   - ../../crates/trial-check/src/move_hunk.rs
   - ../../crates/git-ops/src/move_hunk.rs
@@ -135,13 +137,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Give an agent everything it needs to cluster commits, in a few compact calls.
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
-- Reading changes nothing; a regroup changes commit messages only. A fold and `bd move-hunk` change the trees of
+- Reading changes nothing; a regroup changes commit messages only. A fold, a squash and `bd move-hunk` change the trees of
   commits ahead of the baseline, never HEAD's tree, the index or the working tree. Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update. `bd lease` writes only the slots of its pool.
 
 ## Non-goals
 
-- Reordering, squashing, dropping or splitting commits (`bd move-hunk` moves a file's change between two commits;
-  it splits no commit into new ones).
+- Reordering, dropping or splitting commits (`bd move-hunk` moves a file's change between two commits; it splits no
+  commit into new ones), and a squash the user did not ask for (`bd squash` squashes the commits the user named).
 - Moving a change across a rename, a mode change, a symlink or a submodule, or a part of a binary file.
 
 ## Requirements
@@ -208,7 +210,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_without_a_name_is_the_index_of_the_commands`, `schema_of_a_command_is_only_its_outputs`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
   `update --status` without `--materialize`, `lease status`, and the `--dry-run` of `group`, `rename`,
-  `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold`, `move-hunk` and `reword` must write no ref,
+  `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold`, `squash`, `move-hunk` and `reword` must write no ref,
   config,
   index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
   with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run`,
@@ -279,7 +281,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app`, `the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)
   [@test] ../../crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`, `a_gone_process_of_this_host_leaves_at_once_and_one_of_another_host_after_five_minutes`, `a_registry_of_another_schema_is_busy_and_never_written`)
-- A rewrite that writes (`bd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `park`, `unpark`, `unapply`,
+- A rewrite that writes (`bd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `squash`, `park`, `unpark`, `unapply`,
   `reapply`, `undo`, `move-hunk`), `bd update` and `bd pick` must be recorded in the operations registry of the
   repository before the command takes any lock, as the intent of the app's family (`rewrite`, `updateProject`,
   `pick`), so the app's windows show it on its rows as `bd`'s; its record must leave once the command ended, before
@@ -652,6 +654,37 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   fold and its dry run, moving nothing; one in another worktree refuses nothing, since git keeps that state per
   worktree.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_cherry_pick_in_another_worktree_does_not_refuse_the_fold`)
+- A fixup that conflicts with a commit between it and its target or after it must be `squash_conflict` (exit 4) with
+  the commits and the files the merge names, one that leaves its target or a later commit empty `squash_empty`
+  (exit 4); both fold nothing.
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict`)
+
+### `bd squash`
+
+- `bd squash <into> <commit>...` must squash the commits the user named into `<into>`, the oldest of them, as the
+  app's Squash does ([Squash Commits](../commit/squash.spec.md)): one core (`squash_commits_core`) and one intent
+  (`RewriteIntent::Squash`), the commits in between kept, HEAD's tree, the index and the working tree kept. It must
+  keep the message of `<into>`; `--subject` must replace its subject and keep its body, `--message` and
+  `--message-file` (`-` for stdin) must be the whole message. It must print `into`, `new_id`, `squashed` (oldest
+  first), `subject`, `branch`, `rebuilt_branches` (the branch of the squashed commit and those of the commits between
+  it and the newest squashed one), and an undo token `<previous head>..<new head>` for `bd undo`; `--sync` must sync
+  after the record ended.
+  [@test] ../../crates/bd-rewrite/src/squash_test.rs (`squash_folds_the_commits_into_the_oldest_keeps_the_message_and_the_copies_after_them`)
+  [@test] ../../crates/bd-cli/src/operation_test.rs (`a_squash_is_journaled_as_the_squash_of_its_commits`)
+- The commits after the newest squashed one keep their mapping notes, so a branch whose commits all come after it keeps
+  its virtual branch as it was after the next sync.
+  [@test] ../../crates/bd-rewrite/src/squash_test.rs (`squash_folds_the_commits_into_the_oldest_keeps_the_message_and_the_copies_after_them`)
+- `--dry-run` must build the squash and drop it, refused as the squash would be, with no ref, note or temporary ref
+  written and no record.
+  [@test] ../../crates/bd-rewrite/src/squash_test.rs (`squash_dry_run_builds_and_drops_the_squash_and_a_message_is_the_users`)
+  [@test] ../../crates/bd-cli/src/operation_test.rs (`a_squash_is_journaled_as_the_squash_of_its_commits`)
+- It must refuse, with nothing changed: a commit not ahead of the baseline (`not_ahead_of_baseline`), an ambiguous id,
+  fewer than two commits, an `<into>` that is not the oldest, a commit of another branch than `<into>`'s, a message
+  that moves the squashed commit to another branch (`invalid_arguments`); a conflict with a commit in between or after
+  (`squash_conflict`, with `commits` and `paths`), a result without changes or a later commit left empty
+  (`squash_empty`); another HEAD than `--expect-head` (`head_moved`), a held lock (`locked`), and a rebase, merge,
+  cherry-pick or revert in progress (`operation_in_progress`), also for its dry run.
+  [@test] ../../crates/bd-rewrite/src/squash_test.rs (`squash_refuses_what_is_no_squash_of_one_branch`, `squash_is_refused_by_a_conflict_or_an_empty_result_another_head_or_the_lock`, `squash_refuses_a_result_without_changes`, `squash_and_its_dry_run_are_refused_during_a_cherry_pick`)
 
 ### `bd move-hunk`
 
@@ -1502,7 +1535,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   triggers, `bd help worktrees` when several sessions or worktrees work on one branch, `bd <command> --help` for the
   outputs and refusals of a command, and the rules an agent must not miss before it reads any help (approval before
   every push, never reorder, squash or split commits and never drop one yourself (bd drops a commit it proves landed,
-  `--landed` one after the user's yes), `bd pick` instead of a cherry-pick, `error.code`, parked branches,
+  `--landed` one after the user's yes; `bd squash` squashes the commits the user asked to squash), `bd pick` instead of a cherry-pick, `error.code`, parked branches,
   unapply); the details of an output belong in the binary's help, not in the skill. `bd help skill` must print the
   same text. Its `allowed-tools` must be
   `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
@@ -1535,8 +1568,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - It must be a core of at most 10 KB, which every agent reads before grouping or pushing: the rules first, what needs
   the user's approval (every push, Safe Push and Patronus Dry Run, review request, `gh pr create`, park, unpark,
   unapply, reapply and change of another session's commit, a reword of its message too), parked branches and
-  unapply, never reorder, squash or drop commits yourself (`bd fold` folds the fixups, `bd update` drops the landed
-  ones), a change moved only with `bd move-hunk`, a
+  unapply, never reorder, squash or drop commits yourself (`bd fold` folds the fixups, `bd squash` the commits the
+  user asked to squash, `bd update` drops the landed ones), a change moved only with `bd move-hunk`, a
   message changed only with `bd reword`, only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo writing
   the working tree, what each exit code asks for (exit 1 never an error object, exit 4 without a rule: stop and show
   `message`), that `retryable` decides a retry whatever the exit code, the error object with `paths`, `branches`,
@@ -1550,7 +1583,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--min-free 0`). Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each
   branch; apply with `bd group --sync`; push; Safe Push with `--check` first, `lands` and `--whole-stack`; review;
   robot; statistics), each step sending the agent to the `--help` of its command, then the other tasks (`bd update`,
-  `bd pick`, `bd fold`, `bd reword` with its `(prefix)` kept and never an empty `amend!` or plumbing, `bd move-hunk`,
+  `bd pick`, `bd fold`, `bd squash`, `bd reword` with its `(prefix)` kept and never an empty `amend!` or plumbing, `bd move-hunk`,
   `bd install`). Together with `bd help update`, `bd help worktrees` and the `--help` of every command it must name
   every command and, per command, every long option except a listed few, and name no command, and no option for a
   command, that doesn't exist.
@@ -1562,7 +1595,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd <command> --help`
 
 - The `--help` of `status`, `suggest`, `check`, `group`, `push`, `safe-push`, `request-review`, `robot`,
-  `robot-stats`, `fold`, `reword` and `move-hunk` must print, after the options, the fields of the command's output
+  `robot-stats`, `fold`, `squash`, `reword` and `move-hunk` must print, after the options, the fields of the command's output
   and what each of its refusals asks; `-h` must end with the line that names `--help`, and `rename`, `restack` and
   `unstack` must name `bd group --help`. `bd help <command>` must print the same as `bd <command> --help`, its usage
   `bd <command>`. Every error code must be placed (an exhaustive match, so a new code can't be forgotten): a refusal an

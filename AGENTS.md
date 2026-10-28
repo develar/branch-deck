@@ -341,9 +341,10 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   removal of any other lock file of git ([Index lock](docs/design/git-operations.md#index-lock)).
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
   message; related refs (unapply rename, temp refs) go into the same transaction. The named exceptions: a notes ref
-  that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`: `from <ref>^0`, and a tip that does not
+  that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`, `write_notes_on_existing`: `from <ref>^0`, and a tip that does not
   contain the ref's value fails the run, so a concurrent writer is never overwritten; the cache notes of a sync and of
-  the detection run once more from the new tip, then only warn, `write_cache_notes`; the mapping notes a rewrite carries
+  the detection and the notes a squash carries to the commits it replays run once more from the new tip, then only
+  warn, `write_cache_notes`; the mapping notes a rewrite carries
   once more, then fail it; the resolve notes move in the
   session's transaction); the temporary ref of a sync chain's commit writer (`commit_chain.rs`): one per writer
   (`unique_temp_ref`), deleted in its own `fast-import` stream after a `checkpoint` wrote it (`reset` from the null
@@ -392,7 +393,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
     directory whose marker names this git dir ([Resolve session](docs/design/git-operations.md#resolve-session)).
 - **Repository lock**: every rewrite of the checked-out branch takes it in its core, only for the witness and the
   write. The regroup (`regroup.rs`: the move, rename, restack, unstack and the conflict fix, also `bd group`,
-  `bd reword` and the app's reword through `reword.rs`) and its undo, park and unpark, the app's squash and its undo,
+  `bd reword` and the app's reword through `reword.rs`) and its undo, park and unpark, the squash (the app's and
+  `bd squash`) and its undo,
   squash fixups (also `bd fold`), amend, add issue reference, the move of a hunk (`bd move-hunk`), unapply, reapply,
   the undo of an update, of a pick, of an unapply and of a reapply read and compute before it, on the oids they read
   once (the snapshot or the history, merge-tree, replay, the dry run of the files on a copy of the index, the
@@ -657,7 +659,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Integration status: archive the branches the baseline has (by default rebase/cherry-pick detection only; merge and squash by an environment variable) | `branch/branch-row` ([Integration Detection](docs/design/integration-detection.md)) | `crates/branch-integration/` |
 | Context menus (the "⋯" menu on right-click, acting on the selection) | `branch/branch-row`, `commit/commit-row` | `src/components/shared/ContextMenuItems.tsx`, `src/hooks/useBranchContextActions.ts`, `src/presenters/actions.ts` (the words and looks of the actions `crates/domain-policy/src/actions.rs` decides) |
 | AI branch naming (`claude -p --model haiku`, after consent) | `branch/branch-name-suggestions` | `src/components/ai/` |
-| Squash and fixups (`bd fold`) | `commit/squash`, `commit/fixups` | `crates/history-rewrite/src/squash.rs`, `crates/history-rewrite/src/autosquash.rs` |
+| Squash and fixups (`bd squash`, `bd fold`) | `commit/squash`, `commit/fixups`, `cli/agent-cli` | `crates/history-rewrite/src/squash.rs`, `crates/history-rewrite/src/autosquash.rs`, `crates/bd-rewrite/src/squash_command.rs` |
 | Message of a commit (`bd reword`; the app's edit of a message) | `cli/agent-cli`, `commit/commit-row` | `crates/history-rewrite/src/reword.rs`, `crates/history-rewrite/src/fixup_targets.rs`, `crates/bd-rewrite/src/reword_command.rs`, `crates/operations/src/rewrite.rs`, `src/hooks/useRewordCommit.ts` |
 | Update Project (the intents `UpdateProject`, `FetchBaseline`, `DismissLanded`; `bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/operations/src/update.rs`, `crates/update-core/src/update_project.rs`, `crates/update-core/src/resolve_session.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `src/stores/update-project.ts`, `update-progress.ts` |
 | Pick between worktrees (`bd pick --from <worktree> --follow`); the commits someone else pushed to a remote virtual branch (`bd pick --remote`, Pick Remote Commits) | `cli/pick`, `repository/outgoing` | `crates/update-core/src/pick.rs`, `crates/git-ops/src/pick.rs`, `crates/sync-core/src/moved_remote.rs`, `crates/repository-model/src/moved_remote.rs`, `src/lib/git/pick-remote.ts` |

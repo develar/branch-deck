@@ -66,6 +66,13 @@ pub enum ErrorCode {
   /// `bd unapply`: a later commit depends on the changes of a commit of the branch, or the range holds a merge; nothing
   /// was changed. Move that commit into the branch first (`bd group`), or leave the branch applied
   DropConflict,
+  /// `bd squash` and `bd fold`: a squashed commit and a commit in between or after it change the same lines
+  /// (`commits`, `paths` when a merge named them); nothing was changed. The user decides: squash other commits, or
+  /// leave them as they are
+  SquashConflict,
+  /// `bd squash` and `bd fold`: the squashed commit would have no changes, or a later commit would become empty
+  /// (`commits`); nothing was changed
+  SquashEmpty,
   /// `bd reapply`: a commit of the unapplied branch conflicts with HEAD (`commits`, `paths`); nothing was changed. The
   /// user decides: resolve it in the branch elsewhere, or leave it unapplied
   ReapplyConflict,
@@ -353,6 +360,8 @@ impl ErrorCode {
       | Self::BranchNotBuilt
       | Self::BranchCheckedOut
       | Self::DropConflict
+      | Self::SquashConflict
+      | Self::SquashEmpty
       | Self::Unapplied
       | Self::ReapplyConflict
       | Self::NothingToReapply

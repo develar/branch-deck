@@ -26,6 +26,7 @@ use bd_rewrite::fold_command::{FoldArgs, fold};
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
 use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RewriteArgs, group};
+use bd_rewrite::squash_command::{SquashArgs, squash};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -423,12 +424,47 @@ fn a_fold() {
       ("config", 2),
       ("fast-import", 1),
       ("for-each-ref", 3),
-      ("log", 3),
+      ("log", 4),
       ("merge-tree", 1),
       ("remote", 2),
       ("replay", 1),
-      ("rev-list", 1),
-      ("rev-parse", 7),
+      ("rev-parse", 6),
+      ("symbolic-ref", 1),
+      ("update-ref", 1),
+      ("var", 1),
+    ],
+  );
+}
+
+/// `bd squash` after a sync: the guards, the commits ahead and their grouping (the selection), then the squash, which
+/// reads its history with the mapping notes and writes the notes of the commit after the squashed ones (`notes get-ref`
+/// and one `fast-import`) before the move, under the lock with the witness of HEAD
+#[test]
+fn a_squash() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let ids = commit_subjects(&repo, &["(auth) Add a", "(ui) Add b", "(auth) Fix a", "(docs) Add d"]);
+  sync(&context(&repo)).unwrap();
+  let context = context(&repo);
+  let args = SquashArgs {
+    into: ids[0].clone(),
+    commits: vec![ids[2].clone()],
+    ..SquashArgs::default()
+  };
+  let output = squash(&context, &args).unwrap();
+  assert_eq!(output.rebuilt_branches, ["auth", "ui"]);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 2), // the stores of the grouping; the squashed commit
+      ("config", 1),
+      ("fast-import", 2),  // the squashed commit; the carried notes
+      ("for-each-ref", 2), // the baseline; the witness of HEAD under the lock
+      ("log", 3),          // the commits ahead; the history with its notes; the new one with its trees
+      ("merge-tree", 1),
+      ("notes", 1),
+      ("remote", 1),
+      ("replay", 2),
+      ("rev-parse", 3),
       ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),

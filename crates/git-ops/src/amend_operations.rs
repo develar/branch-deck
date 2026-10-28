@@ -112,6 +112,9 @@ pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, history
     index_update: IndexUpdate::FromWorktree(files),
     written: vec![written],
     replacements: vec![(original_commit_id.clone(), amended_commit_id.clone())],
+    // an amend changes the trees of every later commit: no note stays
+    carried_notes: Vec::new(),
+    committer: String::new(),
   };
   if position > 0 {
     match replay_onto(git_executor, repo_path, &amended_commit_id, &original_commit_id, &prepared.target.head) {

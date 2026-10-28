@@ -1,7 +1,7 @@
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{
-  PREFIX, assert_dry_run, assert_error, assert_refused_during, assert_undo_restores, commit_all, environment, git, hold_the_lock, repo_with_baseline, run_in, run_json,
-  start_cherry_pick, write,
+  PREFIX, assert_dry_run, assert_error, assert_refused_during, assert_undo_restores, commit_all, commit_files, environment, git, hold_the_lock, repo_with_baseline, run_in,
+  run_json, start_cherry_pick, write,
 };
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -11,20 +11,16 @@ use test_utils::git_test_utils::TestRepo;
 /// `(auth) Add a`, `(ui) Add b`, a fixup of each, and an orphan fixup; returns the repository and the ids, oldest first
 fn repo_with_fixups() -> (TestRepo, Vec<String>) {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let mut ids = Vec::new();
-  for (index, (subject, file, content)) in [
-    ("(auth) Add a", "a.txt", "a\n"),
-    ("(ui) Add b", "b.txt", "b\n"),
-    ("fixup! (auth) Add a", "a.txt", "a\nfixed\n"),
-    ("fixup! (ui) Add b", "b.txt", "b\nfixed\n"),
-    ("fixup! Nothing like it", "c.txt", "c\n"),
-  ]
-  .into_iter()
-  .enumerate()
-  {
-    write(&repo, file, content);
-    ids.push(commit_all(&repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100));
-  }
+  let ids = commit_files(
+    &repo,
+    &[
+      ("(auth) Add a", "a.txt", "a\n"),
+      ("(ui) Add b", "b.txt", "b\n"),
+      ("fixup! (auth) Add a", "a.txt", "a\nfixed\n"),
+      ("fixup! (ui) Add b", "b.txt", "b\nfixed\n"),
+      ("fixup! Nothing like it", "c.txt", "c\n"),
+    ],
+  );
   (repo, ids)
 }
 
@@ -119,4 +115,24 @@ fn a_cherry_pick_in_another_worktree_does_not_refuse_the_fold() {
   let (exit_code, output) = run_in(&repo, &["fold"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(subjects(&repo), "fixup! Nothing like it\n(ui) Add b\n(auth) Add a");
+}
+
+/// A fixup that changes the line a commit between it and its target changed too folds nothing: `squash_conflict` with
+/// the commits it names, never a `git_error`
+#[test_log::test]
+fn a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  write(&repo, "a.txt", "1\n");
+  let target = commit_all(&repo, "(auth) Add a", 1_700_000_000);
+  write(&repo, "a.txt", "2\n");
+  commit_all(&repo, "(ui) Change a", 1_700_000_100);
+  write(&repo, "a.txt", "3\n");
+  let fixup = commit_all(&repo, "fixup! (auth) Add a", 1_700_000_200);
+  let head = repo.head();
+
+  let (exit_code, output) = run_in(&repo, &["fold"]);
+  assert_error(&output, exit_code, (4, "squash_conflict"));
+  assert_eq!(output["error"]["commits"], json!([fixup, target]), "{output}");
+  assert_eq!(output["error"]["paths"], json!(["a.txt"]), "{output}");
+  assert_eq!(repo.head(), head);
 }

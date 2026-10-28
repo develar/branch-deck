@@ -3,7 +3,9 @@ use anyhow::{Context, anyhow};
 use app_settings::service::SettingsError;
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, Retry};
 use file_diffs::accio::SearchCanceled;
+use git_ops::copy_commit::CopyCommitError;
 use git_ops::rewrite_guard::HeadMoved;
+use git_ops::rewrite_plan::{RefusalKind, RewriteRefused};
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLocked};
 use history_rewrite::store_lines::StoreMoved;
@@ -81,6 +83,29 @@ fn api_error_finds_a_typed_error_under_context() {
   let error = api_error_at(&error, NOW);
   assert_eq!(error.code, ErrorCode::DetachedHead);
   assert_eq!(error.message, "Cannot refresh: Cannot sync: Not synced: HEAD is detached");
+}
+
+/// A squash the history refuses answers its code with the commits and files it names, also under the
+/// `CopyCommitError` that the `?` of a core wraps it in
+#[test]
+fn api_error_answers_a_refused_squash_by_its_kind() {
+  let refused = |kind| RewriteRefused {
+    kind,
+    commits: vec!["a".repeat(40), "b".repeat(40)],
+    paths: vec!["src/x.rs".to_string()],
+    message: "Squashing commit bbbbbbb into aaaaaaa conflicts".to_string(),
+  };
+  let wrapped = anyhow::Error::new(CopyCommitError::Other(anyhow::Error::new(refused(RefusalKind::Conflict)))).context("Cannot squash");
+  let error = api_error_at(&wrapped, NOW);
+  assert_eq!(error.code, ErrorCode::SquashConflict);
+  assert_eq!(
+    error.details,
+    Some(ErrorDetails::Conflict {
+      commits: vec!["a".repeat(40), "b".repeat(40)],
+      paths: vec!["src/x.rs".to_string()],
+    })
+  );
+  assert_eq!(api_error_at(&anyhow::Error::new(refused(RefusalKind::Empty)), NOW).code, ErrorCode::SquashEmpty);
 }
 
 #[test]

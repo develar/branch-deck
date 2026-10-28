@@ -126,7 +126,7 @@ Other tasks
 - Several sessions on one branch: `bd lease get` leases a worktree, `bd lease pick` in it lands its commits where it
   was cut from, `bd lease return` gives it back; `bd pick --from <worktree> --follow` (or `bd pick <rev>`,
   `<a>..<b>`, --remote; --expect-head, --dry-run: `bd pick --help`), never `git cherry-pick` (`bd help worktrees`).
-- Fixups: `bd fold` folds the fixup!, squash! and amend! commits into their targets (`bd fold --help`).
+- Squash: `bd fold --help` (fixups), `bd squash --help` (the commits the user asked to squash).
 - A message to change: `bd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
   or plumbing for it (`bd reword --help`).
 - A change in the wrong commit: `bd move-hunk <from> <to> <path>` (`bd move-hunk --help`).
@@ -344,7 +344,7 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
 6. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
    `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`,
    `bd restack`, `bd unstack`, `bd reword`), `undo`,
-   `squash <n> commits`, `drop <n> commits`, `amend <id>`, `move hunk`; a move whose files could not follow (`pick`,
+   `squash <n> commits` (`bd squash` or the app's Squash), `drop <n> commits`, `amend <id>`, `move hunk`; a move whose files could not follow (`pick`,
    `update project`, `unapply`, `reapply` and their undo) also with ` rolled back`. A line without the
    `branch-deck: ` prefix came from outside Branch Deck.
 ";
@@ -633,7 +633,27 @@ why robots of the last 14 days failed and which checks passed only on a retry (`
 /// `bd fold --help`: folding the fixups
 pub const FOLD_HELP: &str = "\
 `bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
-targets and keeps HEAD's tree.
+targets and keeps HEAD's tree. A fold whose fixup conflicts with a commit in between or after it (`squash_conflict`,
+`commits`, `paths`) or that would leave its target or a later commit empty (`squash_empty`) folds nothing: tell the
+user.
+";
+
+/// `bd squash --help`: the squash the user asked for
+pub const SQUASH_HELP: &str = "\
+`bd squash <into> <commit>...` squashes commits into `<into>`, the oldest of them, as the app's Squash does: the
+others leave the history, the commits in between stay, HEAD's tree stays, so the files and the index are not touched.
+Only for commits the user asked to squash. All of them are ahead of the baseline (`not_ahead_of_baseline`) and in the
+branch of `<into>`, else `invalid_arguments` (move them first with `bd group`).
+- `bd squash` keeps the message of `<into>`; --subject '<subject>' (the `(prefix)` included) replaces its subject and
+  keeps its body; --message '<message>' or --message-file <file> (`-` for stdin) is the whole message. A message that
+  moves the commit to another branch is refused (`invalid_arguments`).
+- Run `bd squash --dry-run` first: it builds the squash and drops it. Show the user `squashed`, `subject` and
+  `rebuilt_branches`, the branches the next sync builds anew (a pushed one needs a push again), and squash once they
+  approve, with --expect-head <previous_head>; --sync syncs after it.
+- Prints `new_id`, `previous_head`, `new_head` and an `undo_token`: `bd undo <undo_token>` takes it back.
+- `squash_conflict` (exit 4): a squashed commit and a commit in between or after it change the same lines (`commits`,
+  `paths`); `squash_empty` (exit 4): the squashed commit would have no changes, or a later commit would become empty.
+  Both change nothing: tell the user, never squash another way.
 ";
 
 /// `bd reword --help`: the change of a message
@@ -727,7 +747,8 @@ command prints and what each of its refusals asks.
 - Every command prints one JSON object on stdout, with the `operation_id` of its run (its log lines, its journal
   entry). Branch on `error.code` and the exit code, never on the message;
   `bd schema <command>` prints the JSON Schema of its output, `bd version` the version of bd and git.
-- Never reorder, squash or split commits, except folding fixup!, squash! and amend! commits with `bd fold`, and never
+- Never reorder, squash or split commits on your own, except folding fixup!, squash! and amend! commits with `bd fold`;
+  squash the commits the user asked to squash with `bd squash`, after showing its --dry-run. Never
   drop a commit yourself: `bd update` drops a commit it proves landed, and `--landed` drops one after the user's yes.
   Move a change between commits only with `bd move-hunk`, change a message only with `bd reword`. Never push, start a Safe
   Push or create pull requests before the user approved them; an `error.next_steps` entry with `needs_approval` waits

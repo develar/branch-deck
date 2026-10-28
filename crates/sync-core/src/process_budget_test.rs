@@ -583,11 +583,10 @@ fn a_squash() {
       ("cat-file", 1),
       ("fast-import", 1),
       ("for-each-ref", 1),
-      ("log", 1),
+      ("log", 2), // the history; the new one with its trees, which counts it and gives the tree of the new HEAD
       ("merge-tree", 1),
       ("replay", 2),
-      ("rev-list", 1),
-      ("rev-parse", 3), // the directories, read once for the lock and the guards: 1; HEAD and its branch: 1
+      ("rev-parse", 2), // the directories, read once for the lock and the guards: 1; HEAD and its branch: 1
       ("update-ref", 1),
       ("var", 1),
     ],
@@ -686,12 +685,11 @@ fn a_squash_of_fixups() {
       ("config", 1),
       ("fast-import", 2),
       ("for-each-ref", 2), // the baseline, the witness of HEAD under the lock
-      ("log", 2),
+      ("log", 3),
       ("merge-tree", 1),
       ("remote", 1),
       ("replay", 2),
-      ("rev-list", 1),
-      ("rev-parse", 6), // the directories, read once for the lock and the guards: 1
+      ("rev-parse", 5), // the directories, read once for the lock and the guards: 1
       ("update-ref", 1),
       ("var", 1),
     ],

@@ -2,7 +2,7 @@ use super::copy_commit::CopyCommitError;
 use super::history::History;
 use super::ref_transaction::RefTransaction;
 use super::revs::resolve_tree_id;
-use super::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, drop_commits_from_head, prepare_plan};
+use super::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, RefusalKind, Replacement, RewritePlan, drop_commits_from_head, prepare_plan, refused_in};
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, status, write_file};
 use anyhow::Result;
 use test_log::test;
@@ -37,11 +37,17 @@ fn squash(repo: &TestRepo, target: &str, folded: &[&str], message: &str) -> Resu
 }
 
 /// The squash is refused with an error containing `expected`, and nothing changed
-fn assert_squash_refused(repo: &TestRepo, target: &str, folded: &[&str], expected: &str) -> Result<()> {
+/// The squash is refused as `kind` naming `commits`, with an error containing `expected`, and nothing changed; the
+/// refusal is found also under the `CopyCommitError` a `?` wraps
+fn assert_squash_refused(repo: &TestRepo, target: &str, folded: &[&str], expected: &str, kind: RefusalKind, commits: &[&str]) -> Result<()> {
   let head_before = repo.head();
   let (history, plan) = squash_plan(repo, target, folded, "Squashed\n")?;
   let error = prepare(repo, &history, &plan).expect_err("squash should be refused");
   assert!(error.to_string().contains(expected), "{error}");
+  let wrapped = anyhow::Error::new(error);
+  let refused = refused_in(&wrapped).expect("a typed refusal");
+  let named: Vec<&str> = refused.commits.iter().map(String::as_str).collect();
+  assert_eq!((refused.kind, named.as_slice()), (kind, commits));
   assert_eq!(repo.head(), head_before);
   assert_no_temp_refs(repo)
 }
@@ -101,7 +107,7 @@ fn squash_conflicting_with_commit_in_between_changes_nothing() -> Result<()> {
   repo.create_commit("Change x", "x.txt", "2\n");
   let fixup = repo.create_commit("Change x again", "x.txt", "3\n");
 
-  assert_squash_refused(&repo, &target, &[&fixup], "conflicts")
+  assert_squash_refused(&repo, &target, &[&fixup], "conflicts", RefusalKind::Conflict, &[&fixup, &target])
 }
 
 #[test]
@@ -131,7 +137,7 @@ fn squash_refuses_empty_result() -> Result<()> {
   let target = repo.create_commit("Change x", "x.txt", "1\n");
   let revert = repo.create_commit("Revert x", "x.txt", "0\n");
 
-  assert_squash_refused(&repo, &target, &[&revert], "leaves no changes")
+  assert_squash_refused(&repo, &target, &[&revert], "leaves no changes", RefusalKind::Empty, &[&target])
 }
 
 #[test]
@@ -144,7 +150,7 @@ fn squash_refuses_kept_commit_that_becomes_empty() -> Result<()> {
   let revert = repo.create_commit("Reset x", "x.txt", "0\n");
   let again = repo.create_commit("Set x again", "x.txt", "1\n");
 
-  assert_squash_refused(&repo, &target, &[&revert, &again], "empty")
+  assert_squash_refused(&repo, &target, &[&revert, &again], "empty", RefusalKind::Empty, &[])
 }
 
 #[test]

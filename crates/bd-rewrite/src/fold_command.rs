@@ -3,6 +3,7 @@
 //! repository lock after it computed the squash, for the witness of HEAD and the move only. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo`
 //! takes it back
 
+use crate::squash_command::{head_undo_token, squash_error};
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::operation_record::{asked_on, recorded_unless};
@@ -13,8 +14,7 @@ use domain_types::rewrite::{AutosquashScope, RewriteIntent};
 use git_ops::revs::{DetachedHead, current_branch};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
 use history_rewrite::autosquash::{PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
-use history_rewrite::regroup::UndoToken;
-use history_rewrite::repository_lock::{LockWait, RepositoryLocked, RewriteOptions, ensure_expected_head};
+use history_rewrite::repository_lock::{LockWait, RewriteOptions, ensure_expected_head};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -108,15 +108,7 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
-  let result = squash_fixup_commits_core(&context.git, &params, &options).map_err(|e| {
-    if let Some(moved) = e.downcast_ref::<HeadMoved>() {
-      return head_moved(moved);
-    }
-    match e.downcast_ref::<RepositoryLocked>() {
-      Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
-      None => CliError::from(e),
-    }
-  })?;
+  let result = squash_fixup_commits_core(&context.git, &params, &options).map_err(squash_error)?;
   let new_id = |target: &str| result.squashed.iter().find(|squashed| squashed.target == target).map(|squashed| squashed.new_id.clone());
   Ok(fold_output(context, false, &result.previous_head, &result.new_head, &groups, &orphans, new_id))
 }
@@ -148,15 +140,7 @@ fn fold_output(
     .chain(orphans.iter().copied())
     .chain([previous_head, new_head]);
   let short = context.short_ids(ids);
-  let undo_token = (new_head != previous_head).then(|| {
-    UndoToken {
-      head: Some((previous_head.to_string(), new_head.to_string())),
-      issue_groups: None,
-      stack_parents: None,
-      parked: None,
-    }
-    .to_string()
-  });
+  let undo_token = head_undo_token(previous_head, new_head);
   FoldOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),

@@ -30,6 +30,8 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::BranchNotBuilt, 4, false),
   (ErrorCode::BranchCheckedOut, 4, false),
   (ErrorCode::DropConflict, 4, false),
+  (ErrorCode::SquashConflict, 4, false),
+  (ErrorCode::SquashEmpty, 4, false),
   (ErrorCode::Unapplied, 4, false),
   (ErrorCode::ReapplyConflict, 4, false),
   (ErrorCode::NothingToReapply, 4, false),

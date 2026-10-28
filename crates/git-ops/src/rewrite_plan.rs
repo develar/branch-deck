@@ -1,23 +1,74 @@
 //! Rewrites of the checked out branch that drop commits or replace them with new ones (squash), without touching the
 //! working tree (docs/design/git-operations.md). The kept commits between the changed ones are replayed with
 //! `git replay`, which writes only objects; the branch moves in one ref transaction, and the index follows only where
-//! HEAD's tree changed.
+//! HEAD's tree changed. A replayed commit whose trees stay keeps its mapping note (`notes::PREFIX`), so a sync keeps
+//! its virtual copy; a conflict or a loss of changes refuses the rewrite as `RewriteRefused`.
 
 use crate::commit_chain::CommitChain;
 use crate::commit_utils::empty_tree;
-use crate::commit_writer::{NewCommit, NewParent, RawCommit, WrittenCommits, current_committer, discard_temp_refs, read_raw_commits, write_commits};
+use crate::commit_writer::{
+  NewCommit, NewParent, RawCommit, WrittenCommits, current_committer, discard_temp_refs, read_raw_commits, write_cache_notes, write_commits, write_notes_on_existing,
+};
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
 use crate::merge_memo::MergeOutcome;
+use crate::notes::{mapped_source, notes_ref};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_onto;
 use crate::revs::{resolve_tree_id, short_id};
 use crate::rewrite_guard::{IndexUpdate, RewriteTarget};
 use anyhow::anyhow;
 use domain_types::BranchError;
+use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap};
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
+
+/// A rewrite the history refuses, nothing changed: a squashed commit and the commits in between or after it change the
+/// same lines, or the rewrite loses changes. A caller answers it by its `kind` (`bd`: `squash_conflict`,
+/// `squash_empty`); it travels in `CopyCommitError::Other`, which `into_anyhow` keeps for a downcast, and `refused_in`
+/// finds it also under a `CopyCommitError` that a `?` wrapped
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct RewriteRefused {
+  pub kind: RefusalKind,
+  /// The commits it names, full ids: the squashed commit and the one it conflicts with, the first and the last commit
+  /// of a replay that conflicts
+  pub commits: Vec<String>,
+  /// The files of a merge that conflicts; empty when `git replay` refused
+  pub paths: Vec<String>,
+  pub message: String,
+}
+
+impl RewriteRefused {
+  /// The code of the refusal, the same in `bd` and in the app
+  #[must_use]
+  pub const fn code(&self) -> ErrorCode {
+    match self.kind {
+      RefusalKind::Conflict => ErrorCode::SquashConflict,
+      RefusalKind::Empty => ErrorCode::SquashEmpty,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusalKind {
+  /// The changes conflict, or the order of the changes decides HEAD's files
+  Conflict,
+  /// The squashed commit has no changes, or a later commit would become empty
+  Empty,
+}
+
+/// The `RewriteRefused` of `error`, also under a `CopyCommitError` that a `?` wrapped
+#[must_use]
+pub fn refused_in(error: &anyhow::Error) -> Option<&RewriteRefused> {
+  error.chain().find_map(|cause| {
+    cause.downcast_ref::<RewriteRefused>().or_else(|| match cause.downcast_ref::<CopyCommitError>() {
+      Some(CopyCommitError::Other(error)) => error.downcast_ref::<RewriteRefused>(),
+      _ => None,
+    })
+  })
+}
 
 /// A rewrite of the checked out branch whose new commits exist, but whose branch has not moved yet
 #[derive(Debug)]
@@ -29,6 +80,10 @@ pub struct PreparedRewrite {
   pub(crate) written: Vec<WrittenCommits>,
   /// `(replaced commit, its replacement)` of every `Replace` step, oldest first
   pub(crate) replacements: Vec<(String, String)>,
+  /// `(replayed commit, its mapping lines)`: the notes of the commits whose trees the replay kept
+  pub(crate) carried_notes: Vec<(String, String)>,
+  /// The committer of the new commits, for the notes commit
+  pub(crate) committer: String,
 }
 
 impl PreparedRewrite {
@@ -56,14 +111,22 @@ impl PreparedRewrite {
     self.replacements.iter().find(|(old, _)| old == commit_id).map(|(_, new)| new.as_str())
   }
 
+  /// The replayed commits that keep the mapping notes of their originals, newest first
+  pub fn carried_notes(&self) -> impl Iterator<Item = &str> {
+    self.carried_notes.iter().map(|(commit, _)| commit.as_str())
+  }
+
   /// Move the branch in one transaction with `transaction` (other ref changes of the same operation), then let the
-  /// index follow. Nothing changes if a staged change would be lost or the branch moved meanwhile.
+  /// index follow. Nothing changes if a staged change would be lost or the branch moved meanwhile. The carried mapping
+  /// notes are written before the branch moves, so a sync that the move wakes finds them; a note of a commit the branch
+  /// never reaches harms nothing, and a note that is not written only costs a sync the copy
   #[instrument(skip(self, git_executor, transaction), fields(new_head = %self.new_head))]
   pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str, mut transaction: RefTransaction, operation: &str) -> Result<(), CopyCommitError> {
     if let Err(e) = self.index_update.preflight(git_executor, repo_path) {
       self.discard(git_executor, repo_path);
       return Err(CopyCommitError::BranchError(BranchError::Generic(format!("{e:#}"))));
     }
+    self.write_carried_notes(git_executor, repo_path);
 
     transaction.update(&self.target.full_ref(), &self.new_head, Some(&self.target.head));
     for written in &self.written {
@@ -78,6 +141,24 @@ impl PreparedRewrite {
     }
 
     self.index_update.apply(git_executor, repo_path).map_err(CopyCommitError::Other)
+  }
+
+  /// The carried notes in one `fast-import` on the mapping notes ref, which exists: the notes were read from it. Best
+  /// effort (`write_cache_notes`): a sync writes a missing note when it copies the commit again
+  fn write_carried_notes(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    if self.carried_notes.is_empty() {
+      return;
+    }
+    let notes_ref = match notes_ref(git_executor, repo_path) {
+      Ok(notes_ref) => notes_ref,
+      Err(e) => {
+        warn!(error = %format!("{e:#}"), "the carried mapping notes are not written: no notes ref");
+        return;
+      }
+    };
+    write_cache_notes("carried mapping notes", || {
+      write_notes_on_existing(git_executor, repo_path, &notes_ref, &self.committer, &self.carried_notes)
+    });
   }
 
   /// Abandon the rewrite: delete the temporary refs, leaving the unreferenced objects to `git gc`
@@ -168,13 +249,19 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     committer: String::new(),
     written: Vec::new(),
     replacements: Vec::new(),
+    carried_notes: Vec::new(),
   };
   let outcome = writer.write(&roles, oldest_position, checks).and_then(|new_head| {
     let new_tree = writer.tree(&new_head)?;
     Ok((new_head, new_tree))
   });
   let PlanWriter {
-    written, replacements, merger, ..
+    written,
+    replacements,
+    merger,
+    carried_notes,
+    committer,
+    ..
   } = writer;
   let finished = merger.finish().map_err(CopyCommitError::Other);
   let (new_head, new_tree) = match outcome.and_then(|outcome| finished.map(|()| outcome)) {
@@ -194,6 +281,8 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     index_update: IndexUpdate::TwoWay { old_tree, new_tree },
     written,
     replacements,
+    carried_notes,
+    committer,
   })
 }
 
@@ -230,6 +319,10 @@ const fn refusal(message: String) -> CopyCommitError {
   CopyCommitError::BranchError(BranchError::Generic(message))
 }
 
+fn refused(kind: RefusalKind, commits: Vec<String>, paths: Vec<String>, message: String) -> CopyCommitError {
+  CopyCommitError::Other(anyhow::Error::new(RewriteRefused { kind, commits, paths, message }))
+}
+
 /// Writes the commits of one plan, recording the temporary refs to delete on success or refusal
 struct PlanWriter<'a> {
   git_executor: &'a GitCommandExecutor,
@@ -246,6 +339,8 @@ struct PlanWriter<'a> {
   /// The replacements, each on its temporary ref
   written: Vec<WrittenCommits>,
   replacements: Vec<(String, String)>,
+  /// The notes the replayed commits keep, found by the listing of the new history
+  carried_notes: Vec<(String, String)>,
 }
 
 impl PlanWriter<'_> {
@@ -281,25 +376,59 @@ impl PlanWriter<'_> {
       _ => new_tip.ok_or_else(|| CopyCommitError::Other(anyhow!("The rewrite leaves no commits")))?,
     };
 
+    let base = self.history.parent(oldest_position);
+    // the listing of the new history gives the tree of the new HEAD too
+    let chain = if checks.check_commit_count { Some(self.list_chain(&new_head, base)?) } else { None };
     if checks.keep_head_tree && self.tree(&new_head)? != self.history.commit(0).tree {
-      return Err(refusal(format!(
-        "The rewrite would change the files of {}: later commits depend on the order of the changes",
-        self.target.branch
-      )));
+      return Err(refused(
+        RefusalKind::Conflict,
+        Vec::new(),
+        Vec::new(),
+        format!(
+          "The rewrite would change the files of {}: later commits depend on the order of the changes",
+          self.target.branch
+        ),
+      ));
     }
-    if checks.check_commit_count {
+    if let Some(chain) = chain {
       let removed = roles.values().filter(|role| !matches!(role, Role::Replace(_))).count();
       let expected = oldest_position + 1 - removed;
-      let actual = self.count_commits(&new_head, self.history.parent(oldest_position))?;
-      if actual != expected {
-        return Err(refusal(format!(
-          "The rewrite would leave {} later commits of {} empty: their changes are already in the squashed commit",
-          expected.abs_diff(actual),
-          self.target.branch
-        )));
+      if chain.len() != expected {
+        return Err(refused(
+          RefusalKind::Empty,
+          Vec::new(),
+          Vec::new(),
+          format!(
+            "The rewrite would leave {} later commits of {} empty: their changes are already in the squashed commit",
+            expected.abs_diff(chain.len()),
+            self.target.branch
+          ),
+        ));
       }
+      let base_tree = match base {
+        Some(base) => self.tree(base)?,
+        None => self.empty_tree(),
+      };
+      self.carried_notes = self.notes_to_carry(roles, oldest_position, &chain, &base_tree);
     }
     Ok(new_head)
+  }
+
+  /// The mapping notes the replayed commits of `chain` (the new history, newest first, as `list_chain` read it) keep:
+  /// a kept commit whose new tree and parent tree are the source its note records, so a sync reuses its virtual copy.
+  /// The replacements and the commits whose trees changed (between a target and its folded commits) keep none
+  fn notes_to_carry(&self, roles: &BTreeMap<usize, Role<'_>>, oldest_position: usize, chain: &[(String, String)], base_tree: &str) -> Vec<(String, String)> {
+    let kept = (0..=oldest_position).filter(|position| !matches!(roles.get(position), Some(Role::Drop | Role::Folded)));
+    kept
+      .zip(chain.iter().enumerate())
+      .filter(|(position, _)| !roles.contains_key(position))
+      .filter_map(|(position, (index, (id, tree)))| {
+        let note = self.history.commit(position).note.as_ref()?;
+        let source = mapped_source(note)?;
+        let parent_tree = chain.get(index + 1).map_or(base_tree, |(_, tree)| tree.as_str());
+        (source.tree == *tree && source.parent_tree == parent_tree).then(|| (id.clone(), note.clone()))
+      })
+      .collect()
   }
 
   /// Replay the kept commits between the changed commit `previous` and `end_position` (inclusive) onto `new_tip`
@@ -321,10 +450,20 @@ impl PlanWriter<'_> {
       } else {
         format!("commits {} to {}", short_id(start), short_id(end))
       };
-      refusal(format!(
-        "Squashing conflicts with {segment} on {}: they change the same lines as the squashed commits",
-        self.target.branch
-      ))
+      let commits = if start == end {
+        vec![end.to_string()]
+      } else {
+        vec![start.to_string(), end.to_string()]
+      };
+      refused(
+        RefusalKind::Conflict,
+        commits,
+        Vec::new(),
+        format!(
+          "Squashing conflicts with {segment} on {}: they change the same lines as the squashed commits",
+          self.target.branch
+        ),
+      )
     })
   }
 
@@ -354,7 +493,7 @@ impl PlanWriter<'_> {
       own_tree.clone()
     } else {
       let parent_tree = self.parent_tree(position)?;
-      self.merge(&parent_tree, &base_tree, own_tree, || {
+      self.merge(&parent_tree, &base_tree, own_tree, &[commit_id], || {
         format!("Commit {} conflicts with the commits rewritten before it on {}", short_id(commit_id), target.branch)
       })?
     };
@@ -366,7 +505,7 @@ impl PlanWriter<'_> {
       let folded_id = history.id(folded_position);
       // a folded commit is newer than the replaced one, so its parent is in the history
       let parent_tree = self.parent_tree(folded_position)?;
-      tree = self.merge(&parent_tree, &tree, &history.commit(folded_position).tree, || {
+      tree = self.merge(&parent_tree, &tree, &history.commit(folded_position).tree, &[folded_id, commit_id], || {
         format!(
           "Squashing commit {} into {} conflicts: the commits in between change the same lines",
           short_id(folded_id),
@@ -375,7 +514,12 @@ impl PlanWriter<'_> {
       })?;
     }
     if tree == base_tree {
-      return Err(refusal(format!("Squashing into commit {} leaves no changes", short_id(commit_id))));
+      return Err(refused(
+        RefusalKind::Empty,
+        vec![commit_id.to_string()],
+        Vec::new(),
+        format!("Squashing into commit {} leaves no changes", short_id(commit_id)),
+      ));
     }
 
     let replaced = self
@@ -406,10 +550,15 @@ impl PlanWriter<'_> {
   }
 
   /// A merge of the plan's `merge-tree --stdin`, refused with `conflict_message` on a conflict
-  fn merge(&mut self, base: &str, ours: &str, theirs: &str, conflict_message: impl FnOnce() -> String) -> Result<String, CopyCommitError> {
+  fn merge(&mut self, base: &str, ours: &str, theirs: &str, commits: &[&str], conflict_message: impl FnOnce() -> String) -> Result<String, CopyCommitError> {
     match self.merger.merge(base, ours, theirs)? {
       MergeOutcome::Clean { tree } => Ok(tree),
-      MergeOutcome::Conflict { .. } => Err(refusal(conflict_message())),
+      MergeOutcome::Conflict { files } => Err(refused(
+        RefusalKind::Conflict,
+        commits.iter().map(|commit| (*commit).to_string()).collect(),
+        files,
+        conflict_message(),
+      )),
     }
   }
 
@@ -436,13 +585,26 @@ impl PlanWriter<'_> {
     empty_tree(&self.target.head).to_string()
   }
 
-  /// Number of first-parent commits from `tip` down to, not including, `base` (all of them without a base)
-  fn count_commits(&self, tip: &str, base: Option<&str>) -> Result<usize, CopyCommitError> {
+  /// The first-parent commits from `tip` down to, not including, `base` (all of them without a base), newest first,
+  /// each with its tree, which go into the trees of the plan: one `git log`
+  fn list_chain(&mut self, tip: &str, base: Option<&str>) -> Result<Vec<(String, String)>, CopyCommitError> {
     let exclude = base.map(|base| format!("^{base}"));
-    let mut args = vec!["rev-list", "--count", "--first-parent", tip];
+    let mut args = vec!["log", "--first-parent", "--format=%H %T", tip];
     args.extend(exclude.as_deref());
-    let count = self.git_executor.execute_command(&args, self.repo_path)?;
-    count.parse().map_err(|e| CopyCommitError::Other(anyhow!("Unexpected rev-list count {count:?}: {e}")))
+    let lines = self.git_executor.execute_command_lines(&args, self.repo_path)?;
+    let chain = lines
+      .iter()
+      .map(|line| {
+        line
+          .split_once(' ')
+          .map(|(id, tree)| (id.to_string(), tree.to_string()))
+          .ok_or_else(|| CopyCommitError::Other(anyhow!("Unexpected git log line {line:?}")))
+      })
+      .collect::<Result<Vec<_>, _>>()?;
+    for (id, tree) in &chain {
+      self.trees.insert(id.clone(), tree.clone());
+    }
+    Ok(chain)
   }
 }
 

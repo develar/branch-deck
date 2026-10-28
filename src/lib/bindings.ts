@@ -1787,6 +1787,17 @@ export type ErrorCode =
  */
 "drop_conflict" | 
 /**
+ *  `bd squash` and `bd fold`: a squashed commit and a commit in between or after it change the same lines
+ *  (`commits`, `paths` when a merge named them); nothing was changed. The user decides: squash other commits, or
+ *  leave them as they are
+ */
+"squash_conflict" | 
+/**
+ *  `bd squash` and `bd fold`: the squashed commit would have no changes, or a later commit would become empty
+ *  (`commits`); nothing was changed
+ */
+"squash_empty" | 
+/**
  *  `bd reapply`: a commit of the unapplied branch conflicts with HEAD (`commits`, `paths`); nothing was changed. The
  *  user decides: resolve it in the branch elsewhere, or leave it unapplied
  */

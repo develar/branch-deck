@@ -272,7 +272,7 @@ fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, 
     .iter()
     .flat_map(|group| std::iter::once(group.target.as_str()).chain(group.folded.iter().map(|fixup| fixup.commit_id.as_str())))
     .collect();
-  let history = History::read_to(git_executor, repo_path, &rewritten)?;
+  let history = History::read_to_with_notes(git_executor, repo_path, &rewritten)?;
   if let Some(actual) = history.head().filter(|actual| *actual != params.expected_head) {
     return Err(head_moved(actual));
   }

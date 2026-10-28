@@ -54,6 +54,7 @@ fn schema_lists_every_output() {
       "robot",
       "robot_stats",
       "safe_push",
+      "squash",
       "status",
       "status_brief",
       "suggest",

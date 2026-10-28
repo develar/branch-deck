@@ -19,6 +19,7 @@ pub mod move_hunk_command;
 pub mod park_command;
 pub mod reword_command;
 pub mod rewrite;
+pub mod squash_command;
 pub mod suggest;
 pub mod symbol_stats;
 
@@ -40,5 +41,7 @@ mod park_test;
 mod reword_test;
 #[cfg(test)]
 mod rewrite_test;
+#[cfg(test)]
+mod squash_test;
 #[cfg(test)]
 mod suggest_test;

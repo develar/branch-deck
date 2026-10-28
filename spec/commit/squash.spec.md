@@ -7,6 +7,8 @@ targets:
   - ../../crates/git-ops/src/rewrite_plan.rs
   - ../../crates/git-ops/src/replay.rs
   - ../../crates/history-rewrite/src/squash.rs
+  - ../../crates/git-ops/src/history.rs
+  - ../../crates/bd-rewrite/src/squash_command.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/rewrite-run.ts
@@ -24,7 +26,8 @@ Date: 2026-10-14
 
 ## Summary
 
-The user selects two or more commits of one list, a branch or the unassigned commits, and squashes them into one. The
+The user selects two or more commits of one list, a branch or the unassigned commits, and squashes them into one; an
+agent squashes the commits the user named with `bd squash` ([Agent CLI](../cli/agent-cli.spec.md)). The
 squashed commit takes the place of the oldest selected commit, as `git rebase --autosquash` does with a fixup: the
 newer commits are folded into it and leave the history, and the commits in between stay where they are. The message is
 edited in a dialog, prefilled with the messages of all the commits. Squashing keeps the files of HEAD, so the working
@@ -67,6 +70,15 @@ tree and the index are not touched, and an undo is a move of the branch back.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`validates_the_groups`, `refuses_a_range_with_merges`)
   [@test] ../../crates/history-rewrite/src/squash_test.rs (`refuses_fewer_than_two_commits_a_duplicate_or_a_blank_subject`)
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`squash_conflicting_with_commit_in_between_changes_nothing`, `refusal_after_writing_a_commit_leaves_no_temp_refs`, `squash_refuses_empty_result`, `squash_refuses_kept_commit_that_becomes_empty`)
+- A conflict must be refused as `squash_conflict`, with the commits it names and the files of a conflicting merge,
+  and a result without changes or a later commit left empty as `squash_empty`, in the app (`ApiError.code`, the
+  `conflict` details) and in `bd`; the refusal keeps its type also under the error of a core.
+  [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`squash_conflicting_with_commit_in_between_changes_nothing`, `squash_refuses_empty_result`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_a_refused_squash_by_its_kind`)
+- A replayed commit whose tree and parent tree stay the ones its mapping note records must keep that note, written
+  before the branch moves, so the next sync keeps its virtual copy; the squashed commit and the commits whose trees
+  change get none, and the original commits keep theirs. A history read without notes carries none.
+  [@test] ../../crates/git-ops/src/squash_commits_test.rs (`the_replayed_commits_whose_trees_stay_keep_their_mapping_notes`, `a_squash_on_a_history_without_notes_writes_none`)
 - The squash and its undo must be the rewrites `squash` and `undo` of the engine (the squash named on the table the
   window shows) and run under the repository lock: while another process holds it (an agent's `bd pick --follow`,
   `bd`) or the app's own push, they wait as long as the holder lives; the squash dialog says whom for, the step of its

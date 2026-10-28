@@ -261,7 +261,7 @@ pub fn regroup_error(error: RegroupError) -> CliError {
   let mut message = error.to_string();
   if let RegroupError::FixupsStranded { refusal, .. } = &error {
     message.push_str(match refusal {
-      FixupRefusal::MarkerChanged => "",
+      FixupRefusal::MarkerChanged => " (to squash commits the user asked to squash, use bd squash <into> <commit>...)",
       FixupRefusal::Retargeted => " (fold them first with bd fold, or reword them in the same plan to name the new subject)",
       FixupRefusal::NamedById => " (fold them first with bd fold)",
       FixupRefusal::AmendWaits => " (reword the amend! too, or fold first with bd fold)",

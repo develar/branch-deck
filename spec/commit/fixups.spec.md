@@ -105,6 +105,11 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   `--expect-head` to the squash, which takes the lock and refuses another HEAD, so `bd fold` fails with `locked` or
   `head_moved` and changes nothing.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`)
+- A fixup that conflicts with the commits between it and its target or after it, or that leaves its target or a later
+  commit empty, refuses the squash as the squash of a selection does ([Squash Commits](squash.spec.md)):
+  `squash_conflict` with the commits and files it names, `squash_empty`; the commits after the folded ones keep their
+  mapping notes.
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict`)
 
 ### UI
 

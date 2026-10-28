@@ -244,6 +244,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     ErrorCode::PushRefused | ErrorCode::Landed => &["push", "safe-push"],
     ErrorCode::RobotRunning => &["help agent", "push", "safe-push"],
     ErrorCode::DanglingReference | ErrorCode::MissingDeclaration => &["help agent", "check", "safe-push"],
+    ErrorCode::SquashConflict | ErrorCode::SquashEmpty => &["squash", "fold"],
     ErrorCode::UncommittedOverlap => &["help agent", "help update", "help worktrees"],
     ErrorCode::NothingToPick => &["pick"],
     ErrorCode::OperationInProgress

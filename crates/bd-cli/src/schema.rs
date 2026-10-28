@@ -26,6 +26,7 @@ use bd_rewrite::fold_command::FoldOutput;
 use bd_rewrite::move_hunk_command::MoveHunkOutput;
 use bd_rewrite::park_command::ParkOutput;
 use bd_rewrite::rewrite::RewriteOutput;
+use bd_rewrite::squash_command::SquashOutput;
 use bd_rewrite::suggest::SuggestOutput;
 use bd_update::pick_command::{LeasePickOutput, PickOutput};
 use bd_update::unapply_command::{ReapplyOutput, UnapplyOutput};
@@ -89,6 +90,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("robot", &["robot"]),
   ("robot-stats", &["robot_stats"]),
   ("safe-push", &["safe_push"]),
+  ("squash", &["squash"]),
   ("status", &["status", "status_brief"]),
   ("suggest", &["suggest"]),
   ("sync", &["sync"]),
@@ -213,6 +215,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("request_review".to_string(), schema_for!(RequestReviewOutput)),
     ("robot".to_string(), schema_for!(RobotOutput)),
     ("safe_push".to_string(), schema_for!(SafePushOutput)),
+    ("squash".to_string(), schema_for!(SquashOutput)),
     ("status".to_string(), schema_for!(StatusOutput)),
     ("status_brief".to_string(), schema_for!(StatusBrief)),
     ("suggest".to_string(), schema_for!(SuggestOutput)),

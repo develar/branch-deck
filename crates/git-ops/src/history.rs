@@ -33,7 +33,8 @@ pub struct HistoryCommit {
   pub parent: Option<String>,
   /// The commit has more than one parent
   pub merge: bool,
-  /// The mapping lines of its note (`notes::mapping_lines`); read only by `read_ahead_of` with notes
+  /// The mapping lines of its note (`notes::mapping_lines`); read only by `read_ahead_of` with notes and by
+  /// `read_to_with_notes`
   pub note: Option<String>,
 }
 
@@ -56,10 +57,21 @@ impl History {
   /// `position` refuses that target
   #[instrument(skip(git_executor, targets), fields(targets = targets.len()))]
   pub fn read_to(git_executor: &GitCommandExecutor, repo_path: &str, targets: &[&str]) -> Result<Self> {
+    Self::read_to_noted(git_executor, repo_path, targets, false)
+  }
+
+  /// `read_to` with the mapping notes of the commits, in the same `git log`: a squash carries them onto the commits it
+  /// replays (`rewrite_plan`)
+  #[instrument(skip(git_executor, targets), fields(targets = targets.len()))]
+  pub fn read_to_with_notes(git_executor: &GitCommandExecutor, repo_path: &str, targets: &[&str]) -> Result<Self> {
+    Self::read_to_noted(git_executor, repo_path, targets, true)
+  }
+
+  fn read_to_noted(git_executor: &GitCommandExecutor, repo_path: &str, targets: &[&str], notes: bool) -> Result<Self> {
     let mut wanted: HashSet<&str> = targets.iter().copied().collect();
     let mut commits: Vec<HistoryCommit> = Vec::new();
     let mut below = None;
-    let format = record_format(false);
+    let format = record_format(notes);
     read_records(git_executor, repo_path, &["log", "--first-parent", &format, "--end-of-options", "HEAD"], |_, commit| {
       if wanted.is_empty() && !commits.is_empty() {
         below = Some(commit);

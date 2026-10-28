@@ -85,13 +85,13 @@ async fn a_rewrite_costs_its_core_and_one_read_of_its_witness() {
     processes_of(&squashed),
     [
       ("cat-file", 1),
-      ("fast-import", 1),
+      ("fast-import", 2), // the squashed commit; the mapping notes of the commits after it, carried
       ("for-each-ref", 2),
-      ("log", 1),
+      ("log", 2), // the history with its notes; the new one with its trees
       ("merge-tree", 1),
+      ("notes", 1),
       ("replay", 2),
-      ("rev-list", 1),
-      ("rev-parse", 3),
+      ("rev-parse", 2),
       ("update-ref", 1),
       ("var", 1),
     ]

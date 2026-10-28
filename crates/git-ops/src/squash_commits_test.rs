@@ -1,5 +1,6 @@
 use super::copy_commit::CopyCommitError;
 use super::history::History;
+use super::notes::{MappingNote, notes_ref, read_notes, write_commit_notes};
 use super::ref_transaction::RefTransaction;
 use super::revs::resolve_tree_id;
 use super::rewrite_guard::HeadMoved;
@@ -7,6 +8,7 @@ use super::rewrite_plan::PreparedRewrite;
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head, restore_branch_head_with};
 use anyhow::Result;
+use domain_types::commit::NoteSource;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -162,6 +164,67 @@ fn target_message_keeps_the_bytes_and_the_encoding() -> Result<()> {
   assert!(raw.ends_with(message));
   assert_eq!(show(&repo, "HEAD", "a.txt")?, "a");
   assert_no_temp_refs(&repo)
+}
+
+/// The mapping note a sync writes on `commit`: copied as `mapped` from the trees of the commit and of its parent
+fn mapping_note(repo: &TestRepo, commit: &str, mapped: &str) -> Result<MappingNote> {
+  Ok(MappingNote {
+    original: commit.to_string(),
+    mapped: mapped.to_string(),
+    source: NoteSource {
+      parent_tree: resolve_tree_id(repo.git_executor(), repo_path(repo), &format!("{commit}^"))?,
+      tree: resolve_tree_id(repo.git_executor(), repo_path(repo), commit)?,
+    },
+    resolved: None,
+  })
+}
+
+#[test]
+fn the_replayed_commits_whose_trees_stay_keep_their_mapping_notes() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let target = repo.create_commit("Add a", "a.txt", "a");
+  let between = repo.create_commit("Add k", "k.txt", "k");
+  let folded = repo.create_commit("Change a", "a.txt", "a2");
+  let after = repo.create_commit("Add z", "z.txt", "z");
+  let notes = [&target, &between, &folded, &after]
+    .iter()
+    .zip(1u32..)
+    .map(|(commit, copy)| mapping_note(&repo, commit, &format!("{copy:040x}")))
+    .collect::<Result<Vec<_>>>()?;
+  write_commit_notes(repo.git_executor(), repo_path(&repo), &notes)?;
+
+  let history = History::read_to_with_notes(repo.git_executor(), repo_path(&repo), &[&target, &folded])?;
+  let prepared = prepare_squash(repo.git_executor(), repo_path(&repo), &history, &[group(&target, &[&folded], SquashMessage::Target)])?;
+  prepared.apply(repo.git_executor(), repo_path(&repo), RefTransaction::new(), "squash 2 commits")?;
+
+  // the commit after the folded one has its trees, so its copy stays; the commit in between now has the folded change
+  // too, and the squashed commit is a new one: their copies are made again
+  let new_ids = git(&repo, &["rev-list", "--first-parent", "-3", "HEAD"])?;
+  let new_ids: Vec<&str> = new_ids.lines().collect();
+  let notes_ref = notes_ref(repo.git_executor(), repo_path(&repo))?;
+  let carried = read_notes(repo.git_executor(), repo_path(&repo), &notes_ref, &new_ids)?;
+  assert_eq!(carried.keys().collect::<Vec<_>>(), [new_ids[0]]);
+  assert_eq!(carried[new_ids[0]], notes[3].content());
+  assert_eq!(prepared.carried_notes().collect::<Vec<_>>(), [new_ids[0]]);
+  // the originals keep theirs, for an undo
+  assert_eq!(
+    read_notes(repo.git_executor(), repo_path(&repo), &notes_ref, &[&target, &between, &folded, &after])?.len(),
+    4
+  );
+  Ok(())
+}
+
+#[test]
+fn a_squash_on_a_history_without_notes_writes_none() -> Result<()> {
+  let (repo, target, folded) = base_a_b();
+  let after = repo.create_commit("Add z", "z.txt", "z");
+  write_commit_notes(repo.git_executor(), repo_path(&repo), &[mapping_note(&repo, &after, &"1".repeat(40))?])?;
+
+  // the history of an amend or a drop is read without notes: nothing to carry
+  let prepared = squash(&repo, &target, &[&folded], "Add a and b\n")?;
+  assert_eq!(prepared.carried_notes().count(), 0);
+  Ok(())
 }
 
 #[test]

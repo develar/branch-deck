@@ -18,7 +18,7 @@ baseline as the app's Update Project does, and resolves a conflict in a resolve 
 `pick` lands the commits of another worktree on the checked out branch, `unapply` takes a branch and its files out of
 it and `reapply` puts it back, `lease` keeps the pool of worktrees that
 agent sessions work in, and `workspace` tells an agent before its first edit whether to lease one and how to write a
-commit subject; `fold` folds the fixup commits, and
+commit subject; `fold` folds the fixup commits, `squash` squashes the commits the user asked to squash, and
 `move-hunk` moves the change of a file from one commit into another. `install` puts `bd` and its skill where agents
 find them; `help agent`, `help update` and `help worktrees` print the texts an agent follows, `help <command>` the
 `--help` of a command.
@@ -33,8 +33,8 @@ recorded in the operations registry of the repository under the `operation_id` o
 below), `busy` while another process runs what it needs, and once it ended it goes into the journal of the operations
 of the repository under that id, beside the app's (what it did, how it ended, its git processes, its HTTP requests and
 its time from the admission; [Journal](../design/git-operations.md#journal)). A rewrite (`group`, `rename`,
-`restack`, `unstack`, `reword`, `fold`, `park`, `unpark`, `unapply`, `reapply`, `undo`, `move-hunk`), `update` and
-`pick` that write are recorded too, before they take any lock (`bd_core::operation_record::recorded`): the app's
+`restack`, `unstack`, `reword`, `fold`, `squash`, `park`, `unpark`, `unapply`, `reapply`, `undo`, `move-hunk`),
+`update` and `pick` that write are recorded too, before they take any lock (`bd_core::operation_record::recorded`): the app's
 windows show them on their rows ("bd: Unstacking beta…") and Activity lists them, but HEAD, which they hold, makes no
 other process `busy`: the repository lock orders the rewrites of the app and of every `bd`, and a rewrite of the app
 meanwhile is waited for (`locked` after the bounded wait). A dry run, `bd update --status` (without `--materialize`)
@@ -104,8 +104,9 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `robot-stats`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
-  `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
+  `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `squash --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`, the
+  squashed commit of `squash --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
 - The working tree: only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update of
@@ -1009,6 +1010,35 @@ tree stay as they are.
   `orphans` are fixups without an older target: they stay. Nothing to fold prints `folded: []` without a token.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; the fold also checks that the planned
   commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
+- `bd undo <undo_token>` restores the previous head.
+- A fixup that conflicts with a commit between it and its target or after it is `squash_conflict` (exit 4, `commits`,
+  `paths`), one that leaves its target or a later commit empty `squash_empty`; nothing is folded.
+
+### `bd squash <into> <commit>… [--subject <s> | --message <m> | --message-file <f>] [--expect-head <id>] [--dry-run | --sync]`
+
+Squashes the commits the user asked to squash into `<into>`, the oldest of them, as the app's Squash does: the same
+core (`history_rewrite::squash::squash_commits_core`) and the same intent (`RewriteIntent::Squash`), recorded before
+any lock. `select_squash` finds the commits among the commits ahead of the baseline (one `log`, the grouping stores) and
+checks the selection; the squash reads its history again, computes before the repository lock and holds it for the
+witness of HEAD and the move only. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they
+are.
+
+```json
+{"schema":2,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12","into":"1b2c3d4e",
+ "new_id":"2c3d4e5f","squashed":["9d0e1f2a","5f6a7b8c"],"subject":"(lenses) Add lenses","branch":"lenses",
+ "rebuilt_branches":["lenses","ui"],"undo_token":"<full previous>..<full new>"}
+```
+
+- The message of `<into>` stays; `--subject` replaces its subject and keeps its body; `--message` and
+  `--message-file` (`-` for stdin) are the whole message.
+- `rebuilt_branches`: the branch of the squashed commit and those of the commits between it and the newest squashed
+  one, whose files change, so the next sync builds them anew (a pushed one needs a push again). The commits after
+  the newest squashed one keep their mapping notes, so a branch of only those keeps its virtual branch.
+- `--dry-run` builds the squash and drops it (`check_squash_commits_core`): a conflict shows before the user approves.
+- Refused with nothing changed: `not_ahead_of_baseline`; `invalid_arguments` for an ambiguous id, fewer than two
+  commits, an `<into>` that is not the oldest, a commit of another branch, a message that moves the commit to another
+  branch; `squash_conflict` (exit 4, `commits`, `paths`), `squash_empty` (exit 4); `head_moved`, `locked`,
+  `operation_in_progress`.
 - `bd undo <undo_token>` restores the previous head.
 
 ### `bd move-hunk <from> <to> <path> [--block <id>]… [--expect-head <id>] [--dry-run | --sync]`
@@ -1950,7 +1980,7 @@ every code: the core, a topic or the `--help` of a command must name it.
 ### `bd <command> --help`
 
 The text after the options (`after_long_help`, constants beside `AGENT_HELP`) of `status`, `suggest`, `check`, `group`,
-`push`, `safe-push`, `request-review`, `robot`, `robot-stats`, `fold`, `reword` and `move-hunk`: the fields of the
+`push`, `safe-push`, `request-review`, `robot`, `robot-stats`, `fold`, `squash`, `reword` and `move-hunk`: the fields of the
 output and what each refusal asks. `-h` ends with one line that names `--help`; `bd help <command>` prints the same
 as `--help`, because an agent tries it first.
 
@@ -1970,7 +2000,7 @@ reflog lines. The skill sends an agent there when several sessions or worktrees 
 
 The workflow is `bd help agent` (`AGENT_HELP` in `crates/bd-cli/src/agent_help.rs`): the rules first (what needs the
 user's approval, what each exit code asks for, when to retry, how to undo), then the steps from `bd suggest` to the
-robot of a Safe Push, then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd move-hunk`). It is the one text an
+robot of a Safe Push, then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd squash`, `bd move-hunk`). It is the one text an
 agent follows, versioned with the binary and checked by `agent_help_test.rs`; this guide is its reference and does not
 repeat it. `bd help update` and `bd help worktrees` hold the resolve session and the work beside other sessions, the
 `--help` of a command its outputs and refusals.

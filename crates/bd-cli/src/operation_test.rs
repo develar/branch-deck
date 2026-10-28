@@ -101,6 +101,36 @@ fn a_rewrite_is_journaled_under_the_operation_id_of_its_json() {
   assert_eq!(ProcessRegistry::of(&common_dir).records().unwrap(), Some(Vec::new()));
 }
 
+/// `bd squash` is journaled as the app's Squash of the same commits (`RewriteIntent::Squash`, full ids, the oldest
+/// first), with its ref move; its dry run, which builds the squash and drops it, is no operation
+#[test]
+fn a_squash_is_journaled_as_the_squash_of_its_commits() {
+  let repo = repo_with_baseline(&[("a.txt", "a")]);
+  let target = repo.create_commit_with_files("(auth) Add login", &[("login.txt", "login")]);
+  let folded = repo.create_commit_with_files("(auth) Fix login", &[("login.txt", "login fixed")]);
+  let environment = environment(repo.path());
+  let squash = |dry_run: bool| {
+    let mut args = vec!["--prefix", PREFIX, "squash", &target[..8], &folded[..8]];
+    args.extend(dry_run.then_some("--dry-run"));
+    run_operation(&environment, &args)
+  };
+  let (exit_code, output, _) = squash(true);
+  assert_eq!(exit_code, 0, "{output}");
+  let (exit_code, output, operation_id) = squash(false);
+  assert_eq!(exit_code, 0, "{output}");
+
+  let common_dir = repo.path().join(".git");
+  let journal = operations::journal::read(&common_dir).unwrap();
+  let [entry] = journal.as_slice() else { panic!("{journal:#?}") };
+  assert_eq!((entry.id.0.as_str(), entry.tool, entry.error.as_ref()), (operation_id.as_str(), HolderTool::Bd, None));
+  assert!(
+    matches!(&entry.intent, Intent::Rewrite(rewrite) if matches!(&**rewrite, RewriteIntent::Squash { commit_ids, .. } if *commit_ids == [target.clone(), folded.clone()])),
+    "{entry:#?}"
+  );
+  assert!(entry.stats.git_processes.contains_key("update-ref"), "{entry:#?}");
+  assert_eq!(ProcessRegistry::of(&common_dir).records().unwrap(), Some(Vec::new()));
+}
+
 #[test]
 fn the_operation_of_a_nested_command_names_both_words() {
   let matches = crate::Cli::command().try_get_matches_from(["bd", "lease", "status"]).unwrap();

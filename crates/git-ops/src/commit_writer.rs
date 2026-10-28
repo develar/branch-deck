@@ -662,6 +662,24 @@ pub fn write_notes(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref
   write_notes_to_refs(git_executor, repo_path, &[(notes_ref, notes)])
 }
 
+/// `write_notes` of a caller that knows the committer and that `notes_ref` exists (the notes it writes were read from
+/// it): one `git fast-import`, which refuses to move the notes ref if it changed meanwhile
+pub fn write_notes_on_existing(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref: &str, committer: &str, notes: &[(String, String)]) -> Result<()> {
+  let mut stream = Vec::with_capacity(notes.len() * 128);
+  let from = format!("{notes_ref}^0");
+  push_notes_commit(
+    &mut stream,
+    notes_ref,
+    None,
+    Some(&from),
+    committer,
+    notes.iter().map(|(target, content)| (target.as_str(), content.as_str())),
+  );
+  stream.extend_from_slice(b"done\n");
+  git_executor.cmd(&["fast-import", "--quiet", "--done"], repo_path).stdin(&stream).bytes()?;
+  Ok(())
+}
+
 /// A write of notes that only save work (the mapping notes of a sync, the integration detection), which never fails the
 /// operation: a write that lost a ref to another writer (the app's sync beside `bd sync`: `from <ref>^0` was read
 /// before the other moved the ref, so `fast-import` refuses the tip that lacks its notes) runs once more, from the new
