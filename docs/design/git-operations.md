@@ -487,9 +487,13 @@ edit of a message and `bd reword` are a regroup (below); this is how it writes, 
 4. Run one transaction that moves the branch with CAS and deletes the temporary ref.
 
 Steps 1 to 3 are `prepare_reword` (a `PreparedReword` on temporary refs, no ref moved), step 4 its `apply`: a regroup
-runs the first before the repository lock and the second under it, after its witness; add issue reference runs both
-under the lock (`reword_commits_batch_at`). `fast-import` objects become readable only when its stream ends, so it suits batches whose commits are all known up
-front. Code: `crates/git-ops/src/reword_commits.rs`, `crates/git-ops/src/commit_writer.rs`.
+and add issue reference run the first before the repository lock and the second under it, after the witness of HEAD
+(`an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write`); `reword_commits_batch_at` runs both, for a
+caller that needs no lock. The mapping notes of the new commits go into the notes ref with the `fast-import` of step 3:
+a rewrite that the lock refuses after it leaves notes of commits no branch has, which nothing looks up; another HEAD
+than the expected one is refused before step 3. `fast-import` objects become readable only when its stream ends, so it
+suits batches whose commits are all known up front. Code: `crates/git-ops/src/reword_commits.rs`,
+`crates/git-ops/src/commit_writer.rs`.
 
 #### Regroup, rename, restack
 
@@ -679,8 +683,16 @@ nothing it reads moves again: the HEAD it expects is checked there, another one 
 sync dropped lines of is read as the sync left it. The lock span tests (`test_utils::lock_span`, a git that logs
 whether the holder record of the lock exists when each command starts) pin it per core:
 `a_move_locks_only_the_witness_and_the_write` and its siblings in `regroup_test.rs`, `squash_test.rs` and
-`autosquash_test.rs`. Amend, unapply, reapply, add issue reference and the move of a hunk still take the lock before
-they read anything. How a rewrite waits is the `LockWait` of its caller:
+`autosquash_test.rs`. So do amend and add issue reference (`RewriteOptions::lock_prepared` of a `PreparedRewrite` and
+a `PreparedReword`), the move of a hunk (`PreparedMoveHunk`), and the moves that the files follow: unapply, reapply
+and the undo of an update, a pick, an unapply and a reapply (`lock_prepared_move`, `lock_checked_undo`), whose witness
+also reads the mark of an interrupted move of the worktree (`pending_mark`) and lets its files follow first
+(`finish_pending_update`); the first round of a resolve session is computed before the lock of its update (below,
+"Resolve session"). Their lock span tests are `an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write`,
+`an_unapply_and_its_undo_lock_only_the_witness_and_the_move`, `a_reapply_and_its_undo_lock_only_the_witness_and_the_move`,
+`a_move_hunk_locks_only_the_witness_and_the_write`, `the_undo_of_an_update_locks_only_the_witness_and_the_move`,
+`a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move` and
+`the_start_of_a_resolve_session_locks_only_the_witness_and_its_write`. How a rewrite waits is the `LockWait` of its caller:
 
 - **`bd`**: `LockWait::Bounded(lock_timeout)`, 10 s by default (`BRANCH_DECK_LOCK_TIMEOUT`), then `locked`, exit 3.
 - **The app**: `LockWait::WhileHeld(&StepWaiter)`, `lock_repository_while_held`: after its own operations before it in
@@ -765,9 +777,13 @@ root commit.
    only names the tip in the printed update; with `print`, replay writes no ref.
 5. Check that the new tip's tree equals `T_wt` before any ref moves, so the amended files match the working tree
    afterwards and nothing else changed.
-6. Move the branch, then stage the amended files from the working tree (see the index policy).
+6. Move the branch, then stage the amended files from the working tree (see the index policy): one
+   `update-index --add --remove --stdin`, which records their stat data, so no `--refresh` follows.
 
-There is no `commit -a` and no `rebase --autosquash` fallback. A range with merges is refused (invariant 4).
+Steps 1 to 5 run before the repository lock (`prepare_amend`, on the HEAD the app expects); under it only the witness
+of HEAD and step 6 (`amend_uncommitted_to_branch_core`, `RewriteOptions::lock_prepared`), and a HEAD that moved
+meanwhile computes them once more under it. There is no `commit -a` and no `rebase --autosquash` fallback. A range
+with merges is refused (invariant 4).
 
 Code: `crates/git-ops/src/amend_operations.rs`, with the shared replay and merge helpers in
 `crates/git-ops/src/replay.rs`.
@@ -787,8 +803,9 @@ A conflict makes `replay` exit with 1, without output, and nothing has changed. 
 (`prepare_plan`) whose steps are all `Drop`.
 
 Unapply ([Unapply](../../spec/branch/unapply.spec.md)) takes the commits of a virtual branch out of HEAD with their
-files and keeps the branch in the unapplied namespace, which no sync archives or deletes. Under the repository lock,
-after the mark of an interrupted move is finished (`finish_pending_update`):
+files and keeps the branch in the unapplied namespace, which no sync archives or deletes. Steps 1 to 4 read and
+compute before the repository lock, on the HEAD and the issue groups read once; under it only the witness and the
+move (step 5, `lock_prepared_move`):
 
 1. The commits of the branch as they group now: the grouping inputs (one `cat-file --batch`) and the commits ahead
    (one `log`). The ids the app's request names must be them, else `BranchChanged`.
@@ -800,13 +817,21 @@ after the mark of an interrupted move is finished (`finish_pending_update`):
 3. The drop above, then the dry run of the files: `read-tree -m -u -n` of the old and the new HEAD tree on a copy of
    the index, and the check for an ignored file where a file comes back (`blocking_paths`). A local change on a path
    the drop changes, staged or not, refuses the unapply (`MoveBlocked`); work on other paths stays as it is.
-4. Under `REF_RENAME_MUTEX`, one `for-each-ref` picks a free name, and the guarded move of "Update project" moves HEAD
-   with the files (`move_branch_and_files_carrying`, `branch-deck: unapply`). Its transaction also creates the branch
-   in the unapplied namespace, deletes the virtual branch (checked against its tip) and the temporary refs of the drop;
-   the rollback of files that changed since the dry run moves both back.
+4. One `for-each-ref` picks a free name in the unapplied namespace.
+5. The lock, then the witness: one `for-each-ref --include-root-refs` of HEAD (its commit and its branch), the issue
+   groups, the virtual branch at its tip, no branch of the free name, and no mark of an interrupted move of the
+   worktree (`refs/branch-deck/update-pending/<worktree id>`). A ref that moved meanwhile (another process rewrote HEAD
+   or took the name) computes steps 1 to 4 once more under the lock; a mark there lets the files of that move follow
+   first (`finish_pending_update`). Then the guarded move of "Update project" moves HEAD with the files
+   (`move_branch_and_files_carrying`, `branch-deck: unapply`). Its transaction also creates the branch in the
+   unapplied namespace (none of the name may exist), deletes the virtual branch (checked against its tip) and the
+   temporary refs of the drop; the rollback of files that changed since the dry run moves both back.
 
 A failed unapply therefore never leaves a renamed branch behind, and a crash between the move and the files leaves the
-mark that the next move of the files finishes.
+mark that the next move of the files finishes. Before the lock such a mark shows as local changes, the files of the
+interrupted move not having followed: a refusal of the dry run (`MoveBlocked`) reads the mark once (`pending_update`),
+and with one the files follow under the lock and steps 1 to 4 run there, so the crash never refuses the next unapply.
+The lock span test is `an_unapply_and_its_undo_lock_only_the_witness_and_the_move`.
 
 The app lists them in the Unapplied card; a push of one (the intent `Push` with the scope `unapplied`, `bd push --unapplied <name>`)
 goes to `origin` under its own name, leased as any push: the remote keeps a copy, and the remote branch of its virtual
@@ -820,7 +845,9 @@ The undo (`unapply:<previous head>..<new head>:<tip>:<virtual branch>:<unapplied
 the branch's reflog must be `branch-deck: unapply` from the previous head, else `NotAnUpdate`; HEAD elsewhere is
 `HeadMoved`), then the same guarded move back (`branch-deck: undo unapply`), whose transaction deletes the unapplied
 branch (checked against the tip) and creates the virtual branch at the tip again. The originals come back with their
-ids and their mapping notes, so the next sync reuses the copies.
+ids and their mapping notes, so the next sync reuses the copies. The check runs before the lock, the witness of HEAD
+and the mark and the move under it (`lock_checked_undo`, as every undo of a move); an undo done before takes no lock,
+unless the mark says that its files have not followed yet.
 
 Code: `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/unapply.rs`, `crates/sync-core/src/unapply_branch.rs`,
 `crates/branch-integration/src/archive.rs`, `crates/bd-update/src/unapply_command.rs`.
@@ -906,14 +933,15 @@ wrong commit. HEAD's tree never changes, by construction, so the index and the w
 
 The steps, a fixed number of processes whatever the range (`crates/git-ops/src/move_hunk.rs`):
 
-1. Under the repository lock (none for `--dry-run`): the guards, the commits ahead of the baseline, `--expect-head`
+1. Before the repository lock, as steps 2 to 7 (`prepare_move_hunk`): the guards, the commits ahead of the baseline, `--expect-head`
    (prefix match), the files of `from` from one `log --raw` (`read_commit_changes`), and the blocks of the path from
    `FileDiffs::patches_of` (one `cat-file --batch` of its two blobs; the blocks of the diff views, so an id is the one
    of `bd commits --patch`). A rename of the path is refused, as are `--block` of a file without blocks, an id that
    does not parse, and an id whose lines or hash match no block now (`block_not_found`, with the ids of now); all
    blocks named is the whole file.
 2. One `log --first-parent --boundary` of the history with trees and mapping notes, the rewrite guard
-   (`check_rewrite` from the older of the two), one `cat-file --batch` of the commits, one
+   (`check_rewrite_on` from the older of the two, with the branch step 1 read: HEAD is not read again), one
+   `cat-file --batch` of the commits, one
    `diff-tree --raw --no-renames` of the path in `from`: a mode change, a type change, a symlink or a submodule is
    refused.
 3. "Theirs", the merge base with Δ: forward `from^`'s tree with the path as the selected blocks applied to
@@ -941,8 +969,11 @@ The steps, a fixed number of processes whatever the range (`crates/git-ops/src/m
    gets its note with the same virtual commit and the new trees as its source (a note without a source is copied as
    it is, for the sync to check); the commits above get their mapping lines copied; the changed ones get none, so the
    sync copies them again, and the virtual commits of the other branches stay.
-8. One `RefTransaction` (`branch-deck: move hunk`) moves the branch with CAS on the HEAD it read and deletes the
-   temporary refs. The undo token `<previous>..<new>` works with `bd undo`: the trees are equal.
+8. The repository lock, the witness of HEAD and its branch (one `for-each-ref`; a HEAD that moved meanwhile runs steps
+   1 to 7 once more under the lock), then one `RefTransaction` (`branch-deck: move hunk`) that moves the branch with
+   CAS on the HEAD it read and deletes the temporary refs (`PreparedMoveHunk::apply`,
+   `a_move_hunk_locks_only_the_witness_and_the_write`). The undo token `<previous>..<new>` works with `bd undo`: the
+   trees are equal.
 
 `--dry-run` stops after step 6 and deletes the temporary ref at once: no ref moves and no note is written, only the
 objects of theirs and the merges. `--sync` syncs after the lock is released, as `bd sync` does.
@@ -1005,8 +1036,13 @@ Details:
   copies are gone. The record of `branch-deck/landed.json` is a read-modify-write under a lock of its own
   (`landed.lock` beside it, also for the undo's restore and a dismiss): a record whose update another one already moved
   past (HEAD is no longer at its new head) only adds what it landed, so the state keeps naming the later update. A
-  conflict of `bd update` starts its resolve session under the lock, its search for the first conflict too. `bd update --dry-run` is the check inside sync
-  (below): no fetch, no lock, no move.
+  conflict of `bd update` computes the first round of its resolve session before the lock too, on the check's HEAD
+  and upstream (`prepare_session_start`: the check found the first conflict with its binary search of `replay`
+  probes; the round replays the runs before it, merges it and reads its objects); under the lock, after the witness,
+  only the state commit with the session ref in one transaction and the copies of the round, and a witness that
+  missed computes the check and the round once more there ("Resolve session" below,
+  `a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it`).
+  `bd update --dry-run` is the check inside sync (below): no fetch, no lock, no move.
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
   where the last push saw them, so the `--force-with-lease` of the virtual branches keeps protecting work pushed from
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
@@ -1175,7 +1211,10 @@ Details:
     (`CheckPurpose::Apply`) after its fetch.
 
 **Undo of an update** (`bd undo update:<H>..<N>`, `undo_update_core`). The move back from N to H, with the files
-following, under the repository lock:
+following; steps 1 to 3 run before the repository lock, which holds only the witness (one `for-each-ref` of HEAD, its
+branch and the mark of an interrupted move: a mark there lets those files follow first, then steps 1 to 3 run under
+the lock) and step 4 (`lock_checked_undo`, `the_undo_of_an_update_locks_only_the_witness_and_the_move`); step 5 after
+the release:
 
 1. The guards of step 0, and HEAD must be N (`HeadMoved` otherwise, `undo_stale` in bd: a commit on top, another
    update or a switch can't be undone this way, and a retry can't change that).
@@ -1204,8 +1243,9 @@ changed gitlink shows as a modified submodule until the user updates it.
 **Interrupted files.** A process killed between the move (step 9) and the files (step 10), e.g. by an agent harness at
 its timeout on a monorepo index, leaves HEAD at N and the index and the files at H; no rollback runs. The move creates
 the mark `refs/branch-deck/update-pending/<worktree id>` at H in its transaction (the undo: at N), and step 10 deletes
-it, so the state is never silent. Every later update, undo and the app's Update Project starts with the mark, under the
-lock (step 2c). When the last reflog entry of the branch is that move from the mark's commit to HEAD, the files follow
+it, so the state is never silent. Every later update and the app's Update Project starts with the mark, under the
+lock (step 2c); a later move whose files follow (an unapply, a reapply, a pick, an undo) reads it in its witness under
+the lock and lets those files follow before it computes once more there (`lock_prepared_move`). When the last reflog entry of the branch is that move from the mark's commit to HEAD, the files follow
 through the same guarded update, or only the mark goes when the index already has the new side. A local change in the
 way refuses it, and the branch moves back with the mark deleted. When the branch moved since, the result is
 `finish_pending`, which names `git update-ref -d <mark> <commit>` and changes nothing. `bd update --status` prints the
@@ -1237,7 +1277,11 @@ Only the finish moves the branch, and the files follow through the guarded updat
 `crates/git-ops/src/update_resolve.rs` (the state and the engine), `crates/git-ops/src/resolve_check.rs` (the checks),
 `crates/git-ops/src/merge_tree_output.rs` (the `-z` parser, shared with the sync's cherry-pick),
 `crates/update-core/src/resolve_session.rs` (the lock and the output), `crates/update-core/src/resolve_copies.rs` (the
-copies), `crates/bd-update/src/update_command.rs`.
+copies), `crates/bd-update/src/update_command.rs`. The start holds the repository lock only for the witness, the state
+with the session ref and the copies (`the_start_of_a_resolve_session_locks_only_the_witness_and_its_write`): a regroup
+of another process runs while the start searches and replays
+(`a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it`), and the
+session opens on the HEAD it left. `--continue` and `--abort` hold it from their first read.
 
 **State in git.** All state of a session is in git; only the copies are files.
 
@@ -1284,7 +1328,7 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 
 | Step | Command |
 |---|---|
-| Start | the check of "Update project" conflicted under the lock, and the session replays its `ReplayPlan`: the local commits without the proven ones, in runs, and the candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer) |
+| Start | the check of "Update project" conflicted before the lock, and the session replays its `ReplayPlan`: the local commits without the proven ones, in runs, and the candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer). Everything up to the state runs before the lock, on the HEAD and the upstream of the check (`prepare_session_start`, a `PreparedStart`); under it the mark and the witness of the update (`recheck_update`), then the state and the copies (`PreparedStart::start`); a witness that missed checks and opens the round once more under the lock. The view of the round is read after the release |
 | Find the conflict | at the start, the first conflict of the check: one `replay` per run of the commits before it, and its round opens without a search (a commit before it that the words resolve conflicts on the way and is searched). After a resolution, one `replay` per run of the rest, and in the first that conflicts a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`, each probe from the longest clean prefix: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
 | Resolve by words | with `branchdeck.resolveByWords` on, the merge of the round (below) resolved by words: one `check-attr`, one `cat-file --batch` and one `fast-import`; a resolved commit is a round that resolves itself, and the search goes on after it ("Resolve by words") |
 | Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs, which also writes the copies |
@@ -1471,8 +1515,11 @@ agent".
 #### Reapply
 
 Reapply ([Unapply and Reapply](../../spec/branch/unapply.spec.md)) puts the commits of an unapplied branch back on top
-of the checked out branch, the inverse of "Drop and unapply". Under the repository lock (a `--dry-run` takes none),
-after the mark of an interrupted move is finished:
+of the checked out branch, the inverse of "Drop and unapply". Steps 1 to 3 read and compute before the repository
+lock (a `--dry-run` takes none); under it only the witness (one `for-each-ref` of HEAD and its branch, the upstream
+the pick excludes, the issue groups, the unapplied branch at its tip and the mark of an interrupted move; a ref that
+moved, or a mark, runs steps 1 to 3 once more under the lock after the files followed, `lock_prepared_move`) and
+step 4 (`a_reapply_and_its_undo_lock_only_the_witness_and_the_move`):
 
 1. One `for-each-ref` of the unapplied branch (its tip, the worktree that has it, which refuses), the baseline and its
    tracking ref, and the start of its own commits (`own_commits_start`: its stack note, else the merge base).
@@ -1577,10 +1624,13 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    branch. Offered, never applied: the pick stays one guarded move, and `bd group` and `bd restack` have their own lock
    and undo. A failure of this report after a move is logged, and the pick stands with its undo token.
 
-**Undo** (`bd undo pick:<H>..<N>[+follow:<worktree id>:<S>..<N>]`, `undo_pick_core`): under the lock, both moves are
-checked first as the undo of an update is (`check_pick_undo`, the last reflog entry of the branch, of `HEAD` when
-detached, must be `branch-deck: pick` to N with the value before it at H or S; the dry run with the trees swapped),
-then both move back (`branch-deck: undo pick`). The source moves back too, so it has its commits again; the undone
+**Undo** (`bd undo pick:<H>..<N>[+follow:<worktree id>:<S>..<N>]`, `undo_pick_core`): both moves are checked first,
+before the lock, as the undo of an update is (`check_pick_undo`, the last reflog entry of the branch, of `HEAD` when
+detached, must be `branch-deck: pick` to N with the value before it at H or S; the dry run with the trees swapped);
+under the lock the witness of each worktree (one `for-each-ref` of its HEAD and its mark, the source's in its own
+directory, `Witness::elsewhere`), then both move back (`branch-deck: undo pick`). A worktree with the mark of an
+interrupted move before the check lets its files follow under the lock first, and the check runs there; an undo done
+before takes no lock (`a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move`). The source moves back too, so it has its commits again; the undone
 move is no fork point (step 3), so the next pick picks them. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
 
 **Remote commits** (`bd pick --remote <branch>`, the app's Pick Remote Commits: `PickFrom::Remote`,

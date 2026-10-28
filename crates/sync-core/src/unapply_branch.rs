@@ -1,23 +1,23 @@
 //! Unapply a virtual branch: its original commits leave HEAD with their files (`git_ops::unapply`) and the virtual
-//! branch moves to the unapplied namespace in the transaction that moves HEAD, under the repository lock
-//! (spec/branch/unapply.spec.md); and its undo (`UnapplyUndoToken`), which moves both back.
+//! branch moves to the unapplied namespace in the transaction that moves HEAD (spec/branch/unapply.spec.md); and its
+//! undo (`UnapplyUndoToken`), which moves both back. Each reads and checks before the repository lock, which holds only
+//! the witness and the move.
 
 use anyhow::Result;
-use branch_integration::archive::{REF_RENAME_MUTEX, own_commits_start, unique_branch_name};
+use branch_integration::archive::{own_commits_start, unique_branch_name};
 use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
 use domain_types::rewrite::{UnapplyBranchResult, UndoneUnapply};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{is_object_id, with_dirs_of};
-use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
-use git_ops::update_branch::UndoBlocked;
-use git_ops::update_branch::{UndoCheck, UpdateUndo, finish_pending_update};
-use history_rewrite::repository_lock::{LockWait, RepositoryLock, RewriteOptions};
+use git_ops::unapply::{UnappliedMove, UnapplyPlan, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
+use git_ops::update_branch::UndoCheck;
+use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
+use history_rewrite::repository_lock::{LockWait, Prepared, RewriteOptions, Witness, lock_checked_undo};
 use history_rewrite::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::sync::PoisonError;
 use tracing::{debug, info, instrument};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,11 +63,13 @@ impl UnapplyRefusal {
   }
 }
 
-/// Unapply the virtual branch of `params.branch_name` (named with `branch_prefix`, which the caller resolved): its original commits leave HEAD (the checked out branch), the
-/// files following, and the virtual branch moves to the unapplied namespace, all in one ref transaction. Under the
-/// repository lock, after an interrupted move of the files is finished: the commits of the branch as they group now
-/// (`original_commit_ids`, when given, must be them), the check that the virtual branch is their copies, the drop
-/// replayed on objects and the dry run of the files (`check_unapply`), then the move
+/// Unapply the virtual branch of `params.branch_name` (named with `branch_prefix`, which the caller resolved): its
+/// original commits leave HEAD (the checked out branch), the files following, and the virtual branch moves to the
+/// unapplied namespace, all in one ref transaction. Before the repository lock: the commits of the branch as they group
+/// now (`original_commit_ids`, when given, must be them), the check that the virtual branch is their copies, the drop
+/// replayed on objects, the dry run of the files (`check_unapply`) and a free name. Under it only the witness (HEAD,
+/// the issue groups, both branches and the mark of an interrupted move, `RewriteOptions::lock_prepared_move`) and the
+/// move
 #[instrument(skip(git_executor, options), fields(repo = %params.repository_path, branch = %params.branch_name))]
 pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBranchParams, branch_prefix: &str, options: &RewriteOptions) -> Result<UnapplyBranchResult> {
   let UnapplyBranchParams {
@@ -77,13 +79,95 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   } = params;
   let repo = repository_path.as_str();
   let prefix = normalize_branch_prefix(branch_prefix);
-  let virtual_name = qualified_branch_name(prefix, BranchKind::Virtual, &branch_name)?;
+  let request = UnapplyRequest {
+    branch_name: &branch_name,
+    virtual_name: qualified_branch_name(prefix, BranchKind::Virtual, &branch_name)?,
+    unapplied_base: qualified_branch_name(prefix, BranchKind::Unapplied, &branch_name)?,
+    original_commit_ids: original_commit_ids.as_deref(),
+  };
 
-  // the guards and the lock take the directories read here
+  // the guards, the lock and the mark take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo)?;
-  let _lock = options.lock(git_executor, repo)?;
-  finish_pending_update(git_executor, repo)?;
+  let prepare = || prepare_unapply(git_executor, repo, &request, options);
+  let (prepared, _lock) = options.lock_prepared_move(git_executor, repo, prepare(), prepare)?;
+  let PreparedUnapply {
+    plan,
+    ids,
+    tip,
+    unapplied_branch_name,
+    ..
+  } = prepared;
+  let (virtual_ref, unapplied_ref) = (format!("refs/heads/{}", request.virtual_name), format!("refs/heads/{unapplied_branch_name}"));
+  apply_unapply(
+    git_executor,
+    repo,
+    &plan,
+    &UnappliedMove {
+      virtual_ref: &virtual_ref,
+      unapplied_ref: &unapplied_ref,
+      tip: &tip,
+    },
+  )?;
+  debug!(unapplied_branch = %unapplied_branch_name, commits_dropped = ids.len(), "Unapplied branch");
 
+  let (previous_head, new_head) = (plan.head().to_string(), plan.new_head().to_string());
+  let undo_token = UnapplyUndoToken {
+    previous_head: previous_head.clone(),
+    new_head: new_head.clone(),
+    tip,
+    virtual_branch: request.virtual_name,
+    unapplied_branch: unapplied_branch_name.clone(),
+  }
+  .to_string();
+  Ok(UnapplyBranchResult {
+    unapplied_branch_name,
+    commits_removed: ids,
+    previous_head,
+    new_head,
+    undo_token,
+  })
+}
+
+/// What an unapply is asked for, its branch names resolved
+struct UnapplyRequest<'a> {
+  branch_name: &'a str,
+  /// `{prefix}/virtual/<name>`
+  virtual_name: String,
+  /// `{prefix}/unapplied/<name>`, the name the unapplied branch gets unless a branch has it
+  unapplied_base: String,
+  original_commit_ids: Option<&'a [String]>,
+}
+
+/// An unapply computed before the repository lock: the checked drop, the commits it drops, the tip of the virtual
+/// branch and the free name of the unapplied one, on the HEAD and the issue groups read once
+struct PreparedUnapply {
+  plan: UnapplyPlan,
+  ids: Vec<String>,
+  tip: String,
+  virtual_ref: String,
+  unapplied_branch_name: String,
+  /// The commit of the issue groups the grouping read: they decide which commits are the branch's
+  issue_groups: Option<String>,
+}
+
+impl Prepared for PreparedUnapply {
+  /// HEAD and its branch, the issue groups, the virtual branch at its tip and no branch of the free name
+  fn witness(&self) -> Witness {
+    Witness::of_head(self.plan.head(), self.plan.branch())
+      .with_ref(ISSUE_GROUPS_REF, self.issue_groups.as_deref())
+      .with_ref(&self.virtual_ref, Some(&self.tip))
+      .with_ref(&format!("refs/heads/{}", self.unapplied_branch_name), None)
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    self.plan.discard(git_executor, repository_path);
+  }
+}
+
+/// Everything an unapply reads and computes: the commits of the branch as they group now, the check that the virtual
+/// branch is their copies, the drop and the dry run of the files (`check_unapply`), and a free name for the unapplied
+/// branch (`unique_branch_name`: the witness and the create of the transaction keep it free)
+fn prepare_unapply(git_executor: &GitCommandExecutor, repo: &str, request: &UnapplyRequest<'_>, options: &RewriteOptions) -> Result<PreparedUnapply> {
   let grouping = read_grouping_inputs(git_executor, repo)?;
   let ahead = CommitsAhead::read(git_executor, repo)?;
   // the newest commit ahead is HEAD
@@ -94,63 +178,33 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   let commits: Vec<&Commit> = ahead
     .commits
     .iter()
-    .filter(|commit| grouped.groups.get(&commit.id).and_then(Option::as_deref) == Some(branch_name.as_str()))
+    .filter(|commit| grouped.groups.get(&commit.id).and_then(Option::as_deref) == Some(request.branch_name))
     .collect();
   if commits.is_empty() {
-    return Err(UnapplyRefusal::UnknownBranch(branch_name).into());
+    return Err(UnapplyRefusal::UnknownBranch(request.branch_name.to_string()).into());
   }
   let ids: Vec<String> = commits.iter().map(|commit| commit.id.clone()).collect();
-  if let Some(expected) = &original_commit_ids
+  if let Some(expected) = request.original_commit_ids
     && expected.iter().collect::<BTreeSet<_>>() != ids.iter().collect::<BTreeSet<_>>()
   {
-    return Err(UnapplyRefusal::BranchChanged(branch_name).into());
+    return Err(UnapplyRefusal::BranchChanged(request.branch_name.to_string()).into());
   }
-
-  let virtual_ref = format!("refs/heads/{virtual_name}");
-  let tip = built_tip(git_executor, repo, &virtual_name, &ahead.baseline, &commits)?;
+  let tip = built_tip(git_executor, repo, &request.virtual_name, &ahead.baseline, &commits)?;
 
   // fails on conflicts and on local changes on the paths the drop writes, before anything changes
   let plan = check_unapply(git_executor, repo, &ids)?;
-  if let Err(moved) = options.ensure_head(git_executor, repo, plan.head()) {
-    plan.discard(git_executor, repo);
-    return Err(moved.into());
-  }
-
-  let (previous_head, new_head) = (plan.head().to_string(), plan.new_head().to_string());
-  let unapplied_branch_name = {
-    let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
-    let unapplied_branch_name = qualified_branch_name(prefix, BranchKind::Unapplied, &branch_name)
-      .and_then(|name| unique_branch_name(git_executor, repo, &name))
-      .inspect_err(|_| plan.discard(git_executor, repo))?;
-    let unapplied_ref = format!("refs/heads/{unapplied_branch_name}");
-    apply_unapply(
-      git_executor,
-      repo,
-      &plan,
-      &UnappliedMove {
-        virtual_ref: &virtual_ref,
-        unapplied_ref: &unapplied_ref,
-        tip: &tip,
-      },
-    )?;
-    unapplied_branch_name
-  };
-  debug!(unapplied_branch = %unapplied_branch_name, commits_dropped = ids.len(), "Unapplied branch");
-
-  let undo_token = UnapplyUndoToken {
-    previous_head: previous_head.clone(),
-    new_head: new_head.clone(),
+  let named = options
+    .ensure_head(git_executor, repo, plan.head())
+    .map_err(anyhow::Error::new)
+    .and_then(|()| unique_branch_name(git_executor, repo, &request.unapplied_base));
+  let unapplied_branch_name = named.inspect_err(|_| plan.discard(git_executor, repo))?;
+  Ok(PreparedUnapply {
+    plan,
+    ids,
     tip,
-    virtual_branch: virtual_name,
-    unapplied_branch: unapplied_branch_name.clone(),
-  }
-  .to_string();
-  Ok(UnapplyBranchResult {
+    virtual_ref: format!("refs/heads/{}", request.virtual_name),
     unapplied_branch_name,
-    commits_removed: ids,
-    previous_head,
-    new_head,
-    undo_token,
+    issue_groups: grouping.issue_groups.commit,
   })
 }
 
@@ -260,17 +314,20 @@ impl std::fmt::Display for UnapplyUndoToken {
   }
 }
 
-/// Undo an unapply, under the repository lock: HEAD moves back from the token's new head to its previous head with the
-/// files, and the unapplied branch back to the virtual one, in one transaction (`check_unapply_undo`, the trees swapped).
+/// Undo an unapply: HEAD moves back from the token's new head to its previous head with the files, and the unapplied
+/// branch back to the virtual one, in one transaction (`check_unapply_undo`, the trees swapped), checked before the
+/// repository lock, which holds only the witness and the move (`lock_checked_undo`).
 /// `HeadMoved` when HEAD moved on, `NotAnUpdate` when the last move of the branch is not this unapply, `UndoBlocked`
 /// when local changes sit on a path the undo writes; a moved unapplied branch, or a virtual branch of the name that
 /// exists again, fails the transaction and changes nothing. Undoing again is no error: `already_undone`
 #[instrument(skip(git_executor))]
 pub fn undo_unapply_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UnapplyUndoToken, lock_wait: LockWait) -> Result<UndoneUnapply> {
-  let (_lock, undo) = checked_undo(git_executor, repo_path, lock_wait, || {
-    check_unapply_undo(git_executor, repo_path, &token.previous_head, &token.new_head)
+  // the guards, the lock, the mark and the move take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
+  let (undo, _lock) = lock_checked_undo(lock_wait, git_executor, repo_path, |git| {
+    check_unapply_undo(git, repo_path, &token.previous_head, &token.new_head)
   })?;
-  let Some(undo) = undo else {
+  let UndoCheck::Ready(undo) = undo else {
     return Ok(UndoneUnapply { already_undone: true });
   };
   let (virtual_ref, unapplied_ref) = (format!("refs/heads/{}", token.virtual_branch), format!("refs/heads/{}", token.unapplied_branch));
@@ -286,23 +343,4 @@ pub fn undo_unapply_core(git_executor: &GitCommandExecutor, repo_path: &str, tok
   )?;
   info!(branch = %token.virtual_branch, "undid the unapply");
   Ok(UndoneUnapply { already_undone: false })
-}
-
-/// The repository lock, the finish of an interrupted move of the files, then `check` of an undo: the undo to apply,
-/// `None` when it was undone before; local changes on a path it writes are `UndoBlocked`
-pub(crate) fn checked_undo(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  lock_wait: LockWait,
-  check: impl FnOnce() -> Result<UndoCheck>,
-) -> Result<(RepositoryLock, Option<UpdateUndo>)> {
-  // the guards and the lock take the directories read here
-  let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let lock = lock_wait.lock(git_executor, repo_path)?;
-  finish_pending_update(git_executor, repo_path)?;
-  match check()? {
-    UndoCheck::Ready(undo) if !undo.blocked().is_empty() => Err(anyhow::Error::new(UndoBlocked { paths: undo.blocked().to_vec() })),
-    UndoCheck::Ready(undo) => Ok((lock, Some(undo))),
-    UndoCheck::AlreadyUndone { .. } => Ok((lock, None)),
-  }
 }

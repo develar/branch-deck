@@ -79,6 +79,24 @@ fn the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch(
 }
 
 /// The blocks of `path` in `commit`, as `bd commits <commit> --patch` prints them
+/// `bd move-hunk` reads and computes before the repository lock (the commits ahead, the blocks of the file, the history,
+/// the merges, the commits with their notes); under it only the witness of HEAD (`for-each-ref`) and the move of the
+/// branch (C11 of docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test_log::test]
+fn a_move_hunk_locks_only_the_witness_and_the_write() {
+  let (repo, [a, _, b]) = incident();
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, "");
+  let (exit_code, output) = wrapped.run(&["move-hunk", &b, &a, ACP_HOST]);
+  assert_eq!(exit_code, 0, "{output}");
+  let mut under: Vec<String> = wrapped.under_lock().iter().map(|args| bd_cli::fixture_test::subcommand(args).to_string()).collect();
+  under.sort_unstable();
+  under.dedup();
+  assert_eq!(under, ["for-each-ref", "update-ref"], "{:#?}", wrapped.commands());
+  wrapped.assert_before_the_lock("merge-tree");
+  wrapped.assert_before_the_lock("fast-import");
+}
+
 fn patch_blocks(repo: &TestRepo, commit: &str, path: &str) -> Vec<serde_json::Value> {
   let (exit_code, commits) = run_in(repo, &["commits", commit, "--patch"]);
   assert_eq!(exit_code, 0, "{commits}");

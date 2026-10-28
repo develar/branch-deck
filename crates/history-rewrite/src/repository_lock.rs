@@ -12,10 +12,13 @@ use crate::commit_ids::MIN_ID_LENGTH;
 use anyhow::{Context, Result};
 use domain_types::error::{HolderTool, LockHolderInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::{checked_out_branch, git_common_dir, head_and_tips};
+use git_ops::revs::{checked_out_branch, git_common_dir, head_and_tips, with_dirs_of};
+use git_ops::reword_commits::PreparedReword;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::rewrite_plan::PreparedRewrite;
 use git_ops::squash_commits::CheckedRestore;
+use git_ops::unapply::MoveBlocked;
+use git_ops::update_branch::{FilesBlocked, UndoBlocked, UndoCheck, finish_pending_update, pending_mark, pending_update};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
@@ -707,6 +710,20 @@ impl<'a> RewriteOptions<'a> {
     lock_prepared((self.lock_wait, self.held_lock), git_executor, repository_path, prepared, again)
   }
 
+  /// `lock_prepared_move` with the lock of these options
+  ///
+  /// # Errors
+  /// As `lock_prepared_move`
+  pub fn lock_prepared_move<P: Prepared>(
+    &self,
+    git_executor: &GitCommandExecutor,
+    repository_path: &str,
+    prepared: Result<P>,
+    again: impl FnOnce() -> Result<P>,
+  ) -> Result<(P, Option<RepositoryLock>)> {
+    lock_prepared_move((self.lock_wait, self.held_lock), git_executor, repository_path, prepared, again)
+  }
+
   /// `ensure_expected_head` of `expect_head`, the branch read only for the error
   pub fn ensure_head(&self, git_executor: &GitCommandExecutor, repository_path: &str, head: &str) -> Result<(), HeadMoved> {
     ensure_expected_head(self.expect_head.as_deref(), head, || {
@@ -730,36 +747,54 @@ impl<'a> RewriteOptions<'a> {
 /// (`holds`) tells whether what it computed may be written
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Witness {
-  /// HEAD and the branch it was on (`main`); `None` for a rewrite that reads no HEAD
+  /// HEAD and the branch it was on (`main`), `HEAD` for a detached one (git refuses a branch of that name); `None` for
+  /// a rewrite that reads no HEAD
   pub head: Option<(String, String)>,
-  /// `(full ref, its commit then)`, `None` for a ref that did not exist: the stores the rewrite read
-  pub refs: Vec<(&'static str, Option<String>)>,
+  /// `(full ref, its commit then)`, `None` for a ref that did not exist: the stores and the upstream the rewrite read,
+  /// the mark of an interrupted move it assumed absent
+  pub refs: Vec<(String, Option<String>)>,
+  /// `(top level, its witness)` of another worktree the rewrite moves too (the source of a pick that followed), read in
+  /// its own directory: HEAD is a worktree's
+  pub elsewhere: Vec<(String, Self)>,
 }
 
 impl Witness {
-  /// HEAD at `head` on `branch`, and nothing else
+  /// HEAD at `head` on `branch` (`HEAD`: detached), and nothing else
   pub fn of_head(head: &str, branch: &str) -> Self {
     Self {
       head: Some((head.to_string(), branch.to_string())),
-      refs: Vec::new(),
+      ..Self::default()
     }
   }
 
-  /// Whether HEAD, its branch and every ref are still as read: one `for-each-ref` (`head_and_tips`), none for an empty
-  /// witness
+  /// This witness and `name` at `tip` (`None`: absent)
+  #[must_use]
+  pub fn with_ref(mut self, name: &str, tip: Option<&str>) -> Self {
+    self.refs.push((name.to_string(), tip.map(str::to_string)));
+    self
+  }
+
+  /// Whether HEAD, its branch and every ref are still as read: one `for-each-ref` (`head_and_tips`) per worktree, none
+  /// for an empty witness
   ///
   /// # Errors
   /// The refs not read
   pub fn holds(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<bool> {
+    for (top_level, witness) in &self.elsewhere {
+      if !witness.holds(git_executor, top_level)? {
+        return Ok(false);
+      }
+    }
     if self.head.is_none() && self.refs.is_empty() {
       return Ok(true);
     }
-    let names: Vec<&str> = self.refs.iter().map(|(name, _)| *name).collect();
+    let names: Vec<&str> = self.refs.iter().map(|(name, _)| name.as_str()).collect();
     let now = head_and_tips(git_executor, repository_path, &names)?;
     let head_holds = self.head.as_ref().is_none_or(|(head, branch)| {
-      now.head.as_deref() == Some(head.as_str()) && now.head_ref.as_deref().and_then(|name| name.strip_prefix("refs/heads/")) == Some(branch.as_str())
+      let on = now.head_ref.as_deref().map_or(Some("HEAD"), |name| name.strip_prefix("refs/heads/"));
+      now.head.as_deref() == Some(head.as_str()) && on == Some(branch.as_str())
     });
-    Ok(head_holds && self.refs.iter().all(|(name, tip)| now.tips.get(*name) == tip.as_ref()))
+    Ok(head_holds && self.refs.iter().all(|(name, tip)| now.tips.get(name) == tip.as_ref()))
   }
 }
 
@@ -773,16 +808,23 @@ pub trait Prepared {
   fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str);
 }
 
-impl Prepared for PreparedRewrite {
-  /// HEAD at the tip the new commits were computed on, on its branch
-  fn witness(&self) -> Witness {
-    Witness::of_head(self.old_head(), self.branch())
-  }
+/// `Prepared` of a rewrite of git-ops whose new commits sit on temporary refs: its witness is HEAD at the tip they were
+/// computed on (`old_head`), on its branch
+macro_rules! prepared_on_head {
+  ($($prepared:ty),+) => {$(
+    impl Prepared for $prepared {
+      fn witness(&self) -> Witness {
+        Witness::of_head(self.old_head(), self.branch())
+      }
 
-  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
-    Self::discard(self, git_executor, repository_path);
-  }
+      fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+        Self::discard(self, git_executor, repository_path);
+      }
+    }
+  )+};
 }
+
+prepared_on_head!(PreparedRewrite, PreparedReword);
 
 impl Prepared for CheckedRestore {
   /// HEAD at the head the restore moves back from, on its branch
@@ -833,6 +875,137 @@ pub fn lock_prepared<P: Prepared, E: From<anyhow::Error>>(
       Err(error.into())
     }
   }
+}
+
+/// `lock_prepared` of a move that the files follow (an unapply, a reapply, the undo of a move; AGENTS.md, "Repository
+/// lock"): `prepared` was read and computed before the lock, the dry run of the files on a copy of the index included,
+/// on a worktree without the mark of an interrupted move (`git_ops::update_branch::pending_mark`). The witness reads
+/// that mark absent with HEAD and the refs it computed on, in its one `for-each-ref`; a mark there lets the files of
+/// that move follow (`finish_pending_update`), under the lock, before `again` computes once more there, as after any
+/// ref that moved. A refusal by local changes before the lock may be the files of such a move: with the mark they
+/// follow under the lock and `again` runs; without it the refusal is the answer, and no lock is waited for. Under a
+/// lock the caller holds, the files of an interrupted move follow, and one that did computes it again
+///
+/// # Errors
+/// The lock not taken (`RepositoryLocked`, `LockWaitCanceled`), the witness or the mark not read, the files of an
+/// interrupted move that can't follow (`PendingUpdate`), the error of `prepared` or `again`
+pub fn lock_prepared_move<P: Prepared>(
+  (lock_wait, held_lock): (LockWait<'_>, Option<&RepositoryLock>),
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  prepared: Result<P>,
+  again: impl FnOnce() -> Result<P>,
+) -> Result<(P, Option<RepositoryLock>)> {
+  let discard = |prepared: &Result<P>| {
+    if let Ok(prepared) = prepared {
+      prepared.discard(git_executor, repository_path);
+    }
+  };
+  if held_lock.is_some() {
+    return match finish_pending_update(git_executor, repository_path) {
+      Ok(None) => Ok((prepared?, None)),
+      Ok(Some(_)) => {
+        discard(&prepared);
+        Ok((again()?, None))
+      }
+      Err(error) => {
+        discard(&prepared);
+        Err(error)
+      }
+    };
+  }
+  let prepared = match prepared {
+    Ok(prepared) => prepared,
+    Err(error) if refused_by_local_changes(&error) && pending_update(git_executor, repository_path)?.is_some() => {
+      let lock = lock_wait.lock(git_executor, repository_path)?;
+      finish_pending_update(git_executor, repository_path)?;
+      return Ok((again()?, Some(lock)));
+    }
+    Err(error) => return Err(error),
+  };
+  let mark = match pending_mark(git_executor, repository_path) {
+    Ok(mark) => mark,
+    Err(error) => {
+      prepared.discard(git_executor, repository_path);
+      return Err(error);
+    }
+  };
+  let marked = Marked { prepared, mark: &mark };
+  let again = || -> Result<Marked<'_, P>> {
+    finish_pending_update(git_executor, repository_path)?;
+    Ok(Marked { prepared: again()?, mark: &mark })
+  };
+  let (marked, lock) = lock_prepared((lock_wait, None), git_executor, repository_path, marked, again)?;
+  Ok((marked.prepared, lock))
+}
+
+/// The undo of a move that the files follow (an update, a pick, an unapply, a reapply): `check` before the repository
+/// lock, waited for as `lock_wait` says, then under it the witness of HEAD and of the mark of an interrupted move
+/// (`lock_prepared_move`), the check again when one moved. The undo to apply, with the lock to apply it under; one done
+/// before (`UndoCheck::AlreadyUndone`) takes no lock, unless the mark of an interrupted move says its files have not
+/// followed yet: they follow under the lock; local changes on a path it writes are `UndoBlocked`. `check` reads with
+/// the directories of `repository_path` known
+///
+/// # Errors
+/// As `lock_prepared_move`, and the refusals of `check` (`HeadMoved`, `NotAnUpdate`)
+pub fn lock_checked_undo(
+  lock_wait: LockWait<'_>,
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  check: impl Fn(&GitCommandExecutor) -> Result<UndoCheck>,
+) -> Result<(UndoCheck, Option<RepositoryLock>)> {
+  // the guards, the lock and the mark take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repository_path)?;
+  let ready = || match check(git_executor)? {
+    UndoCheck::Ready(undo) if !undo.blocked().is_empty() => Err(anyhow::Error::new(UndoBlocked { paths: undo.blocked().to_vec() })),
+    checked => Ok(checked),
+  };
+  let checked = ready();
+  if matches!(checked, Ok(UndoCheck::AlreadyUndone { .. })) {
+    // undone before: nothing to write and no lock, unless a crash stopped that undo before its files followed
+    if pending_update(git_executor, repository_path)?.is_none() {
+      return Ok((checked?, None));
+    }
+    let lock = lock_wait.lock(git_executor, repository_path)?;
+    finish_pending_update(git_executor, repository_path)?;
+    return Ok((ready()?, Some(lock)));
+  }
+  lock_prepared_move((lock_wait, None), git_executor, repository_path, checked, ready)
+}
+
+impl Prepared for UndoCheck {
+  /// HEAD at the commit the undo moves back from; none for an undo done before, which writes nothing
+  fn witness(&self) -> Witness {
+    match self {
+      Self::Ready(undo) => Witness::of_head(undo.head(), undo.branch()),
+      Self::AlreadyUndone { .. } => Witness::default(),
+    }
+  }
+
+  /// A checked undo writes no object
+  fn discard(&self, _git_executor: &GitCommandExecutor, _repository_path: &str) {}
+}
+
+/// A prepared move and the mark of pending files its witness reads absent
+struct Marked<'a, P> {
+  prepared: P,
+  mark: &'a str,
+}
+
+impl<P: Prepared> Prepared for Marked<'_, P> {
+  fn witness(&self) -> Witness {
+    self.prepared.witness().with_ref(self.mark, None)
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    self.prepared.discard(git_executor, repository_path);
+  }
+}
+
+/// A refusal of a move because local changes sit on paths it writes: of an unapply or a reapply (`MoveBlocked`), of an
+/// undo (`UndoBlocked`), of a pick or an update (`FilesBlocked`)
+fn refused_by_local_changes(error: &anyhow::Error) -> bool {
+  error.downcast_ref::<MoveBlocked>().is_some() || error.downcast_ref::<UndoBlocked>().is_some() || error.downcast_ref::<FilesBlocked>().is_some()
 }
 
 /// Refuse with `HeadMoved` unless `head` (a full id) is `expected`, or starts with it when `expected` is an abbreviated

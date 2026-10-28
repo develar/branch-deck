@@ -2,7 +2,7 @@ use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::{LockSpanGit, hold_the_lock, subcommand};
 use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
-use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote};
+use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
@@ -542,10 +542,7 @@ fn a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack() {
 /// nothing to pick
 #[test_log::test]
 fn a_remote_pick_takes_in_the_commit_someone_pushed_and_the_push_then_drops_nothing() {
-  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
-  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
-  assert_eq!(exit_code, 0, "{output}");
-  let theirs = push_from_elsewhere_to(&remote, AUTH, "Their fix");
+  let (repo, _remote, theirs) = their_fix_on_auth();
 
   let (exit_code, output) = run_in(&repo, &["--full-ids", "pick", "--remote", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -561,6 +558,44 @@ fn a_remote_pick_takes_in_the_commit_someone_pushed_and_the_push_then_drops_noth
   assert_eq!(exit_code, 0, "a push without --force: {output}");
   let (exit_code, output) = run_in(&repo, &["pick", "--remote", "auth"]);
   assert_error(&output, exit_code, (4, "nothing_to_pick"));
+}
+
+/// A remote pick and its undo (the core of the app's Pick Remote Commits and of its undo too) fetch, read and check
+/// before the repository lock: under it only the witness of the pick (`recheck_pick`) or of the undo (`for-each-ref` of
+/// HEAD and the mark of pending files), and the move with the files (C11 of docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test_log::test]
+fn a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move() {
+  let (repo, _remote, _) = their_fix_on_auth();
+  let wrapped = LockSpanGit::new(&repo, "");
+  let locked = |wrapped: &LockSpanGit| {
+    let mut under: Vec<String> = wrapped.under_lock().iter().map(|args| subcommand(args).to_string()).collect();
+    under.sort_unstable();
+    under.dedup();
+    under
+  };
+
+  let (exit_code, output) = wrapped.run(&["--full-ids", "pick", "--remote", "auth"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  wrapped.assert_before_the_lock("fetch");
+  wrapped.assert_before_the_lock("replay");
+  assert_eq!(
+    locked(&wrapped),
+    ["read-tree", "rev-parse", "symbolic-ref", "update-index", "update-ref"],
+    "{:#?}",
+    wrapped.commands()
+  );
+
+  let token = output["undo_token"].as_str().expect("an undo token").to_string();
+  let (exit_code, output) = wrapped.run(&["undo", &token]);
+  assert_eq!(exit_code, 0, "{output}");
+  wrapped.assert_before_the_lock("log");
+  assert_eq!(
+    locked(&wrapped),
+    ["for-each-ref", "read-tree", "symbolic-ref", "update-index", "update-ref"],
+    "{:#?}",
+    wrapped.commands()
+  );
 }
 
 /// The remote moved again since the head the user saw: `--expect-remote` picks nothing

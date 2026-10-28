@@ -236,6 +236,11 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
   [@test] ../../crates/update-core/src/pick_test.rs (`an_undo_token_prints_and_parses_the_target_and_the_worktree_that_followed`)
 - The last entry of each reflog must be that pick, else the undo is refused; a branch that moved on is `undo_stale`.
   [@test] ../../crates/git-ops/src/pick_test.rs (`the_undo_moves_the_target_and_the_detached_source_back`)
+- The checks of both moves must run before the repository lock, which holds only the witness of each worktree (its
+  HEAD and the mark of an interrupted move, read in its own directory) and the moves back; a remote pick fetches and
+  checks before it as every pick. A worktree with such a mark before the check lets its files follow under the lock
+  first.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move`)
 
 ### Error codes
 

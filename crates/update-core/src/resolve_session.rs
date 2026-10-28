@@ -1,5 +1,6 @@
 //! The resolve sessions of `bd update` (docs/design/git-operations.md, "Resolve session"): an update that conflicts
-//! starts a session under the repository lock (`update_project::update_and_resolve`), `bd update --continue` commits
+//! starts a session (`update_project::update_and_resolve`: its first round computed before the repository lock, its
+//! state and session ref written under it), `bd update --continue` commits
 //! one round, `--abort` removes the session, `--status` reads it. The engine and the state are
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
@@ -14,12 +15,10 @@ use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
 use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
-use git_ops::update_branch::UpdatePlan;
 use git_ops::update_resolve::{
-  ConflictKind, EditCopy, LandedInput, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, Session, SessionStart, SessionState, SessionStatus, Side, Stage, Step,
-  abort_session, commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths, start_session,
+  ConflictKind, EditCopy, LandedInput, PreparedStart, RefusalKind, Resolution, ResolveError, RoundConflict, RoundInput, RoundObjects, Session, SessionState, SessionStatus, Side,
+  Stage, Step, abort_session, commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths,
 };
-use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{RepositoryLock, lock_repository};
 use history_rewrite::snapshot::read_grouping_inputs;
@@ -243,8 +242,7 @@ fn view_state(
   };
   let patch = round_dir(&root, state.round).join(PATCH_FILE);
   if let Some(materialize) = materialize {
-    let content = commit_patch(git_executor, repo_path, &conflict.commit)?;
-    write_round(&root, state, objects, &content, materialize)?;
+    materialize_round(git_executor, repo_path, state, conflict, objects, materialize)?;
   }
   let mut upstream = round_upstream_commits(git_executor, repo_path, state).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't list the upstream commits of the conflicting files");
@@ -306,6 +304,36 @@ fn view_state(
     dropped_count,
     landed_differs,
   })
+}
+
+/// The copies of the round of `conflict` that `materialize` asks for, with the patch of its commit
+fn materialize_round(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  state: &SessionState,
+  conflict: &RoundConflict,
+  objects: &RoundObjects,
+  materialize: Materialize,
+) -> Result<()> {
+  let content = commit_patch(git_executor, repo_path, &conflict.commit)?;
+  write_round(&session_root(state), state, objects, &content, materialize)
+}
+
+/// The copies of the open round of `session`, all of them: what a step that opens a round writes under the lock, before
+/// its view is read without it
+fn write_copies(git_executor: &GitCommandExecutor, repo_path: &str, session: &Session) -> Result<()> {
+  let state = session.state();
+  let Some(conflict) = &state.conflict else {
+    return Ok(());
+  };
+  let read;
+  let objects = if let Some(objects) = session.round_objects() {
+    objects
+  } else {
+    read = read_round_objects(git_executor, repo_path, conflict)?;
+    &read
+  };
+  materialize_round(git_executor, repo_path, state, conflict, objects, Materialize::All)
 }
 
 /// The subject of each of `ids` by id, from one `log --no-walk`; empty when git can't read them: a subject is only shown
@@ -429,32 +457,20 @@ pub(crate) fn with_subjects(git_executor: &GitCommandExecutor, repo_path: &str, 
     .collect()
 }
 
-/// Start the session of an update whose check conflicted, under the lock the update holds and passes as `lock`, which a
-/// session that finishes at once releases before its landed report. The session replays the check's `ReplayPlan`;
-/// `resolve` is the resolve by words of the check
-#[expect(clippy::too_many_arguments, reason = "what the update read under its lock, passed on")]
+/// Start the session of an update whose check conflicted from its first round, which the update computed before the
+/// repository lock (`prepare_session_start`): under the lock the update holds and passes as `lock`, after its witness,
+/// the state and the session ref, and the copies of the round. A session that finishes at once releases the lock before
+/// its landed report
 pub(crate) fn start_resolve(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
-  worktree: &Worktree,
-  plan: &UpdatePlan,
+  start: PreparedStart,
   grouping: &GroupingInputs,
   dir: Option<(String, bool)>,
-  resolve: ResolveMode,
   lock: RepositoryLock,
 ) -> Result<SessionOutcome> {
   let (dir, dir_created) = dir.map_or((None, false), |(dir, created)| (Some(dir), created));
-  let step = start_session(
-    git_executor,
-    repo_path,
-    SessionStart {
-      plan,
-      worktree,
-      dir,
-      dir_created,
-      resolve,
-    },
-  )?;
+  let step = start.start(git_executor, repo_path, dir, dir_created)?;
   outcome(git_executor, repo_path, step, None, Some(grouping), Some(lock), ViewDetail::Full)
 }
 
@@ -537,9 +553,9 @@ fn explain_refusal(git_executor: &GitCommandExecutor, repo_path: &str, state: &S
   anyhow::Error::new(ResolveError::Refused(refusal))
 }
 
-/// The outcome of a step: the copies of a new round are written and those of the closed one removed, under `lock`. A
-/// finished session removes its copies, then releases it: the update is done, and what it landed is a report, read
-/// without the lock. `detail` is that of the view of an open round
+/// The outcome of a step: the copies of a new round are written and those of the closed one removed, under `lock`,
+/// which is released before the view is read. A finished session removes its copies, then releases it: the update is
+/// done, and what it landed is a report, read without the lock. `detail` is that of the view of an open round
 fn outcome(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -560,11 +576,15 @@ fn outcome(
   match step {
     Step::Round(session) => {
       closed(session.state());
-      let view = view_session(git_executor, repo_path, &session, Some(Materialize::All), detail)?;
+      // the copies go under the lock; what the output shows of them is read after it
+      write_copies(git_executor, repo_path, &session)?;
+      drop(lock);
+      let view = view_session(git_executor, repo_path, &session, None, detail)?;
       Ok(SessionOutcome::Round(view))
     }
     Step::Blocked { session, paths } => {
       closed(session.state());
+      drop(lock);
       Ok(SessionOutcome::Blocked {
         view: view_session(git_executor, repo_path, &session, None, detail)?,
         paths,

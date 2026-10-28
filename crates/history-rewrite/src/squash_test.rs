@@ -130,11 +130,7 @@ fn a_squash_locks_only_the_witness_and_the_write() {
   let result = squash_commits_core(span.executor(), &params, &options).unwrap();
   assert_eq!(subjects(&test_repo), "Add c\nAdd a and b\nInitial");
   assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-ref"], "{:#?}", span.commands());
-  let before = span.commands_before_the_lock();
-  assert!(
-    before.iter().any(|command| command == "replay") && before.iter().any(|command| command == "fast-import"),
-    "{before:?}"
-  );
+  span.assert_before_the_lock(&["replay", "fast-import"]);
 
   let span = test_utils::lock_span::LockSpan::new(&test_repo.path().join(".git"));
   let undo = RestoreBranchHeadParams {

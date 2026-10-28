@@ -390,15 +390,18 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
     NTFS/HFS+ alias of `.git`); regular files only, bytes as git stores them without filters, never read, written or
     deleted through a symlink, every write a temporary file plus a rename; delete only the files bd wrote, only in a
     directory whose marker names this git dir ([Resolve session](docs/design/git-operations.md#resolve-session)).
-- **Repository lock**: every rewrite of the checked-out branch takes it in its core. The regroup (`regroup.rs`: the
-  move, rename, restack, unstack and the conflict fix, also `bd group`, `bd reword` and the app's reword through
-  `reword.rs`) and its undo, park and unpark, the app's squash and its undo and squash fixups (also `bd fold`) read and
-  compute before it, on the oids they read once (the snapshot or the history, merge-tree, replay, the `fast-import` of
-  the new objects on temporary refs), and hold it only for the witness of those refs and the CAS write
-  (`lock_prepared`: HEAD, its branch and the store tips in one `for-each-ref`; a write of the stores alone has the
-  compare-and-swap of its transaction as its witness); a ref that moved meanwhile computes the rewrite once more under
-  the lock, where another HEAD than `expect_head` is `HeadMoved`. Amend, unapply, reapply, add issue reference and the
-  move of a hunk still take it before they read anything. All through their options (`RewriteOptions`: `held_lock`,
+- **Repository lock**: every rewrite of the checked-out branch takes it in its core, only for the witness and the
+  write. The regroup (`regroup.rs`: the move, rename, restack, unstack and the conflict fix, also `bd group`,
+  `bd reword` and the app's reword through `reword.rs`) and its undo, park and unpark, the app's squash and its undo,
+  squash fixups (also `bd fold`), amend, add issue reference, the move of a hunk (`bd move-hunk`), unapply, reapply,
+  the undo of an update, of a pick, of an unapply and of a reapply read and compute before it, on the oids they read
+  once (the snapshot or the history, merge-tree, replay, the dry run of the files on a copy of the index, the
+  `fast-import` of the new objects on temporary refs), and hold it only for the witness of those refs and the CAS
+  write (`lock_prepared`: HEAD, its branch and the refs they computed on in one `for-each-ref`; a move that the files
+  follow reads the mark of an interrupted move with them and lets those files follow first, `lock_prepared_move`,
+  `lock_checked_undo`; a write of the stores alone has the compare-and-swap of its transaction as its witness); a ref
+  that moved meanwhile computes the rewrite once more under the lock, where another HEAD than `expect_head` is
+  `HeadMoved`. All through their options (`RewriteOptions`: `held_lock`,
   `lock_wait`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push` and
   `bd safe-push` (only their sync, then again the witness of their refs and the freeze of their push in the engine,
   `operations::land_execute`; the reads of the remote, the trial, the retargets, the cancel, the network push and the
@@ -410,7 +413,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   with the app's other pushes; only a push of the same remote ref waits, in the registry),
   `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`: after the fetch and the check, for the witness, the local changes and
-  the move, also when it starts a resolve session; the landed report after the release), `bd pick` (after its check:
+  the move; a conflict that starts a resolve session computes its first round before the lock too and holds it for the
+  witness, the state with the session ref and the copies of the round; the landed report after the release), `bd pick` (after its check:
   the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
   (`bd`: `LockWait::Bounded`, then `locked`; the app's rewrites, pushes and Update Project: `LockWait::WhileHeld`, as
@@ -442,7 +446,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   (`sync_utils::operation_tally`), its id the `operation_id` of its log lines and of the JSON of `bd`; the same module
   writes the journal of the page in the app data directory (`record_page`, under `journal.lock`) and empties both for
   Clear Log (`clear`); Activity reads them, no window keeps a log ([Journal](docs/design/git-operations.md#journal)).
-- **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
+- **Guards** (`History::check_rewrite`, `check_rewrite_range`, `check_rewrite_on`) before rewriting the checked-out
+  branch, with the rest of the computation before the repository lock, whose witness checks what they read: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
   A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done
   history would archive the branches it lacks.

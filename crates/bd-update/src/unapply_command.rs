@@ -1,15 +1,15 @@
 //! `bd unapply`, `bd reapply` and their `bd undo`: the commits of a virtual branch and their files out of the branch
 //! checked out here, the branch kept as `{prefix}/unapplied/<name>`, and back on top (spec/branch/unapply.spec.md). The core
-//! (`sync_core::unapply_branch`) takes the repository lock, checks that the virtual branch is the copies of its commits,
-//! and moves HEAD through the guarded working-tree update; local changes on the paths it writes change nothing. Each is
-//! recorded in the operations registry of the repository before the lock (`bd_core::operation_record`)
+//! (`sync_core::unapply_branch`) checks that the virtual branch is the copies of its commits and computes the move before
+//! the repository lock, then takes the lock for the witness and the move through the guarded working-tree update; local
+//! changes on the paths it writes change nothing. Each is recorded in the operations registry of the repository before
+//! the lock (`bd_core::operation_record`)
 
 use crate::update_command::{core_error, undo_core_error};
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::operation_record::{asked_on, recorded, recorded_unless};
 use bd_core::output::SchemaVersion;
-use bd_core::sync_command::lock;
 use domain_types::error::ErrorCode;
 use domain_types::operation::Intent;
 use domain_types::rewrite::{RewriteIntent, UndoneReapply, UndoneUnapply};
@@ -57,11 +57,10 @@ pub fn unapply(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutpu
 
 /// `unapply` once recorded
 fn unapplied(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutput, CliError> {
-  let held = lock(context)?;
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
     lock_wait: LockWait::Bounded(context.lock_timeout),
-    held_lock: Some(&held),
+    held_lock: None,
   };
   let params = UnapplyBranchParams {
     repository_path: context.repository.clone(),
@@ -174,11 +173,10 @@ pub fn reapply(context: &RepoContext, args: &ReapplyArgs) -> Result<ReapplyOutpu
 
 /// `reapply`, recorded unless a dry run
 fn reapplied(context: &RepoContext, args: &ReapplyArgs) -> Result<ReapplyOutput, CliError> {
-  let held = if args.dry_run { None } else { Some(lock(context)?) };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
     lock_wait: LockWait::Bounded(context.lock_timeout),
-    held_lock: held.as_ref(),
+    held_lock: None,
   };
   let params = ReapplyBranchParams {
     repository_path: context.repository.clone(),

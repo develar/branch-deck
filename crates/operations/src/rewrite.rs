@@ -652,7 +652,7 @@ impl Core {
           original_commit_id: original_commit_id.clone(),
           files: files.clone(),
         };
-        let result = amend_uncommitted_to_branch_core(git, params, &options).map_err(|error| failed(anyhow::anyhow!(error)))?;
+        let result = amend_uncommitted_to_branch_core(git, params, &options).map_err(failed)?;
         Ran::of(RewriteResult::Amended(result), UndoKind::Regroup, None)
       }
       RewriteIntent::AddIssueReference {
@@ -667,7 +667,7 @@ impl Core {
           commits: commits.clone(),
           issue_reference: issue_reference.clone(),
         };
-        let result = add_issue_reference_to_commits_core(git, params, &options).map_err(|error| failed(anyhow::anyhow!(error)))?;
+        let result = add_issue_reference_to_commits_core(git, params, &options).map_err(failed)?;
         Ran::of(RewriteResult::IssueReferenceAdded(result), UndoKind::Regroup, None)
       }
       RewriteIntent::ApplyConflictFix { fingerprint, plan, .. } => {

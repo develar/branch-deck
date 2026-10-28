@@ -417,12 +417,13 @@ fn an_amend() {
     &[
       ("cat-file", 1),
       ("fast-import", 1),
+      ("for-each-ref", 1), // the witness of HEAD under the lock
       ("log", 1),
       ("merge-tree", 1),
       ("read-tree", 1),
       ("replay", 1),
-      ("rev-parse", 3), // the directories, read once for the lock and the guards: 1; HEAD and its branch: 1
-      ("update-index", 3),
+      ("rev-parse", 3),    // the directories, read once for the lock and the guards: 1; HEAD and its branch: 1
+      ("update-index", 2), // the files into the temporary index, then into the user's: they need no refresh
       ("update-ref", 1),
       ("var", 1),
       ("write-tree", 1),
@@ -446,9 +447,10 @@ fn unapply_beta(git: &GitCommandExecutor, repo: &TestRepo, commits: &[String]) -
 }
 
 /// The commits of beta dropped from the checked out branch with their files, its virtual branch kept as an unapplied one:
-/// the lock and the mark of pending files, the grouping inputs and the commits ahead, the build of the virtual branch
-/// (its tip, its stack note, its own commits), the drop (`git replay` per kept run), the dry run of the files, the free
-/// name, and the move with its mark (`update-ref`, `read-tree`)
+/// before the lock the grouping inputs and the commits ahead, the build of the virtual branch (its tip, its stack note,
+/// its own commits), the drop (`git replay` per kept run), the dry run of the files and the free name; under it the
+/// witness (`for-each-ref` of HEAD, the issue groups, both branches and the mark of pending files) and the move with its
+/// mark (`update-ref`, `read-tree`)
 #[tokio::test]
 async fn a_drop() {
   let (repo, commits) = alpha_and_beta_on_origin();
@@ -461,14 +463,14 @@ async fn a_drop() {
       ("cat-file", 1),
       ("config", 1),
       ("diff-tree", 1),
-      ("for-each-ref", 3),
+      ("for-each-ref", 4),
       ("log", 3),
       ("merge-base", 1),
       ("read-tree", 2),
       ("remote", 1),
       ("replay", 2),
       ("rev-list", 1),
-      ("rev-parse", 5), // the directories, read once for the lock, the guards and the index: 1
+      ("rev-parse", 4), // the directories, read once for the lock, the guards, the mark and the index: 1
       ("symbolic-ref", 3),
       ("update-index", 3),
       ("update-ref", 2),
@@ -476,14 +478,15 @@ async fn a_drop() {
   );
 }
 
-/// The undo of an unapply or of a reapply: the directories, read once for the lock, the guards and the marks
-/// (`rev-parse`: 1), the mark of pending files, the guards and the last two moves of the branch in its reflog, the dry
-/// run of the files, and the move back with its mark
+/// The undo of an unapply or of a reapply: the directories, read once for the guards, the lock, the mark and the move
+/// (`rev-parse`: 1), the guards and the last two moves of the branch in its reflog and the dry run of the files before
+/// the lock, under it the witness (`for-each-ref` of HEAD and the mark of pending files) and the move back with its mark
 const UNDO_OF_A_MOVE: &[(&str, u32)] = &[
   ("diff-tree", 1),
+  ("for-each-ref", 1),
   ("log", 1),
   ("read-tree", 2),
-  ("rev-parse", 7),
+  ("rev-parse", 3),
   ("symbolic-ref", 3),
   ("update-index", 3),
   ("update-ref", 2),
@@ -502,9 +505,10 @@ async fn an_undo_of_an_unapply() {
   assert_processes(&git, UNDO_OF_A_MOVE);
 }
 
-/// The reapply of beta after its unapply: the lock and the mark of pending files, the unapplied branch with its worktree,
-/// the baseline, the start of its own commits, the grouping inputs, the restored messages (one `fast-import`), the pick
-/// (the range with the patch id marks, one `replay`, the copies, the dry run of the files) and the move with its mark
+/// The reapply of beta after its unapply: before the lock the unapplied branch with its worktree, the baseline, the
+/// start of its own commits, the grouping inputs, the restored messages (one `fast-import`) and the pick (the range with
+/// the patch id marks, one `replay`, the copies, the dry run of the files); under it the witness (`for-each-ref` of
+/// HEAD, the upstream, the issue groups, the unapplied branch and the mark of pending files) and the move with its mark
 #[tokio::test]
 async fn a_reapply() {
   let (repo, commits) = alpha_and_beta_on_origin();
@@ -519,14 +523,14 @@ async fn a_reapply() {
       ("config", 1),
       ("diff-tree", 1),
       ("fast-import", 1),
-      ("for-each-ref", 2),
+      ("for-each-ref", 3),
       ("log", 4),
       ("merge-base", 1),
       ("read-tree", 2),
       ("remote", 1),
       ("replay", 1),
       ("rev-list", 2),
-      ("rev-parse", 5), // the directories, read once for the lock, the guards and the index: 1
+      ("rev-parse", 4), // the directories, read once for the lock, the guards, the mark and the index: 1
       ("symbolic-ref", 4),
       ("update-index", 3),
       ("update-ref", 2),

@@ -100,7 +100,8 @@ The header shows whether an update would apply cleanly, from a check that every 
     for it replays one run of commits at a time, and each probe of its binary search starts from the longest clean
     prefix, so a run of n commits costs about n replayed commits, not ⌈log₂ n⌉ × n/2. With the resolve by words on, it
     is the commit where that replay stopped. A resolve session opens its first round at that commit, without a
-    search of its own;
+    search of its own; the search and that round run before the repository lock, which holds only the witness, the
+    state of the session and the copies of the round;
   - blocked, with the local paths that overlap the update (the first 100, and the count of all): uncommitted or
     staged changes on a file the upstream changes, an untracked file where it adds one, an ignored file where it adds
     one.
@@ -108,6 +109,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/git-ops/src/replay_test.rs (`each_probe_starts_from_the_longest_clean_prefix`, `the_runs_replay_until_the_first_that_conflicts`)
   [@test] ../../crates/git-ops/src/word_replay_test.rs (`a_commit_whose_words_conflict_too_stops_the_replay`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`the_first_conflict_is_found_with_a_binary_search`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`dirty_touched_path_blocks_and_changes_nothing`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`staged_touched_path_blocks`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`untracked_file_that_upstream_adds_blocks`)
@@ -248,9 +250,11 @@ The header shows whether an update would apply cleanly, from a check that every 
 ### Undo
 
 - `bd undo update:<previous head>..<new head>` must move the branch back and let the files follow through the same
-  guarded two-way update with the trees swapped, under the repository lock (`branch-deck: undo update`); local changes
-  on the other paths stay.
+  guarded two-way update with the trees swapped (`branch-deck: undo update`); local changes on the other paths stay.
+  Its check (the guards, the reflog, the dry run of the files) runs before the repository lock, which holds only the
+  witness of HEAD and of the mark of an interrupted move, and the move back; the landed report after it.
   [@test] ../../crates/update-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`the_undo_of_an_update_locks_only_the_witness_and_the_move`)
 - It must refuse, changing nothing, when local changes sit on a path it writes, an ignored file where a file that the
   update deleted comes back included, and when the branch moved since the update.
   [@test] ../../crates/update-core/src/update_project_test.rs (`undo_is_refused_when_local_changes_overlap`)
@@ -260,7 +264,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/update-core/src/update_project_test.rs (`the_undo_recovers_an_update_killed_before_the_files_followed`)
 - The move must create the mark `refs/branch-deck/update-pending/<worktree id>` in its ref transaction, and delete it
   once the files followed. With the mark left by a killed process, the next update or undo, the app's included, must
-  let the files follow first, or change nothing with `finish_pending` when the branch moved since.
+  let the files follow first, under the lock, or change nothing with `finish_pending` when the branch moved since; an
+  undo whose own run was killed finds itself done and lets the files follow before it answers `already_undone`.
   [@test] ../../crates/bd-update/src/update_test.rs (`an_update_killed_before_its_files_followed_is_finished_by_the_next_update`, `an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo`, `an_interrupted_update_of_a_branch_that_moved_since_is_reported`)
 - The outcome of the app's update carries the same token (`Outcome.undo`, `UndoKind::Update`), whose undo the engine
   runs with the core's short lock (`Rewrite(Undo)`).

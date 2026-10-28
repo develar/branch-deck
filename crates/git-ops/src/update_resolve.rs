@@ -718,7 +718,7 @@ fn read_batch(git_executor: &GitCommandExecutor, repo_path: &str, names: &[Strin
   })
 }
 
-/// What a new session starts from: the update check that conflicted, under the repository lock
+/// What a new session starts from: the update check that conflicted
 #[derive(Debug, Clone)]
 pub struct SessionStart<'a> {
   /// The check before an apply (`CheckPurpose::Apply`) that conflicted: the session replays what it read, so no caller
@@ -732,23 +732,85 @@ pub struct SessionStart<'a> {
   pub resolve: ResolveMode,
 }
 
-/// Start the session of the current worktree for an update whose replay conflicts: the session replays the local commits
-/// of the check's `ReplayPlan`, without the commits it left out, so it pairs nothing again. Its first round opens at the
-/// first conflict the check found (`ReplayPlan::first_conflict`), after one replay per run of the commits before it,
-/// and is stored in a new session ref. Nothing else moves. With `ResolveMode::On`, a conflicting
-/// commit that its words resolve is a round that resolves itself (`advance`). `Unsupported` when the first conflict
-/// can't be resolved in a round; then nothing is written but git objects
+/// Start the session of the current worktree for an update whose replay conflicts: `prepare_session_start`, then
+/// `PreparedStart::start`, with nothing between
 #[instrument(skip(git_executor, start), fields(branch = start.plan.checked.branch))]
 pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: SessionStart<'_>) -> Result<Step> {
-  if !start.plan.is_applicable_conflict() {
+  prepare_session_start(git_executor, repo_path, start.plan, start.worktree, start.resolve)?.start(git_executor, repo_path, start.dir, start.dir_created)
+}
+
+/// The first round of a new session, computed and its objects written, while no ref names it yet: `start` writes its
+/// state and creates the session ref, `discard` abandons it
+#[derive(Debug)]
+pub struct PreparedStart {
+  state: SessionState,
+  objects: Option<RoundObjects>,
+  /// The temporary refs of the commits that the words resolved, deleted in the transaction of `start`
+  words_refs: Vec<ResolvedRef>,
+}
+
+impl PreparedStart {
+  /// Write the state of the session, with the directory of its copies (`dir`, which bd created when `dir_created`),
+  /// and create its session ref in one transaction that deletes the temporary refs; a ref of the worktree's session
+  /// that exists already fails it, and nothing changes. A session that is ready at once finishes there: the update
+  /// moves the branch (`finish`)
+  ///
+  /// # Errors
+  /// The state not written, the transaction refused, the finish failed
+  pub fn start(self, git_executor: &GitCommandExecutor, repo_path: &str, dir: Option<String>, dir_created: bool) -> Result<Step> {
+    let Self { mut state, objects, words_refs } = self;
+    state.dir = dir;
+    state.dir_created = dir_created;
+    let session_ref = session_ref(&state.worktree);
+    let written = match write_state(git_executor, repo_path, &state, None) {
+      Ok(written) => written,
+      Err(e) => {
+        discard(git_executor, repo_path, None, &words_refs);
+        return Err(e);
+      }
+    };
+    let mut transaction = RefTransaction::new();
+    transaction.create(&session_ref, &written.ids[0]);
+    written.delete_temp_refs(&mut transaction);
+    for resolved_ref in &words_refs {
+      resolved_ref.delete(&mut transaction);
+    }
+    if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
+      discard(git_executor, repo_path, Some(&written), &words_refs);
+      return Err(e);
+    }
+    info!(round = state.round, replayed = state.replayed, total = state.total(), "started a resolve session");
+    let mut session = Session::new(session_ref, written.ids[0].clone(), state);
+    if session.state.status == SessionStatus::Resolving {
+      session.objects = objects;
+      return Ok(Step::Round(session));
+    }
+    let Session { ref_name, commit, state, .. } = session;
+    finish(git_executor, repo_path, &ref_name, &commit, state, false, &[])
+  }
+
+  /// Abandon the start: delete the temporary refs of the commits the words resolved, leaving the objects to `git gc`
+  pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    discard(git_executor, repo_path, None, &self.words_refs);
+  }
+}
+
+/// The first round of the session of `worktree` for an update whose replay conflicts, before the repository lock: the
+/// session replays the local commits of the check's `ReplayPlan`, without the commits it left out, so it pairs nothing
+/// again. Its first round opens at the first conflict the check found (`ReplayPlan::first_conflict`), after one replay
+/// per run of the commits before it; with `ResolveMode::On`, a conflicting commit that its words resolve is a round
+/// that resolves itself (`advance`). Only objects are written, and the temporary refs of the resolved commits.
+/// `Unsupported` when the first conflict can't be resolved in a round
+#[instrument(skip(git_executor, plan, worktree), fields(branch = plan.checked.branch))]
+pub fn prepare_session_start(git_executor: &GitCommandExecutor, repo_path: &str, plan: &UpdatePlan, worktree: &Worktree, resolve: ResolveMode) -> Result<PreparedStart> {
+  if !plan.is_applicable_conflict() {
     bail!("A resolve session starts only from the check of an update that conflicts");
   }
-  let checked = &start.plan.checked;
-  let excluded = start.plan.excluded();
-  let replay = start.plan.replay_plan().ok_or_else(|| anyhow!("The check of a conflicting update has no replay plan"))?;
+  let checked = &plan.checked;
+  let excluded = plan.excluded();
+  let replay = plan.replay_plan().ok_or_else(|| anyhow!("The check of a conflicting update has no replay plan"))?;
   sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
   let committer = current_committer(git_executor, repo_path)?;
-  let worktree = start.worktree;
   let mut state = SessionState {
     version: STATE_VERSION,
     worktree: worktree.id.clone(),
@@ -760,8 +822,8 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     upstream_head: checked.upstream_head.clone(),
     excluded: excluded.to_vec(),
     committer,
-    dir: start.dir,
-    dir_created: start.dir_created,
+    dir: None,
+    dir_created: false,
     started_head: checked.head.clone(),
     head: checked.head.clone(),
     local: replay.local.clone(),
@@ -781,33 +843,8 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     info!(left_out = state.landed_dropped.len(), "local commits the upstream proves it has are left out");
   }
   // the round of the check's first conflict opens without a search
-  let (objects, words_refs) = advance(git_executor, repo_path, &mut state, replay.first_conflict, start.resolve)?;
-  let session_ref = session_ref(&worktree.id);
-  let written = match write_state(git_executor, repo_path, &state, None) {
-    Ok(written) => written,
-    Err(e) => {
-      discard(git_executor, repo_path, None, &words_refs);
-      return Err(e);
-    }
-  };
-  let mut transaction = RefTransaction::new();
-  transaction.create(&session_ref, &written.ids[0]);
-  written.delete_temp_refs(&mut transaction);
-  for resolved_ref in &words_refs {
-    resolved_ref.delete(&mut transaction);
-  }
-  if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
-    discard(git_executor, repo_path, Some(&written), &words_refs);
-    return Err(e);
-  }
-  info!(round = state.round, replayed = state.replayed, total = state.total(), "started a resolve session");
-  let mut session = Session::new(session_ref, written.ids[0].clone(), state);
-  if session.state.status == SessionStatus::Resolving {
-    session.objects = objects;
-    return Ok(Step::Round(session));
-  }
-  let Session { ref_name, commit, state, .. } = session;
-  finish(git_executor, repo_path, &ref_name, &commit, state, false, &[])
+  let (objects, words_refs) = advance(git_executor, repo_path, &mut state, replay.first_conflict, resolve)?;
+  Ok(PreparedStart { state, objects, words_refs })
 }
 
 /// The resolution of one conflicting path, as the caller read it

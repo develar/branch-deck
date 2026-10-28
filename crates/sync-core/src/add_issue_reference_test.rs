@@ -23,7 +23,7 @@ fn add_issue_reference(test_repo: &TestRepo, branch_name: &str, commits: Vec<Com
     commits,
     issue_reference: issue_reference.to_string(),
   };
-  add_issue_reference_to_commits_core(test_repo.git_executor(), params, &RewriteOptions::default())
+  add_issue_reference_to_commits_core(test_repo.git_executor(), params, &RewriteOptions::default()).map_err(|error| format!("{error:#}"))
 }
 
 #[tokio::test]

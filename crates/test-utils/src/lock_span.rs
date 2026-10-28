@@ -85,6 +85,17 @@ impl LockSpan {
     commands[..first].iter().map(|(_, args)| subcommand(args)).collect()
   }
 
+  /// Asserts that each of `subcommands` started before the first command under the lock: what a core computes before it
+  ///
+  /// # Panics
+  /// When one did not
+  pub fn assert_before_the_lock(&self, subcommands: &[&str]) {
+    let before = self.commands_before_the_lock();
+    for subcommand in subcommands {
+      assert!(before.iter().any(|command| command == subcommand), "{subcommand} before the lock: {:#?}", self.commands());
+    }
+  }
+
   /// The subcommands that started after the last command under the lock, in order
   #[must_use]
   pub fn commands_after_the_lock(&self) -> Vec<String> {

@@ -11,12 +11,13 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::LandedDrop;
 use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
-  CheckPurpose, LandedLookup, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
+  CheckPurpose, LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
   check_update_undo, finish_pending_update, pending_update, recheck_update,
 };
+use git_ops::update_resolve::{PreparedStart, prepare_session_start};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::repository_lock::{LockWait, lock_repository};
+use history_rewrite::repository_lock::{LockWait, lock_checked_undo};
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::{BaselineUpstream, fetch_baseline, last_fetch_time, read_check_inputs};
@@ -216,22 +217,33 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       dropped: Vec::new(),
     });
   }
-  let lock = options.lock_wait.lock_with(git_executor, repo_path, &|| on_progress(UpdatePhase::Waiting.into()))?;
-  // an update or undo that a crash stopped before its files followed: they follow first
-  let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
-  if recovered || !recheck_update(git_executor, repo_path, &mut prepared.plan, upstream_ref)? {
+  // a conflict that starts a session: its first round (the replays up to the conflict the check found, the merge, the
+  // words) is computed before the lock too
+  let mut start = session_start(git_executor, repo_path, &prepared, resolve)?;
+  let locked = (|| -> Result<_> {
+    let lock = options.lock_wait.lock_with(git_executor, repo_path, &|| on_progress(UpdatePhase::Waiting.into()))?;
+    // an update or undo that a crash stopped before its files followed: they follow first
+    let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
+    let holds = !recovered && recheck_update(git_executor, repo_path, &mut prepared.plan, upstream_ref)?;
+    Ok((lock, recovered, holds))
+  })();
+  let (lock, recovered, holds) = locked.inspect_err(|_| discard_start(git_executor, repo_path, start.as_ref()))?;
+  if !holds {
     // HEAD or the upstream moved during the check: once more, under the lock now, so it can't move again. The step is
     // the check again, no longer the wait for another operation
     info!(recovered, "the update is checked again under the lock");
+    discard_start(git_executor, repo_path, start.take().as_ref());
     on_progress(UpdatePhase::Checking.into());
     prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::Held)?;
+    start = session_start(git_executor, repo_path, &prepared, resolve)?;
   }
-  let Prepared { grouping, resolve_mode, mut plan } = prepared;
+  let Prepared { grouping, mut plan, .. } = prepared;
   plan.check.fetched_at = fetched_at;
 
-  if let (UpdateState::Conflict { .. }, Resolve::Yes { dir, worktree }) = (&plan.check.state, resolve) {
-    let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose()?;
-    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, dir, resolve_mode, lock)?;
+  if let (Some(start), Resolve::Yes { dir, worktree }) = (start, resolve) {
+    let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose();
+    let dir = dir.inspect_err(|_| start.discard(git_executor, repo_path))?;
+    let outcome = start_resolve(git_executor, repo_path, start, &grouping, dir, lock)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
   let moved = match &plan.check.state {
@@ -272,6 +284,22 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     }),
     dropped,
   })
+}
+
+/// The first round of the resolve session that the conflicting check of `prepared` starts (`Resolve::Yes`); `None` for
+/// any other check
+fn session_start(git_executor: &GitCommandExecutor, repo_path: &str, prepared: &Prepared, resolve: Resolve<'_>) -> Result<Option<PreparedStart>> {
+  match (&prepared.plan.check.state, resolve) {
+    (UpdateState::Conflict { .. }, Resolve::Yes { worktree, .. }) => prepare_session_start(git_executor, repo_path, &prepared.plan, worktree, prepared.resolve_mode).map(Some),
+    _ => Ok(None),
+  }
+}
+
+/// Abandon the first round of a session that will not start from it
+fn discard_start(git_executor: &GitCommandExecutor, repo_path: &str, start: Option<&PreparedStart>) {
+  if let Some(start) = start {
+    start.discard(git_executor, repo_path);
+  }
 }
 
 /// The local branch `branch` as the upstream of an update onto it (`UpdateOptions::onto`); no remote, never fetched
@@ -422,17 +450,21 @@ pub struct UndoneUpdate {
   pub already_undone: bool,
 }
 
-/// Undo an applied update, under the repository lock: the branch moves back from the token's new head to its previous
-/// head, and the files follow through the same guarded update, with the trees swapped (`check_update_undo`). Refused
-/// with `HeadMoved` when the branch moved (`BranchSwitched` when HEAD switched), `NotAnUpdate` when the last move of
-/// the branch is not this update, and `UndoBlocked` when local changes sit on a path the undo writes. The landed report
-/// goes back to the one before the update. Undoing again is no error: `already_undone`, nothing changes
+/// Undo an applied update: the branch moves back from the token's new head to its previous head, and the files follow
+/// through the same guarded update, with the trees swapped (`check_update_undo`). The check comes before the repository
+/// lock, which holds only the witness of HEAD and of the mark of an interrupted move, and the move back
+/// (`lock_checked_undo`). Refused with `HeadMoved` when the branch moved (`BranchSwitched` when HEAD switched),
+/// `NotAnUpdate` when the last move of the branch is not this update, and `UndoBlocked` when local changes sit on a path
+/// the undo writes. The landed report goes back to the one before the update, after the lock. Undoing again is no
+/// error: `already_undone`, nothing changes
 #[instrument(skip(git_executor))]
 pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UpdateUndoToken, lock_timeout: Duration) -> Result<UndoneUpdate> {
+  // the guards, the lock, the mark and the move take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
-  finish_pending_update(git_executor, repo_path)?;
-  let undo = match check_update_undo(git_executor, repo_path, &token.previous_head, &token.new_head)? {
+  let (checked, lock) = lock_checked_undo(LockWait::Bounded(lock_timeout), git_executor, repo_path, |git| {
+    check_update_undo(git, repo_path, &token.previous_head, &token.new_head)
+  })?;
+  let undo = match checked {
     UndoCheck::Ready(undo) => undo,
     UndoCheck::AlreadyUndone { branch } => {
       return Ok(UndoneUpdate {
@@ -442,11 +474,9 @@ pub fn undo_update_core(git_executor: &GitCommandExecutor, repo_path: &str, toke
       });
     }
   };
-  if !undo.blocked().is_empty() {
-    return Err(anyhow::Error::new(UndoBlocked { paths: undo.blocked().to_vec() }));
-  }
   apply_update_undo(git_executor, repo_path, &undo)?;
-  // the undo is done: a failure here is logged, not returned
+  drop(lock);
+  // the undo is done: the landed report is a file of its own, written after the lock; a failure is logged, not returned
   let landed_restored = restore_before_update(git_executor, repo_path, undo.branch(), &token.new_head).unwrap_or_else(|e| {
     warn!(error = %format!("{e:#}"), "can't restore the landed report");
     false

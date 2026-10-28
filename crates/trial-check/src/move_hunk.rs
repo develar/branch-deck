@@ -1,20 +1,20 @@
 //! Moving the changes of one file from one commit ahead of the baseline into another (`bd move-hunk`): the checks of
 //! the request against the commits ahead of the baseline and the blocks of the file in `from` (the ids that
-//! `bd commits --patch` prints), under the repository lock, then the rewrite of `git_ops::move_hunk`, which keeps HEAD's
-//! tree (docs/design/git-operations.md, "Move a hunk")
+//! `bd commits --patch` prints) and the rewrite of `git_ops::move_hunk`, which keeps HEAD's tree, computed before the
+//! repository lock, which holds only the witness of HEAD and the move (docs/design/git-operations.md, "Move a hunk")
 
 use crate::diff_scan::{Renames, blob_pair, read_commit_changes};
 use file_diffs::patch::BlockPatch;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{get_frozen_commit_list, on_local_baseline};
-use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, move_hunk};
+use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, PreparedMoveHunk, prepare_move_hunk};
 use git_ops::revs::{DetachedHead, current_branch, short_id};
 use git_ops::rewrite_guard::ensure_no_operation_in_progress;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_ids::{IdMatch, match_commit_id};
 use history_rewrite::regroup::RegroupError;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expected_head, lock_repository};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, Prepared, RepositoryLock, Witness, ensure_expected_head, lock_prepared};
 use object_cache::cache::ObjectCache;
 use std::time::Duration;
 use sync_core::repo_facts::{ListedBaseline, read_listed_baseline};
@@ -105,7 +105,9 @@ impl From<anyhow::Error> for MoveHunkError {
 
 /// Move the change of `params.path` (all of it, or the blocks `params.blocks`) from commit `from` into commit `to`, both
 /// ahead of the baseline on the checked out branch, in one rewrite that keeps HEAD's tree. `cache` gives the blocks
-/// that the diff views showed, so that the ids are the ones they printed
+/// that the diff views showed, so that the ids are the ones they printed. The checks, the new trees and the commits with
+/// their notes come before the repository lock (`git_ops::move_hunk::prepare_move_hunk`); under it only the witness of
+/// HEAD and the compare-and-swap move of the branch (`lock_prepared`). A dry run and a trial take no lock
 #[instrument(skip(git_executor, cache, options), fields(mode = ?options.mode))]
 pub fn move_hunk_core(
   git_executor: &GitCommandExecutor,
@@ -114,18 +116,69 @@ pub fn move_hunk_core(
   params: &MoveHunkParams,
   options: &MoveHunkOptions,
 ) -> Result<MoveHunkResult, MoveHunkError> {
+  let prepare = || prepare_move(git_executor, repository_path, cache, params, options);
+  let prepared = prepare()?;
+  let (prepared, _lock) = if options.mode == MoveHunkMode::Apply {
+    lock_prepared(
+      (LockWait::Bounded(options.lock_timeout), options.held_lock),
+      git_executor,
+      repository_path,
+      prepared,
+      prepare,
+    )?
+  } else {
+    (prepared, None)
+  };
+  let PreparedMove { prepared, from, to, blocks } = prepared;
+  let outcome = prepared.apply(git_executor, repository_path).map_err(rewrite_error)?;
+  Ok(MoveHunkResult {
+    previous_head: outcome.previous_head,
+    new_head: outcome.new_head,
+    from,
+    to,
+    path: params.path.clone(),
+    blocks,
+    commits: outcome.commits,
+    trees: outcome.trees,
+    changed: outcome.changed,
+  })
+}
+
+/// A move computed before the repository lock, with the full ids of its commits and the blocks that move
+struct PreparedMove {
+  prepared: PreparedMoveHunk,
+  from: String,
+  to: String,
+  blocks: Vec<BlockPatch>,
+}
+
+impl Prepared for PreparedMove {
+  /// HEAD at the tip the new commits were computed on, on its branch
+  fn witness(&self) -> Witness {
+    Witness::of_head(self.prepared.old_head(), self.prepared.branch())
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    self.prepared.discard(git_executor, repository_path);
+  }
+}
+
+/// The checks of the request against the commits ahead of the baseline and the blocks of the file in `from`, then the
+/// rewrite up to the move of the branch (`prepare_move_hunk`)
+fn prepare_move(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  cache: &ObjectCache,
+  params: &MoveHunkParams,
+  options: &MoveHunkOptions,
+) -> Result<PreparedMove, MoveHunkError> {
   ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
   let branch = current_branch(git_executor, repository_path)?.ok_or_else(|| RegroupError::DetachedHead(DetachedHead.to_string()))?;
-  let _lock = if options.mode != MoveHunkMode::Apply || options.held_lock.is_some() {
-    None
-  } else {
-    Some(lock_repository(git_executor, repository_path, options.lock_timeout)?)
-  };
   // the baseline with its commit and HEAD's tip from one listing, the commits between them from one `log`
   let ListedBaseline { name: baseline, commit, head, .. } = read_listed_baseline(git_executor, repository_path, &branch, None)?;
   let head = head.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?;
   let commits = get_frozen_commit_list(git_executor, repository_path, &commit, &head, on_local_baseline(&baseline, &branch))?;
-  ensure_expected_head(options.expect_head.as_deref(), &head, || branch).map_err(RegroupError::HeadMoved)?;
+  ensure_expected_head(options.expect_head.as_deref(), &head, || branch.clone()).map_err(RegroupError::HeadMoved)?;
 
   let resolve = |id: &str| match match_commit_id(id, commits.iter().map(|commit| commit.id.as_str())) {
     IdMatch::One(full) => Ok(full.to_string()),
@@ -154,10 +207,22 @@ pub fn move_hunk_core(
     path,
     change,
     expected_head: &head,
+    branch: &branch,
     baseline_branch: &baseline,
     mode: options.mode,
   };
-  let outcome = move_hunk(git_executor, repository_path, &request).map_err(|error| match error {
+  let prepared = prepare_move_hunk(git_executor, repository_path, &request).map_err(rewrite_error)?;
+  Ok(PreparedMove {
+    prepared,
+    from,
+    to,
+    blocks: moved_blocks,
+  })
+}
+
+/// A refusal or a failure of the rewrite of git-ops as `bd move-hunk` names it
+fn rewrite_error(error: git_ops::move_hunk::MoveHunkError) -> MoveHunkError {
+  match error {
     git_ops::move_hunk::MoveHunkError::Refused(message) => MoveHunkError::InvalidArguments(message),
     git_ops::move_hunk::MoveHunkError::Conflict { ref commit, ref path } => MoveHunkError::Conflict {
       message: error.to_string(),
@@ -166,18 +231,7 @@ pub fn move_hunk_core(
     },
     git_ops::move_hunk::MoveHunkError::HeadMoved(moved) => RegroupError::HeadMoved(moved).into(),
     git_ops::move_hunk::MoveHunkError::Other(error) => error.into(),
-  })?;
-  Ok(MoveHunkResult {
-    previous_head: outcome.previous_head,
-    new_head: outcome.new_head,
-    from,
-    to,
-    path: path.to_string(),
-    blocks: moved_blocks,
-    commits: outcome.commits,
-    trees: outcome.trees,
-    changed: outcome.changed,
-  })
+  }
 }
 
 /// The blocks of `path` in `from`; `None` for a file without text

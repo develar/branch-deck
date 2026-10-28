@@ -1068,6 +1068,11 @@ impl UpdateUndo {
     self.head_ref.name()
   }
 
+  /// The commit HEAD is at, which the undo moves it back from
+  pub fn head(&self) -> &str {
+    &self.head
+  }
+
   /// The local paths that stop the files from following, as `UpdateState::Blocked` lists them; empty if they can
   pub fn blocked(&self) -> &[String] {
     &self.blocked
@@ -1424,7 +1429,14 @@ fn pending_ref(worktree: &Worktree) -> String {
 /// An update or its undo of this worktree moved the branch, but a crash stopped it before the files followed; the mark
 /// points at the commit the files are at. `None` without one. Reads only
 pub fn pending_update(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<String>> {
-  resolve_commit(git_executor, repo_path, &pending_ref(&current_worktree(git_executor, repo_path)?))
+  resolve_commit(git_executor, repo_path, &pending_mark(git_executor, repo_path)?)
+}
+
+/// The full name of the mark of pending files of the worktree of `repo_path`, which exists only while a move of it
+/// waits for its files: a check of a move before the repository lock assumes it absent, and the witness under the lock
+/// reads it with HEAD (`history_rewrite::repository_lock::lock_prepared_move`). No process with the directories known
+pub fn pending_mark(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
+  Ok(pending_ref(&current_worktree(git_executor, repo_path)?))
 }
 
 /// The files of an interrupted update can't be finished here: the branch moved on since; nothing was changed

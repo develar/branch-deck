@@ -16,9 +16,9 @@ use git_ops::pick::{
 };
 use git_ops::revs::{git_common_dir, is_object_id, short_id, with_dirs_of};
 use git_ops::update_branch::{FilesBlocked, UndoBlocked};
-use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update, pending_update};
+use git_ops::update_branch::{UndoCheck, apply_update_undo, finish_pending_update, pending_mark, pending_update};
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of};
-use history_rewrite::repository_lock::{RewriteOptions, lock_repository};
+use history_rewrite::repository_lock::{LockWait, Prepared, RewriteOptions, Witness, lock_prepared_move};
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
 use history_rewrite::stack::{StackForest, stack_top};
 use object_cache::cache::ObjectCache;
@@ -662,48 +662,96 @@ pub struct UndonePick {
   pub already_undone: bool,
 }
 
-/// Undo an applied pick, under the repository lock: the target branch moves back from the token's new head to its
-/// previous head, and the source worktree that followed moves back too, each with its files, through the same guarded
-/// update with the trees swapped (`check_pick_undo`). Both are checked before either moves: `HeadMoved` when one moved
-/// on, `NotAnUpdate` when its last move is not this pick, `UndoBlocked` when local changes sit on a path the undo
-/// writes. Undoing again is no error: `already_undone`
+/// Undo an applied pick: the target branch moves back from the token's new head to its previous head, and the source
+/// worktree that followed moves back too, each with its files, through the same guarded update with the trees swapped
+/// (`check_pick_undo`). Both are checked before either moves, before the repository lock; under it only the witness (the
+/// HEAD of each worktree with the mark of an interrupted move, `lock_prepared_move`) and the moves. A worktree with
+/// such a mark before the check has its files follow under the lock first, and the check runs there. `HeadMoved` when
+/// one moved on, `NotAnUpdate` when its last move is not this pick, `UndoBlocked` when local changes sit on a path the
+/// undo writes. Undoing again is no error: `already_undone`, and no lock
 #[instrument(skip(git_executor))]
 pub fn undo_pick_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &PickUndoToken, lock_timeout: Duration) -> Result<UndonePick> {
+  // the guards, the lock, the marks and the moves of the target take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
   let source = token
     .follow
     .as_ref()
     .map(|follow| worktree_path(git_executor, repo_path, &follow.worktree_id))
     .transpose()?;
-  // both checked before either moves; `None` for a move undone before
-  let check = |path: &str, previous: &str, new: &str| -> Result<Option<UpdateUndo>> {
-    finish_pending_update(git_executor, path)?;
-    match check_pick_undo(git_executor, path, previous, new)? {
+  let mut worktrees = vec![repo_path];
+  worktrees.extend(source.as_deref());
+  let check = || -> Result<PickUndo> {
+    let ready = |path: &str, previous: &str, new: &str| match check_pick_undo(git_executor, path, previous, new)? {
       UndoCheck::Ready(undo) if !undo.blocked().is_empty() => Err(anyhow::Error::new(UndoBlocked { paths: undo.blocked().to_vec() })),
-      UndoCheck::Ready(undo) => Ok(Some(undo)),
-      UndoCheck::AlreadyUndone { .. } => Ok(None),
+      checked => Ok(checked),
+    };
+    let target = token.head.as_ref().map(|(previous, new)| ready(repo_path, previous, new)).transpose()?;
+    let source = match (&token.follow, &source) {
+      (Some(follow), Some(path)) => Some((path.clone(), ready(path, &follow.previous_head, &follow.new_head)?, pending_mark(git_executor, path)?)),
+      _ => None,
+    };
+    Ok(PickUndo { target, source })
+  };
+  let lock_wait = LockWait::Bounded(lock_timeout);
+  let (undo, _lock) = if any_pending(git_executor, &worktrees)? {
+    // an interrupted move: its files follow under the lock, then the check reads them
+    let lock = lock_wait.lock(git_executor, repo_path)?;
+    finish_pending(git_executor, &worktrees)?;
+    (check()?, Some(lock))
+  } else {
+    let checked = check();
+    if checked.as_ref().is_ok_and(PickUndo::undone_before) {
+      (checked?, None)
+    } else {
+      lock_prepared_move((lock_wait, None), git_executor, repo_path, checked, || {
+        finish_pending(git_executor, &worktrees[1..])?;
+        check()
+      })?
     }
   };
-  let target_undo = token.head.as_ref().map(|(previous, new)| check(repo_path, previous, new)).transpose()?;
-  let source_undo = match (&token.follow, &source) {
-    (Some(follow), Some(source)) => Some(check(source, &follow.previous_head, &follow.new_head)?),
-    _ => None,
-  };
-  let already_undone = !matches!(target_undo, Some(Some(_))) && !matches!(source_undo, Some(Some(_)));
-  if let Some(Some(undo)) = &target_undo {
-    apply_update_undo(git_executor, repo_path, undo)?;
+  if let Some(UndoCheck::Ready(target)) = &undo.target {
+    apply_update_undo(git_executor, repo_path, target)?;
   }
-  if let (Some(Some(undo)), Some(source)) = (&source_undo, &source) {
-    apply_update_undo(git_executor, source, undo)?;
+  if let Some((path, UndoCheck::Ready(source), _)) = &undo.source {
+    apply_update_undo(git_executor, path, source)?;
   }
+  let moved = |checked: Option<&UndoCheck>| matches!(checked, Some(UndoCheck::Ready(_)));
   let undone = UndonePick {
-    target_undone: matches!(target_undo, Some(Some(_))),
-    follow_undone: matches!(source_undo, Some(Some(_))),
-    already_undone,
+    target_undone: moved(undo.target.as_ref()),
+    follow_undone: moved(undo.source.as_ref().map(|(_, checked, _)| checked)),
+    already_undone: undo.undone_before(),
   };
   info!(?undone, "undid the pick");
   Ok(undone)
+}
+
+/// The checked undo of a pick: of the target, and of the source worktree that followed with its top level and the mark
+/// of an interrupted move of it; `None` for a move the token has none of
+struct PickUndo {
+  target: Option<UndoCheck>,
+  source: Option<(String, UndoCheck, String)>,
+}
+
+impl PickUndo {
+  /// Every move of the token was undone before: nothing to write
+  fn undone_before(&self) -> bool {
+    let ready = |checked: Option<&UndoCheck>| matches!(checked, Some(UndoCheck::Ready(_)));
+    !ready(self.target.as_ref()) && !ready(self.source.as_ref().map(|(_, checked, _)| checked))
+  }
+}
+
+impl Prepared for PickUndo {
+  /// The HEAD of the target, and the HEAD and the mark of the source in its directory
+  fn witness(&self) -> Witness {
+    let mut witness = self.target.as_ref().map_or_default(Prepared::witness);
+    if let Some((path, checked, mark)) = &self.source {
+      witness.elsewhere.push((path.clone(), checked.witness().with_ref(mark, None)));
+    }
+    witness
+  }
+
+  /// A checked undo writes no object
+  fn discard(&self, _git_executor: &GitCommandExecutor, _repository_path: &str) {}
 }
 
 /// The top level of the worktree `id` of the repository of `repo_path`: `main`, the first of `git worktree list`, or a

@@ -192,6 +192,12 @@ struct Follow {
 }
 
 impl PickPlan {
+  /// The upstream the range excludes (a full ref) and its commit as the check read it: what the check computed on
+  /// besides HEAD, for the witness of a caller that takes the lock after it (`sync_core::reapply_branch`)
+  pub fn upstream(&self) -> Option<(&str, Option<&str>)> {
+    self.upstream.as_deref().map(|upstream| (upstream, self.upstream_head.as_deref()))
+  }
+
   /// Whether applying the plan moves a HEAD: the target's, or the source's that follows onto another commit. One that
   /// moves nothing applies without git, so it needs no lock
   pub fn moves_anything(&self) -> bool {

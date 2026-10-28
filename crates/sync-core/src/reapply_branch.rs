@@ -1,21 +1,23 @@
 //! Reapply an unapplied branch (`{prefix}/unapplied/<name>`): its commits back on top of HEAD with their grouping
-//! prefix, the files following, the unapplied branch deleted in the transaction that moves HEAD, under the repository
-//! lock (`git_ops::reapply`, spec/branch/unapply.spec.md); and its undo (`ReapplyUndoToken`).
+//! prefix, the files following, the unapplied branch deleted in the transaction that moves HEAD (`git_ops::reapply`,
+//! spec/branch/unapply.spec.md); and its undo (`ReapplyUndoToken`). Each reads and checks before the repository lock,
+//! which holds only the witness and the move.
 
 use crate::baseline::baseline_tracking_ref;
-use crate::unapply_branch::{checked_undo, parse_move_token};
+use crate::unapply_branch::parse_move_token;
 use anyhow::Result;
 use branch_integration::archive::own_commits_start;
 use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use domain_types::error::ErrorCode;
 use domain_types::rewrite::{ReapplyBranchResult, UndoneReapply};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::pick::{PickRequest, PickSource, PickState, PickedCommit, check_pick};
-use git_ops::reapply::{UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
+use git_ops::pick::{PickPlan, PickRequest, PickSource, PickState, PickedCommit, check_pick};
+use git_ops::reapply::{RestoredChain, UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
 use git_ops::revs::with_dirs_of;
 use git_ops::unapply::MoveBlocked;
-use git_ops::update_branch::{REAPPLY, finish_pending_update};
-use history_rewrite::repository_lock::{LockWait, RewriteOptions};
+use git_ops::update_branch::{REAPPLY, UndoCheck};
+use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
+use history_rewrite::repository_lock::{LockWait, Prepared, RewriteOptions, Witness, lock_checked_undo};
 use history_rewrite::snapshot::read_grouping_inputs;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
@@ -66,30 +68,93 @@ impl ReapplyRefusal {
   }
 }
 
-/// Reapply the unapplied branch `params.branch_name` (named with `branch_prefix`, which the caller resolved): its own commits (from its stack note, else its merge base with the
-/// baseline) get their grouping prefix back where their subject groups elsewhere, then they are picked onto HEAD
-/// (`check_pick`: a commit HEAD has is left out, a conflict or local changes in the way refuse it), and HEAD moves with
-/// the files while the unapplied branch is deleted, in one transaction. Under the repository lock unless a dry run
+/// Reapply the unapplied branch `params.branch_name` (named with `branch_prefix`, which the caller resolved): its own
+/// commits (from its stack note, else its merge base with the baseline) get their grouping prefix back where their
+/// subject groups elsewhere, then they are picked onto HEAD (`check_pick`: a commit HEAD has is left out, a conflict or
+/// local changes in the way refuse it), and HEAD moves with the files while the unapplied branch is deleted, in one
+/// transaction. All of it but the move comes before the repository lock; under it only the witness (HEAD, the upstream,
+/// the issue groups, the unapplied branch and the mark of an interrupted move, `RewriteOptions::lock_prepared_move`) and
+/// the move. A dry run takes no lock
 #[instrument(skip(git_executor, options), fields(repo = %params.repository_path, branch = %params.branch_name))]
 pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBranchParams, branch_prefix: &str, options: &RewriteOptions) -> Result<ReapplyBranchResult> {
   let repo = params.repository_path.as_str();
-  let name = params.branch_name.as_str();
-  let full_name = qualified_branch_name(normalize_branch_prefix(branch_prefix), BranchKind::Unapplied, name)?;
-  // the guards and the lock take the directories read here
+  let full_name = qualified_branch_name(normalize_branch_prefix(branch_prefix), BranchKind::Unapplied, &params.branch_name)?;
+  // the guards, the lock and the mark take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo)?;
-  let _lock = if params.dry_run { None } else { options.lock(git_executor, repo)? };
-  if !params.dry_run {
-    finish_pending_update(git_executor, repo)?;
+  let prepare = || prepare_reapply(git_executor, repo, &params.branch_name, &full_name, options);
+  if params.dry_run {
+    let prepared = prepare()?;
+    prepared.discard(git_executor, repo);
+    return Ok(prepared.result);
   }
+  let (prepared, _lock) = options.lock_prepared_move(git_executor, repo, prepare(), prepare)?;
+  let PreparedReapply {
+    mut result,
+    plan,
+    chain,
+    full_ref,
+    tip,
+    ..
+  } = prepared;
+  let applied = apply_reapply(git_executor, repo, &plan, &UnappliedRef { full_ref: &full_ref, tip: &tip }, &chain)?;
+  result.new_head.clone_from(&applied.new_head);
+  result.undo_token = Some(
+    ReapplyUndoToken {
+      previous_head: result.previous_head.clone(),
+      new_head: applied.new_head,
+      tip,
+      unapplied_branch: full_name,
+    }
+    .to_string(),
+  );
+  info!(reapplied = result.reapplied.len(), prefix_restored = result.prefix_restored, "reapplied the branch");
+  Ok(result)
+}
+
+/// A reapply computed before the repository lock: the restored messages, the checked pick and its result, on the HEAD,
+/// the upstream, the issue groups and the unapplied branch read once
+struct PreparedReapply {
+  result: ReapplyBranchResult,
+  plan: PickPlan,
+  chain: RestoredChain,
+  /// `refs/heads/{prefix}/unapplied/<name>`
+  full_ref: String,
+  tip: String,
+  /// The commit of the issue groups the grouping read: they decide which subjects get the prefix back
+  issue_groups: Option<String>,
+}
+
+impl Prepared for PreparedReapply {
+  /// HEAD and its branch, the upstream the pick excludes, the issue groups and the unapplied branch at its tip
+  fn witness(&self) -> Witness {
+    let check = &self.plan.check;
+    let mut witness = Witness::of_head(&check.head, &check.branch)
+      .with_ref(ISSUE_GROUPS_REF, self.issue_groups.as_deref())
+      .with_ref(&self.full_ref, Some(&self.tip));
+    if let Some((upstream, tip)) = self.plan.upstream() {
+      witness = witness.with_ref(upstream, tip);
+    }
+    witness
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    self.chain.discard(git_executor, repository_path);
+  }
+}
+
+/// Everything a reapply reads and computes: the unapplied branch with its worktree, the start of its own commits, the
+/// restored messages (objects only) and the pick onto HEAD with the dry run of its files; a refusal discards what it
+/// wrote
+fn prepare_reapply(git_executor: &GitCommandExecutor, repo: &str, name: &str, full_name: &str, options: &RewriteOptions) -> Result<PreparedReapply> {
   let full_ref = format!("refs/heads/{full_name}");
   let listed = git_executor.execute_command(&["for-each-ref", "--format=%(objectname)%00%(worktreepath)", &full_ref], repo)?;
   let Some((tip, worktree)) = listed.lines().next().and_then(|line| line.split_once('\0')) else {
-    return Err(ReapplyRefusal::UnknownBranch(full_name).into());
+    return Err(ReapplyRefusal::UnknownBranch(full_name.to_string()).into());
   };
   if !worktree.is_empty() {
     return Err(
       ReapplyRefusal::CheckedOut {
-        branch: full_name,
+        branch: full_name.to_string(),
         worktree: worktree.to_string(),
       }
       .into(),
@@ -97,7 +162,7 @@ pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBr
   }
   let (baseline, upstream) = baseline_tracking_ref(git_executor, repo)?;
   let baseline = baseline.ok_or_else(|| anyhow::Error::new(history_rewrite::baseline::NoBaseline::NoCommits))?;
-  let start = own_commits_start(git_executor, repo, &baseline, tip)?.ok_or_else(|| anyhow::Error::new(ReapplyRefusal::NoCommonHistory(full_name.clone())))?;
+  let start = own_commits_start(git_executor, repo, &baseline, tip)?.ok_or_else(|| anyhow::Error::new(ReapplyRefusal::NoCommonHistory(full_name.to_string())))?;
 
   // a virtual commit has no grouping prefix: the subject that groups elsewhere gets `(<name>) ` back
   let grouping = read_grouping_inputs(git_executor, repo)?;
@@ -121,21 +186,21 @@ pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBr
   let refused = match &plan.check.state {
     _ if let Err(moved) = options.ensure_head(git_executor, repo, &plan.check.head) => Some(anyhow::Error::new(moved)),
     PickState::Conflict(conflict) => Some(anyhow::Error::new(ReapplyRefusal::Conflict {
-      branch: full_name.clone(),
+      branch: full_name.to_string(),
       commit: conflict.commit.id.clone(),
       subject: conflict.commit.subject.clone(),
       files: conflict.files.clone(),
     })),
     PickState::Blocked { paths, .. } => Some(anyhow::Error::new(MoveBlocked::new(REAPPLY.done, paths.clone()))),
-    PickState::Clean if plan.check.picked.is_empty() => Some(anyhow::Error::new(ReapplyRefusal::AlreadyInHead(full_name.clone()))),
+    PickState::Clean if plan.check.picked.is_empty() => Some(anyhow::Error::new(ReapplyRefusal::AlreadyInHead(full_name.to_string()))),
     PickState::Clean => None,
   };
   if let Some(refused) = refused {
     chain.discard(git_executor, repo);
     return Err(refused);
   }
-  let mut result = ReapplyBranchResult {
-    unapplied_branch_name: full_name.clone(),
+  let result = ReapplyBranchResult {
+    unapplied_branch_name: full_name.to_string(),
     branch: name.to_string(),
     reapplied: plan.check.picked.iter().map(PickedCommit::copied).collect(),
     present: plan.check.present.iter().map(|commit| commit.commit.clone()).collect(),
@@ -144,23 +209,14 @@ pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBr
     new_head: plan.check.new_head.clone(),
     undo_token: None,
   };
-  if params.dry_run {
-    chain.discard(git_executor, repo);
-    return Ok(result);
-  }
-  let applied = apply_reapply(git_executor, repo, &plan, &UnappliedRef { full_ref: &full_ref, tip }, &chain)?;
-  result.new_head.clone_from(&applied.new_head);
-  result.undo_token = Some(
-    ReapplyUndoToken {
-      previous_head: result.previous_head.clone(),
-      new_head: applied.new_head,
-      tip: tip.to_string(),
-      unapplied_branch: full_name,
-    }
-    .to_string(),
-  );
-  info!(reapplied = result.reapplied.len(), prefix_restored = result.prefix_restored, "reapplied the branch");
-  Ok(result)
+  Ok(PreparedReapply {
+    result,
+    plan,
+    chain,
+    full_ref,
+    tip: tip.to_string(),
+    issue_groups: grouping.issue_groups.commit,
+  })
 }
 
 /// The undo token of a reapply: `reapply:<previous head>..<new head>:<tip>:<unapplied branch>`, full ids and the full
@@ -200,16 +256,19 @@ impl std::fmt::Display for ReapplyUndoToken {
   }
 }
 
-/// Undo a reapply, under the repository lock: HEAD moves back with the files and the unapplied branch is created again
-/// at its tip, in one transaction (`check_reapply_undo`). `HeadMoved` when HEAD moved on, `NotAnUpdate` when the last move
+/// Undo a reapply: HEAD moves back with the files and the unapplied branch is created again at its tip, in one
+/// transaction (`check_reapply_undo`), checked before the repository lock, which holds only the witness and the move
+/// (`lock_checked_undo`). `HeadMoved` when HEAD moved on, `NotAnUpdate` when the last move
 /// of the branch is not this reapply, `UndoBlocked` when local changes sit on a path the undo writes; an unapplied branch
 /// of the name that exists again fails the transaction. Undoing again is no error: `already_undone`
 #[instrument(skip(git_executor))]
 pub fn undo_reapply_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &ReapplyUndoToken, lock_wait: LockWait) -> Result<UndoneReapply> {
-  let (_lock, undo) = checked_undo(git_executor, repo_path, lock_wait, || {
-    check_reapply_undo(git_executor, repo_path, &token.previous_head, &token.new_head)
+  // the guards, the lock, the mark and the move take the directories read here
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
+  let (undo, _lock) = lock_checked_undo(lock_wait, git_executor, repo_path, |git| {
+    check_reapply_undo(git, repo_path, &token.previous_head, &token.new_head)
   })?;
-  let Some(undo) = undo else {
+  let UndoCheck::Ready(undo) = undo else {
     return Ok(UndoneReapply { already_undone: true });
   };
   let full_ref = format!("refs/heads/{}", token.unapplied_branch);

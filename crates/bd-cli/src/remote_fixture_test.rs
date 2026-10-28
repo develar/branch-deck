@@ -265,6 +265,16 @@ pub fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
   (repo, remote)
 }
 
+/// `repo_with_remote` of `(auth) Add login` with auth pushed, then someone else's `Their fix` on its remote branch: the
+/// commit a remote pick takes in. The repository, the remote and their commit
+pub fn their_fix_on_auth() -> (TestRepo, TempDir, String) {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let theirs = push_from_elsewhere_to(&remote, AUTH, "Their fix");
+  (repo, remote, theirs)
+}
+
 /// `push_from_elsewhere` onto the remote branch `branch`
 pub fn push_from_elsewhere_to(remote: &TempDir, branch: &str, subject: &str) -> String {
   let elsewhere = tempfile::tempdir().unwrap();

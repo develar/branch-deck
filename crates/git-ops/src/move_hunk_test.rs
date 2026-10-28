@@ -62,6 +62,7 @@ fn request<'a>(repo: &TestRepo, from: &'a str, to: &'a str, path: &'a str, chang
     change,
     // read in the test before the request; leaked, as the request borrows it
     expected_head: Box::leak(repo.head().into_boxed_str()),
+    branch: "master",
     baseline_branch: "master",
     mode: MoveHunkMode::Apply,
   }
@@ -391,7 +392,7 @@ fn a_move_runs_a_fixed_set_of_processes() -> Result<()> {
     ("merge-tree", 1),
     ("notes", 1),
     ("patch-id", 1),
-    ("rev-parse", 2),
+    ("rev-parse", 1),
     ("show-ref", 1),
     ("symbolic-ref", 1),
     ("update-ref", 1),

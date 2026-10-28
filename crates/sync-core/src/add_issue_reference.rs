@@ -1,11 +1,14 @@
 //! Add Issue Reference: an issue key into the subjects of commits, `(branch) message` to `(branch) ISSUE-123 message`,
-//! one reword of the checked out branch under the repository lock.
+//! one reword of the checked out branch, computed before the repository lock, which holds only the witness of HEAD and
+//! the move.
 
+use anyhow::{Context, Result, bail};
 use domain_types::commit::CommitInfo;
 use domain_types::rewrite::AddIssueReferenceResult;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::with_dirs_of;
-use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
+use git_ops::reword_commits::{PreparedReword, RewordCommitParams, prepare_reword};
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::keeps_virtual_commit;
@@ -24,13 +27,10 @@ pub struct AddIssueReferenceParams {
   pub issue_reference: String,
 }
 
-/// Core function that adds an issue reference to commits in a branch, under the repository lock.
-/// Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
-pub fn add_issue_reference_to_commits_core(
-  git_executor: &GitCommandExecutor,
-  params: AddIssueReferenceParams,
-  options: &RewriteOptions,
-) -> Result<AddIssueReferenceResult, String> {
+/// Adds an issue reference to commits of a branch: "(branch-name) message" becomes "(branch-name) ISSUE-123 message".
+/// The baseline, the history and the reworded commits (`prepare_reword`) come before the repository lock, on the HEAD
+/// `options` expects; under it only the witness of HEAD and the compare-and-swap move (`RewriteOptions::lock_prepared`)
+pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, params: AddIssueReferenceParams, options: &RewriteOptions) -> Result<AddIssueReferenceResult> {
   info!(
     "Adding issue reference '{}' to branch '{}' ({} commits)",
     params.issue_reference,
@@ -40,13 +40,13 @@ pub fn add_issue_reference_to_commits_core(
 
   // Validate issue reference format
   if !params.issue_reference.chars().all(|c| c.is_alphanumeric() || c == '-') {
-    return Err("Issue reference can only contain letters, numbers, and hyphens".to_string());
+    bail!("Issue reference can only contain letters, numbers, and hyphens");
   }
 
   // Check if it matches pattern like ABC-123
   let parts: Vec<&str> = params.issue_reference.split('-').collect();
   if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-    return Err("Issue reference must be in format like ABC-123".to_string());
+    bail!("Issue reference must be in format like ABC-123");
   }
 
   let branch_prefix = format!("({}) ", params.branch_name);
@@ -100,34 +100,33 @@ pub fn add_issue_reference_to_commits_core(
     });
   }
 
-  // Reword commits using plumbing commands
   let repository_path = &params.repository_path;
   // the guards and the lock take the directories read here
-  let git_executor = &with_dirs_of(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
-  let _lock = options.lock(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
-  let expected_head = options.expected_full_head(git_executor, repository_path).map_err(|e| format!("{e:#}"))?;
-  let baseline_branch = detect_baseline_branch(git_executor, repository_path).map_err(|e| format!("Failed to add issue reference: {e}"))?;
-  match reword_commits_batch_at(git_executor, repository_path, &baseline_branch, rewrites, expected_head.as_deref(), &[]) {
-    Ok((mapping, _)) => {
-      info!(
-        "Successfully added issue reference '{}' to {} commits (skipped {})",
-        params.issue_reference,
-        mapping.len(),
-        skipped_count
-      );
-
-      // the mapping recreates HEAD too: its new id is the new HEAD
-      let new_head = expected_head.as_ref().and_then(|head| mapping.get(head).cloned());
-      Ok(AddIssueReferenceResult {
-        success: true,
-        updated_count,
-        skipped_count,
-        new_commit_ids: mapping.into_iter().collect(),
-        new_head,
-      })
-    }
-    Err(e) => Err(format!("Failed to add issue reference: {e}")),
-  }
+  let git_executor = &with_dirs_of(git_executor, repository_path)?;
+  let baseline_branch = detect_baseline_branch(git_executor, repository_path).context("Failed to add issue reference")?;
+  // another HEAD than the expected one is refused before anything is written (`prepare_reword` compares the full id)
+  let prepare = || -> Result<PreparedReword> {
+    let expected_head = options.expected_full_head(git_executor, repository_path)?;
+    prepare_reword(git_executor, repository_path, &baseline_branch, rewrites.clone(), expected_head.as_deref(), &[]).context("Failed to add issue reference")
+  };
+  let (prepared, _lock) = options.lock_prepared(git_executor, repository_path, prepare()?, prepare)?;
+  prepared
+    .apply(git_executor, repository_path, RefTransaction::new())
+    .context("Failed to add issue reference")?;
+  info!(
+    "Successfully added issue reference '{}' to {} commits (skipped {})",
+    params.issue_reference,
+    prepared.mapping().len(),
+    skipped_count
+  );
+  // the mapping recreates HEAD too: its new id is the new HEAD
+  Ok(AddIssueReferenceResult {
+    success: true,
+    updated_count,
+    skipped_count,
+    new_commit_ids: prepared.mapping().clone().into_iter().collect(),
+    new_head: Some(prepared.new_head().to_string()),
+  })
 }
 
 #[cfg(test)]

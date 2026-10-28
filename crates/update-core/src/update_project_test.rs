@@ -1,3 +1,7 @@
+#[cfg(unix)]
+use crate::resolve_session::{SessionOutcome, SessionView};
+#[cfg(unix)]
+use crate::update_project::{BdUpdate, update_and_resolve};
 use crate::update_project::{
   FetchFailed, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateUndoToken, undo_update_core, update_project_core, update_project_with,
 };
@@ -11,6 +15,8 @@ use git_ops::update_branch::{
   check_update_undo,
 };
 use git_ops::word_resolve::ResolveMode;
+#[cfg(unix)]
+use history_rewrite::regroup::{RegroupOptions, rename_branch_core};
 use history_rewrite::repository_lock::{LockWait, RepositoryLocked, lock_repository_as_another_process};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
@@ -1247,4 +1253,112 @@ fn the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_
     "{commands:#?}"
   );
   assert!(!span.commands_after_the_lock().is_empty(), "the report after the lock: {commands:#?}");
+}
+
+/// The undo of the app's update checks before the repository lock (the guards, the reflog, the dry run of the files);
+/// under it only the witness (`for-each-ref` of HEAD and the mark of pending files) and the move back; the landed report
+/// after it (C11 of docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test]
+fn the_undo_of_an_update_locks_only_the_witness_and_the_move() {
+  let setup = setup();
+  let token = applied_update(&setup);
+  let span = test_utils::lock_span::LockSpan::new(&setup.clone.path().join(".git"));
+  let undone = undo_update_core(span.executor(), path(&setup.clone), &token, Duration::from_secs(10)).unwrap();
+  assert!(!undone.already_undone);
+  assert_eq!(setup.clone.head(), token.previous_head);
+  assert_eq!(
+    span.commands_under_the_lock(),
+    ["for-each-ref", "read-tree", "symbolic-ref", "update-index", "update-ref"],
+    "{:#?}",
+    span.commands()
+  );
+  span.assert_before_the_lock(&["log"]);
+}
+
+/// A clone with `(auth) Add login` and `(auth) Change two`, whose change of line two conflicts with the upstream's,
+/// fetched: an update of it starts a resolve session
+#[cfg(unix)]
+fn fetched_conflict() -> Setup {
+  let setup = setup();
+  setup.clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  setup.clone.create_commit("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n");
+  setup.upstream.create_commit("Upstream change", "shared.txt", "one\nupstream two\nthree\n");
+  git(&setup.clone, &["fetch", "origin"]);
+  setup
+}
+
+/// `bd update` without a fetch, waiting for the lock as `bd` does: the open round of the session it starts
+#[cfg(unix)]
+fn start_a_session(git_executor: &GitCommandExecutor, repo: &TestRepo) -> SessionView {
+  let options = UpdateOptions {
+    fetch: false,
+    lock_wait: LockWait::Bounded(Duration::from_secs(10)),
+    onto: None,
+  };
+  match update_and_resolve(git_executor, path(repo), options, None).unwrap() {
+    BdUpdate::Session(outcome) => match *outcome {
+      SessionOutcome::Round(view) => view,
+      other => panic!("not a round: {other:?}"),
+    },
+    BdUpdate::Update { result, .. } => panic!("no session: {result:?}"),
+  }
+}
+
+/// The start of a resolve session computes before the repository lock: the check (the binary search of `replay`
+/// probes) and the first round (the replays up to the conflict the check found, the merge of the round, its objects).
+/// Under the lock only the mark of pending files and the witness (`recheck_update`), the state commit with the session
+/// ref, and the copies of the round; the view of the round is read after it (C11 of
+/// docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test]
+fn the_start_of_a_resolve_session_locks_only_the_witness_and_its_write() {
+  let Setup { clone, .. } = fetched_conflict();
+  let span = test_utils::lock_span::LockSpan::new(&clone.path().join(".git"));
+  let view = start_a_session(span.executor(), &clone);
+  assert_eq!(view.round.as_ref().map(|round| round.commit.subject.as_str()), Some("(auth) Change two"));
+
+  let commands = span.commands();
+  let before = span.commands_before_the_lock();
+  assert!(
+    before.iter().any(|command| command == "replay") && before.iter().any(|command| command == "merge-tree"),
+    "the check and the first round before the lock: {commands:#?}"
+  );
+  // the mark and the witness (`rev-parse`, `symbolic-ref`), the state commit and the session ref, the patch of the copies
+  assert_eq!(
+    span.commands_under_the_lock(),
+    ["fast-import", "log", "rev-parse", "symbolic-ref", "update-ref"],
+    "{commands:#?}"
+  );
+  assert!(!span.commands_after_the_lock().is_empty(), "the view after the lock: {commands:#?}");
+}
+
+/// A regroup of another process (a rename of auth) runs while the update of a resolve session searches for the first
+/// conflict, since that search holds no lock, and is done before it ends; the witness under the lock finds HEAD moved,
+/// and the session is computed once more there: it opens on the regrouped commits
+#[cfg(unix)]
+#[test]
+fn a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it() {
+  let Setup { clone, .. } = fetched_conflict();
+  // the first `replay` of the update (its check) waits until the test let it go
+  let wrapped = test_utils::wrapped_git::WrappedGit::new("*\" replay \"*) [ -f '{dir}/held' ] || { touch '{dir}/held'; until [ -f '{dir}/go' ]; do sleep 0.01; done; };;");
+  let view = std::thread::scope(|scope| {
+    let update = scope.spawn(|| start_a_session(wrapped.executor(), &clone));
+    let started = std::time::Instant::now();
+    while !wrapped.marked("held") {
+      assert!(started.elapsed() < Duration::from_mins(1), "the update never searched");
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    let options = RegroupOptions {
+      lock_wait: LockWait::Bounded(Duration::from_secs(5)),
+      ..RegroupOptions::default()
+    };
+    let renamed = rename_branch_core(clone.git_executor(), path(&clone), "auth", "login", &options);
+    fs::write(wrapped.directory().join("go"), "").unwrap();
+    renamed.expect("the rename runs while the update searches: the search holds no lock");
+    update.join().unwrap()
+  });
+
+  assert_eq!(view.state.started_head, clone.head(), "the session starts from the regrouped HEAD");
+  assert_eq!(view.round.as_ref().map(|round| round.commit.subject.as_str()), Some("(login) Change two"));
 }

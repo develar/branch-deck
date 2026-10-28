@@ -8,7 +8,9 @@
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
 use crate::commit_utils::empty_tree;
-use crate::commit_writer::{EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenEdit, current_committer, discard_temp_refs, read_raw_commits, write_edited_commit};
+use crate::commit_writer::{
+  EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenCommits, WrittenEdit, current_committer, discard_temp_refs, read_raw_commits, write_edited_commit,
+};
 use crate::history::{History, HistoryCommit};
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::notes::{MappingNote, mapped_commit_id, mapped_resolution, mapped_source, write_commits_with_mapping_notes};
@@ -47,6 +49,9 @@ pub struct MoveHunkRequest<'a> {
   pub change: MovedChange<'a>,
   /// The HEAD the request was made for
   pub expected_head: &'a str,
+  /// The checked out branch, as the caller read it with `expected_head`: HEAD is not read again (the witness of the
+  /// repository lock checks both)
+  pub branch: &'a str,
   /// The branch the commits are ahead of; the history is read down to it
   pub baseline_branch: &'a str,
   pub mode: MoveHunkMode,
@@ -174,8 +179,88 @@ fn read_blobs(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str]) 
 /// Move the change, as `request` names it, from one commit into another, in one rewrite of the checked out branch that
 /// keeps HEAD's tree. Refused, with nothing written but git objects, if the change conflicts with a commit of the range,
 /// if a commit would be left without changes, or if HEAD is not `expected_head`
-#[instrument(skip(git_executor, request), fields(from = %request.from, to = %request.to, path = %request.path, mode = ?request.mode))]
 pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>) -> Result<MoveHunkOutcome, MoveHunkError> {
+  prepare_move_hunk(git_executor, repo_path, request)?.apply(git_executor, repo_path)
+}
+
+/// A move computed and, for `MoveHunkMode::Apply`, written: its commits and their notes exist (the commits on temporary
+/// refs), while the branch has not moved yet. `apply` moves it, `discard` abandons it; a dry run or a trial has nothing
+/// left to write
+#[derive(Debug)]
+pub struct PreparedMoveHunk {
+  outcome: MoveHunkOutcome,
+  /// The checked out branch
+  branch: String,
+  write: Option<PendingWrite>,
+}
+
+/// What the move of the branch writes: the branch from the old head to the new one, with the temporary refs deleted
+#[derive(Debug)]
+struct PendingWrite {
+  target_ref: String,
+  theirs: WrittenEdit,
+  written: WrittenCommits,
+}
+
+impl PreparedMoveHunk {
+  /// The tip the branch moves from
+  #[must_use]
+  pub fn old_head(&self) -> &str {
+    &self.outcome.previous_head
+  }
+
+  /// The checked out branch it moves
+  #[must_use]
+  pub fn branch(&self) -> &str {
+    &self.branch
+  }
+
+  /// Move the branch from the head it was computed on to the new tip in one transaction, deleting the temporary refs;
+  /// a branch that moved meanwhile is `HeadMoved`, and nothing changes. A dry run or a trial moves nothing
+  ///
+  /// # Errors
+  /// The transaction refused
+  pub fn apply(self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<MoveHunkOutcome, MoveHunkError> {
+    let Some(write) = &self.write else {
+      return Ok(self.outcome);
+    };
+    let head = self.outcome.previous_head.as_str();
+    let mut transaction = RefTransaction::new();
+    transaction.update(&write.target_ref, &self.outcome.new_head, Some(head));
+    write.theirs.delete_temp_ref(&mut transaction);
+    write.written.delete_temp_refs(&mut transaction);
+    if let Err(e) = transaction.commit(git_executor, repo_path, OPERATION) {
+      self.discard(git_executor, repo_path);
+      let actual = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path).unwrap_or_default();
+      if actual != head {
+        return Err(MoveHunkError::HeadMoved(HeadMoved {
+          branch: self.branch.clone(),
+          expected: head.to_string(),
+          actual,
+        }));
+      }
+      return Err(MoveHunkError::Other(anyhow!(
+        "The branch or a ref moved with it changed meanwhile, read it again and retry: {e:#}"
+      )));
+    }
+    info!(commits = self.outcome.commits.len(), changed = self.outcome.changed.len(), "Moved the change of a file");
+    Ok(self.outcome)
+  }
+
+  /// Abandon the move: delete the temporary refs, leaving the unreferenced objects (and the notes of commits no branch
+  /// has) to `git gc`
+  pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    if let Some(write) = &self.write {
+      write.written.discard(git_executor, repo_path);
+      discard_temp_refs(git_executor, repo_path, &write.theirs.temp_ref, |transaction| write.theirs.delete_temp_ref(transaction));
+    }
+  }
+}
+
+/// `move_hunk` up to the move of the branch: the checks, the new trees and, for `MoveHunkMode::Apply`, the commits with
+/// their notes, the commits on temporary refs (`PreparedMoveHunk`); before the repository lock of `bd move-hunk`
+#[instrument(skip(git_executor, request), fields(from = %request.from, to = %request.to, path = %request.path, mode = ?request.mode))]
+pub fn prepare_move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>) -> Result<PreparedMoveHunk, MoveHunkError> {
   if request.from == request.to {
     return Err(MoveHunkError::Refused("The change is already in that commit: name two different commits".to_string()));
   }
@@ -202,10 +287,7 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
   // newest first: the older commit has the higher position
   let (from_position, to_position) = (position(request.from)?, position(request.to)?);
   let oldest_position = from_position.max(to_position);
-  let target = history.check_rewrite(git_executor, repo_path, oldest_position)?;
-  if target.head != head {
-    return Err(head_moved(target.head));
-  }
+  let target = history.check_rewrite_on(git_executor, repo_path, oldest_position, request.branch)?;
 
   // oldest first from here on: index 0 is the older of `from` and `to`
   let commits: Vec<&HistoryCommit> = history.commits()[..=oldest_position].iter().rev().collect();
@@ -285,14 +367,28 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
       base_tree: &raw(base_index).tree,
       theirs: &theirs,
       committer: &committer,
-      target_ref: &target.full_ref(),
       head: &head,
     },
   );
-  if request.mode != MoveHunkMode::Apply || result.is_err() {
-    discard_temp_refs(git_executor, repo_path, &theirs.temp_ref, |transaction| theirs.delete_temp_ref(transaction));
+  match result {
+    Ok((outcome, Some(written))) => Ok(PreparedMoveHunk {
+      outcome,
+      branch: target.branch.clone(),
+      write: Some(PendingWrite {
+        target_ref: target.full_ref(),
+        theirs,
+        written,
+      }),
+    }),
+    result => {
+      discard_temp_refs(git_executor, repo_path, &theirs.temp_ref, |transaction| theirs.delete_temp_ref(transaction));
+      result.map(|(outcome, _)| PreparedMoveHunk {
+        outcome,
+        branch: target.branch.clone(),
+        write: None,
+      })
+    }
   }
-  result
 }
 
 /// What `rewrite` works on: the commits from the older of `from` and `to` up to HEAD, oldest first
@@ -305,13 +401,17 @@ struct Rewrite<'a> {
   base_tree: &'a str,
   theirs: &'a WrittenEdit,
   committer: &'a str,
-  target_ref: &'a str,
   head: &'a str,
 }
 
-/// Compute the new trees and check them; unless a dry run, write the commits, and for `Apply` move the branch, deleting
-/// the temporary ref of `theirs` in the same transaction
-fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>, work: Rewrite<'_>) -> Result<MoveHunkOutcome, MoveHunkError> {
+/// Compute the new trees and check them; unless a dry run, write the commits, and for `Apply` their notes too, with the
+/// commits written on temporary refs it returns for the move of the branch
+fn rewrite(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  request: &MoveHunkRequest<'_>,
+  work: Rewrite<'_>,
+) -> Result<(MoveHunkOutcome, Option<WrittenCommits>), MoveHunkError> {
   let Rewrite {
     commits,
     raw,
@@ -320,7 +420,6 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
     base_tree,
     theirs,
     committer,
-    target_ref,
     head,
   } = work;
   let tree_of = |index: usize| -> &str { &raw[&commits[index].id].tree };
@@ -375,13 +474,14 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
   let changed: Vec<usize> = (range.start..=last).filter(|index| !kept.contains(index)).collect();
   let changed_ids: Vec<String> = changed.iter().map(|&index| commits[index].id.clone()).collect();
   if request.mode == MoveHunkMode::DryRun {
-    return Ok(MoveHunkOutcome {
+    let outcome = MoveHunkOutcome {
       previous_head: head.to_string(),
       new_head: head.to_string(),
       commits: Vec::new(),
       trees: Vec::new(),
       changed: changed_ids,
-    });
+    };
+    return Ok((outcome, None));
   }
 
   let mut new_commits = Vec::with_capacity(commits.len());
@@ -434,43 +534,18 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
   let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &[], Some(committer))?;
   let new_head = written.ids.last().cloned().ok_or_else(|| anyhow!("no commits were written"))?;
   let rewritten = commits.iter().map(|commit| commit.id.clone()).zip(written.ids.iter().cloned()).collect();
-  if request.mode == MoveHunkMode::Trial {
-    written.discard(git_executor, repo_path);
-    return Ok(MoveHunkOutcome {
-      previous_head: head.to_string(),
-      new_head,
-      commits: rewritten,
-      trees: new_trees,
-      changed: changed_ids,
-    });
-  }
-
-  let mut transaction = RefTransaction::new();
-  transaction.update(target_ref, &new_head, Some(head));
-  theirs.delete_temp_ref(&mut transaction);
-  written.delete_temp_refs(&mut transaction);
-  if let Err(e) = transaction.commit(git_executor, repo_path, OPERATION) {
-    written.discard(git_executor, repo_path);
-    let actual = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path).unwrap_or_default();
-    if actual != head {
-      return Err(MoveHunkError::HeadMoved(HeadMoved {
-        branch: target_ref.trim_start_matches("refs/heads/").to_string(),
-        expected: head.to_string(),
-        actual,
-      }));
-    }
-    return Err(MoveHunkError::Other(anyhow!(
-      "The branch or a ref moved with it changed meanwhile, read it again and retry: {e:#}"
-    )));
-  }
-  info!(commits = new_commits.len(), changed = changed.len(), "Moved the change of a file");
-  Ok(MoveHunkOutcome {
+  let outcome = MoveHunkOutcome {
     previous_head: head.to_string(),
     new_head,
     commits: rewritten,
     trees: new_trees,
     changed: changed_ids,
-  })
+  };
+  if request.mode == MoveHunkMode::Trial {
+    written.discard(git_executor, repo_path);
+    return Ok((outcome, None));
+  }
+  Ok((outcome, Some(written)))
 }
 
 /// The indexes of `indexes` whose diff of `path` is the same in both pairs `pairs(index)` gives, `((old parent tree, old

@@ -710,13 +710,15 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   when the action is done, after the sync that shows its result (a deletion: the patch of the session). A failure of a form with an input (rename, issue reference, the archived delete) must show
   the form again with the typed text, focused; the error is a toast.
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should add issue reference to branch via context menu`, `should keep the typed reference when adding it fails`)
-- Adding an issue reference rewords the branch's commits under the repository lock: while another process holds it
+- Adding an issue reference rewords the branch's commits, computed before the repository lock and written under it
+  after the witness of HEAD: while another process holds the lock
   (an agent's `bd pick --follow`, `bd`) or the app's own push, the reword waits as long as the holder lives, the
   form's progress row saying whom for with Stop Waiting, which ends the wait with nothing changed and the form kept;
   only a holder no record names refuses it after 10 s, with nothing changed, and the form comes back with the error
   toast that another operation holds the lock.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write`)
 - Closing a form (Escape, Cancel, done) must give the focus back to the element that opened it, or to the row when a
   menu item opened it or the opener is gone. The row is focusable, not a tab stop. A focus the user moved elsewhere
   meanwhile stays.

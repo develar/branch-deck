@@ -6,7 +6,7 @@ use domain_types::rewrite::{UnapplyBranchResult, UndoneUnapply};
 use domain_types::{SyncEvent, UnappliedBranchInfo};
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
-use git_ops::update_branch::UndoBlocked;
+use git_ops::update_branch::{PENDING_UPDATE_PREFIX, UndoBlocked};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -252,6 +252,65 @@ fn the_undo_of_an_unapply_is_refused_after_a_new_commit_and_by_a_local_change_on
   let error = undo(&repo, &result.undo_token).expect_err("stale");
   assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
   assert!(repo.branch_exists(&result.unapplied_branch_name));
+  Ok(())
+}
+
+/// An unapply and its undo read and compute before the repository lock (the grouping, the commits ahead, the build of
+/// the virtual branch, the drop, the dry run of the files, the free name; the reflog and the dry run of the undo); under
+/// it only the witness (`for-each-ref` of HEAD, the issue groups, both branches and the mark of an interrupted move) and
+/// the guarded move of HEAD and the files (C11 of docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test]
+fn an_unapply_and_its_undo_lock_only_the_witness_and_the_move() -> Result<()> {
+  let (repo, _) = synced_repo();
+  let span = test_utils::lock_span::LockSpan::new(&repo.path().join(".git"));
+  let params = UnapplyBranchParams {
+    repository_path: path(&repo).to_string(),
+    branch_name: "feature".to_string(),
+    original_commit_ids: None,
+  };
+  let result = unapply_branch_core(span.executor(), params, PREFIX, &RewriteOptions::default())?;
+  assert_eq!(subjects(&repo), ["Initial commit", "(other) Add file1", "(different) Add file3"]);
+  assert_eq!(span.commands_under_the_lock(), MOVE_UNDER_THE_LOCK, "{:#?}", span.commands());
+  span.assert_before_the_lock(&["replay", "rev-list"]);
+
+  let span = test_utils::lock_span::LockSpan::new(&repo.path().join(".git"));
+  let token = UnapplyUndoToken::parse(&result.undo_token).expect("an unapply token");
+  assert_eq!(
+    undo_unapply_core(span.executor(), path(&repo), &token, LockWait::default())?,
+    UndoneUnapply { already_undone: false }
+  );
+  assert_eq!(repo.head(), result.previous_head);
+  assert_eq!(span.commands_under_the_lock(), MOVE_UNDER_THE_LOCK, "{:#?}", span.commands());
+  span.assert_before_the_lock(&["log"]);
+  Ok(())
+}
+
+/// What a move that the files follow runs under the repository lock: the witness (`for-each-ref`), then the guarded
+/// move (the transaction with the mark, the check of the checked out branch, the files, the index, the mark deleted)
+#[cfg(unix)]
+pub(crate) const MOVE_UNDER_THE_LOCK: [&str; 5] = ["for-each-ref", "read-tree", "symbolic-ref", "update-index", "update-ref"];
+
+/// A move of the branch that a crash stopped before its files followed (its mark set): the files sit where they were,
+/// so the dry run of the unapply before the lock finds a change on a path it writes. With the mark, the files follow
+/// under the lock and the unapply is computed there; no refusal
+#[test]
+fn an_unapply_after_a_move_whose_files_did_not_follow_lets_them_follow_first() -> Result<()> {
+  let (repo, ids) = synced_repo();
+  let head = repo.head();
+  let moved = repo.create_commit("(other) Change file0", "file0.txt", "changed");
+  // a crash after the transaction of an unapply: HEAD back at `head`, the mark at `moved`, the files at `moved`
+  repo.git(&["update-ref", "--create-reflog", "-m", "branch-deck: unapply", "refs/heads/master", &head, &moved]);
+  let mark = format!("{PENDING_UPDATE_PREFIX}main");
+  repo.git(&["update-ref", &mark, &moved]);
+
+  let result = unapply(&repo, "feature", None)?;
+
+  assert_eq!(result.previous_head, head);
+  assert_eq!(result.commits_removed, [ids[0].clone(), ids[2].clone()]);
+  assert!(!repo.path().join("file0.txt").exists());
+  assert_eq!(status(&repo), "");
+  assert!(repo.rev_parse(&mark).is_err(), "the mark is gone");
   Ok(())
 }
 

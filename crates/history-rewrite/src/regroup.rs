@@ -698,7 +698,8 @@ impl Prepared for PreparedUndo {
     };
     Witness {
       head: Some((restore.head().to_string(), restore.branch().to_string())),
-      refs: self.stores_from.iter().map(|(store_ref, from)| (*store_ref, Some(from.clone()))).collect(),
+      refs: self.stores_from.iter().map(|(store_ref, from)| ((*store_ref).to_string(), Some(from.clone()))).collect(),
+      elsewhere: Vec::new(),
     }
   }
 
@@ -929,7 +930,12 @@ impl Prepared for PreparedRegroup {
     let [issue_groups, stack_parents, parked] = self.store_commits.clone();
     Witness {
       head: Some((self.head.clone(), self.branch.clone())),
-      refs: vec![(ISSUE_GROUPS_REF, issue_groups), (STACK_PARENTS_REF, stack_parents), (PARKED_REF, parked)],
+      refs: vec![
+        (ISSUE_GROUPS_REF.to_string(), issue_groups),
+        (STACK_PARENTS_REF.to_string(), stack_parents),
+        (PARKED_REF.to_string(), parked),
+      ],
+      elsewhere: Vec::new(),
     }
   }
 

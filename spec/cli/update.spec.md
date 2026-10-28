@@ -128,12 +128,14 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   <n>: `git status` lists all".
   [@test] ../../crates/bd-update/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`, `many_blocking_paths_list_the_first_100_and_say_how_many`)
 - `bd undo update:<previous head>..<new head>` must take only full ids and move the branch back with the files
-  following, under the lock; it must refuse with `uncommitted_overlap` when local changes overlap the paths it writes,
+  following: checked before the lock, which holds only the witness of HEAD and of the mark of an interrupted move, and
+  the move back; the landed report after it. It must refuse with `uncommitted_overlap` when local changes overlap the paths it writes,
   `undo_stale` (exit 4, not retryable) when the branch moved or HEAD switched since, and `invalid_arguments` when the
   token is not the last update of the branch. It must print whether the landed report is the one from before the
   update again (`landed_restored`). An undo of an undone update must exit 0 with `already_undone: true`. The finish of
   a resolve session prints the same token, and the same undo takes it back.
   [@test] ../../crates/bd-update/src/update_test.rs (`the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved`, `update_outputs_match_the_schema`, `update_fast_forwards_and_the_undo_moves_the_files_back`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`the_undo_of_an_update_locks_only_the_witness_and_the_move`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`, `undo_tokens_are_strict`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`)
 
@@ -156,10 +158,15 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### Resolve session
 
-- A conflict of `bd update` must start a resolve session under the same lock, and change no ref but the session ref
-  and no file but the copies: HEAD, the index and the working tree stay. The output is `state: "conflict"` with a
-  `session` object, and the exit code is 1.
+- A conflict of `bd update` must start a resolve session, and change no ref but the session ref and no file but the
+  copies: HEAD, the index and the working tree stay. The output is `state: "conflict"` with a `session` object, and the
+  exit code is 1. The search for the first conflict and the first round (its replays, its merge, its objects) run
+  before the repository lock, on the HEAD and the upstream the check read; under it only the witness of the update, the
+  state with the session ref and the copies of the round, and a HEAD or an upstream that moved meanwhile (another
+  process regrouped the branch) checks and opens the round once more under the lock, on what it finds there.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`the_start_of_a_resolve_session_locks_only_the_witness_and_its_write`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it`)
 - The session must belong to one worktree and one branch, and keep the baseline it started with. Its ref must be the
   shared `refs/branch-deck/resolve/<worktree id>` (`main`, or the name of a linked worktree), so that a
   `gc --prune=now` in another worktree keeps its objects. In another worktree, `--continue` must be `no_session`.

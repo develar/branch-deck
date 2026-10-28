@@ -192,18 +192,23 @@ impl IndexUpdate {
   #[instrument(skip(self, git_executor))]
   pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
     let lock = IndexLock::of(git_executor, repo_path);
-    let result = match self {
-      Self::TwoWay { old_tree, new_tree } if old_tree == new_tree => return Ok(()),
-      Self::TwoWay { old_tree, new_tree } => lock.retry(INDEX_LOCK_WAIT, || {
-        git_executor.execute_command(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path).map(drop)
-      }),
-      Self::FromWorktree(files) => lock.retry(INDEX_LOCK_WAIT, || stage_worktree_files(git_executor, repo_path, &[], files)),
-    };
-    result.map_err(|e| anyhow!("The branch was rewritten, but the index could not follow it; run `git reset -q` to reset the index to HEAD: {e:#}"))?;
-    // read-tree drops the stat data of the replaced entries; refresh it so `git status` doesn't rehash those files.
-    // Exits with 1 when files are modified, which is not an error here.
-    git_executor.execute_command_with_status(&["update-index", "-q", "--refresh"], repo_path)?;
-    Ok(())
+    let failed = |e: anyhow::Error| anyhow!("The branch was rewritten, but the index could not follow it; run `git reset -q` to reset the index to HEAD: {e:#}");
+    match self {
+      Self::TwoWay { old_tree, new_tree } if old_tree == new_tree => Ok(()),
+      Self::TwoWay { old_tree, new_tree } => {
+        lock
+          .retry(INDEX_LOCK_WAIT, || {
+            git_executor.execute_command(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path).map(drop)
+          })
+          .map_err(failed)?;
+        // read-tree drops the stat data of the replaced entries; refresh it so `git status` doesn't rehash those
+        // files. Exits with 1 when files are modified, which is not an error here.
+        git_executor.execute_command_with_status(&["update-index", "-q", "--refresh"], repo_path)?;
+        Ok(())
+      }
+      // `update-index --add` hashes the staged files and records their stat data, and no other entry changes: no refresh
+      Self::FromWorktree(files) => lock.retry(INDEX_LOCK_WAIT, || stage_worktree_files(git_executor, repo_path, &[], files)).map_err(failed),
+    }
   }
 }
 

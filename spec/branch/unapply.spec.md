@@ -129,6 +129,14 @@ puts its commits back on top of the current branch, their files and their groupi
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
+- The unapply, the reapply and their undo must read and compute before the repository lock (the grouping, the build
+  of the virtual branch, the drop or the pick, the dry run of the files, the reflog of an undo) and hold it only for
+  the witness of what they read (HEAD, its branch, the refs they computed on and the mark of an interrupted move) and
+  the move; a ref that moved meanwhile computes it once more under the lock. A move of the files that a crash
+  interrupted must have its files follow under the lock first, and never refuse the next unapply as local changes.
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`an_unapply_and_its_undo_lock_only_the_witness_and_the_move`)
+  [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`a_reapply_and_its_undo_lock_only_the_witness_and_the_move`)
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`an_unapply_after_a_move_whose_files_did_not_follow_lets_them_follow_first`)
 - The index lock of another process must make the unapply, the reapply and their undo wait (at most 30 s per write)
   and an ownerless one be removed, as for `bd pick`; one that stays must move HEAD back and answer `locked`.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow`)
@@ -152,7 +160,7 @@ puts its commits back on top of the current branch, their files and their groupi
   [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`a_dry_run_changes_nothing_and_says_what_the_reapply_would_do`)
 - The reapply must be refused, and change nothing, for an unknown branch, a commit that conflicts with HEAD (its
   files named), local changes on a path it writes, a branch checked out in a worktree, and a HEAD with every commit of
-  it already; under the repository lock, as every rewrite.
+  it already; computed before the repository lock and written under it, as every rewrite.
   [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`reapply_refuses_an_unknown_branch_a_conflict_and_local_changes_in_the_way_and_changes_nothing`, `reapply_waits_for_the_repository_lock_and_fails_with_locked`)
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should keep an unapplied branch whose reapply conflicts and say why`)
 - The toast "Reapplied ‹branch›" must offer Undo, which moves HEAD and the files back and creates the unapplied branch

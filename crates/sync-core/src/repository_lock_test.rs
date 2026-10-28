@@ -6,6 +6,7 @@
 
 use crate::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
+use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use domain_types::commit::CommitInfo;
 use domain_types::rewrite::{AutosquashScope, CommitReword, RewordText};
@@ -21,17 +22,21 @@ use pretty_assertions::assert_eq;
 use std::time::{Duration, Instant};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::sync_fixtures::TestReporter;
 
-/// Commits of `alpha` and `beta`, a fixup of the first one, the virtual branch of `beta`, and an uncommitted change of
-/// `a1.txt`; returns `[a1, b1, a2, fixup]`
+/// Commits of `alpha` and `beta`, a fixup of the first one, their virtual branches built by a sync (an unapply checks
+/// the copies of beta before the lock), and an uncommitted change of `a2.txt`; returns `[a1, b1, a2, fixup]`
 fn repo() -> (TestRepo, [String; 4]) {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "readme\n");
   let a1 = repo.create_commit("(alpha) A1", "a1.txt", "a1\n");
   let b1 = repo.create_commit("(beta) B1", "b1.txt", "b1\n");
-  repo.create_branch("test-user/virtual/beta").unwrap();
   let a2 = repo.create_commit("(alpha) A2", "a2.txt", "a2\n");
   let fixup = repo.create_commit("fixup! (alpha) A1", "a1.txt", "a1 fixed\n");
+  tokio::runtime::Runtime::new()
+    .unwrap()
+    .block_on(sync_branches(repo.git_executor(), &path(&repo), "test-user", TestReporter::new(), SyncOptions::default()))
+    .unwrap();
   std::fs::write(repo.path().join("a2.txt"), "a2 amended\n").unwrap();
   (repo, [a1, b1, a2, fixup])
 }
@@ -103,17 +108,19 @@ fn run_every_rewrite(repo: &TestRepo, [a1, b1, a2, fixup]: &[String; 4], options
     ),
     (
       "amend",
-      amend_uncommitted_to_branch_core(
-        git,
-        AmendUncommittedToBranchParams {
-          repository_path: repository_path.clone(),
-          branch_name: "alpha".to_string(),
-          original_commit_id: a2.clone(),
-          files: vec!["a2.txt".to_string()],
-        },
-        options,
-      )
-      .err(),
+      error(
+        amend_uncommitted_to_branch_core(
+          git,
+          AmendUncommittedToBranchParams {
+            repository_path: repository_path.clone(),
+            branch_name: "alpha".to_string(),
+            original_commit_id: a2.clone(),
+            files: vec!["a2.txt".to_string()],
+          },
+          options,
+        )
+        .map(drop),
+      ),
     ),
     (
       "reword",
@@ -140,27 +147,34 @@ fn run_every_rewrite(repo: &TestRepo, [a1, b1, a2, fixup]: &[String; 4], options
     ),
     (
       "add issue reference",
-      add_issue_reference_to_commits_core(
-        git,
-        AddIssueReferenceParams {
-          repository_path,
-          branch_name: "alpha".to_string(),
-          commits: vec![CommitInfo {
-            hash: a2.clone(),
-            message: "(alpha) A2".to_string(),
-          }],
-          issue_reference: "ABC-1".to_string(),
-        },
-        options,
-      )
-      .err(),
+      error(
+        add_issue_reference_to_commits_core(
+          git,
+          AddIssueReferenceParams {
+            repository_path,
+            branch_name: "alpha".to_string(),
+            commits: vec![CommitInfo {
+              hash: a2.clone(),
+              message: "(alpha) A2".to_string(),
+            }],
+            issue_reference: "ABC-1".to_string(),
+          },
+          options,
+        )
+        .map(drop),
+      ),
     ),
   ]
 }
 
-/// The refs and the status: what a refused rewrite must leave as it was
+/// The refs and the status: what a refused rewrite must leave as it was. Not the notes ref: a rewrite writes the mapping
+/// notes of its new commits with them, before the lock, so one the lock refuses leaves notes of commits no branch has,
+/// which nothing looks up
 fn state(repo: &TestRepo) -> (String, String) {
-  (repo.git(&["for-each-ref", "--format=%(refname) %(objectname)"]), repo.git(&["status", "--porcelain"]))
+  (
+    repo.git(&["for-each-ref", "--format=%(refname) %(objectname)", "--exclude=refs/notes/*"]),
+    repo.git(&["status", "--porcelain"]),
+  )
 }
 
 #[test]
@@ -259,10 +273,12 @@ fn every_rewrite_refuses_another_head_than_the_expected_one() {
     actual: commits[3].clone(),
   };
 
+  let notes = repo.rev_parse("refs/notes/commits");
   for (rewrite, error) in run_every_rewrite(&repo, &commits, &options) {
     assert_eq!(error.as_deref(), Some(moved.to_string().as_str()), "{rewrite}");
   }
   assert_eq!(state(&repo), before);
+  assert_eq!(repo.rev_parse("refs/notes/commits"), notes, "another HEAD is refused before a note is written");
 
   let options = RewriteOptions {
     expect_head: Some(commits[3][..12].to_string()),
@@ -279,6 +295,52 @@ fn every_rewrite_refuses_another_head_than_the_expected_one() {
   )
   .unwrap();
   assert_eq!(squashed.squashed_count, 1);
+}
+
+/// An amend and an issue reference read and compute before the repository lock (the history, the merge, the amended
+/// commit and the replay of the commits above it; the baseline, the history and the reworded commits); under it only
+/// the witness of HEAD (`for-each-ref`) and the compare-and-swap move of the branch, the amended files staged after it
+/// (C11 of docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test]
+fn an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write() {
+  let (repo, [a1, _, a2, _]) = repo();
+  // a logging git and the options of the app's request, on HEAD as it is now
+  let traced = || {
+    let options = RewriteOptions {
+      expect_head: Some(repo.head()),
+      ..RewriteOptions::default()
+    };
+    (test_utils::lock_span::LockSpan::new(&repo.path().join(".git")), options)
+  };
+  let (span, options) = traced();
+  let amend = AmendUncommittedToBranchParams {
+    repository_path: path(&repo),
+    branch_name: "alpha".to_string(),
+    original_commit_id: a2,
+    files: vec!["a2.txt".to_string()],
+  };
+  let result = amend_uncommitted_to_branch_core(span.executor(), amend, &options).unwrap();
+  assert!(matches!(result, domain_types::rewrite::AmendCommandResult::Ok(_)), "{result:?}");
+  assert_eq!(repo.git(&["status", "--porcelain"]), "");
+  assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-index", "update-ref"], "{:#?}", span.commands());
+  span.assert_before_the_lock(&["replay"]);
+
+  let (span, options) = traced();
+  let reference = AddIssueReferenceParams {
+    repository_path: path(&repo),
+    branch_name: "alpha".to_string(),
+    commits: vec![CommitInfo {
+      hash: a1,
+      message: "(alpha) A1".to_string(),
+    }],
+    issue_reference: "ABC-1".to_string(),
+  };
+  let result = add_issue_reference_to_commits_core(span.executor(), reference, &options).unwrap();
+  assert_eq!(result.updated_count, 1);
+  assert_eq!(result.new_head.as_deref(), Some(repo.head().as_str()));
+  assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-ref"], "{:#?}", span.commands());
+  span.assert_before_the_lock(&["fast-import"]);
 }
 
 /// `RepositoryLocked` stays an error of its own type through a core that returns `anyhow`, so `bd` names it `locked`

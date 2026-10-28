@@ -179,3 +179,35 @@ fn reapply_waits_for_the_repository_lock_and_fails_with_locked() {
   assert!(error.downcast_ref::<history_rewrite::repository_lock::RepositoryLocked>().is_some(), "{error:#}");
   assert!(repo.branch_exists(UNAPPLIED));
 }
+
+/// A reapply and its undo read and compute before the repository lock (the unapplied branch, the baseline, the grouping,
+/// the restored messages, the pick and the dry run of its files; the reflog and the dry run of the undo); under it only
+/// the witness (`for-each-ref` of HEAD, the upstream, the issue groups, the unapplied branch and the mark of an
+/// interrupted move) and the guarded move (C11 of docs/design/rust-domain-authority.md)
+#[cfg(unix)]
+#[test]
+fn a_reapply_and_its_undo_lock_only_the_witness_and_the_move() -> Result<()> {
+  use crate::unapply_branch_test::MOVE_UNDER_THE_LOCK;
+  let repo = unapplied_repo();
+  let head = repo.head();
+  let span = test_utils::lock_span::LockSpan::new(&repo.path().join(".git"));
+  let params = ReapplyBranchParams {
+    repository_path: path(&repo).to_string(),
+    branch_name: "feature".to_string(),
+    dry_run: false,
+  };
+  let result = reapply_branch_core(span.executor(), &params, PREFIX, &RewriteOptions::default())?;
+  assert!(repo.path().join("file0.txt").exists());
+  assert_eq!(span.commands_under_the_lock(), MOVE_UNDER_THE_LOCK, "{:#?}", span.commands());
+  span.assert_before_the_lock(&["replay", "fast-import"]);
+
+  let span = test_utils::lock_span::LockSpan::new(&repo.path().join(".git"));
+  let token = ReapplyUndoToken::parse(result.undo_token.as_deref().expect("a token")).expect("a reapply token");
+  assert_eq!(
+    undo_reapply_core(span.executor(), path(&repo), &token, LockWait::default())?,
+    UndoneReapply { already_undone: false }
+  );
+  assert_eq!(repo.head(), head);
+  assert_eq!(span.commands_under_the_lock(), MOVE_UNDER_THE_LOCK, "{:#?}", span.commands());
+  Ok(())
+}

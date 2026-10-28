@@ -190,11 +190,32 @@ impl History {
   pub fn check_rewrite(&self, git_executor: &GitCommandExecutor, repo_path: &str, oldest_position: usize) -> Result<RewriteTarget> {
     ensure_no_operation_in_progress(git_executor, repo_path)?;
     let (branch, head) = checked_out_head(git_executor, repo_path)?;
-    // newest first, as `rev-list --min-parents=2 -n1` names one
-    if let Some(merge) = self.commits.iter().take(oldest_position + 1).find(|commit| commit.merge) {
-      return Err(merge_refusal(&merge.id));
-    }
+    self.check_no_merges(oldest_position)?;
     Ok(RewriteTarget { branch, head })
+  }
+
+  /// `check_rewrite` for a caller that read the checked out `branch` before this history, whose HEAD it is: HEAD is not
+  /// read again, since the witness of the repository lock checks both before the rewrite is written (`bd move-hunk`)
+  ///
+  /// # Errors
+  /// As `check_rewrite`, and a history without commits
+  pub fn check_rewrite_on(&self, git_executor: &GitCommandExecutor, repo_path: &str, oldest_position: usize, branch: &str) -> Result<RewriteTarget> {
+    ensure_no_operation_in_progress(git_executor, repo_path)?;
+    let head = self.head().ok_or_else(|| anyhow!("The checked out branch has no commits yet"))?;
+    self.check_no_merges(oldest_position)?;
+    Ok(RewriteTarget {
+      branch: branch.to_string(),
+      head: head.to_string(),
+    })
+  }
+
+  /// No merge among the commits down to `oldest_position`
+  fn check_no_merges(&self, oldest_position: usize) -> Result<()> {
+    // newest first, as `rev-list --min-parents=2 -n1` names one
+    match self.commits.iter().take(oldest_position + 1).find(|commit| commit.merge) {
+      Some(merge) => Err(merge_refusal(&merge.id)),
+      None => Ok(()),
+    }
   }
 }
 

@@ -635,8 +635,9 @@ that groups commits here (`unknown_branch`); a second park changes the note (one
 Takes the commits of a branch and their files out of the checked out branch and keeps the branch as
 `{prefix}/unapplied/<name>`, which no sync archives or deletes (`sync_core::unapply_branch`, "Drop and unapply" in
 [Git Operations](../design/git-operations.md), the contract [Unapply and Reapply](../../spec/branch/unapply.spec.md)): only
-when the user asks. Under the repository lock; the files follow through the guarded update of Update Project, so a
-local change on a path it writes is `uncommitted_overlap` (exit 4, `paths`) and changes nothing.
+when the user asks. Computed before the repository lock, which holds only its witness and the move; the files follow
+through the guarded update of Update Project, so a local change on a path it writes is `uncommitted_overlap` (exit 4,
+`paths`) and changes nothing.
 
 ```json
 {"schema":2,"repository":"/repo","prefix":"jane","branch":"docs","unapplied_branch":"jane/unapplied/docs",
@@ -1012,8 +1013,8 @@ tree stay as they are.
 Moves the changes of the file `path` from commit `from` into commit `to`, older or newer, both ahead of the baseline:
 the fix for a change that landed in the wrong commit, without `commit-tree` plumbing. Without `--block` the whole
 change of the file moves (also of a binary file, an added or a deleted one). `--block <id>` (repeatable) moves only
-the blocks with the ids that `bd commits <from> --patch` prints. One rewrite under the repository lock that keeps
-HEAD's tree, so the index and the working tree stay as they are
+the blocks with the ids that `bd commits <from> --patch` prints. One rewrite that keeps HEAD's tree, so the index and
+the working tree stay as they are, computed before the repository lock and written under it after the witness of HEAD
 ([Git Operations](../design/git-operations.md#move-a-hunk)).
 
 ```json

@@ -4,7 +4,7 @@
 
 use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, canonical, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
 use crate::remote_fixture_test::{
-  AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, push_from_elsewhere_to, repo_with_remote, robot as robot_json, stack_remote_moved_back,
+  AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, repo_with_remote, robot as robot_json, stack_remote_moved_back, their_fix_on_auth,
 };
 use crate::{Cli, Command};
 use bd_core::context::{RepoContext, RepoOptions, counted_git};
@@ -508,12 +508,12 @@ const MOVE_HUNK: [(&str, u32); 12] = [
   ("cat-file", 2),
   ("diff-tree", 2),
   ("fast-import", 2),
-  ("for-each-ref", 1),
+  ("for-each-ref", 2), // the baseline listing, and the witness of HEAD under the lock
   ("log", 3),
   ("merge-tree", 1),
   ("patch-id", 1),
   ("remote", 1),
-  ("rev-parse", 2),
+  ("rev-parse", 1), // the directories; HEAD and its branch come from the listing and `symbolic-ref`
   ("symbolic-ref", 1),
   ("update-ref", 1),
   ("var", 1),
@@ -582,10 +582,7 @@ fn a_pick() {
 /// prefixed copies, whose temporary ref goes at once), then the move under the lock and the grouping of the picked commit
 #[test]
 fn a_remote_pick() {
-  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
-  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
-  assert_eq!(exit_code, 0, "{output}");
-  push_from_elsewhere_to(&remote, AUTH, "Their fix");
+  let (repo, _remote, _) = their_fix_on_auth();
   let context = context(&repo);
   let args = PickArgs {
     remote: Some("auth".to_string()),
