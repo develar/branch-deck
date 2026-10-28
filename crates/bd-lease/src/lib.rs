@@ -12,6 +12,8 @@ mod clones_lock_test;
 #[cfg(test)]
 mod host_command_test;
 #[cfg(test)]
+mod host_objects_test;
+#[cfg(test)]
 mod host_slots_test;
 #[cfg(test)]
 mod lease_clean_test;

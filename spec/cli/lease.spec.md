@@ -13,6 +13,9 @@ targets:
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/lease-pool/src/lease.rs
   - ../../crates/lease-pool/src/host_slots.rs
+  - ../../crates/lease-pool/src/host_refs.rs
+  - ../../crates/lease-pool/src/host_git.rs
+  - ../../crates/git-ops/src/host_objects.rs
   - ../../crates/bd-lease/src/host_command.rs
   - ../../crates/lease-pool/src/state_file.rs
   - ../../crates/lease-pool/src/lease_clean.rs
@@ -561,6 +564,52 @@ one run for the duration of that run only.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_kill_signals_only_the_process_that_has_the_start_time`)
 
+### Host objects
+
+The git of the runs on the host goes through bd too, so yonderd starts no git: which commits the host has, the packs
+of the clients, the refs that keep their commits, and what a commit holds. `-C` names the repository the client asks
+for; one that is no working tree is `not_a_repository` (exit 2).
+
+- `bd lease host have <commit>…` must answer `commits`, the full ids of the arguments that the repository has as
+  commit objects, in their order, and `repository`, its top level, from one `cat-file --batch-check`. An argument that
+  is no full id is `invalid_arguments`.
+  [@test] ../../crates/bd-lease/src/host_objects_test.rs (`a_pack_lands_under_the_ref_of_its_run_until_the_give_back_of_the_run`)
+  [@test] ../../crates/git-ops/src/host_objects_test.rs (`the_commits_a_host_has_are_its_commit_objects_in_order`)
+- `bd lease host ingest --ref run:<id>|base:<name> --commit <id>` must write the pack on stdin (or `--pack <file>`)
+  into the object store and point `refs/branch-deck/host/run/<id>` or `refs/branch-deck/host/base/<name>` at the
+  commit, in one ref transaction. It reads the 12-byte header across short reads; a pack of fewer objects than
+  `receive.unpackLimit`, else `transfer.unpackLimit`, else 100, goes to `unpack-objects`, which resolves the bases of
+  a thin pack from the object store, as `receive-pack` does, and a larger one to `index-pack --stdin --fix-thin`. It
+  answers `ref`, `commit`, `objects` and `stored` (`loose` or `pack`). The pack streams through, never whole in
+  memory. A stream that is no pack, and a pack git refuses, fail with git's words after the rest of the stream was read,
+  so the sender is never blocked. A name of 1 to 128 characters of `A-Z a-z 0-9 . _ -`, the first one a letter or a
+  digit, without `..` and not ending in `.lock`, and a full commit id are required (`invalid_arguments`).
+  [@test] ../../crates/git-ops/src/host_objects_test.rs (`a_small_pack_lands_as_loose_objects_and_a_large_one_as_a_pack`, `a_stream_that_is_no_pack_is_refused_and_read_to_its_end`)
+  [@test] ../../crates/git-ops/src/host_objects_test.rs (`the_unpack_limit_is_the_one_of_receive_else_transfer_else_100`, `a_host_ref_name_is_one_safe_component`)
+  [@test] ../../crates/bd-lease/src/host_objects_test.rs (`the_refusals_of_the_host_objects_have_their_codes`)
+- When a pack last moved each ref of the host must be kept in `$GIT_COMMON_DIR/branch-deck/host-refs.json` (its lock
+  a leaf, as the one of the lend table). The give-back of a run must delete the run ref of its pack (`deleted_ref`),
+  also for a run that had no slot; a run that sent no pack costs no git. `reclaim` must delete a run ref whose run has
+  no lend and no ticket of a live process an hour after its pack, and a base ref that no pack moved for 14 days
+  (`deleted_refs`). With `branchdeck.leaseMaintenance` true, an ingest must start the maintenance after the ref
+  (`maintenance_started`).
+  [@test] ../../crates/bd-lease/src/host_objects_test.rs (`a_pack_lands_under_the_ref_of_its_run_until_the_give_back_of_the_run`, `reclaim_deletes_the_refs_that_no_run_needs`)
+  [@test] ../../crates/git-ops/src/host_objects_test.rs (`the_refs_of_the_host_move_and_go_in_one_transaction`)
+- `bd lease host show --commit <id> [--blob <path>] [--ids <path>…]` must answer the text of the file `--blob` names
+  (`blob`: `path`, `id`, `text`; `null` when the commit has no file there) and the object id of each path of `--ids`
+  (a blob, the tree of a directory, the commit of a gitlink; `null` for none), from one `cat-file --batch`. A commit
+  that the repository lacks, a path with an empty, `.` or `..` component and a file over 1 MiB are
+  `invalid_arguments`.
+  [@test] ../../crates/bd-lease/src/host_objects_test.rs (`show_answers_a_file_and_ids_and_git_answers_the_git_of_the_host`)
+  [@test] ../../crates/git-ops/src/host_objects_test.rs (`show_answers_the_text_of_a_file_and_the_ids_of_paths`)
+- `bd lease host git` must answer the git that bd discovered (`path`, `dir`, `version`), the floor of a host
+  (`floor`, 2.56.0, above the 2.54 of bd itself) and `meets_floor`; a release candidate comes before its release.
+  [@test] ../../crates/bd-lease/src/host_objects_test.rs (`show_answers_a_file_and_ids_and_git_answers_the_git_of_the_host`)
+  [@test] ../../crates/lease-pool/src/host_git_test.rs (`a_version_meets_the_floor_from_its_release_on`)
+- `have` and `show` run one `cat-file` each, `ingest` of a small pack the config, `unpack-objects` and one
+  `update-ref`, and the give-back of a run that sent a pack one more `update-ref`.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_objects_have_ingest_and_show`)
+
 ### Error codes
 
 | Exit | Codes |
@@ -570,7 +619,8 @@ one run for the duration of that run only.
 | 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`; `bd lease pick`: `home_branch_switched`, `no_home_branch`, `unchecked_tree` and the refusals of `bd pick` |
 
 - The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`,
-  and `lease_host_lend` … `lease_host_status`).
+  and `lease_host_lend` … `lease_host_status`, `lease_host_have`, `lease_host_ingest`, `lease_host_show`,
+  `lease_host_git`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)

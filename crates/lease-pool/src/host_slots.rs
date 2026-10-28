@@ -13,6 +13,7 @@
 //! `git_ops::lease_slot`, the gets and the returns are those of `lease`.
 
 use crate::free_space::available_bytes;
+use crate::host_refs::delete_run_ref;
 use crate::lease::{
   BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, canonical_path, get_host_slot, move_reused_slot,
   return_host_slot,
@@ -261,7 +262,8 @@ pub(crate) fn host_slot_number(git_common_dir: &Path, lease: &crate::lease::Leas
   Ok(table.slots.iter().find(|slot| !slot.lease_id.is_empty() && slot.lease_id == lease.id).map(|slot| slot.n))
 }
 
-fn now_ms() -> u64 {
+/// Now, in Unix milliseconds
+pub(crate) fn now_ms() -> u64 {
   SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
@@ -585,11 +587,14 @@ pub struct RunGaveBack {
   pub slot: Option<GaveBack>,
   /// git's maintenance was started: by the give-back of the slot, or for a run without one
   pub maintenance_started: bool,
+  /// The run ref of the pack of the run (`host_refs`), deleted
+  pub deleted_ref: Option<String>,
 }
 
 /// Give back the slot that the run `run` has (`give_back`), found by the run; when it has none, its ticket leaves the
 /// queue: the one call of an agent on every way out of a run, also when the run never got a slot, or when a kill cut
-/// its lend after the table recorded it. Either way git's maintenance starts with `branchdeck.leaseMaintenance`
+/// its lend after the table recorded it. Either way the run ref of its pack goes (`host_refs::delete_run_ref`; a
+/// failure only warns, `reclaim` deletes it later), and git's maintenance starts with `branchdeck.leaseMaintenance`
 pub fn give_back_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str) -> Result<RunGaveBack> {
   let table: HostSlots = params.table().read()?;
   let lent = table
@@ -603,11 +608,35 @@ pub fn give_back_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams
     leave_queue(params, run)?;
     None
   };
+  let deleted_ref = delete_run_ref(git_executor, params.repository, run, params.lock_timeout)
+    .inspect_err(|error| warn!(run, error = %format!("{error:#}"), "cannot delete the run ref after the give-back"))
+    .ok()
+    .flatten();
   let maintenance_started = match &slot {
     Some(gave_back) => gave_back.maintenance_started,
     None => start_maintenance(git_executor, params, &lease_config(git_executor, &params.repository.top_level)?),
   };
-  Ok(RunGaveBack { slot, maintenance_started })
+  Ok(RunGaveBack {
+    slot,
+    maintenance_started,
+    deleted_ref,
+  })
+}
+
+/// The runs that a live process waits for or runs: the lends and the tickets whose process lives. Their run refs stay
+/// (`host_refs::reclaim_refs`)
+pub fn live_runs(params: &HostSlotsParams<'_>) -> Result<HashSet<String>> {
+  let table: HostSlots = params.table().read()?;
+  let lent = table.slots.iter().filter_map(|slot| match &slot.state {
+    HostState::Lent(lent) if is_running(lent.pid, lent.process_started) => Some(lent.run.clone()),
+    _ => None,
+  });
+  let queued = table
+    .queue
+    .iter()
+    .filter(|ticket| is_running(ticket.pid, ticket.process_started))
+    .map(|ticket| ticket.run.clone());
+  Ok(lent.chain(queued).collect())
 }
 
 /// How `checkout` brought the slot of a run to its commit
