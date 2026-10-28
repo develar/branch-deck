@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test"
 import type { Locator, Page } from "@playwright/test"
-import type { GitHubUser, PullRequest, PullRequestAvailability, Reviewer, ReviewerState } from "../../../src/lib/bindings"
+import type { GitHubUser, MergeMethods, PullRequest, PullRequestAvailability, Reviewer, ReviewerState } from "../../../src/lib/bindings"
 
 /** The branch prefix of the E2E repositories */
 const BRANCH_PREFIX = "user-name"
@@ -16,6 +16,8 @@ export interface PullRequestsFixture {
   availability: PullRequestAvailability
   pullRequests: Record<string, PullRequest>
   stackPullRequests?: Record<string, PullRequest>
+  /** The merge methods the repository allows; unset: every method, no auto-merge */
+  mergeMethods?: MergeMethods
 }
 
 /**
@@ -75,6 +77,15 @@ export async function stepSessionClockUntil(repo: { advanceBackendClock(ms: numb
 }
 
 /** The writes of a log (every request but a GET and a GraphQL query), as `[method, path, body]` */
+/** The GraphQL mutations that reached the fake GitHub (the merge of a pull request, its auto-merge): the name of each with its variables */
+export function gitHubMutations(log: GitHubLog): [string, unknown][] {
+  return log.requests.flatMap(it => {
+    const body = it.body as { query?: string; variables?: unknown } | null
+    const name = body?.query?.startsWith("mutation(") === true ? /\{\s*(\w+)\(/.exec(body.query)?.[1] : undefined
+    return name === undefined ? [] : [[name, body?.variables] as [string, unknown]]
+  })
+}
+
 export function gitHubWrites(log: GitHubLog): [string, string, unknown][] {
   return log.requests.filter(it => it.method !== "GET" && it.path !== "/graphql").map(it => [it.method, it.path, it.body])
 }

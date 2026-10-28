@@ -74,6 +74,9 @@ targets:
   - ../../crates/remote-facts/src/scheduler_github.rs
   - ../../crates/repository-model/src/pull_request_facts.rs
   - ../../src/lib/merge-pull-request.ts
+  - ../../src/lib/auto-merge-news.ts
+  - ../../crates/github/src/fake_repository.rs
+  - ../../crates/test-utils/src/remote_git.rs
 ---
 
 # Landing Routes
@@ -406,6 +409,24 @@ target, read before anything is pushed.
 - A refusal of the gate must disable Push to master on every surface with its reason: below write access "You have no
   write access to acme/monorepo: someone who has lands it into master".
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should disable Push to master with the reason when the token has no write access to the repository`)
+- Merge #7 must be one start on the surfaces of the row: the slot (a click merges at once when the plan asks nothing),
+  S on the row (its popover: "GitHub merges #7 of JIRA-456 into master by rebase: 3 commits.", what it asks, its start
+  "Merge #7"), the "⋯" and right-click menus, the footer of the branch preview, and of a whole stack the header of its
+  island and "Whole Stack ›" (`merge-pull-request`); "Auto-Merge #7" the same while required checks run. A merge is one
+  toast that follows the update after it in place, as a push's: "Merged #7 of JIRA-456 into master · 3 commits", then
+  what the update did; an auto-merge "Auto-Merge of #7 is on", its slot "Merges when checks pass", its node landing,
+  Cancel Auto-Merge in the menus ("Canceled the auto-merge of #7"); once GitHub merged it the same toast says "Merged #7
+  into master" with Update Project. What holds the merge back disables Merge with its reason, the slot naming it
+  ("Awaiting Approval", "Conflict", "Update Needed"). The fake GitHub of the tests merges a pull request as a
+  fast-forward of the remote (`Merger`), so the update after a merge drops the originals as GitHub's would.
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge the approved green pull request from the slot of the row by rebase, and update after it`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should open the popover of Merge #7 with S on the row, naming the method`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge from the menu of the row`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should enable the auto-merge while the required checks run, and offer Update Project once GitHub merged it`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should cancel the auto-merge from the menu of the row`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should disable Merge with the reason while the pull request waits for the approvals its base requires`)
+  [@test] ../../src/presenters/outcome.test.ts (`says what GitHub merged, an auto-merge it waits with, and its refusal in its words`)
+  [@test] ../../src/presenters/next-step.test.ts (`rows of a merge: Merge #7 and Auto-Merge #7 by the method, merge′ merges by itself, merge″ says why the merge waits, pr creates the pull request`)
 - Settings → Landing must name the route of the selected repository ("Land by": Safe Push · Push · Pull Request) and
   where it comes from ([Settings](../repository/settings.spec.md#landing)).
   [@test] ../../tests/e2e/settings/landing-settings.spec.ts (`should land the repository by a push into master once chosen, the main window taking the step, and back to the default`)

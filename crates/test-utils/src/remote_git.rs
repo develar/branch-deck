@@ -87,6 +87,29 @@ pub fn push_in_terminal(repo_path: &Path, branch: &str, revision: &str) -> Resul
   Ok(commit.to_string())
 }
 
+/// Merges `head` of the repository at `repo_path` into `base` of its remote as GitHub's merge of a pull request whose
+/// head is on its base does: a fast-forward of the remote branch by the path of the remote, so the remote-tracking ref
+/// stays until a fetch; one that is no fast-forward moves nothing. One `push`
+///
+/// # Errors
+/// When the repository has no remote of its own, or the push is no fast-forward
+pub fn merge_on_remote(repo_path: &Path, base: &str, head: &str) -> Result<()> {
+  let remote = existing_origin(repo_path)?;
+  let output = git_command()
+    .args(["push", "-q", "--end-of-options"])
+    .arg(&remote)
+    .arg(format!("{head}:refs/heads/{base}"))
+    .env(PUSH_IN_TERMINAL, "1")
+    .current_dir(repo_path)
+    .output()?;
+  ensure!(
+    output.status.success(),
+    "the merge is no fast-forward of {base}: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  Ok(())
+}
+
 /// Fetches the remote into the repository at `repo_path` as `git fetch origin` in a terminal does: the remote-tracking
 /// refs move to what the remote has, so the next sync shows a commit someone else pushed. One `fetch`
 ///

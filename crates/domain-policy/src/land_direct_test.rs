@@ -450,6 +450,7 @@ fn merge_effect(method: MergeMethod) -> PlannedEffect {
     number: 7,
     method,
     head: "login-tip".to_string(),
+    target: "master".to_string(),
   }
 }
 
@@ -555,6 +556,7 @@ fn what_holds_the_merge_back_refuses_it_running_checks_enable_the_auto_merge_and
       number: 7,
       method: MergeMethod::Rebase,
       head: "login-tip".to_string(),
+      target: "master".to_string(),
     }]
   );
   assert_eq!(auto.blockers, []);
@@ -605,6 +607,7 @@ fn a_head_behind_the_copy_is_pushed_then_auto_merged_and_without_a_pull_request_
         number: 7,
         method: MergeMethod::Rebase,
         head: "login-tip".to_string(),
+        target: "master".to_string(),
       },
     ]
   );
@@ -667,6 +670,7 @@ fn the_update_follows_a_merge_of_the_pull_request_and_no_auto_merge() {
     number: 7,
     method: MergeMethod::Rebase,
     head: "login-tip".to_string(),
+    target: "master".to_string(),
   };
   assert_eq!(update_after(&ran(auto, EffectStatus::Done)), None);
 }

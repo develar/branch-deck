@@ -239,6 +239,12 @@ impl RemoteHost {
     repository.set_branch_tip(Box::new(move |branch| {
       resolve_commit(&git_of_tip, &path_of_tip, &format!("refs/heads/{branch}")).ok().flatten()
     }));
+    // a merge of a pull request on its base is a fast-forward of the remote (`.git/upstream.git`), which the fetch of
+    // the update brings in
+    let path_of_merge = PathBuf::from(repository_path);
+    repository.set_merger(Box::new(move |base, head| {
+      test_utils::remote_git::merge_on_remote(&path_of_merge, base, head).map_err(|error| format!("{error:#}"))
+    }));
     let github = Arc::new(FakeGitHub::with_repository(repository));
     let github_server = FakeServer::serve(github::fake_github::router(Arc::clone(&github)));
     std::fs::create_dir_all(&app_data).expect("the app data directory of the test repository");

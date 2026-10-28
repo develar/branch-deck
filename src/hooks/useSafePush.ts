@@ -10,6 +10,7 @@ import { commands } from "@/lib/bindings"
 import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { FROM_MENU } from "@/lib/menu"
+import { formatMergeLabel, mergeOf } from "@/lib/merge-pull-request"
 import { formatPushMode, openRobot } from "@/lib/patronus"
 import { openPullRequest, openPullRequestUrl } from "@/lib/pull-request"
 import { pushForAction, pushWholeStack } from "@/lib/push-run"
@@ -19,6 +20,7 @@ import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
+import { getRowPart } from "@/model/store"
 import { getRobotActionItems } from "@/presenters/actions"
 import type { LandPrompt } from "@/presenters/land"
 import { presentLand, startRouteOf } from "@/presenters/land"
@@ -80,6 +82,14 @@ export interface SafePushRequest {
  */
 export function landsByPush(): boolean {
   return getLandingRoute()?.kind === "push"
+}
+
+/**
+ * Rust offers the merge of the pull request of `key` (a branch, `stack:<root>`) on GitHub, or Cancel Auto-Merge: the
+ * repository lands by a merge of the pull request, which runs without Patronus (`land::merges_on_github`, Rust's)
+ */
+export function landsByMerge(key: string): boolean {
+  return (getRowPart(key, "actions") ?? []).some(action => action.id === "merge-pull-request" || action.id === "cancel-auto-merge")
 }
 
 /** `landsByPush` of a component, following the route of the view */
@@ -317,7 +327,7 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
   const ancestors = root === null ? (plan?.lands.slice(0, -1) ?? []) : []
   const stackPullRequest = plan?.confirmations.find(confirmation => confirmation.kind === "stackPullRequestApprovalsDontCount")
   const stackOf = stackPullRequest === undefined ? undefined : getStackBranchOf(branchName)
-  const byPush = (plan !== null && pushTargetOf(plan.effects) !== null) || landsByPush()
+  const byPush = (plan !== null && pushTargetOf(plan.effects) !== null) || landsByPush() || landsByMerge(branchName)
   const review: ReviewShown = byPush ? { kind: "none" } : reviewShownOf(mode, readiness, plan)
   // asked without review through the API (a comment takes no profile), while the approvals are missing or not known
   const withoutReview =
@@ -481,7 +491,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   const run = getLandRun(branchName)
   // a start of the row that runs shows in its slot: a second ask has nothing to add
   // Patronus lands it, or a push of its copy into the target (which asks no Patronus)
-  if (branch === undefined || !(isPatronusAvailable() || landsByPush()) || (run !== null && run.by === null)) {
+  if (branch === undefined || !(isPatronusAvailable() || landsByPush() || landsByMerge(branchName)) || (run !== null && run.by === null)) {
     return
   }
   const { mode } = request
@@ -758,7 +768,8 @@ function tellOutcome(outcome: Outcome, plan: Plan, repositoryPath: string, prese
   const key = landKey(land)
   const toast = presented ?? presentLandOutcome(outcome, plan.intent, formatReadinessSubject(key))
   const pushInto = pushTargetOf(plan.effects)
-  const startName = pushInto === null ? `Start ${formatPushMode(land.mode)}` : `Push to ${pushInto}`
+  const merge = mergeOf(plan.effects)
+  const startName = merge !== null ? formatMergeLabel(merge.number, merge.auto) : pushInto === null ? `Start ${formatPushMode(land.mode)}` : `Push to ${pushInto}`
   const subjectKey = toastKeys.robotSubject(repositoryPath, key, land.mode)
   switch (toast.kind) {
     case "started":
@@ -792,6 +803,15 @@ function tellOutcome(outcome: Outcome, plan: Plan, repositoryPath: string, prese
     case "pushed":
       showEventToast({ key: subjectKey, render: () => ({ type: "success", title: toast.title, description: toast.description }) })
       return true
+    case "autoMerge": {
+      // one toast of the merge of the pull request: the news of the session says it in place once GitHub merged it
+      const number = toast.number
+      showEventToast({
+        key: toastKeys.autoMerge(repositoryPath, number),
+        render: () => ({ type: "success", title: toast.title, description: toast.description }),
+      })
+      return true
+    }
     case "unknown": {
       // the row shows the start as not known yet, with Forget This Start; the toast opens where its robot would be
       const url = toast.url

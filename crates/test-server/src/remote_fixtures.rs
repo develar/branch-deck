@@ -571,6 +571,7 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
     // the host keeps the replies and the pull request nodes of the fixtures before
     patronus_replies: std::collections::BTreeMap::new(),
     pull_request_nodes: std::collections::BTreeMap::new(),
+    merge_methods: fixture.result.merge_methods,
   };
   host.set_github(github, answers.signed_in);
   Ok(StatusCode::OK)

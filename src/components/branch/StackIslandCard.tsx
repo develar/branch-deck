@@ -441,7 +441,7 @@ function getStackIslandMenuNow(root: string, collapsed: boolean): MenuItemGroups
 }
 
 /** The items of the first group of the "⋯" of the header: the starts of the whole stack, and the piece of its main line */
-const ISLAND_START_ITEMS: ReadonlySet<string> = new Set(["safe-push-whole-stack", "dry-run-whole-stack", "safe-push-main-line", "push-to-baseline"])
+const ISLAND_START_ITEMS: ReadonlySet<string> = new Set(["safe-push-whole-stack", "dry-run-whole-stack", "safe-push-main-line", "push-to-baseline", "merge-pull-request"])
 
 /**
  * The "⋯" of the header: the actions of the whole stack (`getWholeStackMenuItems`): its Safe Push and Dry Run (with the

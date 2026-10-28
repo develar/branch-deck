@@ -31,6 +31,8 @@ export const toastKeys = {
   review: (repositoryPath: string, pullRequest: number) => `review\n${repositoryPath}\n${pullRequest}`,
   /** The requests of several pull requests one answer told: one toast of them */
   reviewRequests: (repositoryPath: string, pullRequests: readonly number[]) => `review-requests\n${repositoryPath}\n${pullRequests.join(" ")}`,
+  /** The auto-merge of a pull request of the user: enabled, then merged by GitHub (`NewsEvent::AutoMerged`) */
+  autoMerge: (repositoryPath: string, pullRequest: number) => `auto-merge\n${repositoryPath}\n${pullRequest}`,
   /** A YouTrack issue: marked Fixed, back to its state */
   issue: (key: string) => `issue\n${key}`,
 } as const

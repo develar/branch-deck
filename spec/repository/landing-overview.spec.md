@@ -68,7 +68,9 @@ indicator, whose states were the same story told twice.
   counts their kinds as the rows show them (`getNodeKindNow`) and words only the nodes it lists. The branches of a stack
   whose own node needs a fix are listed below it, each a move of its own. Units come in the order of the table. A parked branch, and
   one parked with its parent, is in no unit ([Parked Branches](../branch/parked-branches.spec.md)); a whole stack that
-  holds one lands in pieces, so its unit takes the node of its root.
+  holds one lands in pieces, so its unit takes the node of its root. Where the repository lands by a merge of the pull
+  request on GitHub, Merge #7 and Auto-Merge #7 are the user's move (the node ready), an enabled auto-merge lands
+  ([Landing Routes](../branch/landing-routes.spec.md#merge)).
   [@test] ../../src/lib/landing-overview.test.ts (`counts the user's moves by unit, a ready stack of 22 branches one move, the most urgent first`, `lists a stack whose branch needs a fix with the moves, the fix counted as a move of its own`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_those_that_changed`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should run the next step of a move from the overview at its row: a Safe Push, a pull request`)

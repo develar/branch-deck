@@ -617,7 +617,7 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
     case "autoMerging": {
       // row merge′: GitHub merges it by itself once its checks pass; Cancel Auto-Merge is in the menus
       const reason = `GitHub merges #${kind.number} by ${formatMergeMethod(kind.method)} once its checks pass`
-      const item = { ...quietItem(actions, "Merges when checks pass", `${reason}\nOpen Pull Request #${kind.number}`, ClockIcon), compactLabel: "Auto-Merge" }
+      const item = quietItem(actions, "Merges when checks pass", `${reason}\nOpen Pull Request #${kind.number}`, ClockIcon)
       return { kind: "awaiting", item, tone: "quiet", own: reason, notice: { title: `#${kind.number} of ${subject} merges by itself`, description: reason } }
     }
     case "mergeHeld":

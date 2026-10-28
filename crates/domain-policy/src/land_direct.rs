@@ -356,11 +356,23 @@ pub(crate) fn decide_merge(facts: &LandFacts<'_>, land: &Land, gate: &RouteGate)
         });
         decision.confirmations.extend(forced);
       }
-      let head = head.to_owned();
+      let (head, target) = (head.to_owned(), facts.target.to_owned());
       decision.effects.push(if auto {
-        PlannedEffect::EnableAutoMerge { subject, number, method, head }
+        PlannedEffect::EnableAutoMerge {
+          subject,
+          number,
+          method,
+          head,
+          target,
+        }
       } else {
-        PlannedEffect::MergePullRequest { subject, number, method, head }
+        PlannedEffect::MergePullRequest {
+          subject,
+          number,
+          method,
+          head,
+          target,
+        }
       });
     }
   }

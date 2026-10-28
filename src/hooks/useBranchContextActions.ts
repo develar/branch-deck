@@ -9,6 +9,7 @@ import { unparkBranch } from "@/hooks/useParkBranch"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
+import { cancelAutoMerge } from "@/lib/auto-merge-news"
 import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { ActionId, ActionState, PullRequest } from "@/lib/bindings"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
@@ -54,6 +55,7 @@ import { openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, getLandingBranchCount, getPushHold, isPatronusAvailable, isPatronusPending, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading, pullRequestsStore } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 import { getReadinessTarget, recheckReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { safePushStore } from "@/stores/safe-push"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
@@ -122,6 +124,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
     nextStep.landingFix,
     getSafePushMenuItem(branch, nextStep),
+    // GitHub merges its pull request once the checks pass: Cancel Auto-Merge, while Rust offers it
+    pullRequest === undefined
+      ? null
+      : branchItem(branch, "cancel-auto-merge", { onSelect: () => void cancelAutoMerge(getSelectedRepositoryPath(), pullRequest.number, branch.name) }),
   )
   // a listed robot keeps its actions while Patronus doesn't answer for a new start
   landingActions.push(...robotActions, ...present(getPatronusMenuItem(branch, nextStep)), ...getPushMenuItems(branch))
@@ -372,6 +378,21 @@ function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranc
   )
   if (push !== null) {
     return withStepReason(push, nextStep.safePushBlocker)
+  }
+  // a repository that lands by a merge of the pull request on GitHub: Rust offers its merge, named as the step names it
+  const shown = nextStep.item?.id === "merge-pull-request" ? nextStep.item : null
+  const merge = branchItem(
+    branch,
+    "merge-pull-request",
+    {
+      label: shown?.label ?? "Merge",
+      ...(shown?.description !== undefined && { description: shown.description }),
+      onSelect: () => void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "click" }),
+    },
+    nextStep.safePushBlocker,
+  )
+  if (merge !== null) {
+    return withStepReason(merge, nextStep.safePushBlocker)
   }
   const item = branchItem(
     branch,

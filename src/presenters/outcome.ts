@@ -22,6 +22,7 @@ import type {
 } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { appliedUpdateToast } from "@/lib/landed"
+import { formatMergeMethod, mergeOf, type PlannedMerge } from "@/lib/merge-pull-request"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
 import { describeLandingRefusals } from "@/presenters/landing"
 
@@ -59,6 +60,8 @@ export type LandToast =
    * baseline was fetched, and the update that follows builds the copy anew on it, which the step offers to push again
    */
   | { readonly kind: "moved"; readonly title: string; readonly description: string }
+  /** GitHub merges the pull request `number` once its checks pass (Auto-Merge #7): no update follows */
+  | { readonly kind: "autoMerge"; readonly title: string; readonly description: string; readonly number: number }
 
 /** What refused a start before its first effect, as its toast says it */
 export type LandRefusal =
@@ -79,14 +82,51 @@ function refusedTitle(mode: PatronusPushMode, subject: string, pushInto: string 
   return pushInto === null ? `Cannot start the ${formatPushMode(mode)} of ${subject}` : `Cannot push ${subject} into ${pushInto}`
 }
 
-/** The push of the copy into the target an outcome or a plan names (`PlannedEffect::PushBaseline`): its target */
+/**
+ * The landing without a robot an outcome or a plan names: its target, of the push of the copy into it
+ * (`PlannedEffect::PushBaseline`) or of the merge of the pull request on GitHub (`MergePullRequest`, `EnableAutoMerge`)
+ */
 export function pushTargetOf(effects: readonly PlannedEffect[]): string | null {
   for (const effect of effects) {
-    if (effect.kind === "pushBaseline") {
+    if (effect.kind === "pushBaseline" || effect.kind === "mergePullRequest" || effect.kind === "enableAutoMerge") {
       return effect.target
     }
   }
   return null
+}
+
+/**
+ * How a merge of the pull request of `subject` on GitHub ended: merged (the update follows, `pushed`), its auto-merge
+ * enabled (GitHub merges it once its checks pass, no update follows), or why GitHub did not; `commits` as the page
+ * counted them at the start
+ */
+function presentMergeOutcome(outcome: Pick<Outcome, "effects">, subject: string, merge: PlannedMerge, commits: number | null): LandToast {
+  const record = outcome.effects.find(it => it.effect.kind === "mergePullRequest" || it.effect.kind === "enableAutoMerge")
+  const status = record?.status
+  const how = formatMergeMethod(merge.method)
+  if (status?.kind === "done" && merge.auto) {
+    const description = `GitHub merges it into ${merge.target} by ${how} once its checks pass`
+    return { kind: "autoMerge", title: `Auto-Merge of #${merge.number} is on`, description, number: merge.number }
+  }
+  if (status?.kind === "done") {
+    const merged = `Merged #${merge.number} of ${subject} into ${merge.target}${commits === null ? "" : ` · ${formatCommitCount(commits)}`}`
+    return { kind: "pushed", title: merged, description: `GitHub merged it by ${how}` }
+  }
+  if (status?.kind === "skipped" && status.reason?.code === "canceled") {
+    return { kind: "stopped", title: `Canceled the merge of #${merge.number}`, description: "Nothing was merged" }
+  }
+  return failedLanding(outcome, status, `Cannot merge #${merge.number} of ${subject}`, "Nothing was merged")
+}
+
+/**
+ * A landing without a robot that did not land (`status` the one of its push or merge): the first failed effect in its
+ * words, else why it was skipped, which a start again may pass
+ */
+function failedLanding(outcome: Pick<Outcome, "effects">, status: EffectRecord["status"] | undefined, title: string, nothing: string): LandToast {
+  const failed = outcome.effects.find(it => it.status.kind === "failed")
+  const error = failed?.status.kind === "failed" ? failed.status.error : null
+  const reason = status?.kind === "skipped" ? status.reason : null
+  return { kind: "failed", title, description: error?.message ?? reason?.message ?? nothing, error: error ?? reason, again: reason !== null && error === null, canceled: null }
 }
 
 /**
@@ -117,17 +157,7 @@ export function presentPushOutcome(outcome: Pick<Outcome, "effects">, subject: s
   if (status?.kind === "skipped" && status.reason?.code === "canceled") {
     return { kind: "stopped", title: `Canceled the push of ${subject} into ${target}`, description: "Nothing was pushed" }
   }
-  const failed = outcome.effects.find(it => it.status.kind === "failed")
-  const error = failed?.status.kind === "failed" ? failed.status.error : null
-  const reason = status?.kind === "skipped" ? status.reason : null
-  return {
-    kind: "failed",
-    title,
-    description: error?.message ?? reason?.message ?? "Nothing was pushed",
-    error: error ?? reason,
-    again: reason !== null && error === null,
-    canceled: null,
-  }
+  return failedLanding(outcome, status, title, "Nothing was pushed")
 }
 
 /** The Update Project that follows a push into the target that landed, as the toast of the push says it */
@@ -197,6 +227,10 @@ function withNotes(description: string, notes: readonly StartNote[], effects: re
  * Activity of the start says the same (`presentActivity`, over the journal of the repository)
  */
 export function presentLandOutcome(outcome: Pick<Outcome, "effects" | "result">, intent: Intent, subject: string, commits: number | null = null): LandToast {
+  const merge = mergeOf(outcome.effects.map(record => record.effect))
+  if (merge !== null) {
+    return presentMergeOutcome(outcome, subject, merge, commits)
+  }
   if (pushTargetOf(outcome.effects.map(record => record.effect)) !== null) {
     return presentPushOutcome(outcome, subject, commits)
   }

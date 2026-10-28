@@ -283,6 +283,7 @@ function landSaid(entry: JournalEntry, told: boolean): Said[] {
     case "failed":
       return told ? [] : [{ kind: "error", title: toast.title, description: toast.description }]
     case "pushed":
+    case "autoMerge":
       return [{ kind: "push", title: toast.title, description: toast.description }]
     case "moved":
       return [{ kind: "push", title: toast.title, description: toast.description, warning: true }]

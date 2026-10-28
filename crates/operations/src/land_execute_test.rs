@@ -564,11 +564,24 @@ async fn on_github(fixture: &mut Fixture, head: &str) -> Arc<github::fake_github
 }
 
 fn merge_alpha(head: &str, auto: bool) -> PlannedEffect {
-  let (subject, number, method, head) = (Subject::branch("alpha"), 7, domain_types::pull_request::MergeMethod::Rebase, head.to_string());
+  let (subject, number, head, target) = (Subject::branch("alpha"), 7, head.to_string(), "master".to_string());
+  let method = domain_types::pull_request::MergeMethod::Rebase;
   if auto {
-    PlannedEffect::EnableAutoMerge { subject, number, method, head }
+    PlannedEffect::EnableAutoMerge {
+      subject,
+      number,
+      method,
+      head,
+      target,
+    }
   } else {
-    PlannedEffect::MergePullRequest { subject, number, method, head }
+    PlannedEffect::MergePullRequest {
+      subject,
+      number,
+      method,
+      head,
+      target,
+    }
   }
 }
 

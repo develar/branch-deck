@@ -158,6 +158,30 @@ describe("a push into the target", () => {
     result: { kind: "land", robot: null, canceled: null, comment: null, notes: [], lost: null },
   })
 
+  it("says what GitHub merged, an auto-merge it waits with, and its refusal in its words", () => {
+    const of = (kind: "mergePullRequest" | "enableAutoMerge", status: EffectRecord["status"]): Pick<Outcome, "effects" | "result"> => ({
+      effects: [{ effect: { kind, subject: { kind: "branch", name: "auth" }, number: 7, method: "rebase", head: "a1", target: "master" }, status }],
+      result: { kind: "land", robot: null, canceled: null, comment: null, notes: [], lost: null },
+    })
+    expect(presentLandOutcome(of("mergePullRequest", DONE), PLAN.intent, "auth", 3)).toEqual({
+      kind: "pushed",
+      title: "Merged #7 of auth into master · 3 commits",
+      description: "GitHub merged it by rebase",
+    })
+    expect(presentLandOutcome(of("enableAutoMerge", DONE), PLAN.intent, "auth")).toEqual({
+      kind: "autoMerge",
+      title: "Auto-Merge of #7 is on",
+      description: "GitHub merges it into master by rebase once its checks pass",
+      number: 7,
+    })
+    const refused = apiError("not_mergeable", "Cannot merge #7: GitHub refused it for #7: Pull request is not mergeable")
+    expect(presentLandOutcome(of("mergePullRequest", { kind: "failed", error: refused }), PLAN.intent, "auth")).toMatchObject({
+      kind: "failed",
+      title: "Cannot merge #7 of auth",
+      description: refused.message,
+    })
+  })
+
   it("says what it pushed, a target that moved, the words of the server that refused it, and the push again of a plan that changed", () => {
     expect(presentLandOutcome(pushed(DONE), PLAN.intent, "auth", 3)).toEqual({
       kind: "pushed",

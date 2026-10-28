@@ -48,6 +48,8 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   // actions of the branch it subscribes to are its argument, so the item follows them
   const actions = useRowPart(branch.name, "actions")
   const createItem = getCreatePullRequestItem(branch, actions)
+  // or Merge #7, where Rust offers the merge of its pull request on GitHub
+  const landsByMerge = actions?.some(action => action.id === "merge-pull-request") === true
   // as the push button of the row: only a branch that synced without an error has something to push
   // the first push of a branch is a step of Safe Push and Create Pull Request: "⋯" offers it; unless Push with Children
   // takes the stack branch of the whole stack along, whose open pull request it updates
@@ -88,7 +90,7 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
           <TooltipContent>{createItem.description}</TooltipContent>
         </Tooltip>
       )}
-      {(patronusOffered || landsByPush) && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
+      {(patronusOffered || landsByPush || landsByMerge) && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
       {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" waits={waits} />}
     </>
   )

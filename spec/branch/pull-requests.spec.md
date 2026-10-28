@@ -242,6 +242,12 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 - At most one listing per session is in flight. A push, a write of the app or the refresh button during a listing asks
   once more after it; a sync or a focus during a listing adds nothing.
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_retarget_asks_the_pull_requests_again`)
+- The listing also tells whether GitHub can merge each pull request (`mergeStateStatus`), its auto-merge and the merge
+  methods of the repository, which the merge of the pull-request route reads
+  ([Landing Routes](landing-routes.spec.md#merge)); an open pull request GitHub answered `UNKNOWN` of makes it list once
+  more a moment later, as a push whose pull request still shows an old head does.
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`the_merge_state_the_auto_merge_and_the_merge_methods_come_with_the_listing`)
+  [@test] ../../crates/domain-policy/src/refresh_test.rs (`an_open_pull_request_whose_merge_state_github_computes_asks_the_list_again`)
 - A pull request the app wrote (a retarget, a close, the reviewers it asked, one it created) is in the session at once
   (`Sessions::write_pull_request`, from the command of the write), numbered when it applies: a listing that started
   before it keeps the pull request as written, so a retarget during a listing never comes back as "Retarget #7" and the

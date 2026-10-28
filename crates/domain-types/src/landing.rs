@@ -478,22 +478,24 @@ pub enum PlannedEffect {
   /// branch of the baseline on its remote `remote` ("origin"), `target` ("master"): a fast-forward the server takes or
   /// refuses whole (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
   PushBaseline { subject: Subject, tip: String, remote: String, target: String },
-  /// GitHub merges the open pull request `number` of `subject` by `method`, while its head is `head`, the commit the
-  /// user saw (`expectedHeadOid`: a moved head refuses it); `Intent::Land` of a repository that lands by a merge of the
-  /// pull request (`domain_policy::land_direct`)
+  /// GitHub merges the open pull request `number` of `subject` into `target` ("master") by `method`, while its head is
+  /// `head`, the commit the user saw (`expectedHeadOid`: a moved head refuses it); `Intent::Land` of a repository that
+  /// lands by a merge of the pull request (`domain_policy::land_direct`)
   MergePullRequest {
     subject: Subject,
     number: u32,
     method: MergeMethod,
     head: String,
+    target: String,
   },
-  /// GitHub merges the open pull request `number` of `subject` by `method` once its checks pass (auto-merge), while its
-  /// head is `head`: after the push before it, which restarts the checks, or while they still run
+  /// GitHub merges the open pull request `number` of `subject` into `target` by `method` once its checks pass
+  /// (auto-merge), while its head is `head`: after the push before it, which restarts the checks, or while they still run
   EnableAutoMerge {
     subject: Subject,
     number: u32,
     method: MergeMethod,
     head: String,
+    target: String,
   },
   /// The auto-merge of the open pull request `number` is disabled (`Intent::DisableAutoMerge`)
   DisableAutoMerge { number: u32 },

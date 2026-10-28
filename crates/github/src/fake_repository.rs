@@ -3,7 +3,9 @@
 //! answers the REST and GraphQL requests of `remote_facts` as GitHub does (`GET /user`, `GET`/`POST pulls`, `GET`/`PATCH
 //! pulls/<n>`, `POST pulls/<n>/requested_reviewers` and `reviews`, `POST issues/<n>/comments` and `assignees`, `GET
 //! issues/comments/<id>`, `GET issues/<n>/comments`, `GET branches/<b>`, `GET rules/branches/<b>`, the GraphQL search of
-//! the user's pull requests and of the assignable users), and a write changes what the next read answers. The Patronus
+//! the user's pull requests and of the assignable users, the node of a pull request and the mutations of its merge and
+//! its auto-merge, whose merge moves its base by the `Merger` of the test), and a write changes what the next read
+//! answers. The Patronus
 //! bot answers a `/patronus` comment at once, as `patronus_replies` says: a reaction, and for a rejection its `⚠️`
 //! comment. A request of another repository is a 404, one without the token a 401, and
 //! `refusal` answers every request about the repository (a rate limit, no access). A scripted answer of `FakeGitHub`
@@ -11,7 +13,7 @@
 
 use crate::fake_github::FakeAnswer;
 use domain_types::patronus::PatronusCommandReply;
-use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
+use domain_types::pull_request::{GitHubUser, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -24,6 +26,10 @@ pub const PATRONUS_BOT: &str = "patronus-jb[bot]";
 /// The commit a branch of the repository points to, None for a branch GitHub doesn't have: the tests answer it from the
 /// git repository the branches are pushed to
 pub type BranchTip = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+/// GitHub merges `head` into the branch `base` of the repository the tests push to (a fast-forward of the remote); the
+/// error is GitHub's words of a merge it refuses
+pub type Merger = Box<dyn Fn(&str, &str) -> Result<(), String> + Send + Sync>;
 
 /// The search of the user's pull requests answers at most this many, newest first (`first: 50` of the query)
 const SEARCH_LIMIT: usize = 50;
@@ -95,12 +101,16 @@ pub struct RepositoryState {
   /// The node GraphQL answers for a pull request asked by its number (`pullRequest(number: $number)`), by number; a
   /// number it lacks is null with a `NOT_FOUND`
   pub pull_request_nodes: BTreeMap<u32, Value>,
+  /// The merge methods the repository allows, which the listing names; `None`: GitHub's defaults, every method and no
+  /// auto-merge
+  pub merge_methods: Option<MergeMethods>,
 }
 
 #[derive(Default)]
 pub struct FakeGitHubRepository {
   state: Mutex<RepositoryState>,
   branch_tip: Mutex<Option<BranchTip>>,
+  merger: Mutex<Option<Merger>>,
 }
 
 impl FakeGitHubRepository {
@@ -122,6 +132,11 @@ impl FakeGitHubRepository {
   /// Where the branches of the repository point (`BranchTip`); without it, GitHub has no branch
   pub fn set_branch_tip(&self, tip: BranchTip) {
     *self.branch_tip.lock().unwrap() = Some(tip);
+  }
+
+  /// How a merge of a pull request moves its base (`Merger`); without one GitHub refuses every merge
+  pub fn set_merger(&self, merger: Merger) {
+    *self.merger.lock().unwrap() = Some(merger);
   }
 
   fn tip(&self, branch: &str, state: &RepositoryState) -> Option<String> {
@@ -163,6 +178,7 @@ impl FakeGitHubRepository {
     let method = request.method.as_str();
     match segments.as_slice() {
       ["user"] => return Some(FakeAnswer::ok(json!({"login": state.viewer}))),
+      ["graphql"] if body["query"].as_str().is_some_and(|query| query.starts_with("mutation(")) => return Some(self.mutation(&mut state, &body)),
       ["graphql"] => return self.graphql(&state, &body),
       ["repos", owner, name, ..] if !(owner.eq_ignore_ascii_case(&state.owner) && name.eq_ignore_ascii_case(&state.name)) => {
         return Some(not_found("Not Found"));
@@ -389,7 +405,27 @@ impl FakeGitHubRepository {
       if let Some(permission) = &state.viewer_permission {
         data["repository"]["viewerPermission"] = json!(permission);
       }
+      let methods = state.merge_methods.unwrap_or(MergeMethods {
+        rebase: true,
+        merge: true,
+        squash: true,
+        auto_merge: false,
+      });
+      data["repository"]["rebaseMergeAllowed"] = json!(methods.rebase);
+      data["repository"]["mergeCommitAllowed"] = json!(methods.merge);
+      data["repository"]["squashMergeAllowed"] = json!(methods.squash);
+      data["repository"]["autoMergeAllowed"] = json!(methods.auto_merge);
       return Some(FakeAnswer::ok(json!({ "data": data })));
+    }
+    // the node of a pull request a mutation of it names
+    if query.contains("pullRequest(number: $number) { id headRefOid }") {
+      let number = variables["number"].as_u64().and_then(|number| u32::try_from(number).ok()).unwrap_or_default();
+      let node = state
+        .pulls
+        .iter()
+        .find(|pull| pull.pull_request.number == number)
+        .map(|pull| json!({"id": format!("PR_{number}"), "headRefOid": self.resolved(&pull.pull_request, state).head_ref_oid}));
+      return Some(FakeAnswer::ok(json!({"data": {"repository": {"pullRequest": node}}})));
     }
     if query.contains("pullRequest(number: $number)") {
       let number = variables["number"].as_u64().and_then(|number| u32::try_from(number).ok()).unwrap_or_default();
@@ -414,6 +450,58 @@ impl FakeGitHubRepository {
       return Some(FakeAnswer::ok(json!({"data": {"repository": {"assignableUsers": {"nodes": users}}}})));
     }
     None
+  }
+}
+
+impl FakeGitHubRepository {
+  /// A GraphQL mutation of a pull request by its node id (`PR_<number>`): `mergePullRequest` (refused unless GitHub can
+  /// merge it: an open pull request on `expectedHeadOid` that is no draft, `DIRTY`, `BEHIND` or `BLOCKED`, whose head
+  /// the `Merger` moves its base to), `enablePullRequestAutoMerge` and `disablePullRequestAutoMerge`; an error of
+  /// GitHub's words otherwise
+  fn mutation(&self, state: &mut RepositoryState, body: &Value) -> FakeAnswer {
+    let query = body["query"].as_str().unwrap_or_default();
+    let variables = &body["variables"];
+    let refused = |message: &str| FakeAnswer::ok(json!({"data": null, "errors": [{"type": "UNPROCESSABLE", "message": message}]}));
+    let number = variables["id"].as_str().and_then(|id| id.strip_prefix("PR_")).and_then(|number| number.parse::<u32>().ok());
+    let Some(index) = number.and_then(|number| state.pulls.iter().position(|pull| pull.pull_request.number == number)) else {
+      return refused("Could not resolve to a node with the global id");
+    };
+    let pull_request = self.resolved(&state.pulls[index].pull_request, state);
+    let method = variables["method"].as_str().and_then(MergeMethod::parse);
+    if pull_request.state != PullRequestState::Open {
+      return refused("Pull request is not open");
+    }
+    if variables["head"].as_str().is_some_and(|head| head != pull_request.head_ref_oid) {
+      return refused("Head branch was modified. Review and try the merge again.");
+    }
+    let pull = &mut state.pulls[index].pull_request;
+    if query.contains("disablePullRequestAutoMerge(") {
+      pull.auto_merge = None;
+    } else if query.contains("enablePullRequestAutoMerge(") {
+      pull.auto_merge = method;
+    } else if query.contains("mergePullRequest(") {
+      let blocked = pull_request.is_draft
+        || matches!(
+          pull_request.merge_state,
+          Some(MergeStateStatus::Dirty | MergeStateStatus::Behind | MergeStateStatus::Blocked | MergeStateStatus::Draft)
+        );
+      if blocked {
+        return refused("Pull request is not mergeable");
+      }
+      let merged = self.merger.lock().unwrap().as_ref().map_or_else(
+        || Err("Merges are not set up".to_string()),
+        |merge| merge(&pull_request.base_ref_name, &pull_request.head_ref_oid),
+      );
+      if let Err(message) = merged {
+        return refused(&message);
+      }
+      pull.state = PullRequestState::Merged;
+      pull.auto_merge = None;
+    } else {
+      return refused("Unknown mutation");
+    }
+    pull.updated_at = state.clock;
+    FakeAnswer::ok(json!({"data": {"done": {"pullRequest": {"number": pull_request.number}}}}))
   }
 }
 
@@ -605,11 +693,27 @@ fn search_node(owner: &str, pull_request: &PullRequest) -> Value {
     "isCrossRepository": false,
     "updatedAt": format_utc_timestamp(pull_request.updated_at),
     "headRepositoryOwner": {"login": owner},
+    "mergeStateStatus": pull_request.merge_state.map(merge_state_name),
+    "autoMergeRequest": pull_request.auto_merge.map(|method| json!({"mergeMethod": method.graphql()})),
     "commits": {"nodes": [{"commit": {"statusCheckRollup": pull_request.checks.as_ref().map(|checks| json!({"contexts": {"nodes": check_runs(checks)}}))}}]},
     "latestReviews": {"nodes": reviews},
     "reviewRequests": {"nodes": requests},
     "labels": {"nodes": []},
   })
+}
+
+/// GitHub's name of `state` (`CLEAN`, …)
+const fn merge_state_name(state: MergeStateStatus) -> &'static str {
+  match state {
+    MergeStateStatus::Clean => "CLEAN",
+    MergeStateStatus::Unstable => "UNSTABLE",
+    MergeStateStatus::Blocked => "BLOCKED",
+    MergeStateStatus::Behind => "BEHIND",
+    MergeStateStatus::Dirty => "DIRTY",
+    MergeStateStatus::Draft => "DRAFT",
+    MergeStateStatus::HasHooks => "HAS_HOOKS",
+    MergeStateStatus::Unknown => "UNKNOWN",
+  }
 }
 
 /// The check runs a summary counts: the failed ones first, named as far as the summary names them

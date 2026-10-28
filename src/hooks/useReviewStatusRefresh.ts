@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { tellReadinessNews } from "@/hooks/useStackNextStep"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { approvalNewsOf } from "@/lib/approval-news"
+import { tellAutoMergedNews } from "@/lib/auto-merge-news"
 import { tellLandedNews } from "@/lib/landed-closes"
 import { isWindowFocused, setWindowFocus } from "@/lib/os-notification"
 import { tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
@@ -40,7 +41,8 @@ function isAwaiting(): boolean {
  * (Awaiting), a focus asks the session for the pull requests at once (the user comes back from asking for it); the
  * approvals that arrived are news of the session (`tellReadinessNews`), and so are the commits of others the session
  * fetched when a pull request showed a head the remote branch lacked (`tellRemoteCommitsNews`), and the landings without
- * a robot whose pull requests close (`tellLandedNews`).
+ * a robot whose pull requests close (`tellLandedNews`), and the pull requests GitHub merged by their auto-merge
+ * (`tellAutoMergedNews`).
  */
 export function useReviewStatusRefresh(): void {
   useEffect(
@@ -56,6 +58,7 @@ export function useReviewStatusRefresh(): void {
         approvalNewsOf(news).forEach(tellReadinessNews)
         tellRemoteCommitsNews(repositoryPath, news)
         tellLandedNews(repositoryPath, news)
+        tellAutoMergedNews(repositoryPath, news)
       }),
     [],
   )

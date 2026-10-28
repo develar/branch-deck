@@ -4513,16 +4513,16 @@ export type PlannedEffect =
  */
 { kind: "pushBaseline"; subject: Subject; tip: string; remote: string; target: string } | 
 /**
- *  GitHub merges the open pull request `number` of `subject` by `method`, while its head is `head`, the commit the
- *  user saw (`expectedHeadOid`: a moved head refuses it); `Intent::Land` of a repository that lands by a merge of the
- *  pull request (`domain_policy::land_direct`)
+ *  GitHub merges the open pull request `number` of `subject` into `target` ("master") by `method`, while its head is
+ *  `head`, the commit the user saw (`expectedHeadOid`: a moved head refuses it); `Intent::Land` of a repository that
+ *  lands by a merge of the pull request (`domain_policy::land_direct`)
  */
-{ kind: "mergePullRequest"; subject: Subject; number: number; method: MergeMethod; head: string } | 
+{ kind: "mergePullRequest"; subject: Subject; number: number; method: MergeMethod; head: string; target: string } | 
 /**
- *  GitHub merges the open pull request `number` of `subject` by `method` once its checks pass (auto-merge), while its
- *  head is `head`: after the push before it, which restarts the checks, or while they still run
+ *  GitHub merges the open pull request `number` of `subject` into `target` by `method` once its checks pass
+ *  (auto-merge), while its head is `head`: after the push before it, which restarts the checks, or while they still run
  */
-{ kind: "enableAutoMerge"; subject: Subject; number: number; method: MergeMethod; head: string } | 
+{ kind: "enableAutoMerge"; subject: Subject; number: number; method: MergeMethod; head: string; target: string } | 
 /**  The auto-merge of the open pull request `number` is disabled (`Intent::DisableAutoMerge`) */
 { kind: "disableAutoMerge"; number: number };
 

@@ -153,6 +153,11 @@ export function getWholeStackStartItems(root: string, next: StackNextStep | null
     start("dry-run-whole-stack", "dryRun", step.dryRunBlocker),
     // a repository that lands by a push of the copy into the target pushes its stack branch, in place of the robot
     pushToBaselineOf(root, leaf, step.safePushBlocker, start),
+    // one that lands by a merge of the pull request merges the one of its stack branch, named as its step names it
+    start("merge-pull-request", "rebaseAutosquash", step.safePushBlocker, {
+      label: step.item?.id === "merge-pull-request" ? step.item.label : "Merge",
+      ...(step.item?.id === "merge-pull-request" && step.item.description !== undefined && { description: step.item.description }),
+    }),
   ].filter(item => item !== null)
 }
 

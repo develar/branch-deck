@@ -34,6 +34,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
+import { describeMerge, formatMergeLabel, mergeOf } from "@/lib/merge-pull-request"
 import { formatPushMode, formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import type { StackAlone } from "@/lib/patronus-stack"
@@ -155,7 +156,9 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   // a push of the copy into the target (Push to master): no robot, no Dry Run, no profile, no review
   const byPush = read?.byPush === true
   const target = read?.target ?? ""
-  const modeName = byPush ? `Push to ${target}` : formatPushMode(mode)
+  // a merge of the pull request on GitHub (Merge #7, Auto-Merge #7): its words, not a push's
+  const merge = read?.plan == null ? null : mergeOf(read.plan.effects)
+  const modeName = merge !== null ? formatMergeLabel(merge.number, merge.auto) : byPush ? `Push to ${target}` : formatPushMode(mode)
   // the build of what it lands needs a branch outside it (the landing gate's blockers): the reason, the fix, and the start
   // anyway
   const landingRefusals = read?.plan == null ? [] : landingRefusalsOf(read.plan).map(reason => reason.refusal)
@@ -204,6 +207,8 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
     (mode === "dryRun"
       ? `Checks ${branchName} on ${target} without pushing into it: ${formatCommitCount(commits)}.`
       : `${byPush ? "Pushes" : "Lands"} ${branchName} into ${target}: ${formatCommitCount(commits)}.`)
+  const merges =
+    merge === null ? null : `${describeMerge(subject, read?.plan?.lands.length ?? 1, merge.number, merge.target, merge.method, merge.auto)}: ${formatCommitCount(commits)}.`
 
   return (
     <Popover open onOpenChange={open => !open && close()}>
@@ -215,7 +220,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         className="w-[28rem] max-w-[calc(100vw-2rem)] gap-3 p-3"
         // read when Base UI moves the focus in, which may be after the facts loaded
         initialFocus={() => (canStartRef.current ? startRef.current : popupRef.current)}
-        aria-label={byPush ? `Push of ${subject} into ${target}` : `${modeName} of ${subject}`}
+        aria-label={merge !== null ? `${modeName} of ${subject}` : byPush ? `Push of ${subject} into ${target}` : `${modeName} of ${subject}`}
         data-testid="safe-push-popover"
         data-mode={mode}
         data-decision={decision.kind}
@@ -229,7 +234,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
       >
         {/* not the popup's name: that is "Safe Push of auth"; the title is what it lands (pushes) */}
         <h2 className="text-sm font-medium" data-testid="safe-push-lands">
-          {title}
+          {merges ?? title}
         </h2>
         {landingRefused !== null && <LandingNeedsLine refused={landingRefused} disabled={busy !== null} surface={surface} />}
         {read !== null && (byPush ? <PushLines read={read} /> : <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} />)}
@@ -406,6 +411,13 @@ function pushLineOf(confirmation: Confirmation, subject: string): { readonly tes
       }
     case "routeRule":
       return { testId: "safe-push-route", text: `${formatReason(confirmation.reason)}.` }
+    case "checksNotRequired":
+      return { testId: "safe-push-checks", text: `Checks of #${confirmation.number} its base doesn't require fail or still run: GitHub merges it all the same.` }
+    case "squashOnly":
+      return {
+        testId: "safe-push-route",
+        text: `The repository allows only squash merges: the commit GitHub writes pairs with none of ${subject}, so the update after it may stop on a conflict.`,
+      }
     default:
       return null
   }
@@ -430,7 +442,9 @@ function PushLines({ read }: { read: SafePushRead }) {
           {line.text}
         </Line>
       ))}
-      {lines.some(line => line.testId === "safe-push-checks") && <Line testId="safe-push-no-ci">{`A push into ${read.target} runs no CI: it lands the commit as it is.`}</Line>}
+      {lines.some(line => line.testId === "safe-push-checks") && read.plan !== null && mergeOf(read.plan.effects) === null && (
+        <Line testId="safe-push-no-ci">{`A push into ${read.target} runs no CI: it lands the commit as it is.`}</Line>
+      )}
     </>
   )
 }
