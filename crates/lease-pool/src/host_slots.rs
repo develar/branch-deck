@@ -21,7 +21,7 @@ use crate::lease_clean::{CleanMode, CleanOverrides, Trash, apply_clean_rules, re
 use crate::state_file::StateFile;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::{LeaseConfig, SlotMove, checkout_slot, discard_slot_changes, lease_config, linked_worktree, move_clean_slot, slot_changes};
+use git_ops::lease_slot::{LeaseConfig, SlotMove, checkout_slot, discard_slot_changes, lease_config, linked_worktree, move_clean_slot, slot_changes, start_deferred_maintenance};
 use git_ops::revs::RepositoryDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -210,6 +210,9 @@ pub enum HostSlotRefusal {
   Busy { n: u32, state: String },
   #[error("{key} {value:?}: {reason}")]
   InvalidConfig { key: String, value: String, reason: String },
+  /// The process of a waiting lend ended: its ticket left the queue
+  #[error("The process {0} of the run ended while it waited for a host slot")]
+  ProcessGone(u32),
 }
 
 /// The repository of the host slots
@@ -435,6 +438,94 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
   })
 }
 
+/// How often a lend that waits (`lend_waiting`) asks the table without a file event: the end of a process, which frees
+/// a slot of an abandoned lend or a ticket ahead, makes none
+const WAIT_RECHECK: Duration = Duration::from_secs(5);
+/// How often a lend that waits tells its caller where it stands
+pub const WAIT_PROGRESS: Duration = Duration::from_mins(1);
+/// The files of `branch-deck/` whose change can lend a slot: the table and the pool, whose `ready` leases a lend takes
+const WAKE_FILES: [&str; 2] = [STATE_FILE, crate::lease::POOL_FILE];
+
+/// Lend a slot to the run of `request` (`lend`), waiting up to `timeout` while it is queued, as long as its process
+/// lives. The directory of the table is watched (`notify`) before the first look, so no change between the look and the
+/// wait is lost; the table is replaced by a rename, so the watch is on the directory, and only a change of the table or
+/// of the pool wakes it. Without a file event it looks again every 5 s: the end of a process makes none. `progress`
+/// hears the queue and the time waited once a minute. The answer is the lend, or the place in the queue once the time
+/// is up: the ticket stays while the process lives. A process that ended is `ProcessGone`, and its ticket leaves the
+/// queue
+pub fn lend_waiting(params: &HostSlotsParams<'_>, request: &LendRequest<'_>, timeout: Duration, progress: &dyn Fn(&Queued, Duration)) -> Result<LendAnswer> {
+  let started = Instant::now();
+  let wake = TableWake::start(params.table().dir());
+  let mut said = started;
+  loop {
+    if !is_running(request.pid, request.process_started) {
+      leave_queue(params, request.run)?;
+      bail!(HostSlotRefusal::ProcessGone(request.pid));
+    }
+    let queued = match lend(params, request)? {
+      LendAnswer::Lent(lent) => return Ok(LendAnswer::Lent(lent)),
+      LendAnswer::Queued(queued) => queued,
+    };
+    let waited = started.elapsed();
+    if waited >= timeout {
+      return Ok(LendAnswer::Queued(queued));
+    }
+    if said.elapsed() >= WAIT_PROGRESS {
+      progress(&queued, waited);
+      said = Instant::now();
+    }
+    let next_progress = WAIT_PROGRESS.saturating_sub(said.elapsed());
+    wake.wait(timeout.checked_sub(waited).unwrap().min(WAIT_RECHECK).min(next_progress));
+  }
+}
+
+/// The file events of the table and the pool, for a lend that waits; `None` inside when the system refused a watch
+struct TableWake {
+  events: std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
+  _watcher: Option<notify::RecommendedWatcher>,
+}
+
+impl TableWake {
+  fn start(dir: &Path) -> Self {
+    use notify::Watcher as _;
+    let (sender, events) = std::sync::mpsc::channel();
+    let watcher = std::fs::create_dir_all(dir)
+      .map_err(notify::Error::io)
+      .and_then(|()| notify::recommended_watcher(sender))
+      .and_then(|mut watcher| watcher.watch(dir, notify::RecursiveMode::NonRecursive).map(|()| watcher))
+      .inspect_err(|error| warn!(dir = %dir.display(), %error, "cannot watch the host slots: a lend that waits looks every 5 s"))
+      .ok();
+    Self { events, _watcher: watcher }
+  }
+
+  /// Until a change of the table or the pool, or `timeout`; the events that came meanwhile are one wake
+  fn wait(&self, timeout: Duration) {
+    let wakes = |event: &notify::Result<notify::Event>| {
+      event.as_ref().map_or(true, |event| {
+        event
+          .paths
+          .iter()
+          .any(|path| path.file_name().is_some_and(|name| WAKE_FILES.iter().any(|file| name == *file)))
+      })
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+      let left = deadline.saturating_duration_since(Instant::now());
+      match self.events.recv_timeout(left) {
+        Ok(event) if wakes(&event) => break,
+        Ok(_) => {}
+        // the time is up, or no watch: the sender went with it
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+          std::thread::sleep(left);
+          return;
+        }
+      }
+    }
+    while self.events.try_recv().is_ok() {}
+  }
+}
+
 /// Take the run's ticket out of the queue: it stopped waiting
 pub fn leave_queue(params: &HostSlotsParams<'_>, run: &str) -> Result<()> {
   params.update(|table| {
@@ -457,6 +548,9 @@ pub struct GaveBack {
   pub cleaned: Option<CleanTarget>,
   /// Whether the processes were checked (`ProcessScan::Unavailable` on Windows)
   pub processes_checked: bool,
+  /// `branchdeck.leaseMaintenance` is true: git's maintenance was started once the slot was idle
+  /// (`start_deferred_maintenance`), as a return of the pool starts it
+  pub maintenance_started: bool,
 }
 
 /// Which slot a give-back or a clean takes, by its state
@@ -484,20 +578,36 @@ pub fn give_back(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
   give_back_core(git_executor, params, n, Take::Run(run))
 }
 
-/// Give back the slot that the run `run` has (`give_back`), found by the run; `None` when it has none, and then its
-/// ticket leaves the queue: the one call of an agent on every way out of a run, also when the run never got a slot, or
-/// when a kill cut its lend after the table recorded it
-pub fn give_back_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str) -> Result<Option<GaveBack>> {
+/// What `give_back_run` did
+#[derive(Debug, Clone)]
+pub struct RunGaveBack {
+  /// The give-back of the slot of the run; `None` when it had none, and its ticket left the queue
+  pub slot: Option<GaveBack>,
+  /// git's maintenance was started: by the give-back of the slot, or for a run without one
+  pub maintenance_started: bool,
+}
+
+/// Give back the slot that the run `run` has (`give_back`), found by the run; when it has none, its ticket leaves the
+/// queue: the one call of an agent on every way out of a run, also when the run never got a slot, or when a kill cut
+/// its lend after the table recorded it. Either way git's maintenance starts with `branchdeck.leaseMaintenance`
+pub fn give_back_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str) -> Result<RunGaveBack> {
   let table: HostSlots = params.table().read()?;
   let lent = table
     .slots
     .iter()
     .find(|slot| matches!(&slot.state, HostState::Lent(lent) if lent.run == run))
     .map(|slot| slot.n);
-  match lent {
-    Some(n) => give_back(git_executor, params, n, run).map(Some),
-    None => leave_queue(params, run).map(|()| None),
-  }
+  let slot = if let Some(n) = lent {
+    Some(give_back(git_executor, params, n, run)?)
+  } else {
+    leave_queue(params, run)?;
+    None
+  };
+  let maintenance_started = match &slot {
+    Some(gave_back) => gave_back.maintenance_started,
+    None => start_maintenance(git_executor, params, &lease_config(git_executor, &params.repository.top_level)?),
+  };
+  Ok(RunGaveBack { slot, maintenance_started })
 }
 
 /// How `checkout` brought the slot of a run to its commit
@@ -582,6 +692,7 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
       discarded: Vec::new(),
       cleaned: None,
       processes_checked: stopped.checked,
+      maintenance_started: false,
     });
   }
   let reset = (|| {
@@ -624,7 +735,18 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
     discarded,
     cleaned,
     processes_checked: stopped.checked,
+    maintenance_started: start_maintenance(git_executor, params, &config),
   })
+}
+
+/// With `branchdeck.leaseMaintenance` true, start git's maintenance in the common dir, as a return of the pool does: in
+/// a repository whose `maintenance.auto` is false no commit, fetch or pack of a run starts it. A failed start fails
+/// nothing
+fn start_maintenance(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, config: &LeaseConfig) -> bool {
+  config.return_maintenance
+    && start_deferred_maintenance(git_executor, &params.repository.git_common_dir)
+      .inspect_err(|error| warn!(error = %format!("{error:#}"), "cannot start git's maintenance after a give-back"))
+      .is_ok()
 }
 
 /// The refusal of a slot in `state`

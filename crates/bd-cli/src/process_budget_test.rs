@@ -29,7 +29,7 @@ use bd_rewrite::rewrite::{GroupArgs, RewriteArgs, group};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use lease_pool::host_slots::{HostSlotsParams, LendAnswer, LendRequest, ShrinkOutcome, SlotCheckout, checkout, fill, give_back, lend, shrink};
+use lease_pool::host_slots::{HostSlotsParams, LendAnswer, LendRequest, ShrinkOutcome, SlotCheckout, checkout, fill, give_back, give_back_run, lend, shrink};
 use lease_pool::lease::{GetStep, Pool, canonical_path};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -717,6 +717,14 @@ fn the_host_slots_lend_give_back_and_shrink() {
   std::fs::write(std::path::Path::new(&added.path).join("untracked.txt"), "x\n").unwrap();
   let git = host(&|git, params| assert_eq!(give_back(git, params, 1, "run-1").unwrap().discarded, ["untracked.txt"]));
   assert_git_processes(&git, &[("clean", 1), ("config", 1), ("reset", 1), ("rev-parse", 1), ("status", 1)]);
+  // with `branchdeck.leaseMaintenance` the give-back starts the maintenance, and so does one of a run without a slot
+  repo.git_executor().execute_command(&["config", "branchdeck.leaseMaintenance", "true"], path).unwrap();
+  host(&|_, params| assert!(matches!(lend(params, &request).unwrap(), LendAnswer::Lent(_))));
+  let git = host(&|git, params| assert!(give_back(git, params, 1, "run-1").unwrap().maintenance_started));
+  assert_git_processes(&git, &[("config", 1), ("maintenance", 1), ("rev-parse", 1), ("status", 1)]);
+  let git = host(&|git, params| assert!(give_back_run(git, params, "run-2").unwrap().maintenance_started));
+  assert_git_processes(&git, &[("config", 1), ("maintenance", 1), ("rev-parse", 1)]);
+  repo.git_executor().execute_command(&["config", "--unset", "branchdeck.leaseMaintenance"], path).unwrap();
   let git = host(&|git, params| assert!(matches!(shrink(git, params, 0).unwrap()[0].outcome, ShrinkOutcome::Returned(_))));
   assert_git_processes(&git, &[("config", 2), ("log", 1), ("reset", 1), ("rev-parse", 3), ("show-ref", 1), ("status", 2)]);
 }

@@ -3437,6 +3437,7 @@ dependencies = [
  "git-ops",
  "history-rewrite",
  "libc",
+ "notify",
  "pretty_assertions",
  "schemars 1.2.3",
  "serde",

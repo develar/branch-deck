@@ -41,7 +41,8 @@ use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_sta
 use sync_utils::size::parse_size;
 use tracing::{debug, instrument, warn};
 
-const STATE_FILE: &str = "leases.json";
+/// The state of the pool in `branch-deck/` of the common dir
+pub(crate) const POOL_FILE: &str = "leases.json";
 const LOCK_FILE: &str = "leases.lock";
 /// The trash of the returns and the cleans, in `branch-deck/` of the common dir (`lease_clean::Trash`)
 const TRASH_DIR: &str = "trash";
@@ -308,7 +309,7 @@ impl Pool {
   /// The pool of the repository whose `$GIT_COMMON_DIR` is `git_common_dir`
   pub fn new(git_common_dir: &Path) -> Self {
     Self {
-      state: StateFile::new(git_common_dir, STATE_FILE, LOCK_FILE, "the lease state"),
+      state: StateFile::new(git_common_dir, POOL_FILE, LOCK_FILE, "the lease state"),
     }
   }
 

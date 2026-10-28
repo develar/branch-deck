@@ -1804,11 +1804,23 @@ a slot of that host's pool. Until 2026-10-27 it made a host slot the property of
 state of its own: the commit comes from the client, and the outputs go back to it. So a slot is free once its run
 ended, and the host keeps a fixed set of warm slots that runs borrow (`crates/lease-pool/src/host_slots.rs`). The agent
 of yonder (yonderd) drives them through `bd lease host` (`crates/bd-lease/src/host_command.rs`): a supervisor lends a
-slot for its run (`lend --pid <supervisor>`, polled while it waits) and gives it back on every way out
-(`give-back --run`), and a keeper runs `reclaim` and `fill`. A lend answers the `generation` of the files of the slot,
-which a give-back that discarded changes and a clean move before the slot is idle again: yonder keys the fingerprints
-of its prepare steps by it, so a run never skips a step whose output a give-back of the run before removed. The network and the run stay yonder's; the full move of
-yonder into Branch Deck (`bd host`) is a later decision.
+slot for its run (`lend --pid <supervisor> --wait <s>`, one call that waits while the run is queued) and gives it back
+on every way out (`give-back --run`), and a keeper runs `reclaim` and `fill`. A lend answers the `generation` of the
+files of the slot, which a give-back that discarded changes and a clean move before the slot is idle again: yonder keys
+the fingerprints of its prepare steps by it, so a run never skips a step whose output a give-back of the run before
+removed. The network and the run stay yonder's; the full move of yonder into Branch Deck (`bd host`) is a later
+decision.
+
+A lend that waits (`host_slots::lend_waiting`) watches `branch-deck/` of the common dir with `notify` before its first
+look, so a give-back between the look and the wait wakes it: the table is replaced by a rename, so the watch is on the
+directory, and only a change of `host-slots.json` or `leases.json` wakes it (the lock files and the stamp of bd change
+there too). A lend writes the table only when it changed it, so its own write wakes it at most once. The end of a
+process makes no file event: a slot of an abandoned lend or a ticket ahead in the queue comes free only by time, so it
+looks again every 5 s. Until 2026-10-28 each supervisor started `bd lease host lend` every 2 s for up to an hour.
+
+A give-back with `branchdeck.leaseMaintenance` starts `git maintenance run --auto --detach` in the common dir, as a
+return does, also for a run that had no slot: in idea-1, whose `maintenance.auto` is false, nothing else started it on
+the host, and yonderd ran its own `maintenance run --auto` once an hour in the foreground.
 
 The slots are plain `ready` leases of the holders `bd-host/<n>`, so `leases.json` keeps its format. A get never takes
 them, a clean of the free slots skips them, and an older bd or the app reads the pool as before. Who has a slot now is

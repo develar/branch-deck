@@ -13,6 +13,8 @@ git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 sync-utils = { path = "../sync-utils" }
 anyhow.workspace = true
+# the wait of a lend for a host slot (`host_slots::lend_waiting`)
+notify.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 serde.workspace = true

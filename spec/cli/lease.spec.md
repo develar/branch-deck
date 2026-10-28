@@ -470,9 +470,9 @@ holds no state of its own, since the commit comes from the client and the output
 one run for the duration of that run only.
 
 - `bd lease host` must answer each function of the table as one JSON object: `lend --run <id> --pid <pid>
-  [--affinity <key>]` (`state` `lent` with the `slot`, its `lease_id`, `cleaned_at` and `generation`, or `queued` with
-  `ahead`, the lent runs and the slots in quarantine; a repeat answers the same slot), `checkout --run <id> --commit
-  <id>` (below), `give-back --run <id>` (the slot of the run,
+  [--affinity <key>] [--wait <seconds>]` (`state` `lent` with the `slot`, its `lease_id`, `cleaned_at` and
+  `generation`, or `queued` with `ahead`, the lent runs and the slots in quarantine; a repeat answers the same slot),
+  `checkout --run <id> --commit <id>` (below), `give-back --run <id>` (the slot of the run,
   else the run leaves the queue: `left_queue`), `fill` (its steps on stderr), `reclaim`, `shrink <keep>`, `limit <n>`
   or `limit --unset`, and `status` (each slot, its state in words, `abandoned`, the queue, the limit). bd reads the
   start of `--pid` itself; a pid that is gone is refused as `invalid_arguments`, and one whose start a sandbox hides
@@ -484,6 +484,18 @@ one run for the duration of that run only.
   [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_run_lends_a_slot_waits_in_line_and_gives_it_back`)
   [@test] ../../crates/bd-lease/src/host_command_test.rs (`reclaim_shrink_and_limit_answer_the_table`)
   [@test] ../../crates/bd-lease/src/host_command_test.rs (`the_refusals_of_the_table_have_their_codes`)
+- `lend --wait <seconds>` must wait while the run is queued, as long as `--pid` lives, and answer as soon as it gets a
+  slot, without a second call. It watches `branch-deck/` of the common dir before its first look, so no give-back
+  between the look and the wait is lost, wakes only on a change of `host-slots.json` or `leases.json`, and looks again
+  at least every 5 s, as the end of a process makes no file event. It says the queue on stderr once a minute
+  (`bd lease host lend: run <id> waits <s> s: <n> runs ahead, …`). Once the time is up it answers `queued` with its
+  place; the ticket stays while `--pid` lives. A `--pid` that ends while it waits is `invalid_arguments`, and its
+  ticket leaves the queue. With `--wait` the answer has `waited_ms`.
+  [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_lend_that_waits_gets_the_slot_once_it_is_given_back`)
+- With `branchdeck.leaseMaintenance` true, a give-back must start `git maintenance run --auto --detach` in the common
+  dir, as a return does, also for a run without a slot, and say so (`maintenance_started`); a failed start never fails
+  the give-back. Without the setting it starts none.
+  [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_give_back_starts_the_maintenance_that_branchdeck_lease_maintenance_asks_for`)
 
 - A fill must lease the missing host slots up to `branchdeck.hostSlots` (git config of the host, 4 by default) as plain
   `ready` leases of the holders `bd-host/1`, `bd-host/2`, … at the HEAD of the host checkout, detached, through the get
@@ -544,7 +556,7 @@ one run for the duration of that run only.
   `no_lease`, a commit that is no full id `invalid_arguments`.
   [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_run_checks_out_its_commit_in_its_slot_by_the_diff`)
 - A lend runs no git, a checkout the config, HEAD and one `reset`, a give-back one `status` (plus `reset` and `clean`
-  for a dirty slot), a shrink one `status`, HEAD, a `reset` when the slot is not at the commit it was leased at, and
+  for a dirty slot, and the `maintenance` of `branchdeck.leaseMaintenance`), a shrink one `status`, HEAD, a `reset` when the slot is not at the commit it was leased at, and
   the processes of a return.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_kill_signals_only_the_process_that_has_the_start_time`)

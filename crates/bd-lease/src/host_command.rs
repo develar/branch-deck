@@ -10,13 +10,14 @@ use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_ops::revs::is_object_id;
 use lease_pool::host_slots::{
-  HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, ReclaimAction, ShrinkOutcome, SlotCheckout, checkout, describe_state, fill, give_back_run, is_abandoned, lend,
-  read_host_slots, reclaim, set_limit, shrink,
+  HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, checkout, describe_state, fill, give_back_run,
+  is_abandoned, lend, lend_waiting, read_host_slots, reclaim, set_limit, shrink,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::io::Write as _;
 use std::path::Path;
+use std::time::{Duration, Instant};
 use sync_utils::process_scan::{is_running, process_started};
 
 #[derive(Debug, clap::Args)]
@@ -57,6 +58,9 @@ pub struct LeaseHostLendArgs {
   /// Who the run comes from (the client's checkout): a run of the same affinity gets the slot it used last
   #[arg(long, value_name = "KEY")]
   pub affinity: Option<String>,
+  /// Wait up to this long while the run is queued, as long as --pid lives; the queue on stderr once a minute
+  #[arg(long, value_name = "SECONDS")]
+  pub wait: Option<u64>,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -169,6 +173,9 @@ pub struct LeaseHostLendOutput {
   /// With `queued`: the slots in quarantine
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub quarantined: Vec<QuarantinedOutput>,
+  /// With `--wait`: how long the lend waited, in milliseconds; `queued` then means the wait ended
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub waited_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -214,6 +221,10 @@ pub struct LeaseHostGiveBackOutput {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub cleaned: Vec<CleanedOutput>,
   pub processes_checked: bool,
+  /// `branchdeck.leaseMaintenance` is true: the give-back started `git maintenance run --auto --detach` in the common
+  /// dir, also for a run without a slot
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub maintenance_started: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -345,7 +356,7 @@ fn params<'a>(context: &'a LeaseContext, environment: &'a Environment) -> HostSl
 }
 
 /// `bd lease host lend`: the start of `--pid` is read here, since the caller does not know the unit of the platform; a
-/// pid that is gone refuses
+/// pid that is gone refuses. With `--wait` it waits while queued (`lend_waiting`), the queue on stderr once a minute
 pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: &LeaseHostLendArgs) -> Result<LeaseHostLendOutput, CliError> {
   let started = process_started(args.pid);
   // a sandbox can hide the start of a live process: `is_running` without a start asks whether the pid exists
@@ -358,7 +369,18 @@ pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: 
     process_started: started,
     affinity: args.affinity.as_deref(),
   };
-  let answer = lend(&params(context, environment), &request).map_err(lease_error)?;
+  let waiting = Instant::now();
+  let answer = match args.wait {
+    None => lend(&params(context, environment), &request),
+    Some(seconds) => {
+      let progress = |queued: &Queued, waited: Duration| {
+        let _ = writeln!(std::io::stderr(), "bd lease host lend: {}", queue_line(&args.run, queued, waited));
+      };
+      lend_waiting(&params(context, environment), &request, Duration::from_secs(seconds), &progress)
+    }
+  }
+  .map_err(lease_error)?;
+  let waited_ms = args.wait.map(|_| u64::try_from(waiting.elapsed().as_millis()).unwrap_or(u64::MAX));
   Ok(match answer {
     LendAnswer::Lent(lent) => LeaseHostLendOutput {
       schema: SchemaVersion,
@@ -375,6 +397,7 @@ pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: 
       slots: None,
       lent: Vec::new(),
       quarantined: Vec::new(),
+      waited_ms,
     },
     LendAnswer::Queued(queued) => LeaseHostLendOutput {
       schema: SchemaVersion,
@@ -391,8 +414,25 @@ pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: 
           processes: processes_output(processes),
         })
         .collect(),
+      waited_ms,
     },
   })
+}
+
+/// "run 1792-81 waits 60 s: 2 runs ahead, 4 slots, lent to run-a (1), run-b (2), 1 in quarantine"
+fn queue_line(run: &str, queued: &Queued, waited: Duration) -> String {
+  let lent: Vec<String> = queued.lent.iter().map(|(n, run)| format!("{run} ({n})")).collect();
+  let quarantined = match queued.quarantined.len() {
+    0 => String::new(),
+    count => format!(", {count} in quarantine"),
+  };
+  format!(
+    "run {run} waits {} s: {} runs ahead, {} slots, lent to {}{quarantined}",
+    waited.as_secs(),
+    queued.ahead,
+    queued.slots,
+    if lent.is_empty() { "none".to_string() } else { lent.join(", ") }
+  )
 }
 
 /// `bd lease host checkout`: a forced checkout tells its reason on stderr too
@@ -429,7 +469,8 @@ pub fn lease_host_checkout(context: &LeaseContext, environment: &Environment, ar
 /// `bd lease host give-back`
 pub fn lease_host_give_back(context: &LeaseContext, environment: &Environment, args: &LeaseHostRunArgs) -> Result<LeaseHostGiveBackOutput, CliError> {
   let gave_back = give_back_run(&context.git, &params(context, environment), &args.run).map_err(lease_error)?;
-  Ok(match gave_back {
+  let maintenance_started = gave_back.maintenance_started;
+  Ok(match gave_back.slot {
     Some(gave_back) => LeaseHostGiveBackOutput {
       schema: SchemaVersion,
       n: Some(gave_back.n),
@@ -439,6 +480,7 @@ pub fn lease_host_give_back(context: &LeaseContext, environment: &Environment, a
       discarded: gave_back.discarded.len(),
       cleaned: gave_back.cleaned.map_or_else(Vec::new, |target| cleaned_output(&target.cleaned)),
       processes_checked: gave_back.processes_checked,
+      maintenance_started,
     },
     None => LeaseHostGiveBackOutput {
       schema: SchemaVersion,
@@ -449,6 +491,7 @@ pub fn lease_host_give_back(context: &LeaseContext, environment: &Environment, a
       discarded: 0,
       cleaned: Vec::new(),
       processes_checked: false,
+      maintenance_started,
     },
   })
 }
