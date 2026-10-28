@@ -343,7 +343,9 @@ bd-host setup --retire-yonderd
   write the LaunchAgent `com.jetbrains.bd-host` (`KeepAlive`, `AbandonProcessGroup`, `~/.local/bin/bd-host serve
   --port <port>`), and bootstrap or restart it. It prints one JSON line `{"fingerprint", "port", "launchd":
   "bootstrapped" | "restarted" | "none"}`. A client name with a control character refuses with `bad_request`, and a
-  failed `launchctl` with `launchd_failed`.
+  failed `launchctl` with `launchd_failed`. On macOS, when `~/.local/bin/bd-host` is missing, it first copies this
+  executable there by a rename. So launchd never runs a file that cargo writes again, that a shrink of a slot
+  deletes, or that is in the bundle of the app. A file that is there stays.
   [@test] ../../crates/host-agent/src/setup_test.rs (`the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent`)
 - `bd-host setup --import-yonder` must take what yonder has on this machine, so no new pairing and no ssh is needed:
   the identity and the host files of the client from `~/.config/yonder` (each host file with the port 7742), and the
@@ -354,9 +356,9 @@ bd-host setup --retire-yonderd
   [@test] ../../crates/host-link/src/identity_test.rs (`an_import_copies_the_identity_of_yonder_once_and_keeps_another_one`)
   [@test] ../../crates/host-link/src/allow_test.rs (`the_clients_of_another_list_join_and_a_known_client_keeps_its_name`)
   [@test] ../../crates/host-agent/src/setup_test.rs (`import_yonder_takes_the_identities_the_hosts_and_the_allow_list`)
-- `bd-host setup --retire-yonderd` must wait until no yonderd run holds its run lock, boot out
-  `com.jetbrains.yonderd`, delete the refs `refs/yonder/*` of each repository of `~/.cache/yonderd/repos` through a ref
-  transaction, then delete `~/.cache/yonderd`. It keeps `~/.config/yonderd`, the identity and the allow list of
+- `bd-host setup --retire-yonderd` must boot out `com.jetbrains.yonderd` first, so no run of it starts later. Then
+  it must wait until no yonderd run holds its run lock, delete the refs `refs/yonder/*` of each repository of
+  `~/.cache/yonderd/repos` through a ref transaction, and delete `~/.cache/yonderd`. It keeps `~/.config/yonderd`, the identity and the allow list of
   yonderd, and prints it as kept: the user deletes it. The user only runs it.
   [@test] ../../crates/host-agent/src/setup_test.rs (`retire_yonderd_waits_for_its_runs_and_removes_its_refs_and_files`)
 

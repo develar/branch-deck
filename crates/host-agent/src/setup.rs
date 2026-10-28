@@ -5,7 +5,7 @@
 //!   launchd it does not start the agent.
 //! - `--import-yonder`: takes the identities, the host files and the allow list of yonder on this machine, so no new
 //!   pairing and no ssh is needed, then writes the `LaunchAgent` as `--agent` does. It copies, so yonder keeps working.
-//! - `--retire-yonderd`: waits until no yonderd run holds its run lock, boots out `com.jetbrains.yonderd`, deletes the
+//! - `--retire-yonderd`: boots out `com.jetbrains.yonderd`, waits until no yonderd run holds its run lock, deletes the
 //!   refs `refs/yonder/*` of each repository of yonderd through a ref transaction, and deletes the cache of yonderd
 
 use crate::files::{private_dir, try_flock_shared, write_private};
@@ -37,6 +37,9 @@ const UNLOAD_WAIT: Duration = Duration::from_secs(10);
 /// How long `--retire-yonderd` waits for the runs of yonderd
 const RETIRE_WAIT: Duration = Duration::from_hours(2);
 
+/// How often `--retire-yonderd` looks at the run locks of yonderd
+const RETIRE_POLL: Duration = Duration::from_millis(500);
+
 /// How long the agent of a fresh `LaunchAgent` has to listen
 pub const LISTEN_WAIT: Duration = Duration::from_mins(1);
 
@@ -46,7 +49,8 @@ pub struct Setup<'a> {
   pub client: Fingerprint,
   pub name: &'a str,
   pub port: u16,
-  /// The agent binary that launchd runs
+  /// The executable of the setup. launchd runs `~/.local/bin/bd-host`, and a copy of this file goes there when it
+  /// is missing
   pub exe: &'a Path,
   /// The launchctl program; a test gives a fake one
   pub launchctl: &'a Path,
@@ -123,7 +127,7 @@ fn agent_identity(home: &Home) -> Result<Identity, Refusal> {
 /// starts the agent later than launchctl returns, so the answer comes only when the agent takes connections
 fn start_agent(home: &Home, exe: &Path, port: u16, launchctl: &Path, path: &str, listen_wait: Duration) -> Result<&'static str, Refusal> {
   let launchd = if cfg!(target_os = "macos") {
-    start_launchd(home, exe, port, launchctl, path)?
+    start_launchd(home, &agent_binary(home, exe)?, port, launchctl, path)?
   } else {
     "none"
   };
@@ -131,6 +135,27 @@ fn start_agent(home: &Home, exe: &Path, port: u16, launchctl: &Path, path: &str,
     wait_for_listen(port, listen_wait).map_err(|message| Refusal::new(Code::LaunchdFailed, message))?;
   }
   Ok(launchd)
+}
+
+/// The binary that launchd runs: `~/.local/bin/bd-host`. When that file is missing, a copy of `exe` goes there by a
+/// rename. So launchd never runs a file that cargo writes again in place, that the shrink of a slot deletes, or that
+/// is in the bundle of the app. A file that is there stays: `setup <alias>` and an upgrade write it
+pub(crate) fn agent_binary(home: &Home, exe: &Path) -> Result<PathBuf, Refusal> {
+  let binary = home.binary_file();
+  if binary.exists() {
+    return Ok(binary);
+  }
+  let failed = |error: std::io::Error| Refusal::new(Code::AgentError, format!("cannot copy {} to {}: {error}", exe.display(), binary.display()));
+  if let Some(dir) = binary.parent() {
+    fs::create_dir_all(dir).map_err(failed)?;
+  }
+  let staged = binary.with_extension("bd-host-new");
+  let copied = fs::copy(exe, &staged).and_then(|_| fs_retry::rename(&staged, &binary));
+  if let Err(error) = copied {
+    let _ = fs_retry::remove_file(&staged);
+    return Err(failed(error));
+  }
+  Ok(binary)
 }
 
 fn write_line(out: &mut dyn Write, line: &impl Serialize) -> Result<(), Refusal> {
@@ -311,7 +336,8 @@ fn string_value(rest: &str) -> Option<String> {
 /// What `setup --import-yonder` takes
 #[derive(Clone, Debug)]
 pub struct Import<'a> {
-  /// The agent binary that launchd runs
+  /// The executable of the setup. launchd runs `~/.local/bin/bd-host`, and a copy of this file goes there when it
+  /// is missing
   pub exe: &'a Path,
   pub launchctl: &'a Path,
   pub path: &'a str,
@@ -422,9 +448,10 @@ pub(crate) struct RetireLine {
 /// list of yonderd in `~/.config/yonderd` stay: the user deletes them
 pub fn retire_yonderd(home: &Home, launchctl_program: &Path, out: &mut dyn Write) -> Result<(), Refusal> {
   let cache = home.dir().join(yonder::CACHE_DIR);
-  wait_for_yonderd_runs(&cache.join("runs"), RETIRE_WAIT)?;
+  // yonderd goes first, so no run of it starts during the wait, and no run directory goes under a live run
   let (_, service) = service(yonder::LAUNCHD_LABEL);
   let booted_out = cfg!(target_os = "macos") && launchctl(launchctl_program, &["bootout", &service]).is_ok();
+  wait_for_yonderd_runs(&cache.join("runs"), RETIRE_WAIT)?;
   let mut deleted_refs = 0;
   for repo in fs::read_to_string(cache.join("repos")).unwrap_or_default().lines().filter(|line| !line.is_empty()) {
     let repo = match Repository::open(home, PathBuf::from(repo)) {
@@ -483,7 +510,7 @@ fn wait_for_yonderd_runs(runs: &Path, wait: Duration) -> Result<(), Refusal> {
         format!("the runs {} of yonderd still go on after {} min", live.join(", "), wait.as_secs() / 60),
       ));
     }
-    std::thread::sleep(Duration::from_secs(5));
+    std::thread::sleep(RETIRE_POLL);
   }
 }
 

@@ -4,7 +4,7 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[test]
 fn launchd_loads_restarts_or_reloads() {
@@ -103,6 +103,7 @@ fn the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent() {
   let (launchctl, calls) = fake_launchctl(dir.path());
   let client = Identity::generate().expect("a client").fingerprint();
   let exe = dir.path().join("bd-host");
+  fs::write(&exe, "the build of the setup").expect("the executable");
   let setup = Setup {
     client,
     name: "laptop",
@@ -123,9 +124,13 @@ fn the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent() {
   assert_eq!(AllowList::read(&home.allow_file()).expect("the allow list").name(&client), Some("laptop"));
   if cfg!(target_os = "macos") {
     let plist = read(&home.launch_agent_file());
-    assert_eq!(PlistValues::parse(&plist).map(|values| (values.exe, values.port)), Some((exe.clone(), 7742)));
+    assert_eq!(PlistValues::parse(&plist).map(|values| (values.exe, values.port)), Some((home.binary_file(), 7742)));
+    assert_eq!(read(&home.binary_file()), "the build of the setup", "launchd runs a copy, never the file of a build");
     let (domain, service) = service(LAUNCHD_LABEL);
     assert_eq!(read(&calls), format!("print {service}\nbootstrap {domain} {}\n", home.launch_agent_file().display()));
+    fs::write(&exe, "another build").expect("the executable");
+    setup_agent(&home, &setup, &mut Vec::new()).expect("set up again");
+    assert_eq!(read(&home.binary_file()), "the build of the setup", "the binary of an upgrade stays");
   } else {
     assert!(!home.launch_agent_file().exists());
     assert_eq!(read(&calls), "");
@@ -140,6 +145,7 @@ fn import_yonder_takes_the_identities_the_hosts_and_the_allow_list() {
   let home = Home::new(dir.path().join("home"));
   let (launchctl, _) = fake_launchctl(dir.path());
   let exe = dir.path().join("bd-host");
+  fs::write(&exe, "the build of the import").expect("the executable");
   let import = Import {
     exe: &exe,
     launchctl: &launchctl,
@@ -201,10 +207,22 @@ fn retire_yonderd_waits_for_its_runs_and_removes_its_refs_and_files() {
   assert!(crate::files::try_flock(&lock).expect("the flock"));
   let waited = wait_for_yonderd_runs(&cache.join("runs"), Duration::from_millis(300)).expect_err("a run goes on");
   assert!(waited.message.contains("1-1"), "{}", waited.message);
-  drop(lock);
 
+  // yonderd goes before the wait for its runs, so no run of it starts during the wait
   let mut out = Vec::new();
-  retire_yonderd(&home, &launchctl, &mut out).expect("retired");
+  std::thread::scope(|scope| {
+    let retiring = scope.spawn(|| retire_yonderd(&home, &launchctl, &mut out));
+    if cfg!(target_os = "macos") {
+      let started = Instant::now();
+      while !read(&calls).contains("bootout") {
+        assert!(started.elapsed() < Duration::from_secs(60), "no bootout during the wait");
+        std::thread::sleep(Duration::from_millis(20));
+      }
+    }
+    assert!(run.exists(), "the run directory stays while its run goes on");
+    drop(lock);
+    retiring.join().expect("the retire thread").expect("retired");
+  });
   let line: serde_json::Value = serde_json::from_slice(&out).expect("one JSON line");
   assert_eq!(line["deleted_refs"], 2);
   assert_eq!(line["removed"], serde_json::json!([cache.display().to_string()]));

@@ -665,9 +665,8 @@ fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   let home = Home::from_env()?;
   let mut stdout = Vec::new();
   let path = std::env::var("PATH").unwrap_or_default();
-  // the `LaunchAgent` runs `~/.local/bin/bd-host` when it is there, so an upgrade swaps that file and never a file of
-  // the bundle of the app
-  let exe = Some(home.binary_file()).filter(|binary| binary.exists()).map_or_else(this_exe, Ok)?;
+  // the `LaunchAgent` runs `~/.local/bin/bd-host`, a copy of this executable when it is missing
+  let exe = this_exe()?;
   if args.retire_yonderd {
     retire_yonderd(&home, &args.launchctl, &mut stdout)?;
   } else if args.import_yonder {
