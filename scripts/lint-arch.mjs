@@ -22,6 +22,13 @@
 //   src/lib (their tests aside) exports an admission of its own: `runOperation`, `getOperationBlocker`, `findSame`,
 //   `operationItem`, `whenRewritesDone`, `whileSyncing`, `setSessionStep`, or a function that admits, queues or joins
 //   an operation (`admit…`, `queue…Operation`, `join…Operation`).
+// The main window reads nothing before its subscription (docs/design/rust-domain-authority.md, s13-warm-start): the start
+// injects the frame of its session, the view names the prefix, the subscription answers a missing git with its code,
+// and the session syncs a repository synced before as it opens:
+// - `startup-read`: a command in the start of the main window (`src/main.tsx`, `src/router.ts`) or in the store of the
+//   selected repository (`src/stores/repository.ts`) but those the user asks for (`USER_COMMANDS`), a read of the
+//   prefix outside the Settings window (`commands.resolveBranchPrefix`), or an open sync of the page
+//   (`syncBranches("open")`), in src (its tests aside).
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds; an entry that matches nothing fails, so the list never outlives its code.
 import { globSync, readFileSync } from "node:fs"
@@ -68,6 +75,20 @@ const ADMITTING = /^src\/(?:stores|lib)\/(?!.*\.test\.tsx?$)/
 const RULE_EXPORT = /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)((?:can|needs|allows)[A-Z][\w$]*|(?!format)[\w$]*(?:Blocker|Decision)|is[\w$]*Blocked)\b/
 /** The sources whose exports a rule name refuses: the modules and the hooks of the page, their tests aside */
 const RULED = /^src\/(?:lib|hooks)\/(?!.*\.test\.tsx?$)/
+
+/** The start of the main window and the store of the selected repository: they ask no command at start */
+export const STARTUP_MODULES = ["src/main.tsx", "src/router.ts", "src/stores/repository.ts"]
+/** The commands of `STARTUP_MODULES` that the user asks for (Browse), never asked at start */
+const USER_COMMANDS = new Set(["browseRepository"])
+const COMMAND_CALL = /\bcommands\.([\w$]+)/g
+// the reads the start of the page made before its subscription, deleted in s13: the prefix (only Settings reads it,
+// the view names it for the main window) and the open sync (the session runs it as it opens)
+const PREFIX_READ = /\bcommands\.resolveBranchPrefix\b/
+const OPEN_SYNC = /\bsyncBranches\(\s*(["'`])open\1/
+/** The sources whose start a read refuses: the page, its tests aside */
+const STARTING = /^src\/(?!.*\.test\.tsx?$)/
+/** The window that reads the prefix of its own: Settings */
+const SETTINGS = /^src\/components\/settings\//
 
 // the words of an error: the whole receiver of `.message` (`result.error.message`), so `typeof error.message ===
 // "string"` is a check of the type; the helpers that answer the message; an error as a string
@@ -142,6 +163,14 @@ function withDotMessage(text) {
   return text.replace(/(\?\.)?\[\s*(["'`])message\2\s*\]/g, (_, optional) => (optional === undefined ? ".message" : "?.message"))
 }
 
+/** Whether `line` of `file` reads at the start of the main window: a command of its start, the prefix, an open sync */
+function startupRead(file, line) {
+  if (STARTUP_MODULES.includes(file) && [...line.matchAll(COMMAND_CALL)].some(([, command]) => !USER_COMMANDS.has(command))) {
+    return true
+  }
+  return (!SETTINGS.test(file) && PREFIX_READ.test(line)) || OPEN_SYNC.test(line)
+}
+
 /** The findings of one source: `{ file, line, rule, text }` */
 export function findProblems(file, source) {
   const text = withDotMessage(withoutComments(source))
@@ -170,6 +199,9 @@ export function findProblems(file, source) {
     }
     if (ADMITTING.test(file) && ADMISSION_EXPORT.test(line)) {
       problems.push({ ...at, rule: "operations-store" })
+    }
+    if (STARTING.test(file) && startupRead(file, line)) {
+      problems.push({ ...at, rule: "startup-read" })
     }
   })
   for (const call of text.matchAll(ROUTE_ERROR)) {
@@ -217,7 +249,7 @@ if (import.meta.main) {
   if (problems.length > 0) {
     console.error(problems.join("\n"))
     console.error(
-      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain and admits no operation (scripts/lint-arch.mjs)`,
+      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain, admits no operation and reads nothing before its subscription (scripts/lint-arch.mjs)`,
     )
     process.exit(1)
   }

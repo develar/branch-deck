@@ -419,9 +419,13 @@ used to download and compile the main window's tree before its own page: 61 modu
   [Onboarding](../../spec/repository/onboarding.spec.md#before-the-first-sync)), so the first frame with content is the
   rows of that frame, not the loading table, and `BranchCreator` says the content settled on them. The lazy main route
   puts the seed into the store before the first render (`adoptCachedModel` in `src/router.ts`, beside the import of the
-  page, so the store stays out of the bundle of the sub-windows) and subscribes holding it: one `subscribe_view`, whose
-  answer is the patch from the seed (or nothing), and its channel, before the rows (B7, `warm-start.spec.ts`); the first
-  sync, which the session started before the webview loaded, patches only what differs from the frame. The JSON of
+  page) and subscribes holding it: one `subscribe_view`, whose answer is the patch from the seed (or nothing), and its
+  channel, before the rows (B7, `warm-start.spec.ts`), beside what every page tells as it loads and which reads nothing
+  of the repository (`sub_window_loaded`, `get_settings_changes`, the `set_demand` of its subscription: `PAGE_PROTOCOL`
+  of `tests/e2e/helpers/ipc-helpers.ts`). The page reads no prefix and no git setup of its own (the view names the
+  prefix, the subscription answers a missing git with its code) and asks no sync as it opens: the first sync, which the
+  session started before the webview loaded, patches only what differs from the frame (`startup-read` of
+  `pnpm lint:arch` keeps those reads out of the start). The JSON of
   the view is a string the page parses (`JSON.parse('…')`), which JavaScript engines parse faster than the same object
   as a literal. Without a frame (a first start, another schema, a prefix the config left) the page starts as above.
 - The first frame of a window is its content: a window due to show waits for its webview to present the page as it
@@ -455,7 +459,20 @@ used to download and compile the main window's tree before its own page: 61 modu
 - The page logs the phases of each open ("commit-review open 96 ms: loaded 41, files 44, diffs 47, painted 88"): a new
   window loads the app (`loaded`), a reused one only renders.
 
-The eager part is now 7 modulepreloads, about 590 KB.
+The eager part, which every window loads before its page (B13 of [Rust as the Domain
+Authority](rust-domain-authority.md#бюджеты-производительности); `pnpm build`, the entry and the modulepreloads of
+`dist/index.html`), is the entry and 15 modulepreloads: 801,652 bytes (261,332 gzipped) after s13 against 797,568
+(258,780) on master `5879479e5` before it, 0.5 % more. s13 removed the reads of the start (1.8 KB of
+`stores/repository.ts`, `lib/branch-prefix.ts` and `repositorySettings.ts`) and added the seed (1.2 KB of
+`model/store.ts`) and the lazy roots of the popups of a row (3.1 KB: `useLazyRoot`, `popover`, `tooltip`), so the goal
+of B13, less, is not reached. By the source maps 596 KB of it are packages (react-dom 207 KB, Base UI 105 KB,
+react-router 93 KB, zod 88 KB for the schemas of the settings stores) and 179 KB the modules of the page, the store of
+the main window among them (`model/store.ts` 15 KB, `stores/branch-sync.ts` 12 KB), in master too: the root of every
+window reaches it (`App.tsx` imports `stores/auth.ts`, which imports `model/store.ts`; the presenters of Activity and
+of the outcome toasts import `lib/patronus.ts`, which imports `stores/branch-sync.ts`), so its import beside the page
+in the main route moves nothing (rolldown warns `INEFFECTIVE_DYNAMIC_IMPORT`). That graph is the lever of B13. Before
+its first render the main window loads 67 files, 1,773,561 bytes with the chunk of its page and what that imports
+(1,767,354 on master).
 
 `preloadInterFont` (`vite.config.ts`) adds a `<link rel="preload">` for the upright InterVariable face to the built
 `index.html`. Without it the browser finds the font only after the CSS applies, and a window paints first in the

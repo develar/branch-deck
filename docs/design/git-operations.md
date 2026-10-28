@@ -443,8 +443,8 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
 2. **Admission**: every rewrite holds `Resource::Head` (a delete holds only the ref it deletes, and a reapply that ref
    too, so a push or a delete of the unapplied branch waits for it): a second click of the same rewrite joins the first, any other rewrite of the process waits behind it in the queue (an undo too, never
    refused), a push and a start run beside it. Between processes the repository lock orders them.
-3. **What it names, now**: on a table seeded from the frame of an earlier run (`TableState::cached`, "The sessions and
-   their hosts" below) what the window named is of no HEAD this process read: the rewrite, admitted and holding what
+3. **What it names, now**: on a table seeded from the frame of an earlier run (`TableState::cached`, [Warm
+   start](#warm-start)) what the window named is of no HEAD this process read: the rewrite, admitted and holding what
    it needs, first waits for the first sync of the session to commit, its step `WaitingForSync` (`SyncReason::Open`
    joins the sync the session started as it opened, so one run serves both); `cancel_operation` ends that wait with
    `canceled` (the sync goes on), a failed sync answers its error (the table is still the frame), nothing written
@@ -4048,7 +4048,8 @@ robot's branch into a branch that is no ancestor of it, as the robot landing doe
 What the session of a repository holds for its windows, and `bd` for its command, so both read one rule: the table of
 the last sync, the facts of the remote services with their order, what the session derives of them (the Patronus view,
 the landing needs) and what the rules decide over all of it ([The landing of a session](#the-landing-of-a-session)),
-and the checks of the app's actions on them. The crate `repository-model` holds it, the model of a
+the checks of the app's actions on them, and the frame of its last sync that the next start of the app shows first
+([Warm start](#warm-start)). The crate `repository-model` holds it, the model of a
 repository ([Rust as the Domain Authority](rust-domain-authority.md)); the scheduler that reads the facts is
 `remote-facts`', the rules it asks by and the matching of the robots are `domain-policy`'s. `repository-model` reaches
 no remote reader, no Update Project and no lease pool (`crates/bd-cli/src/architecture_test.rs`) and no trial check
@@ -4162,59 +4163,7 @@ names another epoch than its view's and `get_snapshot` finds no view of the view
 checks, the timing of the patches (on a paused clock), the prefix check, two worktrees and the life;
 `sync_scheduler_test.rs` the schedule.
 
-The frame of a session (`warm_start.rs`, s13-warm-start): what a later start shows before its first sync. A frame
-(`CachedSession`) is the key of the session, the parts of its table as the last sync committed them (the header with
-the prefix, the order, the rows, the stack branches, the sections; while a sync runs, the table it started from; and
-by id, of each commit of the rows and of the unassigned ones, the author's email and the subject that its view leaves
-out, `CommitIdentity`, which a rewrite pressed on the seeded table finds it again by; what that sync built of the rows
-beside them, `CachedBuild`: the virtual tips, the branches not built, the copy of each commit, the parked notes, the
-remote facts and what the baseline has whole, from which the seed rebuilds the table of the last sync, `BranchTable`,
-`Cached` in `FactStore::table`, so the next steps, the pushes and the actions of the rows show) and the facts of the remote
-services as the view has them (the robots, the Patronus view with its landing needs, the landing needs of the last
-computation with the inputs they are of, `CachedNeeds`, so a first sync that leaves the tips of the frame computes them
-not again and no row waits for them anew, the pull requests, the rules, the merge profiles of the table's baseline, the readiness, the review requests, the sign-ins);
-the parts the rules decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need
-the user) are not kept but derived again from the frame by the binary that reads it, and the details of the robots go
-with the demand of a window. It lives in the object cache of the repository, store `session_frame`: one frame per
-worktree, keyed by the hash of its path under the version of the schema (`FRAME_SCHEMA`), as JSON (the parts of a view
-are tagged by a field, which postcard can't read back), so the start reads it without a git process and a frame of
-another schema is never read. The host reads it when the session opens (`SessionHost::frame`, `SessionEnvironment::frame`:
-the app's in the object cache of the repository, the E2E server's in the memory of a test repository once its test
-built one, `POST /repositories/{id}/warm-start/build`, whose quit of the app, `POST …/sessions/close`, answers once
-each session ended and saved its last frame, `Sessions::close_worktree_saved`), unless the opener hands it the frame it read
-(`Sessions::open_seeded`: the start of the app), and the session seeds from it only
-under the same key and schema (`CachedSession::seeds`): the table is `cached` (`RepositoryView.cached`) until a sync of
-this process commits, the structure of each row and the order of the stack branches derived again, each commit with
-its identity; a rewrite pressed meanwhile waits for that commit ("Rewrite in the engine", step 3); each fact of the
-frame that stood is `Cached` until an answer of this process, and a failure of that first read leaves what a failure
-without an answer leaves (`Unavailable`, the value gone: the robots, the pull requests and the review requests of the
-frame go with it), since no observation of this process stands behind it. The robots of a frame derive no Patronus
-view (the frame's stands until Patronus answers) and ask no readiness. The view of a seeded session is what the rules
-derive of the frame at the first version of its epoch (`View::seeded`), its seed: a window that holds it subscribes
-with that version (`Sessions::subscribe_from`, `have`) and catches up by one patch (`Joined::CatchUp`,
-`patch::diff_views`, which brings the view at its base to the view at its `next`: a patch applies to the view at its
-base and brings it to a newer version, the next one live, a later one in a catch-up), a window that holds the view
-of the last patch gets nothing more (`Joined::Holds`), any other the snapshot (`Joined::answer`, the
-`ViewSubscription` of the hosts: `view`, `catchUp` or neither); `Sessions::subscribe` is the subscription of a window
-that holds nothing. A worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
-app's writer keeps, `app_settings::projects::synced_before`) syncs when its session opens (`Open`, with or without a
-window), so the first sync of the start runs while the window loads, and so does a session a window watches anew (a
-switch back within `IDLE_LIMIT`; also one a sync of this session committed), which then runs only when what a sync
-reads changed; a window that opens or gains the focus during it is served by it or checks once after it. The start
-of the app (`src-tauri/src/warm_start.rs`) reads the frame of the selected project (`projects::selected_project`)
-before the main window is built: the common git directory by the files of the worktree (its `.git`
-directory, or the `commondir` a linked worktree's `.git` file names, `lease_slot::linked_worktree`), the object cache
-there, then `Sessions::open_seeded` under the key the frame names, whose seed goes into the init script of the window
-as `window.__BD_MODEL__ = JSON.parse('…')` beside `__TAURI_STORE__`; a frame of a prefix the git config left seeds a
-session no window subscribes to, which goes idle, and the window's own key opens the session it gets the snapshot of. The actor saves the frame on the
-blocking pool, one save at a time and the newest next: at once after a sync committed the table, at most every
-`FRAME_INTERVAL` (5 s on the session clock) after a patch of the facts (the last change waits for it), and when the
-session is swept or closed (`Message::Close`) or the registry goes with what changed since; a session whose run found
-that the git config names the branches by another prefix saves no more (the worktree's frame is the other session's
-then). `warm_start_test.rs` pins the encoding and the key, `table_test.rs` and `facts_test.rs` the seed, `state_test.rs`
-the seeded view, the catch-up and `diff_views`, `session_test.rs` the seed of a session, its first sync (a patch of what
-differs only, one run with a focus during it), a frame of another prefix or schema and the saves,
-`sync_scheduler_test.rs` the open and the focus as one run, `cache_test.rs` the store.
+A session keeps the frame of its last sync for the next start of the app ([Warm start](#warm-start)).
 
 The hosts: the commands of the sessions are app-api's (`crates/app-api/src/session/`), which the app and the E2E server
 both run; the frame of each (`session` of `registry.rs`) resolves the session key from the repository path with the
@@ -4264,6 +4213,98 @@ keeps the session alive while it is open, also when the main window shows anothe
 remote statuses of branches and stack branches, the issue links), through the reporter its `SessionEnvironment` puts
 around the run's (`SessionEnvironment::reporter`, the run's own by default), so the session, its patches and the views
 hold what such a sync makes.
+
+#### Warm start
+
+The frame of a session (`crates/repository-model/src/warm_start.rs`, s13-warm-start) is what the next start of the app
+shows before its first sync: the first frame of the main window with content is the rows of the last sync, and the
+page asks nothing before them but its subscription.
+
+**What a frame keeps** (`CachedSession`): the key of its session and the parts of its table as the last sync committed
+them (the header with the prefix, the order, the rows, the stack branches, the sections; while a sync runs, the table
+it started from), with, by id, the author's email and the subject of each commit of the rows and of the unassigned
+ones, which its view leaves out but a rewrite finds the commit again by (`CommitIdentity`); what that sync built of
+the rows (`CachedBuild`: the virtual tips, the branches not built, the copy of each commit, the parked notes, the
+remote facts and what the baseline has whole), from which the seed rebuilds the table of the last sync
+(`BranchTable`, `Cached` in `FactStore::table`), so the next steps, the pushes and the actions of the rows show; and
+the facts of the remote services as the view has them (the robots, the Patronus view, the landing needs of the last
+computation with the inputs they are of, `CachedNeeds`, so a first sync that leaves the tips of the frame computes
+them not again and no row waits for them anew, the pull requests, the rules, the merge profiles of the table's
+baseline, the readiness, the review requests, the sign-ins). The parts the rules decide (the pushes, the starts, what
+landed, the next steps, the actions, the robots that need the user) are not kept: the binary that reads a frame
+derives them again by its own rules. No running sync, no operation and no news: a frame is of no process. The details
+of the robots come with the demand of a window.
+
+**Where**: the object cache of the repository, store `session_frame`, one frame per worktree, keyed by the hash of its
+path under the version of the schema (`FRAME_SCHEMA`), as JSON (the parts of a view are tagged by a field, which
+postcard can't read back): the start reads it without a git process, and a frame of another schema is never read. A
+change of a type a frame holds (the view's types of `domain-types` among them) bumps the schema; the first start after
+it is cold.
+
+**When it is written**: the actor saves on the blocking pool, one save at a time and the newest next: at once after a
+sync committed the table, at most every `FRAME_INTERVAL` (5 s on the session clock) after a patch of the facts (the
+last change waits for it), and when the session is swept or closed (`Message::Close`) or the registry goes with what
+changed since. A session whose run found that the git config names the branches by another prefix saves no more (the
+worktree's frame is the other session's then). The quit of the E2E server (`POST …/sessions/close`) answers once each
+session ended and saved its last frame (`Sessions::close_worktree_saved`); the app does not wait for a save as it
+quits (`RunEvent::Exit` flushes the settings only), so the frame of a sync that committed is written, and a change of
+the facts within the last 5 s may be lost.
+
+**The seed**: the host reads the frame when the session opens (`SessionHost::frame`, `SessionEnvironment::frame`: the
+app's in the object cache of the repository, the E2E server's in the memory of a test repository once its test built
+one, `POST /repositories/{id}/warm-start/build`), unless the opener hands it the frame it read
+(`Sessions::open_seeded`: the start of the app), and the session seeds from it only under the same key and schema
+(`CachedSession::seeds`). The table is `cached` (`RepositoryView.cached`) until a sync of this process commits, the
+structure of each row and the order of the stack branches derived again, each commit with its identity. Each fact of
+the frame that stood is `Cached` until an answer of this process, and a failure of that first read leaves what a
+failure without an answer leaves (`Unavailable`, the value gone: the robots, the pull requests and the review requests
+of the frame go with it), since no observation of this process stands behind it. The robots of a frame derive no
+Patronus view (the frame's stands until Patronus answers) and ask no readiness. The rules read `Cached` as a value for
+the next steps and the nodes, and disable a remote action while the table or a fact it reads is the frame's
+(`Disabled{Cached}`, "Waits for the first sync"); no robot needs the user meanwhile, and the first fresh answer after
+`Cached` tells no news.
+
+**The catch-up**: the view of a seeded session is what the rules derive of the frame at the first version of its epoch
+(`View::seeded`), its seed. A window that holds it subscribes with that version (`Sessions::subscribe_from`, `have`) and
+catches up by one patch (`Joined::CatchUp`, `patch::diff_views`, which brings the view at its base to the view at its
+`next`: a patch applies to the view at its base and brings it to a newer version, the next one live, a later one in a
+catch-up), a window that holds the view of the last patch gets nothing more (`Joined::Holds`), any other the snapshot
+(`Joined::answer`, the `ViewSubscription` of the hosts: `view`, `catchUp` or neither); `Sessions::subscribe` is the
+subscription of a window that holds nothing.
+
+**A rewrite on the frame**: what a window named on the seeded table is of no HEAD this process read, so a rewrite
+pressed meanwhile is admitted, waits for the first sync to commit (`WaitingForSync`), then resolves what it named by
+the keys the frame kept ([Rewrite in the engine](#rewrite-in-the-engine), step 3); a push, a start, a pull request,
+a review request or an action of a robot stays disabled until the first sync committed and what it reads answered
+fresh (above).
+
+**The first sync**: a worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
+app's writer keeps, `app_settings::projects::synced_before`) syncs when its session opens (`Open`, with or without a
+window), so the first sync of the start runs while the window loads, and so does a session a window watches anew (a
+switch back within `IDLE_LIMIT`; also one a sync of this session committed), which then runs only when what a sync
+reads changed; a window that opens or gains the focus during it is served by it or checks once after it. The page asks
+no sync of its own as it opens (its `syncBranches("open")` is gone, `startup-read` of `pnpm lint:arch`), and records
+the `lastSyncTime` of every run of its session, also of one it did not ask for. A first sync patches only what differs
+from the frame, and one that leaves the tips of the frame changes each subject in one patch at most: the landing needs
+of the frame stand, and the end of the run waits for the view of its robots ("The sessions and their hosts",
+`HeldEnd`).
+
+**The start of the app** (`src-tauri/src/warm_start.rs`) reads the frame of the selected project
+(`projects::selected_project`) before the main window is built: the common git directory by the files of the worktree
+(its `.git` directory, or the `commondir` a linked worktree's `.git` file names, `lease_slot::linked_worktree`), the
+object cache there, then `Sessions::open_seeded` under the key the frame names, whose seed goes into the init script
+of the window as `window.__BD_MODEL__ = JSON.parse('…')` (`CachedModel { repositoryPath, view }`) beside
+`__TAURI_STORE__`. A frame of a prefix the git config left seeds a session no window subscribes to, which goes idle,
+and the window's own key opens the session it gets the snapshot of. The page puts the seed into its store before the
+first render (`adoptCachedModel`) and subscribes holding it: one `subscribe_view` and its channel before the rows
+([Rendering Performance](rendering-performance.md#loading)). Without a frame (a first start, another schema, a
+worktree whose files name no git directory) the start is cold: no model, and the window subscribes holding nothing.
+
+`warm_start_test.rs` pins the encoding and the key, `table_test.rs` and `facts_test.rs` the seed, `state_test.rs` the
+seeded view, the catch-up and `diff_views`, `session_test.rs` the seed of a session, its first sync (a patch of what
+differs only, one run with a focus during it, its end with the view of its robots), a frame of another prefix or schema
+and the saves, `sync_scheduler_test.rs` the open and the focus as one run, `cache_test.rs` the store, `rewrite_test.rs`
+the rewrite on a seeded table, and `tests/e2e/startup/warm-start.spec.ts` the start of the page.
 
 #### The facts of a session
 

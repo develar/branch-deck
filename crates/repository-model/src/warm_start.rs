@@ -1,5 +1,5 @@
-//! The warm start (docs/design/rust-domain-authority.md, "s13-warm-start"; docs/design/git-operations.md, "The sessions
-//! and their hosts"): the frame of a session, which a later start of the app shows before its first sync.
+//! The warm start (docs/design/rust-domain-authority.md, "s13-warm-start"; docs/design/git-operations.md, "Warm
+//! start"): the frame of a session, which a later start of the app shows before its first sync.
 //!
 //! - **What a frame is** (`CachedSession`): the key of its session, the parts of its table as the last sync committed
 //!   them (`CachedTable`: the header with the prefix, the order, the rows, the stack branches, the sections, of each

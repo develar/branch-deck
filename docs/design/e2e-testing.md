@@ -130,13 +130,20 @@ sequenceDiagram
 8. **Decision**: A warm start is the option `warmStart` of `setupRepo`. Before the page opens, a sync without a page
    (`POST /repositories/{id}/warm-start/build`, as `bd sync` syncs: the session reads no fact without a window) leaves
    the frame of the repository's session, which the server keeps in the memory of the test repository
-   (`TestRepository::frame`, saved again by its sessions from then on); the session closes, as the app quits. The setup
-   then starts the app as Rust does (`GET /repositories/{id}/warm-start`: the session opened seeded from the frame,
+   (`TestRepository::frame`, saved again by its sessions from then on); the session closes, as the app quits. A quit
+   (`POST …/sessions/close`, `closeSessions`, also that of `reloadWarm`) answers once each session saved its last frame
+   (`Sessions::close_worktree_saved`), so the next start reads the frame of the last facts, not of the last commit. The
+   setup then starts the app as Rust does (`GET /repositories/{id}/warm-start`: the session opened seeded from the frame,
    whose first sync starts at once for a repository synced before, `syncedAgoMs` an hour ago unless set) and injects the
    seed it answers as `window.__BD_MODEL__` from an init script of its own, before the page loads; `reloadWarm` quits
    and starts again the same way, its init script replacing the one before for the next load. A test that looks at the
    rows before the first sync holds it in the session (`remoteAnswers: { hold: ["sync"] }`, `HeldAnswer::Sync`, with
-   `waitForSync: false`, so the setup waits for the header only).
+   `waitForSync: false`, so the setup waits for the header only). What the page asked before its first row is counted
+   in the page (`recordIpcAtFirstRows`, `firstRowsAsks` of `ipc-helpers.ts`, the counters of `__ipcStats` at the
+   first `branch-row`), without what every page tells as it loads and which reads nothing of the repository
+   (`PAGE_PROTOCOL`: `sub_window_loaded`, `get_settings_changes`, `set_demand`): B7 is the subscription and its channel.
+   `pnpm perf:table` starts warm the same way (`reloadWarm`; `warmFirstRowsMs`, `warmFirstSync*` and
+   `warmStartInvokes` of its report).
    **Rationale**: The frame is the one a sync of the app's core makes, seeded through the same `Sessions::open_seeded`
    as the start of the app, so the test checks the path of the app and not a frame of its own making; the frame of a
    test is in its repository's memory because the server runs without the object cache (the next decision), and only a

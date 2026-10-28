@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { findProblems, lintArchitecture } from "./lint-arch.mjs"
+import { STARTUP_MODULES, findProblems, lintArchitecture } from "./lint-arch.mjs"
 
 /** The rules each line of `source` breaks, by line */
 function rulesOf(source) {
@@ -185,4 +185,26 @@ test("an admission of the page is refused: the deleted registry, an export of sr
   assert.deepEqual(findProblems("src/stores/operations.ts", "export const x = 1\n"), [
     { file: "src/stores/operations.ts", line: 1, rule: "operations-store", text: "the registry of the page: the session admits every operation (RepositoryView.operations)" },
   ])
+})
+
+test("a read of the start of the main window is refused: a command of its start but Browse, the prefix outside Settings, an open sync", () => {
+  const source = [
+    "const setup = await commands.checkGitSetup({ repositoryPath })",
+    "const prefix = await commands.resolveBranchPrefix({ repositoryPath })",
+    'void syncBranches("open")',
+    // the user's Browse, the sync the user asks, a command named in a comment or a type
+    "const result = await commands.browseRepository()",
+    'void syncBranches("manual")',
+    "// commands.getSnapshot() at start",
+    "type Commands = typeof commands",
+  ].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  for (const file of STARTUP_MODULES) {
+    assert.deepEqual(rules(file), ["1 startup-read", "2 startup-read", "3 startup-read"])
+  }
+  // elsewhere a command is no read of the start, the prefix of the Settings window neither; a test asks what it tests
+  assert.deepEqual(rules("src/stores/example.ts"), ["2 startup-read", "3 startup-read"])
+  assert.deepEqual(rules("src/components/settings/BranchPrefixSetting.tsx"), ["3 startup-read"])
+  assert.deepEqual(rules("src/stores/repository.test.ts"), [])
+  assert.deepEqual(rules("tests/e2e/example.spec.ts"), [])
 })
