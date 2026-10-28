@@ -1,7 +1,7 @@
 //! The repositories of the host and the files of a slot. Branch Deck owns their git, in process: the commits that a
-//! repository has (`git_ops::host_objects::present_commits`), the ingest of a pack (`lease_pool::host_refs::ingest`),
-//! the files of a commit (`show_commit`), and the tree and the changes of a slot (`snapshot_run`, `changes_run`). No
-//! `bd` child runs.
+//! repository has (`lease_pool::host_refs::have`), the ingest of a pack (`lease_pool::host_refs::ingest`), the files
+//! of a commit (`lease_pool::host_refs::show`), and the tree and the changes of a slot (`snapshot_run`, `changes_run`).
+//! No `bd` child runs. Each of these calls is a git user of the host, so it takes its turn behind an upgrade of git
 //!
 //! A pack lands as `refs/branch-deck/host/run/<id>` or `refs/branch-deck/host/base/<name>`. The give-back of a run
 //! deletes its ref, and the keeper deletes a run ref without a lend after an hour and a base ref that no pack moved for
@@ -10,12 +10,12 @@
 use crate::home::Home;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
-use git_ops::host_objects::{ShowRefusal, ShownCommit, present_commits, show_commit};
+use git_ops::host_objects::{ShowRefusal, ShownCommit};
 use git_ops::revs::{RepositoryDirs, is_object_id, repository_dirs};
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use host_link::proto::PackTarget;
 use host_link::refusal::{Code, Refusal};
-use lease_pool::host_refs::{HostRef, HostRefRefusal, IngestedPack, ingest};
+use lease_pool::host_refs::{HostRef, HostRefRefusal, IngestedPack, have, ingest, show};
 use lease_pool::host_slots::{HostSlotRefusal, HostSlotsParams, changes_run, snapshot_run};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -89,7 +89,7 @@ impl Repository {
     if commits.is_empty() {
       return Ok(Vec::new());
     }
-    present_commits(&self.git, &self.dirs.top_level, commits).map_err(|error| Refusal::new(Code::AgentError, format!("{error:#}")))
+    have(&self.git, &self.dirs, commits, DEFAULT_LOCK_TIMEOUT).map_err(|error| Refusal::new(Code::AgentError, format!("{error:#}")))
   }
 
   /// Whether the repository has the commit `commit`
@@ -118,7 +118,7 @@ impl Repository {
   /// whole content
   pub(crate) fn show(&self, commit: &str, blob: Option<&str>, paths: &[String]) -> Result<ShownCommit, Refusal> {
     let trimmed: Vec<String> = paths.iter().map(|path| path.trim_end_matches('/').to_owned()).collect();
-    show_commit(&self.git, &self.dirs.top_level, commit, blob, &trimmed).map_err(|error| {
+    show(&self.git, &self.dirs, commit, blob, &trimmed, DEFAULT_LOCK_TIMEOUT).map_err(|error| {
       let code = if error.downcast_ref::<ShowRefusal>().is_some() {
         Code::BadRequest
       } else {
