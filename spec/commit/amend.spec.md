@@ -84,7 +84,10 @@ tree is never written, and the user's other staged work stays staged.
 - The amend of the app is the rewrite `amend` of the engine, named on the table the window shows, and must write
   under the repository lock: the history, the merge, the amended commit and the replay of the commits above it come
   before the lock, and under it only the witness of HEAD, the move of the branch and the staging of the amended files
-  (one `update-index`, no refresh); a HEAD that moved meanwhile computes it once more under the lock. While another
+  (one `update-index`, no refresh). A HEAD another process moved meanwhile (`bd update`, a `bd` rewrite of a commit
+  below, a commit on top) is refused (`head_moved`) before the amended commit is looked for on it, under the lock by
+  one `rev-parse` before the history is read again; the engine then resolves the amend again on HEAD as it is now and
+  amends the copy of the commit there, found by its author, author time and subject. While another
   process holds the lock (an agent's `bd pick --follow`, `bd`) or the app's own push, the
   amend waits as long as the holder lives, its inline form saying whom for, the step of its operation ("Waiting for
   `bd pick` (pid 4242, for 12 s)"), with Stop Waiting (`cancel_operation`), which ends the wait with nothing changed
@@ -93,8 +96,9 @@ tree is never written, and the user's other staged work stays staged.
   form; a conflict opens the conflict viewer below the row in its place.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
-  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`, `every_rewrite_refuses_another_head_that_has_none_of_its_commits`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_amend_waiting_for_the_lock_of_another_process_that_rewrites_below_its_commit_amends_the_copy`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write`)
 - A conflict between the amended change and a later commit must refuse the amend and change no ref, index entry or
   file.

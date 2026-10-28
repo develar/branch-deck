@@ -8,7 +8,9 @@ use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationSt
 use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind};
 use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
+use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions};
+use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use pretty_assertions::assert_eq;
 use std::pin::Pin;
@@ -562,6 +564,35 @@ async fn a_stop_waiting_as_the_holder_moves_head_and_lets_the_lock_go_writes_not
   assert_eq!(fixture.subjects(), ["(alpha) Alpha 2", "(alpha/beta) Beta", "(alpha) Alpha"], "nothing was written");
 }
 
+/// A Stop Waiting that comes as the holder of the lock squashes away the commit a move names and lets the lock go is
+/// `canceled` too, not `plan_changed`: the rewrite is not resolved again once it was stopped, so no sync runs for a
+/// rewrite the user stopped and nothing is written
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_waiting_as_the_holder_squashes_the_named_commit_away_is_canceled_without_a_resolve() {
+  let fixture = fixture(true).await;
+  let (alpha, beta, witness) = (fixture.commit("(alpha) Alpha"), fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let held = fixture.lock();
+  let move_beta = move_to(std::slice::from_ref(&beta), "delta", &witness);
+  let squashed = async {
+    let operations = fixture.until(waits_with(1)).await;
+    let params = SquashCommitsParams {
+      repository_path: fixture.repo.path_str().to_owned(),
+      commit_ids: vec![alpha.clone(), beta.clone()],
+      message: "(alpha) Alpha and Beta".to_owned(),
+    };
+    let options = RewriteOptions {
+      held_lock: Some(&held),
+      ..RewriteOptions::default()
+    };
+    squash_commits_core(&GitCommandExecutor::new(), &params, &options).unwrap();
+    assert!(fixture.registry.cancel(&operations[0].id));
+    drop(held);
+  };
+  let (refused, ()) = within_a_minute(Box::pin(async { tokio::join!(fixture.rewrite(&move_beta), squashed) })).await;
+  assert_eq!(refused.unwrap_err().code, ErrorCode::Canceled);
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha and Beta"], "nothing was written");
+}
+
 /// An amend whose index cannot follow the branch it moved (a file unreadable since the amend was computed, an index
 /// lock of another process past its wait) answers that failure as it is, the advice to `git reset -q` kept: HEAD moved
 /// once, and the rewrite never runs again on the HEAD its own core wrote
@@ -594,4 +625,43 @@ async fn an_amend_whose_index_cannot_follow_the_branch_it_moved_answers_that_and
   let reflog = fixture.repo.git(&["reflog", "--format=%gs", "HEAD"]);
   let amends = reflog.lines().filter(|line| line.starts_with("branch-deck: amend")).count();
   assert_eq!(amends, 1, "HEAD moved once: {reflog}");
+}
+
+/// An amend that waits for the lock another process holds while that process rewrites the commit under the amended one
+/// (`bd reword`, `bd update`) runs on the HEAD it left: its core refuses the HEAD it did not expect before it looks for
+/// the amended commit, which that HEAD no longer has, and the rewrite amends the copy of the same key there
+#[tokio::test(flavor = "multi_thread")]
+async fn an_amend_waiting_for_the_lock_of_another_process_that_rewrites_below_its_commit_amends_the_copy() {
+  let fixture = fixture(true).await;
+  let (alpha, beta, witness) = (fixture.commit("(alpha) Alpha"), fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  std::fs::write(fixture.repo.path().join("beta.txt"), "beta, amended\n").unwrap();
+  let amend = RewriteIntent::Amend {
+    branch_name: "beta".to_owned(),
+    original_commit_id: beta.clone(),
+    files: vec!["beta.txt".to_owned()],
+    witness,
+  };
+  let reword_alpha = move |fixture: &Fixture, held: &RepositoryLock| {
+    let request = RewordRequest {
+      repository_path: fixture.repo.path_str().to_owned(),
+      rewords: vec![CommitReword {
+        commit: alpha,
+        text: RewordText::Message("(alpha) Alpha, reworded".to_owned()),
+      }],
+    };
+    let options = RegroupOptions {
+      held_lock: Some(held),
+      ..RegroupOptions::default()
+    };
+    reword_request_core(&GitCommandExecutor::new(), &request, &options).unwrap();
+  };
+  let amended = fixture.while_another_process_moves_head(&amend, reword_alpha).await;
+  assert!(
+    matches!(&amended.as_ref().unwrap().result, OperationResult::Rewrite(result) if matches!(result.as_ref(), RewriteResult::Amended(_))),
+    "{amended:?}"
+  );
+  assert_eq!(fixture.subjects(), ["(alpha/beta) Beta", "(alpha) Alpha, reworded"]);
+  assert_ne!(fixture.commit("(alpha/beta) Beta"), beta, "the copy the reword left was amended");
+  assert_eq!(fixture.repo.git(&["show", "HEAD:beta.txt"]), "beta, amended");
+  assert_eq!(fixture.repo.git(&["status", "--porcelain"]), "", "the amended file is staged as HEAD has it");
 }

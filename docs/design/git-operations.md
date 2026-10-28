@@ -464,7 +464,8 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    moved ref runs it again (`head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`: `ErrorCode::moved_ref`,
    nothing written); a core that failed on the HEAD it expected, or after it moved HEAD itself (an amend whose index
    could not follow, its `git reset -q` advice kept), answers its own failure. A Stop Waiting that came once the wait
-   had taken the lock runs no core after it (`canceled`): the next wait would take the free lock without a look at it.
+   had taken the lock runs no core after it and does not resolve the rewrite again, whose syncs would come first
+   (`canceled`): the next wait would take the free lock without a look at it.
 5. **The end**: the operation asks the sync that shows what it changed (`SyncReason::AfterRewrite`, the effect `Sync`;
    none when the core changed nothing) and ends: it does not wait for that sync, a rewrite queued behind it runs beside
    it, and the sync of the one after joins its chain as one follow-up. Its request answers once that sync ended, with
@@ -802,9 +803,13 @@ root commit.
 6. Move the branch, then stage the amended files from the working tree (see the index policy): one
    `update-index --add --remove --stdin`, which records their stat data, so no `--refresh` follows.
 
-Steps 1 to 5 run before the repository lock (`prepare_amend`, on the HEAD the app expects); under it only the witness
-of HEAD and step 6 (`amend_uncommitted_to_branch_core`, `RewriteOptions::lock_prepared`), and a HEAD that moved
-meanwhile computes them once more under it. There is no `commit -a` and no `rebase --autosquash` fallback. A range
+Steps 1 to 5 run before the repository lock (`prepare_amend`); the HEAD of the history read in step 1 is checked
+against the one the app expects before X is looked for on it, so a HEAD another process rewrote, which has a copy of X
+but not X, is `head_moved`, and the engine resolves the amend again on it (step 4 of "Rewrite in the engine"). Under
+the lock only the witness of HEAD and step 6 (`amend_uncommitted_to_branch_core`, `RewriteOptions::lock_prepared`); a
+HEAD that moved meanwhile is refused there by one `rev-parse` (`RewriteOptions::expected_full_head`) before the history
+is read again, which on a rewritten history would go down to its root, and without an expected HEAD steps 1 to 5 run
+once more under the lock. There is no `commit -a` and no `rebase --autosquash` fallback. A range
 with merges is refused (invariant 4).
 
 Code: `crates/git-ops/src/amend_operations.rs`, with the shared replay and merge helpers in

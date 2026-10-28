@@ -261,23 +261,8 @@ fn a_held_lock_is_not_taken_again() {
 #[test]
 fn every_rewrite_refuses_another_head_than_the_expected_one() {
   let (repo, commits) = repo();
-  let before = state(&repo);
-  let expected = &commits[2][..12];
-  let options = RewriteOptions {
-    expect_head: Some(expected.to_string()),
-    ..RewriteOptions::default()
-  };
-  let moved = HeadMoved {
-    branch: "master".to_string(),
-    expected: expected.to_string(),
-    actual: commits[3].clone(),
-  };
-
   let notes = repo.rev_parse("refs/notes/commits");
-  for (rewrite, error) in run_every_rewrite(&repo, &commits, &options) {
-    assert_eq!(error.as_deref(), Some(moved.to_string().as_str()), "{rewrite}");
-  }
-  assert_eq!(state(&repo), before);
+  every_rewrite_refuses_head_moved(&repo, &commits, &commits[2][..12]);
   assert_eq!(repo.rev_parse("refs/notes/commits"), notes, "another HEAD is refused before a note is written");
 
   let options = RewriteOptions {
@@ -295,6 +280,43 @@ fn every_rewrite_refuses_another_head_than_the_expected_one() {
   )
   .unwrap();
   assert_eq!(squashed.squashed_count, 1);
+}
+
+/// Another HEAD than the expected one on a history another process rewrote (a `bd reword` of the oldest commit, a
+/// `bd update`), which has copies of the commits a rewrite names but not those commits, refuses every rewrite with
+/// `HeadMoved` too: each core checks HEAD before it looks for its commits, so the engine resolves the rewrite again on
+/// that HEAD (`operations::rewrite::resolve_and_run`) instead of answering a failure of the core
+#[test]
+fn every_rewrite_refuses_another_head_that_has_none_of_its_commits() {
+  let (repo, commits) = repo();
+  let reword = RewordRequest {
+    repository_path: path(&repo),
+    rewords: vec![CommitReword {
+      commit: commits[0].clone(),
+      text: RewordText::Message("(alpha) A1, reworded".to_string()),
+    }],
+  };
+  reword_request_core(repo.git_executor(), &reword, &RegroupOptions::default()).unwrap();
+  every_rewrite_refuses_head_moved(&repo, &commits, &commits[3]);
+}
+
+/// Every rewrite of the app run with `expected` as the HEAD it expects, which HEAD is not: each is refused with
+/// `HeadMoved` naming HEAD as it is, and the refs and the status stay as they were
+fn every_rewrite_refuses_head_moved(repo: &TestRepo, commits: &[String; 4], expected: &str) {
+  let before = state(repo);
+  let moved = HeadMoved {
+    branch: "master".to_string(),
+    expected: expected.to_string(),
+    actual: repo.head(),
+  };
+  let options = RewriteOptions {
+    expect_head: Some(expected.to_string()),
+    ..RewriteOptions::default()
+  };
+  for (rewrite, error) in run_every_rewrite(repo, commits, &options) {
+    assert_eq!(error.as_deref(), Some(moved.to_string().as_str()), "{rewrite}");
+  }
+  assert_eq!(state(repo), before);
 }
 
 /// An amend and an issue reference read and compute before the repository lock (the history, the merge, the amended

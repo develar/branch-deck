@@ -413,10 +413,11 @@ operation.
    the other one left, as decision 7 says, by the name of its branch or its commits found by their keys once the sync
    shows that HEAD, and is `plan_changed` only when they are gone. Only such a refusal of a moved ref runs it again
    (`ErrorCode::moved_ref`): a failure after the core's own write (an amend whose index could not follow) is its
-   answer, and a Stop Waiting that came once the wait had taken the lock is `canceled` before the next run. One that
-   moved only the stores (a `bd unstack` of the same branch) leaves HEAD, so the core computes once more under the
-   lock on what it left, and the second Unstack is `invalid_plan`. The registry closes the double start in the app (the
-   same intent joins, in every window), and the record of a `bd` rewrite shows it on the rows (decision 7).
+   answer, and a Stop Waiting that came once the wait had taken the lock is `canceled` before the rewrite is resolved
+   again. One that moved only the stores (a `bd unstack` of the same branch) leaves HEAD, so the core computes once
+   more under the lock on what it left, and the second Unstack is `invalid_plan`. The registry closes the double start
+   in the app (the same intent joins, in every window), and the record of a `bd` rewrite shows it on the rows
+   (decision 7).
 5. **Decision**: the identical error toast updates in place (`notifyError` passes an id of the title and the
    description; Base UI updates the open toast of that id).
    **Rationale**: a poll or two surfaces must not stack copies of one error; Activity still records each.

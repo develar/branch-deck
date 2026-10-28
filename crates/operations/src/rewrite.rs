@@ -248,7 +248,8 @@ const RUNS_ON_A_MOVED_HEAD: usize = 3;
 /// `bd pick`, a `bd` rewrite, a commit) ran on a HEAD the rewrite was not resolved on, so the rewrite is resolved again
 /// on HEAD as it is now and its core runs once more on what the other one left, up to `RUNS_ON_A_MOVED_HEAD` times.
 /// Any other failure is the core's own, also one after it moved HEAD itself (an amend whose index could not follow):
-/// it answers as it is. A Stop Waiting that came once the wait before had taken the lock runs no core after it
+/// it answers as it is. A Stop Waiting that came once the wait before had taken the lock runs no core after it, nor the
+/// resolve and its syncs: the answer is `canceled`
 ///
 /// # Errors
 /// What `resolve` and the core refused, the core's failure on a HEAD that did not move or after a write; `canceled`
@@ -273,15 +274,16 @@ async fn resolve_and_run(
     if expect_head.is_none() || !failed.code.moved_ref() || runs == RUNS_ON_A_MOVED_HEAD {
       return Err(failed);
     }
+    // the user stopped the wait after the one before took the lock: the lock of the next run, free now, would be taken
+    // without a look at it, on a HEAD the user never waited for; nor is the rewrite resolved again, which may sync
+    // before it answers
+    if canceled.load(Ordering::SeqCst) {
+      return Err(wait_stopped());
+    }
     let (again, head) = resolve(sessions, key, hosts, rewrite, planned).await?;
     if head == expect_head {
       // HEAD is the one the core expected: the failure is the core's own
       return Err(failed);
-    }
-    // the user stopped the wait after the one before took the lock: the lock of the next run, free now, would be taken
-    // without a look at it, on a HEAD the user never waited for
-    if canceled.load(Ordering::SeqCst) {
-      return Err(wait_stopped());
     }
     debug!(error = %failed.message, "HEAD moved while the core ran: the rewrite runs once more on HEAD as it is now");
     (resolved, expect_head) = (again, head);

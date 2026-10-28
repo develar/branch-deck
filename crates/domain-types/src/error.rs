@@ -353,14 +353,17 @@ impl ErrorCode {
   pub const fn retry(self) -> Retry {
     match self {
       Self::Locked | Self::Busy | Self::NetworkError => Retry::Same,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged => Retry::AfterReread,
+      code if code.moved_ref() => Retry::AfterReread,
+      Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged => Retry::AfterReread,
       _ => Retry::No,
     }
   }
 
   /// Whether a ref the request was made on moved before anything was written (HEAD, the issue groups, the stack
   /// parents, the parked branches): the refusal of the compare-and-swap of a rewrite, which a request built again on
-  /// the refs as they are now may pass, never a failure that came after a write
+  /// the refs as they are now may pass (`Retry::AfterReread` of `retry`), never a failure that came after a write. The
+  /// one list of these codes: the engine runs a rewrite again only after one, and an undo is stale after one
+  /// (`in_undo`)
   pub const fn moved_ref(self) -> bool {
     matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved)
   }

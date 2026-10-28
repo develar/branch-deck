@@ -112,6 +112,8 @@ fn a_busy_error_names_the_operation_of_another_process_that_holds() {
 fn an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried() {
   for code in [ErrorCode::HeadMoved, ErrorCode::GroupsMoved, ErrorCode::StacksMoved, ErrorCode::ParkedMoved] {
     assert!(code.moved_ref(), "{code:?}");
+    // a request built again on the refs as they are now may pass
+    assert_eq!(code.retry(), Retry::AfterReread, "{code:?}");
     let error = ApiError::new(code, "Branch master moved").in_undo();
     assert_eq!((error.code, error.retry, error.message.as_str()), (ErrorCode::UndoStale, Retry::No, "Branch master moved"));
   }

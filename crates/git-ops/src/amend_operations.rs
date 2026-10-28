@@ -39,7 +39,8 @@ pub struct AmendResult {
 #[instrument(skip(git_executor), fields(original_commit = %params.original_commit_id))]
 pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams) -> Result<AmendResult, CopyCommitError> {
   let original_commit_id = params.original_commit_id.clone();
-  let prepared = prepare_amend(git_executor, repo_path, params)?;
+  let history = History::read_to(git_executor, repo_path, &[original_commit_id.as_str()])?;
+  let prepared = prepare_amend(git_executor, repo_path, &history, params)?;
   apply_amend(git_executor, repo_path, &prepared, &original_commit_id)
 }
 
@@ -53,18 +54,19 @@ pub fn apply_amend(git_executor: &GitCommandExecutor, repo_path: &str, prepared:
   })
 }
 
-/// Prepare `amend_to_commit_in_main`: the amended commit and its replayed descendants are written, the branch is not
-/// moved and the index not touched; `PreparedRewrite::apply` does both
-#[instrument(skip(git_executor), fields(original_commit = %params.original_commit_id))]
-pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams) -> Result<PreparedRewrite, CopyCommitError> {
+/// Prepare `amend_to_commit_in_main` on `history`, the first-parent history from HEAD down to the amended commit
+/// (`History::read_to`), which the caller reads, so that it can check its HEAD before the commit is looked for on it:
+/// the amended commit and its replayed descendants are written, the branch is not moved and the index not touched;
+/// `PreparedRewrite::apply` does both
+#[instrument(skip(git_executor, history), fields(original_commit = %params.original_commit_id))]
+pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, params: AmendToCommitParams) -> Result<PreparedRewrite, CopyCommitError> {
   let AmendToCommitParams { original_commit_id, files } = params;
   if files.is_empty() {
     return Err(CopyCommitError::Other(anyhow!("No files specified to amend")));
   }
 
-  let history = History::read_to(git_executor, repo_path, &[original_commit_id.as_str()])?;
   let position = history.position(&original_commit_id)?;
-  let target = check_target(git_executor, repo_path, &history, position)?;
+  let target = check_target(git_executor, repo_path, history, position)?;
 
   // HEAD with the working-tree versions of the files: the tree HEAD has after the amend
   let head_tree = &history.commit(0).tree;
