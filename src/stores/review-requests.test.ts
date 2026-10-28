@@ -8,10 +8,8 @@ import {
   approveAndSafePush,
   connectReviewWindow,
   getReviewBusy,
-  noteReviewRefsWritten,
   openRequestOnGitHub,
   openReviewRequest,
-  pruneReviewRefsOf,
   refreshReviewRequests,
   resetReviewRequests,
   reviewRequestsStore,
@@ -34,7 +32,6 @@ const { gh } = vi.hoisted(() => ({
     result: null as Listing | null,
     /** The refreshes the page asked the session for: the family and the reason of each */
     refreshes: [] as string[],
-    prunes: [] as { repositoryPath: string; keep: number[] }[],
     notifications: [] as { title: string; body: string }[],
     activity: [] as string[],
     reviews: [] as unknown[],
@@ -51,12 +48,7 @@ const { gh } = vi.hoisted(() => ({
 vi.mock("@/lib/bindings", async importOriginal => ({
   // the constants of the bindings (the defaults of the settings Rust reads); the commands are the test's
   ...(await importOriginal<typeof import("@/lib/bindings")>()),
-  commands: {
-    pruneReviewRefs: async (params: { repositoryPath: string; keep: number[] }) => {
-      gh.prunes.push(params)
-      return { status: "ok", data: null }
-    },
-  },
+  commands: {},
 }))
 
 /**
@@ -181,7 +173,6 @@ function entry(path = "/repo") {
 /** The review window as the store sees it: the opens it got, the request it shows */
 const reviewWindow = { opens: [] as { number: number; index: number; intent: string | null }[], shown: null as number | null }
 connectReviewWindow({
-  shownNumber: () => reviewWindow.shown,
   open: (_repositoryPath, request, index, intent) => {
     reviewWindow.opens.push({ number: request.number, index, intent })
     reviewWindow.shown = request.number
@@ -200,7 +191,6 @@ beforeEach(() => {
   gh.result = available()
   gh.refreshes = []
   lastNews = 0
-  gh.prunes = []
   resetEventToasts()
   resetToasts()
   gh.notifications = []
@@ -296,29 +286,6 @@ describe("refresh", () => {
     openRequestOnGitHub(request(1))
     expect(gh.refreshes).toEqual(["reviewRequests afterWrite"])
     expect([...entry().unread]).toEqual([])
-  })
-})
-
-describe("review refs", () => {
-  it("prunes once after an answer with the requests, never after a failure, and keeps the window's", async () => {
-    listed({ availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] })
-    expect(gh.prunes).toEqual([])
-
-    listed(available(request(4)))
-    listed(available(request(4)))
-    expect(gh.prunes).toEqual([{ repositoryPath: "/repo", keep: [] }])
-
-    // the window fetched #4: the next answer keeps its refs, its close deletes them
-    openReviewRequest("/repo", 4)
-    noteReviewRefsWritten("/repo")
-    listed(available(request(4)))
-    expect(gh.prunes.at(-1)).toEqual({ repositoryPath: "/repo", keep: [4] })
-    // the next poll keeps the same refs: it prunes nothing again
-    listed(available(request(4)))
-    expect(gh.prunes).toHaveLength(2)
-    reviewWindow.shown = null
-    pruneReviewRefsOf("/repo")
-    expect(gh.prunes.at(-1)).toEqual({ repositoryPath: "/repo", keep: [] })
   })
 })
 

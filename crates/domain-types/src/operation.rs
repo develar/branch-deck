@@ -10,6 +10,7 @@ use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, 
 use crate::patronus::{PatronusPushMode, PatronusRobot};
 use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedReviewers};
 use crate::reason::Reason;
+use crate::review_request::ReviewRange;
 use crate::rewrite::{RewriteIntent, RewriteResult, UndoToken};
 use crate::session::Version;
 use crate::update_project::UpdateProjectResult;
@@ -84,6 +85,10 @@ pub enum Intent {
   UpdateProject { fetch: bool },
   /// The report of the commits that landed with an update is cleared (the user has seen it)
   DismissLanded,
+  /// The commits of the pull request `number` a review window shows are fetched into its review refs
+  /// (`refs/branch-deck/review/<n>/{head,base}`) unless both are local, and its range answered (`operations::review_fetch`):
+  /// the head and the base GitHub names, as the review requests of the session have them
+  FetchReview { number: u32 },
 }
 
 impl Intent {
@@ -108,6 +113,7 @@ impl Intent {
       Self::FetchBaseline => OperationKind::FetchBaseline,
       Self::UpdateProject { .. } => OperationKind::UpdateProject,
       Self::DismissLanded => OperationKind::DismissLanded,
+      Self::FetchReview { .. } => OperationKind::FetchReview,
     }
   }
 
@@ -456,6 +462,8 @@ pub enum OperationResult {
   Fetch(Box<FetchedBaseline>),
   /// An update of the checked out branch onto the baseline: its check, what it changed and what landed
   Update(Box<UpdateProjectResult>),
+  /// The range a review fetch answered, `base..head` (`Intent::FetchReview`); the journal keeps it without its commits
+  ReviewRange(Box<ReviewRange>),
 }
 
 /// What a fetch of the baseline answered

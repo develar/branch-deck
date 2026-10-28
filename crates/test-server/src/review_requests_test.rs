@@ -35,7 +35,7 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   let ids = GitCommandExecutor::new().execute_command_lines(&["rev-list", "HEAD"], &repository_path).unwrap();
 
   let mut messages = subscribe(&client, addr, &id, &repository_path, 51).await;
-  subscription(&mut messages).await;
+  let subscribed = subscription(&mut messages).await;
   sync(&client, addr, &repository_path).await;
   let view = view_when(&client, addr, &repository_path, |view| view["facts"]["reviewRequests"]["head"]["value"].is_object()).await;
   assert_eq!(view["facts"]["reviewRequests"]["head"]["value"], json!({ "status": "notGitHub" }));
@@ -54,12 +54,12 @@ async fn review_routes_answer_the_fixture_without_a_network() {
     (&result["availability"], &requests, &json!(1))
   );
 
-  // an empty head is HEAD, an empty base the baseline, else the commit before: both local, nothing fetched
-  let fetch = json!({
-    "repositoryPath": repository_path, "number": 7, "headRefName": "alice/login", "headRefOid": "", "baseRefName": "master",
-    "baseRefOid": "", "isCrossRepository": false,
-  });
-  let range = post(&client, addr, "/invoke/fetch_review_head", fetch.clone()).await;
+  // the fetch of its review through the engine: an empty head is HEAD, an empty base the baseline, else the commit
+  // before; both local, nothing fetched
+  let fetch = json!({ "repositoryPath": repository_path, "intent": { "kind": "fetchReview", "number": 7 }, "fingerprint": "" });
+  let outcome = post(&client, addr, "/invoke/execute", fetch.clone()).await;
+  let range = &outcome["result"];
+  assert_eq!(range["kind"], "reviewRange", "{outcome}");
   assert_eq!(range["base"], ids[1]);
   assert_eq!(range["head"], ids[0]);
   assert_eq!((range["headState"].as_str(), range["source"].as_str()), (Some("same"), Some("local")));
@@ -75,30 +75,34 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   assert_eq!(files["commitId"], format!("{}..{}", ids[1], ids[0]));
   assert_eq!(files["files"][0]["path"], "file2.txt");
 
-  post_as(&client, addr, Named::Nothing, "/invoke/cancel_review_fetch", Value::Null).await;
-  post(&client, addr, "/invoke/prune_review_refs", json!({ "repositoryPath": repository_path, "keep": [7] })).await;
+  // a review window shows #7: the session prunes the review refs of the others
+  let demand = |windows: Value| {
+    json!({ "subscription": subscribed["id"], "demand": {
+      "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [], "robotDetails": [], "watchedRobots": [],
+      "reviews": false, "reviewWindows": windows,
+    }})
+  };
+  post_as(&client, addr, Named::Id(&id), "/invoke/set_demand", demand(json!([7]))).await;
 
   let failing = json!({ "availability": result["availability"], "totalCount": 1, "requests": [request("")], "fetchError": "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)" });
   post(&client, addr, &format!("/repositories/{id}/review-requests"), failing).await;
-  let error = post(&client, addr, "/invoke/fetch_review_head", fetch).await;
+  let error = post(&client, addr, "/invoke/execute", fetch).await;
+  assert_eq!(error["status"], "error", "{error}");
   assert_eq!(
-    error,
-    json!({
-      "status": "error",
-      "error": {
-        "code": "internal",
-        "message": "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)",
-        "details": null,
-        "retry": "no",
-        "operation_id": null
-      }
-    })
+    (&error["error"]["code"], &error["error"]["message"]),
+    (
+      &json!("internal"),
+      &json!("GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
+    )
   );
 
-  assert_eq!(
-    fixture_calls(&client, addr, &id).await,
-    json!({ "calls": 2, "reviewsCalls": 0, "fetchCalls": 2, "prunes": [[7]] })
-  );
+  // the fixture answers once the session pruned: a prune runs beside the commands
+  let mut calls = fixture_calls(&client, addr, &id).await;
+  while calls["prunes"] == json!([]) {
+    tokio::task::yield_now().await;
+    calls = fixture_calls(&client, addr, &id).await;
+  }
+  assert_eq!(calls, json!({ "calls": 2, "reviewsCalls": 0, "fetchCalls": 2, "prunes": [[7]] }));
 }
 
 /// While the window shows Reviews the session reads its rest from the fixture; a link the user adds is asked of the fake

@@ -1,7 +1,6 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { FactsChanges, FactsView, Intent, News, PatronusRobot, PullRequestAvailability, PullRequestReviewEvent, ReviewRequest, RunningOperation } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { announce } from "@/lib/os-notification"
@@ -131,12 +130,6 @@ export function getReviewBusy(operations: Readonly<Record<string, RunningOperati
 
 // ---- the facts ----
 
-/**
- * By repository: the refs its last prune kept ("" for none, "101" for the request of the window), while no fetch wrote
- * one since: an answer that would keep the same prunes nothing again
- */
-const prunedRepositories = new Map<string, string>()
-
 function currentRepositoryPath(): string | null {
   const path = getSelectedProject()?.path ?? ""
   return path === "" ? null : path
@@ -153,8 +146,7 @@ function update(repositoryPath: string, patch: Partial<RepositoryReviewRequests>
  * The review requests of the session of `repositoryPath` as its view has them now (`facts.reviewRequests`, with the
  * patch that brought them, `change`; null for a snapshot) and the news of the session the window tells now: the
  * requests a listing added are unread until opened and told once. A row keeps its object where nothing changed, so a
- * poll that brings nothing new re-renders nothing; an answer with the requests prunes the review refs. Nothing is
- * stored for a session GitHub has not answered yet
+ * poll that brings nothing new re-renders nothing. Nothing is stored for a session GitHub has not answered yet
  */
 export function applyReviewRequestsFacts(repositoryPath: string, facts: FactsView, change: FactsChanges | null, news: readonly News[]): void {
   const part = facts.reviewRequests
@@ -165,9 +157,6 @@ export function applyReviewRequestsFacts(repositoryPath: string, facts: FactsVie
     const keys = new Set(requests.map(reviewRequestKey))
     const unread = [...known.unread].every(key => keys.has(key)) ? known.unread : new Set([...known.unread].filter(key => keys.has(key)))
     update(repositoryPath, { availability: part.head.value, requests, totalCount: part.totalCount, checkedAt: part.checkedAt * 1000, unread })
-    if (part.head.value?.status === "available") {
-      pruneReviewRefs(repositoryPath)
-    }
   }
   const requested = new Set(news.flatMap(({ event }) => (event.kind === "reviewRequested" ? event.numbers : [])))
   if (requested.size > 0) {
@@ -433,60 +422,21 @@ function markRead(repositoryPath: string, request: ReviewRequest): void {
 
 // ---- review refs ----
 
-/** A review fetch wrote `refs/branch-deck/review/<n>/…` into the repository: the next prune deletes it */
-export function noteReviewRefsWritten(repositoryPath: string): void {
-  prunedRepositories.delete(repositoryPath)
-}
-
 /** The review window as this store sees it; set by its main-window side (`pull-request-review-window.ts`), which imports this store */
 export interface ReviewWindowConnection {
-  /** The request the window shows in the repository, whose refs stay; null when it shows none */
-  readonly shownNumber: (repositoryPath: string) => number | null
   /** Shows the request in the window, opened or reused */
   readonly open: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, source: ReviewSource) => void
   /** The rows of a list other than Your Turn the window walks (Reviews) */
   readonly rowsOf: (repositoryPath: string, source: ReviewSource) => readonly ReviewRequest[]
 }
 
-let reviewWindow: ReviewWindowConnection = { shownNumber: () => null, open: () => {}, rowsOf: () => [] }
+let reviewWindow: ReviewWindowConnection = { open: () => {}, rowsOf: () => [] }
 
 export function connectReviewWindow(connection: ReviewWindowConnection): void {
   reviewWindow = connection
 }
 
-/** The review window closed: the refs of the repository go */
-export function pruneReviewRefsOf(repositoryPath: string): void {
-  prunedRepositories.delete(repositoryPath)
-  pruneReviewRefs(repositoryPath)
-}
-
-/**
- * Deletes the review refs of the repository but those of the request the review window shows (`prune_review_refs`,
- * one CAS transaction): after an answer with the requests (once per repository per start, then after a fetch wrote one)
- * and when the window closes; never after a failed answer. A failure is tried again the next time.
- */
-function pruneReviewRefs(repositoryPath: string): void {
-  const inWindow = reviewWindow.shownNumber(repositoryPath)
-  // the refs of the window stay: its close prunes them
-  const keep = inWindow === null ? [] : [inWindow]
-  const kept = keep.join(",")
-  // every poll answers with the requests: one prune per repository and refs kept, not one per answer
-  if (prunedRepositories.get(repositoryPath) === kept) {
-    return
-  }
-  prunedRepositories.set(repositoryPath, kept)
-  void commands.pruneReviewRefs({ repositoryPath, keep }).then(
-    result => {
-      if (result.status === "error") {
-        prunedRepositories.delete(repositoryPath)
-      }
-    },
-    () => prunedRepositories.delete(repositoryPath),
-  )
-}
-
 /** Forgets the data (tests) */
 export function resetReviewRequests(): void {
-  prunedRepositories.clear()
   reviewRequestsStore.setState({ repositories: {} })
 }

@@ -649,6 +649,7 @@ const fn kind_words(kind: OperationKind) -> &'static str {
     OperationKind::FetchBaseline => "fetch of the baseline",
     OperationKind::UpdateProject => "update of the project",
     OperationKind::DismissLanded => "dismissal of the landed commits",
+    OperationKind::FetchReview => "fetch of a pull request to review",
   }
 }
 

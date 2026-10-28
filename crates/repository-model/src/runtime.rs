@@ -56,6 +56,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::remote_status::RemoteStatusCollector;
+use sync_core::review_fetch::prune_review_refs;
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_core::sync_inputs::{SyncInputs, read_sync_inputs};
 use sync_utils::clock::{Clock, Wait};
@@ -510,13 +511,29 @@ impl Actor {
     self.tell_digest();
   }
 
-  /// Tells the scheduler the union of the demands when it changed
+  /// Tells the scheduler the union of the demands when it changed; when the pull requests the review windows show
+  /// changed, the review refs of the others go (`SessionHost::prune_review_refs`)
   fn tell_demand(&mut self) {
     let demand = self.demand();
     if demand != self.told_demand {
+      if demand.review_windows != self.told_demand.review_windows {
+        self.prune_review_refs(demand.review_windows.clone());
+      }
       self.told_demand = demand.clone();
       self.events.emit(&self.key, SessionEventKind::Demand(demand));
     }
+  }
+
+  /// Deletes the review refs of every pull request but `keep` on the blocking pool, best effort: the session never waits
+  /// for it
+  fn prune_review_refs(&self, keep: Vec<u32>) {
+    let (host, key) = (Arc::clone(&self.host), self.key.clone());
+    tokio::spawn(
+      async move {
+        let _ = tokio::task::spawn_blocking(in_current_span(move || host.prune_review_refs(&key, &keep))).await;
+      }
+      .in_current_span(),
+    );
   }
 
   /// Tells the scheduler the robots the poll asks about when they changed: computed only after a patch or a change of
@@ -861,6 +878,14 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   /// What the computation failed with
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs>;
 
+  /// The review refs of `key` but those of `keep` go (`sync_core::review_fetch::prune_review_refs`): a failure is only
+  /// logged, the next change of the review windows prunes again. The E2E server records each `keep` first
+  fn prune_review_refs(&self, git: &GitCommandExecutor, key: &SessionKey, keep: &[u32]) {
+    if let Err(error) = prune_review_refs(git, &key.worktree, keep) {
+      warn!(worktree = %key.worktree, "Cannot prune the review refs: {error:#}");
+    }
+  }
+
   /// Before the session derives the Patronus view of `key`: the app derives it at once; the E2E server fails it here
   /// while a test fails that read (`HeldAnswer::RepositoryView`). Blocking
   ///
@@ -929,6 +954,10 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError> {
     self.environment.landing_needs(key, landed).map_err(|error| self.environment.api_error(error))
+  }
+
+  fn prune_review_refs(&self, key: &SessionKey, keep: &[u32]) {
+    self.environment.prune_review_refs(&self.git, key, keep);
   }
 }
 

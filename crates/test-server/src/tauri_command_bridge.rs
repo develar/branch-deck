@@ -622,60 +622,6 @@ fn resolve_review_heads(path: &str, result: &mut ReviewRequestsResult) {
   }
 }
 
-/// The range of the test repository without a network: an empty head is the tip of the local branch `headRefName`
-/// (else of `HEAD`), an empty base the baseline
-/// (`HEAD~2` when the baseline is `HEAD`, or less in a short template), so both commits are local and the real `fetch_review_head` only reads them.
-/// The progress channel is not mocked; the fixture's `fetchError` fails it
-pub async fn fetch_review_head(
-  State(state): State<Arc<AppState>>,
-  Json(mut params): Json<domain_types::review_request::FetchReviewHeadParams>,
-) -> CommandResult<domain_types::review_request::ReviewRange> {
-  let fetch_error = {
-    let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.review_fetch_calls.fetch_add(1, Ordering::SeqCst);
-    repo.review_requests.read().expect("review request fixture lock").fetch_error.clone()
-  };
-  if let Some(message) = fetch_error {
-    return Err(failed("fetch the pull request", message));
-  }
-  let git_executor = state.git_executor.clone();
-  run_command("fetch the pull request", move || {
-    let path = params.repository_path.clone();
-    let commit = |rev: &str| git_executor.execute_command(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], &path);
-    if params.head_ref_oid.is_empty() {
-      params.head_ref_oid = commit(&format!("refs/heads/{}", params.head_ref_name)).or_else(|_| commit("HEAD"))?;
-    }
-    if params.base_ref_oid.is_empty() {
-      let baseline = history_rewrite::baseline::detect_baseline_branch(&git_executor, &path).and_then(|baseline| commit(&baseline));
-      params.base_ref_oid = match baseline {
-        Ok(baseline) if baseline != params.head_ref_oid => baseline,
-        // a template with fewer commits has a shorter range
-        _ => ["HEAD~2", "HEAD~1", "HEAD"].iter().find_map(|rev| commit(rev).ok()).unwrap_or_default(),
-      };
-    }
-    sync_core::review_fetch::fetch_review_head(&git_executor, &params, &mut |_| {}, &|| false)
-  })
-  .await
-}
-
-/// Nothing to kill: the mocked fetch never waits for a network
-pub async fn cancel_review_fetch() -> Json<()> {
-  Json(())
-}
-
-pub async fn prune_review_refs(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::review_request::PruneReviewRefsParams>) -> CommandResult<()> {
-  repository_by_path(&state, &params.repository_path)?
-    .review_prune_keeps
-    .lock()
-    .expect("review prune lock")
-    .push(params.keep.clone());
-  let git_executor = state.git_executor.clone();
-  run_command("prune the review refs", move || {
-    sync_core::review_fetch::prune_review_refs(&git_executor, &params.repository_path, &params.keep)
-  })
-  .await
-}
-
 pub async fn get_range_files(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::review_request::GetRangeParams>) -> CommandResult<CommitFiles> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();

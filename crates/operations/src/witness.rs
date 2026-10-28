@@ -140,6 +140,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::FetchBaseline => ("the fetch of the baseline".to_string(), "fetch again"),
     Intent::UpdateProject { .. } => ("the update of the project".to_string(), "update again"),
     Intent::DismissLanded => ("the dismissal of the landed commits".to_string(), "dismiss them again"),
+    Intent::FetchReview { number } => (format!("the fetch of pull request #{number}"), "fetch it again"),
   }
 }
 

@@ -433,6 +433,9 @@ pub enum PlannedEffect {
   Update,
   /// The report of what landed with an update is cleared (`Intent::DismissLanded`)
   DismissLanded,
+  /// The commits of the pull request `number` are fetched into its review refs, unless both are local
+  /// (`Intent::FetchReview`)
+  FetchReview { number: u32 },
 }
 
 impl PlannedEffect {

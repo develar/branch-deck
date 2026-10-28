@@ -174,6 +174,11 @@ pub trait SessionHost: Send + Sync + 'static {
   /// # Errors
   /// What the computation failed with
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError>;
+
+  /// The review refs of the repository of `key` but those of the pull requests `keep` go
+  /// (`sync_core::review_fetch::prune_review_refs`, best effort): the review windows of the session show `keep` now.
+  /// Blocking: the runtime calls it on the blocking pool. Nothing by default (a host without git)
+  fn prune_review_refs(&self, _key: &SessionKey, _keep: &[u32]) {}
 }
 
 /// The reporter of a sync run: its events go to the session's mailbox, tagged with the run, so the events of a run that

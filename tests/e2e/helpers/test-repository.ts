@@ -365,7 +365,7 @@ export class TestRepositoryBuilder {
 
   /**
    * Sets what GitHub answers the session of the review requests from now on (E2E never runs gh); `fetchError` fails
-   * `fetch_review_head` with that message
+   * the review fetch (the intent `fetchReview`) with that message
    */
   async setReviewRequests(result: ReviewRequestsFixture, fetchError?: string): Promise<void> {
     await this.setFixture("review-requests", fetchError === undefined ? result : { ...result, fetchError })
@@ -381,7 +381,10 @@ export class TestRepositoryBuilder {
     return (await this.getReviewRequestsFixture()).reviewsCalls
   }
 
-  /** The calls of the review commands: the requests (of them with Reviews), the fetches, and the `keep` of each prune of the review refs */
+  /**
+   * The calls of the review commands: the requests (of them with Reviews), the fetches, and the `keep` of each prune of
+   * the review refs (the session's, at each change of the review windows)
+   */
   async getReviewRequestsFixture(): Promise<{ calls: number; reviewsCalls: number; fetchCalls: number; prunes: number[][] }> {
     return this.getFixture("review-requests")
   }

@@ -29,6 +29,7 @@ use domain_types::branch_names::{BranchKind, qualified_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationResult, OperationStep, Outcome, Plan, Resource};
+use domain_types::review_request::FetchReviewHeadParams;
 use domain_types::rewrite::{AppliedConflictFix, MoveCommitsResult, RewriteIntent, RewriteResult, TableWitness, UndoKind, UndoToken};
 use domain_types::session::{StoreTips, SyncReason, Version};
 use file_diffs::service::FileDiffs;
@@ -76,6 +77,15 @@ pub trait RewriteHost: Send + Sync {
 
   /// The failure of an undo as the commands of the host answer it (`app_api::api_error::undo_error`)
   fn undo_error(&self, error: anyhow::Error) -> ApiError;
+
+  /// What the fetch of a review fetches (`operations::review_fetch`): the head and the base GitHub names, as the app
+  /// takes them; the E2E server fills the commits a fixture leaves empty and fails as a test asks
+  ///
+  /// # Errors
+  /// The failure a test asks for
+  fn review_fetch(&self, params: FetchReviewHeadParams) -> Result<FetchReviewHeadParams, ApiError> {
+    Ok(params)
+  }
 }
 
 /// The plan of a rewrite over the table of its session, and what its run resolves the ids it names by

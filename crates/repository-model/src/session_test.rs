@@ -70,6 +70,8 @@ struct ScriptedHost {
   reporters: Mutex<Vec<RunReporter>>,
   /// When each event of the runs was sent, on the runtime's clock
   sent_at: Arc<Mutex<Vec<Instant>>>,
+  /// The `keep` of each prune of the review refs, as it ran
+  prunes: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u32>>>>,
 }
 
 impl ScriptedHost {
@@ -136,6 +138,12 @@ impl SessionHost for ScriptedHost {
 
   fn landing_needs(&self, _key: &SessionKey, _landed: &HashSet<String>) -> Result<Needs, ApiError> {
     Ok(Needs::new())
+  }
+
+  fn prune_review_refs(&self, _key: &SessionKey, keep: &[u32]) {
+    if let Some(prunes) = self.prunes.lock().unwrap().as_ref() {
+      let _ = prunes.send(keep.to_vec());
+    }
   }
 }
 
@@ -962,6 +970,39 @@ async fn the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each(
   sessions.set_demand(elsewhere, &Demand::default());
   assert_eq!(sessions.demand(&other).await, Some(Demand::default()));
   assert_eq!(shown_details(snapshot(&sessions, &other).await), vec![]);
+}
+
+/// The review refs are those of the pull requests the review windows of the session show: each change of them (a
+/// window shows one, another, none, or goes) prunes the others, and a demand that keeps them prunes nothing
+#[tokio::test]
+async fn a_change_of_the_review_windows_prunes_the_review_refs_of_the_others() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sent, mut prunes) = tokio::sync::mpsc::unbounded_channel();
+  *host.prunes.lock().unwrap() = Some(sent);
+  let (sessions, _clock) = scripted(&host);
+  let repo = key("/repo");
+  let (main, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
+  let (review, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
+  let windows = |numbers: &[u32]| Demand {
+    review_windows: numbers.to_vec(),
+    ..Demand::default()
+  };
+  sessions.set_demand(main, &windows(&[7]));
+  assert_eq!(prunes.recv().await, Some(vec![7]), "a window shows #7: the refs of the others go");
+  sessions.set_demand(review, &windows(&[7, 8]));
+  assert_eq!(prunes.recv().await, Some(vec![7, 8]));
+  // the same windows with a focus, and the main window leaving #7 to the other, prune nothing: the next prune is the
+  // one of the last window going
+  sessions.set_demand(
+    review,
+    &Demand {
+      focused: true,
+      ..windows(&[8, 7])
+    },
+  );
+  sessions.set_demand(main, &windows(&[]));
+  sessions.unsubscribe(review);
+  assert_eq!(prunes.recv().await, Some(vec![]), "no review window: every review ref goes");
 }
 
 /// A timer of a session waits on the session clock: on a test clock until an advance reaches its time, not before; a

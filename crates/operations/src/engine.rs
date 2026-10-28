@@ -9,7 +9,8 @@
 //! and a cancel of a robot (`robot`), a retarget of a pull request, the creation of one and a review request
 //! (`pull_request`), the closes (`close`), a review (`review`), the state of an issue (`issue`), a push (`push`: of a
 //! branch alone, of a stack, up to a commit, of an unapplied branch, of the stack branch of a whole stack), a rewrite
-//! (`rewrite`) and the fetch of the baseline, Update Project and the dismissal of what landed (`update`). A start
+//! (`rewrite`), the fetch of the baseline, Update Project and the dismissal of what landed (`update`) and the fetch of
+//! a review (`review_fetch`). A start
 //! reserves what its plan lands (`Resource::Lands`), the refs
 //! it pushes and the robot it cancels: a second start of the same subject joins it, one that lands a part of it waits for
 //! it and is decided again. An operation that waited in the queue runs on the plan the ones it waited for left, while
@@ -21,8 +22,8 @@ use crate::land_execute::{self, Accepted, Planned, StartServices, Steps};
 use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
-use crate::witness::check;
-use crate::{close, forget, issue, land, pull_request, push, review, robot, update};
+use crate::witness::{Witness, check};
+use crate::{close, forget, issue, land, pull_request, push, review, review_fetch, robot, update};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::ApiError;
 use domain_types::landing::{Land, PlannedEffect, Subject};
@@ -103,6 +104,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::ForgetStart { .. } => forget::forget_plan(&intent).map(Some),
     Intent::Rewrite(rewrite) => Ok(prepare_rewrite(sessions, key, *rewrite).await),
     intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => Ok(update::prepare_update(sessions, key, intent).await),
+    Intent::FetchReview { number } => Ok(review_fetch::prepare_review_fetch(sessions, key, number).await),
   }
 }
 
@@ -133,6 +135,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     Intent::FetchBaseline => Box::pin(update::execute_fetch(registry, key, hosts, events)).await,
     Intent::UpdateProject { fetch } => Box::pin(update::execute_update(registry, key, fetch, hosts, events)).await,
     Intent::DismissLanded => update::execute_dismiss(registry, key, hosts, events).await,
+    Intent::FetchReview { number } => review_fetch::execute_review_fetch(registry, key, number, hosts, events).await,
   }
 }
 
@@ -225,6 +228,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),
     Intent::Rewrite(rewrite) => rewrite_request(prefix, rewrite),
     intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => update::update_request(intent, update::planned_upstream(plan)),
+    Intent::FetchReview { number } => review_fetch::review_fetch_request(*number),
   }
 }
 
@@ -245,6 +249,23 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
     }
   }
   resources
+}
+
+/// The plan of an intent that asks nothing to accept and lands nothing: its `effects`, for a window that shows what it
+/// does; its run decides on what it reads then
+pub(crate) fn plain_plan(intent: Intent, effects: Vec<PlannedEffect>) -> Plan {
+  Plan {
+    effects,
+    fingerprint: Witness::default().fingerprint(&intent),
+    intent,
+    lands: Vec::new(),
+    confirmations: Vec::new(),
+    blockers: Vec::new(),
+    waits: Vec::new(),
+    alternatives: None,
+    pull_request: None,
+    approvals_skipped_by: None,
+  }
 }
 
 /// The outcome of the operation `op` that ran `effects`, telling the event of `news_key`, with what it answered

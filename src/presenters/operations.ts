@@ -28,6 +28,7 @@ const KIND_WORDS: Record<OperationKind, string> = {
   fetch_baseline: "fetch of the baseline",
   update_project: "update of the project",
   dismiss_landed: "dismissal of the landed commits",
+  fetch_review: "fetch of a pull request to review",
 }
 
 /** Who runs it: `bd`, or another Branch Deck */
@@ -91,6 +92,8 @@ function runningWords(intent: Intent): readonly [label: string, phrase: string] 
       return ["Updating the project", "an update of the project"]
     case "dismissLanded":
       return ["Dismissing the landed commits", "the dismissal of the landed commits"]
+    case "fetchReview":
+      return [`Fetching #${intent.number} to review`, `a fetch of #${intent.number} to review`]
   }
 }
 

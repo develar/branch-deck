@@ -130,6 +130,18 @@ impl SessionEnvironment for TestSessionEnvironment {
       _ => Ok(()),
     }
   }
+
+  /// Records the `keep` of the repository (`prunes` of `GET /repositories/{id}/review-requests`), then prunes as the app
+  fn prune_review_refs(&self, git: &GitCommandExecutor, key: &SessionKey, keep: &[u32]) {
+    if let Some(state) = self.state.upgrade()
+      && let Ok(repo) = repository_by_path(&state, &key.worktree)
+    {
+      repo.review_prune_keeps.lock().expect("review prune lock").push(keep.to_vec());
+    }
+    if let Err(error) = sync_core::review_fetch::prune_review_refs(git, &key.worktree, keep) {
+      tracing::warn!(worktree = %key.worktree, "Cannot prune the review refs: {error:#}");
+    }
+  }
 }
 
 /// What the scheduler of the facts reads the fakes of a test repository with: the reads of the app
@@ -296,6 +308,34 @@ impl operations::rewrite::RewriteHost for TestServices {
 
   fn undo_error(&self, error: anyhow::Error) -> ApiError {
     app_api::api_error::undo_error(error)
+  }
+
+  /// Counts the fetch of the repository (`fetchCalls` of `GET /repositories/{id}/review-requests`) and fails it with the
+  /// `fetchError` of its fixture; an empty head of a request is the branch it names (else `HEAD`), an empty base the
+  /// baseline (else an earlier commit of `HEAD`), so the review has a range on the template
+  fn review_fetch(&self, mut params: domain_types::review_request::FetchReviewHeadParams) -> Result<domain_types::review_request::FetchReviewHeadParams, ApiError> {
+    let state = self.state()?;
+    let repo = repository_by_path(&state, &params.repository_path).map_err(rejected)?;
+    repo.review_fetch_calls.fetch_add(1, Ordering::SeqCst);
+    let fetch_error = repo.review_requests.read().unwrap_or_else(std::sync::PoisonError::into_inner).fetch_error.clone();
+    if let Some(message) = fetch_error {
+      return Err(ApiError::internal(message));
+    }
+    let git = &self.git;
+    let path = params.repository_path.clone();
+    let commit = |rev: &str| git.execute_command(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], &path);
+    if params.head_ref_oid.is_empty() {
+      params.head_ref_oid = commit(&format!("refs/heads/{}", params.head_ref_name)).or_else(|_| commit("HEAD")).map_err(api_error)?;
+    }
+    if params.base_ref_oid.is_empty() {
+      let baseline = history_rewrite::baseline::detect_baseline_branch(git, &path).and_then(|baseline| commit(&baseline));
+      params.base_ref_oid = match baseline {
+        Ok(baseline) if baseline != params.head_ref_oid => baseline,
+        // a template with fewer commits has a shorter range
+        _ => ["HEAD~2", "HEAD~1", "HEAD"].iter().find_map(|rev| commit(rev).ok()).unwrap_or_default(),
+      };
+    }
+    Ok(params)
   }
 }
 

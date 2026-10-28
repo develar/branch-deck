@@ -231,9 +231,8 @@ pub struct UnlinkPullRequestParams {
   pub number: u32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
+/// What a review fetch fetches (`sync_core::review_fetch::fetch_review_head`): the pull request as GitHub names it
+#[derive(Debug, Clone)]
 pub struct FetchReviewHeadParams {
   pub repository_path: String,
   pub number: u32,
@@ -245,7 +244,7 @@ pub struct FetchReviewHeadParams {
 }
 
 /// How the fetched branch relates to the commit the pull request shows
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum ReviewHeadState {
@@ -260,7 +259,7 @@ pub enum ReviewHeadState {
 }
 
 /// Where the review of a pull request was fetched from
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum ReviewSource {
@@ -273,7 +272,7 @@ pub enum ReviewSource {
 }
 
 /// A commit of the pull request
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewCommit {
@@ -305,7 +304,7 @@ impl ReviewCommit {
 }
 
 /// What the review of a pull request diffs: `base..head`, as GitHub's "Files changed"
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewRange {
@@ -317,15 +316,6 @@ pub struct ReviewRange {
   pub source: ReviewSource,
   /// `base..head`, oldest first
   pub commits: Vec<ReviewCommit>,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PruneReviewRefsParams {
-  pub repository_path: String,
-  /// The pull requests whose review refs stay
-  pub keep: Vec<u32>,
 }
 
 /// Two commits of the repository to diff, `base..head`

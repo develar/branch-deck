@@ -17,11 +17,10 @@
 //! sync ended (`Outcome::version_after`), its undo the token `update:<previous>..<new>` (`UndoKind::Update`). The fetch
 //! is the first effect: a failure from it on is the failed effect of an outcome, the effects after it skipped.
 
-use crate::engine::{Hosts, outcome_of, run};
+use crate::engine::{Hosts, outcome_of, plain_plan, run};
 use crate::events::EventSink;
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard, Stepper};
 use crate::rewrite::{StepWaiter, blocking, wait_stopped};
-use crate::witness::Witness;
 use domain_types::error::ApiError;
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, FetchedBaseline, Intent, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Resource};
@@ -58,18 +57,8 @@ fn effects_of(intent: &Intent, upstream: &str) -> Vec<PlannedEffect> {
 /// that is not open
 pub async fn prepare_update(sessions: &Sessions, key: &SessionKey, intent: Intent) -> Option<Plan> {
   let upstream = sessions.read(key, |state, _| state.header().baseline_branch.clone()).await?;
-  Some(Plan {
-    effects: effects_of(&intent, &upstream),
-    fingerprint: Witness::default().fingerprint(&intent),
-    intent,
-    lands: Vec::new(),
-    confirmations: Vec::new(),
-    blockers: Vec::new(),
-    waits: Vec::new(),
-    alternatives: None,
-    pull_request: None,
-    approvals_skipped_by: None,
-  })
+  let effects = effects_of(&intent, &upstream);
+  Some(plain_plan(intent, effects))
 }
 
 /// What an intent of the family planned on the baseline `upstream` asks the registry for: a fetch the tracking ref of

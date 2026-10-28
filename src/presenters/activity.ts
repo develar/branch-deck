@@ -325,5 +325,7 @@ function failureTitle(intent: Intent, subject: string): string {
       return "Cannot update the project"
     case "dismissLanded":
       return "Cannot dismiss the landed commits"
+    case "fetchReview":
+      return `Cannot fetch pull request #${intent.number}`
   }
 }

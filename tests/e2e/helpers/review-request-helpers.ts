@@ -115,23 +115,29 @@ export async function openedReviewWindow(page: Page, count = 1): Promise<OpenedS
 }
 
 /**
- * Holds `fetch_review_head` in the page: the progress messages first, then, once `release` resolves, the test server's
- * range of the repository (a failure is the `fetchError` of `setReviewRequests`); records the parameters of each call
+ * Holds the review fetch of the page (the intent `fetchReview` of `execute`): the progress messages first, then, once
+ * `release` resolves, the test server runs it on the range of the repository (a failure is the `fetchError` of
+ * `setReviewRequests`); records the intent of each call
  */
 export async function routeReviewFetch(page: Page, answer: { progress: number[]; release: Promise<void> }): Promise<Record<string, unknown>[]> {
   const calls: Record<string, unknown>[] = []
-  await page.route("**/invoke/fetch_review_head", async route => {
-    calls.push(route.request().postDataJSON() as Record<string, unknown>)
+  await page.route("**/invoke/execute", async route => {
+    const intent = ((route.request().postDataJSON() as Record<string, unknown>).intent ?? {}) as Record<string, unknown>
+    if (intent.kind !== "fetchReview") {
+      await route.fallback()
+      return
+    }
+    calls.push(intent)
     const channel = route.request().headers()["x-progress-channel"]
     if (channel !== undefined) {
       await sendProgress(
         page,
         channel,
-        answer.progress.map(percent => ({ percent, transferred: null, speed: null, line: `Receiving objects: ${percent}%` })),
+        answer.progress.map(percent => ({ kind: "progress", op: "held-fetch", percent, transferred: null, speed: null, line: `Receiving objects: ${percent}%` })),
       )
     }
     await answer.release
-    await route.continue()
+    await route.fallback()
   })
   return calls
 }

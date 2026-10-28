@@ -69,12 +69,6 @@ export const commands = {
 	/**  The issue of `key` for the popover, from the YouTrack the token is for */
 	getYoutrackIssue: (key: string) => typedError<YouTrackIssueAnswer, ApiError>(__TAURI_INVOKE("get_youtrack_issue", { key })),
 	/**
-	 *  Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
-	 *  commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call of the
-	 *  same window, `cancel_review_fetch` of it, or its close kills the fetch.
-	 */
-	fetchReviewHead: (params: FetchReviewHeadParams, progress: Channel<TransferProgress>) => typedError<ReviewRange, ApiError>(__TAURI_INVOKE("fetch_review_head", { params, progress })),
-	/**
 	 *  Adds a pull request to Reviews by its link, `#number` or number (`remote_facts::reviews::link_pull_request`): GitHub
 	 *  is asked for it, an open one is kept for the repository, and the session reads Reviews again with it. Answers the
 	 *  pull request, which the page opens in the review window
@@ -82,10 +76,6 @@ export const commands = {
 	linkPullRequest: (params: LinkPullRequestParams) => typedError<LinkedPullRequestAnswer, ApiError>(__TAURI_INVOKE("link_pull_request", { params })),
 	/**  Removes a pull request the user added by its link from Reviews, and the session reads Reviews again */
 	unlinkPullRequest: (params: UnlinkPullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("unlink_pull_request", { params })),
-	/**  Kills the review fetch of the calling window in flight, if any */
-	cancelReviewFetch: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_review_fetch")),
-	/**  Deletes the review refs of the pull requests not in `keep` (one CAS transaction) */
-	pruneReviewRefs: (params: PruneReviewRefsParams) => typedError<null, ApiError>(__TAURI_INVOKE("prune_review_refs", { params })),
 	/**
 	 *  The changed files of `base..head` with their line counts, from one `diff-tree` of the two commits
 	 *  (`RangeFilesCache::read`), kept in memory
@@ -124,8 +114,8 @@ export const commands = {
 	/**
 	 *  Runs an intent on the plan the page showed (`fingerprint`, with the confirmations the user `accepted`): the plan is
 	 *  prepared again and runs only on that fingerprint; its steps, the progress of its push and its outcome go to
-	 *  `events`. A start of a Safe Push or a Dry Run, a restart and a cancel of a robot, a retarget of a pull request so far
-	 *  (`operations::engine::execute`); the others run through their own commands until their family moves here
+	 *  `events` (`operations::engine::execute`). The review fetch of a window is stopped when the window closes
+	 *  (`WindowFetches`)
 	 */
 	execute: (params: ExecuteParams, events: Channel<OperationEvent>) => typedError<Outcome, ApiError>(__TAURI_INVOKE("execute", { params, events })),
 	/**
@@ -2313,16 +2303,6 @@ export type FastestHours = {
 	slowest_median: number,
 };
 
-export type FetchReviewHeadParams = {
-	repositoryPath: string,
-	number: number,
-	headRefName: string,
-	headRefOid: string,
-	baseRefName: string,
-	baseRefOid: string,
-	isCrossRepository: boolean,
-};
-
 /**  What a fetch of the baseline answered */
 export type FetchedBaseline = {
 	/**  The fetched baseline as it is shown, e.g. `origin/master` */
@@ -2836,7 +2816,13 @@ export type Intent =
  */
 ({ kind: "updateProject"; fetch: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The report of the commits that landed with an update is cleared (the user has seen it) */
-({ kind: "dismissLanded" }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
+({ kind: "dismissLanded" }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**
+ *  The commits of the pull request `number` a review window shows are fetched into its review refs
+ *  (`refs/branch-deck/review/<n>/{head,base}`) unless both are local, and its range answered (`operations::review_fetch`):
+ *  the head and the base GitHub names, as the review requests of the session have them
+ */
+({ kind: "fetchReview"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
 
 /**
  *  A title split at the issue key it starts with (`IJPL-1: Fix`, `[IJPL-1] Fix`, `IJPL-1 - Fix`), for a row that shows
@@ -3666,7 +3652,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -3711,7 +3697,11 @@ export type OperationResult =
 /**  An update of the checked out branch onto the baseline: its check, what it changed and what landed */
 {
 	kind: "update",
-} & UpdateProjectResult;
+} & UpdateProjectResult | 
+/**  The range a review fetch answered, `base..head` (`Intent::FetchReview`); the journal keeps it without its commits */
+{
+	kind: "reviewRange",
+} & ReviewRange;
 
 /**  What an operation cost */
 export type OperationStats = {
@@ -4266,7 +4256,12 @@ export type PlannedEffect =
  */
 { kind: "update" } | 
 /**  The report of what landed with an update is cleared (`Intent::DismissLanded`) */
-{ kind: "dismissLanded" };
+{ kind: "dismissLanded" } | 
+/**
+ *  The commits of the pull request `number` are fetched into its review refs, unless both are local
+ *  (`Intent::FetchReview`)
+ */
+{ kind: "fetchReview"; number: number };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -4327,12 +4322,6 @@ export type ProfileChoice =
 { kind: "id"; id: string } | 
 /**  The default checks of the target */
 { kind: "none" };
-
-export type PruneReviewRefsParams = {
-	repositoryPath: string,
-	/**  The pull requests whose review refs stay */
-	keep: number[],
-};
 
 /**  A GitHub pull request of a virtual branch, as the search of the user's pull requests reports it */
 export type PullRequest = {

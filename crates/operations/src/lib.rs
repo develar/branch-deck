@@ -59,6 +59,8 @@
 //!   robot landed with it (D7), each with its comment, one GitHub refuses stopping none of the others
 //! - `review`: the review of a pull request of someone else and its Safe Push: the `/patronus merge` comment while
 //!   GitHub shows the approved commit, its robot looked for a while after the reply
+//! - `review_fetch`: the fetch of the pull request a review window shows (`Intent::FetchReview`), into its review refs
+//!   unless its commits are local
 //! - `update`: the fetch of the baseline (`Intent::FetchBaseline`), Update Project (`Intent::UpdateProject`: its fetch the
 //!   `FetchBaseline` of the session, then HEAD held for the check and the move of `update_core::update_project`, then
 //!   the sync) and the dismissal of what landed with an update
@@ -84,6 +86,7 @@ pub mod registry;
 pub mod registry_file;
 pub mod registry_watch;
 pub mod review;
+pub mod review_fetch;
 pub mod rewrite;
 pub mod robot;
 pub mod robot_start;

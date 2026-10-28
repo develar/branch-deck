@@ -44,12 +44,12 @@ use commands::conflict_fix::{cancel_conflict_fix, find_conflict_fix};
 use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::grouping::{commit_body_blocks, preview_group, validate_branch_name};
-use commands::operations::{cancel_operation, execute, prepare};
+use commands::operations::{WindowFetches, cancel_operation, execute, prepare};
 use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
 use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
-use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, link_pull_request, prune_review_refs, unlink_pull_request};
+use commands::review_requests::{get_range_files, link_pull_request, unlink_pull_request};
 use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
 use commands::squash_fixups::get_autosquash_plan;
@@ -105,11 +105,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
       save_youtrack_token,
       sign_out_of_youtrack,
       get_youtrack_issue,
-      fetch_review_head,
       link_pull_request,
       unlink_pull_request,
-      cancel_review_fetch,
-      prune_review_refs,
       get_range_files,
       get_branch_review,
       get_file_owners,
@@ -178,6 +175,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
     // the fields of `appSettings` Rust reads, with their defaults: the page takes both from here, so the two never
     // disagree on a default (`src/stores/settings/appSettings.ts`)
     .typ::<domain_types::settings::AppSettings>()
+    // how far a fetch or a push is, as the page shows it: the fields of `OperationEvent::Progress` of a fetch, an update
+    // and a push (`src/lib/transfer-progress.ts`)
+    .typ::<sync_core::transfer_progress::TransferProgress>()
     .constant(APP_SETTINGS_DEFAULTS, domain_types::settings::AppSettings::default().to_full())
 }
 
@@ -286,7 +286,7 @@ pub fn run() {
       app.manage(file_diffs.range_files.clone());
       app.manage(file_diffs);
       app.manage(BranchNameSuggestionState::default());
-      app.manage(ReviewFetchState::default());
+      app.manage(WindowFetches::default());
       app.manage(SymbolSearchState::default());
       app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
@@ -362,14 +362,16 @@ pub fn run() {
         }
         return;
       }
-      // a closed window: its review fetch is killed, its page state forgotten
+      // a closed window: its review fetch is stopped, its page state forgotten
       if let tauri::RunEvent::WindowEvent {
         label,
         event: tauri::WindowEvent::Destroyed,
         ..
       } = event
       {
-        app_handle.state::<ReviewFetchState>().0.forget(&label);
+        for op in app_handle.state::<WindowFetches>().forget(&label) {
+          app_handle.state::<SessionsState>().registry().cancel(&op);
+        }
         app_handle.state::<SymbolSearchState>().0.forget(&label);
         app_handle.state::<SubWindowState>().forget(&label);
         app_handle.state::<SessionsState>().forget_window(&label);

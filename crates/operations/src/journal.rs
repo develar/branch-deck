@@ -28,6 +28,7 @@ use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::activity::{ActivityLog, PageActivity, PageEntry, RepositoryJournal};
 use domain_types::error::ApiError;
 use domain_types::operation::{JournalEntry, JournalTransition, OperationResult, OperationStats, Outcome};
+use domain_types::review_request::ReviewRange;
 use history_rewrite::repository_lock::lock_file;
 use lease_pool::lease::{Pool, canonical_path};
 use serde::Deserialize;
@@ -160,10 +161,21 @@ pub fn stats_of(tally: &OperationTally) -> OperationStats {
   }
 }
 
+/// What the journal keeps of what an operation answered: a review range without its commits, which git has
+fn journal_result(result: &OperationResult) -> OperationResult {
+  match result {
+    OperationResult::ReviewRange(range) => OperationResult::ReviewRange(Box::new(ReviewRange {
+      commits: Vec::new(),
+      ..(**range).clone()
+    })),
+    result => result.clone(),
+  }
+}
+
 /// The entry of the operation of `record` in `registry` that ended as `ended` and cost `stats`
 pub(crate) fn ended(registry: &ProcessRegistry, record: &Record, ended: Result<&Outcome, &ApiError>, stats: OperationStats) -> JournalEntry {
   let (effects, result, error) = match ended {
-    Ok(outcome) => (outcome.effects.clone(), outcome.result.clone(), None),
+    Ok(outcome) => (outcome.effects.clone(), journal_result(&outcome.result), None),
     Err(error) => (Vec::new(), OperationResult::None, Some(error.clone())),
   };
   JournalEntry {

@@ -9,13 +9,14 @@ use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::commands::session::{SessionsState, session_key};
 use crate::operation::operation;
 use domain_types::error::ApiError;
-use domain_types::operation::{CancelOperationParams, ExecuteParams, OperationEvent, Outcome, Plan, PrepareParams};
+use domain_types::operation::{CancelOperationParams, ExecuteParams, Intent, OperationEvent, OperationId, Outcome, Plan, PrepareParams};
 use git_executor::git_command_executor::GitCommandExecutor;
 use operations::events::EventSink;
 use operations::land_execute::Accepted;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State, Webview};
 use tracing::instrument;
 
 /// The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
@@ -51,15 +52,61 @@ impl EventSink for ChannelEvents {
   }
 }
 
+/// The review fetches each window runs (`Intent::FetchReview`): the close of a window stops them, as the fetch of a
+/// pull request no window shows is of no use; every other operation of a closed window goes on
+#[derive(Default)]
+pub struct WindowFetches(Mutex<HashMap<String, Vec<OperationId>>>);
+
+impl WindowFetches {
+  fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<OperationId>>> {
+    self.0.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  /// The fetches of the window `label` until now: it closed
+  pub fn forget(&self, label: &str) -> Vec<OperationId> {
+    self.lock().remove(label).unwrap_or_default()
+  }
+}
+
+/// The events of a review fetch of the window `label`: its first step names its operation, which the close of the
+/// window stops, until its end
+struct WindowFetchEvents {
+  events: ChannelEvents,
+  app: AppHandle,
+  label: String,
+}
+
+impl EventSink for WindowFetchEvents {
+  fn send(&self, event: OperationEvent) {
+    let fetches = self.app.state::<WindowFetches>();
+    match &event {
+      OperationEvent::Step { op, .. } => {
+        let mut fetches = fetches.lock();
+        let ops = fetches.entry(self.label.clone()).or_default();
+        if !ops.contains(op) {
+          ops.push(op.clone());
+        }
+      }
+      OperationEvent::Done { outcome } => {
+        if let Some(ops) = fetches.lock().get_mut(&self.label) {
+          ops.retain(|op| *op != outcome.op);
+        }
+      }
+      OperationEvent::Progress { .. } => {}
+    }
+    self.events.send(event);
+  }
+}
+
 /// Runs an intent on the plan the page showed (`fingerprint`, with the confirmations the user `accepted`): the plan is
 /// prepared again and runs only on that fingerprint; its steps, the progress of its push and its outcome go to
-/// `events`. A start of a Safe Push or a Dry Run, a restart and a cancel of a robot, a retarget of a pull request so far
-/// (`operations::engine::execute`); the others run through their own commands until their family moves here
+/// `events` (`operations::engine::execute`). The review fetch of a window is stopped when the window closes
+/// (`WindowFetches`)
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path))]
 #[specta::specta]
 pub async fn execute(
-  app: AppHandle,
+  webview: Webview,
   git_executor: State<'_, GitCommandExecutor>,
   settings: Settings<'_>,
   prefixes: Prefixes<'_>,
@@ -70,7 +117,16 @@ pub async fn execute(
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;
-    let events: Arc<dyn EventSink> = Arc::new(ChannelEvents(events));
+    let app = webview.app_handle().clone();
+    let events: Arc<dyn EventSink> = if matches!(params.intent, Intent::FetchReview { .. }) {
+      Arc::new(WindowFetchEvents {
+        events: ChannelEvents(events),
+        app: app.clone(),
+        label: webview.label().to_owned(),
+      })
+    } else {
+      Arc::new(ChannelEvents(events))
+    };
     let accepted = Accepted {
       fingerprint: params.fingerprint,
       confirmations: params.accepted,

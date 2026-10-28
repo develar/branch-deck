@@ -190,6 +190,13 @@ impl ReviewRequestsFact {
     (head, self.reviews.value.as_ref(), self.reviews_checked_at)
   }
 
+  /// The pull request `number` as the last listing that named it had it: what a review of it fetches
+  /// (`operations::review_fetch`), also once no listing has it any more
+  #[must_use]
+  pub fn pull_request(&self, number: u32) -> Option<&ReviewRequest> {
+    self.remembered.get(&number).map(|(request, _)| request)
+  }
+
   /// The pull requests the review windows show that no listing has now, as a listing named them last
   pub fn windows(&self) -> impl Iterator<Item = &(ReviewRequest, Option<ReviewInvolvement>)> {
     self.windows.iter().filter_map(|number| self.remembered.get(number))

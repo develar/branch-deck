@@ -254,6 +254,16 @@ Update Project (⌘T, `runUpdateProject`), the Fetch of a merge toast (`runFetch
   of an operation told once, also to a start that joined it. The hover of the idle Update button names the rewrite that
   holds HEAD as the view shows it (`useHeadWait`), which the check of an update would wait for.
 
+### Review fetch
+
+The review window fetches the pull request it shows as an operation of the session of its repository (`execute` of
+`fetchReview { number }`, `operations::review_fetch`; [Git Operations](git-operations.md), "Review fetch"): its head
+and its base as the review requests of the session name them, its review refs held (`Resource::Ref`), so the fetch of
+the same pull request from another window joins it. Its first step names its operation: a newer request of the window
+stops it (`cancel_operation`), and the close of the window that started it stops it too (`WindowFetches` of the app,
+by the label of the window). The review refs are pruned by the session, not by an operation: at each change of the
+review windows of its demand.
+
 ### Moves
 
 An action that is the move of a row says so: the node of the row reads the moves that run before the next step, so a

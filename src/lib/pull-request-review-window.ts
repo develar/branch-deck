@@ -20,12 +20,10 @@ import { getSelectedProject } from "@/stores/repository"
 import {
   approveAndSafePush,
   markReviewRequestRead,
-  noteReviewRefsWritten,
   openRequestOnGitHub,
   connectReviewWindow,
   getReviewBusy,
   mainReviewFeedback,
-  pruneReviewRefsOf,
   reviewRequestsStore,
   submitReview,
 } from "@/stores/review-requests"
@@ -40,11 +38,8 @@ import { reviewRows } from "@/stores/reviews"
 const link = createWindowLink<Shown, ReviewWindowState>({
   label: PULL_REQUEST_REVIEW_WINDOW,
   buildState: shown => buildState(shown.repositoryPath, shown.source),
-  // its refs go with it, and the session no longer keeps its actions for it
-  onClose: closed => {
-    releaseShownDemand()
-    pruneReviewRefsOf(closed.repositoryPath)
-  },
+  // the session no longer keeps its actions for it, and prunes its review refs once its demand names it no more
+  onClose: () => releaseShownDemand(),
 })
 
 /** What the review window shows: the pull request, and the list it walks */
@@ -69,14 +64,7 @@ function setShown(shown: Shown): void {
   releaseShown = showReviewWindowPullRequest(shown.number)
 }
 
-/** The number of the request the review window shows in `repositoryPath`, if any: its refs stay */
-export function reviewWindowNumber(repositoryPath: string): number | null {
-  const shown = link.shown()
-  return shown?.repositoryPath === repositoryPath ? shown.number : null
-}
-
 connectReviewWindow({
-  shownNumber: reviewWindowNumber,
   open: (repositoryPath, request, index, intent, source) => void openPullRequestReviewWindow(repositoryPath, request, index, intent, source),
   rowsOf: repositoryPath => reviewRows(repositoryPath).requests,
 })
@@ -93,10 +81,9 @@ export async function openPullRequestReviewWindow(
   intent: ReviewIntent | null,
   source: ReviewSource = "yourTurn",
 ): Promise<void> {
-  // the window fetches it: the next prune keeps its refs, deletes those of the request it showed before
+  // the window fetches it: the demand names it, so the session keeps its review refs and prunes the others
   const shown = { repositoryPath, number: request.number, source }
   setShown(shown)
-  noteReviewRefsWritten(repositoryPath)
   markReviewRequestRead(repositoryPath, request)
   const state = link.takeState()!
   const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, source, openedAt: Date.now(), state }
@@ -175,7 +162,6 @@ export const runReviewWindowRequest = link.serve<ReviewWindowRequest, ReviewWind
   switch (request.action) {
     case "shown":
       setShown({ repositoryPath, number: request.request.number, source: link.shown()?.source ?? "yourTurn" })
-      noteReviewRefsWritten(repositoryPath)
       markReviewRequestRead(repositoryPath, request.request)
       broadcastReviewWindowState()
       return true

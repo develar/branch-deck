@@ -2668,9 +2668,12 @@ Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `
 #### Review fetch
 
 The review of a pull request someone asked the user for ([Review Requests](../../spec/repository/review-requests.spec.md))
-needs its commits. `fetch_review_head` gets them without the working tree, the index or the repository lock: it
-writes only `refs/branch-deck/review/<n>/head` and `…/base`, which no other operation reads or writes, so it runs
-beside a sync or an update.
+needs its commits. The review window asks the intent `FetchReview { number }` of the session of its repository
+(`operations::review_fetch`: the head and the base as the review requests of the session have them, the review refs
+of the number held, so a second fetch of it joins); its core `fetch_review_head` gets them without the working tree,
+the index or the repository lock: it writes only `refs/branch-deck/review/<n>/head` and `…/base`, which no other
+operation reads or writes, so it runs beside a sync or an update. The journal keeps the range it answered without
+its commits.
 
 | Step | Command | Note |
 |------|---------|------|
@@ -2707,24 +2710,27 @@ beside a sync or an update.
   base of the head and the base id (milliseconds with the commit-graph), as GitHub's "Files changed".
 - **Timeout and cancel.** The fetch runs through `execute_remote_command_with_progress_until`
   (`GitCommand::progress` with a `ProgressStop`): git is killed when stderr is silent for 120 s (SSH has
-  no `http.lowSpeedLimit`), or when the app's latest-request counter moved on (`cancel_review_fetch`, or a newer
-  `fetch_review_head`, `src-tauri/src/commands/review_requests.rs`), within 20 ms. The error is then a
-  `StoppedCommand`. A grandchild (ssh, a remote helper) that keeps stderr open does not keep the result waiting.
+  no `http.lowSpeedLimit`), or when the operation is stopped (`Registry::cancel`: `cancel_operation` of a newer
+  request of the window, or the close of the window that started it, `WindowFetches` of
+  `src-tauri/src/commands/operations.rs`), within 20 ms. The error is then a `StoppedCommand` (`canceled`). A grandchild (ssh, a remote helper) that keeps stderr open does not keep the result waiting.
 - **Credentials.** A refused authentication when fetching from GitHub (git's C-locale words: `could not read
   Username`, `terminal prompts disabled`, `Permission denied (publickey)`) is `GitHubCredentials`, "GitHub asked for
   credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)". The card can show the request
   with a token git does not have (`GH_TOKEN`, `gh` without its git helper), so the fetch may still need git's
   credential helper for github.com.
-- **Pruning.** `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
+- **Pruning.** The review refs are those of the pull requests the review windows show: at each change of the review
+  windows of its demand (`Demand::review_windows`) the session prunes the others (`SessionHost::prune_review_refs`, on
+  the blocking pool, never waited for). `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
   refs/branch-deck/review/` and one `update-ref --stdin` deleting every review ref of a number not in `keep` with
   its old value (the `sweep_stale_temp_refs` pattern). A ref that moved meanwhile (a review fetch of another window)
-  fails the transaction, which is only logged: the next prune deletes it. It is best effort across app instances;
+  fails the transaction, which is only logged: the next change of the windows deletes it. It is best effort across app instances;
   the diffs are read by object id, and gc keeps unreachable objects for about two weeks.
 - **Never** the repository lock: the fetch moves no branch, and a fetch never runs under the lock (Update Project
   fetches before it takes it).
 
-Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_command.rs`,
-`crates/git-executor/src/git_command_executor.rs`, `src-tauri/src/commands/review_requests.rs`.
+Code: `crates/operations/src/review_fetch.rs`, `crates/sync-core/src/review_fetch.rs`,
+`crates/sync-core/src/remote_command.rs`, `crates/git-executor/src/git_command_executor.rs`,
+`crates/repository-model/src/runtime.rs` (the prune), `src-tauri/src/commands/operations.rs` (the close of a window).
 
 #### Trial sync (check)
 

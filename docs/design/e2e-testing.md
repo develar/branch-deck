@@ -298,11 +298,12 @@ Mock implementation:
   fetches, and the `keep` of every prune); it lists them after a sync, on a focus and five minutes after its last answer
   on the clock of the repository (`repo.advanceBackendClock`). An empty `headRefOid` of the fixture is answered as the
   tip of the branch it names, read from the refs without a git process. The links the user adds live in the settings of
-  the test repository, and the fake GitHub answers `pullRequest(number:)` from the nodes of the fixture. `fetch_review_head` never fetches: an empty `headRefOid`
-  is the tip of the local branch `headRefName` (else of `HEAD`),
-  an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
-  answers a range of source `local`; `fetchError` fails it instead. `get_range_files` and
-  `prune_review_refs` run the real functions, `cancel_review_fetch` does nothing (`review_requests_test.rs`)
+  the test repository, and the fake GitHub answers `pullRequest(number:)` from the nodes of the fixture. The review
+  fetch (the intent `fetchReview` of `execute`) runs the real operation and never fetches: the server's
+  `RewriteHost::review_fetch` makes an empty `headRefOid` the tip of the local branch `headRefName` (else of `HEAD`),
+  an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real core finds both commits local and
+  answers a range of source `local`; `fetchError` fails it instead. `get_range_files` runs the real function, and the
+  prunes of the session at each change of its review windows are recorded before they run (`review_requests_test.rs`)
 - **Code-owner review**: the readiness reads of the sessions (`TestFactSources::readiness`) run
   the app's reads (`ServiceFactSources`) and core (`remote_facts::review_readiness`, without the object cache, so every call asks the fake Patronus
   and no kept answer is read first; Space and the target branch as the app needs them); a test holds or fails the

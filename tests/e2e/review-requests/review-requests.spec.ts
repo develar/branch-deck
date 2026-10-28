@@ -678,19 +678,19 @@ test.describe("Review window", () => {
   test("should keep the review when the request is withdrawn meanwhile, and its refs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT]) })
     await syncAndWaitForBranches()
-    // the refs of an earlier start go once, after the first answer
-    await expect.poll(async () => (await repo.getReviewRequestsFixture()).prunes).toEqual([[]])
     const { review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
+    // the window shows #101: the session prunes the review refs of every other pull request, an earlier start's too
+    await expect.poll(async () => (await repo.getReviewRequestsFixture()).prunes).toEqual([[101]])
     await repo.setReviewRequests(availableReviewRequests([RECENT]))
     await repo.advanceBackendClock(300_000)
     await expect(review.getByTestId("review-withdrawn")).toHaveText("No longer waiting for your review")
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
     await expect(review.getByTestId("review-dialog-position")).toHaveCount(0)
-    // the window fetched it: the next prune keeps its refs
+    // the window fetched it and still shows it: no listing prunes its refs
     const fixture = await repo.getReviewRequestsFixture()
     expect(fixture.fetchCalls).toBe(1)
-    expect(fixture.prunes).toEqual([[], [101]])
+    expect(fixture.prunes).toEqual([[101]])
   })
 })
 

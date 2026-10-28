@@ -11,6 +11,7 @@ targets:
   - ../../crates/remote-facts/src/scheduler_review_requests.rs
   - ../../crates/domain-policy/src/refresh.rs
   - ../../crates/sync-core/src/review_fetch.rs
+  - ../../crates/operations/src/review_fetch.rs
   - ../../crates/remote-facts/src/pull_requests.rs
   - ../../crates/remote-facts/src/pull_request_writes.rs
   - ../../crates/operations/src/review.rs
@@ -367,16 +368,19 @@ Safe Push it allows.
   "Today 2:32 PM", hash; a click reviews the changes at that commit). Below `md` the rail goes under the description. The key hints below the islands: ↑↓
   Previous/next, Esc Close; Space scrolls.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
-- The fetch (`fetch_review_head`) is the window's: it starts when the window shows the request: "Fetching #101 from
-  origin… 42%" in the rail (`tabular-nums`, "from GitHub" for a fork), its only progress; Changes is disabled, without
-  its file count, until it is done, and after a failed fetch the alert says why. One fetch at a time per window
-  (`fetch_review_head` and `cancel_review_fetch` count per webview label): another request, or the close of the window,
-  kills the one in flight; a fetch that reports nothing for 120 s is killed too ("git reported nothing for 120 s").
-  On Windows the kill ends the git that the launcher of Git for Windows started too, with its ssh.
-  After the answer, the source is the one the range names.
+- The fetch is the window's: it starts when the window shows the request, as an operation of the session of its
+  repository (the intent `fetchReview { number }` of `execute`, `operations::review_fetch`: the head and the base as the
+  review requests of the session name them, its review refs held, a second fetch of the same pull request joining it):
+  "Fetching #101 from origin… 42%" in the rail (`tabular-nums`, "from GitHub" for a fork), its only progress; Changes
+  is disabled, without its file count, until it is done, and after a failed fetch the alert says why. One fetch at a
+  time per window: another request stops the one in flight (`cancel_operation` of its operation), the close of the
+  window stops the fetches it started (the app, by its label); a fetch that reports nothing for 120 s is killed too
+  ("git reported nothing for 120 s"). On Windows the kill ends the git that the launcher of Git for Windows started
+  too, with its ssh. After the answer, the source is the one the range names; the journal keeps the range without its
+  commits.
+  [@test] ../../crates/operations/src/review_fetch_test.rs (`a_review_fetch_answers_the_range_of_the_pull_request_the_session_lists`, `a_review_fetch_refuses_a_pull_request_the_session_never_listed`)
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_cancel_kills_the_fetch`, `a_stalled_fetch_is_killed`)
   [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_git_that_reports_nothing_for_the_idle_timeout_is_killed`, `progress_resets_the_idle_timeout`, `a_cancelled_git_is_killed`, `a_stopped_git_ends_every_process_it_started`)
-  [@test] ../../src-tauri/src/window_requests.rs (`a_window_supersedes_only_its_own_request`, `a_closed_window_supersedes_its_request`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - Changes (`D`, toggling) reviews the range in the island, the range review of a branch
   ([Branch Review](../branch/branch-review.spec.md)): the commits ("All Changes" `base..head`, then the commits newest
@@ -429,8 +433,8 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
   [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked and switches the main window to the request's repository first`)
   [@test] ../../src/lib/sub-window-link.test.ts (`knows what the window shows until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
-- The close of the window kills its fetch and prunes the refs of the request it showed; the stores of the files and
-  the diffs of a range are the window's and go with it.
+- The close of the window stops its fetch, and the session prunes the refs of the request it showed (the demand no
+  longer names it); the stores of the files and the diffs of a range are the window's and go with it.
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
   [@test] ../../src/stores/file-diffs.test.ts (`keeps the last subjects only, and forgets the subjects of a closed review under every policy`)
 
@@ -528,10 +532,12 @@ Safe Push it allows.
   for the range; anything but an object id is refused.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_pull_request_without_common_history_is_an_error`)
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`range_files_are_the_changes_of_all_its_commits`, `the_files_of_a_commit_subject_are_those_of_the_commit`, `a_range_refuses_what_is_not_an_object_id`)
-- The review refs are pruned (`prune_review_refs`, one CAS transaction) after an answer with the requests, once per
-  repository per start and after a fetch wrote one, and when the review window closes; never after a failed answer;
-  the refs of the request the window shows stay, and the polls while it shows them prune nothing again. A CAS failure is tried again the next time; across app instances it is best effort.
-  [@test] ../../src/stores/review-requests.test.ts (`prunes once after an answer with the requests, never after a failure, and keeps the window's`)
+- The review refs are those of the pull requests the review windows show: the session deletes the others at each
+  change of the review windows of its demand (a window shows one, another one, none, or goes; `prune_review_refs`, one
+  CAS transaction, on the blocking pool), the refs of an earlier start with the first one; a demand that names the same
+  windows, and a poll, prune nothing. A CAS failure is tried again at the next change; across app instances it is best
+  effort.
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_change_of_the_review_windows_prunes_the_review_refs_of_the_others`)
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`prune_deletes_the_review_refs_not_kept`, `prune_deletes_nothing_when_a_ref_moved_meanwhile`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the review when the request is withdrawn meanwhile, and its refs`)
 
@@ -580,7 +586,7 @@ Safe Push it allows.
   [@test] ../../crates/test-server/src/review_requests_test.rs (`review_routes_answer_the_fixture_without_a_network`)
 - `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template.
   `POST /repositories/{id}/review-requests` sets what the session of the repository reads of GitHub
-  (`availableReviewRequests` for `acme/monorepo`) and, with `fetchError`, makes `fetch_review_head` fail; `GET` returns
+  (`availableReviewRequests` for `acme/monorepo`) and, with `fetchError`, makes the review fetch fail; `GET` returns
   `{ calls, fetchCalls, prunes }`; a poll comes when the test moves the clock of its sessions
   (`repo.advanceBackendClock`).
   Its pull requests are in the fake GitHub of the test server too: the `SubmitReview` of `execute` runs the real
@@ -588,8 +594,9 @@ Safe Push it allows.
   the session), the review held there by `holdRemoteAnswers({ hold: ["submitReview"] })`, and a test asserts the
   requests GitHub got (`gitHubRequests`: the review with its event and commit, the `/patronus merge`
   comment); `answerGitHub` scripts a refused review or another head (e2e-testing.md, Remote services).
-  `fetch_review_head` runs the real function on the template: an empty head is the branch the request names, an empty
-  base the baseline, the source `local`; a test holds it in the page for the progress (`routeReviewFetch`). The Dock and
+  The review fetch runs the real operation on the template (`RewriteHost::review_fetch` of the server fills the
+  commits: an empty head is the branch the request names, an empty base the baseline, the source `local`); a test holds
+  its `execute` in the page for the progress (`routeReviewFetch`), and the prunes of the session are recorded (`prunes`). The Dock and
   ⌘-click tests take the user agent of macOS. The review window is the page `/pull-request-review` with the recorded
   data (`openSubWindowPage`); the label stays `main`, so Escape closing the window and Activity staying in the main
   window are not covered there; what the window emits is read with `getEmittedEvents`, the main window's answers are

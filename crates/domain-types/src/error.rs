@@ -529,6 +529,7 @@ pub enum OperationKind {
   FetchBaseline,
   UpdateProject,
   DismissLanded,
+  FetchReview,
 }
 
 /// Which program holds the lock, or runs an operation
