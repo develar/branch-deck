@@ -1,9 +1,13 @@
 //! The session commands of app-api on the server as the page mock calls them: a subscription is an event stream that
 //! answers first and then carries the patches, each on the version before it, up to the version a sync answers; it ends
 //! with `unsubscribe_view`; a repository without a prefix is refused by the frame with the `ApiError` of the app and the
-//! id of its operation, on the stream too; the span of the frame records the fields of the entry
+//! id of its operation, on the stream too (the route's side of the contract of `api_error_contract_test.rs`); the span
+//! of the frame records the fields of the entry
 
+use crate::invoke::WINDOW_LABEL_HEADER;
 use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, push_alone, rewrite, start_test_server, view_when};
+use app_api::api_error::no_branch_prefix;
+use domain_types::error::ApiError;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -52,6 +56,17 @@ async fn a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sy
   assert_eq!(messages.next_or_end().await, None, "the stream ends with the subscription");
 }
 
+/// `error` with the id of the operation `answered` names, which must be one (a ULID): the JSON of the `ApiError` the
+/// app rejects the same failure with
+fn with_its_operation(mut error: ApiError, answered: &Value) -> Value {
+  let id = answered["operation_id"].as_str().unwrap_or_else(|| panic!("the error names no operation: {answered}"));
+  assert_eq!(id.len(), 26, "{answered}");
+  error.operation_id = Some(id.to_owned());
+  serde_json::to_value(error).unwrap()
+}
+
+/// The route of a session command answers the error of its frame as the app does, with the operation it failed in: the
+/// frame resolves the key inside the operation of the command, on the stream of a channel too
 #[tokio::test]
 async fn a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app() {
   let addr = start_test_server().await;
@@ -60,21 +75,17 @@ async fn a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app(
 
   let mut messages = subscribe(&client, addr, &id, &path, 8).await;
   let refused = messages.next().await;
-  assert_eq!(refused["result"]["status"], "error", "{refused}");
-  assert_eq!(refused["result"]["error"]["code"], "no_branch_prefix", "{refused}");
-  // the frame of a session command resolves the key inside the operation of the command
-  assert_eq!(refused["result"]["error"]["operation_id"].as_str().map(str::len), Some(26), "{refused}");
-  assert_eq!(messages.next_or_end().await, None);
+  let error = with_its_operation(no_branch_prefix(), &refused["result"]["error"]);
+  assert_eq!(refused, json!({ "result": { "status": "error", "error": error } }));
+  assert_eq!(messages.next_or_end().await, None, "the stream ends with the answer");
 
-  for command in ["get_snapshot", "sync", "set_window_focus"] {
-    let error = post_error(
-      &client,
-      addr,
-      &format!("/invoke/{command}"),
-      json!({ "repositoryPath": path, "reason": "open", "focused": true }),
-    )
-    .await;
-    assert_eq!(error["code"], "no_branch_prefix", "{command}: {error}");
+  for name in ["get_snapshot", "sync", "set_window_focus"] {
+    let params = json!({ "repositoryPath": path, "reason": "open", "focused": true });
+    let response = command(&client, addr, Named::ByPath, name, &params).send().await.unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK, "{name}: an error is an answer, not a failure of the server");
+    let answer: Value = response.json().await.unwrap();
+    let error = with_its_operation(no_branch_prefix(), &answer["error"]);
+    assert_eq!(answer, json!({ "status": "error", "error": error }), "{name}");
   }
 }
 
@@ -347,7 +358,8 @@ impl tracing::field::Visit for SpanFields {
 
 /// The frame of a session command opens its span with the fields of its entry beside the repository (its body opens no
 /// span of its own), so a line of the log says why a sync ran, which fact a refresh read, whether a window gained the
-/// focus: here before the key, which a repository without a prefix refuses
+/// focus, which window subscribed (`session(window)`, the label of the call), which target the statistics read: here
+/// before the key, which a repository without a prefix refuses
 #[tokio::test]
 async fn the_span_of_a_session_command_records_the_fields_its_entry_names() {
   use tracing_subscriber::layer::SubscriberExt;
@@ -358,7 +370,7 @@ async fn the_span_of_a_session_command_records_the_fields_its_entry_names() {
   tracing_subscriber::registry().with(spans.clone()).init();
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
-  let (_, path) = create_repository_from(&client, addr, "simple_no_prefix").await;
+  let (id, path) = create_repository_from(&client, addr, "simple_no_prefix").await;
 
   let calls = [
     ("sync", json!({ "repositoryPath": path, "reason": "focus" })),
@@ -372,7 +384,30 @@ async fn the_span_of_a_session_command_records_the_fields_its_entry_names() {
     let error = post_error(&client, addr, &format!("/invoke/{command}"), params).await;
     assert_eq!(error["code"], "no_branch_prefix", "{command}: {error}");
   }
+  // the commands with a channel, refused on its stream, from a window that is not the main one
+  let streamed = [
+    ("subscribe_view", json!({ "repositoryPath": path })),
+    (
+      "get_robot_stats",
+      json!({ "repository_path": path, "baseline_branch": "master", "period": "14d", "refresh": true }),
+    ),
+  ];
+  for (channel, (name, params)) in (1..).zip(streamed) {
+    let request = command(&client, addr, Named::Id(&id), name, &params).header(WINDOW_LABEL_HEADER, "review-feature");
+    let refused = Messages::of_channel(request, channel).await.next().await;
+    assert_eq!(refused["result"]["error"]["code"], "no_branch_prefix", "{name}: {refused}");
+  }
   let repository = format!("repository_path={path}");
+  assert_eq!(spans.named("subscribe_view"), [vec![repository.clone(), "window=review-feature".to_owned()]]);
+  assert_eq!(
+    spans.named("get_robot_stats"),
+    [vec![
+      repository.clone(),
+      "baseline_branch=master".to_owned(),
+      "period=Days14".to_owned(),
+      "refresh=true".to_owned()
+    ]]
+  );
   assert_eq!(spans.named("sync"), [vec![repository.clone(), "reason=Focus".to_owned()]]);
   assert_eq!(
     spans.named("refresh_facts"),

@@ -21,7 +21,8 @@
 //!   command (`<name>{repository_path, …}:operation{operation_id}`) once it resolved the key (`AppContext::session_key`);
 //!   beside `repository_path` the span records the fields the entry names after its kind, as `fields(…)` of
 //!   `#[instrument]` names them over the arguments (`session(reason = ?params.reason)`), since its body opens no span
-//!   of its own (only a `session` entry names fields);
+//!   of its own (only a `session` entry names fields); `window` alone, first, records the label of the window that
+//!   called (`session(window)`: `window = %call.window`), which no argument names;
 //!   `now` a synchronous command of a window that cannot fail and answers at once (on the main thread of the app),
 //!   `fn(&AppContext, &Call, arguments…) -> output`; `main` the same that can fail, `fn(&AppContext, &Call, arguments…)
 //!   -> Result<output, ApiError>`, for what the app does on its main thread (a native menu, the restart);
@@ -203,7 +204,7 @@ macro_rules! api_command {
   }};
   // the span of the command, then its operation: the key resolved in it, so its error names the operation too
   (@call session $name:ident [$($field:tt)*] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)*]) => {{
-    let span = $crate::api_command!(@session_span $name [$($field)*] $args($($arg),*));
+    let span = $crate::api_command!(@session_span $name $call [$($field)*] $args($($arg),*));
     ::tracing::Instrument::instrument(
       $crate::operation::operation(async move {
         let key = $ctx.session_key(&$args.params.repository_path).await?;
@@ -212,11 +213,19 @@ macro_rules! api_command {
       span,
     )
   }};
-  (@session_span $name:ident [] $args:ident($($arg:ident),*)) => {
+  (@session_span $name:ident $call:ident [] $args:ident($($arg:ident),*)) => {
     ::tracing::info_span!(stringify!($name), repository_path = %$args.params.repository_path)
   };
+  // `window` first: the label of the window that called, as the bodies of the other kinds record it
+  // (`window = %call.window`); the call is a local of this macro, which no token of the entry can name
+  (@session_span $name:ident $call:ident [window $(, $($field:tt)+)?] $args:ident($($arg:ident),*)) => {
+    $crate::api_command!(@session_span_fields $name [window = %$call.window $(, $($field)+)?] $args($($arg),*))
+  };
+  (@session_span $name:ident $call:ident [$($field:tt)+] $args:ident($($arg:ident),*)) => {
+    $crate::api_command!(@session_span_fields $name [$($field)+] $args($($arg),*))
+  };
   // the fields of the entry name the arguments by their names: bound here as the entry spells them
-  (@session_span $name:ident [$($field:tt)+] $args:ident($($arg:ident),*)) => {{
+  (@session_span_fields $name:ident [$($field:tt)+] $args:ident($($arg:ident),*)) => {{
     let Args { $($arg),* } = &$args;
     let _ = ($($arg,)*);
     ::tracing::info_span!(stringify!($name), repository_path = %$args.params.repository_path, $($field)+)

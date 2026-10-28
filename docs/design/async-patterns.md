@@ -122,19 +122,21 @@ own (`sync_utils::operation_id::OperationId`, a ULID: 48 bits of milliseconds, 8
 and of every `bd` process never collide and sort by time). `crates/app-api/src/command_scan_test.rs` checks the
 commands, as their sources read: the bodies of the entries of the registry of app-api (`commands.rs` names the body of
 each, which the app's wrapper of `src-tauri/src/api.rs` and the E2E server's route of `invoke.rs` both call, so the
-server's error names its operation too) and the handwritten `#[tauri::command]`s of `src-tauri`:
-- Every command has an `#[instrument]` span, its `State`, `AppHandle` and window arguments skipped. An argument that
-  holds a collection (a `Vec`, a map, through nested structs) is skipped too, with a field or two in its place
+server's error names its operation too); `src-tauri` has no command of its own
+(`the_app_has_no_command_beside_the_registry`):
+- Every command but a `session` one (below) has an `#[instrument]` span, its `AppContext` and its `Call` skipped. An
+  argument that holds a collection (a `Vec`, a map, through nested structs) is skipped too, with a field or two in its place
   (`skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len())`), because every line
   of the log repeats the fields of the spans it is in: a push of a stack with the remote heads of its branches, or a
-  list of robots, would write tens of KB per call. `#[instrument]` with `fields` comes before `#[specta::specta]`, which
-  rejects the `%` of a field.
+  list of robots, would write tens of KB per call.
 - The body of an async command runs in `operation(async move { … }).await`, of a synchronous one (on the main thread) in
   `operation_now(|| { … })` (`crates/app-api/src/operation.rs`): the span `operation{operation_id}`, a child of the command's
   span, so a line reads `close_pull_request{…}:operation{operation_id=…}: message`. A command of a session (the
   `session` kind of the registry, `crates/app-api/src/registry.rs`) gets both from its frame: the span of the command
   with its repository and the fields its entry names, as `#[instrument]` would (`session(reason = ?params.reason)
-  sync(…)`: why a sync ran, which family a refresh read and for which subject, whether a window gained the focus), then
+  sync(…)`: why a sync ran, which family a refresh read and for which subject, whether a window gained the focus, which
+  target the statistics read; `window` alone, first, is the label of the window that called, `session(window)
+  subscribe_view(…)`, since the entry's own tokens can't name the call), then
   its operation, in which the frame resolves the key of the session before the body runs, so a line reads
   `sync{repository_path=… reason=Focus}:operation{operation_id=…}: message` and a refusal of the key names the
   operation too; its body opens neither

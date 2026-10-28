@@ -2,51 +2,15 @@
 //! command of the server (`caught`, which runs every command of `invoke.rs`), answers 200 with `{"status": "error",
 //! "error": <ApiError>}`, the error the JSON of `crates/app-api/fixtures/api_errors.json`, the same the app rejects with
 //! (`src-tauri/src/api_error_contract_test.rs`). A real route of a command (`/invoke/<name>`, `invoke::run`) answers
-//! that JSON with the id of the operation the body failed in, as the app does, on the stream of a channel too.
+//! that JSON with the id of the operation the body failed in, as the app does, on the stream of a channel too:
+//! `a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app` of `session_routes_test.rs`.
 
 use crate::invoke::{answer_with_progress, caught, erase, failed};
-use crate::test_support::{Messages, Named, command, create_repository_from, start_test_server};
-use app_api::api_error::{CONTRACT_JSON, api_error, contract_cases, no_branch_prefix};
+use app_api::api_error::{CONTRACT_JSON, api_error, contract_cases};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use pretty_assertions::assert_eq;
-use serde_json::{Map, Value, json};
-
-/// `error` as the contract has it, with the id of the operation `answered` names, which must be one: the JSON of the
-/// `ApiError` the app rejects the same failure with
-fn with_its_operation(mut error: domain_types::error::ApiError, answered: &Value) -> Value {
-  let id = answered["operation_id"].as_str().unwrap_or_else(|| panic!("the error names no operation: {answered}"));
-  assert_eq!(id.len(), 26, "{answered}");
-  error.operation_id = Some(id.to_owned());
-  serde_json::to_value(error).unwrap()
-}
-
-/// The route of a command answers the error of its body, with the operation it failed in: a command of a session
-/// refused by its frame for a repository without a prefix, answered alone and on the stream of its channel
-#[tokio::test]
-async fn a_route_of_a_command_answers_the_api_error_json_with_its_operation() {
-  let addr = start_test_server().await;
-  let client = reqwest::Client::new();
-  let (id, path) = create_repository_from(&client, addr, "simple_no_prefix").await;
-
-  let response = command(&client, addr, Named::ByPath, "sync", &json!({ "repositoryPath": path, "reason": "manual" }))
-    .send()
-    .await
-    .unwrap();
-  assert_eq!(response.status(), StatusCode::OK, "an error is an answer, not a failure of the server");
-  let answer: Value = response.json().await.unwrap();
-  assert_eq!(answer, json!({ "status": "error", "error": with_its_operation(no_branch_prefix(), &answer["error"]) }));
-
-  let request = command(&client, addr, Named::Id(&id), "subscribe_view", &json!({ "repositoryPath": path }));
-  let mut messages = Messages::of_channel(request, 3).await;
-  let message = messages.next().await;
-  let result = &message["result"];
-  assert_eq!(
-    message,
-    json!({ "result": { "status": "error", "error": with_its_operation(no_branch_prefix(), &result["error"]) } })
-  );
-  assert_eq!(messages.next_or_end().await, None, "the stream ends with the answer");
-}
+use serde_json::{Map, Value};
 
 #[tokio::test]
 async fn a_command_of_the_server_answers_the_api_error_json_of_the_contract() {

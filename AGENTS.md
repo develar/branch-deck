@@ -618,7 +618,11 @@ The checklist:
   or two when an argument holds a collection; a command that can fail runs its body as an operation (`operation`,
   `operation_now`, or its one blocking step `run_blocking`; `crates/app-api/src/operation.rs`), so its error names the
   `operation_id` of its log lines; the object cache, the git directories and the GitHub repository only in that step
-  (`crates/app-api/src/command_scan_test.rs`). A
+  (`crates/app-api/src/command_scan_test.rs`). A `session` command is the exception: its frame opens the span and the
+  operation, so its body has no `#[instrument]` and no `operation`
+  (`the_body_of_a_session_command_opens_no_span_and_no_operation_of_its_own`), and its entry names the fields of its
+  span after its kind, beside `repository_path` (`session(reason = ?params.reason)`, `session(window)` for the window
+  of the call; `the_span_of_a_session_command_records_the_fields_its_entry_names` of the e2e server). A
   closure or future handed to another thread carries the caller's span: `sync_utils::span::in_current_span(…)` or
   `.in_current_span()` (`crates/git-executor/src/thread_span_scan_test.rs`).
 - **Clippy**: pedantic, nursery and cargo plus the restriction lints that catch defects (`[workspace.lints]` in

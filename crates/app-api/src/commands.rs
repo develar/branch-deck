@@ -116,7 +116,7 @@ macro_rules! for_each_command {
       /// view at the subscription, the channel every patch after it until `unsubscribe_view`, the window's close or its next
       /// page load. While it lasts, the operations registry of the repository is watched (`Registry::subscribe`): the
       /// operations of `bd` show in the view, and a stamp of `bd` syncs the session
-      read session subscribe_view(params: $crate::session::view::SessionParams) [channel patches: domain_types::session::ViewPatch, open] -> domain_types::session::ViewSubscription = $crate::session::view::subscribe_view;
+      read session(window) subscribe_view(params: $crate::session::view::SessionParams) [channel patches: domain_types::session::ViewPatch, open] -> domain_types::session::ViewSubscription = $crate::session::view::subscribe_view;
 
       /// Ends a subscription of the calling window; the last one of a session makes it idle
       read now unsubscribe_view(params: $crate::session::view::UnsubscribeViewParams) = $crate::session::view::unsubscribe_view;
@@ -186,7 +186,7 @@ macro_rules! for_each_command {
       /// The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
       /// the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
       /// before the runs are read
-      read session(period = ?params.period, refresh = params.refresh) get_robot_stats(params: domain_types::robot_stats::GetRobotStatsParams) [channel events: domain_types::robot_stats::RobotStatsEvent] -> domain_types::robot_stats::RobotStatsResult = $crate::remote::patronus::get_robot_stats;
+      read session(baseline_branch = %params.baseline_branch, period = ?params.period, refresh = params.refresh) get_robot_stats(params: domain_types::robot_stats::GetRobotStatsParams) [channel events: domain_types::robot_stats::RobotStatsEvent] -> domain_types::robot_stats::RobotStatsResult = $crate::remote::patronus::get_robot_stats;
 
       /// Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
       /// with the failed builds, their tests and the log tails of the `teamcity` CLI
