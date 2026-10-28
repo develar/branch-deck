@@ -1,0 +1,23 @@
+[package]
+name = "host-link"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The link of the remote runs of bd-host: the identity files, TLS 1.3 with pinned certificates, the frames, the protocol host-link and the relay"
+publish = false
+
+# The port of yonder-link adds `serde`, `serde_json`, `toml`, `sync-utils` and, on macOS, `libc`
+[dependencies]
+# TLS 1.3 with pinned certificates on the provider of the app (`tls`)
+rustls.workspace = true
+# the self-signed certificate of each end (`tls`)
+rcgen.workspace = true
+# the fingerprint of a certificate and the build id of a binary (`digest`)
+sha2 = "0.11.1"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

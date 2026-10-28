@@ -1,0 +1,26 @@
+[package]
+name = "bd-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "`bd-host`: the binary of the remote runs, the client and the agent on a host; neither bd nor the app links it"
+# the build script of bd-core: `BD_VERSION`, the version of Branch Deck that the hello and the upgrade compare
+build = "../bd-core/build.rs"
+publish = false
+
+[[bin]]
+name = "bd-host"
+path = "src/main.rs"
+
+# The port adds `host-agent` and `host-client`, and `schemars` for `bd-host schema`
+[dependencies]
+host-link = { path = "../host-link" }
+clap = { version = "4.6", features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

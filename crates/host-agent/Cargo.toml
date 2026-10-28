@@ -1,0 +1,15 @@
+[package]
+name = "host-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The agent of the remote runs of bd-host on a host: serve, the supervisor of a run, the run directories, the login environment, the prepare steps, the keeper and the upgrade"
+publish = false
+
+# The port of yonderd adds `host-link`, `lease-pool` (the lend table, the refs and the git of the host in process),
+# `git-ops`, `git-executor`, `sync-utils`, `serde`, `serde_json` and, on Unix, `libc`; the architecture test keeps it
+# off the client
+[dependencies]
+
+[lints]
+workspace = true

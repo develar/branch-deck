@@ -36,6 +36,10 @@ members = [
   "crates/code-symbols",
   "crates/text-diff",
   "crates/file-diffs",
+  "crates/host-link",
+  "crates/host-client",
+  "crates/host-agent",
+  "crates/bd-host",
 ]
 resolver = "2"
 
@@ -96,6 +100,12 @@ tokio-stream = "0.1"
 # The watch of the operations registry of a repository by the app's sessions (`operations::registry_watch`): FSEvents,
 # inotify, ReadDirectoryChangesW
 notify = "8.2.0"
+
+# The remote runs of `bd-host` (docs/design/host-runs.md): TLS 1.3 on the provider the app links through reqwest
+# (`aws-lc-rs`), so no second provider comes in; the self-signed certificate of each end; Ctrl+C of a run
+rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std"] }
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }
+ctrlc = "3.5.2"
 
 # Every warning fails `pnpm lint:backend` and CI (`-D warnings`, all targets): a lint is either on or allowed below with
 # its reason, and a single exception in code is `#[expect(lint, reason = "...")]`, never `#[allow]`.

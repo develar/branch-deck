@@ -1,0 +1,16 @@
+[package]
+name = "host-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The client of the remote runs of bd-host: the run, the commit of the working tree, the pack, the follow, the fetch, the base sync and the host files"
+publish = false
+
+# The port of yonder-client adds `host-link`, `git-ops`, `git-executor`, `sync-utils`, `serde` and `serde_json`; the
+# architecture test keeps it off the lease pool and the agent
+[dependencies]
+# Ctrl+C of a run (`interrupt`)
+ctrlc.workspace = true
+
+[lints]
+workspace = true

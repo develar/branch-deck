@@ -825,6 +825,10 @@ crates/
 ├── bd-remote/       # The bd commands of the remote: status, push, safe-push, request-review, robot, the landed branches
 ├── bd-rewrite/      # The bd commands that read and rewrite the commits by their messages: group, reword, fold, check, suggest
 ├── bd-update/       # `bd update`, `bd pick` and `bd undo`; its tests run bd through the fixtures of bd-cli
+├── bd-host/         # `bd-host`, the binary of the remote runs (spec/cli/host.spec.md): the client and the agent; neither bd nor the app links it
+├── host-link/       # The link of the remote runs: identity, TLS 1.3 with pinned certificates on the provider of the app, frames, protocol host-link; no git
+├── host-client/     # The client of a remote run: the commit of the working tree, the pack, the follow, the fetch; git through git-ops
+├── host-agent/      # The agent on a host: serve, the supervisors, the keeper, the upgrade; the host slots through lease-pool in process
 ├── commit-clustering/ # The clustering of `bd suggest`, the areas of a commit, the generated files; no CLI, a library of bd-rewrite and bd-remote
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file on tree-sitter, no git; the highlighting of the diffs (`highlight/`)
