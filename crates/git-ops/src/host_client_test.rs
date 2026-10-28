@@ -1,6 +1,4 @@
-use crate::host_client::{
-  FARTHEST, Scan, Shipper, apply_patch, candidates, commit_count, pack_commit, pack_commit_until, repository_name, snapshot as snapshot_of, working_tree_commit,
-};
+use crate::host_client::{FARTHEST, Scan, apply_patch, candidates, commit_count, pack_commit_until, repository_name, snapshot as snapshot_of, working_tree_commit};
 use crate::host_objects::ingest_pack;
 use crate::lease_slot::LeaseConfig;
 use crate::worktree_snapshot::{WorktreeCommit, local_changes, read_head_commit, write_tree_patch};
@@ -45,7 +43,7 @@ fn the_commit_of_the_working_tree_is_head_or_the_same_commit_on_head_for_the_sam
   assert_eq!(
     described,
     format!(
-      "{head}|yonder <yonder@yonder.invalid>|yonder <yonder@yonder.invalid>|{committed}|yonder: the working tree on {}",
+      "{head}|bd-host <bd-host@bd-host.invalid>|bd-host <bd-host@bd-host.invalid>|{committed}|bd-host: the working tree on {}",
       &head[..12]
     )
   );
@@ -82,8 +80,9 @@ fn the_name_of_a_repository_is_the_directory_of_its_main_worktree() {
   assert_eq!(repository_name(Path::new("/p/idea/.git/")).as_deref(), Some("idea"));
 }
 
-/// The thin pack lands on a host that has its base, from a private file; git's progress arrives line by line; a pack
-/// file of a day ago goes at the next pack; the count is of the commits the host lacks
+/// The thin pack lands on a host that has its base, from a private file, by one `pack-objects`; git's progress arrives
+/// line by line; a pack file of a day ago goes at the next pack; the count is of the commits the host lacks, by one
+/// `rev-list`
 #[test]
 fn the_thin_pack_is_a_private_file_that_the_host_takes() {
   let (client, host) = TestRepo::upstream_and_clone(&[("a.txt", "a\n")]);
@@ -102,10 +101,10 @@ fn the_thin_pack_is_a_private_file_that_the_host_takes() {
     .unwrap();
 
   let mut lines = Vec::new();
-  let pack = pack_commit(client.git_executor(), client.path_str(), &commit, std::slice::from_ref(&base), &packs, &mut |line| {
-    lines.push(line.to_string());
-  })
-  .unwrap();
+  let mut on_line = |line: &str| lines.push(line.to_string());
+  let git = counting();
+  let pack = pack_commit_until(&git, client.path_str(), &commit, std::slice::from_ref(&base), &packs, &mut on_line, &|| false).unwrap();
+  assert_processes(&git, &[("pack-objects", 1)]);
   assert!(!old.exists(), "a pack file of a day ago goes");
   assert!(!lines.is_empty(), "the progress of git");
   assert_eq!(pack.bytes, std::fs::metadata(&pack.path).unwrap().len());
@@ -117,15 +116,18 @@ fn the_thin_pack_is_a_private_file_that_the_host_takes() {
   }
   ingest_pack(host.git_executor(), host.path_str(), &mut std::fs::File::open(&pack.path).unwrap(), 100).unwrap();
   assert_eq!(host.git(&["cat-file", "-t", &commit]), "commit");
-  assert_eq!(commit_count(client.git_executor(), client.path_str(), &commit, &[base]).unwrap(), 1);
+  let git = counting();
+  assert_eq!(commit_count(&git, client.path_str(), &commit, &[base]).unwrap(), 1);
+  assert_processes(&git, &[("rev-list", 1)]);
   assert!(
-    pack_commit(client.git_executor(), client.path_str(), "HEAD", &[], &packs, &mut |_| {}).is_err(),
+    pack_commit_until(client.git_executor(), client.path_str(), "HEAD", &[], &packs, &mut |_| {}, &|| false).is_err(),
     "a name that is no id"
   );
 }
 
-/// The snapshot of `bd-host` reads no status for `Scan::Head`, the status for `Scan::Status`, and ships a commit of the
-/// working tree for `Scan::WorkingTree` by `bd-host <bd-host@bd-host.invalid>`; each with the candidates of HEAD
+/// The snapshot reads no status for `Scan::Head`, the config and one status for `Scan::Status`, and ships a commit of the
+/// working tree for `Scan::WorkingTree` by `bd-host <bd-host@bd-host.invalid>` (the blobs, the commit and the delete of
+/// its temporary ref); each with the candidates of HEAD (one `rev-list`, one `for-each-ref`, a `merge-base` per base ref)
 #[test]
 fn a_snapshot_of_bd_host_reads_what_its_scan_names_and_ships_its_own_commit() {
   let repo = TestRepo::new();
@@ -133,16 +135,33 @@ fn a_snapshot_of_bd_host_reads_what_its_scan_names_and_ships_its_own_commit() {
   std::fs::write(repo.path().join("a.txt"), "a\nchanged\n").unwrap();
   let git_dir = repo.path().join(".git");
   let git = counting();
-  let quick = snapshot_of(&git, repo.path_str(), &git_dir, Scan::Head, 16, Shipper::BdHost).unwrap();
+  let quick = snapshot_of(&git, repo.path_str(), &git_dir, Scan::Head, 16).unwrap();
   assert_processes(&git, &[("for-each-ref", 1), ("log", 1), ("merge-base", 1), ("rev-list", 1)]);
   assert_eq!((quick.commit.as_str(), quick.head.commit.as_str(), quick.changed), (head.as_str(), head.as_str(), None));
   assert_eq!(quick.candidates.commits, std::slice::from_ref(&head));
 
-  let status = snapshot_of(repo.git_executor(), repo.path_str(), &git_dir, Scan::Status, 16, Shipper::BdHost).unwrap();
+  let git = counting();
+  let status = snapshot_of(&git, repo.path_str(), &git_dir, Scan::Status, 16).unwrap();
+  assert_processes(&git, &[("config", 1), ("for-each-ref", 1), ("log", 1), ("merge-base", 1), ("rev-list", 1), ("status", 1)]);
   let lines: Vec<String> = status.changed.unwrap().iter().map(super::worktree_snapshot::StatusEntry::line).collect();
   assert_eq!((status.commit.as_str(), lines), (head.as_str(), vec![" M a.txt".to_string()]));
 
-  let shipped = snapshot_of(repo.git_executor(), repo.path_str(), &git_dir, Scan::WorkingTree, 16, Shipper::BdHost).unwrap();
+  let git = counting();
+  let shipped = snapshot_of(&git, repo.path_str(), &git_dir, Scan::WorkingTree, 16).unwrap();
+  assert_processes(
+    &git,
+    &[
+      ("config", 1),
+      ("fast-import", 1),
+      ("for-each-ref", 1),
+      ("hash-object", 1),
+      ("log", 1),
+      ("merge-base", 1),
+      ("rev-list", 1),
+      ("status", 1),
+      ("update-ref", 1),
+    ],
+  );
   assert_ne!(shipped.commit, head);
   assert_eq!(
     repo.git(&["log", "-1", "--format=%P|%an <%ae>|%s", &shipped.commit]),

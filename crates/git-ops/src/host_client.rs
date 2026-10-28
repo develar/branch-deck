@@ -1,5 +1,5 @@
-//! The git of a client of a remote run (`bd host snapshot`, `pack`, `apply`, spec/cli/lease.spec.md, "Host runs"; and
-//! `bd-host run`, spec/cli/host.spec.md, "run"): the commit a run ships (HEAD, or a commit of the working tree built in
+//! The git of a client of a remote run (`bd-host run`, spec/cli/host.spec.md, "run"; spec/cli/lease.spec.md, "Host
+//! runs"): the commit a run ships (HEAD, or a commit of the working tree built in
 //! a copy of the index), the commits the host may have, the base of its later packs, the thin pack of the commit into a
 //! private file, and the patch of the changes of the command applied to the working tree. The apply is the one write of
 //! the user's working tree outside `worktree_update`: what the user asked a run for (`--apply`), all or nothing, the
@@ -15,25 +15,10 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// Who ships a commit of the working tree: its author, its committer and the first word of its message. The client of
-/// yonder and `bd-host` write two commits of one tree, so each of them sends its own pack once
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Shipper {
-  /// `yonder <yonder@yonder.invalid>`: the commits of `bd host snapshot --working-tree`
-  Yonder,
-  /// `bd-host <bd-host@bd-host.invalid>`: the commits of `bd-host run`
-  BdHost,
-}
-
-impl Shipper {
-  /// The name and the email of the author and the committer
-  const fn ident(self) -> (&'static str, &'static str) {
-    match self {
-      Self::Yonder => ("yonder", "yonder@yonder.invalid"),
-      Self::BdHost => ("bd-host", "bd-host@bd-host.invalid"),
-    }
-  }
-}
+/// The name of the author and the committer of a commit of the working tree, and the first word of its message
+const SHIPPER_NAME: &str = "bd-host";
+/// The email of the author and the committer of a commit of the working tree
+const SHIPPER_EMAIL: &str = "bd-host@bd-host.invalid";
 
 /// The refs whose merge bases with HEAD the host may have, and whose tip is the base of the later packs, first found
 /// first
@@ -41,7 +26,7 @@ const BASE_REFS: [&str; 2] = ["refs/remotes/origin/master", "refs/heads/master"]
 /// The farthest first-parent distance from HEAD of a candidate by default: the powers of two up to it, so a host some
 /// thousand commits behind still has one of them
 pub const FARTHEST: usize = 65_536;
-/// How long a pack file of `pack_commit` stays in its directory when its caller did not remove it
+/// How long a pack file of `pack_commit_until` stays in its directory when its caller did not remove it
 const PACK_KEEP: Duration = Duration::from_hours(24);
 /// A minute without a progress line of `pack-objects` is a stuck git: it writes one at least every second while it works
 const PACK_QUIET: Duration = Duration::from_mins(1);
@@ -50,16 +35,16 @@ const PACK_QUIET: Duration = Duration::from_mins(1);
 /// HEAD whose tree is what `git add --all` would stage (`worktree_commit`), so the index, the files and the refs stay.
 /// Author and committer are fixed and dated as the committer of HEAD, so the same tree on the same HEAD is the same
 /// commit, and a second run of it sends no pack. Only the objects of the changed files are new, and no ref names them;
-/// a `gc` prunes them
+/// a `gc` prunes them. The author and the committer are `bd-host <bd-host@bd-host.invalid>`, and the message is
+/// `bd-host: the working tree on <HEAD>`
 pub fn working_tree_commit(git: &GitCommandExecutor, repo: &str, git_dir: &Path, head: &Head, config: &LeaseConfig) -> Result<WorktreeCommit> {
-  working_tree_commit_of(git, repo, git_dir, head, config, Shipper::Yonder)
-}
-
-/// `working_tree_commit` of `shipper`: its author and committer, and the message `<name>: the working tree on <HEAD>`
-pub fn working_tree_commit_of(git: &GitCommandExecutor, repo: &str, git_dir: &Path, head: &Head, config: &LeaseConfig, shipper: Shipper) -> Result<WorktreeCommit> {
-  let (name, email) = shipper.ident();
-  let message = format!("{name}: the working tree on {}", head.commit.get(..12).unwrap_or(&head.commit));
-  worktree_commit(git, repo, git_dir, head, config, None, CommitText { name, email, message: &message })
+  let message = format!("{SHIPPER_NAME}: the working tree on {}", head.commit.get(..12).unwrap_or(&head.commit));
+  let text = CommitText {
+    name: SHIPPER_NAME,
+    email: SHIPPER_EMAIL,
+    message: &message,
+  };
+  worktree_commit(git, repo, git_dir, head, config, None, text)
 }
 
 /// What a snapshot of a checkout reads beside HEAD and the candidates
@@ -69,7 +54,7 @@ pub enum Scan {
   Head,
   /// The status of the working tree: its entries are the local changes
   Status,
-  /// The commit of the working tree (`working_tree_commit_of`)
+  /// The commit of the working tree (`working_tree_commit`)
   WorkingTree,
 }
 
@@ -86,15 +71,15 @@ pub struct Snapshot {
 }
 
 /// The snapshot of the worktree `repo` (git dir `git_dir`): HEAD (one `log`); by `scan` nothing, the status, or the
-/// commit of the working tree of `shipper` (`lease_config` and one `status`, then `hash-object` and `fast-import` for a
+/// commit of the working tree (`lease_config` and one `status`, then `hash-object` and `fast-import` for a
 /// changed tree); then the candidates of HEAD up to `farthest`. No ref, index or file of the worktree changes
-pub fn snapshot(git: &GitCommandExecutor, repo: &str, git_dir: &Path, scan: Scan, farthest: usize, shipper: Shipper) -> Result<Snapshot> {
+pub fn snapshot(git: &GitCommandExecutor, repo: &str, git_dir: &Path, scan: Scan, farthest: usize) -> Result<Snapshot> {
   let head = read_head_commit(git, repo)?;
   let (commit, changed) = match scan {
     Scan::Head => (head.commit.clone(), None),
     Scan::Status => (head.commit.clone(), Some(local_changes(git, repo, &lease_config(git, repo)?)?)),
     Scan::WorkingTree => {
-      let shipped = working_tree_commit_of(git, repo, git_dir, &head, &lease_config(git, repo)?, shipper)?;
+      let shipped = working_tree_commit(git, repo, git_dir, &head, &lease_config(git, repo)?)?;
       (shipped.commit, Some(shipped.entries))
     }
   };
@@ -177,13 +162,8 @@ pub struct PackFile {
 /// The thin pack of `commit` against the commits of `have` (`pack-objects --revs --thin --stdout --progress`) streamed
 /// into a new file of `dir` (made private, mode 0700; the file 0600 and of a random name): the caller sends the file and
 /// removes it, and a pack file older than a day goes at the next pack. `on_line` gets each progress line of git; a
-/// minute without one kills git
-pub fn pack_commit(git: &GitCommandExecutor, repo: &str, commit: &str, have: &[String], dir: &Path, on_line: &mut dyn FnMut(&str)) -> Result<PackFile> {
-  pack_commit_until(git, repo, commit, have, dir, on_line, &|| false)
-}
-
-/// `pack_commit` that `is_cancelled` stops. git polls it while it runs, so the keepalives of the connection of the pack
-/// go out from it too. A stop fails with `StoppedCommand::Cancelled`, and the file goes
+/// minute without one kills git. `is_cancelled` stops it: git polls it while it runs, so the keepalives of the
+/// connection of the pack go out from it too. A stop fails with `StoppedCommand::Cancelled`, and the file goes
 pub fn pack_commit_until(
   git: &GitCommandExecutor,
   repo: &str,

@@ -4,7 +4,6 @@ use bd_core::error::ErrorOutput;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::SyncOutput;
 use bd_core::version::VersionOutput;
-use bd_lease::host_client_command::{HostApplyOutput, HostPackOutput, HostSnapshotOutput};
 use bd_lease::host_command::{
   LeaseHostChangesOutput, LeaseHostCheckoutOutput, LeaseHostFillOutput, LeaseHostGitOutput, LeaseHostGiveBackOutput, LeaseHostHaveOutput, LeaseHostIngestOutput,
   LeaseHostLendOutput, LeaseHostLimitOutput, LeaseHostReclaimOutput, LeaseHostShowOutput, LeaseHostShrinkOutput, LeaseHostSnapshotOutput, LeaseHostStatusOutput,
@@ -49,7 +48,6 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("describe", &["describe"]),
   ("fold", &["fold"]),
   ("group", &["rewrite"]),
-  ("host", &["host_snapshot", "host_pack", "host_apply"]),
   ("install", &["install"]),
   (
     "lease",
@@ -179,9 +177,6 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("describe".to_string(), schema_for!(DescribeOutput)),
     ("error".to_string(), schema_for!(ErrorOutput)),
     ("fold".to_string(), schema_for!(FoldOutput)),
-    ("host_apply".to_string(), schema_for!(HostApplyOutput)),
-    ("host_pack".to_string(), schema_for!(HostPackOutput)),
-    ("host_snapshot".to_string(), schema_for!(HostSnapshotOutput)),
     ("install".to_string(), schema_for!(InstallOutput)),
     ("lease_adopt".to_string(), schema_for!(LeaseAdoptOutput)),
     ("lease_clean".to_string(), schema_for!(LeaseCleanOutput)),

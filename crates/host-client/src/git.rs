@@ -5,7 +5,7 @@
 //! and a patch that does not apply with `apply_failed`
 
 use git_executor::git_command_executor::{GitCommandExecutor, StoppedCommand};
-use git_ops::host_client::{Scan, Shipper, apply_patch, commit_count, pack_commit_until, repository_name, snapshot};
+use git_ops::host_client::{Scan, apply_patch, commit_count, pack_commit_until, repository_name, snapshot};
 use git_ops::host_objects::show_commit;
 use git_ops::revs::{repository_dirs, with_repository_dirs};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
@@ -86,8 +86,7 @@ impl Checkout {
 
   /// The snapshot of the checkout with the candidates up to `farthest`
   pub(crate) fn snapshot(&self, scan: Scan, farthest: usize) -> Result<Snapshot, Refusal> {
-    let read =
-      snapshot(&self.git, &self.top_level, &self.git_dir, scan, farthest, Shipper::BdHost).map_err(|error| git_failed("cannot read the snapshot of the checkout", &error))?;
+    let read = snapshot(&self.git, &self.top_level, &self.git_dir, scan, farthest).map_err(|error| git_failed("cannot read the snapshot of the checkout", &error))?;
     Ok(Snapshot {
       commit: read.commit,
       head: read.head.commit,

@@ -17,7 +17,6 @@ use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{WithOperation, write_json};
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
-use bd_lease::host_client_command::{HostArgs, HostCommand, host_apply, host_pack, host_snapshot};
 use bd_lease::host_command::{
   LeaseHostArgs, LeaseHostCommand, LeaseHostGitArgs, lease_host_changes, lease_host_checkout, lease_host_fill, lease_host_git, lease_host_give_back, lease_host_have,
   lease_host_ingest, lease_host_lend, lease_host_limit, lease_host_reclaim, lease_host_show, lease_host_shrink, lease_host_snapshot, lease_host_status,
@@ -145,12 +144,6 @@ enum Command {
   /// while it has unlanded commits, local changes or a process in it. The state is in
   /// `$GIT_COMMON_DIR/branch-deck/leases.json`
   Lease(LeaseArgs),
-  /// The git of a client of a remote run (yonder): the commit it ships, its thin pack, the apply of its changes
-  ///
-  /// `snapshot` (read only) answers the commit, the local changes, the commits the host may have and a file of the
-  /// commit; `pack` writes the thin pack into a private file; `apply` applies the patch of the changes to the files.
-  /// Never a command of a coding agent
-  Host(HostArgs),
   /// Where a coding agent works and how it writes a commit subject: run it before the first edit. Read only
   ///
   /// `branchdeck.agentLease` (on by default): work in a lease of your own and land each commit with `bd pick`;
@@ -590,11 +583,6 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       LeaseHostCommand::Snapshot(args) => lease_host_snapshot(&context, environment, args).and_then(|output| printed(out, &output)),
       LeaseHostCommand::Changes(args) => lease_host_changes(&context, environment, args).and_then(|output| printed(out, &output)),
     }),
-    Command::Host(HostArgs { command }) => lease_context(None).and_then(|context| match command {
-      HostCommand::Snapshot(args) => host_snapshot(&context, args).and_then(|output| printed(out, &output)),
-      HostCommand::Pack(args) => host_pack(&context, args).and_then(|output| printed(out, &output)),
-      HostCommand::Apply(args) => host_apply(&context, environment, args).and_then(|output| printed(out, &output)),
-    }),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),
     }) => print_summary(
@@ -674,9 +662,6 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Workspace
     | Command::Install(_)
     | Command::Help { .. }
-    | Command::Host(HostArgs {
-      command: HostCommand::Snapshot(_),
-    })
     | Command::Lease(LeaseArgs {
       command:
         LeaseCommand::Status(_)

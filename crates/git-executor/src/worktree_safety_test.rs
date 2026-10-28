@@ -66,7 +66,7 @@ const SLOT_WRITE_EXEMPTIONS: [(&str, &str, usize); 3] = [
 ];
 
 /// The file that applies the patch of the changes of a remote run to the user's working tree, on the user's request
-/// (`bd host apply`, docs/design/git-operations.md, "Host slots"), with the number of its argument lists
+/// (`bd-host run --apply`, docs/design/git-operations.md, "Host slots"), with the number of its argument lists
 const CLIENT_WRITE_EXEMPTIONS: [(&str, &str, usize); 1] = [("crates/git-ops/src/host_client.rs", "apply", 1)];
 
 /// The options of an `apply` that only reads the patch or writes the index alone

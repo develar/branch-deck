@@ -20,7 +20,7 @@ impl Fixture {
     Self { host, client, base, commit }
   }
 
-  /// `pack-objects --revs --thin --stdout` of the commit against the base, as `bd host pack` builds it
+  /// `pack-objects --revs --thin --stdout` of the commit against the base, as `bd-host run` builds it
   fn thin_pack(&self) -> Vec<u8> {
     let input = format!("{}\n^{}\n", self.commit, self.base);
     self
@@ -134,7 +134,11 @@ fn show_answers_the_text_of_a_file_and_the_ids_of_paths() {
   let repo = TestRepo::new();
   let commit = repo.create_commit_with_files(
     "Add files",
-    &[(".yonder.toml", "outputs = [\"out\"]\n"), ("dir/a.txt", "a\n"), ("big.bin", &"x".repeat(1024 * 1024 + 1))],
+    &[
+      (".branchdeck.toml", "[host]\noutputs = [\"out\"]\n"),
+      ("dir/a.txt", "a\n"),
+      ("big.bin", &"x".repeat(1024 * 1024 + 1)),
+    ],
   );
   let tree = repo.git(&["rev-parse", &format!("{commit}:dir")]);
   let file = repo.git(&["rev-parse", &format!("{commit}:dir/a.txt")]);
@@ -143,12 +147,12 @@ fn show_answers_the_text_of_a_file_and_the_ids_of_paths() {
     &git,
     repo.path_str(),
     &commit,
-    Some(".yonder.toml"),
+    Some(".branchdeck.toml"),
     &["dir/".to_string(), "dir/a.txt".to_string(), "missing".to_string()],
   )
   .unwrap();
   assert_processes(&git, &[("cat-file", 1)]);
-  assert_eq!(shown.blob.map(|blob| blob.text), Some("outputs = [\"out\"]\n".to_string()));
+  assert_eq!(shown.blob.map(|blob| blob.text), Some("[host]\noutputs = [\"out\"]\n".to_string()));
   assert_eq!(shown.ids, [Some(tree), Some(file), None]);
   assert_eq!(show_commit(&git, repo.path_str(), &commit, Some("missing.toml"), &[]).unwrap().blob, None);
 

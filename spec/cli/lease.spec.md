@@ -18,7 +18,6 @@ targets:
   - ../../crates/git-ops/src/host_objects.rs
   - ../../crates/git-ops/src/worktree_snapshot.rs
   - ../../crates/git-ops/src/host_client.rs
-  - ../../crates/bd-lease/src/host_client_command.rs
   - ../../crates/bd-lease/src/host_command.rs
   - ../../crates/lease-pool/src/state_file.rs
   - ../../crates/lease-pool/src/lease_clean.rs
@@ -664,8 +663,8 @@ for; one that is no working tree is `not_a_repository` (exit 2).
 
 ### Host runs
 
-The files of a run: on the host the scans of the slot before and after its command, on the client (`bd host`, the
-client of yonder) the commit the run ships, its pack and the apply of its changes. A commit of the files of a worktree
+The files of a run: on the host the scans of the slot before and after its command, on the client (`bd-host run`,
+`git_ops::host_client`) the commit the run ships, its pack and the apply of its changes. A commit of the files of a worktree
 (`worktree_commit`) is what `git add --all` stages, on HEAD, without a write of the index, the files or the refs of the
 worktree: one `status --porcelain=v1 -z --no-renames` of its index, read only, in the untracked mode of the repository
 (its `core.fsmonitor` and `core.untrackedCache` apply); for the paths it names, a file by `hash-object -w
@@ -694,37 +693,33 @@ and one `write-tree`. Both give the same commit for the same tree.
 - A scan runs the config, HEAD and its tree (one `log`) and one `status`; when something changed, one `hash-object`,
   one `fast-import` and one `update-ref`.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
-- `bd host snapshot` must answer `commit` (HEAD; with `--working-tree` the commit of the working tree: HEAD when the
-  tree is that of HEAD, else a commit on HEAD by `yonder <yonder@yonder.invalid>`, dated as the committer of HEAD, so
-  the same tree on the same HEAD is the same commit), `head`, `changed` (the lines `XY path` of the status; absent with
-  `--no-status`, which skips it and conflicts with `--working-tree`), `repository` (the directory of the main
-  worktree without `.git`), `git_dir`, `patch_dir` (`<git_dir>/yonder`), `base` (the tip of `origin/master`, else of
-  `master`, absent without both), `candidates` (HEAD and its first-parent ancestors at the distances 1, 2, 4 … up to
-  `--farthest`, 65536 by default, then the merge bases of HEAD with `origin/master` and `master`, each once) and with
-  `--blob <path>` the file of `commit` (`blob`, as `show` answers it). The index, the files and the refs stay.
-  [@test] ../../crates/bd-lease/src/host_client_test.rs (`a_snapshot_names_the_commit_the_changes_and_the_candidates`)
+- `git_ops::host_client::snapshot` must answer `commit` (HEAD; with `Scan::WorkingTree` the commit of the working
+  tree: HEAD when the tree is that of HEAD, else a commit on HEAD by `bd-host <bd-host@bd-host.invalid>`, dated as the
+  committer of HEAD, so the same tree on the same HEAD is the same commit), `head`, `changed` (the status entries; none
+  for `Scan::Head`, which reads no status) and `candidates`: HEAD and its first-parent ancestors at the distances 1, 2,
+  4 … up to the farthest distance (`FARTHEST`, 65536), then the merge bases of HEAD with `origin/master` and `master`,
+  each once, and the `base` (the tip of `origin/master`, else of `master`, absent without both). `repository_name`
+  answers the directory of the main worktree without `.git`. The index, the files and the refs stay.
   [@test] ../../crates/git-ops/src/host_client_test.rs (`the_commit_of_the_working_tree_is_head_or_the_same_commit_on_head_for_the_same_tree`, `the_candidates_are_the_powers_of_two_and_the_merge_bases`)
   [@test] ../../crates/git-ops/src/host_client_test.rs (`the_name_of_a_repository_is_the_directory_of_its_main_worktree`)
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
-- `bd host pack <commit> --have <id>…` must stream `pack-objects --revs --thin --stdout --progress` into a new file of
-  mode 0600 in `<git_dir>/branch-deck/host/packs/` (mode 0700), never a name of the shared temporary directory, and
-  answer its `path`, `bytes` and `commits` (`rev-list --count`). git's progress goes to stderr (`bd host pack: …`), and a
-  minute without a line kills git. The caller removes the file; a pack file there older than a day goes at the next
-  pack. At least one `--have` is required, and every id must be full (`invalid_arguments`). The host takes the pack
-  with `bd lease host ingest`.
-  [@test] ../../crates/bd-lease/src/host_client_test.rs (`a_pack_of_the_client_lands_on_the_host`)
-  [@test] ../../crates/git-ops/src/host_client_test.rs (`the_thin_pack_is_a_private_file_that_the_host_takes`)
-- `bd host apply <patch>` must apply the patch (`bd lease host changes`) to the files of the worktree, not its index,
-  all or nothing (`apply --whitespace=nowarn`), and answer `files` (`apply --numstat`). A patch that does not apply is
-  `git_error` and changes nothing; a missing file is `invalid_arguments`. It is the one write of the user's working
-  tree beside the guarded update: what the user asked a run for (`yonder run --apply`).
-  [@test] ../../crates/bd-lease/src/host_client_test.rs (`the_patch_of_a_run_applies_to_the_files_of_the_client`)
+  [@test] ../../crates/git-ops/src/host_client_test.rs (`a_snapshot_of_bd_host_reads_what_its_scan_names_and_ships_its_own_commit`)
+- `pack_commit_until` must stream `pack-objects --revs --thin --stdout --progress` into a new file of mode 0600 in the
+  directory of its caller (mode 0700; `<git_dir>/branch-deck/host/packs/` for `bd-host run`), never a name of the
+  shared temporary directory, and answer its `path` and `bytes`; `commit_count` answers the commits (`rev-list
+  --count`). Each progress line of git goes to the caller, and a minute without a line kills git. A stop of the caller
+  kills git too, fails as cancelled and leaves no file. The caller removes the file; a pack file there older than a day
+  goes at the next pack. Every id must be full. The host takes the pack with `lease_pool::host_refs::ingest`.
+  [@test] ../../crates/git-ops/src/host_client_test.rs (`the_thin_pack_is_a_private_file_that_the_host_takes`, `a_cancelled_pack_fails_and_leaves_no_file`)
+- `apply_patch` must apply the patch of `changes` to the files of the worktree, not its index, all or nothing (`apply
+  --whitespace=nowarn`), and answer the count of the files (`apply --numstat`). A patch that does not apply fails and
+  changes nothing. It is the one write of the user's working tree beside the guarded update: what the user asked a run
+  for (`bd-host run --apply`).
   [@test] ../../crates/git-ops/src/host_client_test.rs (`the_patch_of_a_run_applies_to_the_files_all_or_nothing`)
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`production_code_never_writes_the_working_tree`)
-- `bd host snapshot` of a clean checkout runs HEAD (`log`), the config, one `status`, one `rev-list`, one
-  `for-each-ref` and a `merge-base` per base ref; with `--working-tree` and changes the writes of a scan, and with
-  `--blob` one `cat-file`. `bd host pack` runs one `pack-objects` and one `rev-list`.
-  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_snapshot_and_the_pack_of_a_client`)
+- The snapshot of a clean checkout runs HEAD (`log`), one `rev-list`, one `for-each-ref` and a `merge-base` per base
+  ref; `Scan::Status` adds the config and one `status`, and `Scan::WorkingTree` with changes the writes of a scan. The
+  pack runs one `pack-objects`, and the count one `rev-list`.
+  [@test] ../../crates/git-ops/src/host_client_test.rs (`a_snapshot_of_bd_host_reads_what_its_scan_names_and_ships_its_own_commit`, `the_thin_pack_is_a_private_file_that_the_host_takes`)
 
 ### Error codes
 
@@ -736,8 +731,7 @@ and one `write-tree`. Both give the same commit for the same tree.
 
 - The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`,
   and `lease_host_lend` … `lease_host_status`, `lease_host_have`, `lease_host_ingest`, `lease_host_show`,
-  `lease_host_git`, `lease_host_snapshot`, `lease_host_changes`; `host_snapshot`, `host_pack`, `host_apply` of
-  `bd host`).
+  `lease_host_git`, `lease_host_snapshot`, `lease_host_changes`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)

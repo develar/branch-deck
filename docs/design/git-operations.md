@@ -141,7 +141,7 @@ written, except by Update Project and the finish of its resolve session (their o
    that the agent confirmed or a give-back, `reset --hard HEAD` and `clean -fd`. These argument lists live in
    `crates/git-ops/src/lease_slot.rs` only, and the safety scan asserts each count (`checkout` 2, `reset` 2, `clean` 2).
 
-   **The changes of a remote run that the user asked to apply** (`bd host apply`, see "Host slots"): `git apply
+   **The changes of a remote run that the user asked to apply** (`bd-host run --apply`, see "Host slots"): `git apply
    --whitespace=nowarn` of the patch of the run to the files of the client, all or nothing, the index left alone. It
    lives in `crates/git-ops/src/host_client.rs` only, and the scan counts it (`CLIENT_WRITE_EXEMPTIONS`, one); an
    `apply` with `--cached`, `--numstat`, `--stat` or `--check` writes no file.
@@ -2012,7 +2012,7 @@ the fingerprints of its prepare steps by it, so a run never skips a step whose o
 removed. `bd-host` (`crates/bd-host`, [Host Runs](host-runs.md)) is the move of yonder into Branch Deck: its agent
 calls the same functions of `lease_pool::host_slots`, `host_refs` and `host_git` in process, and its client the
 functions of `git_ops::host_client`, so neither end starts `bd`. Both agents lend from the one lend table of a host
-during the migration. `bd lease host` and `bd host` stay for yonderd and the yonder client until then.
+during the migration. `bd lease host` stays for yonderd until then.
 
 A lend that waits (`host_slots::lend_waiting`) watches `branch-deck/` of the common dir with `notify` before its first
 look, so a give-back between the look and the wait wakes it: the table is replaced by a rename, so the watch is on the
@@ -2108,7 +2108,7 @@ moved goes after 14 days. yonderd kept every base ref forever. With `branchdeck.
 maintenance after the ref, as the give-back does.
 
 The scans of a run (`bd lease host snapshot` before the command, `changes` after it) and the commit of the working
-tree of a client (`bd host snapshot --working-tree`) are one function, `git_ops::worktree_snapshot::worktree_commit`:
+tree of a client (`bd-host run`) are one function, `git_ops::worktree_snapshot::worktree_commit`:
 the commit on HEAD of what `git add --all` would stage, without a write of the index. One `status` of the index, read
 only, names the paths; their files become blobs (`hash-object -w --stdin-paths`, which applies the clean filters and
 the end of line of each path), links, gitlinks and deletions, and one `fast-import` writes the commit from the tree of
@@ -2129,12 +2129,12 @@ case. So the files decide, and the copy stays only where they can't tell what `a
 `core.symlinks` false, a path with a newline, a nested repository without a commit. The patch of `changes` streams
 into its file: yonderd collected it in memory first.
 
-A client of yonder starts no git either (`bd host`, `git_ops::host_client`): `snapshot` answers the commit a run
-ships, the commits the host may have (HEAD and its first-parent ancestors at the powers of two, the merge bases with
-`origin/master` and `master`) and `.yonder.toml` of the commit; `pack` streams the thin pack into a private file of the
-git dir, where yonder made predictable names in the shared temporary directory; `apply` applies the changes of a run
-to the files. That apply is the one write of the user's working tree beside the guarded update: the user asked for it
-(`yonder run --apply`), and `git apply` writes all or nothing and leaves the index alone. The worktree safety scan
+The client of `bd-host run` starts no git either (`git_ops::host_client` in process): `snapshot` answers the commit a
+run ships and the commits the host may have (HEAD and its first-parent ancestors at the powers of two, the merge bases
+with `origin/master` and `master`); `pack_commit_until` streams the thin pack into a private file of the git dir, where
+yonder made predictable names in the shared temporary directory; `apply_patch` applies the changes of a run to the
+files. That apply is the one write of the user's working tree beside the guarded update: the user asked for it
+(`bd-host run --apply`), and `git apply` writes all or nothing and leaves the index alone. The worktree safety scan
 counts it (`CLIENT_WRITE_EXEMPTIONS`).
 
 The git of the host has a floor of its own, `HOST_MIN_VERSION` (2.56.0, `lease_pool::host_git`), above the
