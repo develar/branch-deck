@@ -408,6 +408,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   writes the reason of a forced checkout to the log. On every way out, after `exit.json`, it gives the slot back
   (`give_back_run`), which also deletes the run ref. No signal cuts the give-back.
   [@test] ../../crates/host-agent/tests/serve.rs (`a_run_waits_for_its_pack_checks_out_by_the_diff_and_gives_its_slot_back`)
+  [@test] ../../crates/host-agent/tests/serve/pack.rs (`a_start_whose_pack_never_comes_ends_with_pack_missing`, `the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_the_stall`, `a_pack_after_the_end_of_its_run_lands_and_marks_no_run`)
 - With changes asked for, the supervisor must take the tree of the slot after the prepare steps
   (`snapshot_run`), and after the command the patch from it (`changes_run`).
   [@test] ../../crates/host-agent/tests/serve.rs (`the_changes_of_a_command_come_back_as_a_patch_without_the_prepare_steps`)
@@ -417,7 +418,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   Test (planned): `crates/host-agent/tests/serve.rs` (`the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill`)
 - `serve` must hold the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after its
   hello, and each supervisor for its whole life. Elsewhere than on macOS nothing holds them.
-  Test (planned): `crates/host-agent/src/awake_test.rs` (`serve_holds_the_assertions_while_a_client_is_connected`)
+  [@test] ../../crates/host-agent/tests/serve/system.rs (`serve_and_the_supervisor_keep_the_host_awake`)
 
 ### The environment of a run and `[host]`
 
@@ -426,7 +427,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   hour old); the directory of the git of the host right before `/usr/bin` in `PATH`; `BD_HOST_RUN`,
   `BD_HOST_AFFINITY`, `BD_HOST_COMMIT` and `BD_HOST_SLOT`; and `[host.env]`. The soft open-files limit is 65536, or
   the hard limit when that is lower.
-  Test (planned): `crates/host-agent/src/run_env_test.rs` (`a_run_gets_the_login_environment_the_git_of_the_host_and_its_variables`)
+  [@test] ../../crates/host-agent/tests/serve/system.rs (`a_run_gets_the_login_environment_a_raised_open_files_limit_and_its_niceness`)
 - The agent must read `[host]` of `.branchdeck.toml` from the commit of the run, never from the files of the slot. A
   commit whose `.branchdeck.toml` has no `[host]` table gets its `.yonder.toml`, until the repositories moved. An
   unknown key or a value of the wrong shape ends the run with `bad_config` before the command. The other tables of

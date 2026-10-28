@@ -124,12 +124,17 @@ impl ListeningLine {
   }
 }
 
-/// Starts `command`, a binary with the agent commands, as `serve` on a free port of the loopback address, with
-/// `PROCESS_TEST_ENV` and its stderr into `log`. Answers the child and its first line. The process tests of the agent
+/// Starts `command`, a binary with the agent commands, as `serve` on a free port of the loopback address, with its
+/// stderr into `log`. Each variable of `PROCESS_TEST_ENV` that `command` does not set gets its value there, so a test
+/// can name its own fake, such as a login shell. Answers the child and its first line. The process tests of the agent
 /// and of bd-host start their agent with it
 pub fn spawn_on_loopback(mut command: std::process::Command, log: std::fs::File) -> io::Result<(std::process::Child, ListeningLine)> {
+  for (name, value) in PROCESS_TEST_ENV {
+    if !command.get_envs().any(|(set, _)| set == std::ffi::OsStr::new(name)) {
+      command.env(name, value);
+    }
+  }
   let mut child = command
-    .envs(PROCESS_TEST_ENV)
     .args(["serve", "--bind", "127.0.0.1", "--port", "0"])
     .stdin(std::process::Stdio::null())
     .stdout(std::process::Stdio::piped())

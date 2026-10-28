@@ -5,6 +5,16 @@
 #![cfg(unix)]
 #![expect(clippy::tests_outside_test_module, reason = "a Cargo integration test has no #[cfg(test)] module")]
 
+// The modules of `serve/` are part of this test binary, so they share its fixture and its build
+#[path = "serve/signals.rs"]
+mod signals;
+
+#[path = "serve/pack.rs"]
+mod pack;
+
+#[path = "serve/system.rs"]
+mod system;
+
 use host_agent::serve::spawn_on_loopback;
 use host_link::allow::AllowList;
 use host_link::channel::{Channel, ClientTls};
@@ -14,6 +24,7 @@ use pretty_assertions::assert_eq;
 use std::fs;
 use std::io::Write;
 use std::net::SocketAddr;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -71,9 +82,16 @@ impl World {
 
   /// Starts `serve` on a loopback port
   fn serve(&self) -> Agent<'_> {
+    self.serve_with(&[])
+  }
+
+  /// Starts `serve` on a loopback port with more environment, such as a duration of `tuning.rs` or a fake of
+  /// `PROCESS_TEST_ENV`
+  fn serve_with(&self, env: &[(&str, &str)]) -> Agent<'_> {
     let log = fs::File::create(self.home.path().join("serve.log")).expect("the serve log");
     let mut command = Command::new(env!("CARGO_BIN_EXE_host-agent-test"));
     command.env("HOME", self.home.path());
+    command.envs(env.iter().copied());
     let (child, listening) = spawn_on_loopback(command, log).expect("serve listens");
     Agent {
       child,
@@ -121,6 +139,21 @@ impl Followed {
       .map(|(_, text)| text.as_str())
       .collect()
   }
+
+  /// Whether a line of the run is `text`, a line of the agent too
+  fn has_line(&self, text: &str) -> bool {
+    self.lines.iter().any(|(_, line)| line == text)
+  }
+
+  /// The line that the agent writes right before the command
+  fn start_line(&self) -> &str {
+    self
+      .lines
+      .iter()
+      .map(|(_, text)| text.as_str())
+      .find(|text| text.starts_with(START_LINE))
+      .unwrap_or_else(|| panic!("no start line: {self:?}"))
+  }
 }
 
 impl Agent<'_> {
@@ -164,6 +197,24 @@ impl Agent<'_> {
         end => return Followed { lines, phases, end },
       }
     }
+  }
+
+  /// Follows a run from its start until a line of its command is `text`, then drops the connection
+  fn follow_until(&self, run: &str, text: &str) {
+    let mut channel = self.ask(&Request::Follow { run: run.to_owned(), offset: 0 });
+    loop {
+      match channel.recv::<Reply>().unwrap_or_else(|error| panic!("{error}; {}", self.dump(run))) {
+        Reply::Output { text: line, .. } if line == text => return,
+        Reply::Output { .. } | Reply::Heartbeat { .. } | Reply::Phases { .. } => {}
+        end => panic!("the run ended before {text:?}: {end:?}; {}", self.dump(run)),
+      }
+    }
+  }
+
+  /// The pid of the supervisor of a run, as its `pid` file has it
+  fn supervisor_pid(&self, run: &str) -> String {
+    let path = self.world.run_dir(run).join("pid");
+    fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display())).trim().to_owned()
   }
 
   /// The files of a fetch: the path, the kind and the text of each
@@ -222,6 +273,22 @@ fn eventually(what: &str, done: impl Fn() -> bool) {
 /// A shell loop that waits until the file `gate` exists, up to 60 s, so a failed test leaves no command behind
 fn wait_for(gate: &Path) -> String {
   format!("i=0; while [ ! -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i + 1)); done", gate.display())
+}
+
+/// The text of `events.log` of a run, or nothing
+fn events(world: &World, run: &str) -> String {
+  fs::read_to_string(world.run_dir(run).join("events.log")).unwrap_or_default()
+}
+
+/// Whether the process `pid` exists, as `kill -0` answers
+fn process_alive(pid: &str) -> bool {
+  Command::new("kill").args(["-0", pid]).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
+}
+
+/// Writes an executable script
+fn write_script(path: &Path, text: &str) {
+  fs::write(path, text).expect("a script");
+  fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("executable");
 }
 
 /// A clone of the repository of the host with one more commit, and the thin pack of that commit against the head of

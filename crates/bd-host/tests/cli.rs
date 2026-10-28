@@ -204,8 +204,10 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   let world = World::new();
   let _agent = world.serve();
   let gate = world.home.path().join("never");
+  // The trap makes the end of the command certain. Without it, sh goes on when SIGINT comes while it reaps a `sleep`
+  // that has exited 0: sh then takes the signal as handled by its child. The loop then runs to its end, before SIGKILL
   let script = format!(
-    "echo started; i=0; while [ ! -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i + 1)); done",
+    "trap 'exit 130' INT; echo started; i=0; while [ ! -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i + 1)); done",
     gate.display()
   );
   let mut run = world
