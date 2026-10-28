@@ -95,6 +95,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::OtherVolume, 4, false),
   (ErrorCode::LowDiskSpace, 4, false),
   (ErrorCode::GitNotFound, 5, false),
+  (ErrorCode::NoIdentity, 2, false),
   (ErrorCode::GitError, 5, false),
   (ErrorCode::NetworkError, 5, true),
   (ErrorCode::PatronusError, 5, false),

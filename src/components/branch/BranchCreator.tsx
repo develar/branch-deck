@@ -15,7 +15,7 @@ import { UnassignedCommitListCard } from "@/components/unassigned/UnassignedComm
 import { markWindowContentReady } from "@/lib/sub-window"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
 import { useBranchSync, useUnassignedCommits } from "@/stores/branch-sync"
-import { useEffectiveBranchPrefix, useIsLoadingBranchPrefix, useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
+import { useEffectiveBranchPrefix, useRepository, useSelectedProjectPath, useSelectedRepositoryState, useSessionFailure } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 /**
@@ -25,6 +25,8 @@ import { useRecentProjects } from "@/stores/settings/repositorySettings"
 export function BranchCreator() {
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncError = useBranchSync(state => state.syncError)
+  // a sync git could not write the notes of without the user's name: the git alert says it, with the commands
+  const syncNeedsIdentity = useBranchSync(state => state.syncErrorCode === "no_identity")
   const syncDeferred = useBranchSync(state => state.syncDeferred)
   const baselineBranch = useBranchSync(state => state.baselineBranch)
   const syncedRepositoryPath = useBranchSync(state => state.syncedRepositoryPath)
@@ -36,7 +38,9 @@ export function BranchCreator() {
   const archivedBranchCount = useArchivedBranchCount()
 
   const pathValidation = useRepository(state => state.pathValidation)
-  const isLoadingBranchPrefix = useIsLoadingBranchPrefix()
+  // why the session of the repository serves no window: no prefix (the welcome card), no git (the git alert), a
+  // repository git cannot read (the error alert of the path)
+  const sessionFailure = useSessionFailure()
   const hasRecentProjects = useRecentProjects(projects => projects.length > 0)
   const selectedPath = useSelectedProjectPath()
   const neverSynced = useSelectedRepositoryState("lastSyncTime") === undefined
@@ -44,20 +48,17 @@ export function BranchCreator() {
   const hasRepository = selectedPath !== undefined
   const hasSynced = hasRepository && syncedRepositoryPath === selectedPath
   const hasBranchPrefix = useEffectiveBranchPrefix() !== ""
-  // git itself is missing or too old: its alert replaces the path and sync errors, which say the same
-  const hasGitError = useRepository(state => !!state.gitSetup?.git_error)
+  const noBranchPrefix = sessionFailure?.code === "no_branch_prefix"
+  // git itself is missing or too old (the git alert), or cannot name the user: its alert replaces the errors that say the same
+  const hasGitError = sessionFailure?.code === "git_not_found" || syncNeedsIdentity
 
+  // a repository git cannot read is the error of the path (`pathValidation`, which the failed subscription sets)
   const error = hasGitError || isSyncing ? null : syncError || pathValidation.error
   const hasError = hasGitError || !!error
-  const showWelcomeCard = shouldShowWelcomeCard({
-    hasRepository,
-    hasRecentProjects,
-    hasBranchPrefix,
-    isLoadingBranchPrefix,
-    hasError,
-  })
+  // on the first run (no repository, no recent project), and while the selected repository has no prefix
+  const showWelcomeCard = !hasError && (hasRepository ? noBranchPrefix : !hasRecentProjects)
   // a repository synced before syncs when its session opens (the session's own sync): only the first sync needs the card
-  const showReadyToSync = hasRepository && neverSynced && hasBranchPrefix && !isLoadingBranchPrefix && pathValidation.valid && !hasSynced && !hasError
+  const showReadyToSync = hasRepository && neverSynced && hasBranchPrefix && pathValidation.valid && !hasSynced && !hasError
 
   // the window shows on its first frame with content: the first rows of a sync, or a state without rows (no repository,
   // Welcome, Ready to Sync, an error, a sync that ended without rows)
@@ -76,12 +77,14 @@ export function BranchCreator() {
 
   // a message of several lines (git with its install hint) is a title and its details
   const [errorTitle, ...errorLines] = error?.split("\n") ?? []
-  const errorDetails = [errorLines.join("\n"), pathValidation.errorDetails === error ? "" : pathValidation.errorDetails].filter(Boolean).join("\n")
+  const errorDetails = [errorLines.join("\n"), error === pathValidation.error && pathValidation.errorDetails !== error ? pathValidation.errorDetails : ""]
+    .filter(Boolean)
+    .join("\n")
   return (
     <div className="flex flex-col gap-2" data-testid="branch-creator-root">
       <GitSetupAlert />
 
-      {showWelcomeCard && <WelcomeCard hasRepository={hasRepository} hasBranchPrefix={hasBranchPrefix} />}
+      {showWelcomeCard && <WelcomeCard hasRepository={hasRepository} />}
 
       {showReadyToSync && <ReadyToSyncCard />}
 
@@ -148,29 +151,4 @@ export function BranchCreator() {
       <ArchivedBranchTableCard />
     </div>
   )
-}
-
-/**
- * Shown on first run (no repository selected and no recent projects),
- * or when a repository is selected but no branch prefix is configured (guides the user to step 2).
- */
-function shouldShowWelcomeCard(state: {
-  hasRepository: boolean
-  hasRecentProjects: boolean
-  hasBranchPrefix: boolean
-  isLoadingBranchPrefix: boolean
-  hasError: boolean
-}): boolean {
-  // the error alert explains the problem (git missing, a folder that is not a repository); don't show both
-  if (state.hasError) {
-    return false
-  }
-  if (!state.hasRepository) {
-    return !state.hasRecentProjects
-  }
-  // the prefix is not known yet
-  if (state.isLoadingBranchPrefix) {
-    return false
-  }
-  return !state.hasBranchPrefix
 }

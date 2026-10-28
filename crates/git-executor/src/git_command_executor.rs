@@ -1,4 +1,4 @@
-use crate::git_info::GitInfo;
+use crate::git_info::{GitInfo, GitNotFound};
 use crate::interactive_command::InteractiveCommand;
 use crate::process_stats::ProcessStats;
 use crate::process_tree::ProcessTree;
@@ -137,7 +137,7 @@ impl GitCommandExecutor {
   }
 
   /// Git executable path and version, discovered on first use, once per process (`DISCOVERED`). A failed discovery is
-  /// not cached.
+  /// not cached, and is a `GitNotFound`.
   #[instrument(skip(self))]
   pub fn get_info(&self) -> Result<&GitInfo> {
     if let Some(info) = self.info.get() {
@@ -146,7 +146,7 @@ impl GitCommandExecutor {
     let info = if let Some(info) = DISCOVERED.get() {
       info.clone()
     } else {
-      let info = GitInfo::discover().map_err(|e| anyhow!(e))?;
+      let info = GitInfo::discover().map_err(GitNotFound)?;
       tracing::info!(git_version = %info.version, git_path = %info.path, "discovered git info");
       // Another thread may have won the race; both discovered the same executable
       DISCOVERED.get_or_init(|| info).clone()

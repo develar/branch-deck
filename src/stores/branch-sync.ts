@@ -3,6 +3,7 @@ import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
 import type {
+  ErrorCode,
   ActionState,
   AutosquashPlan,
   BranchError,
@@ -184,6 +185,11 @@ export interface BranchSyncState {
    */
   syncCount: number
   syncError: string | null
+  /**
+   * The code of the error of the last run of the session when it failed (`SyncState::Failed`): `no_identity` is the git
+   * alert's (`GitSetupAlert`), not the error alert's; null otherwise
+   */
+  syncErrorCode: ErrorCode | null
   /** The last sync git refused before it built anything (a rebase in progress, a detached HEAD); null otherwise */
   syncDeferred: SyncDeferral | null
   /** What the running sync of the session does; null while none runs */
@@ -316,6 +322,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   isSyncing: false,
   syncCount: 0,
   syncError: null,
+  syncErrorCode: null,
   syncDeferred: null,
   syncStep: null,
   syncedRepositoryPath: null,

@@ -18,7 +18,7 @@ import {
 } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
-import { holdCommand, holdNextAnswer, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import { recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -45,7 +45,7 @@ async function addRecentProject(page: Page, path: string): Promise<void> {
   await page.addInitScript(path => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const projects = (window as any).__TAURI_STORE__.recentProjects
-    projects.push({ path, cachedBranchPrefix: { prefix: "user-name", source: "repository_config" } })
+    projects.push({ path })
   }, path)
 }
 
@@ -112,18 +112,18 @@ test.describe("Onboarding", () => {
   test("names the branches by the repository's own prefix over the app's, and says so in Settings", async ({ page, setupRepo, testStore }) => {
     // the template sets branchdeck.branchPrefix user-name in .git/config
     const repo = await setupRepo("simple", { prepopulateStore: true })
-    // the main window asks Rust again once the writer has the app's prefix
-    const resolved = page.waitForResponse(response => response.url().endsWith("/invoke/resolve_branch_prefix") && response.request().postDataJSON().repositoryPath === repo.path)
+    await expect(page.getByTestId("ready-to-sync-card")).toContainText("user-name/virtual/<name>")
+    // the main window subscribes again once the writer has the app's prefix, holding the view it shows
+    const resubscribed = page.waitForRequest(request => request.url().endsWith("/invoke/subscribe_view") && request.postDataJSON().have !== undefined)
     const settings = await saveAppPrefix(page, "jane")
     await expect.poll(async () => ((await testStore.get("appSettings")) as { globalUserBranchPrefix?: string } | null)?.globalUserBranchPrefix).toBe("jane")
-    // Rust resolves the repository's own prefix over the app's, and names its source
-    expect(await (await resolved).json()).toEqual({ prefix: "user-name", source: "repository_config" })
+    expect((await resubscribed).postDataJSON()).toMatchObject({ repositoryPath: repo.path })
     const setting = settings.getByTestId("setting-branch-prefix")
     await expect(setting).toContainText("Branches are named jane/virtual/<name>")
     await expect(settings.getByTestId("setting-branch-prefix-repository")).toContainText("This repository uses its own prefix user-name")
 
-    // the main window names the branches of the repository by its own prefix; the sync names only the repository, Rust
-    // resolves the same prefix for it
+    // the session of the subscription is the one of the repository's own prefix, which Rust resolves over the app's: the
+    // main window names the branches by it; the sync names only the repository, Rust resolves the same prefix for it
     await expect(page.getByTestId("ready-to-sync-card")).toContainText("user-name/virtual/<name>")
     const sync = page.waitForRequest(request => request.url().endsWith("/invoke/sync"))
     await page.getByTestId("ready-to-sync-button").click()
@@ -237,10 +237,9 @@ test.describe("Onboarding", () => {
     const synced = await viewEpoch(page)
     expect(synced).toBeDefined()
 
-    // Auto-sync on Focus off: the focus only resolves the prefix again, and the sync of the new session is the held open
-    await emitTauriEvent(page, "auto_sync_on_focus_toggled", false)
-    await waitForStorePersistence(page, "appSettings", settings => (settings as { autoSyncOnFocus?: boolean } | undefined)?.autoSyncOnFocus === false)
-    // a prefix set in a terminal is another session, which has no table yet; the window saw a sync end already
+    // a prefix set in a terminal is another session, which has no table yet; the window saw a sync end already. The
+    // check of the focus finds it (`prefix_changed`), the window subscribes again, and the sync of the new session is
+    // the held open
     await repo.setBranchPrefixInTerminal("team")
     await repo.holdRemoteAnswers({ hold: ["sync"] })
     await emitTauriEvent(page, "tauri://focus")
@@ -426,45 +425,21 @@ test.describe("Sync on focus", () => {
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(syncs))
   })
 
-  /**
-   * Sets the prefix of the repository in a terminal and focuses the window while the resolve of the prefix waits past
-   * the debounce of the focus (100 ms): held in its request, the server has not read the config, and the focus checks
-   * the session of the old prefix; held in its answer, the focus finds the session of the new one not open yet. Either
-   * way the window ends on the session of the new prefix, synced once as an opened one
-   */
-  async function focusAfterPrefixSetInTerminal(page: Page, repo: TestRepositoryBuilder, held: "request" | "answer"): Promise<void> {
+  test("syncs the session of a prefix set in a terminal once the focus finds it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the template sets branchdeck.branchPrefix user-name in .git/config
+    const repo = await setupRepo("simple")
+    await syncAndWaitForBranches()
     const synced = await viewEpoch(page)
     expect(synced).toBeDefined()
     await repo.setBranchPrefixInTerminal("team")
     const syncs = await recordCommand(page, "sync")
-    const release = held === "request" ? await holdCommand(page, "resolve_branch_prefix") : (await holdNextAnswer(page, "resolve_branch_prefix")).release
-    const focused = page.waitForResponse(response => response.url().endsWith("/invoke/set_window_focus") && (response.request().postDataJSON() as { focused: boolean }).focused)
+    // the check of the focus reads the inputs of the old session, the prefix among them: its run answers
+    // `prefix_changed`, and the window subscribes again, holding the view it shows
+    const resubscribed = page.waitForRequest(request => request.url().endsWith("/invoke/subscribe_view") && request.postDataJSON().have !== undefined)
     await emitTauriEvent(page, "tauri://focus")
-    await focused
-    release()
+    await resubscribed
 
     await expectTeamSessionSyncedOnOpen(page, repo, synced, syncs)
-  }
-
-  test("syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its request", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    // the template sets branchdeck.branchPrefix user-name in .git/config
-    const repo = await setupRepo("simple")
-    await syncAndWaitForBranches()
-    await focusAfterPrefixSetInTerminal(page, repo, "request")
-  })
-
-  test("syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its answer", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    const repo = await setupRepo("simple")
-    await syncAndWaitForBranches()
-    await focusAfterPrefixSetInTerminal(page, repo, "answer")
   })
 
   test("tells the session the focus, which syncs nothing once Auto-sync on Focus is off", async ({ page, setupRepo, syncAndWaitForBranches }) => {

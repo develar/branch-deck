@@ -4,7 +4,7 @@ import { branchPreviewStore, closeBranchPreview, openBranchPreview } from "@/sto
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
 function selectProject(path: string) {
-  repositorySettingsStore.setState({ items: [{ path, cachedBranchPrefix: undefined }] })
+  repositorySettingsStore.setState({ items: [{ path }] })
 }
 
 describe("branch preview", () => {

@@ -76,6 +76,10 @@ test.describe("The warm start", () => {
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
     await expect(page.locator("[data-cached]")).toHaveCount(0)
     expect(await branchTree(page)).toEqual(FRAME_TREE)
+    // after the rows too, the page reads no prefix of its own: the view of the session names it
+    const asked = await page.evaluate(() => Object.keys((window as unknown as { __ipcStats: FirstRowsIpc }).__ipcStats.invokes))
+    expect(asked).toContain("subscribe_view")
+    expect(asked).not.toContain("resolve_branch_prefix")
 
     // the next start shows the frame the sync saved, the same way
     await reloadWarm(page, repo)

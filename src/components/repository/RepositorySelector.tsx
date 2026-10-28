@@ -44,7 +44,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
         value: invalidPath,
         // the message of the error, under the path
         error: pathValidation.errorDetails ?? pathValidation.error,
-        project: { path: invalidPath, cachedBranchPrefix: undefined },
+        project: { path: invalidPath },
       })
     }
     return result
@@ -58,7 +58,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
       return
     }
     // the path is validated explicitly on browse; an invalid saved path is reported on prefix load or sync
-    const project = items.find(item => item.value === newValue)?.project ?? { path: newValue, cachedBranchPrefix: undefined }
+    const project = items.find(item => item.value === newValue)?.project ?? { path: newValue }
     selectProject(project)
   }
 

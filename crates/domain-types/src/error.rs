@@ -280,8 +280,12 @@ pub enum ErrorCode {
   OtherVolume,
   /// `bd lease get`: the volume of the pool has less free space than `branchdeck.leaseMinFree` or `--min-free` asks
   LowDiskSpace,
-  /// No usable git executable
+  /// No usable git executable: none found, or one older than the minimum (the message says which and how to install
+  /// or upgrade Git)
   GitNotFound,
+  /// Git cannot form the identity of the user (`git var GIT_COMMITTER_IDENT`: `user.name` or `user.email` unset), which
+  /// the notes and the rewritten commits are written with: nothing was written; set both, then run again
+  NoIdentity,
   /// A git command failed
   GitError,
   /// A network command (fetch, push) failed
@@ -319,7 +323,8 @@ impl ErrorCode {
       | Self::LeaseMismatch
       | Self::NotASlot
       | Self::SlotInPool
-      | Self::NotParked => 2,
+      | Self::NotParked
+      | Self::NoIdentity => 2,
       Self::HeadMoved
       | Self::GroupsMoved
       | Self::StacksMoved
@@ -533,6 +538,9 @@ pub enum ErrorDetails {
   Busy { holder: Option<Box<OperationHolder>> },
   /// What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference`
   Landing { refusals: Vec<LandingRefusal> },
+  /// The prefix to suggest where none names the branches (`no_branch_prefix` of the app): the local part of the
+  /// committer email of git, without a `+tag`, as a branch name; empty when git names no email
+  PrefixSuggestion { prefix: String },
 }
 
 /// The holder of the repository lock as the page names it: "`bd push auth` (pid 4242) has held the repository for 40 s"

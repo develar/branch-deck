@@ -364,8 +364,8 @@ impl Actor {
 
   /// The session opens: seeded from `preloaded` (the frame the start of the app read, `Sessions::open_seeded`) or else
   /// from the frame of its worktree the host has, when it is of its key and schema, the view of the frame at the first
-  /// version of the epoch; a worktree synced before syncs at once (`SyncReason::Open`), with or without a window, so its
-  /// first sync runs while a window loads
+  /// version of the epoch, else the view of its empty table, whose header names its prefix; a worktree synced before
+  /// syncs at once (`SyncReason::Open`), with or without a window, so its first sync runs while a window loads
   async fn open(&mut self, preloaded: Option<CachedSession>) {
     let (host, key, read) = (Arc::clone(&self.host), self.key.clone(), preloaded.is_none());
     let opened = tokio::task::spawn_blocking(in_current_span(move || (read.then(|| host.frame(&key)).flatten(), host.synced_before(&key)))).await;
@@ -373,10 +373,13 @@ impl Actor {
       return;
     };
     self.synced_before = synced_before;
+    let epoch = self.view.version().epoch;
     if let Some(frame) = preloaded.or(frame).filter(|frame| frame.seeds(&self.key)) {
       (self.state, self.facts) = frame.seed();
-      self.view = View::seeded(self.view.version().epoch, &self.state, &self.facts);
+      self.view = View::seeded(epoch, &self.state, &self.facts);
       self.frames.keeps = true;
+    } else {
+      self.view = View::opened(epoch, &self.state, &self.facts);
     }
     if synced_before {
       let waiter = Waiter::unheard(&self.life);

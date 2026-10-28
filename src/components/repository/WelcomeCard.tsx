@@ -8,18 +8,19 @@ import { BranchPrefixHelpDialog } from "@/components/repository/BranchPrefixHelp
 import { CommandLine } from "@/components/shared/CommandLine"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
-import { useRepository } from "@/stores/repository"
+import { useSessionFailure } from "@/stores/repository"
 import { setGlobalUserBranchPrefix } from "@/stores/settings/appSettings"
 
 interface WelcomeCardProps {
+  /**
+   * A repository is selected, whose session has no prefix (`no_branch_prefix`): the card asks for the prefix. Without
+   * one, it asks for the repository, whose session says whether it has a prefix
+   */
   hasRepository: boolean
-  hasBranchPrefix: boolean
 }
 
-export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps) {
+export function WelcomeCard({ hasRepository }: WelcomeCardProps) {
   const [helpOpen, setHelpOpen] = useState(false)
-  // the steps shown are numbered from 1: with a repository selected, the prefix is the first step
-  const prefixStep = hasRepository ? 1 : 2
   return (
     <div>
       <Card data-testid="welcome-card">
@@ -35,7 +36,7 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
           <p className="text-muted-foreground">
             {hasRepository
               ? "You're almost ready: choose your branch prefix to start managing your branches."
-              : "Work on one branch, get a real Git branch per feature. Two steps to start:"}
+              : "Work on one branch, get a real Git branch per feature. Select a repository to start:"}
           </p>
 
           <div className="flex flex-col gap-3">
@@ -45,8 +46,8 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
               </Step>
             )}
 
-            {!hasBranchPrefix && (
-              <Step number={prefixStep} title="Choose your branch prefix">
+            {hasRepository && (
+              <Step number={1} title="Choose your branch prefix">
                 <p className="text-sm text-muted-foreground">
                   {"Your branches are named "}
                   <InlineCode>{"<prefix>/virtual/<name>"}</InlineCode>: a personal prefix, like your username, keeps them apart from the branches of others.
@@ -67,9 +68,9 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
           </div>
 
           <p className="text-sm text-muted-foreground">
-            {hasBranchPrefix
-              ? "Once you select a repository, you can sync your branches and start organizing your commits."
-              : "Once it is set, you can sync your branches and start organizing your commits."}
+            {hasRepository
+              ? "Once it is set, you can sync your branches and start organizing your commits."
+              : "Once you select a repository, you can sync your branches and start organizing your commits."}
           </p>
         </CardContent>
       </Card>
@@ -78,10 +79,14 @@ export function WelcomeCard({ hasRepository, hasBranchPrefix }: WelcomeCardProps
   )
 }
 
-/** The prefix, pre-filled with the one git suggests (the local part of the user's email), saved only on Save */
+/**
+ * The prefix, pre-filled with the one git suggests (the local part of the user's email, which the refusal of the
+ * session without a prefix carries), saved only on Save
+ */
 function BranchPrefixForm() {
-  const suggestion = useRepository(state => state.gitSetup?.suggested_branch_prefix ?? "")
-  // null until the user types: the suggestion may arrive after the card
+  const failure = useSessionFailure()
+  const suggestion = failure?.details?.type === "prefixSuggestion" ? failure.details.prefix : ""
+  // null until the user types: the suggestion of another refusal (a focus asks again) may come after the card
   const [draft, setDraft] = useState<string | null>(null)
   const value = draft ?? suggestion
   const prefix = normalizeBranchPrefix(value)

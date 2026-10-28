@@ -47,6 +47,11 @@ pub const JOURNAL_PATHS_KEY: &str = "journalPaths";
 /// the file without them. `activity`: the log of Activity, which the journals keep now (`operations::journal`)
 const RETIRED_KEYS: &[&str] = &["activity"];
 
+/// The fields of a project of `recentProjects` that a settings file of before kept and no version reads any more: a
+/// load drops them the same way. `cachedBranchPrefix`: the prefix the main window resolved last, which the view of the
+/// session of the repository carries now (`TableHeader.prefix`)
+const RETIRED_PROJECT_FIELDS: &[&str] = &["cachedBranchPrefix"];
+
 /// Why the text of a settings file is no settings
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -92,6 +97,13 @@ impl SettingsFile {
     };
     for key in RETIRED_KEYS {
       other.remove(*key);
+    }
+    if let Some(Value::Array(projects)) = other.get_mut(RECENT_PROJECTS_KEY) {
+      for project in projects.iter_mut().filter_map(Value::as_object_mut) {
+        for field in RETIRED_PROJECT_FIELDS {
+          project.remove(*field);
+        }
+      }
     }
     let app = match other.remove(APP_SETTINGS_KEY) {
       None => AppSettings::default(),

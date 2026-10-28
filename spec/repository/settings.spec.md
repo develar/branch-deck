@@ -540,34 +540,38 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   resolve it per command, with the app's prefix of the settings
   when the command starts and the git prefix of a memo by repository path (`BranchPrefixes` in
   `crates/app-settings/src/branch_prefixes.rs`, a state of the app and of the E2E server), so a command pays no git
-  process for it. Each read of the git config keeps its git prefix there: the page's `resolve_branch_prefix`, the config
-  snapshot of every sync of a session, and a write of `branchdeck.branchPrefix` in
+  process for it. Each read of the git config keeps its git prefix there: the subscription of a window, which reads the
+  config now (`session_key_now`), the `resolve_branch_prefix` of Settings, the config snapshot of every sync of a
+  session, and a write of `branchdeck.branchPrefix` in
   Settings → Repository (a write to the global config forgets every repository's). The views of the last sync are kept
   by the resolved prefix; a sync of a repository without a prefix is refused ("Cannot sync without a branch prefix: set
   one in Settings → General"). The commands of Patronus, of a push, of a pull request, of the branch review and of the
   independence of a stack name the repository only too and resolve the prefix the same way (`PrefixInputs` of
   `crates/app-api/src/context.rs`, [Patronus](../branch/patronus.spec.md)). The conflict fix
-  (`find_conflict_fix`), whose parameters `bd` shares, gets the prefix the page shows, the last answer of
-  `resolve_branch_prefix`.
+  (`find_conflict_fix`), whose parameters `bd` shares, gets the prefix the page shows, the one of the view of its
+  session.
   [@test] ../../crates/app-settings/src/branch_prefixes_test.rs (`git_is_read_once_per_repository_and_the_app_prefix_of_each_command_applies`, `a_failed_read_keeps_nothing`, `a_refresh_replaces_the_git_prefix_and_a_clear_forgets_every_repository`)
   [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_sync_names_the_branches_by_the_app_prefix_where_the_repository_sets_none`, `the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_the_prefix_alone`)
   [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`)
-- The page shows the names with what Rust resolved, deciding nothing: the main window asks `resolve_branch_prefix` for
-  the selected repository on open, on a switch, on the window's focus, after a write of the key in Settings →
-  Repository (`repository_config_changed`), and once the writer has another app prefix (`onWriterChange` of
-  `src/stores/settings/persistent-store.ts`: the change of any window, its own once answered). It keeps the answer
-  until the next one; General shows the repository's own prefix and the global git one from the answer's source.
-  [@test] ../../src/stores/repository.test.ts (`resolves again once the writer has another app prefix, not for a change of another field`)
+- The page shows the names with what Rust resolved, deciding nothing: the main window takes the prefix of the view of
+  the session it subscribed to (`TableHeader.prefix`), which Rust resolves for each subscription from the git config
+  as it is then, and reads none of its own. It subscribes again, holding the view it shows (`resubscribeSession`),
+  after a write of the key in Settings → Repository (`repository_config_changed`), once the writer has another app
+  prefix (`onWriterChange` of `src/stores/settings/persistent-store.ts`: the change of any window, its own once
+  answered), and when a run of its session answers `prefix_changed`: the same session answers nothing new, the session
+  of another prefix its view. General asks `resolve_branch_prefix` itself and shows the repository's own prefix and the
+  global git one from the answer's source.
+  [@test] ../../src/model/store.test.ts (`subscribes again holding its view: the same session answers nothing, another one's view replaces the rows`, `subscribes again when the git config names another prefix than the session's, quietly`)
   [@test] ../../src/stores/settings/persistent-store.test.ts (`tells a reader of Rust the value the writer has: another window's change, its own once answered, no late echo`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`names the branches by the repository's own prefix over the app's, and says so in Settings`, `names the branches by the app's prefix where the repository has none`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should name the branches by the repository's own prefix over the app's, in the main window too`)
-- The main window caches the last answer per repository (`cachedBranchPrefix` of `recentProjects`: a
-  `ResolvedBranchPrefix`), and names the branches by it until the first answer for the selected repository; a switch
-  drops the answer of the repository left. A cached git prefix of before (a text, or `{ prefix, repositoryScoped }`)
-  reads as a prefix of its git config.
-  [@test] ../../src/stores/repository.test.ts (`names the branches by the cached prefix until Rust answers, then by the answer, which it caches`)
-  [@test] ../../src/stores/settings/repositorySettings.test.ts (`keeps the prefix the last resolve answered, with its source`, `reads the git prefix cached before, a text or with its scope, as a prefix of its git config`, `keeps no empty prefix and drops a malformed one, not the project`)
+- No window caches the prefix: the view of a session names it, the frame the warm start shows first too, and a switch
+  forgets the prefix of the repository left with its session. The `cachedBranchPrefix` a settings file of before kept
+  in each project of `recentProjects` is dropped by the load (`RETIRED_PROJECT_FIELDS` of `crates/app-settings/src/file.rs`),
+  so the next save writes the file without it, and the page's schema keeps none.
+  [@test] ../../crates/app-settings/src/file_test.rs (`the_cached_prefix_of_a_project_of_before_is_dropped_by_the_load_and_the_next_save`)
+  [@test] ../../src/stores/settings/repositorySettings.test.ts (`keeps no prefix a window resolved before: the view of the session of the repository names it`)
 
 ## User Experience
 

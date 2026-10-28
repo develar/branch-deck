@@ -1,4 +1,4 @@
-use crate::git_setup::{check_git_setup, suggest_branch_prefix};
+use crate::git_setup::{prefix_suggestion, suggest_branch_prefix};
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_utils::git_test_utils::TestRepo;
 
@@ -12,11 +12,8 @@ fn suggests_the_local_part_of_the_committer_email() {
 }
 
 #[test]
-fn reads_the_identity_of_the_repository() {
+fn suggests_the_prefix_of_the_identity_of_the_repository() {
   let test_repo = TestRepo::new();
-  let setup = check_git_setup(&GitCommandExecutor::new(), test_repo.path().to_str().unwrap());
-  assert_eq!(setup.git_error, None);
-  assert_eq!(setup.identity_error, None);
   // the test repository is configured with the test identity, test@example.com
-  assert_eq!(setup.suggested_branch_prefix, "test");
+  assert_eq!(prefix_suggestion(&GitCommandExecutor::new(), test_repo.path().to_str().unwrap()), "test");
 }

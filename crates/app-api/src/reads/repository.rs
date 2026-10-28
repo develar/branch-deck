@@ -1,5 +1,4 @@
-//! The repository before its commits: is it one, the git setup, the prefix of its branches and its `branchdeck.*`
-//! config
+//! The repository before its commits: is it one, the prefix of its branches and its `branchdeck.*` config
 
 use crate::context::AppContext;
 use crate::operation::run_blocking;
@@ -7,7 +6,6 @@ use domain_types::error::ApiError;
 use domain_types::settings::ResolvedBranchPrefix;
 use serde::Deserialize;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
-use sync_core::git_setup::GitSetup;
 use sync_core::repository_config::{RepositoryConfig, read_repository_config};
 use tracing::instrument;
 
@@ -40,13 +38,6 @@ pub async fn validate_repository_path(_ctx: &AppContext, params: ValidateReposit
     Ok::<_, ApiError>(message)
   })
   .await
-}
-
-/// One `git var` of the identity, of the repository or of the global config (`sync_core::git_setup`)
-#[instrument(skip(ctx))]
-pub async fn check_git_setup(ctx: &AppContext, params: GetBranchPrefixParams) -> Result<GitSetup, ApiError> {
-  let git = ctx.git.clone();
-  run_blocking(move || Ok::<_, anyhow::Error>(sync_core::git_setup::check_git_setup(&git, &params.repository_path))).await
 }
 
 /// The git prefix read now, kept in the memo for the later commands of the repository (`BranchPrefixes::refresh`)

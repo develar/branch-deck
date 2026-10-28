@@ -1,19 +1,14 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
-import type { GitSetup, ResolvedBranchPrefix } from "@/lib/bindings"
-import { appPrefixOf } from "@/lib/branch-prefix"
+import type { ApiError } from "@/lib/bindings"
 import { getErrorDetails, notifyError } from "@/lib/errors"
 import { VcsRequestFactory } from "@/lib/git/vcs-request"
 import { repositoryName } from "@/lib/repository-config"
-import { onWriterChange, snapshotValueOf } from "@/stores/settings/persistent-store"
-import { getRecentProjects, repositorySettingsStore, setRecentProjects, updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
+import { getRecentProjects, setRecentProjects, useRecentProjects } from "@/stores/settings/repositorySettings"
 import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
 import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 import type { RepositoryStateEntry } from "@/stores/settings/repositoryState"
-
-/** No prefix: a repository git cannot read (the error is shown through `pathValidation`), or one nothing sets a prefix for */
-export const NO_BRANCH_PREFIX: ResolvedBranchPrefix = { prefix: "", source: "none" }
 
 export interface PathValidation {
   valid: boolean
@@ -21,17 +16,31 @@ export interface PathValidation {
 
   error?: string | null
   errorDetails?: string | null
+  /**
+   * The subscription of the window found it: the repository git cannot read (it went away, it is no repository any
+   * more); the next answer of a subscription replaces it
+   */
+  ofSession?: boolean
 }
 
 export interface RepositoryState {
+  /**
+   * Whether the selected repository can be read: what browsing found of the path picked (`browse_repository`), else
+   * what the subscription of its session failed with (`ofSession`)
+   */
   pathValidation: PathValidation
   /**
-   * The prefix the branches of the selected repository are named with, as Rust resolves it (`resolve_branch_prefix`),
-   * with its source; null until the first answer for the repository, while its cached prefix names the branches
+   * The prefix the branches of the selected repository are named with, as the view of its session names it
+   * (`TableHeader.prefix`: what Rust resolved for the subscription of the window, `src/model/store.ts`); null until the
+   * subscription answers, "" when it failed
    */
-  branchPrefix: ResolvedBranchPrefix | null
-  /** Git, the git identity and the suggested branch prefix (`check_git_setup`); `null` until the first check returns */
-  gitSetup: GitSetup | null
+  branchPrefix: string | null
+  /**
+   * Why the subscription of the window to the session of the selected repository failed, by its code: no branch prefix
+   * (`no_branch_prefix`, the welcome card, with the prefix git suggests), no usable git (`git_not_found`,
+   * `GitSetupAlert`), a repository git cannot read (its error alert); null while it holds or has not answered
+   */
+  sessionFailure: ApiError | null
 }
 
 /**
@@ -41,7 +50,7 @@ export interface RepositoryState {
 export const repositoryStore = createStore<RepositoryState>(() => ({
   pathValidation: { valid: true },
   branchPrefix: null,
-  gitSetup: null,
+  sessionFailure: null,
 }))
 
 export function useRepository<T>(selector: (state: RepositoryState) => T): T {
@@ -106,37 +115,51 @@ export function useSelectedProjectField<K extends keyof ProjectMetadata>(field: 
   return useRecentProjects(projects => projects[0]?.[field])
 }
 
-// ---- effective branch prefix ----
+// ---- the branch prefix and the session ----
 
-/** The prefix of the selected repository: the last answer of Rust, else the one cached for the repository until it answers */
-function effectiveBranchPrefix(branchPrefix: ResolvedBranchPrefix | null, cachedBranchPrefix: ResolvedBranchPrefix | undefined): ResolvedBranchPrefix {
-  return branchPrefix ?? cachedBranchPrefix ?? NO_BRANCH_PREFIX
+/**
+ * What the subscription of the window to the session of the selected repository answered: the prefix of its view, or
+ * why it failed (the model store tells it, `src/model/store.ts`); both null while no subscription answered
+ */
+export function setSessionAnswer(branchPrefix: string | null, sessionFailure: ApiError | null): void {
+  const state = repositoryStore.getState()
+  if (state.branchPrefix === branchPrefix && state.sessionFailure === sessionFailure) {
+    return
+  }
+  // a repository git cannot read is a problem of the path, as browsing finds one: the selector, the header and Sync say
+  // so; no prefix (the welcome card) and no git (the git alert) are not
+  const ofPath = sessionFailure !== null && sessionFailure.code !== "no_branch_prefix" && sessionFailure.code !== "git_not_found"
+  let pathValidation = state.pathValidation
+  if (ofPath) {
+    pathValidation = { valid: false, error: sessionFailure.message, errorDetails: sessionFailure.message, ofSession: true }
+  } else if (pathValidation.ofSession === true) {
+    pathValidation = { valid: true }
+  }
+  repositoryStore.setState({ branchPrefix, sessionFailure, pathValidation })
 }
 
-/** Whether the first answer of Rust for the selected repository is still out */
-export function useIsLoadingBranchPrefix(): boolean {
+/** Why the subscription of the selected repository failed ({@link RepositoryState.sessionFailure}); null otherwise */
+export function useSessionFailure(): ApiError | null {
+  return useRepository(state => state.sessionFailure)
+}
+
+/** Whether the prefix of the selected repository is still unknown: its subscription has not answered */
+export function useIsSubscribing(): boolean {
   return useRepository(state => state.branchPrefix === null)
 }
 
 /**
- * The prefix the branches of the selected repository are named with, and its source: what Rust resolved (the
- * repository's own git prefix, else the app's, else the global git prefix), shown as it is. Every command of the sync
- * family resolves it again in Rust; the page decides nothing by it
+ * The prefix the branches of the selected repository are named with: the one of the view of its session (the
+ * repository's own git prefix, else the app's, else the global git prefix, as Rust resolved it); "" without one. The
+ * page decides nothing by it: every command of the repository resolves it in Rust again
  */
-export function useResolvedBranchPrefix(): ResolvedBranchPrefix {
-  const branchPrefix = useRepository(state => state.branchPrefix)
-  const cachedBranchPrefix = useRecentProjects(projects => projects[0]?.cachedBranchPrefix)
-  return effectiveBranchPrefix(branchPrefix, cachedBranchPrefix)
-}
-
-/** The prefix the branches of the selected repository are named with ({@link useResolvedBranchPrefix}) */
 export function useEffectiveBranchPrefix(): string {
-  return useResolvedBranchPrefix().prefix
+  return useRepository(state => state.branchPrefix ?? "")
 }
 
 /** Non-hook variant of {@link useEffectiveBranchPrefix} for event handlers and stores. */
 export function getEffectiveBranchPrefix(): string {
-  return effectiveBranchPrefix(repositoryStore.getState().branchPrefix, getSelectedProject()?.cachedBranchPrefix).prefix
+  return repositoryStore.getState().branchPrefix ?? ""
 }
 
 /** Full git branch name of a virtual branch, e.g. `john/virtual/feature-auth`. */
@@ -159,7 +182,8 @@ function setPathValidation(pathValidation: PathValidation): void {
 
 /**
  * Makes the project the selected one (moves or adds it to the front of the recent projects).
- * The path is not validated here: browse validates explicitly, and an invalid saved path is reported on prefix load or sync.
+ * The path is not validated here: browse validates explicitly, and an invalid saved path is the failure of the
+ * subscription of the window to its session.
  */
 export function selectProject(project: ProjectMetadata, preValidated: PathValidation = { valid: true, error: undefined }): void {
   setPathValidation(preValidated)
@@ -189,7 +213,7 @@ export async function browseRepository(): Promise<void> {
     if (result.status === "ok") {
       const { path, valid, error } = result.data
       if (path) {
-        const project: ProjectMetadata = getRecentProjects().find(it => it.path === path) ?? { path, cachedBranchPrefix: undefined }
+        const project: ProjectMetadata = getRecentProjects().find(it => it.path === path) ?? { path }
         if (error) {
           selectProject(project, { valid, path, error: `Invalid path: ${path}`, errorDetails: getErrorDetails(error) })
         } else {
@@ -206,121 +230,3 @@ export async function browseRepository(): Promise<void> {
     setPathValidation({ valid: false, error: BROWSE_FAILURE, errorDetails: getErrorDetails(error) })
   }
 }
-
-/** Checks the git setup of `project` and resolves its branch prefix; the sync does not wait: it resolves the prefix itself */
-export function triggerBranchPrefixLoad(project: ProjectMetadata | null): void {
-  void loadGitSetup(project)
-  void loadBranchPrefix(project)
-}
-
-/**
- * Resolves the prefix of the selected repository again, keeping the one shown until Rust answers: on the window's
- * focus (a `git config` meanwhile), after a change of the app's prefix, and after a sync refused for it; resolves once
- * the page has the answer
- */
-export function refreshBranchPrefix(): Promise<void> {
-  return loadBranchPrefix(getSelectedProject())
-}
-
-/** Not awaited by sync: a sync without git fails on its own, with the same message */
-async function loadGitSetup(project: ProjectMetadata | null): Promise<void> {
-  const currentPath = project?.path
-  try {
-    const result = await commands.checkGitSetup({ repositoryPath: currentPath || "" })
-    if (getSelectedProject()?.path === currentPath && result.status === "ok") {
-      repositoryStore.setState({ gitSetup: result.data })
-    }
-  } catch (error) {
-    // the check is advisory: whatever it would have found, the branch prefix load and sync report
-    console.warn("Cannot check the git setup", error)
-  }
-}
-
-async function loadBranchPrefix(project: ProjectMetadata | null): Promise<void> {
-  const currentPath = project?.path
-  // the selection may change while the command runs; a stale result must not overwrite the state of the new selection
-  const isStale = () => getSelectedProject()?.path !== currentPath
-  const failed = (error: string, errorDetails: string) => {
-    if (!isStale()) {
-      repositoryStore.setState({ pathValidation: { valid: false, path: currentPath, error, errorDetails }, branchPrefix: NO_BRANCH_PREFIX })
-    }
-  }
-
-  try {
-    const result = await commands.resolveBranchPrefix({ repositoryPath: currentPath || "" })
-    if (result.status === "error") {
-      // repository not accessible; the error message already contains context
-      failed(result.error.message, result.error.message)
-      return
-    }
-
-    if (project != null) {
-      updateProject(project.path, { cachedBranchPrefix: result.data.prefix === "" ? undefined : result.data })
-    }
-    if (!isStale()) {
-      // repository is accessible - clear any previous error; the same values keep their records (a focus asks again)
-      repositoryStore.setState(({ branchPrefix, pathValidation }) => ({
-        branchPrefix: branchPrefix?.prefix === result.data.prefix && branchPrefix.source === result.data.source ? branchPrefix : result.data,
-        pathValidation: pathValidation.valid && pathValidation.error == null ? pathValidation : { valid: true },
-      }))
-    }
-  } catch (error) {
-    failed(`Repository not accessible: ${currentPath}`, getErrorDetails(error))
-  }
-}
-
-// ---- initialization ----
-
-let disposeRepository: (() => void) | null = null
-
-/**
- * Loads the branch prefix of the selected project and reloads it (debounced) whenever the selected path changes,
- * including changes made by another window. Idempotent; called by the main window when the repository UI mounts.
- */
-export function initRepository(): void {
-  if (disposeRepository !== null) {
-    return
-  }
-
-  triggerBranchPrefixLoad(getSelectedProject())
-
-  // the app's prefix as the writer has it: a change of it, from any window, names the branches anew once Rust has it
-  let appPrefix = appPrefixOf(snapshotValueOf("appSettings"))
-  const stopListening = onWriterChange("appSettings", value => {
-    const prefix = appPrefixOf(value)
-    if (prefix !== appPrefix) {
-      appPrefix = prefix
-      void refreshBranchPrefix()
-    }
-  })
-
-  let timer: ReturnType<typeof setTimeout> | undefined
-  // only the path matters: cachedBranchPrefix updates must not trigger a reload
-  const unsubscribe = repositorySettingsStore.subscribe((state, prevState) => {
-    if (state.items[0]?.path === prevState.items[0]?.path) {
-      return
-    }
-
-    // set synchronously so the UI does not render the "loaded" state of the new selection while the timer is pending; the
-    // prefix of the repository left must not name the branches of the new one, its cached prefix does until the load
-    repositoryStore.setState({ branchPrefix: null })
-    clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = undefined
-      // the backend handles invalid paths gracefully with the global fallback
-      triggerBranchPrefixLoad(getSelectedProject())
-    }, 50)
-  })
-
-  disposeRepository = () => {
-    clearTimeout(timer)
-    unsubscribe()
-    stopListening()
-    disposeRepository = null
-  }
-}
-
-// a hot-reloaded module must not leave the previous subscription behind
-import.meta.hot?.dispose(() => {
-  disposeRepository?.()
-})

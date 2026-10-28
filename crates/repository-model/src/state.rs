@@ -65,16 +65,25 @@ impl View {
     }
   }
 
-  /// The view of a session seeded from a frame (`warm_start`): what `state` and `facts` derive, at the first version of
-  /// `epoch`, kept as the seed a window may hold
+  /// The view of a session as it opens: what `state` and `facts` derive, at the first version of `epoch`, so the first
+  /// window that subscribes has the prefix of the session's key in its header (`TableHeader.prefix`, which names the
+  /// branches the page shows) before any sync
   #[must_use]
-  pub fn seeded(epoch: u32, state: &TableState, facts: &FactStore) -> Self {
+  pub fn opened(epoch: u32, state: &TableState, facts: &FactStore) -> Self {
     let mut view = Self::new(epoch);
     let changes = view.changes(state, facts);
     let version = view.version();
     if let Err(rejected) = apply_changes(&mut view.last_sent, version, changes) {
       unreachable!("the changes from the empty view apply to it: {rejected}");
     }
+    view
+  }
+
+  /// The view of a session seeded from a frame (`warm_start`): `opened` on the seeded table and facts, kept as the seed
+  /// a window may hold
+  #[must_use]
+  pub fn seeded(epoch: u32, state: &TableState, facts: &FactStore) -> Self {
+    let mut view = Self::opened(epoch, state, facts);
     view.seed = Some(view.last_sent.clone());
     view
   }

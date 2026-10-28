@@ -201,6 +201,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::SlotInPool
     | ErrorCode::BranchExists
     | ErrorCode::GitNotFound
+    | ErrorCode::NoIdentity
     | ErrorCode::GitError
     | ErrorCode::NetworkError
     | ErrorCode::PatronusError

@@ -60,10 +60,15 @@ pub struct TestSessionEnvironment {
 
 impl SessionEnvironment for TestSessionEnvironment {
   /// The options of a sync of the app; a test that holds the sync runs of the repository (`HeldAnswer::Sync`) sees the
-  /// session's sync running until the release
+  /// session's sync running until the release. A run under a prefix the config left holds nothing: it builds nothing
+  /// and answers `prefix_changed` at once, as the app's does, so the window subscribes to the session of the new prefix,
+  /// whose sync is the one held
   fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
     let state = self.state.upgrade().ok_or_else(|| anyhow::anyhow!("The test server stopped"))?;
-    if let Some(host) = state.repository(&key.worktree).ok().and_then(|repository| repository.existing_remote()) {
+    let prefix = state.branch_prefix_now(&key.worktree)?;
+    if prefix == key.prefix
+      && let Some(host) = state.repository(&key.worktree).ok().and_then(|repository| repository.existing_remote())
+    {
       tokio::runtime::Handle::current().block_on(host.pass_held(HeldAnswer::Sync));
     }
     Ok(RunSetup {
@@ -71,7 +76,7 @@ impl SessionEnvironment for TestSessionEnvironment {
         issue_config: IssueConfigSource::Load,
         ..Default::default()
       },
-      prefix: state.branch_prefix_now(&key.worktree)?,
+      prefix,
     })
   }
 

@@ -652,6 +652,8 @@ async fn a_session_without_subscribers_runs_nothing_and_goes_away() {
   let (_, reopened) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   assert_ne!(reopened.version.epoch, epoch, "a new epoch: a window of the old session asks for a snapshot");
   assert_eq!(reopened.version.seq, 0);
+  // before any sync, the view names the prefix of its key: the page names the branches by it
+  assert_eq!((reopened.header.prefix.as_str(), reopened.header.head.as_str()), ("test", ""));
 }
 
 /// The sessions of a git that counts its processes, Auto-sync on Focus `syncs_on_focus`, with a window on `key`

@@ -10,6 +10,8 @@ use cli_tools::install::ActionError;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_command_executor::StoppedCommand;
+use git_executor::git_info::GitNotFound;
+use git_ops::commit_writer::NoIdentity;
 use git_ops::index_lock::IndexLocked;
 use git_ops::pick::PickRefusal;
 use git_ops::revs::DetachedHead;
@@ -116,9 +118,10 @@ pub fn patronus_error(message: String) -> ApiError {
 }
 
 /// A sync of a repository whose branch prefix resolves to nothing (no app setting, no git config): `no_branch_prefix`,
-/// as `bd` answers it, in words that say where to set one
-pub fn no_branch_prefix() -> ApiError {
-  ApiError::new(ErrorCode::NoBranchPrefix, "Cannot sync without a branch prefix: set one in Settings → General")
+/// as `bd` answers it, in words that say where to set one, with the prefix the git identity suggests (`suggestion`,
+/// `sync_core::git_setup::prefix_suggestion`), which the welcome card offers
+pub fn no_branch_prefix(suggestion: String) -> ApiError {
+  ApiError::new(ErrorCode::NoBranchPrefix, "Cannot sync without a branch prefix: set one in Settings → General").with_details(ErrorDetails::PrefixSuggestion { prefix: suggestion })
 }
 
 /// `api_error` with the clock at `now` (seconds since the epoch), which `held_for` of a lock holder counts from
@@ -178,6 +181,14 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   }
   if let Some(deferred) = error.downcast_ref::<SyncDeferred>() {
     return code(deferred.code());
+  }
+  // the setup of git: no usable git (the page shows its words, the install hint, as they are), no identity to write
+  // the notes and the commits with
+  if error.downcast_ref::<GitNotFound>().is_some() {
+    return code(ErrorCode::GitNotFound);
+  }
+  if error.downcast_ref::<NoIdentity>().is_some() {
+    return code(ErrorCode::NoIdentity);
   }
   if error.downcast_ref::<NoBaseline>().is_some() || error.downcast_ref::<NoUpstream>().is_some() {
     return code(ErrorCode::NoBaseline);

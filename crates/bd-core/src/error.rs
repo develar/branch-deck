@@ -2,6 +2,7 @@ use crate::output::SchemaVersion;
 use crate::review_summary::ReviewSummary;
 use crate::sync_command::RemoteSummary;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, OperationHolder};
+use git_ops::commit_writer::NoIdentity;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::regroup::{FixupRefusal, RegroupError};
 use schemars::JsonSchema;
@@ -134,7 +135,8 @@ impl From<&PushTooLarge> for CliError {
 }
 
 /// A missing baseline (`NoBaseline`, also a repository without commits) is `no_baseline`, a push refused for its size
-/// `push_too_large`; any other git failure, which has no more specific code, is `git_error`
+/// `push_too_large`, a write without the identity of the user (`NoIdentity`) `no_identity`; any other git failure,
+/// which has no more specific code, is `git_error`
 impl From<anyhow::Error> for CliError {
   fn from(error: anyhow::Error) -> Self {
     if let Some(too_large) = error.downcast_ref::<PushTooLarge>() {
@@ -142,6 +144,8 @@ impl From<anyhow::Error> for CliError {
     }
     let code = if error.downcast_ref::<NoBaseline>().is_some() {
       ErrorCode::NoBaseline
+    } else if error.downcast_ref::<NoIdentity>().is_some() {
+      ErrorCode::NoIdentity
     } else {
       error.downcast_ref::<SyncDeferred>().map_or(ErrorCode::GitError, SyncDeferred::code)
     };

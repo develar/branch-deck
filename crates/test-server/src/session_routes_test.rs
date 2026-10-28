@@ -75,7 +75,9 @@ async fn a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app(
 
   let mut messages = subscribe(&client, addr, &id, &path, 8).await;
   let refused = messages.next().await;
-  let error = with_its_operation(no_branch_prefix(), &refused["result"]["error"]);
+  // with the prefix the identity of the repository suggests (the template's committer, test@example.com), for the
+  // welcome card
+  let error = with_its_operation(no_branch_prefix("test".to_owned()), &refused["result"]["error"]);
   assert_eq!(refused, json!({ "result": { "status": "error", "error": error } }));
   assert_eq!(messages.next_or_end().await, None, "the stream ends with the answer");
 
@@ -84,7 +86,7 @@ async fn a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app(
     let response = command(&client, addr, Named::ByPath, name, &params).send().await.unwrap();
     assert_eq!(response.status(), reqwest::StatusCode::OK, "{name}: an error is an answer, not a failure of the server");
     let answer: Value = response.json().await.unwrap();
-    let error = with_its_operation(no_branch_prefix(), &answer["error"]);
+    let error = with_its_operation(no_branch_prefix("test".to_owned()), &answer["error"]);
     assert_eq!(answer, json!({ "status": "error", "error": error }), "{name}");
   }
 }
@@ -195,6 +197,29 @@ async fn a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old
   assert_eq!(synced["outcome"], "synced", "{synced}");
   assert_ne!(synced["version"]["epoch"], first["version"]["epoch"], "another session");
   assert_eq!(revision("team/virtual/test-branch").await.unwrap().status(), 200);
+}
+
+/// The subscription of a window reads the prefix of the config now, as the page asks for no prefix of its own: its view
+/// names the prefix before any sync, and a prefix set in a terminal that no sync read yet opens the session of the next
+/// subscription under it, which the commands after it name too
+#[tokio::test]
+async fn a_subscription_opens_the_session_under_the_prefix_the_config_names_now() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  let mut held = subscribe(&client, addr, &id, &path, 9).await;
+  let first = subscription(&mut held).await;
+  assert_eq!(first["view"]["header"]["prefix"], "user-name", "{first}");
+
+  post(&client, addr, &format!("/repositories/{id}/branch-prefix"), json!({ "prefix": "team" })).await;
+  let mut again = subscribe(&client, addr, &id, &path, 10).await;
+  let subscribed = subscription(&mut again).await;
+  assert_eq!(subscribed["view"]["header"]["prefix"], "team", "{subscribed}");
+  assert_ne!(subscribed["view"]["version"]["epoch"], first["view"]["version"]["epoch"], "another session");
+
+  let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
+  assert_eq!(synced["outcome"], "synced", "{synced}");
+  assert_eq!(synced["version"]["epoch"], subscribed["view"]["version"]["epoch"], "the session of the subscription");
 }
 
 /// The patches on `messages` up to `version`, each on the one before, from `from`

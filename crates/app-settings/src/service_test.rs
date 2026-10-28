@@ -489,11 +489,8 @@ fn a_settings_file_of_before_moves_the_fields_of_a_sync_to_the_repository_state_
 
   let (version, snapshot) = service.snapshot();
   assert_eq!(version, 0);
-  let projects = json!([
-    { "path": "/a", "cachedBranchPrefix": { "prefix": "jane", "source": "app_setting" } },
-    { "path": "/b" },
-    { "path": "/c" },
-  ]);
+  // the cached prefix of before goes with the load too (`RETIRED_PROJECT_FIELDS`)
+  let projects = json!([{ "path": "/a" }, { "path": "/b" }, { "path": "/c" }]);
   assert_eq!(snapshot["recentProjects"], projects);
   let state = json!({
     "/a": { "lastSyncTime": 10, "lastBranchCount": 2, "updateTimings": { "sync": [5] }, "lastFetchTime": 7 },

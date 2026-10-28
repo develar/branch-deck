@@ -29,7 +29,6 @@ import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
 import { setSessionWindowFocus } from "@/model/store"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
-import { initRepository, refreshBranchPrefix } from "@/stores/repository"
 import { useSetupTracking } from "@/stores/setup"
 
 /**
@@ -115,19 +114,14 @@ function useKeptViewPlace() {
  */
 export function IndexPage() {
   // the repository of the window, its sync when the window opens it, and its review status: whichever view shows
-  useEffect(() => {
-    initRepository()
-  }, [])
   useReviewStatusRefresh()
   useSyncOnOpen()
   // "Auto-sync on Focus": the item of the native menu, and the sync when the window gets the focus
   useMenuSync()
+  // the session checks what a sync reads (a `git config` of the prefix too) and answers `prefix_changed` when the
+  // window must subscribe again (`src/model/store.ts`)
   useWindowFocus(
-    () => {
-      // a `git config` meanwhile: the names the page shows; the sync resolves the prefix in Rust itself
-      void refreshBranchPrefix()
-      void debouncedWindowFocus(true)
-    },
+    () => void debouncedWindowFocus(true),
     () => void debouncedWindowFocus(false),
   )
   // "Settings…" (⌘,) of every window and the buttons that open a page of it: only this window opens it, with the

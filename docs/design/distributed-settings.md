@@ -193,9 +193,10 @@ sequenceDiagram
   that each read of the git config refreshes); so do the sync family, Patronus, the push, the pull requests, the branch
   review and the independence of a stack, and the views of the last sync are kept by the prefix resolved. Only the
   unapply, the reapply and the conflict fix still get the prefix the page shows, as their parameters are `bd`'s too. The
-  robot commands read `patronusNewApi` from the writer the same way. The page shows what `resolve_branch_prefix` answers and asks again once the writer has another app prefix
-  (`onWriterChange` of `persistent-store.ts`: the change of another window, its own once answered), never on the change
-  of its store alone, which is before the writer has it ([Settings](../../spec/repository/settings.spec.md#branch-prefix-order)).
+  robot commands read `patronusNewApi` from the writer the same way. The main window shows the prefix of the view of its
+  session (`TableHeader.prefix`) and subscribes again once the writer has another app prefix, Settings shows what
+  `resolve_branch_prefix` answers and asks again then (`onWriterChange` of `persistent-store.ts`: the change of another
+  window, its own once answered), never on the change of its store alone, which is before the writer has it ([Settings](../../spec/repository/settings.spec.md#branch-prefix-order)).
 - Page: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`; one
   `settings_changed` listener per page, started as the module loads (`listeningToSettings`), and the catch-up of a load
   through the version gate (`acceptSettingsChanges`, which `src/lib/sub-window.ts` calls with the answer of

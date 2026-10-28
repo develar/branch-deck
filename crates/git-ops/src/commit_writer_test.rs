@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use crate::commit_writer::NotesOfWritten;
-use crate::commit_writer::{NewCommit, NewParent, StoreCommit, complete_line, write_commits_with_notes, write_store_commits};
+use crate::commit_writer::{NewCommit, NewParent, NoIdentity, StoreCommit, complete_line, current_committer, write_commits_with_notes, write_store_commits};
 use crate::ref_transaction::RefTransaction;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -102,4 +102,15 @@ fn a_write_of_commits_that_loses_the_notes_ref_to_another_writer_goes_once_more_
   assert!(wrapped.marked("moved"));
   assert_eq!(repo.git(&["notes", "show", &initial]).trim(), "other writer");
   assert_eq!(repo.git(&["notes", "show", &written.ids[0]]).trim(), "v-commit-v1:copy", "the rewrite's own note");
+}
+
+/// A committer git cannot form (here an empty name; for a user, no `user.name` or `user.email` git can guess) is
+/// `NoIdentity`, for every write of notes and commits: the code the page shows the two `git config` commands for
+#[test]
+fn a_committer_git_cannot_form_is_no_identity() {
+  let repo = TestRepo::new();
+  let git = repo.git_executor().with_env("GIT_COMMITTER_NAME", "");
+  let error = current_committer(&git, repo.path_str()).unwrap_err();
+  assert!(error.downcast_ref::<NoIdentity>().is_some(), "{error:#}");
+  assert!(current_committer(repo.git_executor(), repo.path_str()).unwrap().contains(" <test@example.com> "));
 }

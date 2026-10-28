@@ -5,11 +5,6 @@
     "transport": "json"
   },
   {
-    "name": "check_git_setup",
-    "class": "read",
-    "transport": "json"
-  },
-  {
     "name": "resolve_branch_prefix",
     "class": "read",
     "transport": "json"

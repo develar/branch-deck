@@ -153,12 +153,7 @@ export async function setupTestRepository(page: Page, templateName: string, opti
         }
         // Otherwise, leave recentProjects empty so welcome card shows
       } else {
-        storeData.recentProjects = [
-          {
-            path: repoBuilder.path,
-            cachedBranchPrefix: { prefix: "user-name", source: "repository_config" },
-          },
-        ]
+        storeData.recentProjects = [{ path: repoBuilder.path }]
       }
       debugLog(`[Test Setup] Created required recentProjects for ${templateName}:`, storeData.recentProjects)
     }

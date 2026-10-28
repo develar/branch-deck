@@ -1,9 +1,10 @@
 //! What a command of the app runs with: one [`AppContext`] per app, which the app builds once when it starts
 //! (`src-tauri/src/lib.rs`) and the e2e server once per test repository (`crates/test-server/src/lib.rs`, the app of
 //! one test). A command names the repository it reads in its arguments: the context has no "current" one; the key of
-//! the session of a repository is built here alone (`session_key`), for the frame of a session command (`registry.rs`).
+//! the session of a repository is built here alone (`session_key`, `session_key_now`), for the frame of a session
+//! command (`registry.rs`).
 
-use crate::api_error::no_branch_prefix;
+use crate::api_error::{api_error, no_branch_prefix};
 use crate::app::cli_tools::CliToolsState;
 use crate::app::windows::SubWindowState;
 use crate::operation::run_blocking;
@@ -25,6 +26,7 @@ use remote_facts::service_sources::ServiceHost;
 use repository_model::session::{SessionKey, Sessions};
 use std::sync::Arc;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
+use sync_core::git_setup::prefix_suggestion;
 
 /// The state every command of the app shares. A host differs only in what it puts here: the e2e server gives a test the
 /// git of a test machine (its own global config, no system config), its settings, its own memory of the diffs, the
@@ -85,19 +87,25 @@ impl AppContext {
   }
 
   /// The key of the session of `repository_path`: the path as the window names it and the prefix the commands resolve
-  /// (`PrefixInputs`, in a blocking step); refused without a prefix (`no_branch_prefix`)
+  /// (`PrefixInputs::branch_prefix`, the git prefix of the memo, in a blocking step); refused without a prefix
+  /// (`no_branch_prefix`)
   ///
   /// # Errors
   /// The repository is not accessible, or has no prefix
   pub async fn session_key(&self, repository_path: &str) -> Result<SessionKey, ApiError> {
-    let prefix = self.prefix_inputs().resolve(repository_path).await?;
-    if prefix.is_empty() {
-      return Err(no_branch_prefix());
-    }
-    Ok(SessionKey {
-      worktree: repository_path.to_owned(),
-      prefix,
-    })
+    key_of(self.prefix_inputs(), repository_path, PrefixInputs::branch_prefix).await
+  }
+
+  /// `session_key` by the git config read now (`PrefixInputs::branch_prefix_now`): the subscription of a window, which
+  /// opens the session of the repository under the prefix its config names now, also after a `git config` in a
+  /// terminal that no sync read yet, and the warm start of the app; the commands after it resolve by the memo it
+  /// refreshed. A missing or too old git is `git_not_found`, an inaccessible repository its error: the page shows either
+  /// by its code
+  ///
+  /// # Errors
+  /// Git is missing, the repository is not accessible, or it has no prefix
+  pub async fn session_key_now(&self, repository_path: &str) -> Result<SessionKey, ApiError> {
+    key_of(self.prefix_inputs(), repository_path, PrefixInputs::branch_prefix_now).await
   }
 
   /// The call of a command of the window `label`, before the command awaits anything (`Windows::call`)
@@ -131,6 +139,20 @@ impl AppContext {
   }
 }
 
+/// The key of `repository_path` under the prefix `prefix_of` resolves, in a blocking step; refused without one
+/// (`no_branch_prefix`), with the prefix the git identity suggests, which the welcome card offers
+async fn key_of(inputs: PrefixInputs, repository_path: &str, prefix_of: fn(&PrefixInputs, &str) -> anyhow::Result<String>) -> Result<SessionKey, ApiError> {
+  let worktree = repository_path.to_owned();
+  run_blocking(move || {
+    let prefix = prefix_of(&inputs, &worktree).map_err(api_error)?;
+    if prefix.is_empty() {
+      return Err(no_branch_prefix(prefix_suggestion(&inputs.git, &worktree)));
+    }
+    Ok(SessionKey { worktree, prefix })
+  })
+  .await
+}
+
 /// What a command of a repository resolves the prefix of its branches with: git, the settings when the command started
 /// (the app's prefix), the memo of git prefixes
 pub struct PrefixInputs {
@@ -153,6 +175,14 @@ impl PrefixInputs {
   pub fn branch_prefix(&self, repository_path: &str) -> anyhow::Result<String> {
     let read_git = || get_branch_prefix_from_git_config_sync(&self.git, repository_path);
     Ok(self.prefixes.resolve(&self.settings, repository_path, read_git)?.prefix)
+  }
+
+  /// The prefix of `repository_path` by its git config read now, kept in the memo for the commands after it: what the
+  /// subscription of a window opens its session under (`AppContext::session_key_now`). Blocking: call within
+  /// `run_blocking`
+  pub fn branch_prefix_now(&self, repository_path: &str) -> anyhow::Result<String> {
+    let git_prefix = get_branch_prefix_from_git_config_sync(&self.git, repository_path)?;
+    Ok(self.refreshed(repository_path, git_prefix).prefix)
   }
 
   /// `branch_prefix` for an async command, in a blocking step

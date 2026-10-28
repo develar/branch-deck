@@ -5,7 +5,7 @@ import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { TestRepositoryBuilder } from "../helpers/test-repository"
 
 test.describe("Welcome Card", () => {
-  test("shows welcome card for new users without branch prefix", async ({ page, setupRepo }) => {
+  test("shows the welcome card for new users, which asks for the repository first", async ({ page, setupRepo }) => {
     await setupRepo("NO_REPO", {
       prepopulateStore: false, // Don't auto-populate store so welcome card shows
     })
@@ -13,17 +13,17 @@ test.describe("Welcome Card", () => {
     // Verify the welcome card structure using HTML snapshot
     const welcomeCard = page.locator('[data-testid="welcome-card"]')
     await expect(welcomeCard).toBeVisible()
-    await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
-    // the prefix field is pre-filled once git's suggestion answers, after the card
-    await expect(welcomeCard.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test-user")
+    // the session of the repository says whether it has a prefix: the prefix step comes with a repository without one
+    await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1"])
+    await expect(welcomeCard.getByRole("heading", { name: "Select a Git repository" })).toBeVisible()
+    await expect(welcomeCard.getByRole("textbox", { name: "Branch prefix to save" })).toHaveCount(0)
 
     await captureHtmlSnapshot(welcomeCard, "welcome-card-new-user")
   })
 
   test("opens branch prefix help modal from welcome card", async ({ page, setupRepo }) => {
-    await setupRepo("NO_REPO", {
-      prepopulateStore: false, // Don't auto-populate store so welcome card shows
-    })
+    // a repository without a prefix: the welcome card asks for one
+    await setupRepo("simple_no_prefix", { prepopulateStore: true })
 
     // Wait for welcome card to be visible
     const welcomeCard = page.locator('[data-testid="welcome-card"]')
@@ -38,7 +38,7 @@ test.describe("Welcome Card", () => {
   })
 
   test("opens Settings at the field of the prefix from the guide, and at the one of the repository", async ({ page, setupRepo }) => {
-    await setupRepo("NO_REPO", { prepopulateStore: false })
+    await setupRepo("simple_no_prefix", { prepopulateStore: true })
     await page.getByRole("button", { name: "View guide" }).click()
     const guide = page.getByTestId("branch-prefix-help-dialog")
     await guide.getByRole("button", { name: "Open Settings" }).click()

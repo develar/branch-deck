@@ -17,13 +17,11 @@ macro_rules! for_each_command {
       /// Returns empty string if valid, error message if invalid
       read json validate_repository_path(params: $crate::reads::repository::ValidateRepositoryPathParams) -> String = $crate::reads::repository::validate_repository_path;
 
-      /// Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change
-      read json check_git_setup(params: $crate::reads::repository::GetBranchPrefixParams) -> sync_core::git_setup::GitSetup = $crate::reads::repository::check_git_setup;
-
       /// The prefix the branches of the repository are named with, with where it came from: its git config read now (the
       /// global config alone for an empty path), which every later command of the repository resolves with
-      /// (`BranchPrefixes`), and the app's prefix of the settings. The page shows the names with it, on open, on focus and
-      /// after a change of either prefix; an inaccessible repository is an error
+      /// (`BranchPrefixes`), and the app's prefix of the settings. Only the Settings window asks it (General names the
+      /// repository's own prefix and the global one by their source); the main window takes the prefix of the view of its
+      /// session (`TableHeader.prefix`). An inaccessible repository is an error
       read json resolve_branch_prefix(params: $crate::reads::repository::GetBranchPrefixParams) -> domain_types::settings::ResolvedBranchPrefix = $crate::reads::repository::resolve_branch_prefix;
 
       /// The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository
@@ -117,8 +115,9 @@ macro_rules! for_each_command {
       /// the subscription (the view, the patch from the seed, or nothing when it holds that view), the channel every patch
       /// after it until `unsubscribe_view`, the window's close or its next page load. While it lasts, the operations registry
       /// of the repository is watched (`Registry::subscribe`): the operations of `bd` show in the view, and a stamp of `bd`
-      /// syncs the session
-      read session(window) subscribe_view(params: domain_types::session::SubscribeViewParams) [channel patches: domain_types::session::ViewPatch, open] -> domain_types::session::ViewSubscription = $crate::session::view::subscribe_view;
+      /// syncs the session. The session is the one of the prefix the git config names now (`AppContext::session_key_now`),
+      /// which the view names (`TableHeader.prefix`): the page reads no prefix of its own
+      read session(now, window) subscribe_view(params: domain_types::session::SubscribeViewParams) [channel patches: domain_types::session::ViewPatch, open] -> domain_types::session::ViewSubscription = $crate::session::view::subscribe_view;
 
       /// Ends a subscription of the calling window; the last one of a session makes it idle
       read now unsubscribe_view(params: $crate::session::view::UnsubscribeViewParams) = $crate::session::view::unsubscribe_view;

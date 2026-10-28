@@ -1,53 +1,25 @@
-//! What the first run needs from git, before anything else runs: git itself, the identity Branch Deck writes notes and
-//! rewritten commits with (one `git var`), and a branch prefix to suggest.
+//! The branch prefix to suggest where none names the branches: the local part of the committer email of git, which the
+//! refusal of a session without a prefix carries (`no_branch_prefix`) for the welcome card. Git itself and the identity
+//! are no check of their own: a command that finds no git answers `git_not_found`, a write that git cannot sign with
+//! the user's name `no_identity`.
 
 use domain_types::branch_names::sanitize_branch_name;
 use git_executor::git_command_executor::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-/// What the first run needs from git, checked before anything else runs: git itself, the identity that Branch Deck
-/// writes its notes and rewritten commits with, and a branch prefix to suggest
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-pub struct GitSetup {
-  /// Git is missing or too old: a summary line, then how to install or upgrade it
-  pub git_error: Option<String>,
-  /// `git var GIT_COMMITTER_IDENT` failed: user.name or user.email is not set and git cannot guess them
-  pub identity_error: Option<String>,
-  /// The local part of the committer email as a branch name segment, empty if there is none
-  pub suggested_branch_prefix: String,
-}
-
-/// One `git var` for the identity of the repository, or of the global config when no repository is selected
+/// The prefix the identity of the user suggests (`suggest_branch_prefix`): one `git var GIT_COMMITTER_IDENT` in the
+/// repository, else in the global config; empty when git names no email or cannot form the identity
 #[instrument(skip(git_executor))]
-pub fn check_git_setup(git_executor: &GitCommandExecutor, repository_path: &str) -> GitSetup {
-  if let Err(e) = git_executor.get_info() {
-    return GitSetup {
-      git_error: Some(format!("{e:#}")),
-      identity_error: None,
-      suggested_branch_prefix: String::new(),
-    };
-  }
-
-  // an inaccessible repository is reported by the branch prefix load; the identity falls back to the global one
+pub fn prefix_suggestion(git_executor: &GitCommandExecutor, repository_path: &str) -> String {
+  // an inaccessible repository is the error of the session; the identity falls back to the global one
   let cwd = if !repository_path.is_empty() && std::path::Path::new(repository_path).is_dir() {
     repository_path
   } else {
     "."
   };
-  match git_executor.execute_command(&["var", "GIT_COMMITTER_IDENT"], cwd) {
-    Ok(ident) => GitSetup {
-      git_error: None,
-      identity_error: None,
-      suggested_branch_prefix: suggest_branch_prefix(&ident),
-    },
-    Err(e) => GitSetup {
-      git_error: None,
-      identity_error: Some(format!("{e:#}")),
-      suggested_branch_prefix: String::new(),
-    },
-  }
+  git_executor
+    .execute_command(&["var", "GIT_COMMITTER_IDENT"], cwd)
+    .map_or_default(|ident| suggest_branch_prefix(&ident))
 }
 
 /// `Jane Doe <jane.doe@example.com> 1700000000 +0100` -> `jane.doe`

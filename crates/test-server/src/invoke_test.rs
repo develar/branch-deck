@@ -21,8 +21,9 @@ fn the_arguments_of_a_command_are_its_params_or_its_named_arguments() {
   arguments::<app_api::commands::cancel_conflict_fix::Command>(b"").unwrap();
 }
 
-/// A read of app-api runs the app's body in the context of the test repository: the identity of the test machine
-/// outside a repository, the template's inside it, and the app's error for a path that is gone, with its operation
+/// A read of app-api runs the app's body in the context of the test repository: the git config of the test machine
+/// outside a repository (no prefix, whatever the developer's global config names), the template's inside it, and the
+/// app's error for a path that is gone, with its operation
 #[tokio::test]
 async fn a_read_of_app_api_answers_what_the_app_answers() {
   let addr = start_test_server().await;
@@ -33,10 +34,10 @@ async fn a_read_of_app_api_answers_what_the_app_answers() {
     let request = command(&client, addr, named, name, &params);
     async move { request.send().await.unwrap().json::<Value>().await.unwrap() }
   };
-  let setup = invoke(Named::Id(&id), "check_git_setup", json!({ "repositoryPath": "" })).await;
-  assert_eq!(setup, json!({ "git_error": null, "identity_error": null, "suggested_branch_prefix": "test-user" }));
-  let setup = invoke(Named::ByPath, "check_git_setup", json!({ "repositoryPath": path })).await;
-  assert_eq!(setup["suggested_branch_prefix"], "test", "{setup}");
+  let outside = invoke(Named::Id(&id), "resolve_branch_prefix", json!({ "repositoryPath": "" })).await;
+  assert_eq!(outside, json!({ "prefix": "", "source": "none" }));
+  let inside = invoke(Named::ByPath, "resolve_branch_prefix", json!({ "repositoryPath": path })).await;
+  assert_eq!(inside, json!({ "prefix": "user-name", "source": "repository_config" }));
 
   let (gone_id, gone) = create_repository_from(&client, addr, "NO_REPO").await;
   let mut answer = invoke(Named::Id(&gone_id), "resolve_branch_prefix", json!({ "repositoryPath": gone })).await;

@@ -11,13 +11,12 @@ export const commands = {
 	 *  Returns empty string if valid, error message if invalid
 	 */
 	validateRepositoryPath: (params: ValidateRepositoryPathParams) => typedError<string, ApiError>(__TAURI_INVOKE("validate_repository_path", { params })),
-	/**  Git, the git identity and a branch prefix suggestion, checked when the window opens and on every repository change */
-	checkGitSetup: (params: GetBranchPrefixParams) => typedError<GitSetup, ApiError>(__TAURI_INVOKE("check_git_setup", { params })),
 	/**
 	 *  The prefix the branches of the repository are named with, with where it came from: its git config read now (the
 	 *  global config alone for an empty path), which every later command of the repository resolves with
-	 *  (`BranchPrefixes`), and the app's prefix of the settings. The page shows the names with it, on open, on focus and
-	 *  after a change of either prefix; an inaccessible repository is an error
+	 *  (`BranchPrefixes`), and the app's prefix of the settings. Only the Settings window asks it (General names the
+	 *  repository's own prefix and the global one by their source); the main window takes the prefix of the view of its
+	 *  session (`TableHeader.prefix`). An inaccessible repository is an error
 	 */
 	resolveBranchPrefix: (params: GetBranchPrefixParams) => typedError<ResolvedBranchPrefix, ApiError>(__TAURI_INVOKE("resolve_branch_prefix", { params })),
 	/**  The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository */
@@ -111,7 +110,8 @@ export const commands = {
 	 *  the subscription (the view, the patch from the seed, or nothing when it holds that view), the channel every patch
 	 *  after it until `unsubscribe_view`, the window's close or its next page load. While it lasts, the operations registry
 	 *  of the repository is watched (`Registry::subscribe`): the operations of `bd` show in the view, and a stamp of `bd`
-	 *  syncs the session
+	 *  syncs the session. The session is the one of the prefix the git config names now (`AppContext::session_key_now`),
+	 *  which the view names (`TableHeader.prefix`): the page reads no prefix of its own
 	 */
 	subscribeView: (params: SubscribeViewParams, patches: Channel<ViewPatch>) => typedError<ViewSubscription, ApiError>(__TAURI_INVOKE("subscribe_view", { params, patches })),
 	/**  Ends a subscription of the calling window; the last one of a session makes it idle */
@@ -2135,8 +2135,16 @@ export type ErrorCode =
 "other_volume" | 
 /**  `bd lease get`: the volume of the pool has less free space than `branchdeck.leaseMinFree` or `--min-free` asks */
 "low_disk_space" | 
-/**  No usable git executable */
+/**
+ *  No usable git executable: none found, or one older than the minimum (the message says which and how to install
+ *  or upgrade Git)
+ */
 "git_not_found" | 
+/**
+ *  Git cannot form the identity of the user (`git var GIT_COMMITTER_IDENT`: `user.name` or `user.email` unset), which
+ *  the notes and the rewritten commits are written with: nothing was written; set both, then run again
+ */
+"no_identity" | 
 /**  A git command failed */
 "git_error" | 
 /**  A network command (fetch, push) failed */
@@ -2175,7 +2183,12 @@ export type ErrorDetails =
  */
 { type: "busy"; holder: OperationHolder | null } | 
 /**  What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference` */
-{ type: "landing"; refusals: LandingRefusal[] };
+{ type: "landing"; refusals: LandingRefusal[] } | 
+/**
+ *  The prefix to suggest where none names the branches (`no_branch_prefix` of the app): the local part of the
+ *  committer email of git, without a `+tag`, as a branch name; empty when git names no email
+ */
+{ type: "prefixSuggestion"; prefix: string };
 
 /**  Everyone else as the median person: the median of each person's value, of the people with at least `MIN_MERGES` */
 export type EveryoneDelivery = {
@@ -2802,19 +2815,6 @@ export type GitHubUser = {
 	login: string,
 	/**  The profile name; null when the user set none */
 	name: string | null,
-};
-
-/**
- *  What the first run needs from git, checked before anything else runs: git itself, the identity that Branch Deck
- *  writes its notes and rewritten commits with, and a branch prefix to suggest
- */
-export type GitSetup = {
-	/**  Git is missing or too old: a summary line, then how to install or upgrade it */
-	git_error: string | null,
-	/**  `git var GIT_COMMITTER_IDENT` failed: user.name or user.email is not set and git cannot guess them */
-	identity_error: string | null,
-	/**  The local part of the committer email as a branch name segment, empty if there is none */
-	suggested_branch_prefix: string,
 };
 
 /**  What groups a commit into its branch */

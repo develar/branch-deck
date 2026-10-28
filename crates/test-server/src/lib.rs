@@ -558,7 +558,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
 
     let mut store = Vec::new();
     if request.prepopulate_store {
-      // the invalid path, so the page tries to load it; no cachedBranchPrefix (it's optional)
+      // the invalid path, so the page subscribes to its session, which fails
       store.push(("recentProjects", serde_json::json!([{ "path": path }])));
       tracing::info!("Populated NO_REPO store with invalid path: {}", path);
     }
@@ -592,13 +592,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
   // Pre-populate store with default values if requested and not empty-non-git template
   let mut store = Vec::new();
   if request.prepopulate_store && !matches!(request.template, RepositoryTemplate::EmptyNonGit | RepositoryTemplate::Bare) {
-    store.push((
-      "recentProjects",
-      serde_json::json!([{
-        "path": path,
-        "cachedBranchPrefix": { "prefix": "user-name", "source": "repository_config" }
-      }]),
-    ));
+    store.push(("recentProjects", serde_json::json!([{ "path": path }])));
   }
 
   insert_repository(&state, &id, &path, &store)?;

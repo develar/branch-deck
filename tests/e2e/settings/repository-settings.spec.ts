@@ -212,13 +212,15 @@ test.describe("Settings → Repository", () => {
     await expect(field).toBeFocused()
     await expect(field).toHaveValue("user-name")
 
-    // an answer of before the write (a focus) names the old prefix: the one of the new prefix is awaited
-    const resolved = page.waitForResponse(async response => response.url().endsWith("/invoke/resolve_branch_prefix") && (await response.json()).prefix === "team")
+    await expect(page.getByTestId("ready-to-sync-card")).toContainText("user-name/virtual/<name>")
+    // the main window subscribes again after the write, holding the view it shows
+    const resubscribed = page.waitForRequest(request => request.url().endsWith("/invoke/subscribe_view") && request.postDataJSON().have !== undefined)
     await field.fill("team/")
     await field.press("Enter")
     await expect(field).toHaveValue("team")
-    // the main window asks Rust again and names the branches by the repository's new prefix; the sync resolves it too
-    expect(await (await resolved).json()).toEqual({ prefix: "team", source: "repository_config" })
+    await resubscribed
+    // the session of the repository's new prefix answers it: the main window names the branches by it; the sync
+    // resolves it too
     await expect(page.getByTestId("ready-to-sync-card")).toContainText("team/virtual/<name>")
     await page.getByTestId("ready-to-sync-button").click()
     await expect(findBranchRow(page, "test-branch")).toBeVisible()

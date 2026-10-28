@@ -12,6 +12,21 @@ const UPGRADE_HINT: &str = "Install a current Git from your distribution, e.g. o
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 const UPGRADE_HINT: &str = "Install the current Git for Windows from https://git-scm.com/downloads/win";
 
+/// No usable git: none found, one that fails, or one older than `MIN_VERSION`. The words of a failed discovery
+/// (`GitInfo::discover`): the summary line, then how to install or upgrade Git. A command of the app answers it as
+/// `git_not_found` (`app_api::api_error`), so the page shows it as itself, whichever command finds it first (the
+/// subscription of the window)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitNotFound(pub String);
+
+impl std::fmt::Display for GitNotFound {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(&self.0)
+  }
+}
+
+impl std::error::Error for GitNotFound {}
+
 #[derive(Debug, Clone)]
 pub struct GitInfo {
   pub version: String,

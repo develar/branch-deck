@@ -48,7 +48,7 @@ import type {
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
-import { getErrorCode } from "@/lib/errors"
+import { isApiError } from "@/lib/errors"
 import { sameStringRecord, withoutKeys } from "@/lib/record"
 import { toRemoteStatus } from "@/lib/remote-status"
 import type { SyncDeferral } from "@/lib/sync-deferred"
@@ -64,7 +64,7 @@ import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNa
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore, NO_SUBJECT_PARTS, useBranchSyncEntry } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
-import { getEffectiveBranchPrefix, getSelectedRepositoryPath, refreshBranchPrefix } from "@/stores/repository"
+import { getSelectedRepositoryPath, setSessionAnswer } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 import { getRepositoryState, updateRepositoryState } from "@/stores/settings/repositoryState"
 import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
@@ -78,8 +78,8 @@ interface Session {
   early: ViewPatch[]
   /** The id of the subscription, for `unsubscribe_view`; null until it answered */
   id: number | null
-  /** Why the subscription failed (no branch prefix, the repository went away): no patch comes; null while it holds */
-  failure: string | null
+  /** Why the subscription failed (no branch prefix, no git, the repository went away): no patch comes; null while it holds */
+  failure: ApiError | null
   closed: boolean
   /** A snapshot is asked (`get_snapshot`): the patches wait for it */
   refreshing: boolean
@@ -182,7 +182,8 @@ export function openSession(repositoryPath: string): void {
 
 /**
  * Subscribes the window to the session of `repositoryPath` unless its subscription to it holds: the window opens the
- * session of the selected repository at once (the prefix is Rust's), and a sync asked before that opens it itself
+ * session of the selected repository at once (the prefix is Rust's), and a sync asked before that opens it itself; a
+ * failed subscription is asked again
  */
 export function ensureSession(repositoryPath: string): void {
   if (session === null || session.repositoryPath !== repositoryPath || session.failure !== null) {
@@ -190,19 +191,47 @@ export function ensureSession(repositoryPath: string): void {
   }
 }
 
+/**
+ * Subscribes the window again to the session of its repository, holding the view it shows: the prefix that names its
+ * branches may have changed (the app's prefix, a write of Settings → Repository, a `git config` in a terminal that a
+ * sync found, `prefix_changed`), and Rust resolves the prefix of a subscription from the config as it is. The same
+ * session answers the patch from the view the window holds or nothing, so the rows stay as they are; the session of
+ * another prefix answers its view, which replaces them. The subscription it replaces ends once the new one answered,
+ * so the session that stays never loses its last window (which would sync it as a window that comes back). A failed
+ * subscription is asked again (`openSession`); resolves once the new one answered
+ */
+export function resubscribeSession(): Promise<void> {
+  const held = session
+  if (held === null) {
+    return Promise.resolve()
+  }
+  if (held.failure !== null || held.view === null || held.id === null) {
+    openSession(held.repositoryPath)
+  } else {
+    subscribe(held.repositoryPath, held.pending, null, held)
+  }
+  return session!.ready
+}
+
 /** Ends the subscription of the window and forgets its table: no repository is shown */
 export function closeSession(): void {
   const closed = session
   session = null
   if (closed !== null) {
-    closed.closed = true
-    if (closed.id !== null) {
-      void commands.unsubscribeView({ id: closed.id })
-    }
+    leave(closed)
   }
   setDemandSubscription(null)
+  setSessionAnswer(null, null)
   resetTable()
   notifyViewListeners()
+}
+
+/** The end of the subscription of `left`: its late patches reach nothing */
+function leave(left: Session): void {
+  left.closed = true
+  if (left.id !== null) {
+    void commands.unsubscribeView({ id: left.id })
+  }
 }
 
 /** Resolves once the subscription of the window answered (or failed); at once without one */
@@ -238,9 +267,10 @@ export async function refreshSessionFacts(repositoryPath: string, family: FactFa
 
 /**
  * Subscribes the window to the session of `repositoryPath`; `held`, the seed of the start (`adoptCachedModel`), is the
- * view the store shows until the answer brings it to the session's
+ * view the store shows until the answer brings it to the session's. `replaces`, a subscription that holds, is asked
+ * again (`resubscribeSession`): its view is the one the store shows already, and it ends once the new one answered
  */
-function subscribe(repositoryPath: string, pending: { count: number } = { count: 0 }, held: RepositoryView | null = null): void {
+function subscribe(repositoryPath: string, pending: { count: number } = { count: 0 }, held: RepositoryView | null = null, replaces: Session | null = null): void {
   const opened: Session = {
     repositoryPath,
     view: null,
@@ -251,16 +281,22 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
     refreshing: false,
     pending,
     ready: Promise.resolve(),
-    toldNews: null,
+    toldNews: replaces?.toldNews ?? null,
   }
   const channel = new Channel<ViewPatch>()
   channel.onmessage = patch => receive(opened, patch)
   session = opened
-  if (held !== null) {
+  if (replaces !== null) {
+    opened.view = replaces.view
+  } else if (held !== null) {
     install(opened, held)
   }
-  opened.ready = commands.subscribeView({ repositoryPath, ...(held !== null && { have: held.version }) }, channel).then(
+  const have = opened.view?.version
+  opened.ready = commands.subscribeView({ repositoryPath, ...(have !== undefined && { have }) }, channel).then(
     result => {
+      if (replaces !== null) {
+        leave(replaces)
+      }
       if (result.status === "error") {
         fail(opened, result.error)
         return
@@ -274,6 +310,12 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
       // what the window shows goes to its new subscription
       setDemandSubscription(id)
       if (view !== null) {
+        if (replaces !== null && view.version.epoch !== replaces.view?.version.epoch) {
+          // the session of another prefix: nothing of the one the window held shows under it, as on a switch
+          opened.view = null
+          opened.toldNews = null
+          resetTable()
+        }
         install(opened, view)
       } else if (opened.view !== null) {
         // the seed it holds: the patch from it, or nothing when the session sent none since
@@ -283,7 +325,12 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
         applyEarly(opened)
       }
     },
-    (error: unknown) => fail(opened, error),
+    (error: unknown) => {
+      if (replaces !== null) {
+        leave(replaces)
+      }
+      fail(opened, error)
+    },
   )
 }
 
@@ -292,23 +339,35 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
  * repository open now (another epoch), the table kept until its view comes, Sync busy for the requests still in flight
  */
 function resubscribe(gone: Session): void {
-  gone.closed = true
-  if (gone.id !== null) {
-    void commands.unsubscribeView({ id: gone.id })
-  }
+  leave(gone)
   subscribe(gone.repositoryPath, gone.pending)
 }
 
+/**
+ * The subscription of `failed` was refused or failed: no session serves the window, which shows why by the code
+ * (`sessionFailure` of the repository store: the welcome card without a prefix, the git alert without git, the error
+ * alert otherwise). A seed of the start it held is a frame of no session the window holds: its rows go
+ */
 function fail(failed: Session, error: unknown): void {
-  const message = typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error)
-  failed.failure = message || "Cannot subscribe to the branches of the repository"
+  failed.failure = isApiError(error) ? error : subscriptionError(error)
   if (failed === session) {
     // a repository without a prefix is the welcome card's state, not a failure
-    if (getErrorCode(error) !== "no_branch_prefix") {
+    if (failed.failure.code !== "no_branch_prefix") {
       console.error("Cannot subscribe to the branches of the repository", error)
     }
+    if (failed.view !== null) {
+      failed.view = null
+      resetTable()
+    }
+    setSessionAnswer("", failed.failure)
     notifyViewListeners()
   }
+}
+
+/** A failure of the subscription that is no answer of Rust (the IPC failed), as an `internal` error of its words */
+function subscriptionError(error: unknown): ApiError {
+  const message = typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error)
+  return { code: "internal", message: message || "Cannot subscribe to the branches of the repository", details: null, retry: "no", operation_id: null }
 }
 
 function receive(target: Session, patch: ViewPatch): void {
@@ -406,6 +465,8 @@ function untoldNews(target: Session, news: readonly News[]): readonly News[] {
 }
 
 function projectView(repositoryPath: string, previous: RepositoryView | null, next: RepositoryView, changes: TableChanges | null, news: readonly News[]): void {
+  // the prefix Rust resolved for the subscription names the branches the page shows
+  setSessionAnswer(next.header.prefix, null)
   const state = branchSyncStore.getState()
   const update: Partial<BranchSyncState> = { viewVersion: next.version, cached: next.cached }
   // a table of this run: a sync of the session committed it (the frame of an earlier run and a session no sync built
@@ -432,6 +493,7 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   }
   update.isSyncing = running || (session?.pending.count ?? 0) > 0
   update.syncError = syncErrorOf(next)
+  update.syncErrorCode = next.sync.kind === "failed" ? next.sync.error.code : null
   update.syncDeferred = syncDeferredOf(next, state.syncDeferred)
   update.syncStep = next.sync.kind === "running" ? next.sync.step : null
 
@@ -796,6 +858,7 @@ function resetTable(): void {
   branchSyncStore.setState({
     isSyncing: false,
     syncError: null,
+    syncErrorCode: null,
     syncDeferred: null,
     syncStep: null,
     syncedRepositoryPath: null,
@@ -947,7 +1010,7 @@ async function askSync(reason: SyncReason, askAgainOnPrefixChange: boolean): Pro
     await target.ready
     if (target.failure !== null) {
       if (target === session) {
-        requestError = target.failure
+        requestError = target.failure.message
       }
       return null
     }
@@ -974,8 +1037,15 @@ export async function setSessionWindowFocus(focused: boolean): Promise<SyncAnswe
   }
   const startedAt = Date.now()
   await target.ready
-  // a window without its session (no prefix, the repository went away) names none to the backend
-  if (target !== session || target.failure !== null) {
+  if (target !== session) {
+    return null
+  }
+  // a window without its session (no prefix, no git, the repository went away) names none to the backend; the focus
+  // asks the subscription again, as the user may have fixed it meanwhile (a prefix or git installed in a terminal)
+  if (target.failure !== null) {
+    if (focused) {
+      openSession(target.repositoryPath)
+    }
     return null
   }
   if (!focused) {
@@ -1026,24 +1096,26 @@ async function settle(
  * A request of `target` the session refused. A deferred sync (a rebase in progress, a detached HEAD) is no failure: the
  * user's own (`manual`) says so in an `info` toast, any other waits; the view says why it waits (`deferred`), which the
  * page shows where it has no table. Nor is a sync of a session whose prefix the git config no longer names
- * (`prefix_changed`: a `git config` in a terminal): the run resolved the prefix again, the page shows the new one, and
- * the window opens the session under it (`useSyncOnOpen`), which syncs as it opens for a repository synced before. Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is asked
- * again once the page has the prefix: the session of the new prefix serves it
+ * (`prefix_changed`: a `git config` in a terminal): the run read the prefix again, and the window subscribes again
+ * (`resubscribeSession`), so the session of the new prefix answers, which syncs as it opens for a repository synced
+ * before. Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is asked again once
+ * the window holds that session: it serves it
  */
 async function refused(target: Session, reason: SyncReason, error: ApiError, askAgain: (() => Promise<SyncAnswer | null>) | null): Promise<SyncAnswer | null> {
   const { code, message } = error
   if (code === "prefix_changed") {
     // only the main window shows the prefix and opens the session under it
-    if (!isMainWindow) {
+    if (!isMainWindow || target !== session) {
       return null
     }
-    const resolved = refreshBranchPrefix()
+    const resubscribed = resubscribeSession()
     if (askAgain === null) {
       return null
     }
-    await resolved
+    await resubscribed
     const repositoryPath = target.repositoryPath
-    const asksAgain = getSelectedRepositoryPath() === repositoryPath && getEffectiveBranchPrefix() !== "" && getRepositoryState(repositoryPath)?.lastSyncTime === undefined
+    const held = session as Session | null
+    const asksAgain = held?.repositoryPath === repositoryPath && held.failure === null && getRepositoryState(repositoryPath)?.lastSyncTime === undefined
     return asksAgain ? askAgain() : null
   }
   if (code === "operation_in_progress" || code === "detached_head") {

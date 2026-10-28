@@ -238,6 +238,9 @@ written, except by Update Project and the finish of its resolve session (their o
      so the sync leaves their branches as they are. Only the two commits and those between whose diff of the file
      changed get the current user as committer.
    - Signatures are stripped because they would no longer be valid.
+   - The current user is `git var GIT_COMMITTER_IDENT` (`current_committer`, also for the notes commits); a git that
+     cannot form it fails the write with `NoIdentity` before anything is written, the code `no_identity` of the app
+     and of `bd`, which the page shows as the alert with the two `git config --global` commands.
 6. **Batch**: one process per operation phase, not one per item. **An operation reads a repository fact once** and
    passes it down: the baseline and its upstream come from `read_baseline` (`symbolic-ref`, `remote` and one
    `for-each-ref`, as `read_baseline_listing` reads them for a sync), never from `detect_baseline_branch` and then
@@ -277,7 +280,9 @@ The minimum is therefore **2.54** (`MIN_VERSION` in `crates/git-executor/src/git
 is preferred, and its one `git version` gives both the check and the version. A successful discovery is kept for the
 process (`DISCOVERED` in `git_command_executor.rs`): every executor without a git of its own (`with_info`) shares it,
 instead of running `git version` again on its first command. On other platforms the upgrade hint names the git-core PPA (Ubuntu) and Git for Windows. Every failed
-discovery is one summary line, then the hint (`UPGRADE_HINT`), and the app shows the line as the title: "Cannot find
+discovery is one summary line, then the hint (`UPGRADE_HINT`), a `GitNotFound` that a command of the app answers as
+`git_not_found` (the subscription of the window finds it first: no check of git runs before), and the app shows the
+line as the title: "Cannot find
 Git: <reason>" for a git that is missing or fails to run (the macOS `/usr/bin/git` stub without the Command Line Tools
 exits with an `xcrun: error`, its first line is the reason), "Git 2.39 is too old: Branch Deck requires Git 2.54 or
 newer" for an old one. CI checks the runner's git in `.github/workflows/test.yml`.
@@ -3909,10 +3914,12 @@ no operation.
   `crates/app-api/src/context.rs`; the operations of the remote get it through the key of their session) puts the specific prefix first: the repository's own (local,
   worktree or command scope), then the app's `globalUserBranchPrefix`, then the global or system one, and names where
   the prefix came from (`ResolvedBranchPrefix`). `get_branch_prefix_from_git_config_sync` reads the value with its scope
-  in one `git config -z --show-scope --get`, for the page's `resolve_branch_prefix` and for the first command of a
-  repository; the app keeps the git prefix by repository path (`BranchPrefixes`), refreshed by each read of the config
-  (the page's command, the snapshot of a sync, a write of `branchdeck.branchPrefix`, a global one forgetting every
-  repository's), so the commands after it run no process for the prefix. The E2E server resolves the same way with the
+  in one `git config -z --show-scope --get`, for the subscription of a window (`session_key_now`: the session it opens
+  is the one of the prefix the config names now), for the `resolve_branch_prefix` of Settings and for the first command
+  of a repository; the app keeps the git prefix by repository path (`BranchPrefixes`), refreshed by each read of the
+  config (a subscription, the command of Settings, the snapshot of a sync, a write of `branchdeck.branchPrefix`, a
+  global one forgetting every repository's), so the commands after it run no process for the prefix. The main window
+  reads no prefix of its own: the view of its session names it (`TableHeader.prefix`). The E2E server resolves the same way with the
   local config alone.
 
 No other git config is written by the app, except the branch descriptions of `bd describe` and the global write above.
@@ -4204,11 +4211,15 @@ differs only, one run with a focus during it), a frame of another prefix or sche
 
 The hosts: the commands of the sessions are app-api's (`crates/app-api/src/session/`), which the app and the E2E server
 both run; the frame of each (`session` of `registry.rs`) resolves the session key from the repository path with the
-prefix the commands resolve (`AppContext::session_key`, `PrefixInputs`, refused as `no_branch_prefix` without one)
-before its body runs: `subscribe_view` opens the session and subscribes the calling window, which names the version of
-the view it holds (`have`: the seed of the start, or none), on a channel of `ViewPatch`es, answering its id with what
-brings the window to the view at that moment (`ViewSubscription`: the view, the catch-up from the seed, or nothing),
-`get_snapshot` answers the view of
+prefix the commands resolve (`AppContext::session_key`, `PrefixInputs`; refused as `no_branch_prefix` without one, with
+the prefix the identity of git suggests, `ErrorDetails::PrefixSuggestion`, one `git var` only then; a missing git is
+`git_not_found`) before its body runs. The subscription reads the git config of the prefix now (`session(now, window)`,
+`AppContext::session_key_now`), so a window opens the session of the prefix the config names, also after a
+`git config` in a terminal that no sync read yet, and its view names that prefix from its first version
+(`View::opened`, before any sync). `subscribe_view` opens the session and subscribes the calling window, which names
+the version of the view it holds (`have`: the seed of the start, or none), on a channel of `ViewPatch`es, answering its
+id with what brings the window to the view at that moment (`ViewSubscription`: the view, the catch-up from the seed, or
+nothing), `get_snapshot` answers the view of
 an open session (null for one that is not: the window subscribes again), `unsubscribe_view` ends a subscription by id,
 `set_window_focus` tells the session that a window gained or lost the focus and, for a gained one while the host
 syncs on focus (`SessionHost::syncs_on_focus`: Auto-sync on Focus as the app's `SettingsService` has it, the settings

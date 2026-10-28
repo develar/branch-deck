@@ -30,7 +30,7 @@ vi.mock("@/stores/commit-move", () => ({ requestReveal: () => {} }))
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: "/repo" }),
   getSelectedRepositoryPath: () => "/repo",
-  refreshBranchPrefix: () => {},
+  setSessionAnswer: () => {},
 }))
 vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
 vi.mock("@/stores/settings/repositoryState", () => ({ updateRepositoryState: () => {} }))

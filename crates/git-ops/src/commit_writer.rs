@@ -648,12 +648,20 @@ pub fn write_edited_commit(git_executor: &GitCommandExecutor, repo_path: &str, c
   })
 }
 
-/// Identity of the current user with the current time (`Name <email> <seconds> <tz>`), for new commits and notes
+/// Identity of the current user with the current time (`Name <email> <seconds> <tz>`), for new commits and notes; a
+/// `NoIdentity` when git cannot form it
 pub fn current_committer(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
   git_executor
     .execute_command(&["var", "GIT_COMMITTER_IDENT"], repo_path)
-    .map_err(|e| anyhow!("Git user identity is not configured (set user.name and user.email): {e:#}"))
+    .map_err(|e| NoIdentity(format!("{e:#}")).into())
 }
+
+/// `git var GIT_COMMITTER_IDENT` failed: `user.name` or `user.email` is not set and git cannot guess them, so Branch
+/// Deck can write no note and no commit. Its code is `no_identity` (`app_api::api_error`, `bd`): the page shows the two
+/// `git config --global` commands that set them. The words of git follow the summary
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Git user identity is not configured (set user.name and user.email): {0}")]
+pub struct NoIdentity(pub String);
 
 /// Add or overwrite notes on `notes_ref` with one `git fast-import` run (one notes commit for all of them).
 /// Like `git notes add`, each note is stored with a trailing newline. fast-import refuses to move the notes ref

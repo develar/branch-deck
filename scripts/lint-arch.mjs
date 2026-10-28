@@ -30,7 +30,6 @@ import { join } from "node:path"
 /** `{ file, rule, reason }`: a finding of `rule` in `file` that holds, and why */
 export const ALLOWLIST = [
   { file: "src/hooks/useNow.ts", rule: "poll-timer", reason: "the tick of the relative times and of the time of a running robot: no request" },
-  { file: "src/stores/repository.ts", rule: "poll-timer", reason: "the branch prefix of the selected repository loads once the switch rested 50 ms: a debounce" },
   { file: "src/stores/update-project.ts", rule: "poll-timer", reason: "the bar of an Update Project that ended stays for END_HOLD_MS: no request" },
   { file: "src/stores/file-stream.ts", rule: "poll-timer", reason: "the streamed texts of a file are applied in batches of BATCH_MS: a render budget, no request" },
   {

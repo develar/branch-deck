@@ -51,6 +51,9 @@ targets:
   - ../../src/pages/IndexPage.tsx
   - ../../src/hooks/useMenuSync.ts
   - ../../crates/sync-core/src/git_setup.rs
+  - ../../crates/app-api/src/api_error.rs
+  - ../../crates/git-ops/src/commit_writer.rs
+  - ../../src/hooks/useSyncAvailability.ts
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/sync-core/src/repository_validation.rs
   - ../../crates/app-api/src/app/desktop.rs
@@ -89,30 +92,41 @@ alert with the reason and the next step, never a raw Git error.
 
 ### Git and the identity
 
-- When the window opens and whenever the selected repository changes, one `check_git_setup` checks that Git is found
-  and new enough, and runs one `git var GIT_COMMITTER_IDENT` (in the repository, else in the global config).
-  [@test] ../../crates/sync-core/src/git_setup_test.rs (`reads_the_identity_of_the_repository`)
+- No check of git runs before the first sync, and the page reads nothing for it: git and the identity are answered by
+  the code of what needs them. The subscription of the window is the first command that runs git (it reads the prefix
+  from the git config, `session_key_now`); without a usable git (missing, failing or older than 2.54) it fails with
+  `git_not_found` (`GitNotFound` of the discovery, `app_api::api_error`), whose words are the summary and how to install
+  or upgrade Git.
+  [@test] ../../crates/git-executor/src/git_info.rs (`a_missing_explicit_git_is_not_found_with_the_hint`, `a_failing_git_is_not_found_with_its_first_error_line`, `an_old_git_is_too_old_with_the_hint`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_the_setup_of_git_by_its_code`)
 - Git missing or too old is a `destructive` alert above everything else: the title is the summary ("Cannot find Git:
   …", "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer"), the description how to install or upgrade it on
-  this platform, then "Check Again". It replaces the path and sync errors, which would say the same; the welcome card is
-  hidden. The branch prefix load reports a discovery error as itself, not as "Failed to access repository".
-  [@test] ../../crates/git-executor/src/git_info.rs (`a_missing_explicit_git_is_not_found_with_the_hint`, `a_failing_git_is_not_found_with_its_first_error_line`, `an_old_git_is_too_old_with_the_hint`)
-- An identity git cannot form is a `warning` alert "Git does not know your name and email" with the two
-  `git config --global` commands (each with a copy button) and "Check Again".
+  this platform, then "Check Again", which subscribes again. It replaces the path and sync errors, which would say the
+  same; the welcome card is hidden, Sync disabled with the summary as its reason.
+- An identity git cannot form fails the write that needs it with `no_identity` (`NoIdentity` of `current_committer`:
+  the notes of a sync, a rewritten commit), in the app as in `bd`. A sync that failed so is the `warning` alert "Git
+  does not know your name and email" with the two `git config --global` commands (each with a copy button) and "Sync
+  Again", instead of the error alert.
+  [@test] ../../crates/git-ops/src/commit_writer_test.rs (`a_committer_git_cannot_form_is_no_identity`)
+  [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_the_setup_of_git_by_its_code`)
 - A message of several lines in the error alert shows its first line as the title, the rest as the description.
 
 ### Welcome card
 
-- Shown on the first run (no repository, no recent projects), and while the selected repository has no branch prefix
-  (once the prefix has loaded); hidden while an error alert explains a problem.
-  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`shows welcome card for new users without branch prefix`, `shows the prefix step as step 1 when the repository has no branch prefix configured`, `keeps Step 2 visible after selecting a repository without branch prefix`)
+- Shown on the first run (no repository, no recent projects), asking for the repository, and while the subscription of
+  the selected repository is refused for its prefix (`no_branch_prefix`), asking for the prefix; hidden while an error
+  alert explains a problem. Without a repository the page knows no prefix (the session of a repository resolves it),
+  so the card asks one step at a time, each numbered 1: "Select a Git repository", then, for a repository without a
+  prefix, "Choose your branch prefix".
+  [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`shows the welcome card for new users, which asks for the repository first`, `shows the prefix step as step 1 when the repository has no branch prefix configured`, `keeps Step 2 visible after selecting a repository without branch prefix`)
   [@test] ../../tests/e2e/repository/browse.spec.ts (`should show error for non-git directory`)
-- The steps shown are numbered from 1: "Select a Git repository", then "Choose your branch prefix".
-- The prefix step has a field pre-filled with the suggestion of `check_git_setup`: the local part of the committer
-  email, without a `+tag`, sanitized as a branch name. Save (or Enter) stores it as the app's branch prefix (used by
-  `bd` too); nothing is stored before. Below the field: "Branches will be named `<prefix>/virtual/<name>`. You can
-  change it later in Settings."
-  [@test] ../../crates/sync-core/src/git_setup_test.rs (`suggests_the_local_part_of_the_committer_email`)
+- The prefix step has a field pre-filled with the prefix the refusal suggests (`ErrorDetails::PrefixSuggestion`,
+  `prefix_suggestion`: one `git var GIT_COMMITTER_IDENT` in the repository, only on the refusal): the local part of
+  the committer email, without a `+tag`, sanitized as a branch name. Save (or Enter) stores it as the app's branch
+  prefix (used by `bd` too); nothing is stored before. Below the field: "Branches will be named
+  `<prefix>/virtual/<name>`. You can change it later in Settings."
+  [@test] ../../crates/sync-core/src/git_setup_test.rs (`suggests_the_local_part_of_the_committer_email`, `suggests_the_prefix_of_the_identity_of_the_repository`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`pre-fills the prefix from the git identity and saves it only on Save`)
 - A prefix is trimmed and loses its trailing slashes, as the backend names the branch (`qualified_branch_name`); one
   with a space, `..`, `@{` or any of `~ ^ : ? * [ \` is refused in place, Save disabled.
@@ -130,12 +144,14 @@ alert with the reason and the next step, never a raw Git error.
   on Enter and when it loses the focus, never on a key (the prefix names the branches of the sync and the robots of
   Patronus), refuses a prefix git cannot take in place, and Escape takes the typing back before it closes the window.
   Empty, the prefix of the global git config applies (the window asks Rust itself, `resolve_branch_prefix`), shown as
-  the placeholder. The session of a repository is keyed by the prefix Rust resolves: a change of it is another
-  session, which the window opens and syncs for a repository synced before, naming the branches by it; a sync never
-  waits for a load of the page, so a busy machine fails none for a timeout. Without a prefix the window holds no
-  session, and nothing is logged as an error: the welcome card asks for one.
+  the placeholder. The session of a repository is keyed by the prefix Rust resolves: a change of the app's prefix (once
+  the writer has it) subscribes the window again, holding the view it shows (`resubscribeSession`); the same session
+  answers nothing new and the rows stay, the session of another prefix answers its view, which replaces them, and
+  syncs as it opens for a repository synced before. A sync never waits for a load of the page, so a busy machine fails
+  none for a timeout. Without a prefix the window holds no session, and nothing is logged as an error: the welcome
+  card asks for one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
-  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`, `subscribes first when asked before the window subscribed, and again after a failed subscription, whose failure it names`)
+  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`, `subscribes first when asked before the window subscribed, and again after a failed subscription, whose failure it names`, `subscribes again holding its view: the same session answers nothing, another one's view replaces the rows`)
 - The specific prefix wins, in the app as in `bd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
   whose own git config (local or worktree, or `git -c`) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
   says; the field says so ("This repository uses its own prefix `user-name`", with "Open Repository Settings") and
@@ -144,12 +160,18 @@ alert with the reason and the next step, never a raw Git error.
 
 ### Before the first sync
 
-- Sync is disabled while the selected repository has no branch prefix (not while it loads), with the tooltip "Set the
-  branch prefix first". The page shows the prefix Rust resolved for the repository (`resolve_branch_prefix`, on open,
-  on a switch and on focus) and decides nothing by it: a sync names only the repository and resolves the prefix in Rust
-  from the git config it reads, waiting for no load of the page, and refuses a repository without one.
+- Sync is disabled while the selected repository has no branch prefix (not while its subscription has not answered),
+  with the tooltip "Set the branch prefix first". The page reads nothing before the subscription of the window (no
+  prefix, no check of git) and shows the prefix of the view of the session (`TableHeader.prefix`, also before any sync
+  and in the frame of the warm start): the prefix Rust resolved for the subscription from the git config as it is
+  then (`session_key_now`, which the commands after it resolve by). It decides nothing by it: a sync names only the
+  repository and resolves the prefix in Rust from the git config it reads, waiting for no load of the page, and
+  refuses a repository without one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`disables Sync with the reason while no branch prefix is set`)
-  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`)
+  [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`, `names the branches by the prefix of the view, and none after a failed subscription, which forgets the rows of the seed`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_subscription_opens_the_session_under_the_prefix_the_config_names_now`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_session_without_subscribers_runs_nothing_and_goes_away`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`shows the rows of the frame before the first sync, asking only for the subscription, and the first sync's table after it`)
   [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)
 - With a repository never synced and a prefix, the "Ready to Sync" card: what Sync does (groups the commits by the
   prefix of their subject, creates `<prefix>/virtual/<name>`, lists the rest as unassigned), that the working tree and
@@ -232,19 +254,20 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_after_the_sessions_own_push_runs_nothing`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_after_the_sessions_own_push_runs_no_sync`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs nothing on the focus after its own push, the remote branch it moved known to the session`)
-- A prefix changed in a terminal (`git config branchdeck.branchPrefix`) shows on the next focus: the window resolves the
-  prefix again and opens the session under it, which syncs as it opens for a repository synced before, whichever of that
-  resolve and the check of the focus (100 ms later) ends first, so the table is never the empty one of a session no
-  sync built. A run of the session under the old prefix builds nothing under it: it answers `prefix_changed`, which is
-  no failure, and the page resolves the prefix again. A Sync the user pressed that comes back so for a repository never
-  synced (the Ready to Sync card, while the window kept the focus) is asked again once the page has the new prefix, Sync
-  busy throughout: the session of the new prefix serves it, as no sync of an opened repository does. A prefix changed
-  in Settings is another session the same way.
-  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its request`, `syncs the session of a prefix set in a terminal once the focus finds it, the resolve of the prefix held in its answer`, `syncs under a prefix set in a terminal behind the window's back when Sync of the Ready to Sync card is pressed`)
+- A prefix changed in a terminal (`git config branchdeck.branchPrefix`) shows on the next focus: its check reads the
+  prefix among the inputs of a sync, and the run of the session under the old prefix builds nothing under it: it
+  answers `prefix_changed`, which is no failure, and the window subscribes again (`resubscribeSession`, holding the view
+  it shows until the session of the new prefix answers its own), so the table is never the empty one of a session no
+  sync built; that session syncs as it opens for a repository synced before. With Auto-sync on Focus off a focus
+  starts no git process, and the next sync finds the prefix the same way. A Sync the user pressed that comes back so
+  for a repository never synced (the Ready to Sync card, while the window kept the focus) is asked again once the window
+  holds the session of the new prefix, Sync busy throughout: that session serves it, as no sync of an opened repository
+  does. A prefix written in Settings → Repository subscribes the window again the same way (`repository_config_changed`).
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs the session of a prefix set in a terminal once the focus finds it`, `syncs under a prefix set in a terminal behind the window's back when Sync of the Ready to Sync card is pressed`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should open and sync the session of a prefix written here, for a repository synced before`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_run_under_a_prefix_the_config_left_builds_nothing`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old_one`)
-  [@test] ../../src/model/store.test.ts (`resolves the prefix again when the git config names another one than the session's, quietly`, `asks the user's own sync of a repository never synced again once the page has the new prefix, Sync busy throughout`)
+  [@test] ../../src/model/store.test.ts (`subscribes again when the git config names another prefix than the session's, quietly`, `asks the user's own sync of a repository never synced again once the window holds the session of the new prefix, Sync busy throughout`)
 - The main window tells the session of its repository when it gains and loses the focus (`set_window_focus`, the last
   state of a quick succession, 100 ms); the session decides whether a gained one syncs, by the setting as Rust's
   writer has it (`SessionHost::syncs_on_focus`), and the page checks nothing. A focus of a session no window shows
@@ -301,10 +324,12 @@ alert with the reason and the next step, never a raw Git error.
   origin/master or origin/main, and no upstream").
   [@test] ../../crates/history-rewrite/src/baseline_test.rs (`a_repository_without_commits_says_so`, `no_local_baseline_names_each_branch_once`, `no_remote_baseline_names_each_branch_once`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says that a repository without commits has nothing to sync yet`)
-- A saved repository that no longer exists is an error alert, "Repository not accessible: <path>", Sync disabled, until
-  another one is selected.
+- A saved repository that no longer exists fails the subscription of its session with the error of git ("Repository
+  not accessible: …"), which the page shows as the problem of the path: the error alert, the selector marked invalid,
+  Sync disabled with it as the reason, until another one is selected, or a focus subscribes again and finds it back.
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_directory_that_is_gone_is_not_accessible`)
   [@test] ../../tests/e2e/repository/saved-path-validation.spec.ts (`should display error for non-existent repository path`, `should clear error when valid repository is selected`)
+  [@test] ../../src/model/store.test.ts (`subscribes again on a gained focus after its subscription failed: the user may have fixed it meanwhile`)
 
 ### Grouping
 

@@ -184,3 +184,18 @@ fn the_activity_log_of_a_file_of_before_is_dropped_by_the_load_and_the_next_save
   write(&path, &json!({ "activity": [{ "id": "1", "title": "Pushed auth" }], "diffView": { "mode": "split" } }));
   assert_eq!(round_trip(&path), json!({ "diffView": { "mode": "split" } }));
 }
+
+#[test]
+fn the_cached_prefix_of_a_project_of_before_is_dropped_by_the_load_and_the_next_save() {
+  let directory = tempfile::tempdir().unwrap();
+  let path = directory.path().join("settings.json");
+  let cached = json!({ "prefix": "jane", "source": "app_setting" });
+  write(
+    &path,
+    &json!({ "recentProjects": [{ "path": "/a", "cachedBranchPrefix": cached, "parkedCollapsed": true }, { "path": "/b", "cachedBranchPrefix": "jane" }] }),
+  );
+  assert_eq!(
+    round_trip(&path),
+    json!({ "recentProjects": [{ "path": "/a", "parkedCollapsed": true }, { "path": "/b" }] })
+  );
+}

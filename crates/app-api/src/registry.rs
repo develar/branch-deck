@@ -18,11 +18,13 @@
 //!   grammar of what the user types); `session` a
 //!   command of the session of the repository its `params.repository_path` names, `async fn(&AppContext, &Call,
 //!   SessionKey, arguments…) -> Result<output, ApiError>`, whose frame runs it as one operation in the span of the
-//!   command (`<name>{repository_path, …}:operation{operation_id}`) once it resolved the key (`AppContext::session_key`);
-//!   beside `repository_path` the span records the fields the entry names after its kind, as `fields(…)` of
-//!   `#[instrument]` names them over the arguments (`session(reason = ?params.reason)`), since its body opens no span
-//!   of its own (only a `session` entry names fields); `window` alone, first, records the label of the window that
-//!   called (`session(window)`: `window = %call.window`), which no argument names;
+//!   command (`<name>{repository_path, …}:operation{operation_id}`) once it resolved the key (`AppContext::session_key`,
+//!   the prefix of the memo; `now` first, `AppContext::session_key_now`, the prefix the git config names now: the
+//!   subscription of a window, `session(now, window)`); beside `repository_path` the span records the fields the entry
+//!   names after its kind, as `fields(…)` of `#[instrument]` names them over the arguments
+//!   (`session(reason = ?params.reason)`), since its body opens no span of its own (only a `session` entry names
+//!   fields); `window` alone, first after `now`, records the label of the window that called (`session(window)`:
+//!   `window = %call.window`), which no argument names;
 //!   `now` a synchronous command of a window that cannot fail and answers at once (on the main thread of the app),
 //!   `fn(&AppContext, &Call, arguments…) -> output`; `main` the same that can fail, `fn(&AppContext, &Call, arguments…)
 //!   -> Result<output, ApiError>`, for what the app does on its main thread (a native menu, the restart);
@@ -202,12 +204,20 @@ macro_rules! api_command {
     let () = $sink;
     ::std::future::ready($body($ctx, $call, $($args.$arg),*))
   }};
-  // the span of the command, then its operation: the key resolved in it, so its error names the operation too
-  (@call session $name:ident [$($field:tt)*] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)*]) => {{
+  // `now` first: the key by the git config read now (`AppContext::session_key_now`), the rest the fields of the span
+  (@call session $name:ident [now $(, $($field:tt)+)?] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)*]) => {
+    $crate::api_command!(@session_frame session_key_now $name [$($($field)+)?] $body, $ctx, $call, $args($($arg),*), $sink [$($channel)*])
+  };
+  (@call session $name:ident [$($field:tt)*] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)*]) => {
+    $crate::api_command!(@session_frame session_key $name [$($field)*] $body, $ctx, $call, $args($($arg),*), $sink [$($channel)*])
+  };
+  // the span of the command, then its operation: the key resolved in it (by `$key_of` of the context), so its error
+  // names the operation too
+  (@session_frame $key_of:ident $name:ident [$($field:tt)*] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)*]) => {{
     let span = $crate::api_command!(@session_span $name $call [$($field)*] $args($($arg),*));
     ::tracing::Instrument::instrument(
       $crate::operation::operation(async move {
-        let key = $ctx.session_key(&$args.params.repository_path).await?;
+        let key = $ctx.$key_of(&$args.params.repository_path).await?;
         $crate::api_command!(@session_body $body, $ctx, $call, key, $args($($arg),*), $sink [$($channel)*]).await
       }),
       span,

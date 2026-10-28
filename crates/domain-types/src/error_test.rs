@@ -58,6 +58,10 @@ fn the_details_are_tagged_by_their_kind_of_data() {
     ),
     (ErrorDetails::Blocks { blocks: vec!["b1".to_owned()] }, json!({"type": "blocks", "blocks": ["b1"]})),
     (ErrorDetails::Locked { holder: None }, json!({"type": "locked", "holder": null})),
+    (
+      ErrorDetails::PrefixSuggestion { prefix: "jane".to_owned() },
+      json!({"type": "prefixSuggestion", "prefix": "jane"}),
+    ),
   ];
   for (details, expected) in cases {
     assert_eq!(serde_json::to_value(&details).unwrap(), expected);

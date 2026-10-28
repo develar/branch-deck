@@ -76,7 +76,7 @@
 //! The rest:
 //! - `branch_review`: the stack and the commits of a branch review
 //! - `branch_name_suggestion`: branch names for commits from the user's Claude Code
-//! - `git_setup`: git, the identity and a branch prefix to suggest, checked before the first run
+//! - `git_setup`: the branch prefix the git identity suggests, which a session without a prefix answers
 //! - `repository_validation`: whether a path is the working tree of a repository, without git
 //! - `uncommitted_changes`: the uncommitted files and the diff of one of them
 

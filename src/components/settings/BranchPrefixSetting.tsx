@@ -26,9 +26,8 @@ import { useRecentProjects } from "@/stores/settings/repositorySettings"
 export function BranchPrefixSetting() {
   const saved = useAppSettings(state => state.globalUserBranchPrefix) ?? ""
   const path = useRecentProjects(projects => projects[0]?.path)
-  const cachedPrefix = useRecentProjects(projects => projects[0]?.cachedBranchPrefix)
-  // the answer of this window, else the prefix the main window cached for the repository
-  const resolved = useResolvedBranchPrefixOf(path) ?? (path === undefined ? null : (cachedPrefix ?? null))
+  // the answer of this window: its source names the repository's own prefix and the global one
+  const resolved = useResolvedBranchPrefixOf(path)
   const repositoryPrefix = resolved?.source === "repository_config" ? resolved.prefix : ""
   // the global git prefix is known while it applies, that is while the app sets none
   const globalPrefix = resolved?.source === "global_config" ? resolved.prefix : ""

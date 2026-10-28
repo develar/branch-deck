@@ -1,8 +1,10 @@
-use crate::api_error::{CONTRACT_JSON, api_error, api_error_at, contract_cases, undo_error};
+use crate::api_error::{CONTRACT_JSON, api_error, api_error_at, contract_cases, no_branch_prefix, undo_error};
 use anyhow::{Context, anyhow};
 use app_settings::service::SettingsError;
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, Retry};
 use file_diffs::accio::SearchCanceled;
+use git_executor::git_info::GitNotFound;
+use git_ops::commit_writer::NoIdentity;
 use git_ops::copy_commit::CopyCommitError;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::rewrite_plan::{RefusalKind, RewriteRefused};
@@ -206,4 +208,20 @@ fn api_error_refuses_an_invalid_value_of_a_setting_as_invalid_arguments() {
   let error = api_error_at(&anyhow::Error::new(invalid).context("Cannot change the settings"), NOW);
   assert_eq!(error.code, ErrorCode::InvalidArguments);
   assert_eq!(error.message, "Cannot change the settings: appSettings.zoom cannot be -1: a positive number");
+}
+
+/// The setup of git answers by its code, also under the context of the command that found it: no usable git
+/// (`git_not_found`, its words the summary and the install hint, which the page shows as they are) and a write git
+/// cannot sign with the user's name (`no_identity`); a session without a prefix suggests one
+#[test]
+fn api_error_answers_the_setup_of_git_by_its_code() {
+  let words = "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer\nInstall or upgrade Git with: brew install git";
+  let missing = api_error_at(&anyhow::Error::new(GitNotFound(words.to_owned())), NOW);
+  assert_eq!((missing.code, missing.message.as_str()), (ErrorCode::GitNotFound, words));
+  let unsigned = anyhow::Error::new(NoIdentity("fatal: empty ident name not allowed".to_owned())).context("Cannot write the notes");
+  assert_eq!(api_error_at(&unsigned, NOW).code, ErrorCode::NoIdentity);
+  assert_eq!(
+    no_branch_prefix("jane".to_owned()).details,
+    Some(ErrorDetails::PrefixSuggestion { prefix: "jane".to_owned() })
+  );
 }
