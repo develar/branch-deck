@@ -166,7 +166,7 @@ GitHub is configured (`branchdeck.githubRepository`, a token) for every value bu
 - `profile.chosen`: the profile of the start; `none` is the default checks.
 - `profile.lastRobot`: the profile of the last robot of the branch (`lsc`, the only one the fake names), the default of
   the start; it needs `robot`. Patronus says that a profile skips the review only of this one: by the robot's options,
-  or with `newApi` (Settings → Patronus) by the robot list, which says `skipsReview: true`. `skipsReview` without
+  or with `newApi` (Settings → Landing) by the robot list, which says `skipsReview: true`. `skipsReview` without
   `lastRobot` is refused.
 - `robot.on: older`: the robot ran on another commit (`sourceRevision` `0000`); `tip` on the branch's tip; `remote`
   on the remote branch, which `remote: rebuiltOnNewerBaseline` rebuilt since (a start would test the same commits).

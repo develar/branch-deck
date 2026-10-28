@@ -258,7 +258,7 @@ test.describe("Push button", () => {
 
 test.describe("Push size", () => {
   test("should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off", async ({ page }) => {
-    const window = await openSettingsWindow(page, { page: "patronus" })
+    const window = await openSettingsWindow(page, { page: "landing" })
     const setting = window.getByTestId("setting-pushSizeLimit")
     const field = setting.getByRole("textbox", { name: "Push size limit" })
     const source = setting.getByTestId("setting-pushSizeLimit-source")
@@ -279,7 +279,7 @@ test.describe("Push size", () => {
     const toast = page.locator("[data-slot=toast]", { hasText: "Cannot push feature-auth" })
     await expect(toast).toContainText(/^Cannot push feature-authThe push would add .+, over the push size limit of 1 B/)
     await expect(toast).toContainText(
-      "Nothing was pushed. Remove the files from the commits (build output?), or raise the push size limit (branchdeck.pushSizeLimit, Settings → Patronus)",
+      "Nothing was pushed. Remove the files from the commits (build output?), or raise the push size limit (branchdeck.pushSizeLimit, Settings → Landing)",
     )
     await expect(row.getByTestId("branch-status")).toHaveText("not pushed")
     await closeToast(toast)

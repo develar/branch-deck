@@ -93,8 +93,10 @@ The specs are the contract of each part:
   its node ready, its action `push-to-baseline`; a Dry Run, a robot of Patronus, is refused. A push runs no CI, so
   what CI did not pass on the tip (no open pull request, one that shows another commit, failing or running checks) and
   the changes requested on it are confirmations, and so is what the gate asks. After a push that landed, Update Project
-  follows as an operation of its own: the originals whose copies landed drop out of the branch. `bd land` lands by the
-  route of the repository and names `bd update` after it.
+  follows as an operation of its own: the originals whose copies landed drop out of the branch. A target that moved
+  refuses the push as no fast-forward; the copies are built on the fork point of the branch, so the same update builds
+  them anew on it, and the step offers the push again. The page tells the push and the update in one toast; Settings →
+  Landing names the route. `bd land` lands by the route of the repository and names `bd update` after it.
   - *Rationale:* the update is a rule of Rust, not of the page: a landing by a click leaves the branch where the next
     click lands nothing twice; `bd` never moves the files of an agent's checkout by itself.
 

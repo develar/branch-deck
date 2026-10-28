@@ -3646,8 +3646,11 @@ What it answers:
   `Done`, on the same channel, and the start answers after it; an update refused before its first effect sends no
   `Done` of its own. `bd land` updates nothing: it names `bd update`.
 - `[rejected] (fetch first)` or `(non-fast-forward)`: the target moved since the copy was built on it. The start fetches
-  the baseline (`fetch_baseline`, which joins a fetch of any process that runs), asks the sync that builds the copies
-  anew on it, and fails as `baseline_moved`; no push goes again by itself.
+  the baseline (`fetch_baseline`, which joins a fetch of any process that runs), asks a sync, and fails as
+  `baseline_moved`; no push goes again by itself. The copies are built on the fork point of the checked out branch, not
+  on the tip of the baseline, so only an update onto the moved target builds them anew: the engine runs Update Project
+  after it as after a push that landed (`update_after`), and the step offers the push of the new copy; `bd land` names
+  `bd update`.
 - Any other refusal (`[remote rejected]`: a hook, a protected branch): `baseline_refused` with the server's words, which
   go into the session (`BaselinePushes::refused`): the gate of the route asks about them before the next push
   (`Reason::BaselineRefusedPush`), and a push that lands forgets them.
@@ -3804,7 +3807,7 @@ The tests never call `enable_keychain`: a test that needs the keychain runs a fa
 #### Repository settings
 
 Settings → Repository shows and writes four keys of the repository's git config, Settings → Diffs & Merge the
-fifth, `branchdeck.resolveByWords`, Settings → Patronus the sixth, `branchdeck.pushSizeLimit` (a size, `50M` when
+fifth, `branchdeck.resolveByWords`, Settings → Landing the sixth, `branchdeck.pushSizeLimit` (a size, `50M` when
 unset, `0` or `off` for none: see [Push size](#push-size); one value for every repository in the global config, as
 `resolveByWords`), the route into master (`branchdeck.landing`: `patronus`, `push` or `pull-request`, no row yet,
 [Landing Routes](../../spec/branch/landing-routes.spec.md)), and Settings → Agents the two rules of coding agents
@@ -3971,7 +3974,7 @@ directory that holds four fifths of it (`main_directory`) and the three largest 
   `git config` (`ConfigSnapshot::push_size_limit`): `bd` from the snapshot of its sync, the app's push read by the start of
   its run (`land_session`, one `config`); a value that is neither a size nor off refuses the push, rather
   than send it unchecked. The E2E server pushes with the git of the config commands of its test repository
-  (`config_git`: the test's own global config), so a limit written on Settings → Patronus reaches its push.
+  (`config_git`: the test's own global config), so a limit written on Settings → Landing reaches its push.
 - **Not here**: the refusal of a server for any other reason (a hook, a protected branch, its own size limit) is the
   push's error with what the remote said ([Push and land](#push-and-land)): `push_refs` keeps the `remote:`
   and `error:` lines of stderr without the progress (`PushRefsReport::messages`), `remote: fatal: pack exceeds maximum

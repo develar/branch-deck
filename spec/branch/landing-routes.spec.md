@@ -47,11 +47,26 @@ targets:
   - ../../src/presenters/next-step.ts
   - ../../src/presenters/land.ts
   - ../../src/presenters/actions.ts
+  - ../../src/presenters/outcome.ts
+  - ../../src/presenters/operations.ts
+  - ../../src/presenters/activity.ts
+  - ../../src/hooks/useSafePush.ts
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/hooks/useWholeStackActions.ts
+  - ../../src/hooks/useStackNextStep.ts
+  - ../../src/components/branch/SafePushPopover.tsx
+  - ../../src/components/branch/SafePushButton.tsx
+  - ../../src/components/branch/NextStepSlot.tsx
+  - ../../src/components/branch/WholeStackSlot.tsx
+  - ../../src/components/branch/BranchPreviewActions.tsx
+  - ../../src/lib/push-to-baseline.ts
+  - ../../src/lib/branch-review-window.ts
+  - ../../src/stores/update-project.ts
 ---
 
 # Landing Routes
 
-Status: Draft (implemented: the route, its facts and its gates, Push to master with its step, its actions and `bd land`; the merge of a pull request is not)
+Status: Draft (implemented: the route, its facts and its gates, Push to master with its step, its actions, its page and `bd land`, the route in Settings → Landing; the merge of a pull request is not)
 Date: 2026-10-28
 
 ## Summary
@@ -196,8 +211,10 @@ target, read before anything is pushed.
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_push_into_the_baseline`)
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_push_into_the_target_lands_the_copy_as_a_fast_forward_and_tells_what_it_landed`)
 - A target that moved must refuse the push as no fast-forward: the start fetches the baseline (`fetch_baseline`, joining
-  a fetch that runs), asks the sync that builds the copy anew, and fails as `baseline_moved`, pushing nothing again by
-  itself. A refusal of the server (`[remote rejected]`: a hook, a protected branch) must fail it as `baseline_refused` in
+  a fetch that runs), asks a sync, and fails as `baseline_moved`, pushing nothing again by itself. The copies are built
+  on the fork point of the checked out branch, so Update Project follows it as after a push that landed
+  (`land_direct::update_after`): the update onto the moved target builds the copy anew on it, and the step offers its
+  push again; `bd land` names `bd update`. A refusal of the server (`[remote rejected]`: a hook, a protected branch) must fail it as `baseline_refused` in
   the server's words, which the session keeps: the gate asks about them before the next push
   (`baselineRefusedPush`), and a push that lands forgets them.
   [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_target_that_moved_refuses_the_copy_as_no_fast_forward`, `the_server_refusing_the_push_is_said_in_its_words_and_a_large_push_never_goes`)
@@ -211,7 +228,7 @@ target, read before anything is pushed.
   names `bd update` instead.
   [@test] ../../crates/domain-policy/src/landed_test.rs (`a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_stays_for_the_gate`)
-  [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_update_follows_only_a_push_into_the_target_that_landed`)
+  [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_update_follows_a_push_into_the_target_that_landed_or_found_it_moved`)
   [@test] ../../crates/operations/src/update_test.rs (`a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
 - The next step of a ready subject must be "Push to master" (the row `push` of
@@ -227,3 +244,48 @@ target, read before anything is pushed.
   route over what its grouping read of git, GitHub not asked: the gate of a push into a repository on GitHub waits.
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`, `bd_status_decides_the_steps_by_the_route_of_the_repository`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_land_check_by_a_push`, `a_land_by_a_push`)
+
+### The page
+
+- The view of the session must carry the route with its gate (`RepositoryView.route`, `derive::landing_route_of`), so
+  the page knows a repository that lands by a push without Patronus: its start runs where no robot answers, and its
+  words are a push's. The label names the branch of the baseline on its remote: "Push to master", "Push to main"
+  ("· 3" for what it is built on).
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_stays_for_the_gate`)
+- Push to master must be one start on every surface that offers the Safe Push: the slot of the row (a click), S on the
+  row, "Push to master" of the "⋯" and right-click menus, the footer of the branch preview, the title bar of the review
+  window (asked of the main window, `push-to-baseline`), and of a whole stack the header of its island and "Whole Stack
+  ›" of the menu of its root, its stack branch pushed. Each runs the plan of `prepare`: it pushes at once when it asks
+  nothing, else opens its popover at the slot, which Enter starts.
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push the copy into master from the slot of the row, the popover asking what CI did not pass, and update after it`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should open the popover of Push to master with S on the row`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push into master from the menu of the row`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push into master from the footer of the branch preview`, `should push into master with S in the branch preview`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push into master when the review window asks the main window`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push the stack branch of a whole stack into master from the header of its island`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push a whole stack into master from Whole Stack of the menu of its root`)
+- The popover of a push must say what one push lands: "Pushes host-git into master: 3 commits.", a piece of a stack
+  "Pushes oauth with auth and login, which it is built on: 3 branches · 12 commits into master.", a whole stack
+  "Pushes 7 branches · 14 commits into master in one push: …" with the stack branch it pushes; then a line per
+  confirmation: what CI did not pass on the commit it lands ("JIRA-456 has no open pull request: no CI ran on the
+  commit it lands.", the checks of #7 failing or still running, #7 showing another commit), the changes requested, what
+  the gate asks ("master requires status checks: a push lands without them.", a refusal of the server before), and
+  that a push runs no CI. No Dry Run, no profile, no review; its start is "Push to master".
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should ask about the required status checks of master and push by the GitHub URL of origin`)
+- A push that landed must be one toast that follows the update after it in place: "Pushed JIRA-456 into master · 3
+  commits", "Updating the project…", then what the update did ("JIRA-456 landed in origin/master · Updated master: …"),
+  or Update Project in the toast when the update did not move the branch (local changes, a conflict, a failure, an
+  update that did not run). A target that moved is a notice in the same way: "master moved: JIRA-456 is rebuilt on the
+  new commits", nothing pushed, the update, then "Push to master again", which the step offers. A refusal of the server
+  is an error in its words: "Cannot push JIRA-456 into master" with "The server refused the push into master: …".
+  Activity says the same (`presentLandOutcome`). The slot says the operation as a push ("Push of auth into master",
+  by the remote-tracking ref it holds).
+  [@test] ../../src/presenters/outcome.test.ts (`says what it pushed, a target that moved, the words of the server that refused it, and the push again of a plan that changed`, `says the update that follows it: running, what it did, or Update Project where it did not move the branch`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should say that master moved, push nothing, and offer the push of the copy rebuilt on it`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should say in the words of the server why it refused the push, and ask about it before the next push`)
+- A refusal of the gate must disable Push to master on every surface with its reason: below write access "You have no
+  write access to acme/monorepo: someone who has lands it into master".
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should disable Push to master with the reason when the token has no write access to the repository`)
+- Settings → Landing must name the route of the selected repository ("Land by": Safe Push · Push · Pull Request) and
+  where it comes from ([Settings](../repository/settings.spec.md#landing)).
+  [@test] ../../tests/e2e/settings/landing-settings.spec.ts (`should land the repository by a push into master once chosen, the main window taking the step, and back to the default`)

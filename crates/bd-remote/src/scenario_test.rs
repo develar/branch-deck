@@ -399,7 +399,7 @@ struct GivenProfile {
   /// The profile of the last robot: `lsc`, the one the fake names
   last_robot: Option<String>,
   skips_review: bool,
-  /// The robot list names the last robot's profile (Settings → Patronus)
+  /// The robot list names the last robot's profile (Settings → Landing)
   new_api: bool,
 }
 

@@ -48,6 +48,9 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   if (parsedOptions.rebaseInProgress) {
     await repoBuilder.setRebaseInProgress(true)
   }
+  if (parsedOptions.landing !== undefined) {
+    await repoBuilder.setLanding(parsedOptions.landing.setting, parsedOptions.landing.gitHub === undefined ? {} : { gitHub: parsedOptions.landing.gitHub })
+  }
   if (parsedOptions.syncOverrides !== undefined) {
     await repoBuilder.setSyncOverrides(parsedOptions.syncOverrides)
   }

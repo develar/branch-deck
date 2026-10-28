@@ -28,7 +28,7 @@ import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useMissingCommitOwners } from "@/hooks/useMissingCommitOwners"
 import { useRowOperation } from "@/hooks/useRowOperation"
-import { requestSafePush } from "@/hooks/useSafePush"
+import { requestSafePush, useLandsByPush } from "@/hooks/useSafePush"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
@@ -95,8 +95,10 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const reviewBlocker = branch === undefined ? null : reviewBlockerOf(branch, actions)
   const canReview = branch !== undefined && reviewBlocker === null
   const safePushBlocker = useBranchNextStep(currentName ?? "")?.safePushBlocker ?? null
-  // as the footer's "Safe Push" is shown (`SafePushButton`, where Patronus is); disabled, S says why
-  const offersSafePush = patronusAvailable
+  // as the footer's "Safe Push" is shown (`SafePushButton`, where Patronus is, or Push to master where the repository
+  // lands by a push); disabled, S says why
+  const landsByPush = useLandsByPush()
+  const offersSafePush = patronusAvailable || landsByPush
 
   const bodyRef = useRef<HTMLDivElement>(null)
   // the meta line of each commit shows its files

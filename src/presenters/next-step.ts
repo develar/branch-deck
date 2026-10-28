@@ -24,6 +24,7 @@ import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { describeStart, formatPatronusAvailabilityHint, formatStartLabel } from "@/lib/patronus"
 import { formatAvailabilityHint } from "@/lib/pull-request"
+import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
 import { joinNames } from "@/lib/text"
 import { formatWholeStack } from "@/lib/whole-stack"
 import { describeLandingRefusals, formatLandingFix, neededCommit } from "@/presenters/landing"
@@ -546,8 +547,8 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       return { kind: "safePush", item: safePushItem(step, context, general) }
     case "pushToBaseline": {
       // the repository lands by a push of the copy into the target: the start of the row, by the route Rust decides
-      const label = step.lands > 1 ? `Push to ${kind.target} · ${step.lands}` : `Push to ${kind.target}`
-      const description = general ?? `Push the copy of ${subject} into ${kind.target}: it lands without a robot and without the CI of a pull request`
+      const label = formatPushToBaselineLabel(kind.target, step.lands)
+      const description = general ?? context.startDescription ?? describePushToBaseline(subject, step.lands, kind.target)
       return { kind: "safePush", item: { ...safePushItem(step, context, general), id: "push-to-baseline", label, icon: GitMergeIcon, description } }
     }
   }

@@ -33,7 +33,7 @@ const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository
 
 /// Why a `push` route of the global or the system config is taken as unset: a push into master of every repository of
 /// the user that names no route of its own would be a trap
-pub const GLOBAL_PUSH_ROUTE_REASON: &str = "push is taken only from the config of the repository (git config --local), never from the global one";
+pub const GLOBAL_PUSH_ROUTE_REASON: &str = "a push is taken only from .git/config of the repository, never from the global config";
 
 /// Whether a sync resolves the conflicts of git by words (`git_ops::word_resolve`), a git boolean, on when unset
 pub const RESOLVE_BY_WORDS_CONFIG_KEY: &str = "branchdeck.resolveByWords";
@@ -137,7 +137,7 @@ pub struct RepositoryConfig {
   pub github_repository: ConfigSetting<Option<String>>,
   /// `branchdeck.branchPrefix`, normalized as the branches are named
   pub branch_prefix: ConfigSetting<Option<String>>,
-  /// `branchdeck.pushSizeLimit` as written (`50M`, `0`, `off`); unset is `DEFAULT_PUSH_SIZE_LIMIT` (Settings → Patronus)
+  /// `branchdeck.pushSizeLimit` as written (`50M`, `0`, `off`); unset is `DEFAULT_PUSH_SIZE_LIMIT` (Settings → Landing)
   pub push_size_limit: ConfigSetting<Option<String>>,
   /// `branchdeck.resolveByWords`, on by default
   pub resolve_by_words: ConfigSetting<bool>,

@@ -196,7 +196,7 @@ async fn the_robots_of_the_fixture_come_through_the_real_service() {
 }
 
 /// The details of a robot a window shows come through the real service from the fake Patronus as a fact of the
-/// session, read when the window demands them (`robotDetails`), counted by the fake. Settings → Patronus, the new API,
+/// session, read when the window demands them (`robotDetails`), counted by the fake. Settings → Landing, the new API,
 /// is read in Rust from the settings of the repository, never sent by the page: the details of a running robot ask
 /// Patronus for its folded progress (`robots/progress`) only once the setting is on
 #[tokio::test]

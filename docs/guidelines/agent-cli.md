@@ -1502,7 +1502,7 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
 - A push whose commits add more files than the push size limit (`branchdeck.pushSizeLimit`, 50 MiB unless set) is
   `push_too_large` before bd asks the remote, `--dry-run` too: the message says how much and where, `paths` lists the
   directory and the largest files. It is mostly build output committed by mistake (a `target/`, `node_modules/`): show
-  it to the user, who takes the files out of the commits or raises the limit (Settings → Patronus); never raise it
+  it to the user, who takes the files out of the commits or raises the limit (Settings → Landing); never raise it
   yourself.
 - `pull_request.base` is the baseline without the remote (`master`), for every branch. `title` and `body` are the
   `bd describe` text, else the text of the commits: the issue key and its YouTrack summary as the title (the summary
@@ -1527,7 +1527,7 @@ pass) or, with `--patronus-dry-run`, a Patronus Dry Run (the checks only; it pus
 does, so it needs the user's approval too; `--check` is the preview that starts nothing). The repository must be on Space (`origin` on
 `git.jetbrains.team`, else `not_on_space`), and the Space token of the Safe Push CLI must be there: run
 `./safePush.cmd` once, or set `SPACE_TOKEN` (else `not_logged_in`). `SAFEPUSH_PATRONUS_URL` picks another Patronus
-instance, as for the Safe Push CLI. The app's setting Settings → Patronus → "New Patronus API"
+instance, as for the Safe Push CLI. The app's setting Settings → Landing → "New Patronus API"
 (`appSettings.patronusNewApi` of its settings file) holds for bd too: `bd robot` reads the progress of a running
 robot in one request, and the robot lists name the merge profiles, so `bd safe-push` needs no request for the profile
 of the last robot; off, or while Patronus has the flags off, the requests are the ones of before.

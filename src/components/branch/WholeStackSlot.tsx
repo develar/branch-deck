@@ -2,6 +2,7 @@ import { useRef } from "react"
 import { GaplessAnchors, RequestReviewSlot, SafePushAskPopover, StepButton } from "@/components/branch/NextStepSlot"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
+import { isStartItem } from "@/lib/push-to-baseline"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useBranch, useStackBranch } from "@/stores/branch-sync"
 import { useStackPullRequest } from "@/stores/pull-requests"
@@ -50,7 +51,7 @@ export function WholeStackSlot({ root, leaf }: WholeStackSlotProps) {
   return (
     <div ref={slotRef} className="flex min-w-0 items-center" data-testid="next-step-slot" data-step={step.kind} data-waits-for={step.waitsFor ?? undefined} data-whole-stack={root}>
       {item !== null &&
-        (item.id === "safe-push" ? (
+        (isStartItem(item) ? (
           <SafePushButton branch={rootBranch} wholeStack={root} placement="stack-header" compact />
         ) : requestReview !== null ? null : (
           <StepButton action={item} tone={step.tone} showKeys={false} />

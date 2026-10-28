@@ -17,11 +17,12 @@
 //!   required status checks, a refusal of the server before);
 //! - effects: the push of the copy into the target (`PlannedEffect::PushBaseline`).
 //!
-//! After a push that landed, Update Project follows as an operation of its own (`update_after`): the app runs it, `bd
-//! land` names it as the next step.
+//! After a push that landed, and after a target that moved refused it, Update Project follows as an operation of its own
+//! (`update_after`): the app runs it, `bd land` names it as the next step.
 
 use crate::land::{BranchStart, LandFacts, Start, SubjectFacts, branch_lands, conflict_blocker, gate_blockers, more_than_row, stack_lands, start_refusal, table_blocker};
 use crate::next_step::{Listing, changes_requested_by};
+use domain_types::error::ErrorCode;
 use domain_types::landing::{Confirmation, FactWait, Land, LandDecision, LandFact, PlannedEffect, Unchecked};
 use domain_types::landing_route::{RouteFact, RouteGate};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent};
@@ -139,11 +140,20 @@ fn checks_of(open: Option<&PullRequest>, tip: Option<&str>) -> Vec<Confirmation>
 }
 
 /// What follows the start whose effects ran as `effects`: Update Project with its fetch, as an operation of its own,
-/// once its push into the target landed; nothing otherwise (a push that failed, a start of a robot)
+/// once its push into the target landed, and once the target refused it as no fast-forward (`baseline_moved`): the
+/// copies are built on the fork point of the checked out branch, so only the update onto the moved target builds them
+/// anew on it; nothing otherwise (a refusal of the server, another failure, a start of a robot)
 #[must_use]
 pub fn update_after(effects: &[EffectRecord]) -> Option<Intent> {
   effects
     .iter()
-    .any(|record| matches!(record.effect, PlannedEffect::PushBaseline { .. }) && record.status == EffectStatus::Done)
+    .any(|record| {
+      matches!(record.effect, PlannedEffect::PushBaseline { .. })
+        && match &record.status {
+          EffectStatus::Done => true,
+          EffectStatus::Failed { error } => error.code == ErrorCode::BaselineMoved,
+          _ => false,
+        }
+    })
     .then_some(Intent::UpdateProject { fetch: true })
 }

@@ -18,6 +18,7 @@ import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import { pushFromButton, pushWithChildren } from "@/lib/push-run"
+import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
 import { formatPushWithChildrenLabel, stackOnFixes, stackProblemOf } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong } from "@/lib/whole-stack"
@@ -352,10 +353,26 @@ function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem
 /**
  * "Safe Push" (S; "Safe Push · 3" for a stacked branch): the start of the row (`requestSafePush`), as Rust offers it,
  * disabled with the reason of the next step of the branch (the slot, the menu, S on the row, the branch preview, the
- * review and the stack header say the same)
+ * review and the stack header say the same); "Push to master" (S; "Push to master · 3") in its place where the
+ * repository lands by a push of the copy into the target
  */
 function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP): MenuItem | null {
   const branchCount = getLandingBranchCount(branch.name)
+  // a repository that lands by a push of the copy into the target: Rust offers its push in place of the robot's start
+  const target = getReadinessTarget()
+  const push = branchItem(
+    branch,
+    "push-to-baseline",
+    {
+      label: formatPushToBaselineLabel(target, branchCount),
+      description: describePushToBaseline(branch.name, branchCount, target),
+      onSelect: () => void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "click" }),
+    },
+    nextStep.safePushBlocker,
+  )
+  if (push !== null) {
+    return withStepReason(push, nextStep.safePushBlocker)
+  }
   const item = branchItem(
     branch,
     "safe-push",

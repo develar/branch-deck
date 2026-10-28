@@ -442,10 +442,16 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
 
   A Dry Run is a robot of Patronus: never offered on this route (`dryRunNeedsPatronus`). The whole stack of a root that
   forks takes the same rows in its header. The merge of a pull request on GitHub keeps the table above in this phase.
+  The slot is the start of the row as "Safe Push" is (`SafePushButton`: its steps while it runs, "Pushing 45%"): a click
+  opens its popover at the slot when it asks something, S opens it always, Enter pushes; the menus, the preview, the
+  review window and the header of an island start the same ([Landing Routes](landing-routes.spec.md#the-page)). The
+  label names the target: "Push to main" where the baseline is `origin/main`.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_push_into_the_target_is_the_step_of_its_route_and_its_gate_holds_it_back`)
   [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits`)
   [@test] ../../src/presenters/next-step.test.ts (`row push: Push to master by the branches it lands, its start disabled with the refusal of the gate of the route`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push the copy into master from the slot of the row, the popover asking what CI did not pass, and update after it`, `should open the popover of Push to master with S on the row`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should disable Push to master with the reason when the token has no write access to the repository`)
 
 ### The surfaces
 

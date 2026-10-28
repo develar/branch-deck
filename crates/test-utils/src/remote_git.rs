@@ -217,6 +217,42 @@ pub fn commit_on_remote(repo_path: &Path, branch: &str, commit: &RemoteCommit) -
 }
 
 /// The remote of the repository at `repo_path`, which its template gave it
+/// The SSH command of a repository whose `origin` pushes to github.com in a test ([`push_to_github`]), in its `.git`
+const GITHUB_SSH_SHIM: &str = ".git/github-ssh.sh";
+
+/// Makes `origin` of the repository at `repo_path` push to `git@github.com:<repository>.git` (`owner/name`), as a clone
+/// of a GitHub repository does, while every push still reaches its own remote: the SSH command of the repository
+/// (`core.sshCommand`, `ssh.variant=simple`, so git passes only the host and the command) runs the `git-receive-pack`
+/// git asks for on [`BARE_ORIGIN`], with its hooks. The fetch URL stays the remote's path. So what the app reads of the
+/// push URL names the GitHub repository, offline. Unix only (a shell script)
+///
+/// # Errors
+/// When the repository has no remote of its own, or git cannot write its config
+pub fn push_to_github(repo_path: &Path, repository: &str) -> Result<()> {
+  let origin = existing_origin(repo_path)?;
+  let origin = origin.canonicalize()?;
+  let shim = repo_path.join(GITHUB_SSH_SHIM);
+  // the last argument is the command: `git-receive-pack 'owner/name.git'`; its first word runs on the remote's path
+  let script = format!("#!/bin/sh\nfor command; do :; done\nset -- $command\nexec \"$1\" '{}'\n", origin.display());
+  std::fs::write(&shim, script)?;
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+  }
+  let shim = shim.canonicalize()?;
+  let shim = shim.to_str().context("the path of the SSH command is not UTF-8")?;
+  append_config(
+    repo_path,
+    &[
+      ("remote.origin.pushurl", &format!("git@github.com:{repository}.git")),
+      ("core.sshCommand", shim),
+      ("ssh.variant", "simple"),
+    ],
+  );
+  Ok(())
+}
+
 fn existing_origin(repo_path: &Path) -> Result<PathBuf> {
   let origin = bare_origin(repo_path);
   ensure!(origin.is_dir(), "the repository at {} has no remote of its own ({BARE_ORIGIN})", repo_path.display());

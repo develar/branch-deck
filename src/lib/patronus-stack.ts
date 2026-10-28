@@ -35,6 +35,8 @@ export interface StackLandingInput {
   readonly children: readonly string[]
   /** The trial build of the branch alone (`get_stack_independence`); null before it answers, when it failed, or for a root */
   readonly independence: StackIndependence | null
+  /** A push of the copy into the target lands it (Push to master), no robot: what it pushes, and the update after it */
+  readonly byPush?: boolean
 }
 
 /** "Cache the icon" changes lines that "Parse the icon" of IJPL-1 adds; with more commits, "2 commits of IJPL-1 add" */
@@ -98,9 +100,10 @@ function describeAlone(branchName: string, independence: StackIndependence): Sta
  * robot: "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master." (the names cut
  * from three ancestors on: "a, b, c and 2 more"). A dry run checks them the same way. The branches built on it stay, and
  * the next sync after the merge builds them on the target. Landing the branch alone is the second way, by the trial
- * build (`describeAlone`). An open pull request into a virtual branch is no start: the next step retargets it first.
+ * build (`describeAlone`). A push of the copy into the target (`byPush`) says the same of what it pushes: "Pushes
+ * oauth with auth and login, …", and builds the branches on it after the update. An open pull request into a virtual branch is no start: the next step retargets it first.
  */
-export function describeStackLanding({ branchName, mode, target, ancestors, commitCount, children, independence }: StackLandingInput): StackLanding {
+export function describeStackLanding({ branchName, mode, target, ancestors, commitCount, children, independence, byPush = false }: StackLandingInput): StackLanding {
   const builtOn = `${joinNames(ancestors)}, which it is built on: ${formatBranchesAndCommits(ancestors.length + 1, commitCount)}`
   if (mode === "dryRun") {
     return { lands: ancestors.length === 0 ? null : `Checks ${branchName} with ${builtOn}.`, children: null, alone: null }
@@ -109,9 +112,9 @@ export function describeStackLanding({ branchName, mode, target, ancestors, comm
   const childrenNote =
     children.length === 0
       ? null
-      : `${joinNames(children)} ${one ? "is" : "are"} built on ${branchName}: ${one ? "it stays" : "they stay"}, and after the merge the next sync builds ${one ? "it" : "them"} on ${target}.`
+      : `${joinNames(children)} ${one ? "is" : "are"} built on ${branchName}: ${one ? "it stays" : "they stay"}, and after the ${byPush ? "update" : "merge"} the next sync builds ${one ? "it" : "them"} on ${target}.`
   return {
-    lands: ancestors.length === 0 ? null : `Lands ${branchName} with ${builtOn} into ${target}.`,
+    lands: ancestors.length === 0 ? null : `${byPush ? "Pushes" : "Lands"} ${branchName} with ${builtOn} into ${target}.`,
     children: childrenNote,
     alone: ancestors.length === 0 || independence === null ? null : describeAlone(branchName, independence),
   }

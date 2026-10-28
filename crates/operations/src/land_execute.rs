@@ -1025,16 +1025,17 @@ impl Run<'_> {
         EffectStatus::Done
       }
       BaselinePushed::Moved { summary } => {
-        // the target as it is now, for the sync that builds the copies anew on it: the fetch of the baseline, which joins
-        // a fetch of any process that runs
+        // the target as it is now: the fetch of the baseline, which joins a fetch of any process that runs, and the sync
+        // that shows it; the copies are built on the fork point of the checked out branch, so the update onto the moved
+        // target builds them anew (`land_direct::update_after`: the app runs it, `bd land` names it)
         let (git, path, upstream) = (self.services.git.clone(), self.services.repository_path.clone(), report.upstream);
         let fetched = blocking(move || fetch_baseline(&git, &path, &upstream, &mut |_| {}).map_err(git_failure)).await;
         let after = match fetched {
           Ok(_) => {
             self.host.baseline_fetched();
-            format!("{baseline} is fetched, and the sync builds the copy anew on it")
+            format!("{baseline} is fetched: Update Project builds the copy anew on it")
           }
-          Err(error) => format!("its fetch failed ({}): fetch {baseline} and sync", error.message),
+          Err(error) => format!("its fetch failed ({}): Update Project fetches {baseline} and builds the copy anew on it", error.message),
         };
         self.fail(ApiError::new(
           ErrorCode::BaselineMoved,

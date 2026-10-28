@@ -394,11 +394,16 @@ fn bd_accepts_the_checks_and_what_the_gate_asks_only_by_their_flags() {
 /// Update Project with its fetch follows only a push into the target that landed: not one that failed, not a start of a
 /// robot
 #[test]
-fn the_update_follows_only_a_push_into_the_target_that_landed() {
+fn the_update_follows_a_push_into_the_target_that_landed_or_found_it_moved() {
   let pushed = |status| vec![EffectRecord::new(push_effect("login-tip"), status)];
   assert_eq!(update_after(&pushed(EffectStatus::Done)), Some(Intent::UpdateProject { fetch: true }));
-  let refused = EffectStatus::Failed {
+  // the copy is built on the fork point: only the update onto the moved target builds it anew
+  let moved = EffectStatus::Failed {
     error: ApiError::new(ErrorCode::BaselineMoved, "master moved"),
+  };
+  assert_eq!(update_after(&pushed(moved)), Some(Intent::UpdateProject { fetch: true }));
+  let refused = EffectStatus::Failed {
+    error: ApiError::new(ErrorCode::BaselineRefused, "remote: master is protected"),
   };
   assert_eq!(update_after(&pushed(refused)), None);
   let started = vec![EffectRecord::new(

@@ -57,7 +57,7 @@ impl fmt::Display for PushTooLarge {
     write!(
       f,
       "{} Remove the files from the commits (build output?), or raise the push size limit ({PUSH_SIZE_LIMIT_CONFIG_KEY}, \
-       Settings → Patronus)",
+       Settings → Landing)",
       self.facts()
     )
   }

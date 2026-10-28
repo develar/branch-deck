@@ -15,7 +15,7 @@ import { describePush } from "@/lib/push-summary"
 import { buildRemoteMovedTexts, toRemoteStatus } from "@/lib/remote-status"
 import { describeReview } from "@/lib/review-requests"
 import { formatReadinessSubject, formatWholeStackBranch, stackRootOfReadinessKey } from "@/lib/whole-stack"
-import { presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
+import { presentLandOutcome, presentLandRefusal, pushTargetOf } from "@/presenters/outcome"
 import { presentRewrite } from "@/presenters/rewrite"
 import type { ActivityDetails, ActivityEntry } from "@/stores/activity"
 
@@ -242,7 +242,7 @@ function robotSaid(title: string, robot: Parameters<typeof describeRobot>[0]): S
   return { kind: "patronus", title, description: describeRobot(robot), details: { type: "robot", url: robot.url } }
 }
 
-/** A start of a Safe Push or a Dry Run, as its toast said it (`presentLandOutcome`, `presentLandRefusal`) */
+/** A start of a Safe Push, a Dry Run or a push into the target, as its toast said it (`presentLandOutcome`, `presentLandRefusal`) */
 function landSaid(entry: JournalEntry, told: boolean): Said[] {
   const { intent } = entry
   if (intent.kind !== "land") {
@@ -253,7 +253,7 @@ function landSaid(entry: JournalEntry, told: boolean): Said[] {
     if (told || entry.error.code === "canceled") {
       return []
     }
-    const refusal = presentLandRefusal(entry.error, intent.mode, subject)
+    const refusal = presentLandRefusal(entry.error, intent.mode, subject, {}, pushTargetOf(entry.effects.map(record => record.effect)))
     return [
       { kind: "error", title: refusal.title, description: refusal.kind === "landing" ? refusal.reason : refusal.kind === "stopped" ? refusal.description : refusal.error.message },
     ]
@@ -276,6 +276,10 @@ function landSaid(entry: JournalEntry, told: boolean): Said[] {
       ]
     case "failed":
       return told ? [] : [{ kind: "error", title: toast.title, description: toast.description }]
+    case "pushed":
+      return [{ kind: "push", title: toast.title, description: toast.description }]
+    case "moved":
+      return [{ kind: "push", title: toast.title, description: toast.description, warning: true }]
     case "stopped":
       return []
   }

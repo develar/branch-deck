@@ -7,6 +7,7 @@ import {
   ExternalLinkIcon,
   FileDiffIcon,
   FlaskConicalIcon,
+  GitMergeIcon,
   InfoIcon,
   Layers2Icon,
   SettingsIcon,
@@ -26,7 +27,7 @@ import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
 import { getWholeStackStartItems } from "@/hooks/useWholeStackActions"
-import type { Commit, LandProfiles, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit } from "@/lib/bindings"
+import type { Commit, Confirmation, LandProfiles, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit, Unchecked } from "@/lib/bindings"
 import { openBranchReviewWindow, openWholeStackReviewWindow, toReviewGroups } from "@/lib/branch-review-window"
 import { isRulesUnknown } from "@/lib/branch-rules"
 import { formatCommitCount } from "@/lib/commit"
@@ -51,6 +52,7 @@ import { landingRefusalsOf } from "@/presenters/land"
 import type { LandingRefused } from "@/presenters/landing"
 import { describeLandingRefusals, formatLandingFix } from "@/presenters/landing"
 import { formatPerson } from "@/presenters/next-step"
+import { formatReason } from "@/presenters/reasons"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
 import { useIndicatorClaim } from "@/stores/indicators"
 import { peekBranchRules, usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
@@ -99,10 +101,13 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   // a branch of a stack: the whole stack lands in one Safe Push too, the second way its popover offers
   const wholeStackRoot = useBranchSync(state => (root === null ? wholeStackRootIn(state, branchName) : null))
   const wholeStackNext = useStackNextStep(wholeStackRoot ?? "")
+  // a push into the target pushes the stack branch of the whole stack (`push-to-baseline` of its key)
   const wholeStackItem =
     wholeStackRoot === null
       ? undefined
-      : getWholeStackStartItems(wholeStackRoot, wholeStackNext).find(item => item.id === (mode === "dryRun" ? "dry-run-whole-stack" : "safe-push-whole-stack"))
+      : getWholeStackStartItems(wholeStackRoot, wholeStackNext).find(item =>
+          mode === "dryRun" ? item.id === "dry-run-whole-stack" : item.id === "safe-push-whole-stack" || item.id === "push-to-baseline",
+        )
   const branchPullRequest = usePullRequest(branchName)
   const stackPullRequest = useStackPullRequest(root ?? "")
   const pullRequest = root === null ? branchPullRequest : stackPullRequest
@@ -147,7 +152,10 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   // the check reads HEAD, the branch list the last sync: a move takes what the list has, so it waits for every commit
   const neededInList = useBranchSync(state => neededCommits.every(commit => state.branches[commit.branch]?.commitIndex[commit.id] !== undefined))
 
-  const modeName = formatPushMode(mode)
+  // a push of the copy into the target (Push to master): no robot, no Dry Run, no profile, no review
+  const byPush = read?.byPush === true
+  const target = read?.target ?? ""
+  const modeName = byPush ? `Push to ${target}` : formatPushMode(mode)
   // the build of what it lands needs a branch outside it (the landing gate's blockers): the reason, the fix, and the start
   // anyway
   const landingRefusals = read?.plan == null ? [] : landingRefusalsOf(read.plan).map(reason => reason.refusal)
@@ -175,7 +183,6 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
       }
     })
 
-  const target = read?.target ?? ""
   const landing =
     read === null
       ? null
@@ -187,15 +194,16 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           commitCount: read.commitCount,
           children: read.children,
           independence: answered?.kind === "needs" && !neededInList ? { ...answered, movable: false } : answered,
+          byPush,
         })
   const commits = read?.commitCount ?? 0
   const wholeStack = read?.wholeStack ?? null
   const title =
-    (wholeStack === null ? null : `${describeWholeStackLanding(wholeStack.members, commits, target, mode, wholeStack.landed)}.`) ??
+    (wholeStack === null ? null : `${describeWholeStackLanding(wholeStack.members, commits, target, mode, wholeStack.landed, byPush)}.`) ??
     landing?.lands ??
     (mode === "dryRun"
       ? `Checks ${branchName} on ${target} without pushing into it: ${formatCommitCount(commits)}.`
-      : `Lands ${branchName} into ${target}: ${formatCommitCount(commits)}.`)
+      : `${byPush ? "Pushes" : "Lands"} ${branchName} into ${target}: ${formatCommitCount(commits)}.`)
 
   return (
     <Popover open onOpenChange={open => !open && close()}>
@@ -207,7 +215,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         className="w-[28rem] max-w-[calc(100vw-2rem)] gap-3 p-3"
         // read when Base UI moves the focus in, which may be after the facts loaded
         initialFocus={() => (canStartRef.current ? startRef.current : popupRef.current)}
-        aria-label={`${modeName} of ${subject}`}
+        aria-label={byPush ? `Push of ${subject} into ${target}` : `${modeName} of ${subject}`}
         data-testid="safe-push-popover"
         data-mode={mode}
         data-decision={decision.kind}
@@ -219,12 +227,13 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           }
         }}
       >
-        {/* not the popup's name: that is "Safe Push of auth"; the title is what it lands */}
+        {/* not the popup's name: that is "Safe Push of auth"; the title is what it lands (pushes) */}
         <h2 className="text-sm font-medium" data-testid="safe-push-lands">
           {title}
         </h2>
         {landingRefused !== null && <LandingNeedsLine refused={landingRefused} disabled={busy !== null} surface={surface} />}
-        {read !== null && <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} />}
+        {read !== null && (byPush ? <PushLines read={read} /> : <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} />)}
+        {byPush && landing?.children != null && <Line testId="safe-push-children">{landing.children}</Line>}
         {landing?.alone != null && read !== null && <AloneOption alone={landing.alone} disabled={busy !== null} onUnstack={unstack} onMove={moveHere} />}
         {wholeStackItem !== undefined && wholeStackRoot !== null && <WholeStackOption root={wholeStackRoot} item={wholeStackItem} mode={mode} onSelect={close} />}
         {independence.state.status === "loading" && (
@@ -235,7 +244,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         )}
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
           <Status read={read} busy={busy} placement={ask.placement} onPiece={close} />
-          {mode === "rebaseAutosquash" && (
+          {mode === "rebaseAutosquash" && !byPush && (
             <Button size="xs" variant="ghost" onClick={dryRun} data-testid="safe-push-dry-run">
               <FlaskConicalIcon data-icon="inline-start" />
               Dry Run
@@ -245,7 +254,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
             Cancel
           </Button>
           <Button ref={startRef} size="xs" disabled={!canStart} focusableWhenDisabled className={cn(!canStart && "opacity-50")} onClick={start} data-testid="safe-push-start">
-            {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
+            {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : byPush ? <GitMergeIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
             {landingRefused !== null ? "Start Anyway" : read?.withoutReview === true ? "Safe Push Without Review" : modeName}
           </Button>
         </div>
@@ -365,6 +374,63 @@ function Lines({
           {`Cannot check whether the push keeps the approvals of #${rulesUnknown.number}: ${rules.reason}. Patronus counts them when the robot starts.`}
         </Line>
       )}
+    </>
+  )
+}
+
+/** Why CI did not pass on the commit a push into the target lands, a sentence */
+function formatUnchecked(why: Unchecked, subject: string): string {
+  switch (why.kind) {
+    case "noPullRequest":
+      return `${subject} has no open pull request: no CI ran on the commit it lands.`
+    case "unlisted":
+      return "GitHub doesn't list the pull requests: whether CI passed on the commit it lands is not known."
+    case "otherHead":
+      return `#${why.number} shows another commit: its CI did not run on the one this push lands.`
+    case "failing":
+      return `The checks of #${why.number} fail.`
+    case "running":
+      return `The checks of #${why.number} still run.`
+  }
+}
+
+/** A confirmation of a push into the target as its line says it; null for a confirmation of a robot */
+function pushLineOf(confirmation: Confirmation, subject: string): { readonly testId: string; readonly text: string } | null {
+  switch (confirmation.kind) {
+    case "unchecked":
+      return { testId: "safe-push-checks", text: formatUnchecked(confirmation.why, subject) }
+    case "changesRequested":
+      return {
+        testId: "safe-push-checks",
+        text: confirmation.by.length === 0 ? `Changes are requested on #${confirmation.number}.` : `${joinNames(confirmation.by)} requested changes on #${confirmation.number}.`,
+      }
+    case "routeRule":
+      return { testId: "safe-push-route", text: `${formatReason(confirmation.reason)}.` }
+    default:
+      return null
+  }
+}
+
+/**
+ * What a push of the copy into the target asks before it pushes (Push to master): what CI did not pass on the commit
+ * it lands and the changes requested on its pull request (`checks`), what the gate of the route asks (`route`: a rule
+ * of the target the user may bypass, the status checks it lands without, a refusal of the server before), each a line;
+ * then that it runs no CI of its own. The stack branch of a whole stack is what it pushes
+ */
+function PushLines({ read }: { read: SafePushRead }) {
+  const lines = (read.plan?.confirmations ?? []).flatMap(confirmation => {
+    const line = pushLineOf(confirmation, read.subject)
+    return line === null ? [] : [line]
+  })
+  return (
+    <>
+      {read.wholeStack !== null && <Line testId="safe-push-stack-branch">{`Pushes its stack branch ${read.wholeStack.stackBranch}.`}</Line>}
+      {lines.map(line => (
+        <Line key={line.text} tone="warning" testId={line.testId}>
+          {line.text}
+        </Line>
+      ))}
+      {lines.some(line => line.testId === "safe-push-checks") && <Line testId="safe-push-no-ci">{`A push into ${read.target} runs no CI: it lands the commit as it is.`}</Line>}
     </>
   )
 }
@@ -604,7 +670,9 @@ function Status({ read, busy, placement, onPiece }: { read: SafePushRead | null;
           {decision.reason}
         </p>
         {decision.kind === "refuse" && decision.offersPush && read !== null && <PushAlone branchName={read.branchName} />}
-        {decision.kind === "refuse" && read?.wholeStack?.piece != null && <LandInPieces piece={read.wholeStack.piece} mode={read.mode} placement={placement} onSelect={onPiece} />}
+        {decision.kind === "refuse" && read?.wholeStack?.piece != null && (
+          <LandInPieces piece={read.wholeStack.piece} mode={read.mode} pushInto={read.byPush ? read.target : null} placement={placement} onSelect={onPiece} />
+        )}
       </div>
     )
   }
@@ -657,7 +725,20 @@ function WholeStackOption({ root, item, mode, onSelect }: { root: string; item: 
  * "Land it in pieces": the whole stack can't land while the sync didn't build its stack branch, the Safe Push of the
  * last branch of its main line can (`WholeStackRead.piece`), its popover at the same slot
  */
-function LandInPieces({ piece, mode, placement, onSelect }: { piece: string; mode: SafePushMode; placement: SafePushPlacement; onSelect: () => void }) {
+function LandInPieces({
+  piece,
+  mode,
+  pushInto,
+  placement,
+  onSelect,
+}: {
+  piece: string
+  mode: SafePushMode
+  /** The target a push of the copy lands the piece in (Push to master); null: a robot lands it */
+  pushInto: string | null
+  placement: SafePushPlacement
+  onSelect: () => void
+}) {
   return (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground" data-testid="safe-push-pieces">
       Land it in pieces:
@@ -670,8 +751,8 @@ function LandInPieces({ piece, mode, placement, onSelect }: { piece: string; mod
           void requestSafePush(piece, { mode, via: "click", placement })
         }}
       >
-        <ShieldCheckIcon data-icon="inline-start" />
-        {`${formatPushMode(mode)} ${piece}`}
+        {pushInto === null ? <ShieldCheckIcon data-icon="inline-start" /> : <GitMergeIcon data-icon="inline-start" />}
+        {pushInto === null ? `${formatPushMode(mode)} ${piece}` : `Push ${piece} to ${pushInto}`}
       </Button>
     </p>
   )

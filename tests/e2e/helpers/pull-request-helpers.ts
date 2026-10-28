@@ -29,6 +29,10 @@ export type GitHubFixture = PullRequestsFixture & {
   repository?: string
   users?: GitHubUser[]
   dismissStaleReviewsOnPush?: boolean
+  /** The rules of every branch require status checks, which a push into the target lands without */
+  requiredStatusChecks?: boolean
+  /** What the token may do in the repository (`READ`, `WRITE`, `MAINTAIN`, `ADMIN`); unset is `WRITE` */
+  viewerPermission?: "READ" | "TRIAGE" | "WRITE" | "MAINTAIN" | "ADMIN"
   nextNumber?: number
   missingBranches?: string[]
 }

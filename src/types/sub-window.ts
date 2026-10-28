@@ -55,6 +55,7 @@ export interface BranchReviewItem {
     | "open-pull-request"
     | "create-pull-request"
     | "safe-push"
+    | "push-to-baseline"
     | "push"
     | "open-stack-pull-request"
     | "create-stack-pull-request"
@@ -140,7 +141,7 @@ export type BranchReviewRequest = {
   /** Of the whole stack of `branchName`, its root: the actions, the menu and the dialog of the whole stack */
   readonly wholeStack?: boolean
 } & (
-  | { readonly itemId: "safe-push" | "push" | "safe-push-whole-stack" | "push-with-children" }
+  | { readonly itemId: "safe-push" | "push-to-baseline" | "push" | "safe-push-whole-stack" | "push-with-children" }
   | { readonly menuItemId: string }
   | { readonly dialog: "open" | "close" | "safePushWithoutReview" }
   | { readonly dialog: "create"; readonly input: CreatePullRequestInput }

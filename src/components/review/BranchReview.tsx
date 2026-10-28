@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
+import { GitMergeIcon, GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -168,6 +168,7 @@ const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   "open-pull-request": GitPullRequestIcon,
   "create-pull-request": GitPullRequestCreateIcon,
   "safe-push": ShieldCheckIcon,
+  "push-to-baseline": GitMergeIcon,
   push: UploadIcon,
   "open-stack-pull-request": GitPullRequestIcon,
   "create-stack-pull-request": GitPullRequestCreateIcon,

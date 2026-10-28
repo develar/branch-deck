@@ -21,6 +21,7 @@ import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-prog
 import { nextRunNumber, whenSessionViewAt } from "@/model/store"
 import { canceledBeforeStart, presentLockWait } from "@/presenters/lock-wait"
 import { presentRunningLabel } from "@/presenters/operations"
+import type { FollowingUpdate } from "@/presenters/outcome"
 import { recordUpdate } from "@/stores/activity"
 import { branchSyncStore, setBaselineUpdate } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
@@ -299,6 +300,33 @@ function tellUpdate(repositoryPath: string, result: UpdateProjectResult): void {
       updateProjectStore.setState({ refused: check })
       break
   }
+}
+
+/**
+ * The outcome of the Update Project that followed a push into the target (its `done` on the channel of the start, once
+ * per operation): what it changed goes where an update's goes (Activity, the state of the baseline, the island of what
+ * landed), its words into the toast of the push, which stands for the update's own; a conflict or a block opens no
+ * dialog there, the Update Project of that toast does
+ */
+export function tellFollowingUpdate(repositoryPath: string, outcome: Outcome): FollowingUpdate | null {
+  if (toldBefore(outcome.op)) {
+    return null
+  }
+  if (outcome.effects.some(record => record.effect.kind === "fetch" && record.status.kind === "done")) {
+    updateRepositoryState(repositoryPath, state => ({ ...state, lastFetchTime: Date.now() }))
+  }
+  const failure = failureOf(outcome)
+  if (failure !== null || outcome.result.kind !== "update") {
+    return { kind: "failed", error: failure }
+  }
+  const result = outcome.result
+  const { check, applied, landed } = result
+  recordUpdate(repositoryPath, result)
+  setBaselineUpdate(repositoryPath, applied === null ? check : { ...check, head: applied.newHead, state: { status: "upToDate" } })
+  if (applied !== null) {
+    addLandedUpdate(repositoryPath, landed, check.upstream)
+  }
+  return { kind: "ended", result }
 }
 
 /**

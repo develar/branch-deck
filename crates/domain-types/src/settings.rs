@@ -21,7 +21,7 @@ pub struct AppSettings {
   /// General → Branch prefix: the prefix of every repository whose own git config sets none (`resolve_branch_prefix`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub global_user_branch_prefix: Option<String>,
-  /// Settings → Patronus: the new API of Patronus (the progress of a running robot in one request, the merge profile
+  /// Settings → Landing: the new API of Patronus (the progress of a running robot in one request, the merge profile
   /// in the robot list); off by default
   pub patronus_new_api: bool,
   /// The zoom of the pages in every window, positive; 1 by default

@@ -1,6 +1,6 @@
 ---
 name: Settings
-description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Patronus, Agents, Tools, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
+description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Landing, Agents, Tools, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
 style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
@@ -49,7 +49,9 @@ targets:
   - ../../src/stores/auth.ts
   - ../../src/stores/youtrack-issues.ts
   - ../../src/stores/cli-tools.ts
-  - ../../src/components/settings/PatronusPage.tsx
+  - ../../src/components/settings/LandingPage.tsx
+  - ../../src/components/settings/ConfigRow.tsx
+  - ../../src/hooks/useRepositoryConfigChanges.ts
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/YourTurnCard.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
@@ -173,7 +175,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ### Pages
 
 - The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`): General, Appearance,
-  Diffs & Merge, Notifications, GitHub, YouTrack, Patronus, Agents, Tools, a separator, then Repository with the name of the selected repository muted beside it (the
+  Diffs & Merge, Notifications, GitHub, YouTrack, Landing, Agents, Tools, a separator, then Repository with the name of the selected repository muted beside it (the
   name of the tab stays "Repository"), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓
   switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it
   no room; the page left is hidden at once (`data-ending-style`), so two never stack.
@@ -225,7 +227,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - YouTrack: the sign-in to the YouTrack of the issue links ([YouTrack](youtrack.spec.md)), the `youtrack` part of the
   same status, read with GitHub's in one read.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should ask to sign in again once the sign-in expired`)
-- Patronus: how Branch Deck and bd read the robots ([Patronus](#patronus)).
+- Landing: how the selected repository lands into master, the robots of Patronus while a Safe Push lands it, the size
+  limit of every push ([Landing](#landing)).
 - Agents: how coding agents work ([Agents](#agents)).
 - Tools: the `teamcity` and `youtrack` CLIs, their version, sign-ins and the action each needs
   ([Command-Line Tools](cli-tools.spec.md)).
@@ -366,8 +369,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
 - The route into master, `branchdeck.landing` (`patronus`, `push`, `pull-request`; unset: Patronus on Space, the pull
   request elsewhere), is read and written with these keys (`RepositoryConfig.landing`, the change `landing`; "Cannot
-  change how app lands into master"), and a sync and every `bd` command read it in their one read of the config; the
-  page has no row of it yet ([Landing Routes](../branch/landing-routes.spec.md)). A `push` is taken only from the
+  change how app lands into master"), and a sync and every `bd` command read it in their one read of the config; its
+  row is on Landing ([Landing](#landing), [Landing Routes](../branch/landing-routes.spec.md)). A `push` is taken only from the
   repository's own config: a global write of it is refused, and a global or system one reads as unset, with the reason.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`, `a_push_route_is_written_only_to_the_local_config`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_route_comes_from_git_config_and_is_none_without_it`, `a_push_route_of_the_global_config_is_none`)
@@ -435,15 +438,30 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../src/lib/repository-config.test.ts (`says why stacked branches can't be turned off, and what to do`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
 
-### Patronus
+### Landing
 
-- A section "Robots", "How Branch Deck and bd read the robots of Patronus": the switch "New Patronus API"
+- First a section "Route into master", "How the work of the repository lands into master, in the app and bd", with one
+  row of the selected repository, "Land by": Safe Push · Push · Pull Request (`branchdeck.landing`), the route in
+  effect pressed and its sentence under it ("A push of its copy lands each piece, without a robot or the CI of a pull
+  request"). Unset, the default of the host of `origin` is pressed and the
+  line says why (`RepositoryConfig.landingDefault`, Rust's one default: "Safe Push by default: the repository is on
+  Space", "Pull Request by default: the repository is not on Space"); a click on it names it in `.git/config`. A write
+  goes to `.git/config` only (a `push` never to the global config), "Use Default" removes it ("Removes it from
+  .git/config: back to Pull Request, the default off Space"), a global `push` reads as unset with its reason, the
+  worktree config and the command line disable the row as on Repository. After a write the main window syncs a
+  repository synced before (`repository_config_changed`, `landing`), so its rows take the steps of the route. The
+  window has no session of the repository: the write access and the rules of the target are said by the step of each
+  row, not here. Without a repository the section is not shown.
+  [@test] ../../tests/e2e/settings/landing-settings.spec.ts (`should land the repository by a push into master once chosen, the main window taking the step, and back to the default`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
+- Below "Land by", only while a Safe Push lands the repository (and without a repository, or before its settings
+  answer), how Branch Deck and bd read the robots of Patronus: the switch "New Patronus API"
   (`appSettings.patronusNewApi`, off by default): the progress of a running robot in one request and its merge profile
   in the robot list, the old requests while Patronus has them off ([Patronus](../branch/patronus.spec.md)). `bd` reads
   the setting from the settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
-- A second section, "Push" ("Every push of the app and of bd: one that adds more files is refused before it is sent ·
+- A last section, "Push" ("A push of the app or bd that adds more files is refused before it is sent ·
   `branchdeck.pushSizeLimit`"), after it: "Push size limit", a size (`50M` the placeholder and the default, `1G`, `512K`), `0` or `off` for none
   ([Outgoing](outgoing.spec.md#push)). As "Resolve conflicts by words", it is one value for every repository, written
   to the global git config, which `bd` reads too, and the line under it says where the value comes from ("50M by
@@ -455,8 +473,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   typing back; typing the backend would refuse is refused in place (`isValidPushSizeLimit`): "lots is not a size such as
   50M or 1G, nor 0 or off", the backend's words for an invalid value too. A write syncs nothing: a push reads the limit as
   it starts. A failed write is a toast: "Cannot change the push size limit of every repository", or for the local
-  value "Cannot change the push size limit of <repository>". The section is here, beside the way to the Safe Push, because
-  Repository and General with it would not fit 720 × 540.
+  value "Cannot change the push size limit of <repository>". The section is here, beside the route into master, because
+  Repository and General with it would not fit 720 × 540; it is shown on every route, as it is about every push.
   [@test] ../../src/lib/repository-config.test.ts (`takes a size with a binary unit, 0 or off, as the backend does`, `says where the value of every repository comes from, and that a change goes to the global config`, `titles a failed write by what it changes`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`invalid_values_are_refused_before_git_runs`, `the_push_size_limit_is_a_size_or_off_as_written`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off`)

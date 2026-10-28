@@ -214,7 +214,7 @@ pub(crate) fn branch_prefix_now(state: &AppState, repository_path: &str) -> anyh
   Ok(inputs.fresh(repository_path)?.prefix)
 }
 
-/// Settings → Patronus, the new API, of the settings of the test repository at `repository_path`, as the app's commands
+/// Settings → Landing, the new API, of the settings of the test repository at `repository_path`, as the app's commands
 /// read it from the writer (a test sets it with `initialStoreValues` or through the page's `set_setting`)
 pub(crate) fn patronus_new_api_of(state: &AppState, repository_path: &str) -> Result<bool, Rejection> {
   Ok(repository_by_path(state, repository_path)?.store.app().patronus_new_api)

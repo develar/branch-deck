@@ -5,7 +5,7 @@
 // what an operation of the page needs, which made it `busy` (`ErrorDetails.busy`, `describeError`); and as the session
 // shows it on its row (`RunningOperation` with `origin.otherProcess`, `operations::registry_watch`): "bd: Safe Push of
 // auth".
-import type { HolderTool, Intent, OperationHolder, OperationId, OperationKind, RewriteIntent, RunningOperation, Subject } from "@/lib/bindings"
+import type { HolderTool, Intent, OperationHolder, OperationId, OperationKind, Resource, RewriteIntent, RunningOperation, Subject } from "@/lib/bindings"
 import { formatHeldFor, presentOperationLockWait } from "@/presenters/lock-wait"
 import { presentRewrite } from "@/presenters/rewrite"
 
@@ -54,10 +54,31 @@ function subjectName(subject: Subject): string {
   return subject.kind === "branch" ? subject.name : subject.root
 }
 
-/** What `intent` does as the row of a running operation says it ("Safe Push of auth", "Pushing auth"), and in a sentence ("the Safe Push of auth") */
-function runningWords(intent: Intent): readonly [label: string, phrase: string] {
+/**
+ * The target a start pushes into (`refs/remotes/origin/master` it reserves: a push of the copy into the target, Push to
+ * master), "master"; null for a start of a robot
+ */
+function pushedInto(resources: readonly Resource[]): string | null {
+  for (const resource of resources) {
+    if (resource.kind === "ref" && resource.name.startsWith("refs/remotes/")) {
+      return resource.name.split("/").slice(3).join("/")
+    }
+  }
+  return null
+}
+
+/**
+ * What `intent` does as the row of a running operation says it ("Safe Push of auth", "Pushing auth"), and in a sentence
+ * ("the Safe Push of auth"), by what it holds (`resources`)
+ */
+function runningWords(intent: Intent, resources: readonly Resource[] = []): readonly [label: string, phrase: string] {
   switch (intent.kind) {
     case "land": {
+      const target = pushedInto(resources)
+      if (target !== null) {
+        const pushed = `Push of ${subjectName(intent.subject)} into ${target}`
+        return [pushed, `the ${pushed}`]
+      }
       const what = `${intent.mode === "dryRun" ? "Dry Run" : "Safe Push"} of ${subjectName(intent.subject)}`
       return [what, `the ${what}`]
     }
@@ -102,7 +123,7 @@ function runningWords(intent: Intent): readonly [label: string, phrase: string] 
 
 /** The busy state of an operation of the session as a surface says it: "Unstacking oauth", "Updating the project" */
 export function presentRunningLabel(operation: RunningOperation): string {
-  return runningWords(operation.intent)[0]
+  return runningWords(operation.intent, operation.resources)[0]
 }
 
 /** The operations of the session of the repository the main window shows, by id (`RepositoryView.operations`) */
@@ -205,7 +226,7 @@ export function presentOtherProcess(operation: RunningOperation): OtherProcessRu
   if (operation.origin.kind !== "otherProcess") {
     return null
   }
-  const [label, phrase] = runningWords(operation.intent)
+  const [label, phrase] = runningWords(operation.intent, operation.resources)
   if (operation.step.kind === "startUnknown") {
     return {
       label: "Start Unknown",

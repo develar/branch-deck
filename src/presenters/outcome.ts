@@ -1,10 +1,27 @@
-// The page's words of how a start of a Safe Push or a Dry Run ended (`Outcome` of `execute`, its `LandResult`) and of
+// The page's words of how a start of a Safe Push, a Dry Run or a push into the target ended (`Outcome` of `execute`, its `LandResult`) and of
 // what refused it before its first effect (the `ApiError` of `execute`): the toast of the event of its robot and the
 // Activity entry, never a rule. The toast is the next state of the event of the subject's robots
 // (docs/guidelines/ux-writing.md#one-toast-per-event): it takes the place of the toast of the approvals it starts on
 // and of the robot it replaces; a refusal of the landing gate offers its fix and Start Anyway, a conflict with the
-// newest target Update Project, a start the facts changed under "Start Safe Push" again.
-import type { ApiError, EffectRecord, Intent, LandingAllowances, LandingFix, Outcome, PatronusPushMode, PatronusRobot, StartNote } from "@/lib/bindings"
+// newest target Update Project, a start the facts changed under "Start Safe Push" again. A push of the copy into the
+// target (Push to master) is one toast too: what it pushed, then the update that follows it in place
+// (`presentPushOutcome`, `describeFollowingUpdate`); a target that moved meanwhile a notice, a refusal of the server
+// its words.
+import type {
+  ApiError,
+  EffectRecord,
+  Intent,
+  LandingAllowances,
+  LandingFix,
+  Outcome,
+  PatronusPushMode,
+  PatronusRobot,
+  PlannedEffect,
+  StartNote,
+  UpdateProjectResult,
+} from "@/lib/bindings"
+import { formatCommitCount } from "@/lib/commit"
+import { appliedUpdateToast } from "@/lib/landed"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
 import { describeLandingRefusals } from "@/presenters/landing"
 
@@ -35,6 +52,13 @@ export type LandToast =
    * `url` opens where to look (the pull request of its comment), null: Patronus
    */
   | { readonly kind: "unknown"; readonly title: string; readonly description: string; readonly url: string | null }
+  /** A push of the copy into the target landed it ("Pushed auth into master · 3 commits") */
+  | { readonly kind: "pushed"; readonly title: string; readonly description: string }
+  /**
+   * A push of the copy into the target found the target moved since the copy was built on it: nothing was pushed, the
+   * baseline was fetched, and the update that follows builds the copy anew on it, which the step offers to push again
+   */
+  | { readonly kind: "moved"; readonly title: string; readonly description: string }
 
 /** What refused a start before its first effect, as its toast says it */
 export type LandRefusal =
@@ -48,9 +72,105 @@ export type LandRefusal =
   | { readonly kind: "stopped"; readonly title: string; readonly description: string }
   | { readonly kind: "error"; readonly title: string; readonly error: ApiError }
 
-/** "Cannot start the Safe Push of auth" */
-function refusedTitle(mode: PatronusPushMode, subject: string): string {
-  return `Cannot start the ${formatPushMode(mode)} of ${subject}`
+/**
+ * "Cannot start the Safe Push of auth"; of a push into the target `pushInto` ("master"), "Cannot push auth into master"
+ */
+function refusedTitle(mode: PatronusPushMode, subject: string, pushInto: string | null = null): string {
+  return pushInto === null ? `Cannot start the ${formatPushMode(mode)} of ${subject}` : `Cannot push ${subject} into ${pushInto}`
+}
+
+/** The push of the copy into the target an outcome or a plan names (`PlannedEffect::PushBaseline`): its target */
+export function pushTargetOf(effects: readonly PlannedEffect[]): string | null {
+  for (const effect of effects) {
+    if (effect.kind === "pushBaseline") {
+      return effect.target
+    }
+  }
+  return null
+}
+
+/**
+ * How a push of the copy of `subject` into the target ended: what it landed, the target that moved meanwhile (the
+ * notice that the copy is rebuilt on it), or why it failed: the server's words of a refusal; `commits` the commits it
+ * landed, as the page counted them at the start (null: not known, in Activity)
+ */
+export function presentPushOutcome(outcome: Pick<Outcome, "effects">, subject: string, commits: number | null = null): LandToast {
+  const record = outcome.effects.find(it => it.effect.kind === "pushBaseline")
+  const target = record?.effect.kind === "pushBaseline" ? record.effect.target : "the target"
+  const title = refusedTitle("rebaseAutosquash", subject, target)
+  const status = record?.status
+  if (status?.kind === "done") {
+    const pushed = `Pushed ${subject} into ${target}${commits === null ? "" : ` · ${formatCommitCount(commits)}`}`
+    return { kind: "pushed", title: pushed, description: `It landed without a robot and without the CI of a pull request` }
+  }
+  if (status?.kind === "failed") {
+    if (status.error.code === "baseline_moved") {
+      return {
+        kind: "moved",
+        title: `${target} moved: ${subject} is rebuilt on the new commits`,
+        // Rust's words say whether the fetch of the target and the sync that rebuilds the copy on it went
+        description: status.error.message,
+      }
+    }
+    return { kind: "failed", title, description: status.error.message, error: status.error, again: false, canceled: null }
+  }
+  if (status?.kind === "skipped" && status.reason?.code === "canceled") {
+    return { kind: "stopped", title: `Canceled the push of ${subject} into ${target}`, description: "Nothing was pushed" }
+  }
+  const failed = outcome.effects.find(it => it.status.kind === "failed")
+  const error = failed?.status.kind === "failed" ? failed.status.error : null
+  const reason = status?.kind === "skipped" ? status.reason : null
+  return {
+    kind: "failed",
+    title,
+    description: error?.message ?? reason?.message ?? "Nothing was pushed",
+    error: error ?? reason,
+    again: reason !== null && error === null,
+    canceled: null,
+  }
+}
+
+/** The Update Project that follows a push into the target that landed, as the toast of the push says it */
+export type FollowingUpdate =
+  /** It runs: its fetch, its check, its move */
+  | { readonly kind: "running" }
+  /** It ended (`UpdateProjectResult`): applied, up to date, or refused by a conflict or local changes */
+  | { readonly kind: "ended"; readonly result: UpdateProjectResult }
+  /** It failed, or was refused before its first effect (`error`), or did not run (null) */
+  | { readonly kind: "failed"; readonly error: ApiError | null }
+
+/**
+ * The words of the update that follows a push into the target, below the title of the push: its state, and whether
+ * the toast offers Update Project (the update did not move the checked out branch)
+ */
+export function describeFollowingUpdate(update: FollowingUpdate): { readonly description: string; readonly offersUpdate: boolean } {
+  switch (update.kind) {
+    case "running":
+      return { description: "Updating the project…", offersUpdate: false }
+    case "failed":
+      return {
+        description: update.error === null ? "Update Project drops the pushed commits from the branch" : `Cannot update the project: ${update.error.message}`,
+        offersUpdate: true,
+      }
+    case "ended": {
+      const { check, applied, landed } = update.result
+      switch (check.state.status) {
+        case "upToDate":
+          return { description: `${check.branch} is up to date with ${check.upstream}`, offersUpdate: false }
+        case "clean": {
+          if (applied === null) {
+            return { description: `Update Project moves ${check.branch} onto ${check.upstream}`, offersUpdate: true }
+          }
+          const toast = appliedUpdateToast(check, applied, landed)
+          return { description: toast.description === undefined ? toast.title : `${toast.title} · ${toast.description}`, offersUpdate: false }
+        }
+        case "conflict":
+          return { description: `The update of ${check.branch} conflicts with ${check.upstream}: Update Project shows where`, offersUpdate: true }
+        case "blocked":
+          return { description: `Local changes stand in the way of the update of ${check.branch}: Update Project names them`, offersUpdate: true }
+      }
+    }
+  }
 }
 
 /** A note of the checks before the effects, as a sentence after the description */
@@ -76,7 +196,10 @@ function withNotes(description: string, notes: readonly StartNote[], effects: re
  * comment Patronus accepted, or why its robot did not start, the effects before it named as they went. The entry of
  * Activity of the start says the same (`presentActivity`, over the journal of the repository)
  */
-export function presentLandOutcome(outcome: Pick<Outcome, "effects" | "result">, intent: Intent, subject: string): LandToast {
+export function presentLandOutcome(outcome: Pick<Outcome, "effects" | "result">, intent: Intent, subject: string, commits: number | null = null): LandToast {
+  if (pushTargetOf(outcome.effects.map(record => record.effect)) !== null) {
+    return presentPushOutcome(outcome, subject, commits)
+  }
   const mode = intent.kind === "land" ? intent.mode : "rebaseAutosquash"
   const modeName = formatPushMode(mode)
   const result = outcome.result.kind === "land" ? outcome.result : null
@@ -133,10 +256,11 @@ export function presentLandOutcome(outcome: Pick<Outcome, "effects" | "result">,
 
 /**
  * What refused the start of `subject` in `mode` before its first effect, by the code of `execute`'s error: the landing
- * gate with its refusals (`details.type === "landing"`), the newest target, a changed plan, a stopped wait
+ * gate with its refusals (`details.type === "landing"`), the newest target, a changed plan, a stopped wait; `pushInto`
+ * the target of a push of the copy into it ("master"), which the titles name
  */
-export function presentLandRefusal(error: ApiError, mode: PatronusPushMode, subject: string, allow: LandingAllowances = {}): LandRefusal {
-  const title = refusedTitle(mode, subject)
+export function presentLandRefusal(error: ApiError, mode: PatronusPushMode, subject: string, allow: LandingAllowances = {}, pushInto: string | null = null): LandRefusal {
+  const title = refusedTitle(mode, subject, pushInto)
   if ((error.code === "missing_declaration" || error.code === "dangling_reference") && error.details?.type === "landing") {
     const refused = describeLandingRefusals(error.details.refusals, subject, allow)
     if (refused !== null) {
@@ -149,7 +273,11 @@ export function presentLandRefusal(error: ApiError, mode: PatronusPushMode, subj
     case "plan_changed":
       return { kind: "changed", title, error }
     case "canceled":
-      return { kind: "stopped", title: `Canceled the ${formatPushMode(mode)} of ${subject} before it started`, description: "Nothing was pushed or started" }
+      return {
+        kind: "stopped",
+        title: pushInto === null ? `Canceled the ${formatPushMode(mode)} of ${subject} before it started` : `Canceled the push of ${subject} into ${pushInto}`,
+        description: pushInto === null ? "Nothing was pushed or started" : "Nothing was pushed",
+      }
     default:
       return { kind: "error", title, error }
   }

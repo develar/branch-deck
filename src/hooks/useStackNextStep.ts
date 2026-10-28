@@ -98,15 +98,18 @@ interface StackInputs extends StepInputs {
   readonly actions: readonly ActionState[] | undefined
 }
 
-/** The context of the step of the whole stack of `root` over `inputs` */
-function stackContextOf(root: string, inputs: StackInputs, forStart: boolean): StepContext {
+/**
+ * The context of the step of the whole stack of `root` over `inputs`; `byPush`: its step is a push of its stack branch
+ * into the target (Push to master), which its words say
+ */
+function stackContextOf(root: string, inputs: StackInputs, forStart: boolean, byPush: boolean): StepContext {
   const key = stackReadinessKey(root)
   const rest = wholeStackRestIn(inputs.rest, inputs.stack)
   const create = stackPullRequestItemOf(root, inputs.actions, inputs.stack, inputs.target)
   return {
     subject: formatWholeStack(root),
     target: inputs.target,
-    startDescription: describeWholeStackLanding(rest.members, rest.commitCount, inputs.target, "rebaseAutosquash", rest.landed),
+    startDescription: describeWholeStackLanding(rest.members, rest.commitCount, inputs.target, "rebaseAutosquash", rest.landed, byPush),
     busy: busyOf(inputs, forStart),
     forStart,
     actions: stepActionsOf(key, inputs, {
@@ -140,7 +143,7 @@ export function getStackNextStep(root: string, options?: { readonly forStart: tr
     return null
   }
   const inputs: StackInputs = { ...getStepInputs(key, view.step), rest: getStackLanding(root).rest, stack: getStackBranch(root), actions: getRowPart(key, "actions") }
-  return { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, options !== undefined)) }
+  return { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, options !== undefined, view.step.kind.kind === "pushToBaseline")) }
 }
 
 /**
@@ -165,7 +168,7 @@ export function useStackNextStep(root: string): StackNextStep | null {
   if (leaf !== null) {
     return leafStep === null ? null : { leaf, step: leafStep }
   }
-  return view === undefined ? null : { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, false)) }
+  return view === undefined ? null : { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, false, view.step.kind.kind === "pushToBaseline")) }
 }
 
 /**

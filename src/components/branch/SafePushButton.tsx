@@ -12,6 +12,7 @@ import { useClosePreview } from "@/hooks/useClosePreview"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
 import type { MenuItem } from "@/lib/menu"
+import { isStartItem } from "@/lib/push-to-baseline"
 import { formatStackPushing } from "@/lib/stack"
 import { transferLabel } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
@@ -58,7 +59,8 @@ function stopStartItem(op: string, waiting: string): MenuItem {
 }
 
 /**
- * "Safe Push" ("Safe Push · 3" for a stacked branch, which lands with the branches it is built on), the start of the
+ * "Safe Push" ("Safe Push · 3" for a stacked branch; "Push to master · 3" where the repository lands by a push of the
+ * copy into the target), which lands with the branches it is built on), the start of the
  * branch's next step (`getBranchNextStep`): a click starts at once when there is nothing to say, else opens the popover
  * at the slot (`requestSafePush`); the hover says what it lands. While a start runs, its step is the label: "Checking…",
  * "Pushing 45%" ("Pushing 2 branches 45%" for a stack; the stack branch of the whole stack "Pushing 45%"), "Starting…":
@@ -91,7 +93,7 @@ export function SafePushButton({
   const progress = useLandProgress(starting?.op ?? null)
   // until when a click is ignored: the button took the place of another step under a pointer that stayed (null: not mounted yet)
   const guardUntil = useRef<number | null>(null)
-  const item = step?.item?.id === "safe-push" ? step.item : null
+  const item = step?.item != null && isStartItem(step.item) ? step.item : null
   const blocker = step?.safePushBlocker ?? null
   const disabled = blocker !== null || starting !== null
   const pushing = starting?.step === "pushing" ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, starting.pushes) : "Pushing", progress) : null
@@ -178,7 +180,7 @@ export function SafePushButton({
         ) : starting !== null ? (
           <Spinner data-icon="inline-start" />
         ) : (
-          (hint ?? (icon && <ShieldCheckIcon data-icon="inline-start" />))
+          (hint ?? (icon && (item?.icon === undefined ? <ShieldCheckIcon data-icon="inline-start" /> : <item.icon data-icon="inline-start" />)))
         )}
         {label}
       </TooltipTrigger>

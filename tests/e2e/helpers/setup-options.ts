@@ -114,6 +114,13 @@ export const SetupRepoOptionsSchema = z.object({
   syncOverrides: z.any().optional(),
 
   /**
+   * The route of the repository into master and the GitHub repository `origin` pushes to (`{ setting, gitHub? }`, see
+   * `TestRepositoryBuilder.setLanding`), set before the first sync
+   * Default: undefined - unset: off Space the pull request, `origin` pushes to its own path
+   */
+  landing: z.object({ setting: z.enum(["patronus", "push", "pull-request"]).nullable(), gitHub: z.string().optional() }).optional(),
+
+  /**
    * What the fake YouTrack holds (a `YouTrackFixture`, see `youtrack-helpers.ts`), set before the page opens, so the
    * window starts with its sign-in
    * Default: undefined - no issue, signed out

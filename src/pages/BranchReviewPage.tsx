@@ -291,7 +291,7 @@ function useBranchReviewActions(
   items: readonly BranchReviewItem[],
   { openCreatePullRequest, keysSuspended, wholeStack }: { openCreatePullRequest: (branchName: string) => void; keysSuspended: boolean; wholeStack: boolean },
 ) {
-  const ask = (itemId: "safe-push" | "push" | "safe-push-whole-stack" | "push-with-children") =>
+  const ask = (itemId: "safe-push" | "push-to-baseline" | "push" | "safe-push-whole-stack" | "push-with-children") =>
     void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), itemId })
   const run = (item: BranchReviewItem) => {
     if (item.url !== undefined) {

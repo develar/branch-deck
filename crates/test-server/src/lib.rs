@@ -256,6 +256,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/remote/commit", post(remote_git_fixtures::commit_on_remote_route))
     .route("/repositories/{id}/remote/fetch", post(remote_git_fixtures::fetch_in_terminal_route))
     .route("/repositories/{id}/remote/refusal", post(remote_git_fixtures::set_remote_refusal))
+    .route("/repositories/{id}/landing", post(remote_git_fixtures::set_landing).get(remote_git_fixtures::get_landing))
     .route("/repositories/{id}/github-answer", post(review_fixtures::set_github_answer))
     .route("/repositories/{id}/update", post(updater::set_update))
     .route(

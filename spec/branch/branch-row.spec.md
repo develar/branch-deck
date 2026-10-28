@@ -611,13 +611,15 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   with a pull request, "Copy Retarget Command" for an open one into a virtual branch). Off Space the landing starts
   with the push; before Patronus answers whether the repository is on Space its starts stay, disabled with "Waits for
   the answer of Patronus" ([Next Step](next-step.spec.md#facts-without-an-answer)). A repository that lands by a push
-  into the target offers "Push to master" (`push-to-baseline`) in the place of the starts of the robot, on Space or off
-  it, disabled with the reason of its step, and its slot shows the step ([Landing Routes](landing-routes.spec.md#push-to-master)).
+  into the target offers "Push to master" (`push-to-baseline`, S; "Push to master · 3") in the place of the starts of
+  the robot, on Space or off it, disabled with the reason of its step, its slot shows the step, and "Whole Stack ›" of
+  a root offers the push of the whole stack ([Landing Routes](landing-routes.spec.md#the-page)).
   An item with a key (P, S, D, O, M) is never in a submenu; a key of an item in a
   submenu (⌘C of "Copy Full Branch Name") works on the row as well.
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`, `starts with the push off Space, where Rust offers no start of Patronus`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests, as the review window does`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus`, `the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_push_into_the_target_offers_its_push_with_the_reason_of_its_step_and_no_start_of_the_robot`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push into master from the menu of the row`, `should push a whole stack into master from Whole Stack of the menu of its root`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] ../../src/presenters/robot-actions.test.ts (`cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from`)
 - The menu of a branch that can't change now (no commits, a sync error) keeps every item: the rewrites (Rename…, Move

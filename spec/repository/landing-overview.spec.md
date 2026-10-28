@@ -84,6 +84,10 @@ indicator, whose states were the same story told twice.
   the button holds its place, disabled (`landing-indicator-loading`).
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`, `should be hidden while nothing is on the way to master and nothing ran in the last day`)
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls in place when Patronus answers after the sync`)
+- In a repository that lands by a push into the target the node of a unit whose Push to master can run is ready, so
+  the header counts it as the user's move as it counts a ready Safe Push ([Landing Routes](../branch/landing-routes.spec.md#push-to-master)).
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push the copy into master from the slot of the row, the popover asking what CI did not pass, and update after it`)
 - The moves are the units whose node is filled, their branches that need a fix, the failed robots of no row (a
   temporary ref, a watched pull request) and the running Safe Pushes whose required check failed. A unit that waits for
   the first answer of Patronus counts no move, so the number does not change when the overview opens and asks; a unit

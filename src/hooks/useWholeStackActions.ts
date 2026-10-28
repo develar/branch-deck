@@ -10,6 +10,7 @@ import { openBranchReviewWindow, openWholeStackReviewWindow } from "@/lib/branch
 import type { MenuItem } from "@/lib/menu"
 import { describeStart } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
+import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
 import { describeOrphanedStackPullRequest, describeWholeStackLanding, formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import type { ActionItem } from "@/presenters/actions"
 import { presentAction } from "@/presenters/actions"
@@ -145,9 +146,33 @@ export function getWholeStackStartItems(root: string, next: StackNextStep | null
     }
     return describeStart(mode, leaf, mainLineOf(branchSyncStore.getState(), root).length, target)
   }
-  const start = (id: ActionId, mode: SafePushMode, blocker: string | null): MenuItem | null =>
-    withStepReason(stackItem(root, id, { description: lands(mode), onSelect: () => void requestSafePush(key, { mode, via: "click" }) }, blocker), blocker)
-  return [start("safe-push-whole-stack", "rebaseAutosquash", step.safePushBlocker), start("dry-run-whole-stack", "dryRun", step.dryRunBlocker)].filter(item => item !== null)
+  const start = (id: ActionId, mode: SafePushMode, blocker: string | null, item: Partial<ActionItem> = {}): MenuItem | null =>
+    withStepReason(stackItem(root, id, { description: lands(mode), onSelect: () => void requestSafePush(key, { mode, via: "click" }), ...item }, blocker), blocker)
+  return [
+    start("safe-push-whole-stack", "rebaseAutosquash", step.safePushBlocker),
+    start("dry-run-whole-stack", "dryRun", step.dryRunBlocker),
+    // a repository that lands by a push of the copy into the target pushes its stack branch, in place of the robot
+    pushToBaselineOf(root, leaf, step.safePushBlocker, start),
+  ].filter(item => item !== null)
+}
+
+/**
+ * "Push to master · 7" of the whole stack of `root`, where the repository lands by a push of the copy into the target:
+ * of its stack branch while it forks, of the last branch `leaf` of a straight chain otherwise; null while Rust offers
+ * none
+ */
+function pushToBaselineOf(
+  root: string,
+  leaf: string | null,
+  blocker: string | null,
+  start: (id: ActionId, mode: SafePushMode, blocker: string | null, item: Partial<ActionItem>) => MenuItem | null,
+): MenuItem | null {
+  const target = getReadinessTarget()
+  const rest = leaf === null ? wholeStackRestOf(root) : null
+  const count = rest?.members.length ?? mainLineOf(branchSyncStore.getState(), root).length
+  const description =
+    rest === null ? describePushToBaseline(leaf ?? root, count, target) : describeWholeStackLanding(rest.members, rest.commitCount, target, "rebaseAutosquash", rest.landed, true)
+  return start("push-to-baseline", "rebaseAutosquash", blocker, { label: formatPushToBaselineLabel(target, count), description })
 }
 
 /**

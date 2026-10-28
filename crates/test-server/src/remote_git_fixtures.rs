@@ -8,7 +8,11 @@
 //! commit onto a branch of it as someone else's push does (the remote-tracking ref stays); `POST …/remote/fetch`
 //! fetches it as `git fetch origin` in a terminal does (the remote-tracking refs move to what it has);
 //! `POST …/remote/refusal` (`{message}`) makes it refuse every push with that message, `null` take them again. A push
-//! held at the remote is the held answer `push` of `remote-gates` (`RemoteHost::hold_answers`).
+//! held at the remote is the held answer `push` of `remote-gates` (`RemoteHost::hold_answers`). `POST
+//! /repositories/{id}/landing` (`{setting, gitHub}`) names the route of the repository into master (`branchdeck.landing`
+//! of its own config, `null` unset) as `git config` in a terminal does, and with `gitHub` (`owner/name`) makes `origin`
+//! push to that GitHub repository by its URL while every push still reaches the remote (`push_to_github`), so the gate
+//! of a push into the target reads the facts of the fake GitHub.
 //!
 //! The remote answers a push in its pre-receive hook, written on the first hold or refusal: the hook posts the refs of
 //! the push to `FakeRemote`, the fake remote of the host on a loopback port of its own, which waits at the gate while a
@@ -26,7 +30,7 @@ use std::sync::{Arc, Mutex};
 use sync_utils::span::in_current_span;
 use test_utils::fake_server::{FakeGate, FakeServer};
 use test_utils::git_test_utils::pre_receive_hook;
-use test_utils::remote_git::{RemoteCommit, bare_origin, commit_on_remote, earlier_build, fetch_in_terminal, push_in_terminal, remote_branches, remote_pushes};
+use test_utils::remote_git::{RemoteCommit, bare_origin, commit_on_remote, earlier_build, fetch_in_terminal, push_in_terminal, push_to_github, remote_branches, remote_pushes};
 
 /// What the fake remote answers the pre-receive hook: the gate of a held push, the message of a refusal
 #[derive(Default)]
@@ -212,4 +216,50 @@ pub async fn set_remote_refusal(Path(id): Path<String>, State(state): State<Arc<
   let (host, _) = host_of(&state, &id)?;
   host.git_remote().refuse(request.message).map_err(|e| (StatusCode::CONFLICT, format!("{e:#}")))?;
   Ok(StatusCode::OK)
+}
+
+/// `POST /repositories/{id}/landing`: the route of the repository, and the GitHub repository `origin` pushes to
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LandingRequest {
+  /// `branchdeck.landing` of the repository's own config (`patronus`, `push`, `pull-request`); `None` unsets it
+  setting: Option<String>,
+  /// `owner/name`: `origin` pushes to `git@github.com:<owner/name>.git`, every push reaching the remote all the same
+  #[serde(default)]
+  git_hub: Option<String>,
+}
+
+/// Names the route of the repository as `git config --local` in a terminal does: no command of the app knows of it until
+/// its next sync reads the config
+pub async fn set_landing(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<LandingRequest>) -> FixtureResult {
+  let path = path_of(&state, &id)?;
+  let git = state.git_executor.clone();
+  blocking(move || {
+    let dir = path.to_str().ok_or_else(|| anyhow::anyhow!("the path of the repository is not UTF-8"))?;
+    match &request.setting {
+      Some(value) => drop(git.execute_command(&["config", "--local", "branchdeck.landing", value], dir)?),
+      // exit 5: nothing to unset
+      None => drop(git.execute_command_with_status(&["config", "--local", "--unset-all", "branchdeck.landing"], dir)?),
+    }
+    if let Some(repository) = &request.git_hub {
+      push_to_github(&path, repository)?;
+    }
+    Ok(())
+  })
+  .await?;
+  Ok(StatusCode::OK)
+}
+
+/// `GET /repositories/{id}/landing`: `branchdeck.landing` of the repository's own config as git keeps it, `null` unset
+pub async fn get_landing(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let path = path_of(&state, &id)?;
+  let git = state.git_executor.clone();
+  let setting = blocking(move || {
+    let dir = path.to_str().ok_or_else(|| anyhow::anyhow!("the path of the repository is not UTF-8"))?;
+    // exit 1: unset
+    let (value, code) = git.execute_command_with_status(&["config", "--local", "--get", "branchdeck.landing"], dir)?;
+    Ok((code == 0).then(|| value.trim().to_owned()))
+  })
+  .await?;
+  Ok(Json(serde_json::json!({ "setting": setting })))
 }

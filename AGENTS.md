@@ -487,7 +487,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   taker: `registry_scan_test.rs`), its record naming the tracking ref: a second fetch of any process waits while the
   holder lives and takes its result when the ref moved, one transfer; no retry on `cannot lock ref`, no clean rule
   ([Update project](docs/design/git-operations.md#update-project), Fetch lock).
-- **Git config writes**: only the `branchdeck.*` keys of Settings → Repository, Settings → Diffs & Merge and Settings → Agents
+- **Git config writes**: only the `branchdeck.*` keys of Settings → Repository, Diffs & Merge, Landing and Agents
   (`repository_config.rs`: one `--get-regexp --show-scope` read, `--replace-all` or `--unset-all`, refused when the
   worktree config or `git -c` sets the key), `--local` (`.git/config`), or `--global` only where the request names the
   global scope (`set_repository_config` with `scope: "global"`); and the branch descriptions of `bd describe`

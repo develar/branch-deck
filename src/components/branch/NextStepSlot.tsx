@@ -11,6 +11,7 @@ import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import type { PullRequest } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
+import { isStartItem } from "@/lib/push-to-baseline"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { NextStepTone } from "@/presenters/next-step"
 import type { Branch } from "@/stores/branch-sync"
@@ -80,7 +81,7 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
         <SafePushButton branch={branch} wholeStack={branch.name} placement="row" compact />
       ) : (
         item !== null &&
-        (item.id === "safe-push" ? (
+        (isStartItem(item) ? (
           <SafePushButton branch={branch} shortcut={stackHeader === undefined ? "S" : undefined} description={stackHeader?.description} placement={placement} compact />
         ) : requestReview !== null ? null : (
           <StepButton action={item} tone={step.tone} showKeys={stackHeader === undefined} />

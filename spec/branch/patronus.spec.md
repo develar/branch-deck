@@ -298,7 +298,7 @@ reports in it and closes it once merged.
   [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_running_robot_have_the_estimate_of_its_running_checks`, `the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished_robot`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
-- With Settings → Patronus, "New Patronus API" (`appSettings.patronusNewApi`, off by default; Rust reads it from the
+- With Settings → Landing, "New Patronus API" (`appSettings.patronusNewApi`, off by default; Rust reads it from the
   settings writer for each command, the page sends nothing), the same estimate comes from one request, `GET /robots/progress?robotId=…`, which Patronus
   folds from the same cache of a minute: the latest estimated finish over the running checks (`estimatedFinishAt`,
   the time left or the overtime against now), the check that ends last and its fraction done, the queued checks (also

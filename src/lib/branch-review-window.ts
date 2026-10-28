@@ -314,9 +314,9 @@ function wholeStackMenu(root: string): MenuItem[] {
  */
 function getWholeStackReviewItems(root: string): BranchActionItem[] {
   const pullRequest = getStackPullRequest(root)
-  const keys: Readonly<Record<string, string[]>> = { "open-stack-pull-request": ["o"], "safe-push-whole-stack": ["s"] }
-  // in the order of a branch's: its pull request, its Safe Push, its push
-  const order = ["open-stack-pull-request", "create-stack-pull-request", "safe-push-whole-stack", "push-with-children"]
+  const keys: Readonly<Record<string, string[]>> = { "open-stack-pull-request": ["o"], "safe-push-whole-stack": ["s"], "push-to-baseline": ["s"] }
+  // in the order of a branch's: its pull request, its Safe Push (or Push to master), its push
+  const order = ["open-stack-pull-request", "create-stack-pull-request", "safe-push-whole-stack", "push-to-baseline", "push-with-children"]
   const menu = wholeStackMenu(root)
   return order
     .flatMap(id => menu.filter(item => item.id === id))
@@ -658,12 +658,14 @@ function findBranchMenuItem(branchName: string, id: string): MenuItem | undefine
 }
 
 /** Why the main window doesn't offer the action of a request on the branch */
-function unavailableReason(itemId: "safe-push" | "push" | "safe-push-without-review", branch: Branch): string {
+function unavailableReason(itemId: "safe-push" | "push-to-baseline" | "push" | "safe-push-without-review", branch: Branch): string {
   switch (itemId) {
     case "push":
       return `${branch.name} has nothing to push`
     case "safe-push":
       return "Patronus is not available for the repository"
+    case "push-to-baseline":
+      return "The repository doesn't land by a push into the target"
     case "safe-push-without-review": {
       // the step says why it offers no start without review: what it waits for, a reason of the branch, or approvals
       // that don't wait for a pull request

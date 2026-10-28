@@ -301,13 +301,13 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   `unpacker error`), the remote's `remote:` lines and git's `error:` lines name the reason, without the progress lines.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`, `a_push_the_remote_refuses_for_its_size_says_why`)
 - A push whose commits add more files than the push size limit (`branchdeck.pushSizeLimit`, 50 MiB uncompressed
-  unless set, `0` or `off` for none; [Settings → Patronus](settings.spec.md#patronus)) must be refused before it
+  unless set, `0` or `off` for none; [Settings → Landing](settings.spec.md#landing)) must be refused before it
   talks to the remote: a server refuses such a pack only after the upload, as `unpacker error`, naming no file, and
   what it carries is mostly build output committed by mistake. The error (`push_too_large`) says how much it adds, the
   deepest directory that holds four fifths of it and the three largest files, then what to do: "The push would add
   229.3 MiB in 2236 files, over the push size limit of 50.0 MiB: 228.9 MiB of it in tool/target/debug/ (2235 files);
   the largest: … Nothing was pushed. Remove the files from the commits (build output?), or raise the push size limit
-  (branchdeck.pushSizeLimit, Settings → Patronus)". The files are the blobs the commits of the push add or change
+  (branchdeck.pushSizeLimit, Settings → Landing)". The files are the blobs the commits of the push add or change
   that no remote-tracking branch of the remote reaches, each once (one `log --raw` and one `cat-file --batch-check`,
   [Git Operations](../../docs/design/git-operations.md#push-size)); every push goes through it, the app's and `bd`'s,
   a stack, a whole stack and an unapplied branch, a dry run too. A limit that is neither a size nor off refuses the

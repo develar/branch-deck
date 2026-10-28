@@ -311,6 +311,21 @@ export class TestRepositoryBuilder {
     return this.postForCommit("remote/commit", { branch, ...commit, files: Object.entries(commit.files) })
   }
 
+  /**
+   * Names the route of the repository into master (`branchdeck.landing` of its own config; null unsets it) behind the
+   * app's back, as `git config --local` in a terminal does: the next sync reads it. With `gitHub` (`owner/name`),
+   * `origin` pushes to that GitHub repository by its URL while every push still reaches the remote, so the gate of a
+   * push into the target reads the facts of the fake GitHub (permission, rules)
+   */
+  async setLanding(setting: "patronus" | "push" | "pull-request" | null, { gitHub }: { gitHub?: string } = {}): Promise<void> {
+    await this.setFixture("landing", { setting, ...(gitHub !== undefined && { gitHub }) })
+  }
+
+  /** `branchdeck.landing` of the repository's own config as git keeps it (`push`, `pull-request`), null unset */
+  async getLanding(): Promise<string | null> {
+    return (await this.getFixture<{ setting: string | null }>("landing")).setting
+  }
+
   /** The remote refuses every push from now on with `message` (git shows it as `remote: <message>`), or takes them (`null`) */
   async refuseRemotePushes(message: string | null): Promise<void> {
     await this.setFixture("remote/refusal", { message })
@@ -412,7 +427,7 @@ export class TestRepositoryBuilder {
 
   /**
    * Sets the estimate of the CI that Patronus folds for running robots (`robots/progress`, read by the details with the
-   * new API of Settings → Patronus), by robot id, as of now
+   * new API of Settings → Landing), by robot id, as of now
    */
   async setPatronusProgress(progress: Record<string, PatronusRobotProgress>): Promise<void> {
     await this.setFixture("patronus-progress", progress)

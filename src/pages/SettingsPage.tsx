@@ -9,8 +9,8 @@ import { AppearancePage } from "@/components/settings/AppearancePage"
 import { DiffsPage } from "@/components/settings/DiffsPage"
 import { GeneralPage } from "@/components/settings/GeneralPage"
 import { GitHubPage } from "@/components/settings/GitHubPage"
+import { LandingPage } from "@/components/settings/LandingPage"
 import { NotificationsPage } from "@/components/settings/NotificationsPage"
-import { PatronusPage } from "@/components/settings/PatronusPage"
 import { RepositoryPage } from "@/components/settings/RepositoryPage"
 import { ToolsPage } from "@/components/settings/ToolsPage"
 import { YouTrackPage } from "@/components/settings/YouTrackPage"
@@ -34,7 +34,7 @@ const PAGE_LABELS: Record<SettingsPageId, string> = {
   notifications: "Notifications",
   github: "GitHub",
   youtrack: "YouTrack",
-  patronus: "Patronus",
+  landing: "Landing",
   agents: "Agents",
   tools: "Tools",
   repository: "Repository",
@@ -133,8 +133,8 @@ export function SettingsPage() {
           <SettingsPanel id="youtrack">
             <YouTrackPage />
           </SettingsPanel>
-          <SettingsPanel id="patronus">
-            <PatronusPage />
+          <SettingsPanel id="landing">
+            <LandingPage />
           </SettingsPanel>
           <SettingsPanel id="agents">
             <AgentsPage openCount={openCount} />

@@ -23,7 +23,7 @@ const RustFields = {
   // Settings → Appearance → Title bar (Windows, Linux): the system title bar and menu bar instead of the page's, read by the backend at
   // startup (`init_title_bar` in src-tauri/src/title_bar.rs)
   systemTitleBar: z.boolean().default(APP_SETTINGS_DEFAULTS.systemTitleBar),
-  // Settings → Patronus: the new API of Patronus, the progress of a running robot in one request and the
+  // Settings → Landing: the new API of Patronus, the progress of a running robot in one request and the
   // merge profile in the robot list (`new_api` of the Patronus commands; `bd` reads it from the settings file too)
   patronusNewApi: z.boolean().default(APP_SETTINGS_DEFAULTS.patronusNewApi),
 } satisfies { [K in keyof RustAppSettings]-?: z.ZodType }

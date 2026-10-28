@@ -1,7 +1,7 @@
 // @spec spec/branch/patronus.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiError, EffectRecord, LandResult, Outcome, PatronusRobot, Plan } from "@/lib/bindings"
-import { presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
+import type { ApiError, EffectRecord, LandResult, Outcome, PatronusRobot, Plan, UpdateCheck } from "@/lib/bindings"
+import { describeFollowingUpdate, presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
 import { MISSING_STILLS } from "@/test-support/landing-refusal"
 
 /** A Safe Push of auth started now */
@@ -148,5 +148,60 @@ describe("presentLandRefusal", () => {
     })
     const parked = apiError("parked", "Nothing was pushed or started: auth is parked")
     expect(presentLandRefusal(parked, "rebaseAutosquash", "auth")).toEqual({ kind: "error", title: "Cannot start the Safe Push of auth", error: parked })
+  })
+})
+
+describe("a push into the target", () => {
+  const PUSH = { kind: "pushBaseline", subject: { kind: "branch", name: "auth" }, tip: "t1", remote: "origin", target: "master" } as const
+  const pushed = (status: EffectRecord["status"]): Pick<Outcome, "effects" | "result"> => ({
+    effects: [{ effect: PUSH, status }],
+    result: { kind: "land", robot: null, canceled: null, comment: null, notes: [], lost: null },
+  })
+
+  it("says what it pushed, a target that moved, the words of the server that refused it, and the push again of a plan that changed", () => {
+    expect(presentLandOutcome(pushed(DONE), PLAN.intent, "auth", 3)).toEqual({
+      kind: "pushed",
+      title: "Pushed auth into master · 3 commits",
+      description: "It landed without a robot and without the CI of a pull request",
+    })
+    const moved = apiError("baseline_moved", "master moved since the copy was built on it: nothing was pushed")
+    expect(presentLandOutcome(pushed({ kind: "failed", error: moved }), PLAN.intent, "auth")).toEqual({
+      kind: "moved",
+      title: "master moved: auth is rebuilt on the new commits",
+      description: moved.message,
+    })
+    const refused = apiError("baseline_refused", "The server refused the push into master: remote: master is protected")
+    expect(presentLandOutcome(pushed({ kind: "failed", error: refused }), PLAN.intent, "auth")).toMatchObject({
+      kind: "failed",
+      title: "Cannot push auth into master",
+      description: refused.message,
+      again: false,
+    })
+    const changed = apiError("plan_changed", "auth moved since the plan")
+    expect(presentLandOutcome(pushed({ kind: "skipped", reason: changed }), PLAN.intent, "auth")).toMatchObject({
+      kind: "failed",
+      title: "Cannot push auth into master",
+      again: true,
+    })
+    expect(presentLandRefusal(changed, "rebaseAutosquash", "auth", {}, "master")).toEqual({ kind: "changed", title: "Cannot push auth into master", error: changed })
+  })
+
+  it("says the update that follows it: running, what it did, or Update Project where it did not move the branch", () => {
+    const check: UpdateCheck = { branch: "main", upstream: "origin/master", head: "h1", upstreamHead: "u1", base: "b1", state: { status: "upToDate" }, fetchedAt: null }
+    expect(describeFollowingUpdate({ kind: "running" })).toEqual({ description: "Updating the project…", offersUpdate: false })
+    expect(describeFollowingUpdate({ kind: "ended", result: { check, applied: null, landed: [] } })).toEqual({
+      description: "main is up to date with origin/master",
+      offersUpdate: false,
+    })
+    const blocked = { ...check, state: { status: "blocked" as const, paths: ["a.txt"], pathCount: 1 } }
+    expect(describeFollowingUpdate({ kind: "ended", result: { check: blocked, applied: null, landed: [] } })).toEqual({
+      description: "Local changes stand in the way of the update of main: Update Project names them",
+      offersUpdate: true,
+    })
+    expect(describeFollowingUpdate({ kind: "failed", error: null })).toEqual({ description: "Update Project drops the pushed commits from the branch", offersUpdate: true })
+    expect(describeFollowingUpdate({ kind: "failed", error: apiError("locked", "bd holds the lock") })).toEqual({
+      description: "Cannot update the project: bd holds the lock",
+      offersUpdate: true,
+    })
   })
 })

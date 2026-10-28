@@ -82,7 +82,7 @@ pub trait ServiceHost: Send + Sync + 'static {
     })
   }
 
-  /// Settings → Patronus: the progress of a running robot in one request and the merge profile from the list
+  /// Settings → Landing: the progress of a running robot in one request and the merge profile from the list
   fn new_api(&self, key: &SessionKey) -> bool;
 
   /// The object cache of the worktree of `key`, which keeps the answers of the review readiness

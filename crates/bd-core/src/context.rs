@@ -37,7 +37,7 @@ pub struct Environment {
   /// The directory `-C` defaults to
   pub cwd: PathBuf,
   /// The settings of the app (`app_settings`), read once as `bd` starts (`app_settings_of`): General → Branch prefix
-  /// (`globalUserBranchPrefix`) and Settings → Patronus (`patronusNewApi`), with the defaults the app has without them
+  /// (`globalUserBranchPrefix`) and Settings → Landing (`patronusNewApi`), with the defaults the app has without them
   pub settings: AppSettings,
   /// The git executable from `BD_GIT`
   pub git: Option<String>,
@@ -151,7 +151,7 @@ pub struct RepoContext {
   pub lock_timeout: Duration,
   /// This bd in this repository, quoted for the shell (`bd -C <repository>`), for the next commands an output names
   pub bd: String,
-  /// Settings → Patronus of the app (`patronusNewApi`): the progress of a running robot in one request and the merge
+  /// Settings → Landing of the app (`patronusNewApi`): the progress of a running robot in one request and the merge
   /// profile from the list, as the app reads them; off without the setting
   pub patronus_new_api: bool,
   /// The operation of the command (`with_operation_id`): the id of its root span and of its JSON, which its operation of

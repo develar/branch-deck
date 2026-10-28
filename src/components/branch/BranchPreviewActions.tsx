@@ -13,6 +13,7 @@ import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import { useLandingPushes, useUnpushedChildren } from "@/hooks/useBranchPushes"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import { useUnclaimedOperation } from "@/hooks/useRowOperation"
+import { useLandsByPush } from "@/hooks/useSafePush"
 import type { MenuItemGroups } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
@@ -29,7 +30,7 @@ import { usePullRequest, usePullRequestsLoading } from "@/stores/pull-requests"
 /**
  * The actions on a branch in the footer of its preview, as its menu offers them: O Open Pull Request, Create Pull
  * Request… of a branch on GitHub without a live one (also beside a closed one; disabled with the reason once it landed),
- * S Safe Push where Patronus is
+ * S Safe Push where Patronus is, Push to master where the repository lands by a push
  * (disabled with the reason of the next step), P Push for a branch with work, disabled with why while its first push
  * is a step of its landing or the answers that tell it are still to come (`firstPushWait`), so it keeps its place; the
  * rest of the row's menu is under "⋯"
@@ -40,6 +41,8 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
   // until Patronus answers, its Safe Push waits there, disabled with why
   const patronusOffered = usePatronusOffered()
+  // or Push to master, where the repository lands by a push of the copy into the target
+  const landsByPush = useLandsByPush()
   const closePreview = useContext(ClosePreviewContext)
   // the menu's item: "Create Pull Request…" of a branch without a live pull request, on GitHub, as Rust offers it; the
   // actions of the branch it subscribes to are its argument, so the item follows them
@@ -85,7 +88,7 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
           <TooltipContent>{createItem.description}</TooltipContent>
         </Tooltip>
       )}
-      {patronusOffered && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
+      {(patronusOffered || landsByPush) && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
       {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" waits={waits} />}
     </>
   )

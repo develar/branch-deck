@@ -1,4 +1,14 @@
-import type { ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, RepositoryConfig, RepositoryConfigChange, SymbolMode } from "@/lib/bindings"
+import type {
+  ConfigScope,
+  ConfigSetting,
+  DetectedGitHubRepository,
+  FlatNameClash,
+  LandingDefault,
+  LandingSetting,
+  RepositoryConfig,
+  RepositoryConfigChange,
+  SymbolMode,
+} from "@/lib/bindings"
 import { joinNames } from "@/lib/text"
 
 /*
@@ -69,6 +79,26 @@ export const SYMBOL_MODES: ReadonlyArray<{ mode: SymbolMode; label: string; desc
 
 export function symbolModeLabel(mode: SymbolMode): string {
   return SYMBOL_MODES.find(it => it.mode === mode)?.label ?? mode
+}
+
+/**
+ * The routes into master of `branchdeck.landing`, each with what it does (Settings → Landing,
+ * spec/branch/landing-routes.spec.md): its label and the sentence of the route chosen
+ */
+export const LANDING_ROUTES: ReadonlyArray<{ setting: LandingSetting; label: string; description: string }> = [
+  { setting: "patronus", label: "Safe Push", description: "A robot of Patronus checks each piece and pushes it into master" },
+  { setting: "push", label: "Push", description: "A push of its copy lands each piece, without a robot or the CI of a pull request" },
+  { setting: "pullRequest", label: "Pull Request", description: "Its pull request lands each piece, merged on GitHub" },
+]
+
+export function landingRouteLabel(setting: LandingSetting): string {
+  return LANDING_ROUTES.find(it => it.setting === setting)?.label ?? setting
+}
+
+/** The route of the repository while no config names it, and why: the host of `origin` (`LandingDefault`, Rust's) */
+export function describeDefaultLanding(landingDefault: LandingDefault): string {
+  const route = landingRouteLabel(landingDefault.route)
+  return landingDefault.onSpace ? `${route} by default: the repository is on Space` : `${route} by default: the repository is not on Space`
 }
 
 /** The config a value comes from, as a sentence names it */

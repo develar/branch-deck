@@ -40,12 +40,23 @@ export interface StackLandedPart {
  * commits into master in one Safe Push: air, bazel, … side-fix and side-test"; a Dry Run checks them: "Checks 7 branches
  * · 14 commits on master in one Dry Run: …". After merged Safe Pushes landed branches of it (`landed`), what is left of
  * it, and who landed the others: "Lands 2 branches · 3 commits into master in one Safe Push: side-fix and side-test;
- * air, bazel and deploy landed with deploy"
+ * air, bazel and deploy landed with deploy"; a push of its stack branch into the target (`byPush`): "Pushes 7 branches ·
+ * 14 commits into master in one push: …"
  */
-export function describeWholeStackLanding(members: readonly string[], commitCount: number, target: string, mode: PatronusPushMode, landed: StackLandedPart | null = null): string {
+export function describeWholeStackLanding(
+  members: readonly string[],
+  commitCount: number,
+  target: string,
+  mode: PatronusPushMode,
+  landed: StackLandedPart | null = null,
+  byPush = false,
+): string {
   const size = formatBranchesAndCommits(members.length, commitCount)
   const names = formatWholeStackMembers(members)
   const rest = landed === null || landed.names.length === 0 ? "" : `; ${formatWholeStackMembers(landed.names)} landed with ${joinNames(landed.by)}`
+  if (byPush) {
+    return `Pushes ${size} into ${target} in one push: ${names}${rest}`
+  }
   return mode === "dryRun" ? `Checks ${size} on ${target} in one Dry Run: ${names}${rest}` : `Lands ${size} into ${target} in one Safe Push: ${names}${rest}`
 }
 

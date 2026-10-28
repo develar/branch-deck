@@ -490,7 +490,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   written as `branchdeck.githubRepository`. A robot's source branch is the full ref of its virtual branch or of the
   stack branch of its whole stack under the repository's `branchdeck.branchPrefix`, its profile in the options; an
   empty `sourceRevision` is resolved when Patronus answers (`robots_hook`) to the tip of that ref, `~N` to its Nth first
-  parent. `/patronus-progress` sets what `robots/progress` folds per robot (the new API of Settings → Patronus, which the
+  parent. `/patronus-progress` sets what `robots/progress` folds per robot (the new API of Settings → Landing, which the
   routes read from the settings of the test, `initialStoreValues` or a `set_setting` of the page, as the app's
   commands read it from the writer), and
   `/patronus-history` adds the robots the Safe Push statistics count, the user's (owner `1`) and other people's

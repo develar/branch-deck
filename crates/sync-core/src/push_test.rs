@@ -442,7 +442,7 @@ fn a_push_over_the_size_limit_is_refused_before_the_remote() {
     "The push would add 2.6 KiB in 3 files, over the push size limit of 2.0 KiB: 2.6 KiB of it in tool/target/debug/ (2 files); the \
      largest: tool/target/debug/a.rlib (1.8 KiB), tool/target/debug/b.rlib (900 B), tool/src/main.rs (12 B). Nothing was pushed. \
      Remove the files from the commits (build output?), or raise the push size limit (branchdeck.pushSizeLimit, Settings → \
-     Patronus)"
+     Landing)"
   );
   assert_eq!(remote_tip(&remote), Some(first.clone()));
 

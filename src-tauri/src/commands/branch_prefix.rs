@@ -73,7 +73,7 @@ impl PrefixInputs {
     run_blocking(move || self.branch_prefix(&path)).await
   }
 
-  /// Settings → Patronus, the new API, of the settings when the command started
+  /// Settings → Landing, the new API, of the settings when the command started
   pub const fn patronus_new_api(&self) -> bool {
     self.settings.patronus_new_api
   }

@@ -41,7 +41,15 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
     fallbackScope: "global",
   },
   resolveByWords: { value: true, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: false, fallbackScope: "global" },
-  landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
+  // Landing with Robots: the route Patronus, its source, Use Default and an invalid global push under it
+  landing: {
+    value: "patronus",
+    scope: "local",
+    localSet: true,
+    invalid: "a push is taken only from .git/config of the repository, never from the global config",
+    fallbackValue: null,
+    fallbackScope: null,
+  },
   agentLease: { value: false, scope: "worktree", localSet: true, invalid: null, fallbackValue: true, fallbackScope: "system" },
   agentSubjectBranch: { value: false, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: true, fallbackScope: "global" },
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
@@ -117,6 +125,11 @@ async function expectEveryPageFits(window: Page, pages: string[]): Promise<void>
       await expect(window.getByTestId("setting-resolveByWords-source").getByRole("button", { name: "Use Global" })).toBeVisible()
       await expect(window.getByText("maybe is not a boolean (true or false)")).toBeVisible()
     }
+    if (name === "Landing") {
+      // the route of the repository with its source, Use Default and its invalid value; the push size limit of Repository's
+      await expect(window.getByTestId("repository-setting-landing").getByRole("button", { name: "Use Default" })).toBeVisible()
+      await expect(window.getByTestId("setting-pushSizeLimit-source")).toBeVisible()
+    }
     if (name === "Agents") {
       await expect(window.getByTestId("setting-agentLease-reason")).toBeVisible()
       await expect(window.getByTestId("agent-skill")).toContainText("Installed")
@@ -153,7 +166,7 @@ test.describe("Settings window", () => {
       "Notifications",
       "GitHub",
       "YouTrack",
-      "Patronus",
+      "Landing",
       "Agents",
       "Tools",
       /^Repositoryrepo-\d+$/,
@@ -285,8 +298,8 @@ test.describe("Settings window", () => {
   test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
     const window = await openTallestSettings(page, repo)
     // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Patronus", "Agents", "Tools", "Repository"])
-    for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "patronus", "agents", "tools", "repository"]) {
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Landing", "Agents", "Tools", "Repository"])
+    for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "landing", "agents", "tools", "repository"]) {
       await window.getByTestId(`settings-tab-${id}`).click()
       await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
     }
@@ -302,7 +315,7 @@ test.describe("Settings window on macOS", () => {
     await expect(window.getByTestId("settings-page-github")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Patronus", "Agents", "Tools", "Repository"])
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Landing", "Agents", "Tools", "Repository"])
     // no title bar setting on macOS
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()

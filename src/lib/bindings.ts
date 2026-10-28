@@ -549,7 +549,7 @@ export type AppSettings = {
 	/**  General → Branch prefix: the prefix of every repository whose own git config sets none (`resolve_branch_prefix`) */
 	globalUserBranchPrefix?: string | null,
 	/**
-	 *  Settings → Patronus: the new API of Patronus (the progress of a running robot in one request, the merge profile
+	 *  Settings → Landing: the new API of Patronus (the progress of a running robot in one request, the merge profile
 	 *  in the robot list); off by default
 	 */
 	patronusNewApi: boolean,
@@ -4986,7 +4986,7 @@ export type RepositoryConfig = {
 	githubRepository: ConfigSetting<string | null>,
 	/**  `branchdeck.branchPrefix`, normalized as the branches are named */
 	branchPrefix: ConfigSetting<string | null>,
-	/**  `branchdeck.pushSizeLimit` as written (`50M`, `0`, `off`); unset is `DEFAULT_PUSH_SIZE_LIMIT` (Settings → Patronus) */
+	/**  `branchdeck.pushSizeLimit` as written (`50M`, `0`, `off`); unset is `DEFAULT_PUSH_SIZE_LIMIT` (Settings → Landing) */
 	pushSizeLimit: ConfigSetting<string | null>,
 	/**  `branchdeck.resolveByWords`, on by default */
 	resolveByWords: ConfigSetting<boolean>,
