@@ -11,7 +11,6 @@ fn an_agent_on_macos_has_the_upgrade_and_elsewhere_no_feature() {
   } else {
     assert_eq!(features(), Vec::<&str>::new());
   }
-  // yonderd keeps 7741, so both agents serve one host side by side
   assert_eq!((DEFAULT_PORT, SCHEMA_VERSION), (7742, 1));
 }
 

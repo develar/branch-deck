@@ -12,7 +12,7 @@ fn options_of(argv: &[&str]) -> RunOptions {
   run_options(&args)
 }
 
-/// The command line of bt in the spec gives the run options that bt had with yonder: niceness 0, so a run of bt does
+/// The command line of bt in the spec gives the run options that bt needs: niceness 0, so a run of bt does
 /// not yield the CPU, and no outputs, so the local copy of an output of `[host]` stays. A person gets niceness 10 and
 /// the outputs
 #[test]

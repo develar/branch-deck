@@ -96,7 +96,7 @@ impl Checkout {
     })
   }
 
-  /// `[host]` of `.branchdeck.toml` of `commit`, else its `.yonder.toml`, else the default, with the parser of the agent.
+  /// `[host]` of `.branchdeck.toml` of `commit`, else the default, with the parser of the agent.
   /// A file that does not parse refuses with `bad_config`
   pub(crate) fn host_config(&self, commit: &str) -> Result<RepoConfig, Refusal> {
     read_commit_config(|path| {

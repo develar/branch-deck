@@ -387,7 +387,7 @@ fn lend(context: &Context<'_>, wait: Option<Duration>, stop: &dyn Fn() -> bool) 
   }
 }
 
-/// `[host]` of `.branchdeck.toml` of `commit`, else its `.yonder.toml`, else the default. A file that does not parse
+/// `[host]` of `.branchdeck.toml` of `commit`, else the default. A file that does not parse
 /// refuses with `bad_config`
 fn read_config(repo: &Repository, commit: &str) -> Result<RepoConfig, Refusal> {
   read_commit_config(|file| {

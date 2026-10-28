@@ -32,7 +32,6 @@ fn every_refusal_code_has_one_name_and_one_exit() {
     assert_eq!(Code::from_name(code.name()), Some(code));
     assert_eq!(serde_json::to_string(&code).expect("json"), format!("\"{code}\""));
   }
-  assert_eq!(Code::from_name("lock_timeout"), None, "yonder's lock_timeout is slot_timeout");
 }
 
 #[test]

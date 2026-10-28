@@ -1,7 +1,6 @@
 //! The identity of one end: a self-signed certificate and its key, and the fingerprint that the other end pins
 //! (spec/cli/host.spec.md, "The link" and "The files"). The files are `identity.key` (PKCS#8 DER) and `identity.crt`
-//! (DER) in the identity directory, the same files that yonder writes, so `bd-host setup --import-yonder` copies them
-//! as they are
+//! (DER) in the identity directory
 
 use crate::digest::Sha256;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -21,14 +20,6 @@ pub const KEY_FILE: &str = "identity.key";
 
 /// The file of the certificate, DER, in the identity directory
 pub const CERT_FILE: &str = "identity.crt";
-
-/// The identity directories of yonder below the home directory, which `bd-host setup --import-yonder` reads
-pub mod yonder {
-  /// The identity of the yonder client
-  pub const CLIENT_DIR: &str = ".config/yonder";
-  /// The identity of yonderd and its allow list `clients`
-  pub const AGENT_DIR: &str = ".config/yonderd";
-}
 
 /// How long a call waits for the certificate of the call that wrote the key
 const CREATE_WAIT: Duration = Duration::from_secs(10);
@@ -113,19 +104,6 @@ impl fmt::Debug for Identity {
   }
 }
 
-/// What `Identity::import` did
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Imported {
-  /// The identity was copied
-  Copied,
-  /// The target has the same identity already
-  Same,
-  /// The target has another identity, and it stays
-  Kept,
-  /// The source has no certificate
-  Missing,
-}
-
 impl Identity {
   /// A new identity: an ECDSA P-256 key and a self-signed certificate for `tls::SERVER_NAME` (`tls::self_signed`)
   pub fn generate() -> io::Result<Self> {
@@ -143,22 +121,6 @@ impl Identity {
       return Self::load(dir);
     }
     Self::store(dir, &Self::generate()?)
-  }
-
-  /// Copies the identity in `from` (such as `~/.config/yonder`) to `to`, so the other end keeps its pin. An identity
-  /// that `to` has already stays. The name in the certificate does not count: each end checks the fingerprint only
-  pub fn import(from: &Path, to: &Path) -> io::Result<Imported> {
-    if !from.join(CERT_FILE).exists() {
-      return Ok(Imported::Missing);
-    }
-    let source = Self::load(from)?;
-    let present = to.join(CERT_FILE).exists();
-    let target = if present { Self::load(to)? } else { Self::store(to, &source)? };
-    Ok(match (present, target == source) {
-      (_, false) => Imported::Kept,
-      (true, true) => Imported::Same,
-      (false, true) => Imported::Copied,
-    })
   }
 
   /// Writes `identity` to `dir`, and answers the identity that `dir` holds then.

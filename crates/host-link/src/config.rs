@@ -2,9 +2,8 @@
 //! (spec/cli/host.spec.md, "The environment of a run and `[host]`"). The agent and the client parse it with this one
 //! parser: the agent for the prepare steps, the environment and the outputs that it stages, the client for the outputs
 //! that it takes back. Each end reads the file from the commit of the run, so a file beside the commit never counts. A
-//! commit whose `.branchdeck.toml` has no `[host]` table gets its `.yonder.toml`, which has the same keys at its top
-//! level, until the repositories moved (`read_commit_config`). A commit without both has no prepare steps, no environment of its
-//! own and no outputs.
+//! commit whose `.branchdeck.toml` has no `[host]` table has no prepare steps, no environment of its own and no
+//! outputs.
 //!
 //! - `outputs`: the paths that come back after the run, for a client that asks for them.
 //! - `[host.env]`: the environment of the prepare steps and the command, on top of the login environment of the user.
@@ -23,9 +22,6 @@ pub const FILE: &str = ".branchdeck.toml";
 
 /// The table of `FILE` for the remote runs
 pub const TABLE: &str = "host";
-
-/// The file of yonder in the root of the commit, read when `FILE` has no `TABLE`
-pub const YONDER_FILE: &str = ".yonder.toml";
 
 /// The content of `[host]`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -68,8 +64,8 @@ pub enum EnvValue {
   Unset,
 }
 
-/// Why `[host]` does not parse. The message starts with the name of the file and the table: `.branchdeck.toml
-/// [host]: ` or `.yonder.toml: `
+/// Why `[host]` does not parse. The message starts with the name of the file, and with the table when the table does
+/// not parse: `.branchdeck.toml [host]: `
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("{message}")]
 pub struct ConfigError {
@@ -105,25 +101,22 @@ struct RawConfig {
   prepare: Vec<Step>,
 }
 
-/// Why the configuration of a commit is not there: the reader of a file of the commit failed, or a file does not parse
+/// Why the configuration of a commit is not there: the reader of the file of the commit failed, or the file does not
+/// parse
 #[derive(Debug)]
 pub enum ReadError<E> {
-  /// The reader of a file of the commit failed
+  /// The reader of the file of the commit failed
   Read(E),
-  /// A file of the commit does not parse
+  /// The file of the commit does not parse
   Config(ConfigError),
 }
 
 /// The configuration of a commit, for the agent and the client alike. `read` answers the text of a file of the commit,
-/// `None` when the commit lacks it: `[host]` of `.branchdeck.toml`, else `.yonder.toml`, else the default. A
-/// `.branchdeck.toml` with `[host]` wins, and `read` never gets `.yonder.toml` then
-pub fn read_commit_config<E>(mut read: impl FnMut(&str) -> Result<Option<String>, E>) -> Result<RepoConfig, ReadError<E>> {
-  let branchdeck = read(FILE).map_err(ReadError::Read)?;
-  if let Some(config) = branchdeck.as_deref().map(parse_branchdeck).transpose().map_err(ReadError::Config)?.flatten() {
-    return Ok(config);
-  }
-  let yonder = read(YONDER_FILE).map_err(ReadError::Read)?;
-  yonder.as_deref().map_or_else(|| Ok(RepoConfig::default()), parse_yonder).map_err(ReadError::Config)
+/// `None` when the commit lacks it: `[host]` of `.branchdeck.toml`, else the default
+pub fn read_commit_config<E>(read: impl FnOnce(&str) -> Result<Option<String>, E>) -> Result<RepoConfig, ReadError<E>> {
+  let text = read(FILE).map_err(ReadError::Read)?;
+  let config = text.as_deref().map(parse_branchdeck).transpose().map_err(ReadError::Config)?.flatten();
+  Ok(config.unwrap_or_default())
 }
 
 /// `[host]` of the text of `.branchdeck.toml`, or `None` when it has no such table. The other tables are not read
@@ -138,12 +131,6 @@ pub fn parse_branchdeck(text: &str) -> Result<Option<RepoConfig>, ConfigError> {
     }
     Some(other) => Err(ConfigError::new(FILE, format!("`{TABLE}` is a {}, not a table", other.type_str()))),
   }
-}
-
-/// The text of `.yonder.toml`: the keys of `[host]` at its top level
-pub fn parse_yonder(text: &str) -> Result<RepoConfig, ConfigError> {
-  let raw: RawConfig = toml::from_str(text).map_err(|error| ConfigError::new(YONDER_FILE, error.message()))?;
-  check(raw).map_err(|message| ConfigError::new(YONDER_FILE, message))
 }
 
 /// Checks the paths, the names of the variables and the steps

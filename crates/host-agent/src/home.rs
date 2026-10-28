@@ -27,11 +27,6 @@ impl Home {
     &self.dir
   }
 
-  /// The files of the client on this machine: `~/.config/bd-host/`
-  pub fn client_dir(&self) -> PathBuf {
-    self.dir.join(".config/bd-host")
-  }
-
   /// The identity of the agent: `~/.config/bd-host/agent/`. A Mac that is a client and a host keeps both pairs apart
   pub fn identity_dir(&self) -> PathBuf {
     self.dir.join(".config/bd-host/agent")
@@ -77,13 +72,9 @@ impl Home {
     self.cache_dir().join("upgrade.lock")
   }
 
-  /// The fingerprints of the prepare steps per host slot (`prepare::Prepared`): `~/.cache/bd-host/slots/`. While
-  /// yonderd has its cache, both agents lend the same slots, so they share `~/.cache/yonderd/slots/`, whose files
-  /// have the same format and fingerprints. A step that one agent ran in a slot is then current for the other, and a
-  /// step that the other ran over it runs again
+  /// The fingerprints of the prepare steps per host slot (`prepare::Prepared`): `~/.cache/bd-host/slots/`
   pub fn slots_dir(&self) -> PathBuf {
-    let yonderd = self.dir.join(yonder::CACHE_DIR).join("slots");
-    if yonderd.is_dir() { yonderd } else { self.cache_dir().join("slots") }
+    self.cache_dir().join("slots")
   }
 
   /// The plist of the `LaunchAgent`
@@ -110,17 +101,3 @@ impl Home {
     }
   }
 }
-
-/// The files of yonder on this machine, for `setup --import-yonder` and `setup --retire-yonderd`
-pub mod yonder {
-  /// The `LaunchAgent` of yonderd
-  pub const LAUNCHD_LABEL: &str = "com.jetbrains.yonderd";
-  /// The cache of yonderd: its runs, its repositories, its login environment
-  pub const CACHE_DIR: &str = ".cache/yonderd";
-  /// The refs of the packs of yonderd before Branch Deck kept them
-  pub const REFS: &str = "refs/yonder/";
-}
-
-#[cfg(test)]
-#[path = "home_test.rs"]
-mod home_test;

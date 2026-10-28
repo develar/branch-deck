@@ -1,7 +1,7 @@
 //! The agent commands of bd-host that have no client part, as one clap subcommand that `bd-host` flattens into its own
 //! (spec/cli/host.spec.md, "serve", "upgrade"): `serve`, and the hidden `supervise`, `check`, `watchdog` and `dump-env`
-//! that the agent starts itself. `setup --agent`, `--import-yonder` and `--retire-yonderd` share the `setup` command of
-//! the client, so bd-host parses them and calls `setup` of this crate
+//! that the agent starts itself. `setup --agent` shares the `setup` command of the client, so bd-host parses it and
+//! calls `setup` of this crate
 
 use crate::home::Home;
 use crate::log::log;

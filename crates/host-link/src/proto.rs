@@ -22,7 +22,7 @@ use sync_utils::host_ref_name::is_host_ref_name;
 /// with `schema`
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// The TCP port of `bd-host serve`. yonderd listens on 7741, so both agents serve one host side by side
+/// The TCP port of `bd-host serve`
 pub const DEFAULT_PORT: u16 = 7742;
 
 /// The label of the `LaunchAgent` that starts `bd-host serve` on a macOS host

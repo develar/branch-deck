@@ -1,27 +1,17 @@
-//! `bd-host setup --agent`, `--import-yonder` and `--retire-yonderd` (spec/cli/host.spec.md, "setup").
-//!
-//! - `--agent`: the client runs it over ssh while the user is at the host. It creates the identity of the agent, adds the
-//!   client to the allow list, writes the `LaunchAgent`, and starts or restarts `serve` under launchd. On a host without
-//!   launchd it does not start the agent.
-//! - `--import-yonder`: takes the identities, the host files and the allow list of yonder on this machine, so no new
-//!   pairing and no ssh is needed, then writes the `LaunchAgent` as `--agent` does. It copies, so yonder keeps working.
-//! - `--retire-yonderd`: boots out `com.jetbrains.yonderd`, waits until no yonderd run holds its run lock, deletes the
-//!   refs `refs/yonder/*` of each repository of yonderd through a ref transaction, and deletes the cache of yonderd
+//! `bd-host setup --agent` (spec/cli/host.spec.md, "setup"): the client runs it over ssh while the user is at the host.
+//! It creates the identity of the agent, adds the client to the allow list, writes the `LaunchAgent`, and starts or
+//! restarts `serve` under launchd. On a host without launchd it does not start the agent.
 
-use crate::files::{private_dir, try_flock_shared, write_private};
-use crate::home::{Home, yonder};
-use crate::log::log;
-use crate::repo::Repository;
+use crate::files::{private_dir, write_private};
+use crate::home::Home;
 use crate::{child, sys};
-use git_ops::host_objects::delete_host_refs;
-use git_ops::revs::ref_tips;
 use host_link::allow::{self, AllowList};
-use host_link::identity::{self, Fingerprint, Identity, Imported};
-use host_link::proto::{DEFAULT_PORT, LAUNCHD_LABEL};
+use host_link::identity::{Fingerprint, Identity};
+use host_link::proto::LAUNCHD_LABEL;
 use host_link::refusal::{Code, Refusal};
 use serde::Serialize;
 use std::ffi::OsStr;
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
@@ -33,12 +23,6 @@ const LAUNCHCTL: Duration = Duration::from_secs(30);
 
 /// How long a reload waits for launchd to unload the old service
 const UNLOAD_WAIT: Duration = Duration::from_secs(10);
-
-/// How long `--retire-yonderd` waits for the runs of yonderd
-const RETIRE_WAIT: Duration = Duration::from_hours(2);
-
-/// How often `--retire-yonderd` looks at the run locks of yonderd
-const RETIRE_POLL: Duration = Duration::from_millis(500);
 
 /// How long the agent of a fresh `LaunchAgent` has to listen
 pub const LISTEN_WAIT: Duration = Duration::from_mins(1);
@@ -331,202 +315,6 @@ impl PlistValues {
 fn string_value(rest: &str) -> Option<String> {
   let (value, _) = rest.split_once("</string>")?;
   Some(value.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
-}
-
-/// What `setup --import-yonder` takes
-#[derive(Clone, Debug)]
-pub struct Import<'a> {
-  /// The executable of the setup. launchd runs `~/.local/bin/bd-host`, and a copy of this file goes there when it
-  /// is missing
-  pub exe: &'a Path,
-  pub launchctl: &'a Path,
-  pub path: &'a str,
-  pub listen_wait: Duration,
-}
-
-/// The line that `setup --import-yonder` prints: what it took
-#[derive(Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct ImportLine {
-  /// `copied`, `same`, `kept` or `missing`
-  pub(crate) client_identity: &'static str,
-  /// The aliases of the host files it copied
-  pub(crate) hosts: Vec<String>,
-  pub(crate) agent_identity: &'static str,
-  /// The clients that joined the allow list
-  pub(crate) clients: usize,
-  /// `bootstrapped`, `restarted`, `none` on a host without launchd, or `skipped` without an identity of yonderd
-  pub(crate) launchd: &'static str,
-}
-
-const fn imported_name(imported: Imported) -> &'static str {
-  match imported {
-    Imported::Copied => "copied",
-    Imported::Same => "same",
-    Imported::Kept => "kept",
-    Imported::Missing => "missing",
-  }
-}
-
-/// `bd-host setup --import-yonder`
-pub fn import_yonder(home: &Home, import: &Import<'_>, out: &mut dyn Write) -> Result<(), Refusal> {
-  let config = |error: std::io::Error| Refusal::new(Code::Config, error.to_string());
-  let client_from = home.dir().join(identity::yonder::CLIENT_DIR);
-  let agent_from = home.dir().join(identity::yonder::AGENT_DIR);
-  if !client_from.is_dir() && !agent_from.is_dir() {
-    return Err(Refusal::new(
-      Code::NoYonder,
-      format!("this machine has no files of yonder in {} or {}", client_from.display(), agent_from.display()),
-    ));
-  }
-  let client_identity = Identity::import(&client_from, &home.client_dir()).map_err(config)?;
-  let hosts = import_hosts(&client_from.join("hosts"), &home.client_dir().join("hosts")).map_err(config)?;
-  let agent_imported = Identity::import(&agent_from, &home.identity_dir()).map_err(config)?;
-  let theirs = AllowList::read(&agent_from.join(allow::CLIENTS_FILE)).map_err(config)?;
-  let mut ours = AllowList::read(&home.allow_file()).map_err(config)?;
-  let clients = ours.extend_from(&theirs);
-  if clients > 0 {
-    ours.write(&home.allow_file()).map_err(config)?;
-  }
-  let launchd = if matches!(agent_imported, Imported::Missing) {
-    "skipped"
-  } else {
-    agent_identity(home)?;
-    start_agent(home, import.exe, DEFAULT_PORT, import.launchctl, import.path, import.listen_wait)?
-  };
-  let line = ImportLine {
-    client_identity: imported_name(client_identity),
-    hosts,
-    agent_identity: imported_name(agent_imported),
-    clients,
-    launchd,
-  };
-  write_line(out, &line)
-}
-
-/// Copies each host file of yonder in `from` that `to` lacks, with the port of bd-host. Answers the aliases it copied
-fn import_hosts(from: &Path, to: &Path) -> std::io::Result<Vec<String>> {
-  let Ok(entries) = fs::read_dir(from) else {
-    return Ok(Vec::new());
-  };
-  let mut copied = Vec::new();
-  let mut files: Vec<PathBuf> = entries
-    .filter_map(Result::ok)
-    .map(|entry| entry.path())
-    .filter(|path| path.extension() == Some(OsStr::new("json")))
-    .collect();
-  files.sort();
-  for file in files {
-    let target = to.join(file.file_name().unwrap_or_default());
-    if target.exists() {
-      continue;
-    }
-    let mut host: serde_json::Value = serde_json::from_slice(&fs::read(&file)?).map_err(std::io::Error::other)?;
-    if let Some(fields) = host.as_object_mut() {
-      fields.insert("port".to_owned(), DEFAULT_PORT.into());
-      // the client tries the cached addresses first, so they get the port of bd-host too
-      if let Some(addresses) = fields.get_mut("addresses").and_then(serde_json::Value::as_array_mut) {
-        for address in addresses.iter_mut() {
-          if let Some(mut socket) = address.as_str().and_then(|text| text.parse::<SocketAddr>().ok()) {
-            socket.set_port(DEFAULT_PORT);
-            *address = socket.to_string().into();
-          }
-        }
-      }
-    }
-    private_dir(to)?;
-    write_private(&target, &serde_json::to_vec_pretty(&host).map_err(std::io::Error::other)?)?;
-    copied.push(file.file_stem().map_or_else(String::new, |stem| stem.to_string_lossy().into_owned()));
-  }
-  Ok(copied)
-}
-
-/// The line that `setup --retire-yonderd` prints: what it removed
-#[derive(Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct RetireLine {
-  /// The refs `refs/yonder/*` it deleted, per repository
-  pub(crate) deleted_refs: usize,
-  /// Whether `launchctl bootout` of yonderd ran
-  pub(crate) booted_out: bool,
-  /// The directories it deleted
-  pub(crate) removed: Vec<String>,
-  /// The directories it keeps, such as the identity of yonderd, which the user deletes
-  pub(crate) kept: Vec<String>,
-}
-
-/// `bd-host setup --retire-yonderd`: the user runs it once `bd-host serve` serves the runs. The identity and the allow
-/// list of yonderd in `~/.config/yonderd` stay: the user deletes them
-pub fn retire_yonderd(home: &Home, launchctl_program: &Path, out: &mut dyn Write) -> Result<(), Refusal> {
-  let cache = home.dir().join(yonder::CACHE_DIR);
-  // yonderd goes first, so no run of it starts during the wait, and no run directory goes under a live run
-  let (_, service) = service(yonder::LAUNCHD_LABEL);
-  let booted_out = cfg!(target_os = "macos") && launchctl(launchctl_program, &["bootout", &service]).is_ok();
-  wait_for_yonderd_runs(&cache.join("runs"), RETIRE_WAIT)?;
-  let mut deleted_refs = 0;
-  for repo in fs::read_to_string(cache.join("repos")).unwrap_or_default().lines().filter(|line| !line.is_empty()) {
-    let repo = match Repository::open(home, PathBuf::from(repo)) {
-      Ok(repo) => repo,
-      Err(refusal) => {
-        log(&format!("cannot delete the refs of yonderd in {repo}: {refusal}"));
-        continue;
-      }
-    };
-    let refs: Vec<String> = ref_tips(&repo.git, &repo.dirs.top_level, &[yonder::REFS])
-      .map_err(|error| Refusal::new(Code::AgentError, format!("cannot list the refs of yonderd in {}: {error:#}", repo.path.display())))?
-      .into_keys()
-      .collect();
-    delete_host_refs(&repo.git, &repo.dirs.top_level, &refs)
-      .map_err(|error| Refusal::new(Code::AgentError, format!("cannot delete the refs of yonderd in {}: {error:#}", repo.path.display())))?;
-    deleted_refs += refs.len();
-  }
-  let mut removed = Vec::new();
-  // without its plist, launchd does not start yonderd again at the next login
-  let plist = home.dir().join(format!("Library/LaunchAgents/{}.plist", yonder::LAUNCHD_LABEL));
-  if plist.exists() {
-    fs_retry::remove_file(&plist).map_err(|error| Refusal::new(Code::AgentError, format!("cannot remove {}: {error}", plist.display())))?;
-    removed.push(plist.display().to_string());
-  }
-  if cache.exists() {
-    fs_retry::remove_dir_all(&cache).map_err(|error| Refusal::new(Code::AgentError, format!("cannot remove {}: {error}", cache.display())))?;
-    removed.push(cache.display().to_string());
-  }
-  let config = home.dir().join(identity::yonder::AGENT_DIR);
-  let kept = if config.exists() { vec![config.display().to_string()] } else { Vec::new() };
-  write_line(
-    out,
-    &RetireLine {
-      deleted_refs,
-      booted_out,
-      removed,
-      kept,
-    },
-  )
-}
-
-/// Waits until no run of yonderd in `runs` holds its run lock, up to `wait`
-fn wait_for_yonderd_runs(runs: &Path, wait: Duration) -> Result<(), Refusal> {
-  let started = Instant::now();
-  loop {
-    let live: Vec<String> = fs::read_dir(runs).map_or_else(
-      |_| Vec::new(),
-      |entries| {
-        entries
-          .filter_map(Result::ok)
-          .filter(|entry| File::open(entry.path().join("lock")).is_ok_and(|lock| !try_flock_shared(&lock).unwrap_or(false)))
-          .map(|entry| entry.file_name().to_string_lossy().into_owned())
-          .collect()
-      },
-    );
-    if live.is_empty() {
-      return Ok(());
-    }
-    if started.elapsed() >= wait {
-      return Err(Refusal::new(
-        Code::AgentError,
-        format!("the runs {} of yonderd still go on after {} min", live.join(", "), wait.as_secs() / 60),
-      ));
-    }
-    std::thread::sleep(RETIRE_POLL);
-  }
 }
 
 #[cfg(test)]

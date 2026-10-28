@@ -32,8 +32,8 @@ Date: 2026-10-28
 ## Summary
 
 `bd-host` runs a command of a checkout on another machine of the user, the host, and it is the agent on that host
-too. It replaces yonder of the IntelliJ monorepo (`community/tools/yonder`). The client and the agent call the lease
-pool and git in process, so no `bd` child runs on either end. The why, the slot model and the migration are in
+too. It replaced yonder of the IntelliJ monorepo, whose agent yonderd was retired on 2026-10-28. The client and the
+agent call the lease pool and git in process, so no `bd` child runs on either end. The why and the slot model are in
 [Host Runs](../../docs/design/host-runs.md). The lend table and the git of the host are in
 [bd lease](lease.spec.md), "Host slots", "Host objects" and "Host runs".
 
@@ -51,8 +51,6 @@ This spec is a draft of the port. A requirement names the test that will cover i
 - No `bd` process and no JSON of a child process between the agent and the pool, or between the client and git.
 - A machine contract that a caller reads without parsing the words: the refusal codes, the exit codes, the report and
   the hello as JSON, and `bd-host schema` that prints them.
-- A migration from yonderd without a new pairing and without ssh: both agents serve one host side by side and share its
-  slots.
 
 ## Non-goals
 
@@ -125,7 +123,7 @@ This spec is a draft of the port. A requirement names the test that will cover i
 | Agent | `~/.config/bd-host/agent/identity.crt`, `identity.key` | The certificate and the key of the agent |
 | Agent | `~/.config/bd-host/agent/clients` | The allow list: one `<64 hex> <name>` line per client |
 | Agent | `~/.cache/bd-host/runs/<run>/` | `spec.json`, `events.log`, `exit.json`, `supervisor.log`, `outputs/`, `changes.patch` |
-| Agent | `~/.cache/bd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared` (in `~/.cache/yonderd/slots/` while it exists) |
+| Agent | `~/.cache/bd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared` |
 | Agent | `~/Library/LaunchAgents/com.jetbrains.bd-host.plist`, `~/Library/Logs/bd-host.log` | The LaunchAgent and its log |
 | Checkout | `<git dir>/branch-deck/host/runs/<run>.json`, `<run>.patch` | The run record and the patch of `--apply` |
 
@@ -334,8 +332,6 @@ bd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
 ```sh
 bd-host setup <alias> [--repo <path>] [--port 7742] [--name <name>] [--binary <path>]
 bd-host setup --agent --client <fingerprint> --name <name> [--port 7742]
-bd-host setup --import-yonder
-bd-host setup --retire-yonderd
 ```
 
 - `bd-host setup <alias>` must prepare a host over ssh, run by the user only: copy `--binary`, else this executable,
@@ -351,21 +347,6 @@ bd-host setup --retire-yonderd
   executable there by a rename. So launchd never runs a file that cargo writes again, that a shrink of a slot
   deletes, or that is in the bundle of the app. A file that is there stays.
   [@test] ../../crates/host-agent/src/setup_test.rs (`the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent`)
-- `bd-host setup --import-yonder` must take what yonder has on this machine, so no new pairing and no ssh is needed:
-  the identity and the host files of the client from `~/.config/yonder` (each host file with the port 7742, also in its cached addresses), and the
-  identity and the allow list of the agent from `~/.config/yonderd`, then the LaunchAgent as `--agent` writes it. It
-  copies, so yonder keeps working. An identity or a host file that bd-host has already stays. The clients of the allow
-  list of yonderd join the allow list of bd-host, and a client that it names keeps its name. It prints what it took. A
-  machine without yonder files refuses with `no_yonder`.
-  [@test] ../../crates/host-link/src/identity_test.rs (`an_import_copies_the_identity_of_yonder_once_and_keeps_another_one`)
-  [@test] ../../crates/host-link/src/allow_test.rs (`the_clients_of_another_list_join_and_a_known_client_keeps_its_name`)
-  [@test] ../../crates/host-agent/src/setup_test.rs (`import_yonder_takes_the_identities_the_hosts_and_the_allow_list`)
-- `bd-host setup --retire-yonderd` must boot out `com.jetbrains.yonderd` first, so no run of it starts later. Then
-  it must wait until no yonderd run holds its run lock, delete the refs `refs/yonder/*` of each repository of
-  `~/.cache/yonderd/repos` through a ref transaction, and delete `~/Library/LaunchAgents/com.jetbrains.yonderd.plist`
-  (or launchd starts yonderd again at the next login) and `~/.cache/yonderd`. It keeps `~/.config/yonderd`, the identity and the allow list of
-  yonderd, and prints it as kept: the user deletes it. The user only runs it.
-  [@test] ../../crates/host-agent/src/setup_test.rs (`retire_yonderd_waits_for_its_runs_and_removes_its_refs_and_files`)
 
 ### upgrade
 
@@ -435,10 +416,11 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   the hard limit when that is lower.
   [@test] ../../crates/host-agent/tests/serve/system.rs (`a_run_gets_the_login_environment_a_raised_open_files_limit_and_its_niceness`)
 - The agent must read `[host]` of `.branchdeck.toml` from the commit of the run, never from the files of the slot. A
-  commit whose `.branchdeck.toml` has no `[host]` table gets its `.yonder.toml`, until the repositories moved. An
-  unknown key or a value of the wrong shape ends the run with `bad_config` before the command. The other tables of
+  commit whose `.branchdeck.toml` has no `[host]` table has no prepare steps, no environment of its own and no outputs.
+  An unknown key or a value of the wrong shape ends the run with `bad_config` before the command. The other tables of
   `.branchdeck.toml` are not the agent's.
-  [@test] ../../crates/host-link/src/config_test.rs (`the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses`, `a_commit_without_the_host_table_gets_its_yonder_toml`, `a_commit_with_the_host_table_never_reads_its_yonder_toml`, `a_typo_or_a_bad_value_is_an_error_that_names_the_file`)
+  [@test] ../../crates/host-link/src/config_test.rs (`the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses`, `a_commit_gets_the_host_table_of_its_branchdeck_toml_else_the_default`, `a_typo_or_a_bad_value_is_an_error_that_names_the_file`)
+  [@test] ../../crates/host-link/src/config_test.rs (`the_host_table_of_this_repository_parses`)
 
 ```toml
 [host]
@@ -463,10 +445,6 @@ creates = ["node_modules"]             # a missing path runs the step again
   another code than 0 ends the run with `prepare_failed`. The fingerprints are keyed by the `generation` of the slot,
   so a give-back that discarded changes or a clean runs each step again.
   [@test] ../../crates/host-agent/src/prepare_test.rs (`a_prepare_step_runs_when_its_inputs_change_or_a_created_path_is_missing`)
-- While `~/.cache/yonderd/slots/` exists, the agent must keep the fingerprints there and not in
-  `~/.cache/bd-host/slots/`. Both agents lend the same slots, and their files have the same format. So a step that
-  yonderd ran over the work of bd-host in a slot runs again for bd-host.
-  [@test] ../../crates/host-agent/src/home_test.rs (`the_fingerprints_of_a_slot_are_shared_with_yonderd_while_it_has_its_cache`)
 
 ### version, schema, skill
 
@@ -518,7 +496,7 @@ except `usage` (2) and `interrupted` (130).
 | `lease_failed` | 75 | The lend failed. The message has the error of the pool. |
 | `old_git` | 75 | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. The message is the hint of Branch Deck. |
 | `checkout_failed` | 75 | The commit cannot be checked out in the slot. |
-| `bad_config` | 75 | `[host]` of `.branchdeck.toml` (or `.yonder.toml`) of the commit does not parse, has an unknown key or a value of the wrong shape. |
+| `bad_config` | 75 | `[host]` of `.branchdeck.toml` of the commit does not parse, has an unknown key or a value of the wrong shape. |
 | `prepare_failed` | 75 | A prepare step exited with another code than 0. |
 | `spawn_failed` | 75 | The command cannot start. |
 | `agent_error` | 75, 255 after the command started | The agent cannot read or write its own files, or a supervisor got lost. |
@@ -532,14 +510,11 @@ except `usage` (2) and `interrupted` (130).
 | `agent_failed` | 255 | The binary for a host cannot be read or is of another platform, the host is not macOS for `upgrade`, or `setup --agent` on the host failed. |
 | `ssh_failed` | 255 | An ssh call of `setup <alias>` failed or ran past its deadline. |
 | `launchd_failed` | 255 | A `launchctl` call of `setup` failed. |
-| `no_yonder` | 255 | `setup --import-yonder` found no file of yonder or yonderd. |
 | `skill_edited` | 255 | `skill install` found a copy with local edits, without `--force`. |
 
 - Each code must be one variant of the refusal type of `host-link`, with its name and exit in one table that
   `bd-host schema` prints, so a code cannot have two exits.
   [@test] ../../crates/host-link/src/refusal_test.rs (`every_refusal_code_has_one_name_and_one_exit`, `the_exit_of_a_code_follows_how_far_the_run_came`)
-- The yonder code `lock_timeout` is `slot_timeout` here, and `bd_failed` is `git_failed`, because no `bd` process
-  runs. `old_agent` is gone: every agent of host-link knows the upgrade request.
 
 ## Testing / Local Run
 
@@ -553,17 +528,13 @@ except `usage` (2) and `interrupted` (130).
 - A slot serves several checkouts. Ignored outputs of another branch stay, and a tool that trusts timestamps can build
   stale output.
 - A daemon that leaves the slot directory escapes the process scan of the give-back.
-- While both agents serve one host, a yonderd that upgrades the git of the host holds the lends of `bd-host` too,
-  because they share the lend table. That is the intent: no run uses git while Homebrew replaces it.
-
 - A run with no slot whose last fill failed waits in the queue like any other run. A refusal at once
   (`lease_failed`) needs a fact of the last fill in the lend table.
 - A cancel during the checkout or the scan of a slot waits for that step to end, because the pool runs that git in
-  process. yonderd killed its `bd` child instead.
-- `--retire-yonderd` keeps `~/.config/yonderd` until the user agrees that it deletes it.
+  process.
 
 ## References
 
-- [Host Runs](../../docs/design/host-runs.md): why, the slot model, the processes, the upgrade, the migration.
+- [Host Runs](../../docs/design/host-runs.md): why, the slot model, the processes, the upgrade.
 - [bd lease](lease.spec.md): "Host slots", "Host objects", "Host runs".
 - [Git Operations](../../docs/design/git-operations.md): "Host slots".

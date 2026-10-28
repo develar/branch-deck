@@ -1,4 +1,4 @@
-use super::{ConfigError, EnvValue, ReadError, RepoConfig, Step, YONDER_FILE, is_inner_path, parse_branchdeck, parse_yonder, read_commit_config};
+use super::{ConfigError, EnvValue, ReadError, RepoConfig, Step, is_inner_path, parse_branchdeck, read_commit_config};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::convert::Infallible;
@@ -79,12 +79,13 @@ fn the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses() {
   }
 }
 
-/// The configuration of a commit with these two files, and the names of the files that the reader got
-fn read_files(branchdeck: Option<&str>, yonder: Option<&str>) -> (Result<RepoConfig, ConfigError>, Vec<String>) {
+/// The configuration of a commit whose `.branchdeck.toml` is `branchdeck`, and the names of the files that the reader
+/// got
+fn read_files(branchdeck: Option<&str>) -> (Result<RepoConfig, ConfigError>, Vec<String>) {
   let asked = RefCell::new(Vec::new());
   let config = read_commit_config(|file| {
     asked.borrow_mut().push(file.to_owned());
-    Ok::<_, Infallible>(if file == YONDER_FILE { yonder } else { branchdeck }.map(str::to_owned))
+    Ok::<_, Infallible>(branchdeck.map(str::to_owned))
   })
   .map_err(|error| match error {
     ReadError::Config(error) => error,
@@ -93,52 +94,34 @@ fn read_files(branchdeck: Option<&str>, yonder: Option<&str>) -> (Result<RepoCon
   (config, asked.into_inner())
 }
 
-fn resolve(branchdeck: Option<&str>, yonder: Option<&str>) -> Result<RepoConfig, ConfigError> {
-  read_files(branchdeck, yonder).0
-}
-
 #[test]
-fn a_commit_with_the_host_table_never_reads_its_yonder_toml() {
-  assert_eq!(read_files(Some(EXAMPLE), Some("not toml")).1, [".branchdeck.toml"]);
-  assert_eq!(read_files(Some("[lease]\n"), None).1, [".branchdeck.toml", ".yonder.toml"]);
-}
-
-#[test]
-fn a_commit_without_the_host_table_gets_its_yonder_toml() {
-  let yonder = "outputs = [\"out\"]\n";
-  let from_yonder = RepoConfig {
-    outputs: vec!["out".to_owned()],
-    ..RepoConfig::default()
-  };
-  assert_eq!(resolve(Some(EXAMPLE), Some(yonder)).expect("the host table wins"), example());
-  assert_eq!(resolve(Some("[lease]\n"), Some(yonder)).expect("no host table"), from_yonder);
-  assert_eq!(resolve(None, Some(yonder)).expect("no .branchdeck.toml"), from_yonder);
-  assert_eq!(resolve(None, None).expect("no file"), RepoConfig::default());
-  assert_eq!(resolve(Some(EXAMPLE), Some("not toml")).expect("an unread .yonder.toml"), example());
-  let refused = resolve(Some("[lease]\n"), Some("[[prepar]]\n")).expect_err("a typo in .yonder.toml");
-  assert!(refused.to_string().starts_with(".yonder.toml: "), "{refused}");
+fn a_commit_gets_the_host_table_of_its_branchdeck_toml_else_the_default() {
+  assert_eq!(read_files(Some(EXAMPLE)), (Ok(example()), vec![".branchdeck.toml".to_owned()]));
+  assert_eq!(read_files(Some("[lease]\n")).0, Ok(RepoConfig::default()), "no host table");
+  assert_eq!(read_files(None).0, Ok(RepoConfig::default()), "no .branchdeck.toml");
+  let refused = read_files(Some("[[host.prepar]]\n")).0.expect_err("a typo in the host table");
+  assert!(refused.to_string().starts_with(".branchdeck.toml [host]: "), "{refused}");
 }
 
 #[test]
 fn a_typo_or_a_bad_value_is_an_error_that_names_the_file() {
   for (text, said) in [
-    ("[[prepar]]\nrun = [\"true\"]\n", "unknown field `prepar`"),
-    ("[[prepare]]\nrun = [\"true\"]\ninput = [\"a\"]\n", "unknown field `input`"),
-    ("[[prepare]]\nrun = []\n", "no command"),
-    ("outputs = [\"../up\"]\n", "not a path inside the slot"),
-    ("outputs = [\"/abs\"]\n", "not a path inside the slot"),
-    ("[[prepare]]\nrun = [\"true\"]\ncreates = [\"a/../../b\"]\n", "not a path inside the slot"),
-    ("[env]\nA = 1\n", "env.A is a integer"),
-    ("[env]\nA = { port = 1, unset = true }\n", "env.A takes one of"),
-    ("[env]\nA = { unset = false }\n", "env.A takes one of"),
-    ("[env]\nA = { prepand = [\"x\"] }\n", "unknown field `prepand`"),
-    ("[env]\nA = { port = 70000 }\n", "env.A"),
-    ("outputs = \"out\"\n", "invalid type"),
-    ("not toml", "key"),
+    ("[[host.prepar]]\nrun = [\"true\"]\n", "unknown field `prepar`"),
+    ("[[host.prepare]]\nrun = [\"true\"]\ninput = [\"a\"]\n", "unknown field `input`"),
+    ("[[host.prepare]]\nrun = []\n", "no command"),
+    ("[host]\noutputs = [\"../up\"]\n", "not a path inside the slot"),
+    ("[host]\noutputs = [\"/abs\"]\n", "not a path inside the slot"),
+    ("[[host.prepare]]\nrun = [\"true\"]\ncreates = [\"a/../../b\"]\n", "not a path inside the slot"),
+    ("[host.env]\nA = 1\n", "env.A is a integer"),
+    ("[host.env]\nA = { port = 1, unset = true }\n", "env.A takes one of"),
+    ("[host.env]\nA = { unset = false }\n", "env.A takes one of"),
+    ("[host.env]\nA = { prepand = [\"x\"] }\n", "unknown field `prepand`"),
+    ("[host.env]\nA = { port = 70000 }\n", "env.A"),
+    ("[host]\noutputs = \"out\"\n", "invalid type"),
   ] {
-    let message = parse_yonder(text).expect_err(text).to_string();
+    let message = parse_branchdeck(text).expect_err(text).to_string();
     assert!(message.contains(said), "{text}: {message}");
-    assert!(message.starts_with(".yonder.toml: "), "{message}");
+    assert!(message.starts_with(".branchdeck.toml [host]: "), "{message}");
   }
 }
 
@@ -152,11 +135,11 @@ fn an_inner_path_stays_inside_its_base() {
   assert!(!is_inner_path("./out"));
 }
 
-/// The `[host]` of this repository parses, and it says what its `.yonder.toml` says while yonderd still reads that file
+/// The `[host]` of this repository parses, and it names the outputs and the prepare steps of its runs
 #[test]
-fn the_host_table_of_this_repository_is_its_yonder_toml() {
+fn the_host_table_of_this_repository_parses() {
   let host = parse_branchdeck(include_str!("../../../.branchdeck.toml"))
     .expect("the .branchdeck.toml of the repository")
     .expect("a [host] table");
-  assert_eq!(host, parse_yonder(include_str!("../../../.yonder.toml")).expect("the .yonder.toml of the repository"));
+  assert!(!host.outputs.is_empty() && !host.prepare.is_empty(), "{host:?}");
 }

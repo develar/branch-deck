@@ -2,7 +2,7 @@
 //!
 //! One client per line: the fingerprint, then a space and a name for a person. A line that starts with `#` and an
 //! empty line are skipped. The agent reads the file at each handshake, so `bd-host setup --agent` adds a client without
-//! a restart. The file of yonderd has the same lines, so `setup --import-yonder` adds its clients
+//! a restart
 
 use crate::identity::{Fingerprint, create_private_dir};
 use std::collections::BTreeMap;
@@ -55,16 +55,6 @@ impl AllowList {
   pub fn add(&mut self, fingerprint: Fingerprint, name: &str) -> io::Result<bool> {
     check_name(name)?;
     Ok(self.clients.insert(fingerprint, name.to_owned()).as_deref() != Some(name))
-  }
-
-  /// Adds each client of `other` that this list does not name, such as the clients of yonderd. A client of this list
-  /// keeps its name. Answers the count of the added clients
-  pub fn extend_from(&mut self, other: &Self) -> usize {
-    let before = self.clients.len();
-    for (fingerprint, name) in &other.clients {
-      self.clients.entry(*fingerprint).or_insert_with(|| name.clone());
-    }
-    self.clients.len() - before
   }
 
   /// The text of the file, one client per line in fingerprint order

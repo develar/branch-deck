@@ -53,15 +53,3 @@ fn a_name_with_a_control_character_is_refused() {
   assert_eq!(list, AllowList::default());
   assert!(list.add(client, "laptop of a person").expect("a name with spaces"));
 }
-
-/// `setup --import-yonder`: the clients of yonderd join the list, and a client of bd-host keeps its name
-#[test]
-fn the_clients_of_another_list_join_and_a_known_client_keeps_its_name() {
-  let known = fingerprint(b"known");
-  let new = fingerprint(b"new");
-  let mut list = AllowList::parse(&format!("{known} laptop\n")).expect("parsed");
-  let yonderd = AllowList::parse(&format!("{known} old name\n{new} mini\n")).expect("parsed");
-  assert_eq!(list.extend_from(&yonderd), 1);
-  assert_eq!((list.name(&known), list.name(&new)), (Some("laptop"), Some("mini")));
-  assert_eq!(list.extend_from(&yonderd), 0);
-}

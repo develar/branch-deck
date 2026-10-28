@@ -1,4 +1,4 @@
-use super::{CERT_FILE, Fingerprint, Identity, Imported, KEY_FILE};
+use super::{CERT_FILE, Fingerprint, Identity, KEY_FILE};
 use pretty_assertions::assert_eq;
 use std::fs;
 use std::thread;
@@ -59,24 +59,4 @@ fn an_identity_is_created_once_and_loaded_after() {
     assert_eq!(mode(&dir), 0o700);
     assert_eq!(mode(dir.parent().expect("a parent")), 0o700);
   }
-}
-
-/// `setup --import-yonder`: the identity of yonder comes as it is, and an identity of bd-host stays
-#[test]
-fn an_import_copies_the_identity_of_yonder_once_and_keeps_another_one() {
-  let home = tempfile::tempdir().expect("a temporary directory");
-  let yonder = home.path().join(".config/yonder");
-  let bd_host = home.path().join(".config/bd-host");
-  assert_eq!(Identity::import(&yonder, &bd_host).expect("no yonder"), Imported::Missing);
-  assert!(!bd_host.exists(), "an import without a source writes nothing");
-
-  let source = Identity::load_or_create(&yonder).expect("the identity of yonder");
-  assert_eq!(Identity::import(&yonder, &bd_host).expect("copied"), Imported::Copied);
-  assert_eq!(Identity::load(&bd_host).expect("the copy"), source);
-  assert_eq!(Identity::import(&yonder, &bd_host).expect("again"), Imported::Same);
-
-  let other = home.path().join("other");
-  let own = Identity::load_or_create(&other).expect("an identity of bd-host");
-  assert_eq!(Identity::import(&yonder, &other).expect("kept"), Imported::Kept);
-  assert_eq!(Identity::load(&other).expect("the own identity"), own);
 }

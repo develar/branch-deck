@@ -177,7 +177,7 @@ struct SlotsArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(group = clap::ArgGroup::new("mode").required(true).args(["alias", "agent", "import_yonder", "retire_yonderd"]))]
+#[command(group = clap::ArgGroup::new("mode").required(true).args(["alias", "agent"]))]
 struct SetupArgs {
   /// The ssh alias of the host: copy this binary there, run `bd-host setup --agent` there, and write the host file
   alias: Option<String>,
@@ -198,12 +198,6 @@ struct SetupArgs {
   /// The binary for the host (default: this executable)
   #[arg(long)]
   binary: Option<PathBuf>,
-  /// Take the identities, the host files and the allow list of yonder on this machine, and write the `LaunchAgent`
-  #[arg(long)]
-  import_yonder: bool,
-  /// Wait until no yonderd run goes on, boot out yonderd, and delete its refs and its cache
-  #[arg(long)]
-  retire_yonderd: bool,
   /// The launchctl program; a test gives a fake one
   #[arg(long, default_value = "launchctl", hide = true)]
   launchctl: PathBuf,
@@ -657,41 +651,29 @@ fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   agent_setup(args, out)
 }
 
-/// `setup --agent`, `--import-yonder` and `--retire-yonderd`, on the host itself
+/// `setup --agent`, on the host itself
 #[cfg(unix)]
 fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   use host_agent::home::Home;
-  use host_agent::setup::{Import, LISTEN_WAIT, Setup, import_yonder, retire_yonderd, setup_agent};
+  use host_agent::setup::{LISTEN_WAIT, Setup, setup_agent};
   let home = Home::from_env()?;
   let mut stdout = Vec::new();
   let path = std::env::var("PATH").unwrap_or_default();
   // the `LaunchAgent` runs `~/.local/bin/bd-host`, a copy of this executable when it is missing
   let exe = this_exe()?;
-  if args.retire_yonderd {
-    retire_yonderd(&home, &args.launchctl, &mut stdout)?;
-  } else if args.import_yonder {
-    let import = Import {
-      exe: &exe,
-      launchctl: &args.launchctl,
-      path: &path,
-      listen_wait: LISTEN_WAIT,
-    };
-    import_yonder(&home, &import, &mut stdout)?;
-  } else {
-    let (Some(client), Some(name)) = (args.client, args.name.as_deref()) else {
-      return Err(Refusal::new(Code::Usage, "setup --agent needs --client and --name"));
-    };
-    let setup = Setup {
-      client,
-      name,
-      port: args.port,
-      exe: &exe,
-      launchctl: &args.launchctl,
-      path: &path,
-      listen_wait: LISTEN_WAIT,
-    };
-    setup_agent(&home, &setup, &mut stdout)?;
-  }
+  let (Some(client), Some(name)) = (args.client, args.name.as_deref()) else {
+    return Err(Refusal::new(Code::Usage, "setup --agent needs --client and --name"));
+  };
+  let setup = Setup {
+    client,
+    name,
+    port: args.port,
+    exe: &exe,
+    launchctl: &args.launchctl,
+    path: &path,
+    listen_wait: LISTEN_WAIT,
+  };
+  setup_agent(&home, &setup, &mut stdout)?;
   out.line(String::from_utf8_lossy(&stdout).trim_end());
   Ok(0)
 }

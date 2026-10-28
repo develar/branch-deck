@@ -115,13 +115,12 @@ pub enum Code {
   AgentFailed,
   SshFailed,
   LaunchdFailed,
-  NoYonder,
   SkillEdited,
 }
 
 impl Code {
   /// Every code, in the order of the table of the spec
-  pub const ALL: [Self; 40] = [
+  pub const ALL: [Self; 39] = [
     Self::Usage,
     Self::Interrupted,
     Self::Config,
@@ -160,7 +159,6 @@ impl Code {
     Self::AgentFailed,
     Self::SshFailed,
     Self::LaunchdFailed,
-    Self::NoYonder,
     Self::SkillEdited,
   ];
 
@@ -250,7 +248,7 @@ impl Code {
       Self::BadConfig => (
         "bad_config",
         ExitRule::Always(Exit::NotRun),
-        "`[host]` of `.branchdeck.toml` (or `.yonder.toml`) of the commit does not parse, has an unknown key or a value of the wrong shape.",
+        "`[host]` of `.branchdeck.toml` of the commit does not parse, has an unknown key or a value of the wrong shape.",
       ),
       Self::PrepareFailed => ("prepare_failed", ExitRule::Always(Exit::NotRun), "A prepare step exited with another code than 0."),
       Self::SpawnFailed => ("spawn_failed", ExitRule::Always(Exit::NotRun), "The command cannot start."),
@@ -305,7 +303,6 @@ impl Code {
         "An ssh call of `setup <alias>` failed or ran past its deadline.",
       ),
       Self::LaunchdFailed => ("launchd_failed", ExitRule::Always(Exit::Refused), "A `launchctl` call of `setup` failed."),
-      Self::NoYonder => ("no_yonder", ExitRule::Always(Exit::Refused), "`setup --import-yonder` found no file of yonder or yonderd."),
       Self::SkillEdited => (
         "skill_edited",
         ExitRule::Always(Exit::Refused),

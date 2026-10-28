@@ -20,7 +20,7 @@ serde_json.workspace = true
 schemars.workspace = true
 # the errors of the link, of `[host]` and the refusals (`channel`, `config`, `refusal`)
 thiserror.workspace = true
-# `[host]` of `.branchdeck.toml` and `.yonder.toml` (`config`)
+# `[host]` of `.branchdeck.toml` (`config`)
 toml = "1.1"
 # the rule of a run id and a base name, the renames and removals that wait out a holder on Windows, the 0600 files and
 # the start of `nc` without a console window

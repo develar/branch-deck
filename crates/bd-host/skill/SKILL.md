@@ -131,7 +131,8 @@ Only the user moves the host, such as with `bt --host <host> --prepare` in the I
 ## `[host]` of `.branchdeck.toml`
 
 A repository asks the host for more with the table `[host]` of `.branchdeck.toml` in its root. A commit without that
-table gets its `.yonder.toml`. The host reads the file from the commit of the run. An unknown key or a value of the
+table has no prepare steps, no environment of its own and no outputs. The host reads the file from the commit of the
+run. An unknown key or a value of the
 wrong shape ends the run with `bad_config` before the command. A step that fails ends it with `prepare_failed`.
 
 ```toml
