@@ -129,7 +129,7 @@ pub enum BranchError {
 }
 
 /// A branch an unapply kept: its commits are not in HEAD, it lands nothing until it is reapplied
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct UnappliedBranchInfo {
@@ -385,7 +385,7 @@ pub struct GroupedBranchInfo {
 }
 
 /// What groups the commits of a branch
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum BranchOrigin {
   /// An explicit `(name)` subject prefix

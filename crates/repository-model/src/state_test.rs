@@ -1,11 +1,13 @@
 use crate::facts::FactStore;
-use crate::patch::{PatchRejected, apply_patch};
-use crate::state::{View, new_epoch};
+use crate::patch::{PatchRejected, apply_patch, diff_views};
+use crate::state::{Joined, View, new_epoch};
 use crate::table::table_test::{grouped, grouping, remote_status, run_sync, sync_events};
 use crate::table::{OperationPatch, TableState};
+use crate::warm_start::frame_of;
+use crate::warm_start::warm_start_test::{answered_facts, key, synced_state};
 use domain_types::landing::Subject;
 use domain_types::operation::{Intent, OperationId, OperationStep, Origin, Resource, RunningOperation};
-use domain_types::session::{BranchChange, BranchRemote, RepositoryView, SyncState, SyncStep, TableChanges, Version, ViewPatch};
+use domain_types::session::{BranchChange, BranchRemote, FactState, RepositoryView, SyncState, SyncStep, TableChanges, Version, ViewPatch};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -313,4 +315,62 @@ async fn a_branch_moved_by_another_process_asks_for_a_retry() {
   assert!(!retried.retry);
   run_sync(&mut state, events.get_events());
   assert_eq!(state.branch("auth").unwrap().sync.status, domain_types::session::BranchStatus::Updated);
+}
+
+/// The view of a seeded session is what the rules derive of the frame, `cached`, at the first version of its epoch; a
+/// window that holds it catches up by one patch to the view sent since, one that holds the current view gets nothing,
+/// any other the snapshot
+#[test]
+fn a_seeded_view_is_the_frame_at_the_first_version_and_a_window_that_holds_it_catches_up() {
+  let frame = frame_of(&key(), &synced_state(), &answered_facts());
+  let mut state = TableState::from_cached("user", frame.table);
+  let facts = FactStore::from_cached(frame.facts, "origin/master");
+  let mut view = View::seeded(5, &state, &facts);
+  let seed = view.snapshot();
+  assert_eq!(seed.version, Version { epoch: 5, seq: 0 });
+  assert!(seed.cached);
+  assert_eq!(seed.order, ["auth", "ui"]);
+  assert_eq!(seed.facts.robots.head.state, FactState::Cached);
+  assert_eq!(view.join(Some(seed.version)), Joined::Holds);
+
+  run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Updated));
+  view.diff(&state, &facts).unwrap();
+  state.apply(SyncEvent::RemoteStatusUpdate(remote_status("ui", &["copy-u1"])));
+  view.diff(&state, &facts).unwrap();
+  let Joined::CatchUp(catch_up) = view.join(Some(seed.version)) else {
+    panic!("a window that holds the seed catches up");
+  };
+  assert_eq!((catch_up.base, catch_up.next), (seed.version, Version { epoch: 5, seq: 2 }));
+  assert_eq!(catch_up.changes.cached, Some(false));
+  let mut window = seed;
+  apply_patch(&mut window, *catch_up).unwrap();
+  assert_eq!(window, view.snapshot());
+  assert_eq!(view.join(Some(view.version())), Joined::Holds);
+  assert_eq!(view.join(Some(Version { epoch: 4, seq: 0 })), Joined::Snapshot(Box::new(view.snapshot())));
+  assert_eq!(view.join(None), Joined::Snapshot(Box::new(view.snapshot())));
+}
+
+/// The patch between two views of a session brings the one to the other, the parts that went included; the views
+/// alike patch nothing
+#[test]
+fn the_patch_between_two_views_brings_the_one_to_the_other() {
+  let mut state = TableState::with_prefix("user");
+  let mut view = View::new(3);
+  run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
+  state.apply_operation(OperationPatch::Admitted(operation("push-ui", 1)));
+  view.diff(&state, &FactStore::new()).unwrap();
+  let from = view.snapshot();
+
+  run_sync(&mut state, vec![grouping(vec![grouped("ui", &["u2", "u1"])])]);
+  state.apply_operation(OperationPatch::Ended(OperationId("push-ui".to_owned())));
+  state.apply_operation(OperationPatch::Admitted(operation("push-auth", 2)));
+  view.diff(&state, &answered_facts()).unwrap();
+  let to = view.snapshot();
+  let patch = diff_views(&from, &to);
+  assert_eq!((patch.base, patch.next), (from.version, to.version));
+  assert_eq!(patch.changes.removed_branches, ["auth"]);
+  let mut window = from;
+  apply_patch(&mut window, patch).unwrap();
+  assert_eq!(window, to);
+  assert!(diff_views(&to, &to).changes.is_empty());
 }

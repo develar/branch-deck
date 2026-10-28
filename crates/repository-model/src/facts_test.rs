@@ -7,6 +7,7 @@ use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
 use crate::table::table_test::{grouped, grouping, remote_at, run_sync, sync_events};
 use crate::table::{RemoteSubject, TableState};
+use crate::warm_start::warm_start_test::answered_facts;
 use domain_policy::refresh::{FactTiming, ReadState};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{pull_request, robot};
@@ -17,7 +18,8 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestsResult};
 use domain_types::repository_view::{BranchPatronus, LandedByView, LandingNeeds, PatronusView, RobotLandedBranch};
-use domain_types::session::{FactState, NewsEvent, RobotsHead};
+use domain_types::review_request::ReviewRequestsResult;
+use domain_types::session::{Fact, FactState, NewsEvent, RobotsHead};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashSet};
@@ -198,10 +200,11 @@ fn a_list_started_before_a_write_or_a_poll_never_rolls_their_robot_back() {
 #[test]
 fn a_robot_of_the_cached_frame_that_the_first_fresh_answer_shows_finished_is_no_news() {
   let running = |id: &str| robot(id, Some(id), PatronusRobotStatus::Running, 10);
-  let mut fact = RobotsFact::default();
-  fact.answer(at(1, 0, 1), FULL_LIST, listed(vec![running("auth"), running("ui")]), &mut Vec::new());
-  // as the frame seeds them: the robots of an earlier run, which no observation of this process answered
-  fact.view.head.state = FactState::Cached;
+  let mut listed_before = RobotsFact::default();
+  listed_before.answer(at(1, 0, 1), FULL_LIST, listed(vec![running("auth"), running("ui")]), &mut Vec::new());
+  // the robots of an earlier run, which no observation of this process answered
+  let mut fact = RobotsFact::cached(listed_before.view().clone());
+  assert_eq!(fact.view().head.state, FactState::Cached);
   let mut finished = Vec::new();
   let failed = |id: &str| robot(id, Some(id), PatronusRobotStatus::Failure, 10);
   fact.answer(at(2, 0, 2), FULL_LIST, listed(vec![failed("auth"), running("ui")]), &mut finished);
@@ -692,4 +695,61 @@ fn the_details_of_a_demanded_robot_name_its_profile_and_go_with_its_demand() {
   assert!(facts.robot_details.is_empty());
   assert!(!facts.apply(at(4, 0, 4), answer(Ok(details))), "an answer of a robot no window demands is dropped");
   assert!(facts.robot_details.is_empty());
+}
+
+/// The facts of a frame seed `Cached` with their values, and the first read of this process decides them: an answer
+/// replaces each as any answer does, a failure leaves what a failure without an answer leaves (`Unavailable`, nothing
+/// shown), because no observation of this process stands behind the frame; a fact the frame had no answer of seeds none
+#[test]
+fn the_facts_of_a_frame_seed_cached_and_a_failure_of_their_first_read_leaves_none() {
+  let mut seeded = FactStore::from_cached(answered_facts().frame(), "origin/master");
+  assert_eq!(seeded.robots.view().head.state, FactState::Cached);
+  assert_eq!(ids(&seeded.robots), ["r1"]);
+  let pull_requests = seeded.pull_requests.view();
+  assert_eq!(
+    (&pull_requests.head.state, pull_requests.pull_requests.keys().map(String::as_str).collect::<Vec<_>>()),
+    (&FactState::Cached, vec!["ui"])
+  );
+  let requests = seeded.review_requests.view();
+  assert_eq!((&requests.head.state, requests.requests.len()), (&FactState::Cached, 1));
+  assert_eq!((&seeded.auth.fact().state, &seeded.profiles.fact().state), (&FactState::Loading, &FactState::Unknown));
+
+  let not_logged_in = PatronusRobotsResult {
+    availability: PatronusAvailability::NotLoggedIn,
+    robots: Vec::new(),
+    github_repository: None,
+  };
+  seeded.apply(
+    at(1, 0, 1),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: not_logged_in,
+    },
+  );
+  assert!(matches!(seeded.robots.view().head.state, FactState::Unavailable { .. }));
+  assert_eq!(ids(&seeded.robots), Vec::<&str>::new());
+  let failed = PullRequestAvailability::Error {
+    message: "GitHub did not answer".to_owned(),
+  };
+  seeded.apply(at(2, 0, 2), FactResult::PullRequests(PullRequestsResult::unavailable(failed.clone())));
+  let pull_requests = seeded.pull_requests.view();
+  assert!(matches!(pull_requests.head.state, FactState::Unavailable { .. }));
+  assert_eq!(pull_requests.pull_requests, BTreeMap::new());
+  seeded.apply(at(3, 0, 3), FactResult::ReviewRequests(ReviewRequestsResult::unavailable(failed)));
+  let requests = seeded.review_requests.view();
+  assert!(matches!(requests.head.state, FactState::Unavailable { .. }));
+  assert_eq!(requests.requests, Vec::new());
+
+  let answered = Fact {
+    value: Some(1),
+    state: FactState::Fresh,
+    ..Fact::default()
+  };
+  let mut rules = FactRecord::cached(answered.clone(), 0).unwrap();
+  rules.answer(at(4, 0, 4), Err(failure()));
+  assert_eq!((rules.value(), &rules.fact().state), (None, &FactState::Unavailable { reason: failure() }));
+  let mut auth = FactRecord::cached(answered, 0).unwrap();
+  auth.answer(at(5, 0, 5), Ok(2));
+  assert_eq!((auth.value(), &auth.fact().state), (Some(&2), &FactState::Fresh));
+  assert!(FactRecord::cached(Fact::<u32>::default(), 0).is_none(), "a fact without an answer seeds none");
 }

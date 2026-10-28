@@ -556,3 +556,29 @@ fn a_deleted_archived_or_unapplied_branch_stays_deleted_by_the_sync_that_listed_
   state.finish_sync(Err(ApiError::new(ErrorCode::Internal, "the sync failed")));
   assert_eq!(names(&state), (Vec::new(), 0, vec!["api".to_string()]), "restored without them");
 }
+
+/// A table seeded from a frame is the table the frame was saved of, `cached` until a sync of this process commits: the
+/// structure of each row derived again, the commits indexed so the events of the first sync land in their rows, which
+/// a quiet resync keeps as they were
+#[test]
+fn a_table_seeded_from_a_frame_is_cached_until_a_sync_commits() {
+  let state = crate::warm_start::warm_start_test::synced_state();
+  let frame = state.committed_frame();
+  let mut seeded = TableState::from_cached("user", frame.clone());
+  assert!(seeded.cached());
+  assert_eq!(seeded.committed_frame(), frame);
+  assert_eq!(seeded.header().prefix, "user");
+
+  seeded.begin_sync();
+  for event in sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created) {
+    seeded.apply(event);
+  }
+  assert!(seeded.cached(), "a sync that runs commits nothing yet");
+  seeded.finish_sync(Err(ApiError::new(ErrorCode::Internal, "the sync failed")));
+  assert!(seeded.cached(), "a failed sync restores the frame, cached still");
+  assert_eq!(seeded.committed_frame(), frame);
+
+  run_sync(&mut seeded, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
+  assert!(!seeded.cached());
+  assert_eq!(seeded.branch("auth"), state.branch("auth"), "a quiet resync keeps the row");
+}

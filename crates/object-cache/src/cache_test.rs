@@ -718,6 +718,23 @@ fn stack_builds_are_read_by_their_version() {
   assert_eq!(cache.get_stack_builds::<String>(2, &[[2; 32]]), [Some(tip)]);
 }
 
+/// The frame of a worktree's session is read by the schema that saved it, one per worktree: the next save replaces it,
+/// and the first save of another schema clears the frames of the old one
+#[test_log::test]
+fn session_frames_are_read_by_their_schema_and_replaced_by_the_next_save() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  cache.put_session_frame(1, &[1; 32], "{\"seq\":1}");
+  cache.put_session_frame(1, &[1; 32], "{\"seq\":2}");
+  cache.put_session_frame(1, &[2; 32], "{\"seq\":3}");
+  assert_eq!(cache.get_session_frame(1, &[1; 32]).as_deref(), Some("{\"seq\":2}"), "the last save of the worktree");
+  assert_eq!(cache.get_session_frame(2, &[1; 32]), None, "a frame of another schema is never read");
+
+  cache.put_session_frame(2, &[2; 32], "{\"seq\":4}");
+  assert_eq!(cache.get_session_frame(1, &[2; 32]), None);
+  assert_eq!(cache.get_session_frame(2, &[2; 32]).as_deref(), Some("{\"seq\":4}"));
+}
+
 /// An environment that cannot be opened misses only its stores: one failure disabled the whole cache, and a semaphore
 /// set another process removed under `merges/` left a repository without any
 #[test_log::test]

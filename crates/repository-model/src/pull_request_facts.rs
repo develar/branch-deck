@@ -13,8 +13,8 @@
 //! - A pull request the app created stays until the search lists it, at most `CREATED_KEEP` on the session clock:
 //!   GitHub's search lists a new pull request only after a while.
 
-use crate::facts::Observation;
 use crate::facts::Seq;
+use crate::facts::{Observation, seed_head};
 use domain_policy::pull_request::base_of;
 use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_namespace};
 use domain_types::error::{ApiError, ErrorCode};
@@ -280,6 +280,12 @@ impl PullRequestsFact {
       })
       .collect();
     bases.into_iter().map(str::to_owned).collect()
+  }
+
+  /// The pull requests of the frame of an earlier run (`crate::warm_start`): `Cached` until GitHub lists them, and no
+  /// listing stands meanwhile, so a failure of that listing leaves none of them; none when the frame had no listing
+  pub(crate) fn cached(mut view: PullRequestsView) -> Self {
+    if seed_head(&mut view.head) { Self { view, ..Self::default() } } else { Self::default() }
   }
 }
 

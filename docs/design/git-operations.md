@@ -4143,6 +4143,42 @@ names another epoch than its view's and `get_snapshot` finds no view of the view
 checks, the timing of the patches (on a paused clock), the prefix check, two worktrees and the life;
 `sync_scheduler_test.rs` the schedule.
 
+The frame of a session (`warm_start.rs`, s13-warm-start): what a later start shows before its first sync. A frame
+(`CachedSession`) is the key of the session, the parts of its table as the last sync committed them (the header with
+the prefix, the order, the rows, the stack branches, the sections; while a sync runs, the table it started from) and
+the facts of the remote services as the view has them (the robots, the Patronus view with its landing needs, the pull
+requests, the rules, the merge profiles of the table's baseline, the readiness, the review requests, the sign-ins);
+the parts the rules decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need
+the user) are not kept but derived again from the frame by the binary that reads it, and the details of the robots go
+with the demand of a window. It lives in the object cache of the repository, store `session_frame`: one frame per
+worktree, keyed by the hash of its path under the version of the schema (`FRAME_SCHEMA`), as JSON (the parts of a view
+are tagged by a field, which postcard can't read back), so the start reads it without a git process and a frame of
+another schema is never read. The host reads it when the session opens (`SessionHost::frame`; the app's through
+`SessionEnvironment::frame_cache`, a disabled cache until the hosts keep frames), and the session seeds from it only
+under the same key and schema (`CachedSession::seeds`): the table is `cached` (`RepositoryView.cached`) until a sync of
+this process commits, the structure of each row and the order of the stack branches derived again; each fact of the
+frame that stood is `Cached` until an answer of this process, and a failure of that first read leaves what a failure
+without an answer leaves (`Unavailable`, the value gone: the robots, the pull requests and the review requests of the
+frame go with it), since no observation of this process stands behind it. The robots of a frame derive no Patronus
+view (the frame's stands until Patronus answers) and ask no readiness. The view of a seeded session is what the rules
+derive of the frame at the first version of its epoch (`View::seeded`), its seed: a window that holds it subscribes
+with that version (`Sessions::subscribe_from`, `have`) and catches up by one patch (`Joined::CatchUp`,
+`patch::diff_views`, which brings the view at its base to the view at its `next`: a patch applies to the view at its
+base and brings it to a newer version, the next one live, a later one in a catch-up), a window that holds the view
+of the last patch gets nothing more (`Joined::Holds`), any other the snapshot; `Sessions::subscribe`, which the hosts
+call until they pass what their window holds, is the subscription of a window that holds nothing. A worktree synced
+before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the app's writer keeps) syncs when its
+session opens (`Open`, with or without a window), so the first sync of the start runs while the window loads; a window
+that opens or gains the focus during it is served by it or checks once after it. The actor saves the frame on the
+blocking pool, one save at a time and the newest next: at once after a sync committed the table, at most every
+`FRAME_INTERVAL` (5 s on the session clock) after a patch of the facts (the last change waits for it), and when the
+session is swept or closed (`Message::Close`) or the registry goes with what changed since; a session whose run found
+that the git config names the branches by another prefix saves no more (the worktree's frame is the other session's
+then). `warm_start_test.rs` pins the encoding and the key, `table_test.rs` and `facts_test.rs` the seed, `state_test.rs`
+the seeded view, the catch-up and `diff_views`, `session_test.rs` the seed of a session, its first sync (a patch of what
+differs only, one run with a focus during it), a frame of another prefix or schema and the saves,
+`sync_scheduler_test.rs` the open and the focus as one run, `cache_test.rs` the store.
+
 The hosts: the commands of the sessions are app-api's (`crates/app-api/src/session/`), which the app and the E2E server
 both run; the frame of each (`session` of `registry.rs`) resolves the session key from the repository path with the
 prefix the commands resolve (`AppContext::session_key`, `PrefixInputs`, refused as `no_branch_prefix` without one)

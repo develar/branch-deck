@@ -4,7 +4,7 @@ use crate::branch_names::sanitize_branch_name;
 use serde::{Deserialize, Serialize};
 
 /// Why a branch of a stack can't be placed; it never fails the other branches
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum StackProblem {
   /// Commits declare different parents, in first-declared order
@@ -20,7 +20,7 @@ pub enum StackProblem {
 }
 
 /// What fixes a stack problem: `bd` prints it as a command, the app offers it as the action of the branch menu
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum StackFix {
   /// Stack the branch on this parent (`bd restack <branch> <parent>`, Stack On ‹parent›)
@@ -35,7 +35,7 @@ pub enum StackFix {
 
 /// A stack problem as the row, the menu and `bd` say it: one rule (`history_rewrite::stack::problem_view`), so the app
 /// shows what Rust decides and `bd` prints the same fixes as commands
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackProblemView {
@@ -54,7 +54,7 @@ pub struct StackProblemView {
 }
 
 /// A parent and the commits that declare it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct DeclaredParent {
@@ -63,7 +63,7 @@ pub struct DeclaredParent {
 }
 
 /// The state of a declared parent; a label only: a parent without commits, whatever its state, doesn't block its children
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum ParentState {
   /// The parent has commits
@@ -77,7 +77,7 @@ pub enum ParentState {
 }
 
 /// Where the declared parent of a branch comes from
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum ParentSource {
   /// The prefixes of its commits declare it (`(parent/name)`)
@@ -100,7 +100,7 @@ pub enum BlockReason {
   Blocked,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackBlock {
@@ -109,7 +109,7 @@ pub struct StackBlock {
 }
 
 /// Where a virtual branch sits in its stack; sent only with stacked branches on
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchStack {

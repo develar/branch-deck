@@ -30,8 +30,8 @@
 //!   (`MovedFetches`, one fetch per head they show) and the host's fetch of them (`fetch_asked`)
 //! - `one_shot`: the session of one command (`OneShot`, `bd`'s): the table of its own sync and the facts it reads for
 //!   one intent, in a `FactStore` as a session holds them, the Patronus view derived on the caller's thread
-//! - `patch`: the patches of a view by part, and the contract of applying one (`apply_patch`): only to the view at its
-//!   base, in the same epoch
+//! - `patch`: the patches of a view by part (`diff_views`, the one between two views: the catch-up of a window that
+//!   holds the seed), and the contract of applying one (`apply_patch`): only to the view at its base, in the same epoch
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
 //! - `pull_request_facts`: the pull requests of a session by branch and stack, as the listings and the app's writes
@@ -67,6 +67,8 @@
 //!   (`begin_push`, `end_push`), a deleted archived or unapplied branch; the operations of the remote that run or wait
 //!   (`operations`, `apply_operation`), which only `operations::registry` changes; `bd sync` folds its events into one
 //!   too and summarizes it
+//! - `warm_start`: the frame of a session (`CachedSession`: its key, the parts of its table, the values of its facts) in
+//!   the object cache, one per worktree, which a later start seeds the session from before its first sync
 
 pub mod action_view;
 pub mod branch_table;
@@ -89,3 +91,4 @@ pub mod session;
 pub mod state;
 pub mod sync_scheduler;
 pub mod table;
+pub mod warm_start;

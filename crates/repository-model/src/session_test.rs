@@ -1,13 +1,16 @@
 use crate::branch_table::BranchTable;
-use crate::facts::{BaselineRefusal, FactResult, Needs, PatronusOf, RobotsDigest, RobotsRead, derive_patronus};
+use crate::facts::{BaselineRefusal, FactResult, FactStore, Needs, PatronusOf, RobotsDigest, RobotsRead, derive_patronus};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::PullRequestWrite;
 use crate::readiness_facts::ReadinessAnswer;
-use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
+use crate::runtime::{FRAME_INTERVAL, GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
 use crate::session::{IDLE_LIMIT, OneClock, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
-use crate::table::RemoteSubject;
-use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
+use crate::state::{Joined, View};
+use crate::table::table_test::{branch_status, grouped, grouping, remote_at, run_sync, synced, unapplied};
+use crate::table::{RemoteSubject, TableState};
+use crate::warm_start::warm_start_test::answered_facts;
+use crate::warm_start::{CachedSession, FRAME_SCHEMA, frame_of};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{BaselinePush, LandedBy, LandingFix, LandingRefusal, StackCommit};
@@ -76,6 +79,12 @@ struct ScriptedHost {
   sent_at: Arc<Mutex<Vec<Instant>>>,
   /// The `keep` of each prune of the review refs, as it ran
   prunes: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u32>>>>,
+  /// The frame a session that opens reads, and whether its worktree was synced before
+  frame: Mutex<Option<CachedSession>>,
+  synced_before: Mutex<bool>,
+  /// The frames the sessions saved, in order, and a notice of each
+  saves: Mutex<Vec<CachedSession>>,
+  saved: Notify,
 }
 
 impl ScriptedHost {
@@ -124,6 +133,26 @@ impl ScriptedHost {
   fn runs(&self) -> u32 {
     *self.runs.lock().unwrap()
   }
+
+  /// A host whose worktree was synced before, with `frame`
+  fn with_frame(frame: Option<CachedSession>) -> Self {
+    let host = Self::default();
+    *host.frame.lock().unwrap() = frame;
+    *host.synced_before.lock().unwrap() = true;
+    host
+  }
+
+  /// The frames saved so far once there are `count`
+  async fn saved(&self, count: usize) -> Vec<CachedSession> {
+    loop {
+      let notified = self.saved.notified();
+      let saves = self.saves.lock().unwrap().clone();
+      if saves.len() >= count {
+        return saves;
+      }
+      notified.await;
+    }
+  }
 }
 
 impl SessionHost for ScriptedHost {
@@ -170,6 +199,19 @@ impl SessionHost for ScriptedHost {
     if let Some(prunes) = self.prunes.lock().unwrap().as_ref() {
       let _ = prunes.send(keep.to_vec());
     }
+  }
+
+  fn frame(&self, _key: &SessionKey) -> Option<CachedSession> {
+    self.frame.lock().unwrap().clone()
+  }
+
+  fn save_frame(&self, frame: &CachedSession) {
+    self.saves.lock().unwrap().push(frame.clone());
+    self.saved.notify_waiters();
+  }
+
+  fn synced_before(&self, _key: &SessionKey) -> bool {
+    *self.synced_before.lock().unwrap()
   }
 }
 
@@ -221,6 +263,18 @@ async fn outcome(ticket: SyncTicket) -> Result<SyncOutcome, ApiError> {
   ticket.wait().await.map(|answer| answer.outcome)
 }
 
+/// Sessions on `host`, whose next run builds `auth` once the gate opens, and a window on the session of `/repo` with the
+/// view it got
+async fn gated_window(host: &Arc<ScriptedHost>) -> (Sessions, SessionKey, Arc<Notify>, Window, RepositoryView) {
+  let gate = Arc::new(Notify::new());
+  host.push_gated(auth_built(), Ok(report(false, &[])), Some(Arc::clone(&gate)));
+  let (sessions, _clock) = scripted(host);
+  let key = key("/repo");
+  let window = Window::default();
+  let (_, view) = sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  (sessions, key, gate, window, view)
+}
+
 async fn snapshot(sessions: &Sessions, key: &SessionKey) -> RepositoryView {
   sessions.get_snapshot(key).await.unwrap()
 }
@@ -230,13 +284,8 @@ async fn snapshot(sessions: &Sessions, key: &SessionKey) -> RepositoryView {
 #[tokio::test]
 async fn a_ticket_resolves_when_its_run_ends_not_the_chain() {
   let host = Arc::new(ScriptedHost::default());
-  let gate = Arc::new(Notify::new());
   host.push(auth_built(), Ok(report(false, &[])));
-  host.push_gated(auth_built(), Ok(report(false, &[])), Some(Arc::clone(&gate)));
-  let (sessions, _clock) = scripted(&host);
-  let key = key("/repo");
-  let window = Window::default();
-  let (_, empty) = sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  let (sessions, key, gate, window, empty) = gated_window(&host).await;
 
   let first = sessions.sync(&key, SyncReason::Manual);
   let second = sessions.sync(&key, SyncReason::AfterRewrite);
@@ -1506,4 +1555,138 @@ async fn a_view_that_failed_is_derived_again_after_the_next_answer_of_patronus()
   let part = patronus_when(&sessions, &key, |part| part.landing_needs == FactState::Fresh).await;
   assert_eq!(part.state, FactState::Fresh);
   assert!(part.view.branches.contains_key("util"), "{part:?}");
+}
+
+/// The frame of `/repo` under the prefix of the tests: the table of a sync of `auth`, the facts Patronus and GitHub
+/// answered, through JSON as the object cache keeps it
+fn auth_frame() -> CachedSession {
+  let mut state = TableState::with_prefix("test");
+  run_sync(&mut state, auth_built());
+  let frame = frame_of(&key("/repo"), &state, &answered_facts());
+  serde_json::from_value(serde_json::to_value(frame).unwrap()).unwrap()
+}
+
+/// A session that opens with a frame of its key answers the frame at once, `cached`, with its facts `Cached`, and syncs
+/// by itself (the worktree was synced before): that first sync patches only what differs from the frame (no row of a
+/// quiet resync), and a focus during it runs no second one
+#[tokio::test]
+async fn a_seeded_session_answers_its_frame_cached_and_its_first_sync_patches_only_what_differs() {
+  let host = Arc::new(ScriptedHost::with_frame(Some(auth_frame())));
+  host.set_inputs(1);
+  let (sessions, key, gate, window, view) = gated_window(&host).await;
+  assert!(view.cached);
+  assert_eq!(view.branches["auth"].sync.status, BranchStatus::Created);
+  assert_eq!(view.facts.robots.head.state, FactState::Cached);
+  assert_eq!(view.sync, SyncState::Running { step: SyncStep::Grouping }, "its own sync runs");
+
+  let focus = sessions.set_window_focus(&key, true).unwrap();
+  let opened = sessions.sync(&key, SyncReason::Open);
+  gate.notify_one();
+  assert_eq!(outcome(opened).await, Ok(SyncOutcome::Synced));
+  assert_eq!(outcome(focus).await, Ok(SyncOutcome::Unchanged));
+  assert_eq!(host.runs(), 1, "the open and the focus are one run");
+
+  let patches = window.take();
+  assert!(patches.iter().all(|patch| patch.changes.branches.is_empty() && patch.changes.removed_branches.is_empty()));
+  let mut folded = view;
+  for patch in patches {
+    crate::patch::apply_patch(&mut folded, patch).unwrap();
+  }
+  let synced = snapshot(&sessions, &key).await;
+  assert_eq!(folded, synced);
+  assert!(!synced.cached);
+  assert_eq!(synced.facts.robots.head.state, FactState::Cached, "no answer of this process yet");
+}
+
+/// A window that holds the seed of a session (the start showed it the frame) catches up by one patch to the view the
+/// session sent since; one that holds the view of the last patch gets nothing more
+#[tokio::test]
+async fn a_window_that_holds_the_seed_catches_up_by_one_patch() {
+  let frame = auth_frame();
+  let host = Arc::new(ScriptedHost::with_frame(Some(frame.clone())));
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+  sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
+  let synced = snapshot(&sessions, &key).await;
+  let epoch = synced.version.epoch;
+
+  let state = TableState::from_cached("test", frame.table);
+  let facts = FactStore::from_cached(frame.facts, &state.header().baseline_branch);
+  let mut seed = View::seeded(epoch, &state, &facts).snapshot();
+  let have = Some(Version { epoch, seq: 0 });
+  let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), have).await.unwrap();
+  let Joined::CatchUp(catch_up) = joined else {
+    panic!("a window that holds the seed catches up, not {joined:?}");
+  };
+  assert_eq!((catch_up.base.seq, catch_up.next), (0, synced.version));
+  crate::patch::apply_patch(&mut seed, *catch_up).unwrap();
+  assert_eq!(seed, synced);
+  let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), Some(synced.version)).await.unwrap();
+  assert_eq!(joined, Joined::Holds);
+}
+
+/// A frame of another prefix of the worktree, or of another schema, seeds nothing: the session opens empty
+#[tokio::test]
+async fn a_frame_of_another_prefix_or_schema_seeds_nothing() {
+  let other_prefix = CachedSession {
+    key: SessionKey {
+      prefix: "other".to_string(),
+      ..key("/repo")
+    },
+    ..auth_frame()
+  };
+  let other_schema = CachedSession {
+    schema: FRAME_SCHEMA + 1,
+    ..auth_frame()
+  };
+  for frame in [other_prefix, other_schema] {
+    let host = Arc::new(ScriptedHost::with_frame(Some(frame)));
+    *host.synced_before.lock().unwrap() = false;
+    let (sessions, _clock) = scripted(&host);
+    let (_, view) = sessions.subscribe(&key("/repo"), Box::new(Window::default())).await.unwrap();
+    assert!(!view.cached);
+    assert_eq!(view.order, Vec::<String>::new());
+    assert_eq!(view.facts.robots.head.state, FactState::Loading);
+  }
+}
+
+fn robot_ids(frame: &CachedSession) -> Vec<&str> {
+  frame.facts.robots.robots.keys().map(String::as_str).collect()
+}
+
+/// Patronus answered the session of `key` with `robots`, and the session derived its view of them
+async fn robots_derived(sessions: &Sessions, key: &SessionKey, robots: Vec<PatronusRobot>) {
+  list_robots(sessions, key, robots).await;
+  patronus_when(sessions, key, |part| part.state == FactState::Fresh).await;
+}
+
+/// The frame is saved at once when a sync commits the table, at most every `FRAME_INTERVAL` of the session clock after
+/// a change of the facts (the last change waits for it), and when the session goes (swept) with what changed since
+#[tokio::test]
+async fn the_frame_is_saved_when_the_table_commits_after_the_facts_and_when_the_session_goes() {
+  let host = Arc::new(ScriptedHost::default());
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, clock) = scripted(&host);
+  let key = key("/repo");
+  let (id, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  assert_eq!(host.saves.lock().unwrap().len(), 0, "no table, no frame");
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  let saves = host.saved(1).await;
+  assert_eq!((saves[0].key.clone(), saves[0].table.order.clone()), (key.clone(), vec!["auth".to_string()]));
+
+  robots_derived(&sessions, &key, vec![robot("r1", Some("auth"), PatronusRobotStatus::Running, 10)]).await;
+  assert_eq!(host.saves.lock().unwrap().len(), 1, "a change of the facts within the interval waits");
+  clock.advance(FRAME_INTERVAL);
+  assert_eq!(robot_ids(&host.saved(2).await[1]), ["r1"]);
+
+  sessions.unsubscribe(id);
+  // the actor counted the window out before the time moves
+  snapshot(&sessions, &key).await;
+  clock.advance(IDLE_LIMIT);
+  robots_derived(&sessions, &key, vec![robot("r2", Some("auth"), PatronusRobotStatus::Running, 20)]).await;
+  assert_eq!(robot_ids(&host.saved(3).await[2]), ["r2"], "the interval passed: at once");
+  list_robots(&sessions, &key, vec![robot("r3", Some("auth"), PatronusRobotStatus::Running, 30)]).await;
+  assert_eq!(sessions.sweep(), std::slice::from_ref(&key));
+  assert_eq!(robot_ids(&host.saved(4).await[3]), ["r3"], "the change that waited goes with the session");
 }

@@ -11,7 +11,10 @@
 //! A fact without an answer (the rule of the app since 2026-10-24): `Loading` from the open of the session until the
 //! first answer; a failure is `Unavailable` with its reason, never an empty value; a failure after an answer is `Stale`
 //! with the answer kept; a value of other inputs than the ones the session expects now is `Stale` without a reason until
-//! an answer of those comes.
+//! an answer of those comes. A session seeded from the frame of an earlier run (`warm_start`) holds its values `Cached`
+//! (`FactStore::from_cached`) until an answer of this process: a value replaces it as any answer does, and a failure
+//! leaves what a failure without an answer leaves (`Unavailable`, the value gone), because no observation of this
+//! process stands behind it.
 //!
 //! `FactStore` holds the facts of a session: the branch table of its last successful sync (`table`, which the guards of
 //! the app's actions read through `Sessions::table`), the robots of Patronus (`robots`, a part of the view by id) and
@@ -67,6 +70,7 @@ use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_request_facts::ReviewRequestsFact;
 use crate::table::TableState;
+use crate::warm_start::CachedFacts;
 use domain_policy::holds::is_active;
 use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::news::{self, robot_finished};
@@ -153,6 +157,34 @@ impl<T> FactRecord<T> {
     Self::with_state(FactState::Unknown)
   }
 
+  /// The fact of the frame of an earlier run (`warm_start`), of `inputs`: its value `Cached` until an answer of this
+  /// process, with when it was observed then; `None` when it had no value that stood (`stood`)
+  #[must_use]
+  pub fn cached(fact: Fact<T>, inputs: u64) -> Option<Self> {
+    if !stood(&fact) {
+      return None;
+    }
+    Some(Self {
+      fact: Fact {
+        state: FactState::Cached,
+        seq: 0,
+        ..fact
+      },
+      inputs,
+      expected: inputs,
+      timing: FactTiming {
+        started_at: None,
+        answered_at: None,
+      },
+    })
+  }
+
+  /// The value is an answer of this process: a failure after it keeps it `Stale`; a value of the frame of an earlier run
+  /// (`Cached`) is not
+  fn answered(&self) -> bool {
+    self.fact.value.is_some() && self.fact.state != FactState::Cached
+  }
+
   const fn with_state(state: FactState) -> Self {
     Self {
       fact: Fact {
@@ -217,13 +249,14 @@ impl<T> FactRecord<T> {
   }
 
   /// A read the session can't make now (the service doesn't answer the repository): `Unavailable` with `reason`
-  /// without a value, the value kept `Stale` with it
+  /// without an answer (a value of the frame of an earlier run goes), the answer kept `Stale` with it
   pub fn fail(&mut self, reason: ApiError) {
-    self.fact.state = if self.fact.value.is_some() {
-      FactState::Stale { reason: Some(reason) }
+    if self.answered() {
+      self.fact.state = FactState::Stale { reason: Some(reason) };
     } else {
-      FactState::Unavailable { reason }
-    };
+      self.fact.value = None;
+      self.fact.state = FactState::Unavailable { reason };
+    }
   }
 
   /// The fact is read again after a failure: `Loading` without a value, the value `Stale` of being read
@@ -236,8 +269,8 @@ impl<T> FactRecord<T> {
   }
 
   /// The answer of `observation`: a value is `Fresh` when it is of the inputs the fact is of now, else `Stale`; a
-  /// failure keeps the value as `Stale`, or is `Unavailable` without one. An observation not newer than the one of the
-  /// value kept changes nothing
+  /// failure keeps the answer as `Stale`, or is `Unavailable` without one (a value of the frame of an earlier run goes).
+  /// An observation not newer than the one of the value kept changes nothing
   pub fn answer(&mut self, observation: Observation, result: Result<T, ApiError>) -> Applied {
     if observation.seq.0 <= self.fact.seq {
       return Applied::Older;
@@ -255,11 +288,32 @@ impl<T> FactRecord<T> {
           FactState::Stale { reason: None }
         }
       }
-      Err(reason) if self.fact.value.is_some() => FactState::Stale { reason: Some(reason) },
-      Err(reason) => FactState::Unavailable { reason },
+      Err(reason) if self.answered() => FactState::Stale { reason: Some(reason) },
+      Err(reason) => {
+        self.fact.value = None;
+        FactState::Unavailable { reason }
+      }
     };
     Applied::Applied
   }
+}
+
+/// The head of a part of the frame of an earlier run (`warm_start`) as a seed takes it: `Cached` when it stood, older
+/// than every observation of this process; whether it stood
+pub(crate) fn seed_head<T>(head: &mut Fact<T>) -> bool {
+  if !stood(head) {
+    return false;
+  }
+  head.state = FactState::Cached;
+  head.seq = 0;
+  true
+}
+
+/// Whether `fact` has a value that stood when it was read: an answer (`Fresh`, `Stale`) or a value of a frame
+/// (`Cached`), never the value of a failure; what a frame keeps and what a seed takes
+#[must_use]
+pub const fn stood<T>(fact: &Fact<T>) -> bool {
+  fact.value.is_some() && matches!(fact.state, FactState::Fresh | FactState::Stale { .. } | FactState::Cached)
 }
 
 /// The number of a read of a session (`Sessions::begin`), with the epoch of the session it was taken in: the answer
@@ -424,6 +478,55 @@ impl FactStore {
       told_remote_tips: HashMap::new(),
       failures: BTreeSet::new(),
       merges: BTreeSet::new(),
+    }
+  }
+
+  /// The facts of a session seeded from the frame of an earlier run (`warm_start`), whose table has the baseline
+  /// `baseline`: each fact of the frame that stood `Cached` until an answer of this process, no news, no details; the
+  /// table of the last sync `Loading` until a sync of this process commits one
+  #[must_use]
+  pub fn from_cached(facts: CachedFacts, baseline: &str) -> Self {
+    let CachedFacts {
+      robots,
+      patronus,
+      pull_requests,
+      rules,
+      profiles,
+      readiness,
+      review_requests,
+      auth,
+    } = facts;
+    Self {
+      robots: RobotsFact::cached(robots),
+      patronus: PatronusFact::cached(patronus),
+      pull_requests: PullRequestsFact::cached(pull_requests),
+      rules: rules.into_iter().filter_map(|(base, rules)| Some((base, FactRecord::cached(rules, 0)?))).collect(),
+      profiles: FactRecord::cached(profiles, baseline_inputs(baseline)).unwrap_or_else(FactRecord::unknown),
+      readiness: ReadinessFact::cached(readiness),
+      review_requests: ReviewRequestsFact::cached(review_requests),
+      auth: FactRecord::cached(auth, 0).unwrap_or_else(FactRecord::loading),
+      ..Self::new()
+    }
+  }
+
+  /// The facts a frame keeps (`warm_start::frame_of`), as the view has them: the merge profiles only of the baseline
+  /// the table has now
+  #[must_use]
+  pub fn frame(&self) -> CachedFacts {
+    let profiles = &self.profiles;
+    CachedFacts {
+      robots: self.robots.view().clone(),
+      patronus: self.patronus.part().clone(),
+      pull_requests: self.pull_requests.view().clone(),
+      rules: self.rules.iter().map(|(base, rules)| (base.clone(), rules.fact().clone())).collect(),
+      profiles: if profiles.inputs == profiles.expected {
+        profiles.fact().clone()
+      } else {
+        Fact::default()
+      },
+      readiness: self.readiness.facts().map(|(subject, fact)| (subject.clone(), fact.clone())).collect(),
+      review_requests: self.review_requests.view().clone(),
+      auth: self.auth.fact().clone(),
     }
   }
 
@@ -664,7 +767,11 @@ impl FactStore {
   /// and an answer of Patronus, while a derivation runs (its answer asks again), or for the inputs of the last one
   pub fn begin_patronus(&mut self, state: &TableState, at: Duration) -> Option<PatronusDerivation> {
     let table = self.table.value().map(Arc::clone)?;
-    self.robots.view().head.value.as_ref()?;
+    // the robots of the frame of an earlier run derive nothing: the view they derived is the frame's
+    let head = &self.robots.view().head;
+    if head.value.is_none() || head.state == FactState::Cached {
+      return None;
+    }
     let robots = listed_robots(self.robots.view());
     let needs_review = self.robots.view().needs_review.clone();
     let remote = session_remote(&table, state);
@@ -752,6 +859,11 @@ impl RobotsFact {
       github_repository,
     } = result;
     let available = availability == PatronusAvailability::Available;
+    if !available && self.view.head.state == FactState::Cached {
+      // no answer of this process lists the robots of the frame of an earlier run
+      self.view.robots.clear();
+      self.written.clear();
+    }
     if available {
       let answered: BTreeSet<String> = robots.iter().map(|robot| robot.id.clone()).collect();
       for robot in robots {
@@ -894,6 +1006,12 @@ impl RobotsFact {
     }
     self.written.insert(robot.id.clone(), seq);
     self.view.robots.insert(robot.id.clone(), robot);
+  }
+
+  /// The robots of the frame of an earlier run (`warm_start`): `Cached` until Patronus answers; none when the frame
+  /// had no answer of Patronus
+  fn cached(mut view: RobotsView) -> Self {
+    if seed_head(&mut view.head) { Self { view, ..Self::default() } } else { Self::default() }
   }
 }
 
@@ -1054,6 +1172,35 @@ impl Default for PatronusFact {
 }
 
 impl PatronusFact {
+  /// The Patronus view of the frame of an earlier run (`warm_start`), with its landing needs when they were known:
+  /// `Cached` until a derivation of this process answers; none when the frame had no view
+  fn cached(part: PatronusPart) -> Self {
+    let PatronusPart { state, landing_needs, view } = part;
+    let fact = Fact {
+      value: Some(Arc::new(view.clone())),
+      state,
+      seq: 0,
+      observed_at: 0,
+    };
+    let Some(derived) = FactRecord::cached(fact, 0) else {
+      return Self::default();
+    };
+    let landing_needs = if matches!(landing_needs, FactState::Fresh | FactState::Cached) {
+      FactState::Cached
+    } else {
+      FactState::Loading
+    };
+    Self {
+      derived,
+      part: PatronusPart {
+        state: FactState::Cached,
+        landing_needs,
+        view,
+      },
+      ..Self::default()
+    }
+  }
+
   /// The part of the view
   #[must_use]
   pub const fn part(&self) -> &PatronusPart {

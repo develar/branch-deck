@@ -65,7 +65,7 @@ impl Version {
 /// value of the last answer, how it stands now, the number of the observation that answered it (`seq`, from the one
 /// counter of the session: an answer applies only when its observation is newer) and when it answered (Unix seconds).
 /// `value` is `None` until the first answer
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct Fact<T> {
@@ -89,7 +89,7 @@ impl<T> Default for Fact<T> {
 
 /// How a fact stands. A fact without an answer is never "no": a read that fails is `Unavailable` with its reason, never
 /// an empty value, and never a `Loading` that lasts
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum FactState {
@@ -425,7 +425,7 @@ pub const NEWS_KEPT: usize = 32;
 /// The Patronus view of the session (`repository_model::facts::derive_patronus`, the rule `bd` reads too): the robot of
 /// each branch and whole stack and what the robots land, landed and hold of the table of the last sync, on the remote
 /// branches as the session knows them (a push moves them), with the landing needs of each branch
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PatronusPart {
@@ -474,7 +474,7 @@ pub struct FactsView {
 /// GitHub lists them, and for a repository not on GitHub; `Stale` with the reason when GitHub failed for a while after a
 /// listing, whose requests stay; `Unavailable` when none stands: a failure before any listing, no token, a token GitHub
 /// rejects, no access), the requests waiting the longest first, how many wait in all, and when GitHub gave them
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewRequestsView {
@@ -531,7 +531,7 @@ pub struct ReviewSection {
 
 /// The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the
 /// reviews of the pull request of the start (`ask.branch_name` is the subject)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct SubjectReadiness {
@@ -547,7 +547,7 @@ pub struct SubjectReadiness {
 /// failed for a while after a listing, which stays; `Unavailable` when no listing stands: a failure before any, or
 /// GitHub refused the token), the pull requests by branch and by the root of the stack. A failed listing is never an
 /// empty one: without a standing listing no pull request of a branch is known
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestsView {
@@ -570,7 +570,7 @@ pub struct PullRequestsView {
 /// repository and how the fact stands (`head`: `Loading` until the first answer, `Stale` with the robots of an earlier
 /// answer after a failure, `Unavailable` after a failure without one), the robots by id, and what the session asked of
 /// them after its answers: which running ones a failed required check dooms, why the failed robots of the table failed
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RobotsView {
@@ -647,7 +647,7 @@ pub enum NewsEvent {
 }
 
 /// What the last answer of Patronus said of the repository
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RobotsHead {
@@ -659,7 +659,7 @@ pub struct RobotsHead {
 }
 
 /// What the table as a whole was grouped and checked with
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TableHeader {
@@ -715,7 +715,7 @@ pub struct StoreTips {
 }
 
 /// The check of the checked out branch against the last fetched baseline
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BaselineStatus {
@@ -727,7 +727,7 @@ pub struct BaselineStatus {
 }
 
 /// A branch of the table, in the parts that change for different reasons
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchView {
@@ -745,9 +745,9 @@ pub struct BranchView {
 
 /// Where a branch is among the branches of the table, as the rules of `domain_policy::stack` and `domain_policy::parked`
 /// decide it for the app and `bd` alike (`repository_model::derive`)
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct BranchStructure {
   /// The branch of the table it stacks on, its declared parent; absent for a root or a parent the table lacks
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -792,7 +792,7 @@ pub struct BranchStructure {
 
 /// The whole stack of a root (spec/branch/whole-stack.spec.md): the stack branch of a stack that forks, or the last
 /// branch of a straight chain, which carries every commit of it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum WholeStackView {
@@ -808,7 +808,7 @@ pub enum WholeStackView {
 }
 
 /// Why a branch is parked (spec/branch/parked-branches.spec.md)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct Parked {
@@ -819,7 +819,7 @@ pub struct Parked {
 }
 
 /// A member of a whole stack and why it is parked
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ParkedMember {
@@ -828,7 +828,7 @@ pub struct ParkedMember {
 }
 
 /// The table a branch is a row of: the main one, or the Parked card of the branches kept local
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum BranchSection {
@@ -953,7 +953,7 @@ pub enum StackBranchAlong {
 }
 
 /// What the grouping says of a branch; a field without a value is absent
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchHead {
@@ -990,7 +990,7 @@ pub struct BranchHead {
 }
 
 /// What the sync made of a commit: its virtual copy; the fields are absent until the sync reported the commit
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CommitSync {
@@ -1011,7 +1011,7 @@ pub struct CommitSync {
 }
 
 /// The status of a branch in the table: `Syncing` until the sync reports how it ended
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum BranchStatus {
   Syncing,
@@ -1039,7 +1039,7 @@ impl From<BranchSyncStatus> for BranchStatus {
 }
 
 /// What the sync made of a branch
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchSync {
@@ -1069,7 +1069,7 @@ impl BranchSync {
 }
 
 /// What the remote has of a branch
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchRemote {
@@ -1078,7 +1078,7 @@ pub struct BranchRemote {
 }
 
 /// The sections below the branch table
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TableSections {
@@ -1091,7 +1091,7 @@ pub struct TableSections {
 }
 
 /// The archived branches: their names as the sync found them, and the integration each detection reported
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ArchivedSection {
@@ -1105,7 +1105,7 @@ pub struct ArchivedSection {
 
 /// The check of the checked out branch against the last fetched baseline and the commits that landed or are landing
 /// with its update, which the sync reports together from the update check it runs beside its build
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct LandedSection {

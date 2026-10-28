@@ -16,7 +16,8 @@
 //!   when it was fetched, and the reader decides how long it holds (`remote_facts::review_readiness`, `bd`'s
 //!   `robot_list`, `remote_facts::robot_stats`). A passed build of `bd check --build` (the command, the branch, the ids of what it
 //!   extracts), which what the build reads outside the tree (a JDK, a toolchain) can outdate: `--rebuild` runs it
-//!   anyway. `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks
+//!   anyway. `session_frame` is keyed by a hash of a worktree: its value is the last frame of the worktree's session,
+//!   which the next save replaces and whose reader checks its key. `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks
 //!   between those commits find, so it holds as long as the commit graph does (a `git replace` of a commit in that
 //!   range would outdate it). `stack_branch` is keyed by a hash of the base and the original commits of a stack
 //!   branch: its value is what their build gave (the tip, or the conflict), a function of those commits.
@@ -123,10 +124,11 @@ pub(crate) enum Store {
   FileDiff,
   FileMerge,
   WordResolution,
+  SessionFrame,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 17;
+const STORE_COUNT: usize = 18;
 
 /// The stores that no binary writes any more: `commit_patch`, the patches of the old diff views (now `file_diff`)
 const RETIRED_STORES: [&str; 1] = ["commit_patch"];
@@ -152,6 +154,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::FileDiff,
   Store::FileMerge,
   Store::WordResolution,
+  Store::SessionFrame,
 ];
 
 impl Store {
@@ -168,7 +171,8 @@ impl Store {
       // counts from the blocks of the diff views (`file_diffs::blocks`)
       Self::CommitLines | Self::CommitDiff => 4,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
-      // `remote_status`, `build_result`, `conflict_chain`, `stack_branch`, `word_resolution`)
+      // `remote_status`, `build_result`, `conflict_chain`, `stack_branch`, `word_resolution`, the schema of
+      // `session_frame`)
       Self::CommitTree
       | Self::MergeResult
       | Self::BlobSummary
@@ -182,7 +186,8 @@ impl Store {
       | Self::PatronusHistory
       | Self::FileDiff
       | Self::FileMerge
-      | Self::WordResolution => 1,
+      | Self::WordResolution
+      | Self::SessionFrame => 1,
     }
   }
 
@@ -200,7 +205,8 @@ impl Store {
       | Self::BuildResult
       | Self::StackBranch
       | Self::PatronusRobots
-      | Self::PatronusHistory => Environment::Main,
+      | Self::PatronusHistory
+      | Self::SessionFrame => Environment::Main,
     }
   }
 
@@ -228,6 +234,7 @@ impl Store {
       Self::FileDiff => "file_diff",
       Self::FileMerge => "file_merge",
       Self::WordResolution => "word_resolution",
+      Self::SessionFrame => "session_frame",
     }
   }
 }

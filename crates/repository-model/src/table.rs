@@ -34,6 +34,7 @@
 
 use crate::derive;
 use crate::facts::{Seq, Sequence};
+use crate::warm_start::CachedTable;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::commit::Commit;
 use domain_types::error::{ApiError, ErrorCode};
@@ -184,6 +185,50 @@ impl TableState {
     let mut state = Self::default();
     prefix.clone_into(&mut state.parts.header.prefix);
     state
+  }
+
+  /// The table of a session of `prefix` seeded from the frame an earlier run saved (`warm_start`): `cached` until a sync
+  /// of this process commits, the structure of each row and the order of the stack branches derived again, as a
+  /// grouping derives them
+  #[must_use]
+  pub fn from_cached(prefix: &str, table: CachedTable) -> Self {
+    let CachedTable {
+      mut header,
+      order,
+      branches,
+      stacks,
+      sections,
+    } = table;
+    prefix.clone_into(&mut header.prefix);
+    let mut parts = TableParts {
+      header,
+      order,
+      stack_roots: stacks.keys().cloned().collect(),
+      branches,
+      stacks,
+      sections,
+      blocked: HashMap::new(),
+    };
+    derive::place(&mut parts);
+    Self {
+      commit_index: index_commits(&parts.branches),
+      parts,
+      cached: true,
+      ..Self::default()
+    }
+  }
+
+  /// The parts a frame keeps (`warm_start::frame_of`): the table the last sync committed, the one before a sync that runs
+  #[must_use]
+  pub fn committed_frame(&self) -> CachedTable {
+    let parts = self.before_sync.as_deref().unwrap_or(&self.parts);
+    CachedTable {
+      header: parts.header.clone(),
+      order: parts.order.clone(),
+      branches: parts.branches.clone(),
+      stacks: parts.stacks.clone(),
+      sections: parts.sections.clone(),
+    }
   }
 
   #[must_use]

@@ -20,14 +20,17 @@ tokio = { workspace = true, features = ["rt", "sync", "time"] }
 tracing.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-# the key of a session in a record of the operations registry (`operations::registry_file`)
+# the key of a session in a record of the operations registry (`operations::registry_file`), the frame of a session
 serde.workspace = true
+# the frame of a session in the object cache (`warm_start`): JSON, as the view's parts are tagged by a field
+object-cache = { path = "../object-cache" }
+serde_json.workspace = true
+sha2 = "0.11.1"
 
 [dev-dependencies]
 domain-types = { path = "../domain-types", features = ["fixtures"] }
 pretty_assertions.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
-serde_json.workspace = true
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }
 

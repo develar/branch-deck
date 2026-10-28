@@ -11,7 +11,7 @@
 //! with a comment, the reviews the user submitted from the app (`submitted`, until a listing says GitHub has them) and
 //! the last pull request of every number a listing named, for the review windows that show one no listing has any more.
 
-use crate::facts::Observation;
+use crate::facts::{Observation, seed_head};
 use crate::pull_request_facts::availability_error;
 use domain_policy::news::{request_key, review_requested, tells_after};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
@@ -64,6 +64,12 @@ impl ReviewRequestsFact {
     }
     let before = self.view.clone();
     let reviews_before = self.reviews.clone();
+    if self.view.head.state == FactState::Cached && !matches!(result.availability, PullRequestAvailability::Available { .. }) {
+      // no listing of this process stands behind the requests of the frame of an earlier run
+      self.view.requests = Vec::new();
+      self.view.total_count = 0;
+      self.view.checked_at = 0;
+    }
     let ReviewRequestsResult {
       availability,
       total_count,
@@ -231,6 +237,12 @@ impl ReviewRequestsFact {
   /// silent
   fn told(&self, requests: &[ReviewRequest]) -> Option<NewsEvent> {
     review_requested(self.known.as_ref()?, requests)
+  }
+
+  /// The review requests of the frame of an earlier run (`crate::warm_start`): `Cached` until GitHub lists them, the
+  /// first listing silent; a failure of that listing leaves none of them; none when the frame had no listing
+  pub(crate) fn cached(mut view: ReviewRequestsView) -> Self {
+    if seed_head(&mut view.head) { Self { view, ..Self::default() } } else { Self::default() }
   }
 }
 

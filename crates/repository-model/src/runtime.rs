@@ -32,6 +32,11 @@
 //!   another failure restores the table with `Failed { error }`. The scheduler remembers what a failed or deferred run
 //!   read, so a focus that finds the same runs nothing. A run whose report asks for a retry (`SyncReport::retry`) runs
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
+//! - The frame (`warm_start`): the actor opens by reading the frame of its worktree on the blocking pool and seeds from
+//!   it when it is of its key and schema (the table `cached`, its facts `Cached`, the view of the frame as the seed); a
+//!   worktree synced before syncs at once (`Open`). It saves the frame through one task (`FrameSaves`), the newest
+//!   first: at once after a commit of the table, at most every `FRAME_INTERVAL` after a patch of the facts, and on
+//!   `Close` (swept, the worktree closed) or at its end with what changed since.
 
 use crate::branch_table::BranchTable;
 use crate::derive::wanted_readiness;
@@ -41,18 +46,20 @@ use crate::patronus_view::{ContentMemo, lock_memo};
 use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
 use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
-use crate::state::{View, new_epoch};
+use crate::state::{Joined, View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
+use crate::warm_start::{CachedSession, frame_of, read_frame, write_frame};
 use domain_policy::landing_route::rules_target;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
-use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncReason, SyncState, SyncStep, Version};
+use domain_types::session::{Demand, FactFamily, FactRefreshReason, FactState, RepositoryView, SyncReason, SyncState, SyncStep, Version};
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use object_cache::cache::ObjectCache;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -64,25 +71,34 @@ use sync_utils::clock::{Clock, Wait};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tokio::runtime::Handle;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use tracing::{Instrument, info_span, warn};
 
 /// The least time between two patches of a running sync
 pub const PATCH_INTERVAL: Duration = Duration::from_millis(16);
 
+/// The least time between two saves of the frame of a session after a change of its facts, on the session clock; a
+/// commit of the table saves at once
+pub const FRAME_INTERVAL: Duration = Duration::from_secs(5);
+
 /// A read that runs on the actor of a session over its table state and its facts, and answers its caller itself
 pub(crate) type SessionRead = Box<dyn FnOnce(&TableState, &FactStore) + Send>;
 
 /// A message to the actor of a session
 pub(crate) enum Message {
+  /// A window that holds the view at `have` subscribes
   Subscribe {
     id: SubscriptionId,
     subscriber: Box<dyn Subscriber>,
-    reply: oneshot::Sender<RepositoryView>,
+    have: Option<Version>,
+    reply: oneshot::Sender<Joined>,
   },
+  /// `FRAME_INTERVAL` passed since the frame was saved last: a save that waited goes now
+  FrameDue,
   Unsubscribe(SubscriptionId),
-  /// The session was removed from the registry: its subscribers go at once
+  /// The session was removed from the registry (swept, or its worktree closed): its subscribers go at once, the frame
+  /// is saved with what changed since the last save
   Close,
   Snapshot(oneshot::Sender<RepositoryView>),
   /// The table of the last successful sync with the memo and the remote branches as the session knows them
@@ -199,6 +215,7 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
   let span = info_span!(parent: None, "session", worktree = %key.worktree, prefix = %key.prefix);
   let view = View::new(new_epoch());
   let state = TableState::with_prefix(&key.prefix);
+  let frames = span.in_scope(|| FrameSaves::new(&host));
   let actor = Actor {
     key,
     host,
@@ -219,9 +236,55 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     last_flush: None,
     in_flight: None,
     moved: MovedFetches::default(),
+    frames,
   };
   span.in_scope(|| runtime.spawn(actor.run(messages).in_current_span()));
   mailbox
+}
+
+/// When the actor saves the frame of its session (`warm_start`): at once after a commit of its table, at most every
+/// `FRAME_INTERVAL` after a change of its facts, and when the actor ends (the session swept or closed) with what
+/// changed since; each save on the blocking pool, one at a time, the newest frame next
+struct FrameSaves {
+  /// The table is one to keep: seeded from a frame or committed by a sync of this process; no more once a run finds
+  /// that the git config names the branches by another prefix (the worktree's frame is the other session's then)
+  keeps: bool,
+  /// Something changed since the last save
+  dirty: bool,
+  /// When the frame was saved last, on the session clock
+  saved_at: Option<Duration>,
+  /// A save waits for `FRAME_INTERVAL` since the last one (`Message::FrameDue`)
+  due: bool,
+  /// The newest frame, for the task that saves (`FrameSaves::new`)
+  frames: watch::Sender<Option<Arc<CachedSession>>>,
+}
+
+impl FrameSaves {
+  /// The saves of the frames of a session, through `host`: a task saves the newest frame it was sent, one at a time,
+  /// until the last one after the actor ended
+  fn new(host: &Arc<dyn SessionHost>) -> Self {
+    let (frames, mut sent) = watch::channel(None::<Arc<CachedSession>>);
+    let host = Arc::clone(host);
+    tokio::spawn(
+      async move {
+        while sent.changed().await.is_ok() {
+          let Some(frame) = sent.borrow_and_update().clone() else {
+            continue;
+          };
+          let host = Arc::clone(&host);
+          let _ = tokio::task::spawn_blocking(in_current_span(move || host.save_frame(&frame))).await;
+        }
+      }
+      .in_current_span(),
+    );
+    Self {
+      keeps: false,
+      dirty: false,
+      saved_at: None,
+      due: false,
+      frames,
+    }
+  }
 }
 
 struct Actor {
@@ -255,10 +318,12 @@ struct Actor {
   in_flight: Option<Busy>,
   /// The last fetch of each remote branch whose pull request showed a head it lacked
   moved: MovedFetches,
+  frames: FrameSaves,
 }
 
 impl Actor {
   async fn run(mut self, mut messages: mpsc::UnboundedReceiver<Message>) {
+    self.open().await;
     loop {
       let message = match self.flush_at {
         Some(at) => tokio::select! {
@@ -279,14 +344,79 @@ impl Actor {
         self.flush();
       }
     }
+    // the registry went without closing the session (the end of the app): what changed is the frame of the next start
+    if self.frames.dirty {
+      self.save_frame();
+    }
+  }
+
+  /// The session opens: seeded from the frame of its worktree when the host has one of its key and schema, the view of
+  /// the frame at the first version of the epoch; a worktree synced before syncs at once (`SyncReason::Open`), with or
+  /// without a window, so its first sync runs while a window loads
+  async fn open(&mut self) {
+    let (host, key) = (Arc::clone(&self.host), self.key.clone());
+    let opened = tokio::task::spawn_blocking(in_current_span(move || (host.frame(&key), host.synced_before(&key)))).await;
+    let Ok((frame, synced_before)) = opened else {
+      return;
+    };
+    if let Some(frame) = frame.filter(|frame| frame.seeds(&self.key)) {
+      self.state = TableState::from_cached(&self.key.prefix, frame.table);
+      self.facts = FactStore::from_cached(frame.facts, &self.state.header().baseline_branch);
+      self.view = View::seeded(self.view.version().epoch, &self.state, &self.facts);
+      self.frames.keeps = true;
+    }
+    if synced_before {
+      let waiter = Waiter::unheard(&self.life);
+      self.handle(Message::Sync { reason: SyncReason::Open, waiter });
+    }
+  }
+
+  /// Sends the frame of the session as it is now to the task that saves it
+  fn save_frame(&mut self) {
+    let frames = &mut self.frames;
+    frames.dirty = false;
+    frames.saved_at = Some(self.life.now());
+    let frame = frame_of(&self.key, &self.state, &self.facts);
+    // the task ends only after the actor
+    let _ = frames.frames.send(Some(Arc::new(frame)));
+  }
+
+  /// The facts changed: the frame is saved, at once when the last save is `FRAME_INTERVAL` ago, else when it is
+  fn facts_changed(&mut self) {
+    let frames = &mut self.frames;
+    if !frames.keeps {
+      return;
+    }
+    frames.dirty = true;
+    if frames.due {
+      return;
+    }
+    let now = self.life.now();
+    match frames.saved_at.map(|at| at + FRAME_INTERVAL).filter(|due| *due > now) {
+      None => self.save_frame(),
+      Some(due) => {
+        frames.due = true;
+        let (clock, mailbox) = (self.life.clock(), self.mailbox.clone());
+        tokio::spawn(
+          async move {
+            sleep_until(&*clock, due).await;
+            // an actor that ended saved what it had
+            if let Some(mailbox) = mailbox.upgrade() {
+              let _ = mailbox.send(Message::FrameDue);
+            }
+          }
+          .in_current_span(),
+        );
+      }
+    }
   }
 
   fn handle(&mut self, message: Message) {
     match message {
-      Message::Subscribe { id, subscriber, reply } => {
+      Message::Subscribe { id, subscriber, have, reply } => {
         self.subscribers.push((id, subscriber));
-        // the patches after this snapshot follow it
-        let _ = reply.send(self.view.snapshot());
+        // the patches after what it gets follow it
+        let _ = reply.send(self.view.join(have));
         if self.subscribers.len() == 1 {
           // the window that watches anew hears no news of the requests that came while none did
           self.facts.review_requests.watched_anew();
@@ -310,6 +440,12 @@ impl Actor {
       Message::Snapshot(reply) => {
         let _ = reply.send(self.view.snapshot());
       }
+      Message::FrameDue => {
+        self.frames.due = false;
+        if self.frames.dirty {
+          self.save_frame();
+        }
+      }
       Message::Table(reply) => {
         let _ = reply.send(self.facts.table_facts(&self.state));
       }
@@ -320,6 +456,10 @@ impl Actor {
           self.life.subscriber_left();
         }
         self.demands.clear();
+        // what changed since the last save is the frame of the next start
+        if self.frames.dirty {
+          self.save_frame();
+        }
       }
       Message::Demand { id, demand } => {
         if self.subscribers.iter().any(|(subscription, _)| *subscription == id) {
@@ -673,8 +813,18 @@ impl Actor {
         self.facts.table_committed(&baseline);
         self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline });
         self.derive_patronus();
+        // the table of the next start
+        self.frames.keeps = true;
+        self.save_frame();
       }
-      (_, Err(error)) if is_deferred(&error) => self.state.defer_sync(error),
+      (_, Err(error)) if is_deferred(&error) => {
+        if error.code == ErrorCode::PrefixChanged {
+          // the frame of the worktree is the session's of the new prefix now
+          self.frames.keeps = false;
+          self.frames.dirty = false;
+        }
+        self.state.defer_sync(error);
+      }
       (_, Err(error)) => {
         let _ = self.facts.table.answer(observation, Err(error.clone()));
         self.state.finish_sync(Err(error));
@@ -798,7 +948,9 @@ impl Actor {
     // the asks of the readiness of what the patch carries: a moved tip comes with its readiness `Stale`
     // of the shown subjects, those whose next step waits for the readiness: it doesn't depend on the answer itself
     let wanted = wanted_readiness(&self.state, &self.facts, &self.key.prefix, &self.told_demand);
-    let robots = self.facts.robots.view().head.value.as_ref();
+    // the readiness is asked once Patronus answered this process: the availability a frame names is no answer
+    let head = &self.facts.robots.view().head;
+    let robots = head.value.as_ref().filter(|_| head.state != FactState::Cached);
     self
       .facts
       .readiness
@@ -813,6 +965,9 @@ impl Actor {
       self.tell_digest();
       return;
     };
+    if patch.changes.facts.is_some() || patch.changes.patronus.is_some() {
+      self.facts_changed();
+    }
     let life = &self.life;
     let mut gone = Vec::new();
     self.subscribers.retain(|(id, subscriber)| {
@@ -927,6 +1082,18 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   fn before_patronus_view(&self, _key: &SessionKey) -> Result<(), ApiError> {
     Ok(())
   }
+
+  /// The object cache the frames of the sessions of `key` are kept in (`warm_start`), the one the host keeps per
+  /// repository; a disabled one by default, which keeps no frame. Blocking
+  fn frame_cache(&self, _key: &SessionKey) -> ObjectCache {
+    ObjectCache::disabled()
+  }
+
+  /// Whether the worktree of `key` was synced before (`SessionHost::synced_before`): the `lastSyncTime` of its state in
+  /// the app's settings; false by default
+  fn synced_before(&self, _key: &SessionKey) -> bool {
+    false
+  }
 }
 
 /// The host of the app's sessions: the syncs and their inputs, the Patronus view and the landing needs run with git;
@@ -991,6 +1158,18 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn prune_review_refs(&self, key: &SessionKey, keep: &[u32]) {
     self.environment.prune_review_refs(&self.git, key, keep);
+  }
+
+  fn frame(&self, key: &SessionKey) -> Option<CachedSession> {
+    read_frame(&self.environment.frame_cache(key), &key.worktree)
+  }
+
+  fn save_frame(&self, frame: &CachedSession) {
+    write_frame(&self.environment.frame_cache(&frame.key), frame);
+  }
+
+  fn synced_before(&self, key: &SessionKey) -> bool {
+    self.environment.synced_before(key)
   }
 }
 

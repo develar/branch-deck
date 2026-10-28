@@ -9,6 +9,12 @@
 //! for `IDLE_LIMIT` on the session clock (`Clock`: `SystemClock` in the app, `TestClock` in the tests and the E2E
 //! server). A session opened again starts a new epoch, so a window that held the old one asks for a snapshot.
 //!
+//! Warm start (`warm_start`): a session that opens seeds from the frame its host kept of the worktree, when it is of its
+//! key and schema, and its view starts at that frame (the seed, at the first version of the epoch); a worktree synced
+//! before syncs as it opens. A window that holds the seed catches up by one patch (`subscribe_from`). The session saves
+//! its frame after each commit of its table, after a change of its facts at most every `runtime::FRAME_INTERVAL`, and
+//! when it goes.
+//!
 //! Events: what the facts of the sessions are asked by (`SessionEvent`: a window watches a session or no longer does,
 //! its focus and demand, a sync committed the table, the robots the poll asks about changed, a window asks a fact
 //! again) go to the one consumer that takes `events`, the scheduler of the remote facts (`remote_facts::scheduler`); its
@@ -21,8 +27,10 @@ use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
 use crate::runtime::{Message, spawn_actor};
+use crate::state::Joined;
 use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
+use crate::warm_start::CachedSession;
 use domain_types::RemoteStatusUpdate;
 use domain_types::commit::CommitGroup;
 use domain_types::error::ApiError;
@@ -180,6 +188,24 @@ pub trait SessionHost: Send + Sync + 'static {
   /// (`sync_core::review_fetch::prune_review_refs`, best effort): the review windows of the session show `keep` now.
   /// Blocking: the runtime calls it on the blocking pool. Nothing by default (a host without git)
   fn prune_review_refs(&self, _key: &SessionKey, _keep: &[u32]) {}
+
+  /// The frame the worktree of `key` was saved with last (`warm_start`), which the session seeds from when it opens, if
+  /// it is of its key and schema (`CachedSession::seeds`). Blocking: the runtime calls it on the blocking pool. None by
+  /// default (a host that keeps no frames)
+  fn frame(&self, _key: &SessionKey) -> Option<CachedSession> {
+    None
+  }
+
+  /// Keeps `frame` as the frame of its worktree, in place of the one before (`warm_start::write_frame`). Blocking: the
+  /// runtime calls it on the blocking pool, one save of a session at a time. Nothing by default
+  fn save_frame(&self, _frame: &CachedSession) {}
+
+  /// Whether the worktree of `key` was synced before (the `lastSyncTime` of its state, which the app's writer keeps): the
+  /// session then syncs when it opens (`SyncReason::Open`), with or without a window. Blocking, called with `frame`.
+  /// False by default
+  fn synced_before(&self, _key: &SessionKey) -> bool {
+    false
+  }
 }
 
 /// The reporter of a sync run: its events go to the session's mailbox, tagged with the run, so the events of a run that
@@ -244,6 +270,11 @@ impl SessionLife {
     self.clock.now()
   }
 
+  /// The clock of the session, which its timers wait on
+  pub(crate) fn clock(&self) -> Arc<dyn Clock> {
+    Arc::clone(&self.clock)
+  }
+
   fn touch(&self) {
     let now = u64::try_from(self.clock.now().as_nanos()).unwrap_or(u64::MAX);
     self.last_active.store(now, Ordering::SeqCst);
@@ -292,6 +323,12 @@ pub(crate) struct Waiter {
 }
 
 impl Waiter {
+  /// A request whose caller hears nothing (the session's own sync when it opens): it keeps the session while it runs
+  pub(crate) fn unheard(life: &Arc<SessionLife>) -> Self {
+    let (reply, _) = oneshot::channel();
+    Self { reply, _busy: Busy::new(life) }
+  }
+
   /// Answers the request; `version` is the view's after the patch of what ended
   pub(crate) fn settle(self, settled: Settled, version: Version) {
     // a caller that stopped waiting has nothing to hear
@@ -503,18 +540,30 @@ impl Sessions {
       .await
   }
 
-  /// Subscribes a window to the session of `key`, opening it: the snapshot at the subscription, then every patch after
-  /// it. `None` only when the session's actor is gone
-  pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>) -> Option<(SubscriptionId, RepositoryView)> {
+  /// Subscribes a window that holds the view at `have` (the seed the start of the app showed it; `None`: nothing) to the
+  /// session of `key`, opening it: what it gets then (`Joined`: nothing more when it holds the view of the last patch,
+  /// the catch-up when it holds the seed, else the snapshot), then every patch after it. `None` only when the session's
+  /// actor is gone
+  pub async fn subscribe_from(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>, have: Option<Version>) -> Option<(SubscriptionId, Joined)> {
     let id = SubscriptionId(self.next_subscription.fetch_add(1, Ordering::SeqCst));
     let (reply, answer) = oneshot::channel();
     self.with_entry(key, |entry| {
       entry.life.subscriber_joined();
-      if entry.mailbox.send(Message::Subscribe { id, subscriber, reply }).is_err() {
+      if entry.mailbox.send(Message::Subscribe { id, subscriber, have, reply }).is_err() {
         entry.life.subscriber_left();
       }
     });
-    answer.await.ok().map(|view| (id, view))
+    answer.await.ok().map(|joined| (id, joined))
+  }
+
+  /// `subscribe_from` of a window that holds nothing: the snapshot at the subscription, then every patch after it. The
+  /// hosts subscribe so until their windows tell what they hold (s13-warm-start)
+  pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>) -> Option<(SubscriptionId, RepositoryView)> {
+    let (id, joined) = self.subscribe_from(key, subscriber, None).await?;
+    match joined {
+      Joined::Snapshot(view) => Some((id, *view)),
+      Joined::Holds | Joined::CatchUp(_) => unreachable!("a window that holds nothing gets the snapshot"),
+    }
   }
 
   /// Ends a subscription, of whichever session holds it; the last one makes its session idle
@@ -666,9 +715,11 @@ impl Sessions {
       .filter(|(_, entry)| entry.is_dead() || entry.life.idle_for().is_some_and(|idle| idle >= IDLE_LIMIT))
       .map(|(key, _)| key.clone())
       .collect();
-    // the actor ends with its mailbox
+    // the actor saves what changed of its frame and ends with its mailbox
     for key in &idle {
-      entries.remove(key);
+      if let Some(entry) = entries.remove(key) {
+        let _ = entry.mailbox.send(Message::Close);
+      }
       self.events.emit(key, SessionEventKind::Closed);
     }
     idle

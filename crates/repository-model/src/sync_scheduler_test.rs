@@ -72,6 +72,23 @@ fn a_focus_during_a_run_checks_the_inputs_once_after_the_chain() {
   assert_eq!(decision.next, Step::Nothing);
 }
 
+/// The first run of a session that opens (its own `Open`, before any window) and a focus while it runs are one run: the
+/// focus checks the inputs once after it, the open of a window meanwhile is served by it
+#[test]
+fn a_focus_during_the_first_run_of_an_opened_session_checks_once_after_it() {
+  let mut scheduler = SyncScheduler::new();
+  assert_eq!(scheduler.request(SyncReason::Open, "opened", false).next, run(1, None, false));
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, Step::Nothing);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::Nothing);
+
+  let decision = scheduler.run_finished(1, Some(inputs(1)), OK, true);
+  assert_eq!(decision.resolve, [("opened", SYNCED), ("window", SYNCED)]);
+  assert_eq!(decision.next, Step::CheckInputs);
+  let decision = scheduler.inputs_read(Some(inputs(1)), true);
+  assert_eq!(decision.resolve, [("focus", Ok(SyncOutcome::Unchanged))]);
+  assert_eq!(decision.next, Step::Nothing, "no second run");
+}
+
 /// A focus syncs only when the inputs changed since the last successful sync, and the run takes the inputs the check
 /// read; a request made during the check is served by that run
 #[test]

@@ -1,27 +1,40 @@
 //! What a session sent its windows of the table (docs/design/rust-domain-authority.md, "Представление: снимок и
 //! патчи"): `View` keeps the view as it was sent last, at its version. `diff` compares the table state with it part by
-//! part (`PartialEq`) and answers the patch of the parts that differ, cloning only those; `snapshot` is the view at the
-//! version of the last patch, for a window that opens or lost a patch. Rust decides equality, so the page keeps the
-//! identity of every part a patch does not carry.
+//! part (`PartialEq`, `patch::changes`) and answers the patch of the parts that differ, cloning only those; `snapshot`
+//! is the view at the version of the last patch, for a window that opens or lost a patch. Rust decides equality, so the
+//! page keeps the identity of every part a patch does not carry.
+//!
+//! A session seeded from the frame of an earlier run (`warm_start`) starts at the view of that frame (`seeded`): what
+//! the rules derive of the seeded state, at the first version of its epoch, which the session keeps as its seed. A
+//! window that holds it (the start of the app shows it before the window subscribes) catches up by one patch from the
+//! seed to the view sent since (`join`, `patch::diff_views`), not by the whole view.
 
 use crate::action_view::{ActionSources, actions_of};
 use crate::derive::{attention_of, landed_states_of, landing_route_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
 use crate::facts::FactStore;
-use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
+use crate::patch::{Now, apply_changes, apply_patch, changed, changes, diff_views, keyed_facts_change, pull_requests_change, robots_change};
 use crate::review_view::{review_actions_of, reviews_view};
 use crate::table::TableState;
-use domain_types::operation::{OperationId, RunningOperation};
-use domain_types::session::{
-  ArchivedChanges, Fact, FactsChanges, FactsView, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, RobotsChange, RobotsView, SyncState,
-  TableChanges, Version, ViewPatch,
-};
-use std::collections::BTreeMap;
+use domain_types::session::{FactsChanges, FactsView, RepositoryView, SyncState, TableChanges, Version, ViewPatch};
 use std::hash::{BuildHasher, RandomState};
 
 /// The view of a session as its windows hold it
 #[derive(Clone, Debug)]
 pub struct View {
   last_sent: RepositoryView,
+  /// The view of the frame the session was seeded from, at the first version of its epoch (`seeded`)
+  seed: Option<RepositoryView>,
+}
+
+/// What a window that subscribes gets (`View::join`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Joined {
+  /// It holds the view at the version of the last patch: the patches after it follow
+  Holds,
+  /// It holds the seed: the patch from the seed to the view at the version of the last patch
+  CatchUp(Box<ViewPatch>),
+  /// The view at the version of the last patch
+  Snapshot(Box<RepositoryView>),
 }
 
 impl View {
@@ -33,7 +46,22 @@ impl View {
         version: Version { epoch, seq: 0 },
         ..RepositoryView::default()
       },
+      seed: None,
     }
+  }
+
+  /// The view of a session seeded from a frame (`warm_start`): what `state` and `facts` derive, at the first version of
+  /// `epoch`, kept as the seed a window may hold
+  #[must_use]
+  pub fn seeded(epoch: u32, state: &TableState, facts: &FactStore) -> Self {
+    let mut view = Self::new(epoch);
+    let changes = view.changes(state, facts);
+    let version = view.version();
+    if let Err(rejected) = apply_changes(&mut view.last_sent, version, changes) {
+      unreachable!("the changes from the empty view apply to it: {rejected}");
+    }
+    view.seed = Some(view.last_sent.clone());
+    view
   }
 
   #[must_use]
@@ -47,101 +75,23 @@ impl View {
     self.last_sent.clone()
   }
 
+  /// What a window that holds the view at `have` (`None`: nothing) gets when it subscribes: nothing more when it holds
+  /// the view of the last patch, the catch-up when it holds the seed, else the snapshot
+  #[must_use]
+  pub fn join(&self, have: Option<Version>) -> Joined {
+    match have {
+      Some(have) if have == self.version() => Joined::Holds,
+      Some(have) => match self.seed.as_ref().filter(|seed| seed.version == have) {
+        Some(seed) => Joined::CatchUp(Box::new(diff_views(seed, &self.last_sent))),
+        None => Joined::Snapshot(Box::new(self.snapshot())),
+      },
+      None => Joined::Snapshot(Box::new(self.snapshot())),
+    }
+  }
+
   /// The patch from the view sent last to `state` and `facts`, and the view moves to it; `None` when no part differs
   pub fn diff(&mut self, state: &TableState, facts: &FactStore) -> Option<ViewPatch> {
-    let last = &self.last_sent;
-    let parts = &state.parts;
-    // the branch prefix of the session: the virtual branches a pull request may go into, the refs its pushes write
-    let prefix = parts.header.prefix.as_str();
-    let mut branches = BTreeMap::new();
-    for (name, branch) in &parts.branches {
-      if let Some(change) = branch_change(last.branches.get(name), branch) {
-        branches.insert(name.clone(), change);
-      }
-    }
-    let removed_branches = last.branches.keys().filter(|name| !parts.branches.contains_key(*name)).cloned().collect();
-    let (stacks, removed_stacks) = diff_keyed(&last.stacks, &parts.stacks);
-    // the remote statuses of a running sync come one by one: the pushes are ordered over the table it leaves, in the
-    // patch that ends it (a push waits for the sync), never resent with every status
-    let syncing = matches!(state.sync, SyncState::Running { .. });
-    let pushes_now = (!syncing).then(|| push_view(parts, facts));
-    let (pushes, removed_pushes) = pushes_now.as_ref().map_or_else(|| (BTreeMap::new(), Vec::new()), |now| diff_keyed(&last.pushes, now));
-    let open = session_open_pull_requests(state, facts, prefix);
-    let (open_pull_requests, removed_open_pull_requests) = diff_keyed(&last.open_pull_requests, &open);
-    // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
-    let lands_now = (!syncing).then(|| lands_of(state, facts, prefix));
-    let (lands, removed_lands) = lands_now.as_ref().map_or_else(|| (BTreeMap::new(), Vec::new()), |now| diff_keyed(&last.lands, now));
-    // what landed each subject, as the starts: over the table a sync leaves, its landing report with it
-    let landed = landed_states_of(state, facts);
-    let (landed_states, removed_landed_states) = if syncing {
-      (BTreeMap::new(), Vec::new())
-    } else {
-      diff_keyed(&last.landed_states, &landed)
-    };
-    // the next steps of the rows as they are, a sync of a branch included (row 1): over the table of the last sync
-    let steps = next_steps_of(state, facts, &open, &landed);
-    let (next_steps, removed_next_steps) = diff_keyed(&last.next_steps, &steps);
-    // the actions of the subjects as they are, a sync included (a reason): over the steps just derived, and the pushes
-    // and the starts as the view keeps them through a sync
-    let sources = ActionSources {
-      prefix,
-      steps: &steps,
-      pushes: pushes_now.as_ref().unwrap_or(&last.pushes),
-      lands: lands_now.as_ref().unwrap_or(&last.lands),
-      open_pull_requests: &open,
-      landed: &landed,
-    };
-    let reviews = reviews_view(state, facts, &steps);
-    let mut actions_now = actions_of(state, facts, &sources);
-    actions_now.extend(review_actions_of(state, facts, &reviews));
-    let (actions, removed_actions) = diff_keyed(&last.actions, &actions_now);
-    // the robots that need the user, over the rows as they are and the robots, a sync included (a row it builds has no
-    // tip, so its robot asks nothing until it is built)
-    let (attention, removed_attention) = diff_keyed(&last.attention, &attention_of(state, facts));
-    let (operations, removed_operations) = operations_change(&last.operations, state.operations());
-    let (last_archived, archived) = (&last.sections.archived, &parts.sections.archived);
-    let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
-    let archived_changes = ArchivedChanges {
-      names: changed(&last_archived.names, &archived.names),
-      newly_archived: changed(&last_archived.newly_archived, &archived.newly_archived),
-      integration,
-      removed_integration,
-    };
-    let changes = TableChanges {
-      cached: changed(&last.cached, &state.cached),
-      sync: changed(&last.sync, &state.sync),
-      header: changed(&last.header, &parts.header),
-      order: changed(&last.order, &parts.order),
-      branches,
-      removed_branches,
-      stacks,
-      removed_stacks,
-      pushes,
-      removed_pushes,
-      open_pull_requests,
-      removed_open_pull_requests,
-      lands,
-      removed_lands,
-      landed_states,
-      removed_landed_states,
-      next_steps,
-      removed_next_steps,
-      actions,
-      removed_actions,
-      attention,
-      removed_attention,
-      operations,
-      removed_operations,
-      unassigned: changed_commits(&last.sections.unassigned, &parts.sections.unassigned),
-      archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
-      unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),
-      landed: changed(&last.sections.landed, &parts.sections.landed),
-      reviews: changed(&last.reviews, &reviews),
-      patronus: patronus_change(&last.patronus, facts.patronus.part()),
-      route: changed(&last.route, &landing_route_of(&parts.header, &parts.sections.landed, facts)),
-      facts: facts_change(&last.facts, facts),
-      news: new_news(&last.news, facts.news()),
-    };
+    let changes = self.changes(state, facts);
     if changes.is_empty() {
       return None;
     }
@@ -158,15 +108,67 @@ impl View {
   }
 }
 
-/// The operations of `now` that the view sent last lacks or has otherwise, and the ids of the ones that ended
-fn operations_change(last: &BTreeMap<OperationId, RunningOperation>, now: &[RunningOperation]) -> (BTreeMap<OperationId, RunningOperation>, Vec<OperationId>) {
-  let changed = now
-    .iter()
-    .filter(|operation| last.get(&operation.id) != Some(*operation))
-    .map(|operation| (operation.id.clone(), operation.clone()))
-    .collect();
-  let removed = last.keys().filter(|id| !now.iter().any(|operation| operation.id == **id)).cloned().collect();
-  (changed, removed)
+impl View {
+  /// The changes from the view sent last to what `state` and `facts` derive now
+  fn changes(&self, state: &TableState, facts: &FactStore) -> TableChanges {
+    let last = &self.last_sent;
+    let parts = &state.parts;
+    // the branch prefix of the session: the virtual branches a pull request may go into, the refs its pushes write
+    let prefix = parts.header.prefix.as_str();
+    // the remote statuses of a running sync come one by one: the pushes are ordered over the table it leaves, in the
+    // patch that ends it (a push waits for the sync), never resent with every status
+    let syncing = matches!(state.sync, SyncState::Running { .. });
+    let pushes = (!syncing).then(|| push_view(parts, facts));
+    let open = session_open_pull_requests(state, facts, prefix);
+    // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
+    let lands = (!syncing).then(|| lands_of(state, facts, prefix));
+    // what landed each subject, as the starts: over the table a sync leaves, its landing report with it
+    let landed = landed_states_of(state, facts);
+    // the next steps of the rows as they are, a sync of a branch included (row 1): over the table of the last sync
+    let steps = next_steps_of(state, facts, &open, &landed);
+    // the actions of the subjects as they are, a sync included (a reason): over the steps just derived, and the pushes
+    // and the starts as the view keeps them through a sync
+    let sources = ActionSources {
+      prefix,
+      steps: &steps,
+      pushes: pushes.as_ref().unwrap_or(&last.pushes),
+      lands: lands.as_ref().unwrap_or(&last.lands),
+      open_pull_requests: &open,
+      landed: &landed,
+    };
+    let reviews = reviews_view(state, facts, &steps);
+    let mut actions = actions_of(state, facts, &sources);
+    actions.extend(review_actions_of(state, facts, &reviews));
+    // the robots that need the user, over the rows as they are and the robots, a sync included (a row it builds has no
+    // tip, so its robot asks nothing until it is built)
+    let attention = attention_of(state, facts);
+    let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
+    changes(
+      last,
+      Now {
+        cached: &state.cached,
+        sync: &state.sync,
+        header: &parts.header,
+        order: &parts.order,
+        branches: &parts.branches,
+        stacks: &parts.stacks,
+        sections: &parts.sections,
+        pushes: pushes.as_ref(),
+        open_pull_requests: &open,
+        lands: lands.as_ref(),
+        landed_states: (!syncing).then_some(&landed),
+        next_steps: &steps,
+        actions: &actions,
+        attention: &attention,
+        operations: state.operations().iter().collect(),
+        reviews: &reviews,
+        patronus: facts.patronus.part(),
+        route: &route,
+        facts: facts_change(&last.facts, facts),
+        news: facts.news(),
+      },
+    )
+  }
 }
 
 /// What changed of the facts of the remote services, by part
@@ -189,81 +191,6 @@ fn facts_change(last: &FactsView, facts: &FactStore) -> Option<FactsChanges> {
     auth: changed(&last.auth, facts.auth.fact()),
   };
   (change != FactsChanges::default()).then_some(change)
-}
-
-/// Of a part of facts by key (the readiness by subject, the details by robot), the facts of `now` that changed and the
-/// keys `now` has no longer (`contains`): only those are cloned
-fn keyed_facts_change<'a, T: PartialEq + Clone + 'a>(
-  last: &BTreeMap<String, Fact<T>>,
-  now: impl Iterator<Item = (&'a String, &'a Fact<T>)>,
-  contains: impl Fn(&str) -> bool,
-) -> (BTreeMap<String, Fact<T>>, Vec<String>) {
-  let changed = now
-    .filter(|(key, fact)| last.get(*key) != Some(*fact))
-    .map(|(key, fact)| (key.clone(), fact.clone()))
-    .collect();
-  let removed = last.keys().filter(|key| !contains(key)).cloned().collect();
-  (changed, removed)
-}
-
-/// What changed of the pull requests: the head when it differs, the pull requests by branch and by stack
-fn pull_requests_change(last: &PullRequestsView, now: &PullRequestsView) -> Option<PullRequestsChange> {
-  let (pull_requests, removed_pull_requests) = diff_keyed(&last.pull_requests, &now.pull_requests);
-  let (stack_pull_requests, removed_stack_pull_requests) = diff_keyed(&last.stack_pull_requests, &now.stack_pull_requests);
-  let head = changed(&last.head, &now.head);
-  // they change only with an answer, which changes the head
-  let (repository, viewer_permission, merge_methods) = match head {
-    Some(_) => (now.repository.clone(), now.viewer_permission, now.merge_methods),
-    None => (None, None, None),
-  };
-  let change = PullRequestsChange {
-    repository,
-    viewer_permission,
-    merge_methods,
-    head,
-    pull_requests,
-    removed_pull_requests,
-    stack_pull_requests,
-    removed_stack_pull_requests,
-  };
-  (change != PullRequestsChange::default()).then_some(change)
-}
-
-/// What changed of the robots: the head when it differs, the robots by id
-fn robots_change(last: &RobotsView, now: &RobotsView) -> Option<RobotsChange> {
-  let (robots, removed_robots) = diff_keyed(&last.robots, &now.robots);
-  let change = RobotsChange {
-    head: changed(&last.head, &now.head),
-    robots,
-    removed_robots,
-    failing: changed(&last.failing, &now.failing),
-    needs_review: changed(&last.needs_review, &now.needs_review),
-    problems_failed: changed(&last.problems_failed, &now.problems_failed),
-  };
-  (change != RobotsChange::default()).then_some(change)
-}
-
-/// What changed of the Patronus view: its states when they differ, the branches and the stacks by key
-fn patronus_change(last: &PatronusPart, now: &PatronusPart) -> Option<PatronusChange> {
-  let (branches, removed_branches) = diff_keyed(&last.view.branches, &now.view.branches);
-  let (stacks, removed_stacks) = diff_keyed(&last.view.stacks, &now.view.stacks);
-  let change = PatronusChange {
-    state: changed(&last.state, &now.state),
-    landing_needs: changed(&last.landing_needs, &now.landing_needs),
-    branches,
-    stacks,
-    landed_by_robot: changed(&last.view.landed_by_robot, &now.view.landed_by_robot),
-    restarts: changed(&last.view.restarts, &now.view.restarts),
-    removed_branches,
-    removed_stacks,
-  };
-  (change != PatronusChange::default()).then_some(change)
-}
-
-/// The news of `now` that the view sent last lacks, oldest first
-fn new_news(last: &[News], now: &[News]) -> Vec<News> {
-  let sent = last.last().map_or(0, |news| news.id);
-  now.iter().filter(|news| news.id > sent).cloned().collect()
 }
 
 /// A random epoch of a session: random per process and per call

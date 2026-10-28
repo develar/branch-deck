@@ -126,6 +126,20 @@ pub struct ReadinessFact {
 }
 
 impl ReadinessFact {
+  /// The readiness of the frame of an earlier run (`crate::warm_start`), by subject: each answer that stood `Cached`, of
+  /// the inputs of its own ask, until an answer of this process; no answer to tell the news of approvals against
+  pub(crate) fn cached(facts: BTreeMap<String, Fact<SubjectReadiness>>) -> Self {
+    let subjects = facts
+      .into_iter()
+      .filter_map(|(key, fact)| {
+        let inputs = fact.value.as_ref().map(|readiness| inputs_of(&readiness.ask, 0))?;
+        let fact = FactRecord::cached(fact, inputs)?;
+        Some((key, SubjectRecord { fact, ..SubjectRecord::new() }))
+      })
+      .collect();
+    Self { subjects, ..Self::default() }
+  }
+
   /// The readiness of each subject the session has one of
   pub fn facts(&self) -> impl Iterator<Item = (&String, &Fact<SubjectReadiness>)> {
     self.subjects.iter().map(|(key, record)| (key, record.fact.fact()))
