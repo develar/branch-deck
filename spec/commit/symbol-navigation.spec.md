@@ -15,7 +15,8 @@ targets:
   - ../../crates/file-diffs/src/declarations.rs
   - ../../crates/file-diffs/src/usages.rs
   - ../../crates/file-diffs/src/accio.rs
-  - ../../src-tauri/src/commands/file_diffs.rs
+  - ../../crates/app-api/src/reads/symbols.rs
+  - ../../crates/app-api/src/session/windows.rs
 ---
 
 # Symbol Navigation
@@ -71,7 +72,7 @@ outside it.
   [@test] ../../src/lib/navigation-gate.test.ts (`drops the answer of a canceled navigation, and says whether one was in flight`)
   [@test] ../../crates/file-diffs/src/accio_test.rs (`waits_for_a_slow_index_as_long_as_it_runs`, `a_canceled_search_kills_its_query`)
   [@test] ../../crates/file-diffs/src/usages_test.rs (`a_canceled_search_answers_nothing`)
-  [@test] ../../src-tauri/src/window_requests.rs (`a_window_supersedes_only_its_own_request`, `a_closed_window_supersedes_its_request`)
+  [@test] ../../crates/app-api/src/session/windows_test.rs (`a_window_supersedes_only_its_own_request`, `a_closed_window_supersedes_its_request`)
 - The declaration shown has its file open, the fold around it expanded, the view scrolled to it and its name selected
   once its row is painted with its text, however long its text takes, and again when a new layout paints the row anew,
   until the user presses or types in the view or selects elsewhere.

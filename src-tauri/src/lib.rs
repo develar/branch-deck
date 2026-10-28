@@ -8,7 +8,6 @@ pub mod services;
 pub mod settings;
 pub mod title_bar;
 pub mod tracing_log;
-pub mod window_requests;
 pub mod zoom;
 
 #[cfg(test)]
@@ -42,14 +41,11 @@ use commands::activity::{clear_activity, read_activity, record_activity};
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
 use commands::branch_review::{get_branch_review, prefetch_branch_review};
 use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
-use commands::conflict_fix::{cancel_conflict_fix, find_conflict_fix};
-use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_file_diffs, get_file_merges};
 use commands::github::GitHubState;
 use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
 use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
 use commands::repository_browser::browse_repository;
 use commands::repository_config::set_repository_config;
-use commands::review_requests::get_range_files;
 use commands::settings::{get_settings_changes, set_setting};
 use commands::sign_in::{AppSignIns, SignInsState, cancel_sign_in, get_auth_status, sign_in, sign_out};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
@@ -273,12 +269,11 @@ pub fn run() {
       let (sessions, registry) = services::start_sessions(app.handle(), &git, &repository_state);
       app.manage(app_settings::branch_prefixes::BranchPrefixes::default());
       app.manage(BranchReviewMemo::new());
-      // one cache of the files of a range for the reviews' lists and their diffs (`get_range_files`, `get_file_diffs`)
+      // one cache of the files of a range for the reviews' lists and their diffs (`get_range_files`, `get_file_diffs`),
+      // and the read ahead of a branch review (`prefetch_branch_review`)
       let file_diffs = file_diffs::service::FileDiffs::default();
       app.manage(file_diffs.range_files.clone());
-      app.manage(file_diffs);
       app.manage(BranchNameSuggestionState::default());
-      app.manage(SymbolSearchState::default());
       app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
@@ -327,7 +322,9 @@ pub fn run() {
         settings: Arc::clone(&settings_service),
         prefixes: app.state::<app_settings::branch_prefixes::BranchPrefixes>().inner().clone(),
         repository_state,
-        file_diffs: app.state::<file_diffs::service::FileDiffs>().inner().clone(),
+        file_diffs,
+        symbol_indexes: Arc::new(app_api::reads::symbols::Accio),
+        conflict_fix: app_api::reads::conflict_fix::ConflictFixSearch::default(),
         sessions,
         registry,
         windows: Arc::default(),
@@ -372,14 +369,13 @@ pub fn run() {
         }
         return;
       }
-      // a closed window: its review fetch is stopped, its page state forgotten
+      // a closed window: its review fetches and its symbol search are stopped, its page state forgotten
       if let tauri::RunEvent::WindowEvent {
         label,
         event: tauri::WindowEvent::Destroyed,
         ..
       } = event
       {
-        app_handle.state::<SymbolSearchState>().0.forget(&label);
         app_handle.state::<SubWindowState>().forget(&label);
         app_handle.state::<AppContext>().forget_window(&WindowId::new(label.as_str()));
         title_bar::forget_window(&label);

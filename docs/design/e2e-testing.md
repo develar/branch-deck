@@ -172,14 +172,28 @@ Mock implementation:
   bytes of a raw command (`get_blob_syntax`), or its error (below) with the operation it names, as the app's.
   [@test] ../../crates/test-server/src/invoke_test.rs (`a_read_of_app_api_answers_what_the_app_answers`, `a_raw_command_answers_its_bytes`, `the_arguments_of_a_command_are_its_params_or_its_named_arguments`)
   [@test] ../../crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)
+- **The table of the page mock**: the mock knows the commands of app-api from the table of their registry,
+  `crates/app-api/commands.json` (`[{ name, class, transport }]`; `transport` is `"json"`, `"raw"`, or
+  `{ channel, open }`: the argument of the page that gets the events of the command, and whether it stays open after
+  the answer), which `commands_json_test.rs` writes from `app_api::commands::COMMANDS` with
+  `UPDATE_COMMANDS=1 cargo nextest run -p app-api -E 'test(/commands_json/)'` and which fails when it is stale. The
+  fixtures pass it to the init script (`page.addInitScript(tauriMockScript, PAGE_COMMANDS)`): for a command with a
+  channel the mock keeps the `Channel` of the argument its entry names (`window.__progressChannels`), sends its key
+  (`X-Progress-Channel`), hands each `{ progress }` of the answer to it, and reads on after the answer for an `open`
+  one. No channel is guessed from the payload: the diffs and the merges of the views (`get_file_diffs`,
+  `get_file_merges`, `events`) stream through it as the app streams them, the patches of `subscribe_view`
+  (`patches`, open) and the events of `execute`. The three handwritten commands with a channel (`sign_in`,
+  `get_robot_stats`, `run_cli_tool_action`) are named in `HANDWRITTEN_CHANNELS` of the mock until they move into the
+  registry; one that is in the table fails the page.
+  [@test] ../../crates/app-api/src/commands_json_test.rs (`the_commands_json_of_the_page_mock_is_the_registry`, `a_channel_of_the_table_names_the_argument_of_the_page_and_whether_it_stays_open`)
 - **Command registry**: three lists name the commands: `collect_commands!` of `src-tauri/src/lib.rs`, the
   `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and of `invoke.rs` (`app_api::commands::COMMANDS`), and
   `COMMAND_HANDLERS` of `tauri-mocks.ts`. The mock
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
-  or a handler without its command, fails; the twelve
-  handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel; `set_setting`, `get_settings_changes`, `sub_window_loaded` and
+  or a handler without its command, fails; the ten
+  handlers over a route (`set_setting`, `get_settings_changes`, `sub_window_loaded` and
   `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
   `set_repository_config`, `sign_in` (not of the `youtrack` CLI, which changes no account), `sign_out`,
   `record_activity`, `clear_activity` and `execute` emit the event the backend emits after
@@ -276,7 +290,7 @@ Mock implementation:
   (`AppContext::forget_windows`, as the app forgets a closed window), so the stream ends and the deletion does not
   wait for it. A command of app-api with a channel (`[channel patches: ViewPatch, open]` of its entry) streams so
   whenever the mock names its channel; the mock answers the command at its `{ result }` and reads the stream on for
-  the channel (`OPEN_CHANNELS` of `tauri-mocks.ts`). A refusal (`no_branch_prefix`, by the frame of a session command,
+  the channel (`open` of its entry in `commands.json`). A refusal (`no_branch_prefix`, by the frame of a session command,
   which resolves the key of the session before its body runs) is `{ result: { status: "error", error } }` on the
   stream, the JSON of the app, with the id of its operation. A patch may reach the channel before the answer, in the app too: the
   page keeps it until it has the view, and applies a patch only on its `base`. The sync button carries the version of
@@ -797,7 +811,8 @@ Optimizations:
 
 - Implementation: `crates/test-server/`, `tests/e2e/`
 - Test helpers: `tests/e2e/helpers/`
-- Mock layer and snapshot formatter: `tests/e2e/setup/tauri-mocks.ts` (injected with `page.addInitScript`)
+- Mock layer and snapshot formatter: `tests/e2e/setup/tauri-mocks.ts` (injected with `page.addInitScript`, with the
+  table of the commands of app-api, `crates/app-api/commands.json`)
 - Snapshot capture and transition settling: `tests/e2e/helpers/aria-snapshot-helpers.ts`
 - Frontend: the test server serves the `pnpm build` output from `dist/`, with an SPA fallback to `index.html` for client routes such as `/conflicting-files`
 - Templates: `crates/test-server/src/templates.rs` (the cache), `crates/test-utils/src/repo_template.rs` (the repositories)

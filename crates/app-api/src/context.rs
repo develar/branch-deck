@@ -5,6 +5,8 @@
 
 use crate::api_error::no_branch_prefix;
 use crate::operation::run_blocking;
+use crate::reads::conflict_fix::ConflictFixSearch;
+use crate::reads::symbols::SymbolIndexes;
 use crate::repository_state::RepositoryStateCache;
 use crate::session::windows::Windows;
 use crate::transport::{AppEvents, Call, WindowId};
@@ -22,7 +24,8 @@ use std::sync::Arc;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 
 /// The state every command of the app shares. A host differs only in what it puts here: the e2e server gives a test the
-/// git of a test machine (its own global config, no system config), its settings and its own memory of the diffs
+/// git of a test machine (its own global config, no system config), its settings, its own memory of the diffs and the
+/// symbol index of its fixture
 pub struct AppContext {
   pub git: GitCommandExecutor,
   /// The one writer of `settings.json` and `repository-state.json`
@@ -31,14 +34,20 @@ pub struct AppContext {
   pub prefixes: BranchPrefixes,
   /// The git directories, the object cache and the GitHub repository of each repository
   pub repository_state: RepositoryStateCache,
-  /// The diffs and the blobs of the views, shared by every window
+  /// The diffs and the blobs of the views and the file lists of the ranges (`FileDiffs::range_files`), shared by every
+  /// window
   pub file_diffs: FileDiffs,
+  /// The index a symbol search asks outside the review: accio of this machine (`Accio`), the fixture of a test
+  /// repository
+  pub symbol_indexes: Arc<dyn SymbolIndexes>,
+  /// The search of the fix of the conflicts, one at a time
+  pub conflict_fix: ConflictFixSearch,
   /// The sessions of the repositories the windows show (`repository_model::session`), which own their tables and read
   /// their facts; the e2e server shares one between its test repositories
   pub sessions: Arc<Sessions>,
   /// The operations of the remote that run or wait in the sessions (`operations::registry`)
   pub registry: Registry,
-  /// What each window holds open in the sessions: its subscriptions, its review fetches
+  /// What each window holds open: its subscriptions, its review fetches, its symbol search
   pub windows: Arc<Windows>,
   /// What the reads of the sessions and the effects of the engine reach the remote services with: the app's services,
   /// the fakes of a test repository
@@ -83,11 +92,12 @@ impl AppContext {
     }
   }
 
-  /// `window` closed: its subscriptions end and its review fetches stop
+  /// `window` closed: its subscriptions end, its review fetches stop and its symbol search is superseded
   pub fn forget_window(&self, window: &WindowId) {
     for op in self.windows.forget_fetches(window) {
       self.registry.cancel(&op);
     }
+    self.windows.forget_search(window);
     self.forget_page(window);
   }
 

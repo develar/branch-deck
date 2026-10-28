@@ -208,8 +208,11 @@ fn requesting_window(headers: &HeaderMap) -> &str {
 }
 
 /// The arguments of `C` from the body the page mock sends: the object of the arguments by their camelCase names, or
-/// the value of `params` alone, which the mock unwraps
+/// the value of `params` alone, which the mock unwraps; nothing for a command without arguments
 fn arguments<C: Command>(body: &[u8]) -> serde_json::Result<C::Args> {
+  if C::SPEC.args.is_empty() {
+    return serde_json::from_value(serde_json::json!({}));
+  }
   let value: serde_json::Value = if body.is_empty() { serde_json::Value::Null } else { serde_json::from_slice(body)? };
   if C::SPEC.args == ["params"] {
     return serde_json::from_value(serde_json::json!({ "params": value }));

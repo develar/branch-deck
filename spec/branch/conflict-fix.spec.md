@@ -10,8 +10,7 @@ targets:
   - ../../crates/trial-check/src/dangling_references.rs
   - ../../crates/bd-rewrite/src/check_command.rs
   - ../../crates/bd-cli/src/agent_help.rs
-  - ../../src-tauri/src/commands/conflict_fix.rs
-  - ../../crates/test-server/src/tauri_command_bridge.rs
+  - ../../crates/app-api/src/reads/conflict_fix.rs
   - ../../src/stores/conflict-fix.ts
   - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/rewrite-run.ts
@@ -129,6 +128,7 @@ rewrite.
   with a spinner.
   [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
   [@test] ../../src/stores/conflict-fix.test.ts (`looks for the fix once per commits of the table: a push or a deleted archived branch looks for nothing again`)
+  [@test] ../../crates/app-api/src/reads/conflict_fix_test.rs (`a_new_search_of_the_fix_stops_the_one_in_flight_and_a_cancel_the_latest`)
 - A found fix names its steps as the Move action does ("Move “Show the timeout in seconds” to api", "Move the
   unassigned “Add config” to auth", "Move 2 commits of x and y to auth", "Stack ui on api"): one step is the title,
   more are a list under "Fix in N steps". Below: the issue groups it writes ("Future IJAI-4085 commits go to IJAI-4047

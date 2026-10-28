@@ -11,6 +11,7 @@ targets:
   - ../../src/lib/sub-window.ts
   - ../../src/lib/open-timing.ts
   - ../../src/lib/review-window-reads.ts
+  - ../../crates/app-api/src/reads/diffs.rs
   - ../../src-tauri/src/commands/window_management.rs
   - ../../src/components/files/FileTree.tsx
   - ../../src/components/files/FileContextMenu.tsx

@@ -4,7 +4,7 @@
 //! of a command its Tauri channel (`ChannelSink`). `lib.rs` registers them with the handwritten commands that have no
 //! entry yet.
 
-use app_api::transport::{AppEvents, EventSink, SinkGone};
+use app_api::transport::{AppEvents, EventSink, Sink, SinkGone};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
@@ -36,6 +36,11 @@ impl<T: IpcResponse + Send + Sync> EventSink<T> for ChannelSink<T> {
   }
 }
 
+/// The channel of a wrapper as the channel argument of the body
+pub fn sink<T: IpcResponse + Send + Sync + 'static>(channel: Channel<T>) -> Sink<T> {
+  Arc::new(ChannelSink(channel))
+}
+
 /// The events of the app to its windows
 pub struct TauriEvents(pub AppHandle);
 
@@ -53,9 +58,10 @@ macro_rules! tauri_commands {
 }
 
 /// The wrapper of one command by its kind: `json` async with its `Result`, `plain` on the main thread with its value,
-/// `raw` async with the bytes as a `tauri::ipc::Response`, which the typed bindings cannot say (`raw_invoke_handler`);
-/// `session` async in the frame of app-api (`Command::call`) with the call of its webview and its channel, `now` on
-/// the main thread with the call of its webview
+/// `raw` async with the bytes as a `tauri::ipc::Response`, which the typed bindings cannot say (`raw_invoke_handler`),
+/// `now` on the main thread with the call of its webview; `session`, `window` and a `json` command with a channel
+/// async in the frame of app-api (`Command::call`) with the call of its webview and its channel. The arms of the kinds
+/// come before the arms of any kind, which `macro_rules` tries in order
 macro_rules! tauri_command {
   ($(#[doc = $doc:literal])* json $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
     $(#[doc = $doc])*
@@ -80,32 +86,6 @@ macro_rules! tauri_command {
       $body(&ctx, $($arg),*).await.map(tauri::ipc::Response::new)
     }
   };
-  ($(#[doc = $doc:literal])* session $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
-    $(#[doc = $doc])*
-    #[tauri::command]
-    #[specta::specta]
-    pub async fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
-      let call = ctx.call(webview.label());
-      let args = app_api::commands::$name::Args { $($arg),* };
-      <app_api::commands::$name::Command as app_api::registry::Command>::call(&ctx, &call, args, ()).await
-    }
-  };
-  ($(#[doc = $doc:literal])* session $name:ident($($arg:ident: $type:ty),*) [$channel:ident: $event:ty] [$output:ty] = $body:path) => {
-    $(#[doc = $doc])*
-    #[tauri::command]
-    #[specta::specta]
-    pub async fn $name(
-      ctx: tauri::State<'_, app_api::context::AppContext>,
-      webview: tauri::Webview,
-      $($arg: $type,)*
-      $channel: tauri::ipc::Channel<$event>,
-    ) -> Result<$output, domain_types::error::ApiError> {
-      let call = ctx.call(webview.label());
-      let args = app_api::commands::$name::Args { $($arg),* };
-      let sink: app_api::transport::Sink<$event> = std::sync::Arc::new($crate::api::ChannelSink($channel));
-      <app_api::commands::$name::Command as app_api::registry::Command>::call(&ctx, &call, args, sink).await
-    }
-  };
   ($(#[doc = $doc:literal])* now $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
     $(#[doc = $doc])*
     #[tauri::command]
@@ -123,6 +103,33 @@ macro_rules! tauri_command {
     pub fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) {
       let call = ctx.call(webview.label());
       $body(&ctx, &call, $($arg),*);
+    }
+  };
+  // `session`, `window`: the call of the webview
+  ($(#[doc = $doc:literal])* $kind:ident $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
+    $(#[doc = $doc])*
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
+      let call = ctx.call(webview.label());
+      let args = app_api::commands::$name::Args { $($arg),* };
+      <app_api::commands::$name::Command as app_api::registry::Command>::call(&ctx, &call, args, ()).await
+    }
+  };
+  // `session`, `json`: the call of the webview and the channel
+  ($(#[doc = $doc:literal])* $kind:ident $name:ident($($arg:ident: $type:ty),*) [$channel:ident: $event:ty] [$output:ty] = $body:path) => {
+    $(#[doc = $doc])*
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn $name(
+      ctx: tauri::State<'_, app_api::context::AppContext>,
+      webview: tauri::Webview,
+      $($arg: $type,)*
+      $channel: tauri::ipc::Channel<$event>,
+    ) -> Result<$output, domain_types::error::ApiError> {
+      let call = ctx.call(webview.label());
+      let args = app_api::commands::$name::Args { $($arg),* };
+      <app_api::commands::$name::Command as app_api::registry::Command>::call(&ctx, &call, args, $crate::api::sink($channel)).await
     }
   };
 }

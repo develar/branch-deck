@@ -3,8 +3,9 @@
 //! `bd-cli`) (docs/design/rust-domain-authority.md, s12-app-api).
 //!
 //! - `commands`: the one list of the commands (`for_each_command!`), in the grammar of `registry` (`api_commands!`,
-//!   `Command`, `COMMANDS`); the bodies by family: `reads` (the repository and its commits), `session` (the sessions,
-//!   their operations and what each window holds open in them).
+//!   `Command`, `COMMANDS`), and its table for the page mock of the e2e server (`commands.json`); the bodies by family:
+//!   `reads` (the repository and its commits, the diffs, the symbol searches, the conflict fix), `session` (the
+//!   sessions, their operations and what each window holds open).
 //! - `context`: `AppContext`, what every command runs with, the key of a session, and `PrefixInputs`, the prefix of a
 //!   repository's branches.
 //! - `transport`: what a host hands a command besides its arguments (the call of a window, the channel to its page) and
@@ -25,6 +26,8 @@ pub mod transport;
 
 #[cfg(test)]
 mod command_scan_test;
+#[cfg(test)]
+mod commands_json_test;
 #[cfg(test)]
 mod registry_test;
 #[cfg(test)]

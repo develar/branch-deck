@@ -4,7 +4,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-/// The arguments of a command are its `params` (which the page mock sends alone), or the object of its named arguments
+/// The arguments of a command are its `params` (which the page mock sends alone), the object of its named arguments,
+/// or none
 #[test]
 fn the_arguments_of_a_command_are_its_params_or_its_named_arguments() {
   let args = arguments::<app_api::commands::get_commit_files::Command>(br#"{ "repositoryPath": "/r", "commitId": "c" }"#).unwrap();
@@ -14,6 +15,10 @@ fn the_arguments_of_a_command_are_its_params_or_its_named_arguments() {
   assert_eq!((args.repository_path.as_str(), args.branch_name.as_str()), ("/r", "b"));
 
   assert!(arguments::<app_api::commands::get_archived_branch_commits::Command>(br#"{ "repositoryPath": "/r" }"#).is_err());
+
+  // a command without arguments: the `{}` of the page, or nothing of a direct call
+  arguments::<app_api::commands::cancel_symbol_search::Command>(b"{}").unwrap();
+  arguments::<app_api::commands::cancel_conflict_fix::Command>(b"").unwrap();
 }
 
 /// A read of app-api runs the app's body in the context of the test repository: the identity of the test machine

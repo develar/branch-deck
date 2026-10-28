@@ -5,10 +5,7 @@ use app_api::api_error::{IntoApiError, patronus_error};
 use axum::{
   extract::State,
   http::{HeaderMap, StatusCode},
-  response::{
-    IntoResponse, Json, Response,
-    sse::{Event, KeepAlive, Sse},
-  },
+  response::{IntoResponse, Json, Response},
 };
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
@@ -21,16 +18,12 @@ use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::sign_in::{Account, AuthStatus, SignIn, SignInProvider};
 use domain_types::youtrack::YouTrackIssueAnswer;
-use file_diffs::model::{FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetFileDiffsParams, GetFileMergesParams};
-use file_diffs::service::FileDiffs;
-use git_ops::commit_files::{CommitFiles, DiffSubject, read_diff_files};
 use object_cache::cache::ObjectCache;
 use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_model::session::SessionKey;
 use serde::Deserialize;
-use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::branch_name_suggestion::clean_names;
@@ -41,9 +34,6 @@ use sync_core::repository_config::{
   with_stacks_off_clashes, write_global_config, write_repository_config,
 };
 use sync_core::robot_commits::robot_failure_report;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_stream::{Stream, StreamExt};
 
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
@@ -68,30 +58,12 @@ where
   }
 }
 
-/// A path that is no test repository (the deliberately missing directory of `NO_REPO`) fails the command, as the app
-/// fails it for a directory that is gone
-fn ensure_repository_exists(state: &AppState, path: &str) -> Result<(), Rejection> {
-  repository_by_path(state, path).map(drop)
-}
-
 pub(crate) fn repository_by_path<'a>(state: &'a AppState, path: &str) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, Rejection> {
   state
     .path_to_id
     .get(path)
     .and_then(|id| state.repositories.get(id.value()))
     .ok_or_else(|| failed("find the test repository", format!("Repository not accessible: {path}")))
-}
-
-/// Streams the events sent to `rx` as SSE events named `event_name`, with a keep-alive every second
-fn sse_events<T>(rx: mpsc::UnboundedReceiver<T>, event_name: &'static str) -> Sse<impl Stream<Item = Result<Event, Infallible>>>
-where
-  T: serde::Serialize + std::fmt::Debug + Send + 'static,
-{
-  let stream = UnboundedReceiverStream::new(rx).map(move |event| {
-    tracing::debug!(?event, event_name, "Sending SSE event");
-    Ok(Event::default().event(event_name).data(serde_json::to_string(&event).unwrap()))
-  });
-  Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive"))
 }
 
 /// What a command of the sync family resolves the prefix of a test repository with, as the app's `PrefixInputs`: the
@@ -237,24 +209,6 @@ pub async fn get_robot_commit_map(
     .map(Option::unwrap_or_default)
   })
   .await
-}
-
-/// Without the object cache, as every command of the mock server; nothing cancels it
-pub async fn find_conflict_fix(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<trial_check::conflict_fix::FindConflictFixParams>,
-) -> CommandResult<trial_check::conflict_fix::ConflictFix> {
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let git_executor = state.git_executor.clone();
-  run_command("find the conflict fix", move || {
-    trial_check::conflict_fix::find_conflict_fix_core(&git_executor, &ObjectCache::disabled(), &params, &branch_prefix, &std::sync::atomic::AtomicBool::new(false))
-  })
-  .await
-}
-
-/// A search of the mock server runs to its end
-pub async fn cancel_conflict_fix() -> Json<()> {
-  Json(())
 }
 
 /// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known
@@ -452,22 +406,6 @@ fn resolve_review_heads(path: &str, result: &mut ReviewRequestsResult) {
   }
 }
 
-pub async fn get_range_files(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::review_request::GetRangeParams>) -> CommandResult<CommitFiles> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the files of a range", move || {
-    read_diff_files(
-      &git_executor,
-      &params.repository_path,
-      &DiffSubject::Range {
-        base: params.base,
-        head: params.head,
-      },
-    )
-  })
-  .await
-}
-
 /// Nothing to read ahead: the bridge keeps no caches, every read of a review runs git (the E2E stay deterministic)
 pub async fn prefetch_branch_review() -> CommandResult<()> {
   Ok(Json(()))
@@ -623,72 +561,6 @@ pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(param
     format!("update-{}", words.get(1).unwrap_or(&"feature")),
   ]);
   Ok(Json(BranchNameSuggestionOutcome::Suggested { names }))
-}
-
-// The commit files commands run real git on the fixture repository, without the object cache: an LMDB environment
-// per test repository would stay open (and keep its files) for the life of the server
-
-/// The events of the app's channel as SSE events named `fileDiff`, once all are known; a failed read answers with its
-/// error instead. Without the object cache and with fresh memory caches: each read of a test runs git
-pub async fn get_file_diffs(State(state): State<Arc<AppState>>, Json(params): Json<GetFileDiffsParams>) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  stream_events("read the file diffs", "fileDiff", move |send: &mut dyn FnMut(FileDiffEvent)| {
-    FileDiffs::default().stream(&git_executor, &ObjectCache::disabled(), &params, send)
-  })
-  .await
-}
-
-/// The events of the app's channel as SSE events named `fileMerge`, as `get_file_diffs`
-pub async fn get_file_merges(State(state): State<Arc<AppState>>, Json(params): Json<GetFileMergesParams>) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  stream_events("read the file merges", "fileMerge", move |send: &mut dyn FnMut(FileMergeEvent)| {
-    FileDiffs::default().stream_merges(&git_executor, &ObjectCache::disabled(), &params, send)
-  })
-  .await
-}
-
-/// Runs `produce` off the async runtime and answers with the events it sent, as SSE events named `event_name`
-async fn stream_events<E, F>(operation: &'static str, event_name: &'static str, produce: F) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Rejection>
-where
-  E: serde::Serialize + std::fmt::Debug + Send + 'static,
-  F: FnOnce(&mut dyn FnMut(E)) -> anyhow::Result<()> + Send + 'static,
-{
-  let Json(events) = run_command(operation, move || {
-    let mut events: Vec<E> = Vec::new();
-    produce(&mut |event| events.push(event)).map(|()| events)
-  })
-  .await?;
-  let (sender, receiver) = mpsc::unbounded_channel();
-  for event in events {
-    let _ = sender.send(event);
-  }
-  Ok(sse_events(receiver, event_name))
-}
-
-pub async fn find_declaration(State(state): State<Arc<AppState>>, Json(params): Json<FindDeclarationParams>) -> CommandResult<FoundDeclarations> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  // the index of a test repository is its fixture (`.git/branch-deck-accio.json`), as accio answers
-  run_command("find a declaration", move || {
-    FileDiffs::default().find_declaration(&git_executor, &ObjectCache::disabled(), Some(&file_diffs::accio::FixtureIndex), &params)
-  })
-  .await
-}
-
-pub async fn find_usages(State(state): State<Arc<AppState>>, Json(params): Json<FindDeclarationParams>) -> CommandResult<FoundUsages> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("find the usages", move || {
-    FileDiffs::default().find_usages(&git_executor, Some(&file_diffs::accio::FixtureIndex), &params)
-  })
-  .await
-}
-
-/// Nothing to kill: the index of a test repository is its fixture, read at once
-pub async fn cancel_symbol_search() -> Json<()> {
-  Json(())
 }
 
 #[derive(Deserialize)]

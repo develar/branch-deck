@@ -10,17 +10,20 @@
 //!   operation of a session (`operations::engine`), `app` writes what no session admits (the reason of each is in
 //!   `command_registry_test.rs` of the e2e server);
 //! - the kind says how it runs and answers: `json` is `async fn(&AppContext, arguments…) -> Result<output, ApiError>`,
-//!   `raw` the same with the output bytes the typed bindings cannot say (`Vec<u8>`), `plain` a synchronous rule that
-//!   cannot fail, `fn(arguments…) -> output`, which needs no context (the grammar of what the user types); `session` a
+//!   `raw` the same with the output bytes the typed bindings cannot say (`Vec<u8>`), `window` the same for the window
+//!   that calls it, `async fn(&AppContext, &Call, arguments…)` (a search of its own, which a newer one of the window
+//!   supersedes); `plain` a synchronous rule that cannot fail, `fn(arguments…) -> output`, which needs no context (the
+//!   grammar of what the user types); `session` a
 //!   command of the session of the repository its `params.repository_path` names, `async fn(&AppContext, &Call,
 //!   SessionKey, arguments…) -> Result<output, ApiError>`, whose frame runs it as one operation in the span of the
 //!   command (`<name>{repository_path}:operation{operation_id}`) once it resolved the key (`AppContext::session_key`);
 //!   `now` a synchronous command of a window that cannot fail and answers at once (on the main thread of the app),
 //!   `fn(&AppContext, &Call, arguments…) -> output`;
 //! - the arguments are what the page sends, by name (`params`, `repository_path` as `repositoryPath`);
-//! - the channel, for a command that tells the page its events while it runs (`[channel events: OperationEvent]`), is
-//!   the last argument of the body (`Sink<event>`) and of the bindings (`Channel<event>`); `open`: it stays open after
-//!   the answer (the patches of a subscription).
+//! - the channel, for a command that tells the page its events while it runs (`[channel events: OperationEvent]`, of a
+//!   `json` or a `session` command), is the last argument of the body (`Sink<event>`) and of the bindings
+//!   (`Channel<event>`); `open`: it stays open after the answer (the patches of a subscription). The page mock of the e2e
+//!   server knows each channel from the table of the registry, `crates/app-api/commands.json` (`commands_json_test.rs`).
 
 use crate::context::AppContext;
 use crate::transport::Call;
@@ -49,6 +52,8 @@ pub enum CommandKind {
   /// Async, answers raw bytes: the app registers it beside the typed bindings (`generate_handler!`), and the page calls
   /// it with `invoke` of its own
   Raw,
+  /// Async, answers `Result<output, ApiError>` as JSON for the window that calls it
+  Window,
   /// Async, a command of the session of a repository: the frame resolves its key, the body runs as one operation
   Session,
   /// A synchronous command of a window that cannot fail: the bindings return its output as it is
@@ -121,6 +126,9 @@ macro_rules! api_command {
   (@kind raw) => {
     $crate::registry::CommandKind::Raw
   };
+  (@kind window) => {
+    $crate::registry::CommandKind::Window
+  };
   (@kind session) => {
     $crate::registry::CommandKind::Session
   };
@@ -174,9 +182,17 @@ macro_rules! api_command {
   (@session_body $body:path, $ctx:ident, $call:ident, $key:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)+]) => {
     $body($ctx, $call, $key, $($args.$arg,)* $sink)
   };
+  (@call window $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
+    let () = $sink;
+    $body($ctx, $call, $($args.$arg),*)
+  }};
   (@call $kind:ident $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let (_, ()) = ($call, $sink);
     $body($ctx, $($args.$arg),*)
+  }};
+  (@call json $name:ident $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)+]) => {{
+    let _ = $call;
+    $body($ctx, $($args.$arg,)* $sink)
   }};
   ($class:ident $kind:ident $name:ident($($arg:ident: $type:ty),*) [$($channel:tt)*] -> [$($output:ty)?] = $body:path) => {
     pub mod $name {
@@ -206,6 +222,8 @@ macro_rules! api_command {
           args: Args,
           channel: Self::Channel,
         ) -> impl ::std::future::Future<Output = Result<Self::Output, ::domain_types::error::ApiError>> + Send {
+          // a command without arguments reads none
+          let _ = &args;
           $crate::api_command!(@call $kind $name $body, ctx, call, args($($arg),*), channel [$($channel)*])
         }
       }

@@ -1,22 +1,26 @@
-//! What each window of the app holds open in the sessions, by its label: the subscriptions of the page it shows and the
-//! review fetches it runs. A subscription ends with `unsubscribe_view`, with its window (`AppContext::forget_window`, on
+//! What each window of the app holds open, by its label: the subscriptions of the page it shows, the review fetches it
+//! runs and its symbol search. A subscription ends with `unsubscribe_view`, with its window (`AppContext::forget_window`, on
 //! `Destroyed`) and with a page load of its window (`AppContext::forget_page`, a reload): a Tauri channel of a page
 //! that went away never fails its send, so the session would keep it. A subscription is recorded under the page that
 //! asked for it, so one that answers after its page went away (the command awaited the prefix and the session
 //! meanwhile) ends at once. A review fetch (`Intent::FetchReview`) stops with its window: the fetch of a pull request no
-//! window shows is of no use; every other operation of a closed window goes on.
+//! window shows is of no use; every other operation of a closed window goes on. A symbol search (Go to Declaration, Find
+//! Usages) is superseded by a newer one of its window, its cancel and its close (`WindowRequests`): windows search apart,
+//! one never cancels the search of another.
 
 use crate::transport::{Call, PageId, WindowId};
 use domain_types::operation::OperationId;
 use repository_model::session::SubscriptionId;
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-/// The windows of an app: their subscriptions and their review fetches
+/// The windows of an app: their subscriptions, their review fetches and their symbol searches
 #[derive(Default)]
 pub struct Windows {
   subscriptions: Mutex<WindowSubscriptions>,
   fetches: WindowFetches,
+  searches: WindowRequests,
 }
 
 /// The review fetches each window runs (`Intent::FetchReview`), by its label
@@ -75,6 +79,21 @@ impl Windows {
     self.fetches().remove(window).unwrap_or_default()
   }
 
+  /// Starts a symbol search of `window`, which supersedes the one before
+  pub fn begin_search(&self, window: &WindowId) -> WindowRequest {
+    self.searches.begin(window)
+  }
+
+  /// Supersedes the symbol search of `window` in flight, if any
+  pub fn cancel_search(&self, window: &WindowId) {
+    self.searches.cancel(window);
+  }
+
+  /// `window` closed: its symbol search is superseded and forgotten
+  pub fn forget_search(&self, window: &WindowId) {
+    self.searches.forget(window);
+  }
+
   /// Every window with a page or a fetch
   pub fn open(&self) -> Vec<WindowId> {
     let mut windows: Vec<WindowId> = self.subscriptions().pages.keys().cloned().collect();
@@ -128,5 +147,50 @@ impl WindowSubscriptions {
   /// Forgets the page of `window` (it closed, or loads again) and answers its subscriptions, which the caller ends
   pub fn forget(&mut self, window: &WindowId) -> Vec<SubscriptionId> {
     self.pages.remove(window).map_or_default(|(_, subscriptions)| subscriptions)
+  }
+}
+
+/// The latest request of one kind of each window: an older one of the same window still running is superseded, as is
+/// the latest after a cancel of the window or when the window goes. Windows ask apart: one never cancels the request of
+/// another
+#[derive(Default)]
+pub struct WindowRequests(Mutex<HashMap<WindowId, Arc<AtomicU64>>>);
+
+/// A request of a window: superseded once the window starts a newer one, cancels it, or goes
+pub struct WindowRequest {
+  counter: Arc<AtomicU64>,
+  request: u64,
+}
+
+impl WindowRequest {
+  pub fn is_superseded(&self) -> bool {
+    self.counter.load(Ordering::SeqCst) != self.request
+  }
+}
+
+impl WindowRequests {
+  fn counter(&self, window: &WindowId) -> Arc<AtomicU64> {
+    let mut latest = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(latest.entry(window.clone()).or_default())
+  }
+
+  /// Starts a request of the window, which supersedes the one before
+  pub fn begin(&self, window: &WindowId) -> WindowRequest {
+    let counter = self.counter(window);
+    let request = counter.fetch_add(1, Ordering::SeqCst) + 1;
+    WindowRequest { counter, request }
+  }
+
+  /// Supersedes the request of the window in flight, if any
+  pub fn cancel(&self, window: &WindowId) {
+    self.counter(window).fetch_add(1, Ordering::SeqCst);
+  }
+
+  /// The window went: its request is superseded and forgotten
+  pub fn forget(&self, window: &WindowId) {
+    let removed = self.0.lock().unwrap_or_else(PoisonError::into_inner).remove(window);
+    if let Some(counter) = removed {
+      counter.fetch_add(1, Ordering::SeqCst);
+    }
   }
 }

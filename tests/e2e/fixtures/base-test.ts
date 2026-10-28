@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test"
-import { tauriMockScript } from "../setup/tauri-mocks"
+import { PAGE_COMMANDS, tauriMockScript } from "../setup/tauri-mocks"
 
 /**
  * Custom test fixture that automatically sets up Tauri mocks
@@ -27,7 +27,7 @@ export const test = base.extend({
     }
 
     // Inject Tauri mocks before each navigation
-    await page.addInitScript(tauriMockScript)
+    await page.addInitScript(tauriMockScript, PAGE_COMMANDS)
 
     // a popup, a form or a card is in place from its first frame, in every window: its zoom and slide in are off.
     // Playwright found the first frames of a zoom stable on a quick machine, the pointer went where the item was in

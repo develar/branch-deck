@@ -1,4 +1,4 @@
-use crate::session::windows::{WindowSubscriptions, Windows};
+use crate::session::windows::{WindowRequests, WindowSubscriptions, Windows};
 use crate::transport::WindowId;
 use domain_types::operation::OperationId;
 use repository_model::session::SubscriptionId;
@@ -54,4 +54,34 @@ fn a_call_names_the_page_of_its_window_and_a_closed_window_answers_its_fetches()
   assert_eq!(windows.forget_fetches(&review), [second]);
   assert_eq!(windows.forget_fetches(&review), []);
   assert_eq!(windows.open(), [] as [WindowId; 0]);
+}
+
+#[test]
+fn a_window_supersedes_only_its_own_request() {
+  let (main, review) = (WindowId::new("main"), WindowId::new("pull-request-review"));
+  let requests = WindowRequests::default();
+  let first = requests.begin(&main);
+  let window = requests.begin(&review);
+
+  // a newer request of the window, then a cancel of main: each supersedes only its own window's request
+  let newer = requests.begin(&review);
+  assert!(window.is_superseded());
+  assert!(!first.is_superseded());
+  requests.cancel(&main);
+  assert!(first.is_superseded());
+  assert!(!newer.is_superseded());
+}
+
+#[test]
+fn a_closed_window_supersedes_its_request() {
+  let review = WindowId::new("pull-request-review");
+  let windows = Windows::default();
+  let search = windows.begin_search(&review);
+  windows.forget_search(&review);
+  assert!(search.is_superseded());
+  // a window opened again under the label starts afresh
+  let again = windows.begin_search(&review);
+  assert!(!again.is_superseded());
+  windows.cancel_search(&review);
+  assert!(again.is_superseded());
 }

@@ -2,7 +2,9 @@
 //! entry is the one of its function in `src/lib/bindings.ts`; its body lives in a family module (`reads::…`,
 //! `session::…`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its `Command` and
 //! the list [`COMMANDS`], the app its `#[tauri::command]` wrappers (`src-tauri/src/api.rs`), the e2e server its routes
-//! (`crates/test-server/src/invoke.rs`). A type of an entry is named by its full path, which resolves in each host.
+//! (`crates/test-server/src/invoke.rs`), and the page mock of the e2e server its table, `crates/app-api/commands.json`
+//! (written from `COMMANDS` by `commands_json_test.rs`). A type of an entry is named by its full path, which resolves in
+//! each host.
 
 /// Calls the macro `$callback` with every command of the app, in the grammar of `registry.rs`
 #[macro_export]
@@ -63,6 +65,39 @@ macro_rules! for_each_command {
       /// typed bindings cannot say, so it has its own handler (`raw_invoke_handler` in `lib.rs`) and its own call in the view
       /// (`src/lib/diff/highlight/backend-syntax.ts`). From the blobs the diffs read, else one `cat-file --batch`
       read raw get_blob_syntax(params: file_diffs::model::GetBlobSyntaxParams) -> Vec<u8> = $crate::reads::blobs::get_blob_syntax;
+
+      /// The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
+      /// the files, then the content of each file as it is known, the files in view (`priority_paths`) first. Through the
+      /// memory cache of the app and the `file_diff` store, else one list and one `cat-file --batch`
+      read json get_file_diffs(params: file_diffs::model::GetFileDiffsParams) [channel events: file_diffs::model::FileDiffEvent] -> () = $crate::reads::diffs::get_file_diffs;
+
+      /// The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
+      /// stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first
+      read json get_file_merges(params: file_diffs::model::GetFileMergesParams) [channel events: file_diffs::model::FileMergeEvent] -> () = $crate::reads::diffs::get_file_merges;
+
+      /// The changed files of `base..head` with their line counts, from one `diff-tree` of the two commits
+      /// (`RangeFilesCache::read`), kept in memory
+      read json get_range_files(params: domain_types::review_request::GetRangeParams) -> std::sync::Arc<git_ops::commit_files::CommitFiles> = $crate::reads::diffs::get_range_files;
+
+      /// The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
+      /// scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store,
+      /// else in the index of the repository (`accio`), waited for as long as it runs
+      read window find_declaration(params: file_diffs::model::FindDeclarationParams) -> file_diffs::model::FoundDeclarations = $crate::reads::symbols::find_declaration;
+
+      /// The usages of a name in a diff of a review (`file_diffs::usages`): in its file, in the files of the review from the
+      /// blobs the diffs read, then outside the review in the index of the repository (`accio`), waited for as long as it runs
+      read window find_usages(params: file_diffs::model::FindDeclarationParams) -> file_diffs::model::FoundUsages = $crate::reads::symbols::find_usages;
+
+      /// Kills the symbol search of the calling window in flight, if any (Escape or Cancel while it searches)
+      app window cancel_symbol_search() -> () = $crate::reads::symbols::cancel_symbol_search;
+
+      /// The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
+      /// cache only, no repository lock), of the branches named with the prefix Rust resolves for the repository
+      /// (`PrefixInputs`). One search at a time: a new one cancels the one before.
+      read json find_conflict_fix(params: trial_check::conflict_fix::FindConflictFixParams) -> trial_check::conflict_fix::ConflictFix = $crate::reads::conflict_fix::find_conflict_fix;
+
+      /// Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts.
+      app now cancel_conflict_fix() = $crate::reads::conflict_fix::cancel_conflict_fix;
 
       /// What a typed branch name is and the name the branch gets (`domain_types::branch_names::check_branch_name`); the page
       /// words the state

@@ -3085,7 +3085,7 @@ repository lock the snapshot's fingerprint (HEAD, the issue groups and stack par
 of the baseline) must be the one the fix was found for, else the fix is stale and is looked for again; then one
 message-only rewrite and the ref transaction of a move, with its undo token.
 
-Code: `crates/trial-check/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_fix.rs` (the search and its cancel),
+Code: `crates/trial-check/src/conflict_fix.rs`, `crates/app-api/src/reads/conflict_fix.rs` (the search and its cancel),
 `crates/operations/src/rewrite.rs` (Apply).
 
 #### Operations registry

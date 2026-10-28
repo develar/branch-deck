@@ -1,10 +1,26 @@
 /* eslint-disable */
+import commands from "../../../crates/app-api/commands.json" with { type: "json" }
 
 /**
- * Tauri mock script to be injected into the browser context
- * This proxies all Tauri API calls to our test server
+ * A command of app-api as the page mock sends it, an entry of the table of its registry (`crates/app-api/commands.json`,
+ * written from `app_api::commands::COMMANDS` by `commands_json_test.rs`): its class, and whether it answers JSON, raw
+ * bytes, or tells the page its events on the channel argument `channel` first, which stays open after the answer while
+ * `open` (the patches of `subscribe_view`)
  */
-export const tauriMockScript = () => {
+export interface PageCommand {
+  name: string
+  class: "read" | "engine" | "app"
+  transport: "json" | "raw" | { channel: string; open: boolean }
+}
+
+/** The commands of app-api, the argument of `tauriMockScript` (`page.addInitScript(tauriMockScript, PAGE_COMMANDS)`) */
+export const PAGE_COMMANDS = commands as PageCommand[]
+
+/**
+ * Tauri mock script to be injected into the browser context, with the commands of app-api (`PAGE_COMMANDS`): it proxies
+ * every Tauri command to the test server
+ */
+export const tauriMockScript = (pageCommands: PageCommand[]) => {
   // Debug logging function - only logs when debug flag is set via window property
   function debug(...args: any[]) {
     // In browser context, check for a window property instead of process.env
@@ -167,13 +183,33 @@ export const tauriMockScript = () => {
     }
   }
 
+  /**
+   * The handwritten commands of the app with a channel, by the argument of the page that gets its events, until they
+   * move into the registry of app-api, whose table names the channels of its commands
+   */
+  const HANDWRITTEN_CHANNELS: Record<string, string> = { sign_in: "events", get_robot_stats: "events", run_cli_tool_action: "progress" }
+
+  /** The channel of each command that has one, by its name: the argument of the page that gets its events, and `open` */
+  const commandChannels = new Map<string, { channel: string; open: boolean }>()
+  for (const command of pageCommands) {
+    if (typeof command.transport === "object") {
+      commandChannels.set(command.name, command.transport)
+    }
+  }
+  for (const [name, channel] of Object.entries(HANDWRITTEN_CHANNELS)) {
+    if (pageCommands.some(command => command.name === name)) {
+      throw new Error(`[Test Mock] ${name} is a command of app-api: remove it from HANDWRITTEN_CHANNELS`)
+    }
+    commandChannels.set(name, { channel, open: false })
+  }
+
   // the keys of the channels of a page: the pages of tests that run at once never share one, so each page counts from a
   // random start
   let nextProgressChannel = Math.floor(Math.random() * 2 ** 29)
 
   /**
-   * Keeps a `Channel` the command got (the `progress` of a push or an update, the `wait` of a rewrite), so the server's
-   * messages and a test reach its `onmessage`; null without one
+   * Keeps the `Channel` a command got (the argument its entry names: the `patches` of `subscribe_view`, the `events` of
+   * `execute` and of the diffs), so the server's messages and a test reach its `onmessage`; null without one
    */
   function registerProgressChannel(channel: any): number | null {
     if (channel === null || typeof channel !== "object" || typeof channel.onmessage !== "function") {
@@ -194,11 +230,11 @@ export const tauriMockScript = () => {
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload
-    // a progress channel (the `wait` of a rewrite, the `patches` of `subscribe_view`, the `events` of an operation of
-    // `execute`)
-    // stays in the page: the server sends its messages as SSE events before the answer (`invoke.rs`), a test
-    // route by its key (`window.__progressChannels`, `sendProgress` of wait-helpers.ts)
-    const channel = payload?.progress ?? payload?.wait ?? payload?.patches ?? payload?.events
+    // the channel of the command (`commandChannels`) stays in the page: the server sends its messages as SSE events
+    // before the answer (`invoke.rs`), a test route by its key (`window.__progressChannels`, `sendProgress` of
+    // wait-helpers.ts)
+    const transport = commandChannels.get(cmd)
+    const channel = transport === undefined ? null : payload?.[transport.channel]
     const channelId = registerProgressChannel(channel)
 
     // the window of the page, as the app names the calling window by its webview: the subscriptions and the review
@@ -215,7 +251,7 @@ export const tauriMockScript = () => {
     const { contentType, body } = await invokeServer(cmd, `/invoke/${cmd}`, init, async response => {
       await checkServerResponse(cmd, response)
       if (response.headers.get("content-type")?.includes("text/event-stream")) {
-        return { contentType: "application/json", body: await readChannelAnswer(cmd, response, channel, OPEN_CHANNELS.has(cmd)) }
+        return { contentType: "application/json", body: await readChannelAnswer(cmd, response, channel, transport?.open === true) }
       }
       return { contentType: response.headers.get("content-type"), body: await readAnswer(response) }
     })
@@ -267,16 +303,11 @@ export const tauriMockScript = () => {
   }
 
   /**
-   * The commands whose channel stays open after their answer: the patches of a session come on the `patches` of
-   * `subscribe_view` until `unsubscribe_view` or the deletion of the test repository (`invoke.rs`)
-   */
-  const OPEN_CHANNELS = new Set(["subscribe_view"])
-
-  /**
    * The answer of a command with a channel, as SSE events (`invoke.rs`): each `{ progress }` goes to the
    * channel's `onmessage`, `{ result }` is its answer, as the bytes of the JSON answer. The answer of a command whose
-   * channel stays open (`keepsOpen`) comes with its `{ result }`, and the stream is read on for the channel; that of
-   * another command once its stream ended
+   * channel stays open (`keepsOpen`: the patches of a session come on the `patches` of `subscribe_view` until
+   * `unsubscribe_view` or the deletion of the test repository) comes with its `{ result }`, and the stream is read on
+   * for the channel; that of another command once its stream ended
    */
   async function readChannelAnswer(cmd: string, response: Response, channel: any, keepsOpen: boolean): Promise<ArrayBuffer> {
     const reader = response.body?.getReader()
@@ -310,54 +341,6 @@ export const tauriMockScript = () => {
   }
 
   // === Command Handlers ===
-
-  /**
-   * Generic handler for streaming commands
-   */
-  async function handleStreamingCommand(cmd: string, payload: any): Promise<any> {
-    const progress = payload.progress
-
-    debug(`[Test Mock] ${cmd} called with params:`, payload.params)
-    debug(`[Test Mock] progress.onmessage type:`, typeof progress.onmessage)
-
-    try {
-      // Extract params, excluding the progress channel which can't be serialized
-      const requestPayload = payload.params || {} // Empty object if no params
-
-      debug(`[Test Mock] Fetching SSE stream of ${cmd}`)
-
-      // Call the test server's endpoint with SSE; the command is pending until its stream ends
-      const init = { method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, body: JSON.stringify(requestPayload) }
-      return await invokeServer(cmd, `/invoke/${cmd}`, init, async response => {
-        debug(`[Test Mock] SSE response status: ${response.status}`)
-
-        await checkServerResponse(cmd, response)
-        // a failed command answers with its error ({ status: "error", error }) instead of the event stream
-        if (response.headers.get("content-type")?.includes("application/json")) {
-          throw commandError((await readJsonAnswer(response)).error)
-        }
-
-        // Read the SSE stream
-        const reader = response.body?.getReader()
-        if (!reader) {
-          throw new Error("No response body")
-        }
-
-        await parseSSEStream(cmd, reader, event => {
-          if (progress.onmessage) {
-            progress.onmessage(event)
-          }
-        })
-        return null
-      })
-    } catch (error: any) {
-      // the error of the command is its answer; anything else is a failure of the mock
-      if (error?.name !== "ApiError") {
-        console.error(`[Test Mock] Error in ${cmd}:`, error)
-      }
-      throw error
-    }
-  }
 
   /**
    * Handle event plugin commands
@@ -595,10 +578,6 @@ export const tauriMockScript = () => {
       await navigator.clipboard.writeText(payload?.text ?? "")
       return null
     },
-
-    // the diffs of the files stream through the channel `events` (`FileDiffEvent`); the server answers them as SSE
-    get_file_diffs: async (cmd: string, payload: any) => handleStreamingCommand(cmd, { ...payload, progress: payload.events }),
-    get_file_merges: async (cmd: string, payload: any) => handleStreamingCommand(cmd, { ...payload, progress: payload.events }),
 
     // a change of the settings: the test server's writer applies it, and the backend sends the change to every window
     // (`settings_changed`), this page and the other pages of a linked sub-window; the origin is this page's window. The

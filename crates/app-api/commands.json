@@ -1,0 +1,204 @@
+[
+  {
+    "name": "validate_repository_path",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "check_git_setup",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "resolve_branch_prefix",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_repository_config",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_uncommitted_changes",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_commit_files",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_commits_files",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_autosquash_plan",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "preview_move",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_stack_independence",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_archived_branch_commits",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_unapplied_branch_commits",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_file_owners",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_blob_texts",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_blob_syntax",
+    "class": "read",
+    "transport": "raw"
+  },
+  {
+    "name": "get_file_diffs",
+    "class": "read",
+    "transport": {
+      "channel": "events",
+      "open": false
+    }
+  },
+  {
+    "name": "get_file_merges",
+    "class": "read",
+    "transport": {
+      "channel": "events",
+      "open": false
+    }
+  },
+  {
+    "name": "get_range_files",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "find_declaration",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "find_usages",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "cancel_symbol_search",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "find_conflict_fix",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "cancel_conflict_fix",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "validate_branch_name",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "commit_body_blocks",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_snapshot",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "subscribe_view",
+    "class": "read",
+    "transport": {
+      "channel": "patches",
+      "open": true
+    }
+  },
+  {
+    "name": "unsubscribe_view",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "set_window_focus",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "set_demand",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "sync",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "refresh_facts",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "preview_group",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "prepare",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "execute",
+    "class": "engine",
+    "transport": {
+      "channel": "events",
+      "open": false
+    }
+  },
+  {
+    "name": "cancel_operation",
+    "class": "engine",
+    "transport": "json"
+  },
+  {
+    "name": "link_pull_request",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "unlink_pull_request",
+    "class": "app",
+    "transport": "json"
+  }
+]

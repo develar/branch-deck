@@ -189,13 +189,15 @@ async function routeCommit(window: Page, commitId: string, files: SyntheticFile[
   }
   await window.route("**/invoke/get_commit_files", route => route.fulfill({ json: commitFiles }))
   await window.route("**/invoke/get_commits_files", route => route.fulfill({ json: [commitFiles] }))
-  // the events of the channel as the test server sends them: the files, then the content of each
+  // the events of the channel as the test server streams them (`invoke.rs`): the files, then the content of each, each
+  // a `{ progress }`, then the `{ result }` of the command
   const events = [
     { kind: "files", files: files.map(({ diff: { content: _, ...header } }) => header) },
     ...files.map((it, index) => ({ kind: "content", index, content: it.diff.content })),
   ]
+  const messages = [...events.map(event => ({ progress: event })), { result: { status: "ok", data: null } }]
   await window.route("**/invoke/get_file_diffs", route =>
-    route.fulfill({ contentType: "text/event-stream", body: events.map(event => `event: fileDiff\ndata: ${JSON.stringify(event)}\n\n`).join("") }),
+    route.fulfill({ contentType: "text/event-stream", body: messages.map(message => `data: ${JSON.stringify(message)}\n\n`).join("") }),
   )
   await window.route("**/invoke/get_blob_texts", async route => {
     const { blobs: requests } = route.request().postDataJSON() as { blobs: { id: string }[] }

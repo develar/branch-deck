@@ -41,7 +41,8 @@ impl AppState {
 
   /// The app of the test repository `repository_id`, what its commands of app-api run with: the git of a test machine
   /// (the global config of the repository, `global_config_of`, and no system config), the settings of its page, its own
-  /// memory of the diffs and its own windows, the fakes of the repository as its services (`TestServices`), and the git
+  /// memory of the diffs, its own windows and its own search of the conflict fix, the fixture of the repository as its
+  /// symbol index (`FixtureIndexes`), the fakes of the repository as its services (`TestServices`), and the git
   /// prefixes, the repository state, the sessions and the registry of the server. Its windows hear no event of the app
   /// (`NoEvents`)
   pub fn context_of(self: &std::sync::Arc<Self>, repository_id: &str, settings: &std::sync::Arc<app_settings::service::SettingsService>) -> app_api::context::AppContext {
@@ -56,6 +57,8 @@ impl AppState {
       prefixes: self.branch_prefixes.clone(),
       repository_state: self.repository_state.clone(),
       file_diffs: file_diffs::service::FileDiffs::default(),
+      symbol_indexes: std::sync::Arc::new(FixtureIndexes),
+      conflict_fix: app_api::reads::conflict_fix::ConflictFixSearch::default(),
       sessions: std::sync::Arc::clone(&self.sessions),
       registry: self.registry.clone(),
       windows: std::sync::Arc::default(),
@@ -70,6 +73,16 @@ impl AppState {
   /// Deleted with the repository
   pub fn app_data_of(&self, repository_id: &str) -> PathBuf {
     self.test_root_dir.path().join(format!("{repository_id}.app-data"))
+  }
+}
+
+/// The symbol index of a test repository is its fixture, `.git/branch-deck-accio.json` (`FixtureIndex`), as accio
+/// answers; read at once, so a cancel has no query to kill
+pub struct FixtureIndexes;
+
+impl app_api::reads::symbols::SymbolIndexes for FixtureIndexes {
+  fn search<'a>(&'a self, _canceled: &'a (dyn Fn() -> bool + Sync)) -> Option<Box<dyn file_diffs::accio::SymbolIndex + 'a>> {
+    Some(Box::new(file_diffs::accio::FixtureIndex))
   }
 }
 

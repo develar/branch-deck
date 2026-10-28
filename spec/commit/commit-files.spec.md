@@ -21,7 +21,7 @@ targets:
   - ../../src/components/files/FileContextMenu.tsx
   - ../../src/lib/file-actions.ts
   - ../../src/lib/file-tree.ts
-  - ../../src-tauri/src/commands/review_requests.rs
+  - ../../crates/app-api/src/reads/diffs.rs
   - ../../src/lib/diff/view-files.ts
   - ../../src/lib/diff/file-diff-model.ts
   - ../../src/lib/diff/rows.ts
@@ -39,7 +39,6 @@ targets:
   - ../../crates/file-diffs/src/model.rs
   - ../../crates/text-diff/src/model.rs
   - ../../crates/object-cache/src/file_diff.rs
-  - ../../src-tauri/src/commands/file_diffs.rs
   - ../../crates/app-api/src/reads/blobs.rs
   - ../../crates/test-utils/src/repo_template.rs
   - ../../src/components/conflict/CollapsibleFileHeader.tsx
@@ -413,8 +412,9 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 - `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/lib/file-tree.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/file-diffs.test.ts`, `src/stores/blob-texts.test.ts`, `src/lib/diff/*.test.ts`.
 - `pnpm e2e`: `tests/e2e/commit-files`, on the `issue_links` and `commit_tree` templates (nested directories, a Kotlin
-  file with two hunks). The test server runs the commands on the fixture repositories without the object cache, the
-  memory cache of patches and the warm: each read of a patch runs git.
+  file with two hunks). The test server runs the commands of the app on the fixture repositories without the object
+  cache and without the warm; the memory cache of the diffs is the test repository's own (`AppContext::file_diffs`),
+  and the events of `get_file_diffs` stream on its channel as the app sends them.
 
 ## Open Questions / Risks
 

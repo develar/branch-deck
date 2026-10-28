@@ -22,7 +22,7 @@ targets:
   - ../../crates/git-executor/src/git_command_executor.rs
   - ../../crates/git-executor/src/process_tree.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
-  - ../../src-tauri/src/commands/review_requests.rs
+  - ../../crates/app-api/src/reads/diffs.rs
   - ../../src-tauri/src/commands/pull_requests.rs
   - ../../src-tauri/src/commands/window_management.rs
   - ../../src-tauri/src/lib.rs
