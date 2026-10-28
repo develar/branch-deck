@@ -745,6 +745,7 @@ Authority](docs/design/rust-domain-authority.md#индекс-правил).
 - [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
 - [Git Operations](docs/design/git-operations.md) - Working-tree safety, exact-metadata rewrites, `git replay`, batching and the Git 2.54 minimum
 - [Landing Work into Master](docs/design/landing.md) - The product model: everything lands into master, stacks cut it into pieces, every pull request into master, a whole stack in one robot; the routes into master (a robot, a push, a merge)
+- [Host Runs](docs/design/host-runs.md) - `bd-host`, the binary of the remote runs outside `bd` and the app: the client and the agent call the lease pool and git in process; the slot model, `serve`, the supervisors and the keeper, the upgrade, the migration from yonderd
 - [Integration Detection and Caching](docs/design/integration-detection.md) - How branch integration detection works with git notes caching
 - [Remote Status](docs/design/remote-status.md) - How remote tracking status is computed and displayed
 - [Text Diff Engine](docs/design/text-diff.md) - The IntelliJ comparison ported to `crates/text-diff`: lines, words, chars, and the typed diff model of the views

@@ -265,6 +265,10 @@ flowchart TD
   TS["test-server<br/>тот же app-api, fakes, TestClock"] --> API
   BD["bd-core / bd-*<br/>clap, JSON, exit codes"] --> O & L & CL
   TAURI --> BD
+  HL["host-link<br/>identity, TLS 1.3 с pinned certificates, кадры, протокол, relay; без git"]
+  HC["host-client<br/>run, коммит рабочего дерева, pack, follow, fetch, base sync"] --> HL & G
+  HA["host-agent<br/>serve, supervise, run dirs, login env, prepare, keeper, upgrade"] --> HL & L
+  HB["bd-host<br/>отдельный бинарь: CLI клиента и агента удалённых run"] --> HA & HC
 ```
 
 **Запрещённые рёбра** проверяет тест над `cargo metadata` (`crates/bd-cli/src/architecture_test.rs`, рядом с `process_budget_test.rs`, с
@@ -297,6 +301,20 @@ flowchart TD
   `src-tauri` от `bd-lease` не зависит.
   `bd-clustering` — библиотека без CLI и в `s3-crates` переименовывается в `commit-clustering`.
 - `bd-*` не зависят от `tauri` (сегодня не зависят; `app-settings` поэтому не использует `tauri-plugin-store`).
+- Удалённые run (2026-10-28, IJAI-4792, [Host Runs](host-runs.md)) — четыре crate вне `bd` и вне приложения.
+  `host-link` не достигает `git-ops`, executor, `lease-pool`, `github`, `patronus`, `youtrack`, reqwest, tokio и
+  tauri: это канал и протокол, без git и без runtime.
+- `host-client` не достигает `lease-pool`, `host-agent`, `trial-check`, `update-core`, `github`, `patronus`,
+  `youtrack`, `operations` и tauri: клиент делает свой git через `git-ops` и не держит слотов.
+- `host-agent` не достигает `host-client`, `trial-check`, `update-core`, `file-diffs`, `code-symbols`, `github`,
+  `patronus`, `youtrack`, `operations` и tauri: агент одалживает слоты через `lease_pool::host_slots` в процессе.
+- `lease-pool` не достигает `host-link`, `host-client` и `host-agent`: пул не знает, кто одалживает его слоты.
+- `bd-host` — отдельный бинарь. Он зависит от `host-agent`, `host-client`, `host-link` и библиотек ниже, но не от
+  `bd-core`: `bd-core` тянет HTTP-клиенты и engine операций, а агенту на хосте они не нужны. Поэтому `bd-host` не
+  достигает `bd-core`, `github`, `patronus`, `youtrack`, reqwest, `operations` и tauri. Его коды отказов — свои
+  (`spec/cli/host.spec.md`), не `ErrorCode`.
+- `bd-cli` и `src-tauri` не достигают `host-link`, `host-client`, `host-agent` и `bd-host`. Приложение на macOS несёт
+  `bd-host` как файл (Tauri `externalBin`), не как зависимость, поэтому бинарь приложения не растёт.
 
 | Crate | Из чего | Ответственность | Удаляется или поглощается |
 | --- | --- | --- | --- |
@@ -316,6 +334,10 @@ flowchart TD
 | `app-api` | новый: в `s4-errors` только `api_error` (одна цепочка downcast типизированных ошибок ядер в `ApiError`, общая для Tauri и test-server); в `s12-app-api` тела `src-tauri/src/commands/*` (2,9 тыс. строк) | `AppContext` (executor, cache, sessions, services, settings, clock); реестр `api_commands!` из `async fn(ctx, params) -> Result<T, ApiError>`; транспортные traits `EventSink<T>` (Tauri `Channel`, SSE); планировщики сессий | тела команд; ручные маршруты `test-server/src/lib.rs` |
 | `bd-*` | сжимаются | clap → `Intent`; `Outcome` → JSON-схема и exit codes; сводки check уезжают в `bd-core` | ребро `bd-remote → bd-rewrite` (`check_command`, `safe_push_command.rs:39`); `bd-clustering` → `commit-clustering` (библиотека; `bd-remote/src/branch_stats.rs` читает `areas`, `generated`); `safe_push_command.rs` с 1943 строк до нескольких сотен отображения |
 | `test-server` | тонкий | размещает `app-api` с `FakeGitHub`/`FakePatronus`/фальшивым YouTrack за **реальными** сервисами, `TestClock`; fixture-эндпоинты пишут состояние fakes, эндпоинты счётчиков читают их журналы запросов | ручные маршруты `test-server/src/lib.rs` (109: 108 команд и `get_blob_syntax`) |
+| `host-link` | порт `yonder-link` (`community/tools/yonder` монорепозитория) | identity клиента и агента, TLS 1.3 с pinned certificates на rustls-провайдере приложения (`aws-lc-rs`), кадры, протокол host-link (schema 1, порт 7742), allow list, relay через `/usr/bin/nc` | `crates/yonder-link` |
+| `host-client` | порт `yonder-client` | run, коммит рабочего дерева, thin pack, follow, cancel, fetch, base sync, host files, upgrade; git через `git_ops::host_client`, `host_objects`, `worktree_snapshot` в процессе | `crates/yonder-client`; позже `bd host snapshot\|pack\|apply` |
+| `host-agent` | порт `bins/yonderd` | serve, supervise, run dirs, login env, prepare, keeper, caffeinate, upgrade; таблица одалживания и git хоста через `lease_pool::host_slots`, `host_refs`, `host_git` в процессе | `bins/yonderd`; позже `bd lease host …` |
+| `bd-host` | порт `bins/yonder` и CLI `yonderd` | бинарь `bd-host`: `run`, `follow`, `cancel`, `fetch`, `runs`, `hello`, `slots`, `setup`, `upgrade`, `serve`, `schema`, `skill install` | `bins/yonder` |
 | `integration-detection-tests` | сворачивается | 4,3 тыс. строк тестов: те, что гоняют `sync_branches` (7 файлов из 10 и `test_helpers`), становятся `crates/sync-core/src/detection_*_test.rs`; три без sync (`archive_cleanup`, `detection_notes`, `process_budget`) — `crates/branch-integration/src/*_test.rs` (dev-dependency `branch-integration → sync-core` собрала бы `branch-integration` дважды: `DetectionStrategy` теста и `SyncOptions` — два типа) | crate |
 
 ### Индекс правил

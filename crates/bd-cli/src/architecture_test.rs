@@ -38,6 +38,9 @@ const TEST_FEATURES: &[&str] = &["fake", FIXTURES];
 const TAURI: &str = "tauri*";
 /// The engine of the operations of the remote, above the model and the facts: what it builds on never reaches it
 const OPERATIONS: &str = "operations";
+/// The crates of the remote runs (docs/design/host-runs.md): the link, the client, the agent and the binary `bd-host`,
+/// which neither `bd` nor the app links
+const HOST_RUNS: &[&str] = &["host-link", "host-client", "host-agent", "bd-host"];
 
 /// What `from` never reaches over its normal dependencies, also transitively
 struct Unreachable {
@@ -94,8 +97,20 @@ const UNREACHABLE: &[Unreachable] = &[
   },
   Unreachable {
     from: "lease-pool",
-    forbidden: &["github", "patronus", "youtrack", "trial-check", "update-core", "file-diffs", "code-symbols", OPERATIONS],
-    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check or a diff",
+    forbidden: &[
+      "github",
+      "patronus",
+      "youtrack",
+      "trial-check",
+      "update-core",
+      "file-diffs",
+      "code-symbols",
+      OPERATIONS,
+      "host-link",
+      "host-client",
+      "host-agent",
+    ],
+    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check, a diff or a remote run",
   },
   Unreachable {
     from: "remote-facts",
@@ -111,6 +126,16 @@ const UNREACHABLE: &[Unreachable] = &[
     from: OPERATIONS,
     forbidden: &[TAURI, APP, APP_API, "clap"],
     why: "the engine of the operations serves the app and bd alike: no Tauri, no adapter, no CLI",
+  },
+  Unreachable {
+    from: BD_CLI,
+    forbidden: HOST_RUNS,
+    why: "bd carries no remote run: bd-host is a binary of its own",
+  },
+  Unreachable {
+    from: APP,
+    forbidden: HOST_RUNS,
+    why: "the app carries bd-host as a file of its bundle (externalBin), never as a dependency, so its binary does not grow",
   },
 ];
 
