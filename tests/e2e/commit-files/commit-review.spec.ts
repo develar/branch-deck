@@ -110,10 +110,11 @@ async function openSettledReviewWindow(page: Page): Promise<Page> {
   return window
 }
 
-/** The patch of `appSettings` the window sent the writer last (`set_setting`, recorded by the Tauri mock) */
-async function lastAppSettingsPatch(window: Page): Promise<unknown> {
-  const patches = await window.evaluate(() => (globalThis as unknown as { __e2eSettingsPatches?: { key: string }[] }).__e2eSettingsPatches ?? [])
-  return patches.findLast(it => it.key === "appSettings")
+/** The next patch of `appSettings` the window sends the writer (the request of its `set_setting`) */
+async function nextAppSettingsPatch(window: Page): Promise<unknown> {
+  const isAppSettings = (body: { patch?: { key?: string } } | null) => body?.patch?.key === "appSettings"
+  const request = await window.waitForRequest(request => request.url().endsWith("/invoke/set_setting") && isAppSettings(request.postDataJSON()))
+  return (request.postDataJSON() as { patch: unknown }).patch
 }
 
 /**
@@ -129,9 +130,10 @@ async function appSettingsChange(page: Page, fields: Record<string, unknown>): P
 /** Hides the sidebar of the review window, whose patch of `appSettings` names that field alone */
 async function hideSidebarSendingOnlyIt(window: Page): Promise<void> {
   const toggle = window.getByTestId("review-sidebar-toggle")
+  const patch = nextAppSettingsPatch(window)
   await toggle.click()
   await expect(toggle).toHaveAttribute("aria-pressed", "false")
-  expect(await lastAppSettingsPatch(window)).toEqual({ kind: "fields", key: "appSettings", fields: { reviewSidebar: false } })
+  expect(await patch).toEqual({ kind: "fields", key: "appSettings", fields: { reviewSidebar: false } })
 }
 
 /** The zoom the page gave its webview, 1 if none */

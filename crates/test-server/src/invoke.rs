@@ -143,6 +143,12 @@ where
     }
     .in_current_span(),
   );
+  event_stream(receiver)
+}
+
+/// The messages of `receiver` as an SSE answer, each the JSON of one event, with a keep-alive every second; it ends once
+/// nothing can send to `receiver` any more
+pub fn event_stream(receiver: mpsc::UnboundedReceiver<serde_json::Value>) -> Response {
   let stream = UnboundedReceiverStream::new(receiver).map(|message| Ok::<_, Infallible>(Event::default().data(message.to_string())));
   Sse::new(stream)
     .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive"))

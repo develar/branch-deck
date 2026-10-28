@@ -335,9 +335,13 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
   let started = std::time::Instant::now();
   delete_repository(&client, addr, &id, &path).await;
   assert!(started.elapsed() < std::time::Duration::from_secs(5), "the deletion waited {:?}", started.elapsed());
+  // the error of the command names its operation, as the app's does
+  let mut canceled = wait.await.unwrap();
+  assert!(canceled["error"]["operation_id"].is_string(), "{canceled}");
+  canceled["error"].as_object_mut().unwrap().remove("operation_id");
   assert_eq!(
-    wait.await.unwrap(),
-    json!({"status": "error", "error": {"code": "canceled", "message": "The sign-in was canceled", "details": null, "retry": "no", "operation_id": null}})
+    canceled,
+    json!({"status": "error", "error": {"code": "canceled", "message": "The sign-in was canceled", "details": null, "retry": "no"}})
   );
 }
 

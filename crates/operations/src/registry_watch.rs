@@ -114,10 +114,10 @@ impl Watches {
     self.watches.lock().unwrap_or_else(PoisonError::into_inner)
   }
 
-  /// The journal of a watched repository changed: its listener hears it
-  fn journaled(&self) {
+  /// The journal of `registry` changed: its listener hears it, with the sessions that watch it
+  fn journaled(&self, registry: &ProcessRegistry) {
     if let Some(listener) = &self.journaled {
-      listener();
+      listener(&self.keys(registry));
     }
   }
 
@@ -267,7 +267,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
       show(&sessions, &registry, &watches).await;
     }
     if wake.journal.swap(false, Ordering::SeqCst) {
-      watches.journaled();
+      watches.journaled(&registry);
     }
   }
 }

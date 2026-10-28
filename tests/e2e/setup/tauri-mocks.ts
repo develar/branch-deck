@@ -148,9 +148,10 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
   // === Helper Functions ===
 
   /**
-   * Parse SSE (Server-Sent Events) stream
+   * Parse SSE (Server-Sent Events) stream: the messages of the channel of `cmd`, counted in `__ipcStats`, or of the
+   * event stream of the page (`cmd` null), which is no command's
    */
-  async function parseSSEStream(cmd: string, reader: ReadableStreamDefaultReader<Uint8Array>, onMessage: (event: any) => void) {
+  async function parseSSEStream(cmd: string | null, reader: ReadableStreamDefaultReader<Uint8Array>, onMessage: (event: any) => void) {
     const decoder = new TextDecoder()
     let buffer = ""
 
@@ -173,7 +174,9 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
         if (line.startsWith("data: ")) {
           const data = line.slice(6).trim()
           if (data) {
-            countChannelMessage(cmd, data)
+            if (cmd !== null) {
+              countChannelMessage(cmd, data)
+            }
             const event = JSON.parse(data)
             debug("[SSE] Received event:", JSON.stringify(event))
             onMessage(event)
@@ -187,7 +190,7 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
    * The handwritten commands of the app with a channel, by the argument of the page that gets its events, until they
    * move into the registry of app-api, whose table names the channels of its commands
    */
-  const HANDWRITTEN_CHANNELS: Record<string, string> = { sign_in: "events", run_cli_tool_action: "progress" }
+  const HANDWRITTEN_CHANNELS: Record<string, string> = { run_cli_tool_action: "progress" }
 
   /** The channel of each command that has one, by its name: the argument of the page that gets its events, and `open` */
   const commandChannels = new Map<string, { channel: string; open: boolean }>()
@@ -226,6 +229,8 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
    */
   async function proxyToTestServer(cmd: string, payload: any): Promise<any> {
     debug(`[Test Mock] Proxying command to test server: ${cmd}`)
+    // the page hears the events of what its commands do, as a window of the app does once it listens
+    await eventsSubscribed
 
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
@@ -362,6 +367,48 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     }
   }
 
+  /** An event this page heard or emitted, which a test reads (`getEmittedEvents`) */
+  function recordEvent(event: string, payload: unknown) {
+    ;((window as any).__e2eEmittedEvents ??= []).push({ event, payload })
+  }
+
+  /**
+   * The events of the backend to this page, as the app sends them to its window: the test server's stream of the page
+   * (`GET /repositories/{id}/events?window=<label>`, `TestEvents` of `crates/test-server/src/host.rs`), opened before
+   * the page's first command (`eventsSubscribed`), so the events of what its commands do reach it. Each goes to the
+   * listeners of its name, for its window when it names one (`__e2eEmitTauriEvent`): the events of the app
+   * (`settings_changed`, `activity-changed`, `auth-changed`, `repository_config_changed`, no `source`), recorded in
+   * `__e2eEmittedEvents`, and those another page or this one emitted (`source`), which their page recorded. Not through
+   * `serverFetch`: the stream lasts as long as the page, which the deletion of the repository must not wait for; it ends
+   * with the repository
+   */
+  const eventsSubscribed = new Promise<void>(subscribed => void listenToBackend(subscribed))
+  async function listenToBackend(subscribed: () => void) {
+    try {
+      const response = await fetch(`${serverUrl}/repositories/${repoId}/events?window=${encodeURIComponent(windowLabel)}`, { headers: { Accept: "text/event-stream" } })
+      const reader = response.ok ? response.body?.getReader() : undefined
+      if (reader === undefined) {
+        debug(`[Test Mock] No event stream: ${response.status}`)
+        return
+      }
+      await parseSSEStream(null, reader, message => {
+        if (message.subscribed === true) {
+          subscribed()
+          return
+        }
+        if (message.source === null) {
+          recordEvent(message.event, message.payload)
+        }
+        ;(window as any).__e2eEmitTauriEvent(message.event, message.payload, message.window)
+      })
+    } catch (error) {
+      // a page that goes away ends the read with its fetch
+      debug("[Test Mock] The event stream ended:", error)
+    } finally {
+      subscribed()
+    }
+  }
+
   // what `unlisten` of @tauri-apps/api/event calls before it asks the backend: a component that unmounts (a page of
   // Settings left) stops listening
   ;(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ ??= { unregisterListener: () => {} }
@@ -417,14 +464,16 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
         eventListeners.delete(payload?.eventId)
         return null
 
-      // an event for the other windows (a sub-window asks the main window, the main window tells a sub-window): recorded
-      // in `__e2eEmittedEvents`, and delivered to the other pages of a linked sub-window (`openLinkedSubWindow` in
-      // sub-window-helpers exposes `__e2eRelay`); a page alone is one window
+      // an event for the windows (a sub-window asks the main window, the main window tells a sub-window): recorded in
+      // `__e2eEmittedEvents`, and sent through the test server to the pages of the repository it goes to, this one
+      // included, as the event plugin of Tauri sends it (`emit_page_event` of host.rs); a page alone is one window
       case "emit":
-      case "emit_to":
-        ;((window as any).__e2eEmittedEvents ??= []).push({ event: payload?.event, payload: payload?.payload })
-        void (window as any).__e2eRelay?.(payload?.event, payload?.payload)
-        return null
+      case "emit_to": {
+        recordEvent(payload?.event, payload?.payload)
+        const target = action === "emit_to" ? (payload?.target?.label ?? null) : null
+        const body = JSON.stringify({ event: payload?.event, payload: payload?.payload ?? null, window: target, source: windowLabel })
+        return fetch(`${serverUrl}/repositories/${repoId}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body }).then(() => null)
+      }
 
       default:
         throw new Error(`Unimplemented event action: ${action}`)
@@ -578,64 +627,6 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
       await navigator.clipboard.writeText(payload?.text ?? "")
       return null
     },
-
-    // a change of the settings: the test server's writer applies it, and the backend sends the change to every window
-    // (`settings_changed`), this page and the other pages of a linked sub-window; the origin is this page's window. The
-    // patches are recorded in `__e2eSettingsPatches`, the changes the backend sent in `__e2eEmittedEvents` of this page
-    // (`getEmittedEvents`), with their versions
-    set_setting: async (cmd: string, payload: any) => {
-      ;((window as any).__e2eSettingsPatches ??= []).push(payload?.params?.patch)
-      const change = await proxyToTestServer(cmd, { params: { patch: payload?.params?.patch, origin: windowLabel } })
-      ;((window as any).__e2eEmittedEvents ??= []).push({ event: "settings_changed", payload: change })
-      ;(window as any).__e2eEmitTauriEvent("settings_changed", change)
-      void (window as any).__e2eRelay?.("settings_changed", change)
-      return change
-    },
-    // the changes after the snapshot the page started from, which its window gets
-    get_settings_changes: async (cmd: string, payload: any) => proxyToTestServer(cmd, { since: payload?.since ?? 0, origin: windowLabel }),
-
-    // a write of Settings → Repository: the backend tells the main window what changed (`repository_config_changed`,
-    // `set_repository_config` of src-tauri), here or in the main window's page of a linked sub-window
-    set_repository_config: async (cmd: string, payload: any) => {
-      const config = await proxyToTestServer(cmd, payload)
-      const changed = { repositoryPath: payload?.params?.repositoryPath, key: payload?.params?.change?.key }
-      if (windowLabel === "main") {
-        ;(window as any).__e2eEmitTauriEvent("repository_config_changed", changed)
-      } else {
-        void (window as any).__e2eRelay?.("repository_config_changed", changed)
-      }
-      return config
-    },
-
-    // the sign-ins of the app: the backend tells every window that an account changed (`auth-changed`, the
-    // `AUTH_CHANGED_EVENT` of src-tauri), this one and the other pages of a linked sub-window; the sessions of the
-    // repository read their fact `auth` in the test server. A sign-in of the `youtrack` CLI changes no account of the app
-    sign_in: async (cmd: string, payload: any) => (payload?.request?.provider === "youTrackCli" ? proxyToTestServer(cmd, payload) : emitAfter(cmd, payload, "auth-changed")),
-    sign_out: async (cmd: string, payload: any) => emitAfter(cmd, payload, "auth-changed"),
-
-    // a write of a journal of Activity: the backend tells every window `activity-changed` (`ACTIVITY_CHANGED_EVENT` of
-    // src-tauri), after a write of the page and after an operation of the remote ended, which the watch of the registry
-    // sees in the journal of its repository (failed ones too), so the main window and the Activity window read the log
-    // again
-    record_activity: async (cmd: string, payload: any) => emitAfter(cmd, payload, "activity-changed"),
-    clear_activity: async (cmd: string, payload: any) => emitAfter(cmd, payload, "activity-changed"),
-    execute: async (cmd: string, payload: any) => proxyToTestServer(cmd, payload).finally(() => emitToAll("activity-changed")),
-  }
-
-  /**
-   * Runs `cmd` on the test server, then emits `event` to every window as the backend does after it succeeded: to this
-   * page and, through `__e2eRelay`, to the other pages of a linked sub-window
-   */
-  async function emitAfter(cmd: string, payload: any, event: string): Promise<any> {
-    const answer = await proxyToTestServer(cmd, payload)
-    emitToAll(event)
-    return answer
-  }
-
-  /** Emits `event` to every window as the backend does: to this page and, through `__e2eRelay`, to the other pages of a linked sub-window */
-  function emitToAll(event: string): void {
-    ;(window as any).__e2eEmitTauriEvent(event, null)
-    void (window as any).__e2eRelay?.(event, null)
   }
 
   // All unhandled commands are proxied to test server for single source of truth

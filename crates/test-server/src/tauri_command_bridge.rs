@@ -1,26 +1,21 @@
 use crate::invoke::{CommandResult, Rejection, failed};
-use crate::invoke::{answer_with_progress, progress_channel};
 use app_api::api_error::IntoApiError;
 use axum::{
   extract::State,
   http::{HeaderMap, StatusCode},
-  response::{IntoResponse, Json, Response},
+  response::Json,
 };
 use domain_types::error::ApiError;
 use domain_types::patronus::PatronusRobotsResult;
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
-use domain_types::sign_in::{Account, SignIn, SignInProvider};
 use repository_model::session::SessionKey;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
 use sync_core::patronus::SpaceRepository;
-use sync_core::repository_config::{
-  ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, read_config_entries, read_origin_facts, repository_config_from_entries,
-  with_stacks_off_clashes, write_global_config, write_repository_config,
-};
+use sync_core::repository_config::{ConfigScope, RepositoryConfig, read_config_entries, read_origin_facts, repository_config_from_entries, with_stacks_off_clashes};
 
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
@@ -130,34 +125,6 @@ fn read_test_repository_config(git_executor: &git_executor::git_command_executor
   Ok(with_stacks_off_clashes(git_executor, repository_path, config))
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetRepositoryConfigRequest {
-  repository_path: String,
-  change: RepositoryConfigChange,
-  #[serde(default)]
-  scope: WriteScope,
-}
-
-/// The production write; a write of the global config goes to the repository's own file (`config_git`), as the
-/// developer's must not change. The answer is the read of `get_repository_config`
-pub async fn set_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<SetRepositoryConfigRequest>) -> CommandResult<RepositoryConfig> {
-  let git_executor = config_git(&state, &request.repository_path)?;
-  let inputs = prefix_inputs(&state, &request.repository_path)?;
-  run_command("change the repository settings", move || {
-    match request.scope {
-      WriteScope::Local => write_repository_config(&git_executor, &request.repository_path, &request.change)?,
-      WriteScope::Global => write_global_config(&git_executor, &request.change)?,
-    }
-    // the git prefix the later commands resolve with, as the app keeps it after the write
-    if request.change.key() == RepositoryConfigKey::BranchPrefix {
-      inputs.fresh(&request.repository_path)?;
-    }
-    read_test_repository_config(&git_executor, &request.repository_path)
-  })
-  .await
-}
-
 /// The GitHub repository of the repository at `path` as the app resolves it (`RepositoryStateCache::github_repository`):
 /// `branchdeck.githubRepository` (a fixture writes it), else none, read by the git of its config (`config_git`)
 pub(crate) async fn github_of(state: &AppState, path: &str) -> Result<Option<GitHubRepository>, Rejection> {
@@ -169,46 +136,6 @@ pub(crate) async fn github_of(state: &AppState, path: &str) -> Result<Option<Git
 pub(crate) async fn holding(state: &AppState, key: &SessionKey) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, ApiError> {
   let in_flight = Arc::clone(&repository_by_path(state, &key.worktree).map_err(rejected)?.in_flight);
   Ok(in_flight.read_owned().await)
-}
-
-#[derive(Deserialize)]
-pub struct SignInParams {
-  request: SignIn,
-}
-
-/// A sign-in of the requesting page's repository, as the app runs it (`remote_facts::sign_in`): its events on the
-/// channel of the page, the device flow of the fake GitHub, the Hub of the fake YouTrack; the page mock tells the windows
-/// (`auth-changed`)
-pub async fn sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<SignInParams>) -> Response {
-  answer_with_progress(progress_channel(&headers), move |progress| async move {
-    let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-    let done = host.sign_ins().sign_in(params.request, &|event| progress.send(&event)).await;
-    done.map(Json).map_err(|error| failed("sign in", error))
-  })
-  .await
-  .into_response()
-}
-
-#[derive(Deserialize)]
-pub struct CancelSignInParams {
-  provider: SignInProvider,
-}
-
-/// Ends the sign-in of a provider that runs, as the app does
-pub async fn cancel_sign_in(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<CancelSignInParams>) -> CommandResult<()> {
-  requesting_repository(&state, &headers)?.remote(&state.git_executor).sign_ins().cancel(params.provider);
-  Ok(Json(()))
-}
-
-#[derive(Deserialize)]
-pub struct SignOutParams {
-  account: Account,
-}
-
-/// Removes the token of an account, as the app does; the page mock tells the windows (`auth-changed`)
-pub async fn sign_out(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<SignOutParams>) -> CommandResult<()> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  host.sign_ins().sign_out(params.account).await.map(Json).map_err(|error| failed("sign out", error))
 }
 
 /// The review requests of the fixture set by `POST /repositories/{id}/review-requests`, as the session of a test
@@ -421,45 +348,17 @@ pub async fn set_auto_sync_menu_checked(Json(request): Json<SetAutoSyncMenuCheck
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SetSettingRequest {
-  pub patch: domain_types::settings::SettingsPatch,
-  /// The label of the page's window (the page mock sends it; the app takes the webview's)
-  pub origin: String,
-}
-
-/// `set_setting` of the app on the settings of the requesting page's repository: the change, which the page mock sends
-/// to its windows (`settings_changed`)
-pub async fn set_setting(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<SetSettingRequest>) -> CommandResult<domain_types::settings::SettingsChange> {
-  let repository = requesting_repository(&state, &headers)?;
-  let change = repository.store.set(request.patch, &request.origin);
-  change
-    .map(Json)
-    .map_err(|e| failed("change the settings", anyhow::Error::new(e).context("Cannot change the settings")))
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetSettingsChangesRequest {
+pub struct SubWindowLoadedRequest {
   pub since: u32,
   /// The label of the page's window
   pub origin: String,
-}
-
-/// `get_settings_changes` of the app: the changes after the version the page started from that its window gets
-pub async fn get_settings_changes(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(request): Json<GetSettingsChangesRequest>,
-) -> CommandResult<Vec<domain_types::settings::SettingsChange>> {
-  let repository = requesting_repository(&state, &headers)?;
-  Ok(Json(app_settings::windows::window_changes_since(&repository.store, &request.origin, request.since)))
 }
 
 /// `sub_window_loaded` of the app: the changes of the settings after the snapshot the window was built with, which the
 /// page mock names (`since`, the version of the snapshot the test opened the page with), as the app answers them from
 /// the version its build remembered; none for the main window, which asks for them itself (`get_settings_changes`); no
 /// open of the window came while it loaded, a test opens the page itself
-pub async fn sub_window_loaded(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<GetSettingsChangesRequest>) -> CommandResult<serde_json::Value> {
+pub async fn sub_window_loaded(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<SubWindowLoadedRequest>) -> CommandResult<serde_json::Value> {
   let repository = requesting_repository(&state, &headers)?;
   let settings = if request.origin == app_settings::windows::MAIN_WINDOW {
     Vec::new()

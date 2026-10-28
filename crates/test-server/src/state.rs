@@ -43,9 +43,14 @@ impl AppState {
   /// (the global config of the repository, `global_config_of`, and no system config), the settings of its page, its own
   /// memory of the diffs and of the reviews of branches, its own windows and its own search of the conflict fix, the
   /// fixture of the repository as its symbol index (`FixtureIndexes`), the fakes of the repository as its services
-  /// (`TestServices`) and its host (`TestHost`), and the git prefixes, the repository state, the sessions and the
-  /// registry of the server. Its windows hear no event of the app (`NoEvents`)
-  pub fn context_of(self: &std::sync::Arc<Self>, repository_id: &str, settings: &std::sync::Arc<app_settings::service::SettingsService>) -> app_api::context::AppContext {
+  /// (`TestServices`) and its host (`TestHost`), the event streams of its pages (`TestEvents`), and the git prefixes, the
+  /// repository state, the sessions and the registry of the server
+  pub fn context_of(
+    self: &std::sync::Arc<Self>,
+    repository_id: &str,
+    settings: &std::sync::Arc<app_settings::service::SettingsService>,
+    events: &std::sync::Arc<crate::host::TestEvents>,
+  ) -> app_api::context::AppContext {
     let global_config = self.global_config_of(repository_id);
     let services = crate::session_routes::test_services(self);
     app_api::context::AppContext {
@@ -64,7 +69,7 @@ impl AppState {
       windows: std::sync::Arc::default(),
       services: std::sync::Arc::clone(&services) as std::sync::Arc<dyn remote_facts::service_sources::ServiceHost>,
       rewrites: services,
-      events: std::sync::Arc::new(NoEvents),
+      events: std::sync::Arc::clone(events) as std::sync::Arc<dyn app_api::transport::AppEvents>,
       host: std::sync::Arc::new(crate::host::TestHost {
         state: std::sync::Arc::downgrade(self),
         repository: repository_id.to_owned(),
@@ -91,14 +96,6 @@ impl app_api::reads::symbols::SymbolIndexes for FixtureIndexes {
   }
 }
 
-/// The windows of a test repository hear no event of the app from the server: the page mock tells them what it needs
-/// (`tests/e2e/setup/tauri-mocks.ts`)
-pub struct NoEvents;
-
-impl app_api::transport::AppEvents for NoEvents {
-  fn settings_changed(&self, _change: &domain_types::settings::SettingsChange) {}
-}
-
 pub struct TestRepository {
   pub id: String,
   pub path: String,
@@ -112,6 +109,9 @@ pub struct TestRepository {
   pub store: std::sync::Arc<app_settings::service::SettingsService>,
   /// What the commands of app-api run with for this repository (`AppState::context_of`)
   pub context: std::sync::Arc<app_api::context::AppContext>,
+  /// The event streams of the pages of the repository, which the app's events and the pages' own go to; closed with the
+  /// repository
+  pub events: std::sync::Arc<crate::host::TestEvents>,
   /// How often the app asked for pull requests, so a test can check the refresh policy
   pub pull_request_calls: AtomicU32,
   /// What the session reads of the review requests and how `fetch_review_head` fails (E2E never runs gh); not on GitHub until a
@@ -165,7 +165,8 @@ impl TestRepository {
   pub fn remote(&self, git: &GitCommandExecutor) -> std::sync::Arc<crate::remote_host::RemoteHost> {
     std::sync::Arc::clone(self.remote.get_or_init(|| {
       let (cli_tools, sessions) = (std::sync::Arc::clone(&self.cli_tools), std::sync::Weak::clone(&self.sessions));
-      std::sync::Arc::new(crate::remote_host::RemoteHost::start(git, &self.path, self.app_data.clone(), cli_tools, sessions))
+      let events = std::sync::Arc::clone(&self.events) as std::sync::Arc<dyn app_api::transport::AppEvents>;
+      std::sync::Arc::new(crate::remote_host::RemoteHost::start(git, &self.path, self.app_data.clone(), cli_tools, sessions, events))
     }))
   }
 

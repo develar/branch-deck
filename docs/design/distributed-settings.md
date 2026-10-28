@@ -178,9 +178,10 @@ sequenceDiagram
   for the windows, `flush()` (a pass of the writer that started after it), `on_save_error`. A file:
   `SettingsFile` (`file.rs`): a tolerant load (a missing or broken file is the defaults, a field of the wrong type its
   default), the stored form, the atomic save. Which window gets which key: `windows.rs`.
-- Backend: `src-tauri/src/settings.rs` opens the writer, builds the settings part of every init script
-  (`init_script`) and sends the changes (`emit_change`); `src-tauri/src/commands/settings.rs` has `set_setting` (origin:
-  the calling window's label) and `get_settings_changes` (the main window's catch-up); a sub-window's catch-up is
+- Backend: `src-tauri/src/settings.rs` opens the writer and builds the settings part of every init script
+  (`init_script`); `crates/app-api/src/app/settings.rs` has `set_setting` (origin: the calling window's label, `Call` of
+  app-api) and `get_settings_changes` (the main window's catch-up), and `crates/app-api/src/events.rs` sends a change to
+  the windows that get its key (`settings_changed`, through `AppEvents` of the host); a sub-window's catch-up is
   `sub_window_loaded` (`src-tauri/src/commands/window_management.rs`). The window builders (the zoom), the title bar and the menu
   read their settings from the writer's `AppSettings` (`zoom.rs`, `title_bar.rs`, `menu.rs`), with its defaults.
 - `bd`: reads the file once as it starts, by the same loader (`app_settings_of` in `crates/bd-core/src/context.rs`,
@@ -203,9 +204,11 @@ sequenceDiagram
   `src/stores/robot-history.ts`. They are module-level singletons; components read them with
   `useStore` selectors, non-React code with `getState()`.
 - E2E: the test server gives each test repository a `SettingsService` of its own on its app data directory
-  (`TestRepository::store`), whose `/store` routes set any key, `repositoryState` too (`syncedAgoMs` of `setupRepo`); the page mock routes `set_setting`, `get_settings_changes` and `sub_window_loaded` (from
-  the version of the snapshot the page started from) to it, sends the change to its page and the linked pages and
-  records it in `__e2eEmittedEvents` of the page that asked, so a test asserts the versions (`getEmittedEvents`)
+  (`TestRepository::store`), whose `/store` routes set any key, `repositoryState` too (`syncedAgoMs` of `setupRepo`);
+  `set_setting` and `get_settings_changes` are the commands of app-api, for the window the page mock names, and the
+  mock routes `sub_window_loaded` from the version of the snapshot the page started from. The change goes to every page
+  of the repository whose window gets its key, on the event stream of each (`TestEvents`), and the mock records it in
+  `__e2eEmittedEvents` of each page that heard it, so a test asserts the versions (`getEmittedEvents`)
   ([E2E Testing](e2e-testing.md)).
 
 ## Alternatives Considered
@@ -239,12 +242,13 @@ Optimizations:
 - Writer: `crates/app-settings/src/service.rs`, `crates/app-settings/src/file.rs`, `crates/app-settings/src/windows.rs`
 - Branch prefix: `crates/app-settings/src/resolve.rs`, `crates/app-settings/src/branch_prefixes.rs`,
   `crates/app-api/src/context.rs`, `crates/app-api/src/reads/repository.rs`
-- Backend: `src-tauri/src/settings.rs`, `src-tauri/src/commands/settings.rs`, `src-tauri/src/commands/window_management.rs`,
+- Backend: `src-tauri/src/settings.rs`, `crates/app-api/src/app/settings.rs`, `crates/app-api/src/events.rs`,
+  `src-tauri/src/commands/window_management.rs`,
   `restart_app` in `src-tauri/src/title_bar.rs`, the flush on exit in `src-tauri/src/lib.rs`
 - `bd`: `app_settings_of` in `crates/bd-core/src/context.rs`
 - Page: `src/stores/settings/persistent-store.ts`, `src/stores/settings/repositoryState.ts`, `src/stores/repository.ts`
   (the resolved prefix), `src/lib/sub-window.ts` (the catch-up of a load)
 - E2E: `crates/test-server/src/state.rs` (`TestRepository::store`, `AppState::branch_prefixes`),
-  `tests/e2e/setup/tauri-mocks.ts`
+  `crates/test-server/src/host.rs` (`TestEvents`), `tests/e2e/setup/tauri-mocks.ts`
 - Spec: [Settings](../../spec/repository/settings.spec.md) ("Writes through the backend")
 - Plan: [Rust как источник предметных правил](rust-domain-authority.md), stage `s5-settings`

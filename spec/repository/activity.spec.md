@@ -10,9 +10,10 @@ targets:
   - ../../crates/app-settings/src/journals.rs
   - ../../crates/app-settings/src/file.rs
   - ../../crates/domain-types/src/activity.rs
-  - ../../src-tauri/src/commands/activity.rs
+  - ../../crates/app-api/src/app/activity.rs
+  - ../../crates/app-api/src/events.rs
   - ../../crates/app-api/src/session/view.rs
-  - ../../crates/test-server/src/activity_routes.rs
+  - ../../crates/test-server/src/host.rs
   - ../../src/components/repository/ActivityButton.tsx
   - ../../src/components/repository/ActivityLog.tsx
   - ../../src/components/shared/FilterChips.tsx
@@ -367,8 +368,11 @@ tells the present, its line of the last day opens Activity at its Robots.
   `activity-undo`, `activity-undone`, `activity-landed-toggle`, `activity-landed-dismiss`, `activity-landed-report`;
   `activity-unavailable` with `activity-unavailable-path`, `activity-clear`. The fixtures of the test server journal an agent's operation in a slot of
   the pool of the repository (`journalAgentOperation`, through the registry as `bd` does) and remember the journal of
-  the repository on a disk that is gone (`loseJournalDisk`); the page mock tells the pages `activity-changed` after
-  `record_activity`, `clear_activity` and `execute`, as the backend does, and a test fires it for an operation of `bd`.
+  the repository on a disk that is gone (`loseJournalDisk`); the test server tells the pages of the repository
+  `activity-changed` on their event streams after `record_activity` and `clear_activity`, and when the watch of the
+  operations registry sees the journal of the repository change, as the backend does; a test fires it for an operation
+  of `bd` it journals itself.
+  [@test] ../../crates/test-server/src/app_events_test.rs (`an_operation_journaled_in_the_repository_a_window_shows_tells_its_pages`)
 
 ## Open Questions / Risks
 

@@ -17,7 +17,8 @@ targets:
   - ../../crates/domain-types/src/pull_request.rs
   - ../../src-tauri/src/services.rs
   - ../../crates/app-api/src/remote/accounts.rs
-  - ../../src-tauri/src/commands/sign_in.rs
+  - ../../crates/app-api/src/app/sign_in.rs
+  - ../../crates/app-api/src/events.rs
   - ../../src-tauri/src/lib.rs
   - ../../crates/bd-core/src/context.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
@@ -205,9 +206,9 @@ redirect and without a client secret.
   (`github_host_test.rs`).
 - `pnpm e2e`: `tests/e2e/github-sign-in/`. The test server runs the sign-in commands through the real session against
   the device flow of a fake GitHub per test repository, a build without the OAuth app until a fixture names one
-  (`setGitHubSignIn`: `clientId`, `authorize` for the user entering the code, `signedIn`, `ghToken`), and the page mock
-  emits `auth-changed` after a sign-in or a sign-out, as the backend does, and the test server has the sessions of the
-  repository read their fact `auth`
+  (`setGitHubSignIn`: `clientId`, `authorize` for the user entering the code, `signedIn`, `ghToken`); a sign-in or a
+  sign-out that changed an account has the sessions of the repository read their fact `auth`, and the test server
+  tells every page of the repository `auth-changed` on its event stream, as the backend tells its windows
   ([E2E Testing](../../docs/design/e2e-testing.md)).
 - In the app: build with `BRANCH_DECK_GITHUB_CLIENT_ID=<the client id of build-tauri.yml> pnpm install-app`, unset `GH_TOKEN`, move `gh`
   out of `PATH`, sign in from Settings, and check that the pull requests and Your Turn load and `bd safe-push --check`

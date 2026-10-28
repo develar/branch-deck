@@ -340,7 +340,8 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
       "COMMAND_HANDLERS of tauri-mocks.ts handles `{key}`, which collect_commands! does not have: remove the handler"
     );
     if routes.contains(key) {
-      // a handler over the route: it adapts a channel or emits an event, and proxies the command to this server
+      // a handler over the route: it adds what the page knows of its window, or records what it drew, and proxies the
+      // command to this server
       wrappers.push(key.as_str());
     } else {
       assert!(
@@ -350,22 +351,7 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
     }
   }
   wrappers.sort_unstable();
-  assert_eq!(
-    wrappers,
-    [
-      "clear_activity",
-      "execute",
-      "get_settings_changes",
-      "record_activity",
-      "set_repository_config",
-      "set_setting",
-      "sign_in",
-      "sign_out",
-      "sub_window_drawn",
-      "sub_window_loaded"
-    ],
-    "the handlers of COMMAND_HANDLERS that wrap a route"
-  );
+  assert_eq!(wrappers, ["sub_window_drawn", "sub_window_loaded"], "the handlers of COMMAND_HANDLERS that wrap a route");
 }
 
 #[test]

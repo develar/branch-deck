@@ -235,7 +235,12 @@ pub(crate) struct Messages {
 impl Messages {
   /// The messages of `request` sent on the channel `channel` (`X-Progress-Channel`), which must answer an event stream
   pub(crate) async fn of_channel(request: reqwest::RequestBuilder, channel: u32) -> Self {
-    let response = request.header(crate::invoke::PROGRESS_CHANNEL_HEADER, channel.to_string()).send().await.unwrap();
+    Self::of(request.header(crate::invoke::PROGRESS_CHANNEL_HEADER, channel.to_string())).await
+  }
+
+  /// The messages of `request`, which must answer an event stream (a command's channel, the events of a page)
+  pub(crate) async fn of(request: reqwest::RequestBuilder) -> Self {
+    let response = request.send().await.unwrap();
     assert_eq!(response.status(), 200);
     assert!(response.headers()["content-type"].to_str().unwrap().starts_with("text/event-stream"));
     Self { response, buffer: String::new() }

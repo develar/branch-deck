@@ -1,10 +1,12 @@
+use crate::api::TauriEvents;
 use app_api::operation::operation_now;
+use app_api::transport::{AppEvents, WindowId};
 use domain_types::error::ApiError;
 use domain_types::settings::AppSettings;
 use std::error::Error;
 use tauri::menu::{CheckMenuItemBuilder, MenuItemBuilder};
 use tauri::{
-  App, AppHandle, Emitter,
+  App, AppHandle,
   menu::{Menu, MenuEvent, SubmenuBuilder},
 };
 
@@ -191,9 +193,10 @@ pub fn set_auto_sync_menu_checked(app: AppHandle, checked: bool) -> Result<(), A
 }
 
 /// Sends a menu event to the main window, which runs it
-fn emit_to_main<S: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
-  if let Err(e) = app.emit_to("main", event, payload) {
-    tracing::error!(error = ?e, event, "cannot send a menu event to the main window");
+fn emit_to_main(app: &AppHandle, event: &str, payload: impl serde::Serialize) {
+  match serde_json::to_value(payload) {
+    Ok(payload) => TauriEvents(app.clone()).emit_to(&WindowId::main(), event, payload),
+    Err(e) => tracing::error!(error = ?e, event, "cannot send a menu event to the main window"),
   }
 }
 

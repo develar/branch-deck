@@ -258,5 +258,53 @@
     "name": "get_youtrack_issue",
     "class": "read",
     "transport": "json"
+  },
+  {
+    "name": "sign_in",
+    "class": "app",
+    "transport": {
+      "channel": "events",
+      "open": false
+    }
+  },
+  {
+    "name": "cancel_sign_in",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "sign_out",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "read_activity",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "record_activity",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "clear_activity",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "set_setting",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "get_settings_changes",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "set_repository_config",
+    "class": "app",
+    "transport": "json"
   }
 ]

@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// The number of commands of the registry: it grows as the handwritten commands move into it (s12-app-api of
 /// docs/design/rust-domain-authority.md), and proves the macro listed them all
-const REGISTERED: usize = 49;
+const REGISTERED: usize = 58;
 
 /// The names inside `<list>![...]` of `src-tauri/src/lib.rs`
 fn listed(list: &str) -> BTreeSet<String> {

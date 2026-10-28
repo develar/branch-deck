@@ -1,6 +1,6 @@
 //! The commands of the app, each declared once, here (the grammar of an entry: `registry.rs`). The doc comment of an
 //! entry is the one of its function in `src/lib/bindings.ts`; its body lives in a family module (`reads::…`,
-//! `session::…`, `remote::…`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its
+//! `session::…`, `remote::…`, `app::…`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its
 //! `Command` and the list [`COMMANDS`], the app its `#[tauri::command]` wrappers (`src-tauri/src/api.rs`), the e2e
 //! server its routes (`crates/test-server/src/invoke.rs`), and the page mock of the e2e server its table,
 //! `crates/app-api/commands.json` (written from `COMMANDS` by `commands_json_test.rs`). A type of an entry is named by
@@ -213,6 +213,43 @@ macro_rules! for_each_command {
 
       /// The issue of `key` for the popover, from the YouTrack the token is for
       read json get_youtrack_issue(key: String) -> domain_types::youtrack::YouTrackIssueAnswer = $crate::remote::accounts::get_youtrack_issue;
+
+      /// Signs in by `request`, or joins the sign-in of its provider that runs: its events on `events`, `done` last; a cancel
+      /// ends it with the code `canceled`
+      app json sign_in(request: domain_types::sign_in::SignIn) [channel events: domain_types::sign_in::SignInEvent] -> domain_types::sign_in::SignInDone = $crate::app::sign_in::sign_in;
+
+      /// Ends the sign-in of `provider` that runs, if any: its calls answer `canceled`
+      app json cancel_sign_in(provider: domain_types::sign_in::SignInProvider) -> () = $crate::app::sign_in::cancel_sign_in;
+
+      /// Removes the token of the app's own sign-in to `account`, after a sign-in of it that runs ended as canceled. GitHub
+      /// and the Hub keep the authorization until it is revoked there
+      app json sign_out(account: domain_types::sign_in::Account) -> () = $crate::app::sign_in::sign_out;
+
+      /// The log of Activity: the journals of the repositories of the recent projects, each once and each waited for within
+      /// `ACTIVITY_READ_TIMEOUT` (one that is not read by then shows what it answered last, and tells every window
+      /// `activity-changed` once it answered other entries), and the journal of the page; no git process
+      read json read_activity() -> domain_types::activity::ActivityLog = $crate::app::activity::read_activity;
+
+      /// Records what the page told of a repository in the journal of the page, and answers its entry
+      app json record_activity(params: domain_types::activity::PageActivity) -> domain_types::activity::PageEntry = $crate::app::activity::record_activity;
+
+      /// Clear Log: the journal of the repository of the recent project and the entries of the page of it are forgotten
+      app json clear_activity(params: domain_types::activity::ClearActivityParams) -> () = $crate::app::activity::clear_activity;
+
+      /// Applies the change of the calling window to the settings and sends it to every window (`settings_changed`, with the
+      /// window's label as its origin); answers the change, whose version the window has applied then. The file follows
+      /// within the debounce of the writer. A value of a field Rust reads that is invalid is refused and changes nothing
+      app window set_setting(params: $crate::app::settings::SetSettingParams) -> domain_types::settings::SettingsChange = $crate::app::settings::set_setting;
+
+      /// The changes the calling window gets that came after `since`, the version of the snapshot its page started from: a
+      /// change made while the page loaded reached no listener. The main window's page asks once it listens (its init script
+      /// has the snapshot of the app's start, a reload too); a sub-window's gets them with its load (`sub_window_loaded`)
+      read window get_settings_changes(since: u32) -> Vec<domain_types::settings::SettingsChange> = $crate::app::settings::get_settings_changes;
+
+      /// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
+      /// read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands
+      /// (`BranchPrefixes`); a global one forgets the prefix of every other repository, which may take it
+      app json set_repository_config(params: $crate::app::repository_config::SetRepositoryConfigParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::set_repository_config;
     }
   };
 }

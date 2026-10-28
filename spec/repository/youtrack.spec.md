@@ -32,7 +32,7 @@ targets:
   - ../../src/lib/sign-in-run.ts
   - ../../crates/remote-facts/src/sign_in.rs
   - ../../crates/domain-types/src/sign_in.rs
-  - ../../src-tauri/src/commands/sign_in.rs
+  - ../../crates/app-api/src/app/sign_in.rs
   - ../../crates/test-server/src/remote_host.rs
   - ../../src/components/settings/YouTrackSettings.tsx
   - ../../src/components/settings/YouTrackPage.tsx

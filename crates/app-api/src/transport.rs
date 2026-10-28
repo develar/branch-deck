@@ -2,12 +2,12 @@
 //! ([`Call`], the window and the page it shows when the command came), the channel the page hears the events of a
 //! command on ([`EventSink`]: a Tauri channel in the app, `ChannelSink` of `src-tauri/src/api.rs`; the SSE stream of the
 //! request in the e2e server, `crates/test-server/src/invoke.rs`), the events of the app to its windows
-//! ([`AppEvents`]) and what the app gives a command beside the services of the sessions ([`AppHost`]).
+//! ([`AppEvents`], named in `events.rs`) and what the app gives a command beside the services of the sessions
+//! ([`AppHost`]).
 
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
-use domain_types::settings::SettingsChange;
 use git_executor::git_command_executor::GitCommandExecutor;
 use patronus::teamcity_cli::TeamCityCli;
 use remote_facts::fact_sources::Read;
@@ -24,6 +24,11 @@ pub struct WindowId(String);
 impl WindowId {
   pub fn new(label: impl Into<String>) -> Self {
     Self(label.into())
+  }
+
+  /// The main window (`app_settings::windows::MAIN_WINDOW`)
+  pub fn main() -> Self {
+    Self::new(app_settings::windows::MAIN_WINDOW)
   }
 
   pub fn as_str(&self) -> &str {
@@ -66,11 +71,16 @@ pub trait EventSink<T>: Send + Sync {
 /// The channel argument of a command's body
 pub type Sink<T> = Arc<dyn EventSink<T>>;
 
-/// What the app tells its windows: the app sends its events (`TauriEvents` of `src-tauri/src/api.rs`); the windows of
-/// the e2e server hear none of them yet, the page mock tells them what it needs (`tests/e2e/setup/tauri-mocks.ts`)
+/// What the app tells its windows, an event of `events.rs` with its payload: the app by Tauri's `Emitter`
+/// (`TauriEvents` of `src-tauri/src/api.rs`), the e2e server on the event stream of each page of the test repository
+/// (`TestEvents` of `crates/test-server/src/host.rs`). A window that does not listen yet misses it, as in Tauri; a
+/// failure to send is the host's to log, never the failure of the command that sent it
 pub trait AppEvents: Send + Sync {
-  /// A command changed the settings: every window that gets the key of `change` hears it (`settings_changed`)
-  fn settings_changed(&self, change: &SettingsChange);
+  /// Sends `event` to every window
+  fn emit(&self, event: &str, payload: serde_json::Value);
+
+  /// Sends `event` to the window `window` alone
+  fn emit_to(&self, window: &WindowId, event: &str, payload: serde_json::Value);
 }
 
 /// What the app gives a command beside the services of the sessions (`ServiceHost`, by the key of a session): its own

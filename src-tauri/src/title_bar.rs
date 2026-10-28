@@ -256,7 +256,7 @@ pub fn restart_app(app_handle: tauri::AppHandle, webview: tauri::Webview, servic
     let change = service
       .set(patch, webview.label())
       .map_err(|e| api_error(anyhow::Error::new(e).context("Cannot change the settings")))?;
-    crate::settings::emit_change(&app_handle, &change);
+    app_api::events::settings_changed(&crate::api::TauriEvents(app_handle.clone()), &change);
     service.flush().map_err(|e| api_error(anyhow::Error::new(e).context("Cannot save the settings")))?;
     app_handle.restart();
   })

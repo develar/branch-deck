@@ -37,6 +37,7 @@ flowchart TB
         H[Command Handlers]
         L[Remote Host: the real services on fake Patronus, GitHub, YouTrack]
         S[Sessions: the syncs of a repository, its patches as SSE]
+        EV[Events: the events of the app to each page of a repository, as SSE]
     end
     
     subgraph "Test Resources"
@@ -59,6 +60,9 @@ flowchart TB
     H --> L
     D -->|subscribe_view, sync, set_window_focus| S
     S --> I
+    H --> EV
+    EV -->|settings_changed, activity-changed, auth-changed| C
+    C -->|emit, emit_to of a page| EV
     B -->|fixtures, logs| L
 ```
 
@@ -185,9 +189,9 @@ Mock implementation:
   (`X-Progress-Channel`), hands each `{ progress }` of the answer to it, and reads on after the answer for an `open`
   one. No channel is guessed from the payload: the diffs and the merges of the views (`get_file_diffs`,
   `get_file_merges`, `events`) stream through it as the app streams them, the patches of `subscribe_view`
-  (`patches`, open), the events of `execute` and the progress of the Safe Push statistics (`get_robot_stats`,
-  `events`). The two handwritten commands with a channel (`sign_in`, `run_cli_tool_action`) are named in
-  `HANDWRITTEN_CHANNELS` of the mock until they move into the registry; one that is in the table fails the page.
+  (`patches`, open), the events of `execute`, of a sign-in (`sign_in`, `events`) and the progress of the Safe Push
+  statistics (`get_robot_stats`, `events`). The handwritten command with a channel (`run_cli_tool_action`) is named in
+  `HANDWRITTEN_CHANNELS` of the mock until it moves into the registry; one that is in the table fails the page.
   [@test] ../../crates/app-api/src/commands_json_test.rs (`the_commands_json_of_the_page_mock_is_the_registry`, `a_channel_of_the_table_names_the_argument_of_the_page_and_whether_it_stays_open`)
 - **Command registry**: three lists name the commands: `collect_commands!` of `src-tauri/src/lib.rs`, the
   `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and of `invoke.rs` (`app_api::commands::COMMANDS`), and
@@ -195,17 +199,34 @@ Mock implementation:
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
-  or a handler without its command, fails; the ten
-  handlers over a route (`set_setting`, `get_settings_changes`, `sub_window_loaded` and
-  `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
-  `set_repository_config`, `sign_in` (not of the `youtrack` CLI, which changes no account), `sign_out`,
-  `record_activity`, `clear_activity` and `execute` emit the event the backend emits after
-  them, `emitAfter`, `activity-changed` of the journal) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (75) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  or a handler without its command, fails; the two
+  handlers over a route (`sub_window_loaded` and `sub_window_drawn` add the snapshot of the page, or record what it
+  drew) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes). No
+  handler emits an event: the events come from Rust (**Events of the app**). The number of commands (75) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
   updater (`updater.rs`).
+- **Events of the app**: the commands of app-api tell the windows through `AppEvents` of the host
+  (`app_api::events`: `settings_changed`, `activity-changed`, `auth-changed`, `repository_config_changed`), which in
+  the test server is `TestEvents` of `crates/test-server/src/host.rs`, one per test repository: each page subscribes
+  as its mock starts, `GET /repositories/{id}/events?window=<label>` (SSE, `{"subscribed": true}` first, then
+  `{ event, payload, window, source }`), outside `hold_repository`, so the stream that lasts as long as the page never
+  holds the deletion of the repository, which ends every stream (`TestEvents::close`). An event goes to every page, or
+  to the pages of one window (`emit_to`: `repository_config_changed` and the main-only keys of the settings to `main`),
+  as Tauri sends it; the mock hands it to the listeners of its name (`__e2eEmitTauriEvent`, for its window) and
+  records an event of the app (no `source`) in `__e2eEmittedEvents`. The mock sends its first command once the stream
+  answered, so the events of what a page does reach it. The watch of the operations registry of a repository a window
+  shows tells its pages `activity-changed` when the journal changes (`RegistryFiles::on_journal`, with the keys of the
+  sessions that watch it), and a sign-in or a sign-out that changed an account `auth-changed` (`TestSignIns` of
+  `remote_host.rs`). What a page emits (`emit`, `emit_to` of `@tauri-apps/api/event`) is recorded in its
+  `__e2eEmittedEvents` and goes through the server the same way (`POST /repositories/{id}/events`, the page's window
+  as its `source`), to the pages it names, the page itself included, as the event plugin of Tauri sends it; so the
+  link of a sub-window and the main window works end to end without a binding of the test. As in the app, the answer
+  of a write and its event come in any order: the page applies the settings by version, and a test waits for the
+  event or the state (`getEmittedEvents`, `waitForStorePersistence`), never for time.
+  [@test] ../../crates/test-server/src/app_events_test.rs (`the_events_of_the_app_reach_the_pages_of_their_windows_and_end_with_the_repository`, `an_operation_journaled_in_the_repository_a_window_shows_tells_its_pages`)
+  [@test] ../../crates/app-api/src/events_test.rs (`a_change_of_the_settings_goes_to_the_windows_that_get_its_key`, `a_config_write_goes_to_the_main_window_and_a_journal_change_to_every_window`)
 - **The ratchet of page answers**: the fourth source of the registry test is the E2E tests themselves
   (`tests/e2e/**/*.ts`). It counts every answer a test gives in the page: each `routeCommand(page, "<name>", …)` and
   each `.route("**/invoke/<name>", …)` whose handler fulfills with an answer of its own (a hold, a record, a
@@ -364,7 +385,8 @@ Mock implementation:
   `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar renders as under a native title bar
   (`{ kind: "native" }`); a test sets one of the platforms' title bars with `useTitleBar` (`TITLE_BARS` in
   `tests/e2e/helpers/title-bar-helpers.ts`: macOS, Windows, GNOME layouts, KDE). The browser says it is Windows, so the
-  lone Alt tap of the main menu is on. `emit` and `emit_to` are recorded in `__e2eEmittedEvents`, not delivered
+  lone Alt tap of the main menu is on. `emit` and `emit_to` are recorded in `__e2eEmittedEvents` and go through the
+  test server to the pages of the repository (**Events of the app**)
 - **Sub-windows**: `open_sub_window` is answered in the page and recorded in `__e2eSubWindows` (the label, the URL, the
   title, the parsed data and the settings it starts from, `store`); `getOpenedSubWindows` reads them; `sub_window_ready` (the page settled its content) is answered in
   the page too, recorded in `__e2eSubWindowReady` (the open) and `__e2eWindowReadyRows` (the branch rows the page had
@@ -377,31 +399,31 @@ Mock implementation:
     main window's page is gone then;
   - as a page of its own beside the main window's (`openLinkedSubWindow`), under its own label (`__e2eWindowLabel`,
     which the mock reports as the current window) and with the settings the open recorded (else those the main window
-    started from): `emit` of one page is
-    delivered to the other (`__e2eRelay`, a binding of the context), so the link of the window works end to end: the
-    window asks, the main window runs it against the test server and answers, and the toast shows where the app shows
-    it. A route of what the window asks itself (its fetch) is set on its page before it loads (`beforeLoad`). Escape
+    started from): `emit` of one page reaches the other through the test server, as the events of the app reach both
+    (**Events of the app**), so the link of the window works end to end: the window asks, the main window runs it
+    against the test server and answers, and the toast shows where the app shows it. A route of what the window asks itself (its fetch) is set on its page before it loads (`beforeLoad`). Escape
     that closes the window is the `close` of `__e2eWindowCalls` of its page. `tests/e2e/review-requests/review-requests.spec.ts`
     reviews and writes in the `pull-request-review` window this way. A write of the settings in the window reaches the
     main window, which saves it in the store of the test server (`testStore`); `reopenLinkedSubWindow` hands the shown
     window a later open, as the backend does. The Activity window is always linked too (`openActivityWindow` of
     `activity-helpers.ts`, by Open in Window of the side panel unless the test opens it otherwise: the window reads the
-    log itself, the main window sends it what only it knows and runs its reveal, Undo, Dismiss and Clear Log; the mock
-    tells both pages `activity-changed` after `record_activity`, `clear_activity` and `execute`, as the backend does). The
+    log itself, the main window sends it what only it knows and runs its reveal, Undo, Dismiss and Clear Log; the test
+    server tells both pages `activity-changed` after `record_activity` and `clear_activity`, and when the journal of
+    the repository changed after an operation, as the backend does). The
     Settings window is always linked: `openSettingsWindow` of
     `settings-helpers.ts` fires `open_settings` in the main window's page once it listens (`waitForTauriListener`; an
     event fired before a lazy page registered its listener is lost) and shows the open, `expectSettingsOpened` checks
     that it is the only new one. A write of Settings → Repository (`set_repository_config`) is answered by the test
-    server, and the mock sends the main window `repository_config_changed`, as the command does. A change of the
-    settings (`set_setting`) goes to the test server's writer of the repository (`TestRepository::store`, the app's
-    `SettingsService` on a file of its app data), and the mock sends the change to its page and the linked pages
-    (`settings_changed`), as the backend does, recorded in `__e2eEmittedEvents` of the page that changed it, with its
+    server, which sends the main window `repository_config_changed`, as the command does. A change of the settings
+    (`set_setting`) goes to the test server's writer of the repository (`TestRepository::store`, the app's
+    `SettingsService` on a file of its app data), which sends the change to every page whose window gets its key
+    (`settings_changed`), as the backend does, recorded in `__e2eEmittedEvents` of each page that heard it, with its
     version; each page keeps its copy of the settings (`__TAURI_STORE__` and `__TAURI_STORE_VERSION__`), from which a
     reload and a sub-window it opens start. A linked window's webview starts at the zoom of its snapshot
     (`__e2eWebviewZoom`, as the builder zooms it), and its load (`sub_window_loaded`) takes the changes the test
     server's writer made after the version of that snapshot.
-  `emit` is also recorded in `__e2eEmittedEvents` (`getEmittedEvents`); a test fires an event in a page with
-  `emitTauriEvent`. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
+  `getEmittedEvents` reads what a page emitted and the events of the app it heard; a test fires an event in a page with
+  `emitTauriEvent`, in that page alone. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
   "pull-request-review")`) reaches only the listeners of any target and of that window (`target: { label }`), so the
   links of the other kinds stay open; one fired without a window reaches every listener of its name
 
@@ -594,8 +616,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   without `BRANCH_DECK_GITHUB_CLIENT_ID`); `authorize`, the user entered the codes issued so far; `signedIn`, the token
   file holds the host's sign-in or none (signed in or out elsewhere); `ghToken`, a fake `gh` that answers it. `GET`
   (`getGitHubSignIn`) answers `pending` (a sign-in waits for its code, as the session holds it), `codes` and `polls`,
-  the requests of the device flow that reached the fake. The page mock emits `auth-changed` to every page after a
-  sign-in or a sign-out succeeded, as the backend does; a deleted repository cancels the sign-in its page left waiting,
+  the requests of the device flow that reached the fake. The test server tells every page of the repository
+  `auth-changed` after a sign-in or a sign-out that changed an account, as the backend does; a deleted repository cancels the sign-in its page left waiting,
   so its deletion does not wait for the code to expire.
 - **GitHub fixture**: `POST /repositories/{id}/pull-requests` (`setPullRequests`, the `pullRequests` setup option) takes
   a `PullRequestsResult` (`availablePullRequests`, `unavailablePullRequests` in `pull-request-helpers.ts`) and what only
@@ -667,7 +689,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   another command is a 400 with YouTrack's message). The browser of a sign-in is `completeYouTrackSignIn(page)`: Node
   fetches the Hub page the app opened (on the `browser` event of the sign-in's channel) and follows its redirect to the
   listener, as the browser does. A sign-in or a sign-out has the sessions of the repository read their fact `auth`,
-  and the page mock emits `auth-changed` to every page, as the backend does.
+  and the test server tells every page of the repository `auth-changed`, as the backend does.
 - **YouTrack fixture and log**: `POST /repositories/{id}/youtrack` (`setYouTrack`, the `youtrack` setup option, set
   before the page opens so the window starts with its sign-in) takes `issues` (`openIssue`, `resolvedIssue` in
   `youtrack-helpers.ts`), `me`, `tokens` (created in Account Security) and `signedIn`: the token file holds a browser

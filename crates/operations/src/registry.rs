@@ -106,8 +106,9 @@ pub struct RegistryFiles {
   journaled: Option<JournalListener>,
 }
 
-/// What hears that the journal of a watched repository changed
-pub type JournalListener = Arc<dyn Fn() + Send + Sync>;
+/// What hears that the journal of a watched repository changed, with the keys of the sessions that watch it (the e2e
+/// server tells the pages of their test repositories)
+pub type JournalListener = Arc<dyn Fn(&[SessionKey]) + Send + Sync>;
 
 /// The `$GIT_COMMON_DIR` of the worktree of a session; `None` outside a repository
 type CommonDir = dyn Fn(&SessionKey) -> Option<PathBuf> + Send + Sync;
@@ -125,10 +126,10 @@ impl RegistryFiles {
     }
   }
 
-  /// The same files, whose journal changes `listener` hears while a window watches its repository (the app tells its
-  /// windows `activity-changed`)
+  /// The same files, whose journal changes `listener` hears while a window watches its repository, with the keys of the
+  /// sessions that watch it (the app tells its windows `activity-changed`)
   #[must_use]
-  pub fn on_journal(mut self, listener: impl Fn() + Send + Sync + 'static) -> Self {
+  pub fn on_journal(mut self, listener: impl Fn(&[SessionKey]) + Send + Sync + 'static) -> Self {
     self.journaled = Some(Arc::new(listener));
     self
   }

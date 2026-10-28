@@ -3,6 +3,7 @@
 //! so the page keeps no grammar of its own; the rest of that grammar is `reads::grammar`)
 
 use crate::context::AppContext;
+use crate::events::settings_changed;
 use crate::transport::{Call, Sink};
 use app_settings::journals::remember_journal;
 use domain_types::commit::{CommitGroup, PreviewGroupParams};
@@ -76,7 +77,7 @@ async fn remember_journal_of(ctx: &AppContext, key: &SessionKey) {
     return;
   };
   match remember_journal(&ctx.settings, &key.worktree, &journal.to_string_lossy()) {
-    Ok(Some(change)) => ctx.events.settings_changed(&change),
+    Ok(Some(change)) => settings_changed(&*ctx.events, &change),
     Ok(None) => {}
     Err(error) => warn!(%error, "cannot remember the journal of the repository"),
   }

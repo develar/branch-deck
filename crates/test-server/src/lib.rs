@@ -20,7 +20,6 @@ use tracing::Instrument;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-pub mod activity_routes;
 pub mod cli_tools_fixtures;
 pub mod host;
 pub mod invoke;
@@ -39,6 +38,9 @@ pub mod youtrack_fixtures;
 
 #[cfg(test)]
 mod api_error_contract_test;
+
+#[cfg(test)]
+mod app_events_test;
 
 #[cfg(test)]
 mod branch_prefix_test;
@@ -127,6 +129,20 @@ fn registry_files(git: git_executor::git_command_executor::GitCommandExecutor) -
   })
 }
 
+/// The journal of a repository changed: the pages of each test repository whose session watches it hear
+/// `activity-changed`, as the app's windows hear it (`RegistryFiles::on_journal`)
+fn journal_changed(state: &std::sync::Weak<AppState>, watching: &[repository_model::session::SessionKey]) {
+  let Some(state) = state.upgrade() else {
+    return;
+  };
+  let ids: std::collections::BTreeSet<String> = watching.iter().filter_map(|key| state.path_to_id.get(&key.worktree).map(|id| id.clone())).collect();
+  for id in ids {
+    if let Some(repository) = state.repositories.get(&id) {
+      app_api::events::activity_changed(&*repository.events);
+    }
+  }
+}
+
 /// Unix seconds now for the operations registry of the test repository of `worktree`: the start of the server and the
 /// time of the clock of its sessions (`WorktreeClocks`), which stands still until its test moves it, so a start whose
 /// answer was lost settles only when the test moves the clock past it (`POST /repositories/{id}/clock/advance`)
@@ -165,12 +181,14 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       Arc::new(host),
       Arc::clone(&session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
     ));
-    // the operations of the app are recorded in the registry of each test repository, as the app records them, and a
-    // start whose answer was lost is settled by the fakes of its repository
+    // the operations of the app are recorded in the registry of each test repository, as the app records them, a
+    // start whose answer was lost is settled by the fakes of its repository, and a change of its journal tells its pages
     let clocks = Arc::clone(&session_clocks);
+    let journaled = std::sync::Weak::clone(state);
     let files = registry_files(git_executor.clone())
       .settled_with(session_routes::settle_host(state, git_executor.clone()))
-      .at(move |key| registry_now(&clocks, &key.worktree));
+      .at(move |key| registry_now(&clocks, &key.worktree))
+      .on_journal(move |watching| journal_changed(&journaled, watching));
     let registry = operations::registry::Registry::new(Arc::clone(&sessions), files);
     AppState {
       repositories: DashMap::new(),
@@ -270,19 +288,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/store/{repo_id}/{key}", get(get_store_value))
     .route("/store/{repo_id}/{key}", post(set_store_value))
     .route("/store/{repo_id}/{key}", axum::routing::delete(delete_store_value))
+    // the events of the app to the pages of a repository, and the events of its pages to each other (`host.rs`)
+    .route("/repositories/{id}/events", get(host::subscribe_events).post(host::emit_page_event))
     // the handwritten command endpoints, until their commands move to app-api
-    .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
-    .route("/invoke/read_activity", post(activity_routes::read_activity))
-    .route("/invoke/record_activity", post(activity_routes::record_activity))
-    .route("/invoke/clear_activity", post(activity_routes::clear_activity))
-    .route("/invoke/sign_in", post(tauri_command_bridge::sign_in))
-    .route("/invoke/cancel_sign_in", post(tauri_command_bridge::cancel_sign_in))
-    .route("/invoke/sign_out", post(tauri_command_bridge::sign_out))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
     // the native menu: a test counts the requests of the page
     .route("/invoke/set_auto_sync_menu_checked", post(tauri_command_bridge::set_auto_sync_menu_checked))
-    .route("/invoke/set_setting", post(tauri_command_bridge::set_setting))
-    .route("/invoke/get_settings_changes", post(tauri_command_bridge::get_settings_changes))
     .route("/invoke/sub_window_loaded", post(tauri_command_bridge::sub_window_loaded))
     .route("/invoke/sub_window_drawn", post(tauri_command_bridge::sub_window_drawn))
     .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
@@ -654,12 +665,14 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
   }
   write_test_identity(&state.global_config_of(id))?;
   let store = Arc::new(store);
+  let events = Arc::new(host::TestEvents::default());
   let repo = TestRepository {
     id: id.to_string(),
     path: path.to_string(),
     app_data,
     in_flight: Arc::default(),
-    context: Arc::new(state.context_of(id, &store)),
+    context: Arc::new(state.context_of(id, &store, &events)),
+    events,
     store,
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
     review_requests: std::sync::RwLock::default(),
@@ -907,6 +920,8 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   // its windows close: their subscriptions end, their review fetches stop; a window's subscription streams until its
   // session closes, and holds the repository while it does
   repo.context.forget_windows();
+  // the event stream of each page ends: a page that outlived its test hears nothing more
+  repo.events.close();
   state.sessions.close_worktree(&repo.path);
   state.session_clocks.forget(&repo.path);
   // a sign-in the page left waiting on GitHub would hold the repository until its code expires

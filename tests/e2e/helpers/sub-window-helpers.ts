@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
 import { PAGE_COMMANDS, tauriMockScript } from "../setup/tauri-mocks"
 
 /** A sub-window the page opened (`open_sub_window`, recorded by the Tauri mock) */
@@ -29,7 +29,11 @@ export async function openSubWindowPage(page: Page, subWindow: OpenedSubWindow):
   await page.goto(`${subWindow.url}?repoId=${repoId}`)
 }
 
-/** The payloads of the events the page emitted for other windows (`emit`, recorded by the Tauri mock), in order */
+/**
+ * The payloads of the events named `event` that the page emitted for the windows (`emit`, `emit_to`) or heard from the
+ * backend (`settings_changed`, `activity-changed`, …, on the test server's event stream of the page), in order, as the
+ * Tauri mock recorded them
+ */
 export async function getEmittedEvents<T = unknown>(page: Page, event: string): Promise<T[]> {
   return page.evaluate(
     name => ((window as unknown as { __e2eEmittedEvents?: { event: string; payload: T }[] }).__e2eEmittedEvents ?? []).filter(it => it.event === name).map(it => it.payload),
@@ -37,37 +41,18 @@ export async function getEmittedEvents<T = unknown>(page: Page, event: string): 
   )
 }
 
-/** The pages of each context that relay their events to each other (`__e2eRelay`, exposed once per context) */
-const linkedPages = new WeakMap<BrowserContext, Page[]>()
-
 /**
  * Opens a sub-window as a page of its own beside the main window's page, under its own label (`__e2eWindowLabel`), as
  * the app opens it: its route with the recorded data as `__INIT_DATA__`, the recorded settings of the open (else the
  * main window's copy now) as `__TAURI_STORE__` with their version, its webview zoomed to their level as the window
  * builder zooms it (`__e2eWebviewZoom`, `apply_zoom`); once it listens, the page's load takes the changes made since
- * (`sub_window_loaded`, from the version of its snapshot). The events one page emits reach the other (`__e2eRelay`), so
- * the link of the window works end to end: the window asks, the main window runs it against the test server and answers. Escape that closes the window is
+ * (`sub_window_loaded`, from the version of its snapshot). The events of a page reach the other through the test
+ * server, as the events of the backend reach both (the event stream of each page), so the link of the window works end
+ * to end: the window asks, the main window runs it against the test server and answers. Escape that closes the window is
  * the `close` of `__e2eWindowCalls` of the window's page. `beforeLoad` routes what the window itself asks the backend.
  * The window's page is open 1 (`__SUB_WINDOW_OPEN__`); `getSubWindowReadyOpen` tells when its content settled.
  */
 export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow, { beforeLoad }: { beforeLoad?: (page: Page) => Promise<unknown> } = {}): Promise<Page> {
-  const context = main.context()
-  let pages = linkedPages.get(context)
-  if (pages === undefined) {
-    const linked: Page[] = [main]
-    pages = linked
-    linkedPages.set(context, linked)
-    await context.exposeBinding("__e2eRelay", async ({ page: source }, event: string, payload: unknown) => {
-      for (const page of linked) {
-        if (page !== source && !page.isClosed()) {
-          await page.evaluate(([name, value]) => (window as unknown as { __e2eEmitTauriEvent: (event: string, payload: unknown) => void }).__e2eEmitTauriEvent(name, value), [
-            event,
-            payload,
-          ] as const)
-        }
-      }
-    })
-  }
   const repoId = new URL(main.url()).searchParams.get("repoId")
   const current = await main.evaluate(() => {
     const target = window as unknown as { __TAURI_STORE__?: unknown; __TAURI_STORE_VERSION__?: number }
@@ -75,7 +60,7 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
   })
   const store = subWindow.store ?? current.store
   const version = subWindow.store === undefined ? current.version : (subWindow.storeVersion ?? 0)
-  const page = await context.newPage()
+  const page = await main.context().newPage()
   await page.addInitScript(
     ({ label, data, settings, version }) => {
       const target = window as unknown as {
@@ -101,7 +86,6 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
     { label: subWindow.windowId, data: subWindow.data, settings: store, version },
   )
   await page.addInitScript(tauriMockScript, PAGE_COMMANDS)
-  pages.push(page)
   // the routes of the window's own commands (its fetch), before it asks
   await beforeLoad?.(page)
   await page.goto(`${subWindow.url}?repoId=${repoId}`)

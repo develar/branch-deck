@@ -4,14 +4,13 @@
 //! of a command its Tauri channel (`ChannelSink`). `lib.rs` registers them with the handwritten commands that have no
 //! entry yet.
 
-use app_api::transport::{AppEvents, EventSink, Sink, SinkGone};
-use app_settings::branch_prefixes::BranchPrefixes;
+use app_api::transport::{AppEvents, EventSink, Sink, SinkGone, WindowId};
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
-use domain_types::settings::SettingsChange;
 use std::sync::Arc;
-use tauri::AppHandle;
 use tauri::ipc::{Channel, IpcResponse};
+use tauri::{AppHandle, Emitter};
+use tracing::warn;
 
 /// A failure of Tauri itself (a window, an event, the store of the settings): `internal` with its words
 #[expect(clippy::needless_pass_by_value, reason = "used as `map_err(tauri_error)`")]
@@ -19,11 +18,8 @@ pub fn tauri_error(error: tauri::Error) -> ApiError {
   ApiError::internal(error.to_string())
 }
 
-/// The writer of the settings, as a handwritten command takes it to resolve the prefix (`PrefixInputs::new`)
+/// The writer of the settings, as a handwritten command takes it
 pub type Settings<'a> = tauri::State<'a, Arc<SettingsService>>;
-
-/// The memo of the git prefixes, as a handwritten command takes it to resolve the prefix (`PrefixInputs::new`)
-pub type Prefixes<'a> = tauri::State<'a, BranchPrefixes>;
 
 /// A Tauri channel of the page as the channel of a command of app-api: the patches of a subscription, the events of an
 /// operation. A channel of a page that went away never fails its send, so a window's subscription ends with its page
@@ -41,12 +37,21 @@ pub fn sink<T: IpcResponse + Send + Sync + 'static>(channel: Channel<T>) -> Sink
   Arc::new(ChannelSink(channel))
 }
 
-/// The events of the app to its windows
+/// The events of the app to its windows (`app_api::events`), by Tauri's `Emitter`: an event to every window reaches the
+/// listeners of every webview, one to a window those of the webviews of its label
 pub struct TauriEvents(pub AppHandle);
 
 impl AppEvents for TauriEvents {
-  fn settings_changed(&self, change: &SettingsChange) {
-    crate::settings::emit_change(&self.0, change);
+  fn emit(&self, event: &str, payload: serde_json::Value) {
+    if let Err(error) = self.0.emit(event, payload) {
+      warn!(%error, event, "cannot send the event to the windows");
+    }
+  }
+
+  fn emit_to(&self, window: &WindowId, event: &str, payload: serde_json::Value) {
+    if let Err(error) = self.0.emit_to(window.as_str(), event, payload) {
+      warn!(%error, event, %window, "cannot send the event to the window");
+    }
   }
 }
 

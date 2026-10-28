@@ -1,26 +1,30 @@
 //! The sessions of the app and what they run with: the syncs of a session take git, the issue links and the object
 //! cache of the repository, the git config read for the sync and the settings (`AppEnvironment`); the reads of their
 //! facts, the effects of the engine, its rewrites and the commands of app-api go to the services of the app
-//! (`AppServices`), made of its remote services (`PatronusState`, `GitHubState`, `YouTrackState`) and its sign-ins.
+//! (`AppServices`), made of its remote services (`PatronusState`, `GitHubState`, `YouTrackState`) and its sign-ins
+//! (`SignInsState`, run with `AppSignIns`).
 //! Both read what the commands share from the `AppContext` the app manages (`lib.rs`), the remote services from their
 //! own states. The commands are app-api's (`app_api::session`, `app_api::remote`).
 
-use crate::commands::activity::emit_activity_changed;
-use crate::commands::sign_in::SignInsState;
-use crate::settings::emit_change;
+use crate::api::TauriEvents;
 use app_api::api_error::{api_error, undo_error};
 use app_api::context::AppContext;
+use app_api::events::{activity_changed, auth_changed, settings_changed};
 use app_api::operation::run_blocking;
 use app_api::repository_state::RepositoryStateCache;
 use app_api::transport::AppHost;
 use app_settings::linked_pull_requests::{forget, linked};
+use cli_tools::environment::ToolEnvironment;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, HolderTool};
 use domain_types::review_request::LinkedPullRequest;
+use domain_types::session::{FactFamily, FactRefreshReason};
+use domain_types::sign_in::Account;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::client::GitHubClient;
+use github::device_flow::GITHUB_OAUTH_CLIENT_ID;
 use github::service::GitHubService;
 use github::token::{TokenChain, TokenSources};
 use moka::sync::Cache;
@@ -34,7 +38,7 @@ use patronus::token::find_user_token;
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
-use remote_facts::sign_in::SignIns;
+use remote_facts::sign_in::{SignInHost, SignIns};
 use remote_facts::youtrack_cli::handed_token_file;
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
@@ -72,8 +76,8 @@ pub fn start_sessions(app: &AppHandle, git: &GitCommandExecutor, repository_stat
   }
   .settled_with(Arc::new(AppServices { app: app.clone() }))
   .on_journal({
-    let app = app.clone();
-    move || emit_activity_changed(&app)
+    let events = TauriEvents(app.clone());
+    move |_watching| activity_changed(&events)
   });
   let host = GitSessionHost::new(git.clone(), AppEnvironment { app: app.clone() });
   let runtime = tauri::async_runtime::handle().inner().clone();
@@ -215,14 +219,16 @@ impl ServiceHost for AppServices {
   }
 
   fn link_pull_request(&self, _key: &SessionKey, repository: &GitHubRepository, link: LinkedPullRequest) -> Result<(), ApiError> {
-    let change = app_settings::linked_pull_requests::link(&self.context().settings, &repository.full_name(), link).map_err(|error| ApiError::internal(error.to_string()))?;
-    emit_change(&self.app, &change);
+    let ctx = self.context();
+    let change = app_settings::linked_pull_requests::link(&ctx.settings, &repository.full_name(), link).map_err(|error| ApiError::internal(error.to_string()))?;
+    settings_changed(&*ctx.events, &change);
     Ok(())
   }
 
   fn forget_linked_pull_requests(&self, _key: &SessionKey, repository: &GitHubRepository, numbers: &[u32]) {
-    match forget(&self.context().settings, &repository.full_name(), numbers) {
-      Ok(Some(change)) => emit_change(&self.app, &change),
+    let ctx = self.context();
+    match forget(&ctx.settings, &repository.full_name(), numbers) {
+      Ok(Some(change)) => settings_changed(&*ctx.events, &change),
       Ok(None) => {}
       Err(error) => warn!(%error, "cannot forget the links of Reviews"),
     }
@@ -323,7 +329,7 @@ impl PatronusState {
 }
 
 /// The GitHub client of the app: one HTTP client (kept-alive connection) and the token chain with what GitHub accepted
-/// and rejected, shared by the windows; its own sign-in is one of the sign-ins of the app (`commands::sign_in`)
+/// and rejected, shared by the windows; its own sign-in is one of the sign-ins of the app (`AppSignIns`)
 pub struct GitHubState {
   pub service: Arc<GitHubService>,
 }
@@ -339,7 +345,7 @@ impl GitHubState {
   }
 }
 
-/// The YouTrack of the app, shared by the windows, the sessions (`SetIssueState`) and the sign-ins (`commands::sign_in`)
+/// The YouTrack of the app, shared by the windows, the sessions (`SetIssueState`) and the sign-ins (`AppSignIns`)
 pub struct YouTrackState {
   /// Shared with the operations of the sessions (`SetIssueState` through `ServiceHost::youtrack`), the issue popovers
   /// (`AppHost::youtrack`) and the sign-ins
@@ -358,6 +364,50 @@ impl YouTrackState {
       )),
       handed_token: app_data_dir.map(handed_token_file),
     }
+  }
+}
+
+/// The sign-ins of the app, which `AppHost::sign_ins` of `AppServices` gives the commands of app-api
+/// (`app_api::app::sign_in`)
+pub struct SignInsState(pub SignIns);
+
+/// What the sign-ins of the app run with: the services of the app, the OAuth app of the build, the `youtrack` CLI of the
+/// user, and the sessions and windows a change of an account tells
+pub struct AppSignIns {
+  pub app: AppHandle,
+}
+
+impl SignInHost for AppSignIns {
+  fn github(&self) -> Arc<GitHubService> {
+    Arc::clone(&self.app.state::<GitHubState>().service)
+  }
+
+  fn github_client_id(&self) -> Option<String> {
+    GITHUB_OAUTH_CLIENT_ID.map(str::to_owned)
+  }
+
+  fn youtrack(&self) -> Arc<YouTrackService> {
+    Arc::clone(&self.app.state::<YouTrackState>().service)
+  }
+
+  fn youtrack_cli(&self) -> (ToolEnvironment, Option<PathBuf>) {
+    (ToolEnvironment::from_process(), self.app.state::<YouTrackState>().handed_token.clone())
+  }
+
+  fn api_error(&self, error: anyhow::Error) -> ApiError {
+    api_error(error)
+  }
+
+  /// Every session reads its sign-ins again, after GitHub its pull requests and review requests too, and every window
+  /// hears `auth-changed`
+  fn changed(&self, account: Account) {
+    let ctx = self.app.state::<AppContext>();
+    ctx.sessions.refresh_all(FactFamily::Auth, FactRefreshReason::AfterWrite);
+    if account == Account::GitHub {
+      ctx.sessions.refresh_all(FactFamily::PullRequests, FactRefreshReason::Manual);
+      ctx.sessions.refresh_all(FactFamily::ReviewRequests, FactRefreshReason::Manual);
+    }
+    auth_changed(&*ctx.events);
   }
 }
 

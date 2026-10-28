@@ -37,18 +37,14 @@ mod zoom_test;
 )]
 use api::generated::*;
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
-use commands::activity::{clear_activity, read_activity, record_activity};
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
 use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
 use commands::repository_browser::browse_repository;
-use commands::repository_config::set_repository_config;
-use commands::settings::{get_settings_changes, set_setting};
-use commands::sign_in::{AppSignIns, SignInsState, cancel_sign_in, sign_in, sign_out};
 use commands::window_management::{
   BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_drawn, sub_window_loaded, sub_window_ready,
 };
 use commands::window_menu::show_window_menu;
-use services::{GitHubState, PatronusState, YouTrackState};
+use services::{AppSignIns, GitHubState, PatronusState, SignInsState, YouTrackState};
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
@@ -261,7 +257,6 @@ pub fn run() {
       app.manage(git.clone());
       app.manage(repository_state.clone());
       let (sessions, registry) = services::start_sessions(app.handle(), &git, &repository_state);
-      app.manage(app_settings::branch_prefixes::BranchPrefixes::default());
       app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
@@ -308,7 +303,7 @@ pub fn run() {
       app.manage(AppContext {
         git,
         settings: Arc::clone(&settings_service),
-        prefixes: app.state::<app_settings::branch_prefixes::BranchPrefixes>().inner().clone(),
+        prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
         repository_state,
         // one memory of the diffs and the files of the ranges for the reviews' lists and their diffs (`get_range_files`,
         // `get_file_diffs`) and the read ahead of a branch review (`prefetch_branch_review`)

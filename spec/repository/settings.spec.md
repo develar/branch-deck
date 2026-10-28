@@ -6,13 +6,15 @@ targets:
   - ../../src-tauri/src/menu.rs
   - ../../src-tauri/src/lib.rs
   - ../../src-tauri/src/settings.rs
-  - ../../src-tauri/src/commands/settings.rs
+  - ../../crates/app-api/src/app/settings.rs
+  - ../../crates/app-api/src/events.rs
   - ../../crates/app-settings/src/service.rs
   - ../../crates/app-settings/src/file.rs
   - ../../crates/app-settings/src/lib.rs
   - ../../crates/bd-core/src/context.rs
   - ../../src-tauri/src/title_bar.rs
   - ../../crates/test-server/src/state.rs
+  - ../../crates/test-server/src/host.rs
   - ../../src/stores/settings/repositoryState.ts
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/src/commands/window_management.rs
@@ -72,7 +74,7 @@ targets:
   - ../../crates/domain-types/src/settings.rs
   - ../../crates/sync-core/src/repository_config.rs
   - ../../crates/sync-core/src/config_snapshot.rs
-  - ../../src-tauri/src/commands/repository_config.rs
+  - ../../crates/app-api/src/app/repository_config.rs
   - ../../src/lib/repository-config.ts
   - ../../src/lib/branch-prefix.ts
   - ../../src/hooks/useRepositoryConfig.ts
@@ -579,12 +581,18 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   checks the last open and that it is the only new one; `reopenLinkedSubWindow` hands a later open to the shown
   window, as the backend does.
 - The settings of a test live in the test server's writer of the repository (`TestRepository::store`, the app's
-  `SettingsService`): `set_setting` changes them there, the mock sends the change to its page and the linked pages
-  (`settings_changed`), and `testStore` of the fixtures reads and writes them (`/store/<repo>/<key>`).
+  `SettingsService`): `set_setting` of app-api changes them there and sends the change to every page of the repository
+  whose window gets its key (`settings_changed`, on the event stream of each page, `TestEvents` of
+  `crates/test-server/src/host.rs`), as the app sends it to its windows, and `testStore` of the fixtures reads and
+  writes them (`/store/<repo>/<key>`).
+  [@test] ../../crates/app-api/src/events_test.rs (`a_change_of_the_settings_goes_to_the_windows_that_get_its_key`)
+  [@test] ../../crates/test-server/src/app_events_test.rs (`the_events_of_the_app_reach_the_pages_of_their_windows_and_end_with_the_repository`)
 - `tests/e2e/settings/repository-settings.spec.ts`: the test server reads and writes the local config of the test
   repository and a global config of its own (`GIT_CONFIG_GLOBAL`, `AppState::global_config_of`), never the
-  developer's or the system config; the sync of the repository does not read that global file. The mock sends
-  `repository_config_changed` to the main window's page after a write (`set_repository_config` of `tauri-mocks.ts`).
+  developer's or the system config; the sync of the repository does not read that global file. After a write the test
+  server sends `repository_config_changed` to the pages of the main window (`set_repository_config` of app-api, as in
+  the app).
+  [@test] ../../crates/app-api/src/events_test.rs (`a_config_write_goes_to_the_main_window_and_a_journal_change_to_every_window`)
 - By hand: `pnpm tauri dev`; ⌘, from the menu, from a review window and again with the window open (it comes to the
   front); every page at 100% and 150% without scrolling; closing the main window closes Settings; Repository: stacks
   on syncs the main window, a prefix of the repository renames its branches, `git config --worktree` disables a row.

@@ -12,6 +12,7 @@ use crate::cli_tools_fixtures::CliToolsHost;
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
 use crate::remote_git_fixtures::FakeRemote;
 use crate::review_fixtures::{ReviewAnswers, review_check_answer};
+use app_api::transport::AppEvents;
 use domain_types::error::ApiError;
 use domain_types::session::{FactFamily, FactRefreshReason};
 use domain_types::sign_in::{Account, SignInProvider};
@@ -205,8 +206,9 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
 
 impl RemoteHost {
   /// The fakes of the repository at `repository_path`, not on Space until a fixture says so, with the app's token files
-  /// in `app_data`, the fake CLIs of `cli_tools` and the sessions a sign-in tells; call inside a Tokio runtime
-  pub fn start(git: &GitCommandExecutor, repository_path: &str, app_data: PathBuf, cli_tools: Arc<CliToolsHost>, sessions: Weak<Sessions>) -> Self {
+  /// in `app_data`, the fake CLIs of `cli_tools`, and the sessions and the pages a sign-in tells; call inside a Tokio
+  /// runtime
+  pub fn start(git: &GitCommandExecutor, repository_path: &str, app_data: PathBuf, cli_tools: Arc<CliToolsHost>, sessions: Weak<Sessions>, events: Arc<dyn AppEvents>) -> Self {
     let patronus = Arc::new(FakePatronus::default());
     patronus.set_status(200);
     patronus.state_only.store(true, Ordering::SeqCst);
@@ -266,6 +268,7 @@ impl RemoteHost {
       handed_token: remote_facts::youtrack_cli::handed_token_file(&app_data),
       sessions,
       worktree: repository_path.to_owned(),
+      events,
     };
     let sign_ins = SignIns::new(Arc::new(sign_in_host), GitHubSignInSession::new(Some(token_file(&app_data))));
     let host = Self {
@@ -614,8 +617,9 @@ fn new_github_service(url: &str, app_data_dir: &std::path::Path, gh: GhSource, g
 }
 
 /// What the sign-ins of a test repository run with: its services (the GitHub one as its fixtures renew it), the OAuth
-/// app of its fixture, the fake CLIs, and the sessions of its worktree, which a sign-in or a sign-out has read their
-/// facts again as the app has all of its sessions (the accounts of the server are of each test repository)
+/// app of its fixture, the fake CLIs, and the sessions of its worktree and the pages of the repository, which a sign-in
+/// or a sign-out tells as the app tells all of its sessions and windows (the accounts of the server are of each test
+/// repository)
 struct TestSignIns {
   github: Arc<RwLock<Arc<GitHubService>>>,
   client_id: Arc<RwLock<Option<String>>>,
@@ -624,6 +628,7 @@ struct TestSignIns {
   handed_token: PathBuf,
   sessions: Weak<Sessions>,
   worktree: String,
+  events: Arc<dyn AppEvents>,
 }
 
 impl SignInHost for TestSignIns {
@@ -647,15 +652,16 @@ impl SignInHost for TestSignIns {
     app_api::api_error::api_error(error)
   }
 
-  /// As the app's host: the sign-ins read again, and after GitHub the pull requests and the review requests
+  /// As the app's host: the sign-ins read again, and after GitHub the pull requests and the review requests; every page
+  /// hears `auth-changed`
   fn changed(&self, account: Account) {
-    let Some(sessions) = self.sessions.upgrade() else {
-      return;
-    };
-    sessions.refresh_worktree(&self.worktree, FactFamily::Auth, FactRefreshReason::AfterWrite);
-    if account == Account::GitHub {
-      sessions.refresh_worktree(&self.worktree, FactFamily::PullRequests, FactRefreshReason::Manual);
-      sessions.refresh_worktree(&self.worktree, FactFamily::ReviewRequests, FactRefreshReason::Manual);
+    if let Some(sessions) = self.sessions.upgrade() {
+      sessions.refresh_worktree(&self.worktree, FactFamily::Auth, FactRefreshReason::AfterWrite);
+      if account == Account::GitHub {
+        sessions.refresh_worktree(&self.worktree, FactFamily::PullRequests, FactRefreshReason::Manual);
+        sessions.refresh_worktree(&self.worktree, FactFamily::ReviewRequests, FactRefreshReason::Manual);
+      }
     }
+    app_api::events::auth_changed(&*self.events);
   }
 }

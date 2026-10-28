@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 /// A command of the sources: a handwritten `#[tauri::command]`, or the body of an entry of the registry
 struct Command {
-  /// `src-tauri/src/commands/sign_in.rs:86`
+  /// `crates/app-api/src/app/sign_in.rs:17`
   place: String,
   name: String,
   /// The text of its `#[instrument(…)]` attribute, None without one
@@ -233,7 +233,7 @@ fn tauri_commands() -> Vec<Command> {
     .collect();
   commands.sort_by(|a, b| a.name.cmp(&b.name));
   // the handwritten commands go down as they move into the registry: the bound only proves the parse found them
-  assert!(commands.len() > 20, "the scan found {} commands, is src-tauri laid out differently?", commands.len());
+  assert!(commands.len() > 10, "the scan found {} commands, is src-tauri laid out differently?", commands.len());
   commands
 }
 
