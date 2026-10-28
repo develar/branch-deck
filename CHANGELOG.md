@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.35.0](https://github.com/develar/branch-deck/compare/v0.34.0...v0.35.0) (2026-10-28)
+
+
+### Features
+
+* **activity:** Activity reads the journals: the operations of the app and of bd from the journal of their repository, what only the page knows from the journal of the app data directory, no window keeps a log ([e55efb1](https://github.com/develar/branch-deck/commit/e55efb15370a23267aaf3306b11d7085ce2cb9d5))
+* **activity:** the Activity window reads the journals itself, the operations of agents show behind their chip, and a journal that can't be read is marked ([c2ff878](https://github.com/develar/branch-deck/commit/c2ff878a2cbbf332193b0236b6bdeaae6d1fd0dc))
+* **bd:** `bd lease pick` refuses a tree that no green build or test recorded, where `.branchdeck.toml` sets `pick_requires_check` ([3aad103](https://github.com/develar/branch-deck/commit/3aad103df1dd66623c0d28aa4dd675e53fac9f9f))
+* **fetch:** a fetch of the baseline waits for another fetch of its tracking ref, of any process, and takes its result ([5086252](https://github.com/develar/branch-deck/commit/508625254143d391131be4a00fcd02f0a804857d))
+* **lock:** the operations of one process wait for each other in its line before the repository lock, never locked; the step of a wait for the lock names its holder ([466de52](https://github.com/develar/branch-deck/commit/466de52ecacf7467fe4895243c00879206c8dd13))
+* **operations:** a start whose answer was lost is never sent again and holds its subject for every process until Patronus settles it or the user forgets it ([e43e134](https://github.com/develar/branch-deck/commit/e43e13428baa945e3b02af0ea7f88dcab4ed7d24))
+* **operations:** a window watches the operations registry of its repository, shows what bd runs on its rows, and syncs after a mutation of bd ([1a05a48](https://github.com/develar/branch-deck/commit/1a05a480b679de60458113ec16a01e60579c4156))
+* **operations:** every operation of the remote that ended goes into the journal of its repository, the app's and bd's alike, with what it cost, and bd prints the operation_id of its run ([7f77ffd](https://github.com/develar/branch-deck/commit/7f77ffdf312d94f3d0f492cc2ecb83fa0b2b0a67))
+* **operations:** the operations of the remote are recorded in the operations registry of their repository, and one that another process runs makes the same one of bd or the app busy ([e3c2cce](https://github.com/develar/branch-deck/commit/e3c2cce10011a106496b6fc104324bf08a031337))
+* **operations:** the record of an operation counts the requests that joined it, so a test waits for the second click instead of ordering the clicks by a step ([b7d9b3a](https://github.com/develar/branch-deck/commit/b7d9b3a77796ec3278440c56f1c7226d91d678fd))
+* **reviews:** one field filters every section of Reviews by the words typed and adds a pull request by its link ([f0edb30](https://github.com/develar/branch-deck/commit/f0edb30f5a783788162627baffb4499d7fff95e1))
+* **reviews:** only the user's moves stand out in Reviews, the rest muted behind Show N More, the title before the meta ([ea3a582](https://github.com/develar/branch-deck/commit/ea3a582bbebad7fd2b0243c7a6e0a6feeee465e5))
+* **reviews:** the Reviews view shows every pull request the user takes part in on GitHub and one added by its link, the actions of a pull request to review decided in Rust ([244b09c](https://github.com/develar/branch-deck/commit/244b09cbd310443329160779f5ce4031dd22ced8))
+
+
+### Bug Fixes
+
+* **bd:** in Claude Code the skill enters a lease with a cd, since EnterWorktree asks the user on every lease ([abb8795](https://github.com/develar/branch-deck/commit/abb8795da51fb08ca9ed832877ea7a9a7353720a))
+* **e2e:** the branch review test compares the view versions of the two windows in one poll, as either window may hear a patch first ([7194272](https://github.com/develar/branch-deck/commit/71942721140ec158049d5aa6a7f239cd4a773cfd))
+* **e2e:** the starts of a stacked branch from its seven surfaces are two tests, so neither nears the timeout under load ([1226609](https://github.com/develar/branch-deck/commit/1226609aae3ea77316d14bf55333d04c38619c66))
+* **e2e:** the test of the approvals of a small stack's whole stack checks its ask after the release, as it may wait in the queue behind the held asks of the branches ([c436e4a](https://github.com/develar/branch-deck/commit/c436e4a279df4f1e76c1ce522614580771ff1b14))
+* **e2e:** the update progress test measures the width of the button once its transition ended ([e4dd111](https://github.com/develar/branch-deck/commit/e4dd11193068c4786f8771dbed6c9e8b9b26de56))
+* **lease:** git's fsmonitor daemon is no process of a run, so a give-back leaves it and the next status costs what the run changed ([2ff3120](https://github.com/develar/branch-deck/commit/2ff3120996646e1c1c1e2af1d41b6efc0f0816dc))
+* **operations:** a lost start is proven absent only by a list the reconcile asks itself once it settled, a read of Activity asked while one runs waits for the next ([44c53c4](https://github.com/develar/branch-deck/commit/44c53c48893c31647b5c2d6277d08d0bc92f3101))
+* **operations:** the heartbeat keeps the records admitted while it waited, a lost start settles only by a list asked once it settled, an error of an operation shows where it ran, a slow journal shows once it answered ([d76b918](https://github.com/develar/branch-deck/commit/d76b918a4858e23fb696ce3bf10c55bb43f87342))
+* **operations:** the robot a reconcile finds goes into the sessions and no kept list hides it, the lost starts of a prefix settle by one list since the oldest ([86b6979](https://github.com/develar/branch-deck/commit/86b69795d182773710fc09672142e22de4813eb0))
+* **patronus:** the failure of a robot a start replaced, told after the start, leaves the toast of the start ([d03930e](https://github.com/develar/branch-deck/commit/d03930eec3fdbc65f423cc6112a94f74c6261e98))
+
+
+### Performance Improvements
+
+* **lease:** a clean slot moves to its commit by the diff, and `bd lease host checkout` moves the slot of a run, so no move stats every file ([835375a](https://github.com/develar/branch-deck/commit/835375a51a83c6d7c54c0b9c09ffde840e850c1e))
+
 ## [0.34.0](https://github.com/develar/branch-deck/compare/v0.33.1...v0.34.0) (2026-10-27)
 
 
