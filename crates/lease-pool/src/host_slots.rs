@@ -474,9 +474,57 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
 
 /// How often an upgrade of git looks whether the slots are free, and whether another upgrade ended
 const UPGRADE_POLL: Duration = Duration::from_secs(1);
-/// How long an upgrade waits for the slots that runs and the keeper use. Then Homebrew starts anyway, and the
-/// progress says so
-const USERS_WAIT: Duration = Duration::from_mins(60);
+
+/// The command of the upgrade of git that a live process records (`ensure_host_git`), also a process of this one
+fn live_upgrade(table: &HostSlots) -> Option<&str> {
+  match &table.git {
+    Some(HostGitState::Upgrading { owner, command, .. }) if owner.is_alive() => Some(command),
+    _ => None,
+  }
+}
+
+/// The record of an upgrade of git that this call made: on a way out before the end of Homebrew (an error, a panic)
+/// it goes, so the lends do not queue behind it while this process lives on (an agent that runs `ensure_host_git` in
+/// its own process)
+struct UpgradeRecord<'a> {
+  params: &'a HostSlotsParams<'a>,
+  owner: Owner,
+  settled: bool,
+}
+
+impl UpgradeRecord<'_> {
+  fn is_mine(&self, table: &HostSlots) -> bool {
+    matches!(&table.git, Some(HostGitState::Upgrading { owner, .. }) if *owner == self.owner)
+  }
+
+  /// Replace the record with `state`, while it is still this call's
+  fn settle(mut self, state: Option<HostGitState>) -> Result<()> {
+    self.settled = true;
+    self.params.update(|table| {
+      if self.is_mine(table) {
+        table.git = state;
+      }
+      Ok(())
+    })
+  }
+}
+
+impl Drop for UpgradeRecord<'_> {
+  fn drop(&mut self) {
+    if self.settled {
+      return;
+    }
+    let cleared = self.params.update(|table| {
+      if self.is_mine(table) {
+        table.git = None;
+      }
+      Ok(())
+    });
+    if let Err(error) = cleared {
+      warn!(error = %format!("{error:#}"), "cannot remove the record of an upgrade of git that did not run");
+    }
+  }
+}
 
 /// What `ensure_host_git` did
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -489,53 +537,58 @@ pub struct EnsuredGit {
 
 /// Bring the git of the `PATH` of the runs (`path` with the `bin` of Homebrew before `/usr/bin`) to the floor of a
 /// host (`host_git::plan`): at the floor nothing runs, and a refusal of an earlier check goes. Below it, `brew install
-/// git` or `brew upgrade git` runs, with the table as the lock: the upgrade is recorded first, so new lends queue, then
-/// it waits until no slot is lent, filled, cleaned, shrunk or given back by a live process (at most an hour), then
-/// Homebrew runs. A host that can't reach the floor (no Homebrew, a failed upgrade) refuses with `OldGit`, and so does
-/// every lend until a later check finds the floor. The upgrade of another live process is waited for. `progress` hears
-/// the waits and Homebrew
+/// git` or `brew upgrade git` runs, with the table as the lock. The upgrade is recorded first, under the lock and only
+/// while no other live process (or another call of this one) records one, so two calls never both run Homebrew; new
+/// lends queue behind it. Then it waits, without a limit, until no slot is lent, filled, cleaned, shrunk or given back
+/// by a live process, then Homebrew runs. A host that can't reach the floor (no Homebrew, a failed upgrade) refuses
+/// with `OldGit`, and so does every lend until a later check finds the floor. The upgrade of another live process is
+/// waited for, then the git is planned again. `progress` hears the waits, once a minute, and Homebrew
 pub fn ensure_host_git(params: &HostSlotsParams<'_>, path: &OsStr, progress: &dyn Fn(&str)) -> Result<EnsuredGit> {
   let floor = min_version();
   let me = Owner::this();
   let mut said = None::<Instant>;
   let (plan, found, run_path, brew) = loop {
-    let planned = plan_of(path, floor);
-    let other = params.table().read::<HostSlots>()?.git.and_then(|git| match git {
-      HostGitState::Upgrading { owner, command, .. } if owner.is_alive() && owner != me => Some(command),
-      _ => None,
-    });
-    let Some(command) = other else { break planned };
+    let (plan, found, run_path, brew) = plan_of(path, floor);
+    let next = match (&plan, &brew) {
+      (GitPlan::Ready, _) => None,
+      (GitPlan::Refuse(message), _) => Some(HostGitState::Refused { message: message.clone() }),
+      (plan, Some(_)) => Some(HostGitState::Upgrading {
+        owner: me.clone(),
+        command: brew_command(plan),
+        since_ms: now_ms(),
+      }),
+      (_, None) => bail!("No Homebrew to install git with"),
+    };
+    let other = params.update(|table| {
+      let other = live_upgrade(table).map(str::to_string);
+      if other.is_none() {
+        table.git = next;
+      }
+      Ok(other)
+    })?;
+    let Some(command) = other else {
+      break (plan, found, run_path, brew);
+    };
     if said.is_none_or(|at| at.elapsed() >= WAIT_PROGRESS) {
-      progress(&format!("another process runs `{command}`"));
+      progress(&format!("another upgrade runs `{command}`"));
       said = Some(Instant::now());
     }
     std::thread::sleep(UPGRADE_POLL);
   };
-  let settle = |state: Option<HostGitState>| {
-    params.update(|table| {
-      table.git = state;
-      Ok(())
-    })
-  };
-  let (args, brew) = match (plan, brew) {
+  let (args, command, brew) = match (plan, brew) {
     (GitPlan::Ready, _) => {
-      settle(None)?;
       let found = found.ok_or_else(|| anyhow::anyhow!("The PATH of the host finds no git"))?;
       return Ok(EnsuredGit { found, upgraded: false });
     }
-    (GitPlan::Refuse(message), _) => {
-      settle(Some(HostGitState::Refused { message: message.clone() }))?;
-      bail!(HostSlotRefusal::OldGit(message));
-    }
-    (plan, Some(brew)) => (plan.brew_args().unwrap_or(["upgrade", "git"]), brew),
+    (GitPlan::Refuse(message), _) => bail!(HostSlotRefusal::OldGit(message)),
+    (plan, Some(brew)) => (plan.brew_args().unwrap_or(["upgrade", "git"]), brew_command(&plan), brew),
     (_, None) => bail!("No Homebrew to install git with"),
   };
-  let command = format!("brew {}", args.join(" "));
-  settle(Some(HostGitState::Upgrading {
-    owner: me.clone(),
-    command: command.clone(),
-    since_ms: now_ms(),
-  }))?;
+  let record = UpgradeRecord {
+    params,
+    owner: me,
+    settled: false,
+  };
   let waiting = Instant::now();
   let mut said = None::<Instant>;
   loop {
@@ -544,40 +597,42 @@ pub fn ensure_host_git(params: &HostSlotsParams<'_>, path: &OsStr, progress: &dy
       .read::<HostSlots>()?
       .slots
       .iter()
-      .filter(|slot| !matches!(slot.state, HostState::Idle | HostState::Quarantined { .. }) && !is_abandoned(&slot.state))
+      .filter(|slot| is_busy(&slot.state))
       .map(|slot| format!("{} is {}", slot.n, describe_state(&slot.state)))
       .collect();
     if busy.is_empty() {
       break;
     }
-    if waiting.elapsed() >= USERS_WAIT {
-      progress(&format!(
-        "slots are still in use after {} min, so `{command}` starts anyway: a git call of a run can fail while Homebrew replaces git",
-        USERS_WAIT.as_secs() / 60
-      ));
-      break;
-    }
     if said.is_none_or(|at| at.elapsed() >= WAIT_PROGRESS) {
-      progress(&format!("`{command}` waits for the host slots: {}", busy.join(", ")));
+      progress(&format!(
+        "`{command}` waits for the host slots ({} s so far): {}",
+        waiting.elapsed().as_secs(),
+        busy.join(", ")
+      ));
       said = Some(Instant::now());
     }
     std::thread::sleep(UPGRADE_POLL);
   }
   let upgraded = run_brew(&brew, args, &run_path, floor, progress);
-  let mine = |table: &HostSlots| matches!(&table.git, Some(HostGitState::Upgrading { owner, .. }) if *owner == me);
-  params.update(|table| {
-    if mine(table) {
-      table.git = match &upgraded {
-        Ok(_) => None,
-        Err(error) => Some(HostGitState::Refused { message: format!("{error:#}") }),
-      };
-    }
-    Ok(())
+  record.settle(match &upgraded {
+    Ok(_) => None,
+    Err(error) => Some(HostGitState::Refused { message: format!("{error:#}") }),
   })?;
   match upgraded {
     Ok(found) => Ok(EnsuredGit { found, upgraded: true }),
     Err(error) => bail!(HostSlotRefusal::OldGit(format!("{error:#}"))),
   }
+}
+
+/// `brew install git` or `brew upgrade git`
+fn brew_command(plan: &GitPlan) -> String {
+  format!("brew {}", plan.brew_args().unwrap_or(["upgrade", "git"]).join(" "))
+}
+
+/// Whether a live process acts on a slot in `state`: it is lent, filled, cleaned, shrunk or given back. Homebrew waits
+/// for each such slot
+fn is_busy(state: &HostState) -> bool {
+  !matches!(state, HostState::Idle | HostState::Quarantined { .. }) && !is_abandoned(state)
 }
 
 /// How often a lend that waits (`lend_waiting`) asks the table without a file event: the end of a process, which frees

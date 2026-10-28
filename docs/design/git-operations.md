@@ -2141,7 +2141,11 @@ git`. `bd lease host git --ensure`, which the keeper of yonderd runs at its star
 yonderd's `host_git.rs`. yonderd kept two flocks, `git.lock` of the upgrade and the shared `git-users.lock` of each
 supervisor. Here the lend table is the lock: the upgrade is a record of the table (`git`), so a lend sees it in the
 same read that lends a slot. The upgrade is recorded before it waits, so the queue stops growing behind a run that
-never ends, and Homebrew starts only once no live process acts on a slot. A refusal stays in the table, so a lend on
+never ends, and Homebrew starts only once no live process acts on a slot. The record is a compare and set under the
+lock: an `--ensure` that finds the upgrade of a live process waits for it, so two never run Homebrew at once. The
+wait for the slots has no limit. Until 2026-10-28 Homebrew started after an hour anyway, and a run that still used git
+then could fail on a git that Homebrew replaced; a run that never ends is a bug of the agent, not a reason to break
+the others. A refusal stays in the table, so a lend on
 a host whose git stays old refuses at once (`git_not_found`, which yonderd maps to its `old_git`) instead of a run
 that fails on a missing feature.
 

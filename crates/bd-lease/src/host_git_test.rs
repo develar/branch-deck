@@ -1,16 +1,20 @@
 //! `bd lease host git --ensure` end to end through the Cli, with a fake Homebrew (`BD_TEST_HOST_BREW`) and a floor of
 //! the test (`BD_TEST_HOST_MIN_VERSION`): below the floor it installs git when Homebrew has none and upgrades it else,
 //! refuses with the hint without Homebrew, and then the lends refuse too; the upgrade waits for the lent slots, and the
-//! lends queue while it runs. Unix only: the fakes are shell scripts
+//! lends queue while it runs; a second upgrade never records over the one of a live process. Unix only: the fakes are
+//! shell scripts
 
 use crate::host_command_test::host;
-use crate::host_slots_test::host_fixture;
+use crate::host_slots_test::{context, edit_table, host_fixture, params};
 use crate::lease_test::{Fixture, pool_environment};
 use bd_cli::fixture_test::{assert_error, run_json};
 use lease_pool::host_git::{TEST_BREW, TEST_MIN_VERSION};
+use lease_pool::host_slots::{HostGitState, ensure_host_git, read_host_slots};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use sync_utils::process_scan::process_started;
 use test_utils::env_vars::EnvVars;
 
 /// A fake Homebrew in `<dir>/bin`: each call appends its arguments to `brew.log` and writes a `git` that answers
@@ -136,4 +140,57 @@ fn the_upgrade_waits_for_the_lent_slots_and_the_lends_queue_while_it_runs() {
   assert!(!upgrading());
   let (_, second) = host_with_path(&fixture, &["lend", "--run", "run-2", "--pid", &pid]);
   assert_eq!(second["state"], json!("lent"), "{second}");
+}
+
+/// The upgrade of git that a live process records, `brew upgrade git` since the millisecond 1: this process
+pub(crate) fn record_live_upgrade(fixture: &Fixture) {
+  let pid = std::process::id();
+  edit_table(fixture, |table| {
+    table["git"] = json!({
+      "kind": "upgrading",
+      "owner": { "pid": pid, "process_started": process_started(pid) },
+      "command": "brew upgrade git",
+      "since_ms": 1,
+    });
+  });
+}
+
+/// Remove the record of the upgrade of git from the table
+pub(crate) fn remove_upgrade(fixture: &Fixture) {
+  edit_table(fixture, |table| {
+    table.as_object_mut().unwrap().remove("git");
+  });
+}
+
+/// A second --ensure leaves the upgrade of a live process as it is (also of a call of its own process) and waits for
+/// it, so two never run Homebrew at once; once it is gone, it plans again and records its own
+#[test_log::test]
+fn a_second_ensure_never_records_over_the_upgrade_of_a_live_process() {
+  let fixture = host_fixture(1);
+  host(&fixture, "lease_host_fill", &["fill"]);
+  let (_dir, brew, _env) = homebrew_below_the_floor();
+  record_live_upgrade(&fixture);
+  let context = context(&fixture);
+  let params = params(&fixture, &context);
+  let git_dir = fixture.repo.path().join(".git");
+
+  let ensured = std::thread::scope(|scope| {
+    let (said, heard) = std::sync::mpsc::channel::<String>();
+    let params = &params;
+    let ensure = scope.spawn(move || {
+      let progress = move |line: &str| said.send(line.to_string()).unwrap_or_default();
+      ensure_host_git(params, OsStr::new("/usr/bin:/bin"), &progress)
+    });
+    assert_eq!(heard.recv().unwrap(), "another upgrade runs `brew upgrade git`");
+    assert!(
+      matches!(read_host_slots(&git_dir).unwrap().git, Some(HostGitState::Upgrading { since_ms: 1, .. })),
+      "the record of the live process stays"
+    );
+    assert_eq!(brew_log(&brew), "", "no Homebrew while another upgrade runs");
+    remove_upgrade(&fixture);
+    ensure.join().unwrap()
+  });
+  assert!(ensured.unwrap().upgraded);
+  assert_eq!(brew_log(&brew), "install git\n");
+  assert_eq!(read_host_slots(&git_dir).unwrap().git, None);
 }

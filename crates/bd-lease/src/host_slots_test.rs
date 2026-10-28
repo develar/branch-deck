@@ -36,11 +36,11 @@ pub(crate) fn host_fixture(slots: u32) -> Fixture {
 }
 
 /// The context of bd in the repository of the fixture
-fn context(fixture: &Fixture) -> LeaseContext {
+pub(crate) fn context(fixture: &Fixture) -> LeaseContext {
   LeaseContext::resolve(&fixture.environment(fixture.repo.path()), None).unwrap()
 }
 
-fn params<'a>(fixture: &'a Fixture, context: &'a LeaseContext) -> HostSlotsParams<'a> {
+pub(crate) fn params<'a>(fixture: &'a Fixture, context: &'a LeaseContext) -> HostSlotsParams<'a> {
   HostSlotsParams {
     repository: &context.dirs,
     home: Some(fixture.home.path()),
@@ -134,11 +134,14 @@ fn table_file(fixture: &Fixture) -> PathBuf {
   fixture.repo.path().join(".git/branch-deck/host-slots.json")
 }
 
-/// Rewrite the table as a process that crashed, or time, would have left it
-fn edit_table(fixture: &Fixture, edit: impl FnOnce(&mut Value)) {
+/// Rewrite the table as a process that crashed, or time, would have left it: by a rename, as bd writes it, so a bd
+/// that reads it meanwhile sees one whole table
+pub(crate) fn edit_table(fixture: &Fixture, edit: impl FnOnce(&mut Value)) {
   let mut value: Value = serde_json::from_slice(&std::fs::read(table_file(fixture)).unwrap()).unwrap();
   edit(&mut value);
-  std::fs::write(table_file(fixture), serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+  let written = table_file(fixture).with_extension("json.edit");
+  std::fs::write(&written, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+  std::fs::rename(&written, table_file(fixture)).unwrap();
 }
 
 fn state_of(fixture: &Fixture, n: u32) -> HostState {

@@ -624,11 +624,18 @@ for; one that is no working tree is `not_a_repository` (exit 2).
   [@test] ../../crates/lease-pool/src/host_git_test.rs (`the_plan_installs_upgrades_or_refuses_with_a_hint`, `a_lock_of_another_homebrew_process_is_told_by_its_words`)
 - No run may use git while Homebrew replaces it, and the lend table is the lock: `--ensure` records the upgrade in
   the table first (`git`: `upgrading`, its process and command), then waits until no slot is lent, filled, cleaned,
-  shrunk or given back by a live process (at most an hour, then it says so and goes on), then runs Homebrew. While a
-  live process upgrades, a lend only queues and answers `git_upgrading` with the command, and the queue line of
-  `--wait` says that git is upgrading. A refusal stays in the table (`git`: `refused`): every lend refuses with it as
-  `git_not_found` until a later `--ensure` finds the floor. The upgrade of another live process is waited for.
+  shrunk or given back by a live process, then runs Homebrew. The wait has no limit: Homebrew never starts under a
+  live user of git. Once a minute it says the busy slots and the seconds it waited (`bd lease host git: … waits for the
+  host slots (<s> s so far): 1 is lent to …`). An upgrade that fails or panics before the end of
+  Homebrew removes its record. While a live process upgrades, a lend only queues and answers `git_upgrading` with the
+  command, and the queue line of `--wait` says that git is upgrading. A refusal stays in the table (`git`:
+  `refused`): every lend refuses with it as `git_not_found` until a later `--ensure` finds the floor.
   [@test] ../../crates/bd-lease/src/host_git_test.rs (`the_upgrade_waits_for_the_lent_slots_and_the_lends_queue_while_it_runs`, `without_homebrew_ensure_and_the_lends_refuse_until_git_meets_the_floor`)
+- `--ensure` must record its upgrade, its refusal or the ready git under the lock of the table, and only while no live
+  process records an upgrade, also another call of its own process. Else it leaves that record as it is, says once a
+  minute that another upgrade runs and its command, waits for its end and plans the git again. So two `--ensure` never
+  both run Homebrew.
+  [@test] ../../crates/bd-lease/src/host_git_test.rs (`a_second_ensure_never_records_over_the_upgrade_of_a_live_process`)
 - `have` and `show` run one `cat-file` each, `ingest` of a small pack the config, `unpack-objects` and one
   `update-ref`, and the give-back of a run that sent a pack one more `update-ref`.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_objects_have_ingest_and_show`)
