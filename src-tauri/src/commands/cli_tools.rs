@@ -4,9 +4,7 @@
 //! their adapter.
 
 use crate::auto_update::SharedUpdateState;
-use crate::commands::github::GitHubState;
-use crate::commands::patronus::PatronusState;
-use crate::commands::youtrack::YouTrackState;
+use crate::services::{GitHubState, PatronusState, YouTrackState};
 use app_api::operation::{operation, run_blocking};
 use cli_tools::environment::ToolEnvironment;
 use cli_tools::install::{ActionInput, ActionOutput, run_action};

@@ -82,8 +82,9 @@ flowchart LR
 
 2. **Decision**: spawn_blocking in every Tauri command that runs git or reads files
    **Rationale**: Consistent pattern, prevents async thread blocking. A command that talks HTTP (Patronus,
-   `src-tauri/src/commands/patronus.rs`) awaits the request on the async runtime with one shared `reqwest::Client`,
-   and only its git part (which repository) goes through `run_blocking`.
+   `crates/app-api/src/remote/patronus.rs`) awaits the request on the async runtime with one shared `reqwest::Client`,
+   and only its git part (which repository) goes through `run_blocking`, or through the services of its session
+   (`ServiceHost`), whose host reads it off the workers.
 
 3. **Decision**: Separate core functions from command handlers
    **Rationale**: Core logic is testable without async runtime

@@ -11,8 +11,8 @@ targets:
   - ../../crates/github/src/token.rs
   - ../../crates/remote-facts/src/pull_requests.rs
   - ../../crates/sync-core/src/github_repository.rs
-  - ../../src-tauri/src/commands/github.rs
-  - ../../src-tauri/src/commands/pull_requests.rs
+  - ../../src-tauri/src/services.rs
+  - ../../crates/app-api/src/remote/pull_requests.rs
   - ../../crates/app-api/src/repository_state.rs
   - ../../src/stores/pull-requests.ts
   - ../../src/lib/pull-request.ts

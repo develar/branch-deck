@@ -6,7 +6,9 @@ targets:
   - ../../crates/domain-types/src/branch_name_suggestion.rs
   - ../../crates/sync-core/src/branch_name_suggestion.rs
   - ../../crates/sync-utils/src/child_process.rs
-  - ../../src-tauri/src/commands/suggest_branch_names.rs
+  - ../../crates/app-api/src/remote/suggest.rs
+  - ../../src-tauri/src/services.rs
+  - ../../crates/test-server/src/host.rs
   - ../../src-tauri/src/legacy_model_cache.rs
   - ../../src/hooks/useBranchSuggestions.ts
   - ../../src/hooks/useAIToggle.ts

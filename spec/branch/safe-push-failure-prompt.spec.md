@@ -10,7 +10,8 @@ targets:
   - ../../crates/patronus/src/ci_text.rs
   - ../../crates/sync-core/src/robot_commits.rs
   - ../../crates/git-ops/src/landed_pairing.rs
-  - ../../src-tauri/src/commands/patronus.rs
+  - ../../crates/app-api/src/remote/patronus.rs
+  - ../../src-tauri/src/services.rs
   - ../../crates/bd-remote/src/robot_command.rs
   - ../../src/lib/robot-prompt.ts
   - ../../src/lib/robot-prompt-copy.ts

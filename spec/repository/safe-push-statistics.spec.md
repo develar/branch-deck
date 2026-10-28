@@ -12,8 +12,9 @@ targets:
   - ../../crates/remote-facts/src/robot_stats.rs
   - ../../crates/remote-facts/src/robot_stats_aggregate.rs
   - ../../crates/bd-remote/src/robot_stats_command.rs
-  - ../../src-tauri/src/commands/patronus.rs
-  - ../../crates/test-server/src/tauri_command_bridge.rs
+  - ../../crates/app-api/src/remote/patronus.rs
+  - ../../src-tauri/src/services.rs
+  - ../../crates/test-server/src/host.rs
   - ../../crates/test-server/src/remote_fixtures.rs
   - ../../src/components/landing/LandingView.tsx
   - ../../src/stores/robot-stats.ts

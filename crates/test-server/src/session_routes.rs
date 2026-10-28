@@ -9,12 +9,13 @@
 //! by the scheduler of the facts, as the app reads them, over the fakes of each test repository (`TestFactSources`),
 //! and the effects of the engine go to the same fakes (`TestServices`).
 
+use crate::host::held_or_failed;
 use crate::remote_host::HeldAnswer;
 use crate::state::AppState;
 use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
-  branch_prefix_now, github_of, held_or_failed, holding, keep_answered, patronus_new_api_of, rejected, remote_of, repository_by_path, review_requests_of, space_of,
+  branch_prefix_now, github_of, holding, keep_answered, patronus_new_api_of, rejected, remote_of, repository_by_path, review_requests_of, space_of,
 };
 use app_api::api_error::{api_error, patronus_error};
 use axum::Json;
@@ -286,7 +287,7 @@ impl FactSources for TestFactSources {
     self.services.fetch_moved_remotes(key, asks)
   }
 
-  /// Held and failed as `get_auth_status` of the bridge is
+  /// Held and failed as `get_auth_status` of a window without a session is (`TestHost::before_auth_status`)
   fn auth<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<domain_types::sign_in::AuthStatus, ApiError>> {
     Box::pin(async move {
       self.gate(key, HeldAnswer::AuthStatus, "read the sign-ins").await?;
@@ -298,7 +299,8 @@ impl FactSources for TestFactSources {
 /// The services of each test repository (`ServiceHost`): its fake Patronus and fake GitHub (`RemoteHost`), the Space
 /// repository its Patronus fixture names, the GitHub repository resolved with the repository's own global config, the
 /// new API of its settings, no object cache; a failed review is Patronus' error. The services of the context of every
-/// test repository (`AppState::context_of`), and of the rewrites of its engine
+/// test repository (`AppState::context_of`), of the commands of app-api that read them by the key of a session, and of
+/// the rewrites of its engine
 pub struct TestServices {
   state: Weak<AppState>,
   git: GitCommandExecutor,
@@ -423,7 +425,7 @@ impl ServiceHost for TestServices {
   fn github_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<GitHubRepository>, ApiError>> {
     Box::pin(async move {
       let state = self.state()?;
-      github_of(&state, &key.worktree, None).await.map(|(_, repository)| repository).map_err(rejected)
+      github_of(&state, &key.worktree).await.map_err(rejected)
     })
   }
 

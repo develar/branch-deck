@@ -23,7 +23,8 @@ targets:
   - ../../crates/git-executor/src/process_tree.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../crates/app-api/src/reads/diffs.rs
-  - ../../src-tauri/src/commands/pull_requests.rs
+  - ../../crates/app-api/src/remote/pull_requests.rs
+  - ../../src-tauri/src/services.rs
   - ../../src-tauri/src/commands/window_management.rs
   - ../../src-tauri/src/lib.rs
   - ../../src-tauri/capabilities/sub-windows.json

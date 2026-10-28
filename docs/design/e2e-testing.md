@@ -164,11 +164,14 @@ Mock implementation:
 - **The commands of app-api**: a command of the registry of app-api (`for_each_command!` in
   `crates/app-api/src/commands.rs`) has one generic route, `/invoke/<name>` of `crates/test-server/src/invoke.rs`, which
   runs the app's body in the `AppContext` of the test repository the request names (`X-Repository-Id`), built when
-  the repository is (`AppState::context_of`): the settings of its page, its own memory of the diffs, no object cache
-  (decision 8), and the git of a test machine, `GIT_CONFIG_GLOBAL` the repository's own file and `GIT_CONFIG_NOSYSTEM`,
-  whose identity is Test User <test-user@example.com> (`TEST_IDENTITY`: what `git var` finds outside a repository,
-  the first run's suggestion `test-user`; a template's own identity wins inside it). So the server answers what the app
-  answers, an unknown path included, with no code of its own. It answers the value Tauri resolves the `invoke` with, the
+  the repository is (`AppState::context_of`): the settings of its page, its own memory of the diffs and of the reviews
+  of branches, no object cache (decision 8), the fakes of the repository as its services (`TestServices`) and its host
+  (`TestHost` of `host.rs`: the accounts of the fakes, no `teamcity` CLI, the branch names of the fixture, since E2E
+  never runs claude, and the page's clock in UTC), and the git of a test machine, `GIT_CONFIG_GLOBAL` the repository's
+  own file and `GIT_CONFIG_NOSYSTEM`, whose identity is Test User <test-user@example.com> (`TEST_IDENTITY`: what `git
+  var` finds outside a repository, the first run's suggestion `test-user`; a template's own identity wins inside it).
+  So the server answers what the app answers, an unknown path included, with no code of its own: the read ahead of a
+  branch review (`prefetch_branch_review`) fills the memories of the context as the app's fills its own. It answers the value Tauri resolves the `invoke` with, the
   bytes of a raw command (`get_blob_syntax`), or its error (below) with the operation it names, as the app's.
   [@test] ../../crates/test-server/src/invoke_test.rs (`a_read_of_app_api_answers_what_the_app_answers`, `a_raw_command_answers_its_bytes`, `the_arguments_of_a_command_are_its_params_or_its_named_arguments`)
   [@test] ../../crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)
@@ -182,9 +185,9 @@ Mock implementation:
   (`X-Progress-Channel`), hands each `{ progress }` of the answer to it, and reads on after the answer for an `open`
   one. No channel is guessed from the payload: the diffs and the merges of the views (`get_file_diffs`,
   `get_file_merges`, `events`) stream through it as the app streams them, the patches of `subscribe_view`
-  (`patches`, open) and the events of `execute`. The three handwritten commands with a channel (`sign_in`,
-  `get_robot_stats`, `run_cli_tool_action`) are named in `HANDWRITTEN_CHANNELS` of the mock until they move into the
-  registry; one that is in the table fails the page.
+  (`patches`, open), the events of `execute` and the progress of the Safe Push statistics (`get_robot_stats`,
+  `events`). The two handwritten commands with a channel (`sign_in`, `run_cli_tool_action`) are named in
+  `HANDWRITTEN_CHANNELS` of the mock until they move into the registry; one that is in the table fails the page.
   [@test] ../../crates/app-api/src/commands_json_test.rs (`the_commands_json_of_the_page_mock_is_the_registry`, `a_channel_of_the_table_names_the_argument_of_the_page_and_whether_it_stays_open`)
 - **Command registry**: three lists name the commands: `collect_commands!` of `src-tauri/src/lib.rs`, the
   `/invoke/<name>` routes of `crates/test-server/src/lib.rs` and of `invoke.rs` (`app_api::commands::COMMANDS`), and
@@ -323,8 +326,9 @@ Mock implementation:
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old_one`)
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
   functions; Patronus and GitHub are asked through the app's own services behind fakes
-  ([Remote services](#remote-services)); an answer that claude would give, and the review requests, come from a
-  fixture of the repository, or from a route of the test
+  ([Remote services](#remote-services)); an answer that claude would give (`TestHost::suggest_branch_names`, after
+  the delay of the fixture), and the review requests, come from a fixture of the repository, or from a route of the
+  test
 - **Review requests**: the session of a repository reads `NotGitHub` (`TestFactSources::review_requests`,
   `review_requests_of`) until a test posts a fixture to `/repositories/{id}/review-requests` (a `ReviewRequestsFixture`
   plus an optional `fetchError`, and for [Reviews](../../spec/repository/reviews.spec.md) `others` (the searches the
@@ -496,12 +500,14 @@ log of the fake). No test answers a remote write in the page: the registry test 
   statuses of their branches (`sync-overrides`) and their pull requests show heads that no fetch may bring in, so
   `TestFactSources::fetch_moved_remotes` ends their asks unfetched (`skip_in_session`). The id `commitOnRemote` answers
   is the head the test's pull request then shows.
-- **Bridge**: the reads of the session's robots (`TestFactSources`: the app's reads, `ServiceFactSources`, over the
+- **Reads**: the reads of the session's robots (`TestFactSources`: the app's reads, `ServiceFactSources`, over the
   services of each test repository, `TestServices`, the lists, polls and details counted; the merge profiles and the
-  review readiness held as the tests hold them), `get_robot_failure` calls the
-  service as `src-tauri/src/commands/patronus.rs` does: the list answers `notPatronus` while the repository is not on
-  Space and names the GitHub repository by the real `resolve_github_repository`; the start options need Space and the
-  target branch of the baseline (`required_target_branch`). A start, a restart and a cancel of a robot and a retarget
+  review readiness held as the tests hold them), and the commands of the remote family of app-api
+  (`app_api::remote`: `get_robot_failure`, `get_robot_stats`, `get_robot_commit_map`) run the app's bodies over the
+  same `TestServices` and the host of the test repository (`TestHost` of `crates/test-server/src/host.rs`, the
+  `AppHost` of its context): the list answers `notPatronus` while the repository is not on Space and names the GitHub
+  repository by the real `resolve_github_repository`; the start options need Space and the target branch of the
+  baseline (`required_target_branch`); the full failure of a robot has no `teamcity` CLI. A start, a restart and a cancel of a robot and a retarget
   are `execute` of the engine over the services of the test repository (`operations::engine::execute`, the start's
   landing gate without the object cache), their events on the stream of its channel; the held answers `start`,
   `restart` and `cancel` hold their `POST /robots`, `POST /robots/*/restart` and `PUT /robots/*/cancel` at the fake,
@@ -530,7 +536,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   commands read it from the writer), and
   `/patronus-history` adds the robots the Safe Push statistics count, the user's (owner `1`) and other people's
   (`setPatronusHistory`), and the list filters as Patronus does (`owner=me`, `targetBranch`, `[start, end)` with an
-  end); `get_robot_stats` runs the real core at the page's clock in UTC without the object cache.
+  end); `get_robot_stats` runs the app's body at the page's clock in UTC (`TestHost::now`, `calendar`) without the
+  object cache, its progress on the stream of its channel.
   `/patronus-details` the TeamCity checks and problems per robot and the failed builds per check attempt in the wire
   form (`setPatronusDetails`, `failedFastTests` and `buildsNeverStarted` in `patronus-helpers.ts`); a robot without
   them has none. `/patronus-profiles` (`setPatronusProfiles`, the `patronusProfiles` setup option) sets the merge
@@ -569,11 +576,12 @@ log of the fake). No test answers a remote write in the page: the registry test 
   of others (`TestFactSources`: the pull requests, counted, and the rules of a base, each holding the
   repository as a command does, and `review_requests_of`, counted, which answers the fixture of the review requests),
   `get_new_pull_request` and `get_new_stack_pull_request` (the text of the real core, the viewer GitHub answers) and
-  `search_github_users` call the cores as `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository
-  the real `resolve_github_repository` reads; the writes (closes, reviews, `/patronus` comments) are intents of
-  `execute`, on the same services.
+  `search_github_users` are the app's bodies (`app_api::remote::pull_requests`) over the services of the test
+  repository, with the GitHub repository the real `resolve_github_repository` reads; the writes (closes, reviews,
+  `/patronus` comments) are intents of `execute`, on the same services.
 - **Sign-ins**: `sign_in` (its events as SSE messages of its channel, as `execute`), `cancel_sign_in`, `sign_out` and
-  `get_auth_status` (the page's repository by `X-Repository-Id`) call the host's `SignIns` (`remote_facts::sign_in`,
+  `get_auth_status` (the page's repository by `X-Repository-Id`; the app's body over `TestHost::sign_ins`, held and
+  failed by `HeldAnswer::AuthStatus` in `TestHost::before_auth_status`) call the host's `SignIns` (`remote_facts::sign_in`,
   the core of the app's commands) on the services of the repository (`TestSignIns` of `remote_host.rs`), and a sign-in
   or a sign-out has the sessions of the repository's worktree read their fact `auth` (after GitHub the pull requests
   and the review requests too), as the app has all of its sessions; the session reads the fact through
@@ -627,14 +635,14 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
   session's read of the rules of a base, `TestFactSources::branch_rules`), `profiles` (its read of the merge profiles,
   `TestFactSources::profiles`), `authStatus` (the status of the sign-ins: the session's read, `TestFactSources::auth`,
-  and the read of a window without a session, `get_auth_status`), `cliTools` (the tools of Settings), `sync` (a sync
+  and the read of a window without a session, `get_auth_status`, held in `TestHost::before_auth_status`), `cliTools` (the tools of Settings), `sync` (a sync
   run of the session, held in `TestSessionEnvironment::run_setup` before it reads anything: the session's sync runs
   until the release, so a push that waits for it, `WaitingForSync`, is seen waiting; a page hold of the `sync` command
   never reaches the session). A held request reaches its fake and waits at a `FakeGate`
   (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
   shows before the answer, and a release lets it through with what the fixture holds then. `fail` makes a route of
-  the fake Patronus answer 500 (`FakePatronus::set_failing`) or the bridge reject the command ("the fixture fails this
-  read") from now on, until a release; the failing set changes before the gates of the same request open, so
+  the fake Patronus answer 500 (`FakePatronus::set_failing`) or the server reject the read at its gate
+  (`host::held_or_failed`: "the fixture fails this read") from now on, until a release; the failing set changes before the gates of the same request open, so
   `{ fail: [a], release: [a] }` fails the request held at `a`. `GET` (`getArrivedAnswers`)
   names the held answers a request reached: a test waits for that (`expect.poll`) before it asserts the page before
   the answer, so the assertion is never vacuous, then releases and asserts the page after it. Set before the sync whose
@@ -646,8 +654,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   there, `linkIssuesToYouTrack(page, url)`), and the app's `YouTrackService` on the token file of the host's app data
   directory (no `YOUTRACK_TOKEN`, no keychain). The sign-ins of YouTrack and of the `youtrack` CLI are `sign_in`,
   `cancel_sign_in` and `sign_out` of the host's `SignIns` (over `crates/youtrack/src/sign_in_session.rs`, as in the
-  app), `get_auth_status` reads its status and `get_youtrack_issue` the service, all for the page's repository
-  (`X-Repository-Id`), and Mark Fixed, the `SetIssueState` of `execute`, with the service of
+  app), `get_auth_status` reads its status and `get_youtrack_issue` the service (`TestHost::youtrack`), all for the
+  page's repository (`X-Repository-Id`), and Mark Fixed, the `SetIssueState` of `execute`, with the service of
   the session's repository (`ServiceHost::youtrack`). The fake answers as
   YouTrack does: `api/config` names the Hub; the Hub page of `localhost-auth` (`api/rest/oauth2/auth`) redirects back to
   the app's listener with a code at once, a user who approved before, and a client or a redirect it does not accept to

@@ -7,9 +7,10 @@ use crate::api_error::no_branch_prefix;
 use crate::operation::run_blocking;
 use crate::reads::conflict_fix::ConflictFixSearch;
 use crate::reads::symbols::SymbolIndexes;
+use crate::remote::RemoteMemory;
 use crate::repository_state::RepositoryStateCache;
 use crate::session::windows::Windows;
-use crate::transport::{AppEvents, Call, WindowId};
+use crate::transport::{AppEvents, AppHost, Call, WindowId};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
@@ -24,8 +25,8 @@ use std::sync::Arc;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 
 /// The state every command of the app shares. A host differs only in what it puts here: the e2e server gives a test the
-/// git of a test machine (its own global config, no system config), its settings, its own memory of the diffs and the
-/// symbol index of its fixture
+/// git of a test machine (its own global config, no system config), its settings, its own memory of the diffs, the
+/// symbol index of its fixture and the fakes of its repository as its services and its host
 pub struct AppContext {
   pub git: GitCommandExecutor,
   /// The one writer of `settings.json` and `repository-state.json`
@@ -56,6 +57,12 @@ pub struct AppContext {
   pub rewrites: Arc<dyn RewriteHost>,
   /// What the app tells its windows
   pub events: Arc<dyn AppEvents>,
+  /// What the app gives a command beside the services of the sessions: its accounts, the `teamcity` CLI, Claude Code,
+  /// the wall clock
+  pub host: Arc<dyn AppHost>,
+  /// What the commands of the remote family keep between their calls: the reviews of branches, the latest request for
+  /// branch names, the reads of the Safe Push statistics
+  pub remote: RemoteMemory,
 }
 
 impl AppContext {

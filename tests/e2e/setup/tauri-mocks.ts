@@ -187,7 +187,7 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
    * The handwritten commands of the app with a channel, by the argument of the page that gets its events, until they
    * move into the registry of app-api, whose table names the channels of its commands
    */
-  const HANDWRITTEN_CHANNELS: Record<string, string> = { sign_in: "events", get_robot_stats: "events", run_cli_tool_action: "progress" }
+  const HANDWRITTEN_CHANNELS: Record<string, string> = { sign_in: "events", run_cli_tool_action: "progress" }
 
   /** The channel of each command that has one, by its name: the argument of the page that gets its events, and `open` */
   const commandChannels = new Map<string, { channel: string; open: boolean }>()

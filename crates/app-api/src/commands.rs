@@ -1,10 +1,10 @@
 //! The commands of the app, each declared once, here (the grammar of an entry: `registry.rs`). The doc comment of an
 //! entry is the one of its function in `src/lib/bindings.ts`; its body lives in a family module (`reads::…`,
-//! `session::…`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its `Command` and
-//! the list [`COMMANDS`], the app its `#[tauri::command]` wrappers (`src-tauri/src/api.rs`), the e2e server its routes
-//! (`crates/test-server/src/invoke.rs`), and the page mock of the e2e server its table, `crates/app-api/commands.json`
-//! (written from `COMMANDS` by `commands_json_test.rs`). A type of an entry is named by its full path, which resolves in
-//! each host.
+//! `session::…`, `remote::…`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its
+//! `Command` and the list [`COMMANDS`], the app its `#[tauri::command]` wrappers (`src-tauri/src/api.rs`), the e2e
+//! server its routes (`crates/test-server/src/invoke.rs`), and the page mock of the e2e server its table,
+//! `crates/app-api/commands.json` (written from `COMMANDS` by `commands_json_test.rs`). A type of an entry is named by
+//! its full path, which resolves in each host.
 
 /// Calls the macro `$callback` with every command of the app, in the grammar of `registry.rs`
 #[macro_export]
@@ -168,6 +168,51 @@ macro_rules! for_each_command {
 
       /// Removes a pull request the user added by its link from Reviews, and the session reads Reviews again
       app session unlink_pull_request(params: domain_types::review_request::UnlinkPullRequestParams) -> () = $crate::session::reviews::unlink_pull_request;
+
+      /// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
+      /// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
+      read session get_new_pull_request(params: remote_facts::pull_request_create::GetNewPullRequestParams) -> domain_types::pull_request::NewPullRequest = $crate::remote::pull_requests::get_new_pull_request;
+
+      /// The text the "Create pull request" dialog of the whole stack starts with (`read_new_stack_pull_request`): the
+      /// descriptions of the stack branch and its members, else the subjects of their commits; and the user of the token,
+      /// who is the assignee
+      read session get_new_stack_pull_request(params: remote_facts::stack_pull_request::GetNewStackPullRequestParams) -> domain_types::pull_request::NewPullRequest = $crate::remote::pull_requests::get_new_stack_pull_request;
+
+      /// The users of the repository a review can be asked from whose login or name matches the query
+      read session search_github_users(params: remote_facts::pull_request_create::SearchGitHubUsersParams) -> Vec<domain_types::pull_request::GitHubUser> = $crate::remote::pull_requests::search_github_users;
+
+      /// The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
+      /// the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
+      /// before the runs are read
+      read session get_robot_stats(params: domain_types::robot_stats::GetRobotStatsParams) [channel events: domain_types::robot_stats::RobotStatsEvent] -> domain_types::robot_stats::RobotStatsResult = $crate::remote::patronus::get_robot_stats;
+
+      /// Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
+      /// with the failed builds, their tests and the log tails of the `teamcity` CLI
+      read session get_robot_failure(params: domain_types::robot_failure::GetRobotFailureParams) -> domain_types::robot_failure::RobotFailureReport = $crate::remote::patronus::get_robot_failure;
+
+      /// Which commits of the branches a running robot covers, by the hashes of the checked-out branch: the commit rows mark
+      /// the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
+      read json get_robot_commit_map(params: domain_types::robot_failure::GetRobotCommitMapParams) -> domain_types::robot_failure::RobotCommitMap = $crate::remote::patronus::get_robot_commit_map;
+
+      /// The parts of a branch for its review window: each branch of its stack from the root, with its base, head and
+      /// commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a baseline the memo hasn't seen
+      read json get_branch_review(params: sync_core::branch_review::GetBranchReviewParams) -> std::sync::Arc<sync_core::branch_review::BranchReview> = $crate::remote::branch_review::get_branch_review;
+
+      /// Reads in the background what the review window of a branch asks for first: its parts (`get_branch_review`) and the
+      /// files of `part` (one `diff-tree`, `RangeFilesCache::read`), so the window finds them in the caches. Answers at once;
+      /// a failure is the window's to tell
+      read json prefetch_branch_review(params: $crate::remote::branch_review::PrefetchBranchReviewParams) -> () = $crate::remote::branch_review::prefetch_branch_review;
+
+      /// Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
+      /// logged-out `claude` and its failures are outcomes
+      read json suggest_branch_names(params: domain_types::branch_name_suggestion::SuggestBranchNamesParams) -> domain_types::branch_name_suggestion::BranchNameSuggestionOutcome = $crate::remote::suggest::suggest_branch_names;
+
+      /// The sign-ins of both accounts and where their tokens come from: for a window without a session (Settings); a window
+      /// of a repository has them as the fact `auth` of its session
+      read json get_auth_status() -> domain_types::sign_in::AuthStatus = $crate::remote::accounts::get_auth_status;
+
+      /// The issue of `key` for the popover, from the YouTrack the token is for
+      read json get_youtrack_issue(key: String) -> domain_types::youtrack::YouTrackIssueAnswer = $crate::remote::accounts::get_youtrack_issue;
     }
   };
 }

@@ -1,39 +1,26 @@
 use crate::invoke::{CommandResult, Rejection, failed};
 use crate::invoke::{answer_with_progress, progress_channel};
-use crate::remote_host::PAGE_CLOCK_START;
-use app_api::api_error::{IntoApiError, patronus_error};
+use app_api::api_error::IntoApiError;
 use axum::{
   extract::State,
   http::{HeaderMap, StatusCode},
   response::{IntoResponse, Json, Response},
 };
-use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
-use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
-use domain_types::patronus::{PatronusAvailability, PatronusRobotsResult};
-use domain_types::pull_request::{GitHubUser, NewPullRequest};
+use domain_types::patronus::PatronusRobotsResult;
 use domain_types::review_request::ReviewRequestsResult;
-use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
-use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
-use domain_types::sign_in::{Account, AuthStatus, SignIn, SignInProvider};
-use domain_types::youtrack::YouTrackIssueAnswer;
-use object_cache::cache::ObjectCache;
-use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
-use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
-use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
+use domain_types::sign_in::{Account, SignIn, SignInProvider};
 use repository_model::session::SessionKey;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_core::branch_name_suggestion::clean_names;
-use sync_core::github_repository::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
-use sync_core::patronus::{SpaceRepository, required_target_branch};
+use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
+use sync_core::patronus::SpaceRepository;
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, read_config_entries, read_origin_facts, repository_config_from_entries,
   with_stacks_off_clashes, write_global_config, write_repository_config,
 };
-use sync_core::robot_commits::robot_failure_report;
 
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
@@ -75,12 +62,6 @@ struct TestPrefixInputs {
 }
 
 impl TestPrefixInputs {
-  /// The prefix of `repository_path` by the git prefix the server keeps, read once; blocking
-  fn branch_prefix(&self, repository_path: &str) -> anyhow::Result<String> {
-    let read_git = || read_local_branch_prefix(&self.git, repository_path);
-    Ok(self.prefixes.resolve(&self.settings, repository_path, read_git)?.prefix)
-  }
-
   /// The prefix of `repository_path` by its git config read now, kept for the commands after it; blocking
   fn fresh(&self, repository_path: &str) -> anyhow::Result<ResolvedBranchPrefix> {
     Ok(
@@ -99,14 +80,6 @@ fn prefix_inputs(state: &AppState, repository_path: &str) -> Result<TestPrefixIn
     settings: repository.store.app(),
     prefixes: state.branch_prefixes.clone(),
   })
-}
-
-/// The prefix a command of the repository at `repository_path` names its branches with, as the app's commands resolve it
-/// (`TestPrefixInputs::branch_prefix`, in a blocking step); an error for an unknown repository
-pub(crate) async fn branch_prefix_of(state: &AppState, repository_path: &str) -> Result<String, Rejection> {
-  let inputs = prefix_inputs(state, repository_path)?;
-  let path = repository_path.to_owned();
-  Ok(run_command("read the branch prefix", move || inputs.branch_prefix(&path)).await?.0)
 }
 
 /// The prefix of the test repository at `repository_path` by its local config read now, kept for the commands after it:
@@ -185,64 +158,17 @@ pub async fn set_repository_config(State(state): State<Arc<AppState>>, Json(requ
   .await
 }
 
-/// The commit map of a running robot, by the real core on the test repository
-pub async fn get_robot_commit_map(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<domain_types::robot_failure::GetRobotCommitMapParams>,
-) -> CommandResult<domain_types::robot_failure::RobotCommitMap> {
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the commit map of the robot", move || {
-    let subject = sync_core::robot_commits::RobotSubject {
-      branch_name: params.branch_name.as_deref(),
-      stack_root: params.stack_root.as_deref(),
-    };
-    sync_core::robot_commits::robot_subject_commit_map(
-      &git_executor,
-      &params.repository_path,
-      &branch_prefix,
-      subject,
-      &params.source_revision,
-      &params.baseline_branch,
-      &params.ancestors,
-    )
-    .map(Option::unwrap_or_default)
-  })
-  .await
-}
-
-/// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known
-/// `owner/name`, else `branchdeck.githubRepository` (a fixture writes it), else none; with the fake services
-pub(crate) async fn github_of(state: &AppState, path: &str, known: Option<&str>) -> Result<(Arc<RemoteHost>, Option<GitHubRepository>), Rejection> {
-  let host = remote_of(state, path)?;
-  if let Some(repository) = parse_known_github_repository(known) {
-    return Ok((host, Some(repository)));
-  }
+/// The GitHub repository of the repository at `path` as the app resolves it (`RepositoryStateCache::github_repository`):
+/// `branchdeck.githubRepository` (a fixture writes it), else none, read by the git of its config (`config_git`)
+pub(crate) async fn github_of(state: &AppState, path: &str) -> Result<Option<GitHubRepository>, Rejection> {
   let (git, path) = (config_git(state, path)?, path.to_string());
-  let Json(repository) = run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &path)).await?;
-  Ok((host, repository))
-}
-
-/// `github_of` for a request that needs the repository: none fails as the app fails it
-async fn required_github_of(state: &AppState, path: &str, known: Option<&str>, operation: &str) -> Result<(Arc<RemoteHost>, GitHubRepository), Rejection> {
-  match github_of(state, path, known).await? {
-    (host, Some(repository)) => Ok((host, repository)),
-    (_, None) => Err(failed(operation, NOT_ON_GITHUB_MESSAGE)),
-  }
+  Ok(run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &path)).await?.0)
 }
 
 /// The repository of a session, held as a command holds it while a read of its facts runs: its deletion waits
 pub(crate) async fn holding(state: &AppState, key: &SessionKey) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, ApiError> {
   let in_flight = Arc::clone(&repository_by_path(state, &key.worktree).map_err(rejected)?.in_flight);
   Ok(in_flight.read_owned().await)
-}
-
-/// The sign-ins of the requesting page's repository, as the app reads them (`get_auth_status`), with the OAuth app of a
-/// fixture (none by default)
-pub async fn get_auth_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> CommandResult<AuthStatus> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  held_or_failed(&host, HeldAnswer::AuthStatus, "read the sign-ins").await?;
-  Ok(Json(host.sign_ins().status().await))
 }
 
 #[derive(Deserialize)]
@@ -283,42 +209,6 @@ pub struct SignOutParams {
 pub async fn sign_out(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<SignOutParams>) -> CommandResult<()> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   host.sign_ins().sign_out(params.account).await.map(Json).map_err(|error| failed("sign out", error))
-}
-
-/// The text a new pull request starts with and the user of the token, as the app reads them: the issue summaries
-/// from the YouTrack of the repository, when the issue links name it and the app is signed in
-pub async fn get_new_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<GetNewPullRequestParams>) -> CommandResult<NewPullRequest> {
-  let host = remote_of(&state, &params.repository_path)?;
-  let pull_request = new_pull_request(&state.git_executor, Some(host.youtrack_service()), "origin", &params).await;
-  let pull_request = pull_request.map_err(|e| failed("read the text of the pull request", e))?;
-  with_viewer(&state, &params.repository_path, pull_request).await
-}
-
-/// The text of a new pull request with the user of the token, who is its assignee; none when GitHub doesn't answer
-async fn with_viewer(state: &AppState, path: &str, mut pull_request: NewPullRequest) -> CommandResult<NewPullRequest> {
-  if let (host, Some(repository)) = github_of(state, path, None).await? {
-    pull_request.viewer_login = read_viewer_login(&host.github_service(), path, &repository).await.ok();
-  }
-  Ok(Json(pull_request))
-}
-
-/// The users a review can be asked from, as the app searches them
-pub async fn search_github_users(State(state): State<Arc<AppState>>, Json(params): Json<SearchGitHubUsersParams>) -> CommandResult<Vec<GitHubUser>> {
-  let operation = "search the GitHub users";
-  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
-  let users = core_search_github_users(&host.github_service(), &params.repository_path, &repository, &params.query).await;
-  users.map(Json).map_err(|failure| failed(operation, failure_message(&failure)))
-}
-
-#[derive(Deserialize)]
-pub struct YouTrackIssueParams {
-  key: String,
-}
-
-/// The issue of `key` from the fake YouTrack, as the app reads it
-pub async fn get_youtrack_issue(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<YouTrackIssueParams>) -> CommandResult<YouTrackIssueAnswer> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  Ok(Json(host.youtrack_service().issue(&params.key).await))
 }
 
 /// The review requests of the fixture set by `POST /repositories/{id}/review-requests`, as the session of a test
@@ -406,37 +296,6 @@ fn resolve_review_heads(path: &str, result: &mut ReviewRequestsResult) {
   }
 }
 
-/// Nothing to read ahead: the bridge keeps no caches, every read of a review runs git (the E2E stay deterministic)
-pub async fn prefetch_branch_review() -> CommandResult<()> {
-  Ok(Json(()))
-}
-
-/// The text of the pull request of the whole stack and the user of the token, as the app reads them
-pub async fn get_new_stack_pull_request(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<remote_facts::stack_pull_request::GetNewStackPullRequestParams>,
-) -> CommandResult<NewPullRequest> {
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let (git_executor, path, request) = (state.git_executor.clone(), params.repository_path.clone(), params);
-  let Json(pull_request) = run_command("read the text of the stack's pull request", move || {
-    remote_facts::stack_pull_request::read_new_stack_pull_request(&git_executor, &branch_prefix, &request)
-  })
-  .await?;
-  with_viewer(&state, &path, pull_request).await
-}
-
-pub async fn get_branch_review(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::branch_review::GetBranchReviewParams>,
-) -> CommandResult<sync_core::branch_review::BranchReview> {
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the review of a branch", move || {
-    sync_core::branch_review::get_branch_review(&git_executor, &branch_prefix, &params)
-  })
-  .await
-}
-
 /// The fake services of the repository at `path` (`remote_host.rs`), started now if not yet; the repository is not held
 pub(crate) fn remote_of(state: &AppState, path: &str) -> Result<Arc<RemoteHost>, Rejection> {
   Ok(repository_by_path(state, path)?.remote(&state.git_executor))
@@ -454,54 +313,6 @@ pub(crate) fn keep_answered(state: &AppState, path: &str, result: &PatronusRobot
     let mut answered = repository.patronus_answered.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     answered.extend(result.robots.iter().map(|robot| (robot.id.clone(), robot.clone())));
   }
-}
-
-/// The Safe Push statistics as the app reads them (`get_robot_stats`): the real core against the fake Patronus of the
-/// repository, at the page's clock (`PAGE_CLOCK_START`) and in UTC, so the weeks and the hours of a test are fixed; no
-/// object cache, so every read asks the fake. The page gets no events: only the result
-pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): Json<GetRobotStatsParams>) -> CommandResult<RobotStatsResult> {
-  let Some((host, space)) = space_of(&state, &params.repository_path)? else {
-    return Ok(Json(RobotStatsResult {
-      availability: PatronusAvailability::NotPatronus,
-      stale: false,
-      fetched_at: None,
-      stats: None,
-    }));
-  };
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let git = state.git_executor.clone();
-  let (path, baseline) = (params.repository_path.clone(), params.baseline_branch.clone());
-  let Json(target) = run_command("read the target branch", move || required_target_branch(&git, &path, &baseline)).await?;
-  let service = host.patronus_service();
-  let cache = ObjectCache::disabled();
-  let source = RobotStatsSource {
-    service: &service,
-    cache: &cache,
-    repository: &space.name,
-    target: &target,
-    branch_prefix: &branch_prefix,
-    reads: None,
-  };
-  Ok(Json(
-    robot_stats_core(&source, &Calendar::utc(), PAGE_CLOCK_START, params.period, params.refresh, &|_| {}).await,
-  ))
-}
-
-/// Why the robot failed, with the commit map of its branch, as the app reads it; there is no `teamcity` CLI
-pub async fn get_robot_failure(State(state): State<Arc<AppState>>, Json(params): Json<GetRobotFailureParams>) -> CommandResult<RobotFailureReport> {
-  let service = remote_of(&state, &params.repository_path)?.patronus_service();
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let failure = if params.full {
-    service.robot_failure_full(&branch_prefix, &params.robot_id, None).await
-  } else {
-    service.robot_failure(&branch_prefix, &params.robot_id).await
-  }
-  .map_err(|e| failed("read the failure of the Patronus robot", patronus_error(e)))?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the failure of the Patronus robot", move || {
-    robot_failure_report(&git_executor, &params.repository_path, &branch_prefix, &params.ancestors, &params.baseline_branch, failure)
-  })
-  .await
 }
 
 /// The error of a rejection, a read of the session's facts answers it
@@ -538,31 +349,6 @@ pub async fn browse_repository(
   Ok(Json(sync_core::repository_validation::validate_and_create_result(path)))
 }
 
-/// Mock of `suggest_branch_names` (E2E never runs claude): the repository's fixture after its delay, by default two
-/// names from the words of the commit messages
-pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(params): Json<SuggestBranchNamesParams>) -> CommandResult<BranchNameSuggestionOutcome> {
-  let fixture = {
-    let repo = repository_by_path(&state, &params.repository_path)?;
-    repo.branch_name_suggestion_calls.fetch_add(1, Ordering::SeqCst);
-    repo.branch_name_suggestions.read().expect("branch name suggestion fixture lock").clone()
-  };
-  tokio::time::sleep(std::time::Duration::from_millis(fixture.delay_ms)).await;
-  if let Some(outcome) = fixture.outcome {
-    return Ok(Json(outcome));
-  }
-  let words: Vec<&str> = params
-    .commits
-    .iter()
-    .flat_map(|commit| commit.message.split_whitespace())
-    .filter(|word| word.len() > 3)
-    .collect();
-  let names = clean_names(&[
-    format!("fix-{}", words.first().unwrap_or(&"issue")),
-    format!("update-{}", words.get(1).unwrap_or(&"feature")),
-  ]);
-  Ok(Json(BranchNameSuggestionOutcome::Suggested { names }))
-}
-
 #[derive(Deserialize)]
 pub struct SetAutoSyncMenuCheckedRequest {
   checked: bool,
@@ -584,16 +370,6 @@ pub async fn agent_cli_command(Json(request): Json<AgentCliCommandRequest>) -> J
 
 /// The skill files the fake install names
 const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"];
-
-/// Waits while a test holds `answer` (`/remote-gates`), then fails it while the test fails it: a read of a status the
-/// bridge gives itself
-pub(crate) async fn held_or_failed(host: &RemoteHost, answer: HeldAnswer, operation: &str) -> Result<(), Rejection> {
-  host.pass_held(answer).await;
-  if host.fails(answer) {
-    return Err(failed(operation, "the fixture fails this read"));
-  }
-  Ok(())
-}
 
 /// The repository of the page that sends a command (`X-Repository-Id`)
 pub(crate) fn requesting_repository<'a>(state: &'a AppState, headers: &HeaderMap) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, Rejection> {

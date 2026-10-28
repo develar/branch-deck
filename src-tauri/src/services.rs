@@ -1,50 +1,62 @@
 //! The sessions of the app and what they run with: the syncs of a session take git, the issue links and the object
 //! cache of the repository, the git config read for the sync and the settings (`AppEnvironment`); the reads of their
-//! facts, the effects of the engine and its rewrites go to the services of the app (`AppServices`). Both read what the
-//! commands share from the `AppContext` the app manages (`lib.rs`), the remote services from their own states. The
-//! commands of the sessions are app-api's (`app_api::session`).
+//! facts, the effects of the engine, its rewrites and the commands of app-api go to the services of the app
+//! (`AppServices`), made of its remote services (`PatronusState`, `GitHubState`, `YouTrackState`) and its sign-ins.
+//! Both read what the commands share from the `AppContext` the app manages (`lib.rs`), the remote services from their
+//! own states. The commands are app-api's (`app_api::session`, `app_api::remote`).
 
 use crate::commands::activity::emit_activity_changed;
-use crate::commands::github::GitHubState;
-use crate::commands::patronus::PatronusState;
-use crate::commands::pull_requests::github_repository;
 use crate::commands::sign_in::SignInsState;
-use crate::commands::youtrack::YouTrackState;
 use crate::settings::emit_change;
 use app_api::api_error::{api_error, undo_error};
 use app_api::context::AppContext;
 use app_api::operation::run_blocking;
 use app_api::repository_state::RepositoryStateCache;
+use app_api::transport::AppHost;
 use app_settings::linked_pull_requests::{forget, linked};
+use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
+use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, HolderTool};
 use domain_types::review_request::LinkedPullRequest;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
+use github::client::GitHubClient;
 use github::service::GitHubService;
+use github::token::{TokenChain, TokenSources};
+use moka::sync::Cache;
 use object_cache::cache::ObjectCache;
 use operations::registry::{Registry, RegistryFiles};
 use operations::rewrite::RewriteHost;
+use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
+use patronus::teamcity_cli::TeamCityCli;
+use patronus::token::find_user_token;
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
 use remote_facts::sign_in::SignIns;
+use remote_facts::youtrack_cli::handed_token_file;
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{OneClock, SessionClocks, SessionKey, Sessions};
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use sync_core::branch_name_suggestion::suggest_branch_names;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::GitHubRepository;
-use sync_core::patronus::SpaceRepository;
+use sync_core::patronus::{SpaceRepository, find_space_repository};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_utils::clock::SystemClock;
+use sync_utils::timestamp::unix_now;
 use tauri::{AppHandle, Manager};
 use tracing::warn;
 use trial_check::landing_gate::landing_needs_of;
-use youtrack::service::YouTrackService;
+use youtrack::client::YouTrackClient;
+use youtrack::service::{EnvironmentToken, YouTrackService};
+use youtrack::token_store::token_file;
 
 /// How often the app removes the sessions idle for `IDLE_LIMIT`
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -122,10 +134,10 @@ impl SessionEnvironment for AppEnvironment {
   }
 }
 
-/// What the reads of the facts of the app's sessions are made with (`ServiceFactSources`), the effects of the engine
-/// and its rewrites: the Patronus service of the app with the Space repository it keeps by worktree (`PatronusState`),
-/// the GitHub service, the GitHub repository and the object cache the app keeps by worktree (`RepositoryStateCache`),
-/// the settings when a read starts
+/// What the reads of the facts of the app's sessions are made with (`ServiceFactSources`), the effects of the engine,
+/// its rewrites and the commands of app-api (`AppHost`): the Patronus service of the app with the Space repository it
+/// keeps by worktree (`PatronusState`), the GitHub service, the GitHub repository and the object cache the app keeps by
+/// worktree (`RepositoryStateCache`), the settings when a read starts, the YouTrack and the sign-ins of the app
 pub struct AppServices {
   app: AppHandle,
 }
@@ -165,11 +177,12 @@ impl ServiceHost for AppServices {
     Box::pin(async move { self.app.state::<PatronusState>().space_repository(&self.context().git, &key.worktree).await })
   }
 
+  /// The GitHub repository the app keeps while the config of the repository stays as it is (`RepositoryStateCache`),
+  /// read off the async workers
   fn github_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<GitHubRepository>, ApiError>> {
-    Box::pin(async move {
-      let ctx = self.context();
-      github_repository(&ctx.git, &ctx.repository_state, &key.worktree, None).await
-    })
+    let ctx = self.context();
+    let (git, repository_state, path) = (ctx.git.clone(), ctx.repository_state.clone(), key.worktree.clone());
+    Box::pin(async move { run_blocking(move || repository_state.github_repository(&git, &path)).await })
   }
 
   fn new_api(&self, _key: &SessionKey) -> bool {
@@ -216,6 +229,33 @@ impl ServiceHost for AppServices {
   }
 }
 
+/// The app's own accounts, the `teamcity` CLI the app found, the user's Claude Code and the system clock and zone
+impl AppHost for AppServices {
+  fn sign_ins(&self) -> Result<SignIns, ApiError> {
+    Ok(self.app.state::<SignInsState>().0.clone())
+  }
+
+  fn youtrack(&self) -> Result<Arc<YouTrackService>, ApiError> {
+    Ok(Arc::clone(&self.app.state::<YouTrackState>().service))
+  }
+
+  fn teamcity(&self) -> Read<'_, Option<TeamCityCli>> {
+    Box::pin(async move { self.app.state::<PatronusState>().teamcity().await })
+  }
+
+  fn suggest_branch_names(&self, git: &GitCommandExecutor, params: &SuggestBranchNamesParams, is_superseded: &dyn Fn() -> bool) -> BranchNameSuggestionOutcome {
+    suggest_branch_names(git, params, is_superseded)
+  }
+
+  fn now(&self) -> u32 {
+    unix_now()
+  }
+
+  fn calendar(&self) -> Calendar {
+    Calendar::from_zone(jiff::tz::TimeZone::system())
+  }
+}
+
 /// The rewrites of the app read the diffs of its windows and answer a failure as its commands do
 impl RewriteHost for AppServices {
   fn file_diffs(&self) -> FileDiffs {
@@ -230,3 +270,102 @@ impl RewriteHost for AppServices {
     undo_error(error)
   }
 }
+
+/// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
+/// Space repository of each repository, so a poll starts no git process
+pub struct PatronusState {
+  service: Arc<PatronusService>,
+  /// The Space repository (None = not on Space) by repository path. Re-read now and then: the remote can change.
+  repositories: Cache<String, Option<SpaceRepository>>,
+  /// The `teamcity` CLI with an authenticated server, once found; looked for again on each full failure until then (the
+  /// user may log in meanwhile)
+  teamcity: tokio::sync::Mutex<Option<TeamCityCli>>,
+}
+
+impl PatronusState {
+  pub fn new(app_version: &str) -> Self {
+    let user_agent = app_user_agent(app_version);
+    // the variable of the Safe Push CLI, for the staging and dev instances
+    let base_url = std::env::var("SAFEPUSH_PATRONUS_URL").map_or_else(|_| PATRONUS_URL.to_string(), |url| url.trim_end_matches('/').to_string());
+    Self {
+      service: Arc::new(PatronusService::new(PatronusClient::new(base_url, &user_agent), find_user_token)),
+      repositories: Cache::builder().max_capacity(100).time_to_live(Duration::from_secs(600)).build(),
+      teamcity: tokio::sync::Mutex::new(None),
+    }
+  }
+
+  async fn teamcity(&self) -> Option<TeamCityCli> {
+    let mut teamcity = self.teamcity.lock().await;
+    if teamcity.is_none() {
+      *teamcity = TeamCityCli::discover().await;
+    }
+    teamcity.clone()
+  }
+
+  /// The CLI is looked for again on the next full failure: it was installed, updated or signed in to other servers
+  pub async fn reset_teamcity(&self) {
+    *self.teamcity.lock().await = None;
+  }
+
+  /// The Space repository `origin` pushes to: one `remote get-url --push` (`find_space_repository`) on a miss, for the
+  /// actions and the reads of the facts (`AppServices`). The GitHub repository of its branches (a mirror of the Space
+  /// one) is the app's, kept while the config stays as it is (`RepositoryStateCache::github_repository`)
+  pub(crate) async fn space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<SpaceRepository>, ApiError> {
+    if let Some(space) = self.repositories.get(repository_path) {
+      return Ok(space);
+    }
+    let git = git_executor.clone();
+    let path = repository_path.to_string();
+    let space = run_blocking(move || find_space_repository(&git, &path)).await?;
+    self.repositories.insert(repository_path.to_string(), space.clone());
+    Ok(space)
+  }
+}
+
+/// The GitHub client of the app: one HTTP client (kept-alive connection) and the token chain with what GitHub accepted
+/// and rejected, shared by the windows; its own sign-in is one of the sign-ins of the app (`commands::sign_in`)
+pub struct GitHubState {
+  pub service: Arc<GitHubService>,
+}
+
+impl GitHubState {
+  pub fn new(app_version: &str, git: GitCommandExecutor, app_data_dir: Option<&Path>) -> Self {
+    Self {
+      service: Arc::new(GitHubService::new(
+        GitHubClient::new(&app_user_agent(app_version)),
+        TokenChain::new(TokenSources::from_process(app_data_dir), git),
+      )),
+    }
+  }
+}
+
+/// The YouTrack of the app, shared by the windows, the sessions (`SetIssueState`) and the sign-ins (`commands::sign_in`)
+pub struct YouTrackState {
+  /// Shared with the operations of the sessions (`SetIssueState` through `ServiceHost::youtrack`), the issue popovers
+  /// (`AppHost::youtrack`) and the sign-ins
+  pub service: Arc<YouTrackService>,
+  /// The id of the permanent token the app made for the `youtrack` CLI (`remote_facts::youtrack_cli`)
+  pub(crate) handed_token: Option<PathBuf>,
+}
+
+impl YouTrackState {
+  pub fn new(app_version: &str, app_data_dir: Option<&Path>) -> Self {
+    Self {
+      service: Arc::new(YouTrackService::new(
+        YouTrackClient::new(&app_user_agent(app_version)),
+        EnvironmentToken::from_process(),
+        app_data_dir.map(token_file),
+      )),
+      handed_token: app_data_dir.map(handed_token_file),
+    }
+  }
+}
+
+/// `Branch Deck/<version> (<os>; <arch>)`, the user agent of the app's HTTP requests
+pub fn app_user_agent(app_version: &str) -> String {
+  format!("Branch Deck/{app_version} ({}; {})", std::env::consts::OS, std::env::consts::ARCH)
+}
+
+#[cfg(test)]
+#[path = "services_test.rs"]
+mod services_test;

@@ -6,7 +6,8 @@
 //! frame of its kind (`registry.rs`), so its body opens neither; the span records no argument that holds a
 //! collection, whose Debug text a line of the log would carry whole (`skip_all` and a field or two instead); and an
 //! async body opens the object cache, and a body of the registry reads the git directories and the GitHub repository
-//! (`RepositoryStateCache`), only in a blocking step. The key of a session is built in one place, `context.rs`.
+//! (`RepositoryStateCache`), only in a blocking step, or through the services of its session, whose host reads them
+//! off the workers. The key of a session is built in one place, `context.rs`.
 
 use crate::commands::COMMANDS;
 use std::collections::{BTreeMap, HashSet};
@@ -15,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 /// A command of the sources: a handwritten `#[tauri::command]`, or the body of an entry of the registry
 struct Command {
-  /// `src-tauri/src/commands/patronus.rs:122`
+  /// `src-tauri/src/commands/sign_in.rs:86`
   place: String,
   name: String,
   /// The text of its `#[instrument(…)]` attribute, None without one
@@ -489,13 +490,18 @@ fn blocking_spans(body: &str) -> Vec<std::ops::Range<usize>> {
 }
 
 /// The lines of an async `body` that call one of `calls` on the worker: neither inside a `run_blocking(…)` nor in a
-/// `move ||` closure a core runs off the workers
+/// `move ||` closure a core runs off the workers. A read of the services of a session (`ctx.services.object_cache(…)`,
+/// `ServiceHost`) is a future of its host, which reads off the workers itself
 fn blocking_on_the_worker(body: &str, calls: &[&str]) -> Vec<String> {
   let spans = blocking_spans(body);
   let mut offset = 0;
   let mut lines = Vec::new();
   for line in body.split_inclusive('\n') {
-    let at = calls.iter().filter_map(|call| line.find(call)).min();
+    let at = calls
+      .iter()
+      .flat_map(|call| line.match_indices(call).map(|(at, _)| at))
+      .filter(|at| !line[..*at].ends_with("services."))
+      .min();
     if let Some(at) = at
       && !line.contains("move ||")
       && !spans.iter().any(|span| span.contains(&(offset + at)))
@@ -528,7 +534,7 @@ fn an_async_command_opens_the_object_cache_off_the_async_workers() {
   );
   assert_eq!(
     blocking_on_the_worker(
-      "  let cache = repository_state.object_cache(&git, &path);\n  run_blocking(move || {\n    let cache = state.object_cache(&git, &path);\n  })",
+      "  let cache = repository_state.object_cache(&git, &path);\n  run_blocking(move || {\n    let cache = state.object_cache(&git, &path);\n  })\n  let kept = ctx.services.object_cache(&key).await;",
       &["object_cache("]
     ),
     ["let cache = repository_state.object_cache(&git, &path);"]

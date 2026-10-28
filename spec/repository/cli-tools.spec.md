@@ -15,7 +15,7 @@ targets:
   - ../../crates/test-utils/src/fake_cli_tools.rs
   - ../../crates/test-server/src/cli_tools_fixtures.rs
   - ../../src-tauri/src/commands/cli_tools.rs
-  - ../../src-tauri/src/commands/patronus.rs
+  - ../../src-tauri/src/services.rs
   - ../../src/stores/cli-tools.ts
   - ../../src/lib/sign-in-run.ts
   - ../../crates/remote-facts/src/sign_in.rs

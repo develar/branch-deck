@@ -5,15 +5,14 @@
 //! after GitHub, the pull requests and the review requests) and tells every window `auth-changed`, which a window
 //! without a session reads `get_auth_status` again on.
 
-use crate::commands::github::GitHubState;
-use crate::commands::youtrack::YouTrackState;
+use crate::services::{GitHubState, YouTrackState};
 use app_api::api_error::api_error;
 use app_api::context::AppContext;
 use app_api::operation::operation;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::error::ApiError;
 use domain_types::session::{FactFamily, FactRefreshReason};
-use domain_types::sign_in::{Account, AuthStatus, SignIn, SignInDone, SignInEvent, SignInProvider};
+use domain_types::sign_in::{Account, SignIn, SignInDone, SignInEvent, SignInProvider};
 use github::device_flow::GITHUB_OAUTH_CLIENT_ID;
 use github::service::GitHubService;
 use remote_facts::sign_in::{SignInHost, SignIns};
@@ -25,10 +24,10 @@ use tracing::{instrument, warn};
 use youtrack::service::YouTrackService;
 
 /// Sent to every window when a sign-in or a sign-out changed an account: a window without a session reads the status
-/// again (`get_auth_status`); the sessions read their fact `auth` themselves
+/// again (`get_auth_status` of app-api); the sessions read their fact `auth` themselves
 pub const AUTH_CHANGED_EVENT: &str = "auth-changed";
 
-/// The sign-ins of the app
+/// The sign-ins of the app, which `AppHost::sign_ins` of `AppServices` gives the commands of app-api
 pub struct SignInsState(pub SignIns);
 
 /// What the sign-ins of the app run with: the services of the app, the OAuth app of the build, the `youtrack` CLI of the
@@ -113,13 +112,4 @@ pub async fn cancel_sign_in(sign_ins: State<'_, SignInsState>, provider: SignInP
 #[specta::specta]
 pub async fn sign_out(sign_ins: State<'_, SignInsState>, account: Account) -> Result<(), ApiError> {
   operation(async move { sign_ins.0.sign_out(account).await }).await
-}
-
-/// The sign-ins of both accounts and where their tokens come from: for a window without a session (Settings); a window
-/// of a repository has them as the fact `auth` of its session
-#[tauri::command]
-#[instrument(skip(sign_ins))]
-#[specta::specta]
-pub async fn get_auth_status(sign_ins: State<'_, SignInsState>) -> Result<AuthStatus, ApiError> {
-  operation(async move { Ok(sign_ins.0.status().await) }).await
 }

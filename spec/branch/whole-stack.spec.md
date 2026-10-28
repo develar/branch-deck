@@ -35,7 +35,7 @@ targets:
   - ../../crates/remote-facts/src/stack_pull_request.rs
   - ../../crates/domain-types/src/patronus.rs
   - ../../crates/domain-types/src/pull_request.rs
-  - ../../src-tauri/src/commands/patronus.rs
+  - ../../crates/app-api/src/remote/patronus.rs
   - ../../src/stores/branch-sync.ts
   - ../../src/stores/repository.ts
   - ../../src/lib/patronus.ts
@@ -92,7 +92,7 @@ targets:
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/robot_commits.rs
   - ../../crates/sync-core/src/branch_review.rs
-  - ../../src-tauri/src/commands/pull_requests.rs
+  - ../../crates/app-api/src/remote/pull_requests.rs
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/BranchActions.tsx
 ---

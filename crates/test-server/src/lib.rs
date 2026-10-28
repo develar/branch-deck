@@ -22,6 +22,7 @@ use tower_http::trace::TraceLayer;
 
 pub mod activity_routes;
 pub mod cli_tools_fixtures;
+pub mod host;
 pub mod invoke;
 pub mod remote_fixtures;
 pub mod remote_git_fixtures;
@@ -274,21 +275,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/read_activity", post(activity_routes::read_activity))
     .route("/invoke/record_activity", post(activity_routes::record_activity))
     .route("/invoke/clear_activity", post(activity_routes::clear_activity))
-    .route("/invoke/get_auth_status", post(tauri_command_bridge::get_auth_status))
     .route("/invoke/sign_in", post(tauri_command_bridge::sign_in))
     .route("/invoke/cancel_sign_in", post(tauri_command_bridge::cancel_sign_in))
     .route("/invoke/sign_out", post(tauri_command_bridge::sign_out))
-    .route("/invoke/get_youtrack_issue", post(tauri_command_bridge::get_youtrack_issue))
-    .route("/invoke/get_new_pull_request", post(tauri_command_bridge::get_new_pull_request))
-    .route("/invoke/search_github_users", post(tauri_command_bridge::search_github_users))
-    .route("/invoke/get_branch_review", post(tauri_command_bridge::get_branch_review))
-    .route("/invoke/get_new_stack_pull_request", post(tauri_command_bridge::get_new_stack_pull_request))
-    .route("/invoke/prefetch_branch_review", post(tauri_command_bridge::prefetch_branch_review))
-    .route("/invoke/get_robot_stats", post(tauri_command_bridge::get_robot_stats))
-    .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
-    .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
-    .route("/invoke/suggest_branch_names", post(tauri_command_bridge::suggest_branch_names))
     // the native menu: a test counts the requests of the page
     .route("/invoke/set_auto_sync_menu_checked", post(tauri_command_bridge::set_auto_sync_menu_checked))
     .route("/invoke/set_setting", post(tauri_command_bridge::set_setting))

@@ -200,5 +200,63 @@
     "name": "unlink_pull_request",
     "class": "app",
     "transport": "json"
+  },
+  {
+    "name": "get_new_pull_request",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_new_stack_pull_request",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "search_github_users",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_robot_stats",
+    "class": "read",
+    "transport": {
+      "channel": "events",
+      "open": false
+    }
+  },
+  {
+    "name": "get_robot_failure",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_robot_commit_map",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_branch_review",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "prefetch_branch_review",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "suggest_branch_names",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_auth_status",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "get_youtrack_issue",
+    "class": "read",
+    "transport": "json"
   }
 ]

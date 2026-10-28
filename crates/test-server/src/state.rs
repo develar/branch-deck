@@ -41,10 +41,10 @@ impl AppState {
 
   /// The app of the test repository `repository_id`, what its commands of app-api run with: the git of a test machine
   /// (the global config of the repository, `global_config_of`, and no system config), the settings of its page, its own
-  /// memory of the diffs, its own windows and its own search of the conflict fix, the fixture of the repository as its
-  /// symbol index (`FixtureIndexes`), the fakes of the repository as its services (`TestServices`), and the git
-  /// prefixes, the repository state, the sessions and the registry of the server. Its windows hear no event of the app
-  /// (`NoEvents`)
+  /// memory of the diffs and of the reviews of branches, its own windows and its own search of the conflict fix, the
+  /// fixture of the repository as its symbol index (`FixtureIndexes`), the fakes of the repository as its services
+  /// (`TestServices`) and its host (`TestHost`), and the git prefixes, the repository state, the sessions and the
+  /// registry of the server. Its windows hear no event of the app (`NoEvents`)
   pub fn context_of(self: &std::sync::Arc<Self>, repository_id: &str, settings: &std::sync::Arc<app_settings::service::SettingsService>) -> app_api::context::AppContext {
     let global_config = self.global_config_of(repository_id);
     let services = crate::session_routes::test_services(self);
@@ -65,6 +65,11 @@ impl AppState {
       services: std::sync::Arc::clone(&services) as std::sync::Arc<dyn remote_facts::service_sources::ServiceHost>,
       rewrites: services,
       events: std::sync::Arc::new(NoEvents),
+      host: std::sync::Arc::new(crate::host::TestHost {
+        state: std::sync::Arc::downgrade(self),
+        repository: repository_id.to_owned(),
+      }),
+      remote: app_api::remote::RemoteMemory::default(),
     }
   }
 

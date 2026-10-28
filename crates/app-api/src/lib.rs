@@ -5,11 +5,12 @@
 //! - `commands`: the one list of the commands (`for_each_command!`), in the grammar of `registry` (`api_commands!`,
 //!   `Command`, `COMMANDS`), and its table for the page mock of the e2e server (`commands.json`); the bodies by family:
 //!   `reads` (the repository and its commits, the diffs, the symbol searches, the conflict fix), `session` (the
-//!   sessions, their operations and what each window holds open).
+//!   sessions, their operations and what each window holds open), `remote` (the reads of GitHub, Patronus and YouTrack
+//!   beside the facts of a session, the reviews of branches, the branch names of Claude Code, the app's accounts).
 //! - `context`: `AppContext`, what every command runs with, the key of a session, and `PrefixInputs`, the prefix of a
 //!   repository's branches.
-//! - `transport`: what a host hands a command besides its arguments (the call of a window, the channel to its page) and
-//!   what the app tells its windows.
+//! - `transport`: what a host hands a command besides its arguments (the call of a window, the channel to its page),
+//!   what the app tells its windows and what it gives a command beside the services of the sessions (`AppHost`).
 //! - `operation`: the frame of a command, its operation id and its blocking steps (`run_blocking`).
 //! - `repository_state`: the git directories, the object cache and the GitHub repository of each repository.
 //! - `api_error`: the one conversion of a core's error into the `ApiError` of a command ("Ошибки").
@@ -20,6 +21,7 @@ pub mod context;
 pub mod operation;
 pub mod reads;
 pub mod registry;
+pub mod remote;
 pub mod repository_state;
 pub mod session;
 pub mod transport;

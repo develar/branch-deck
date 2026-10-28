@@ -1,4 +1,4 @@
-use crate::commands::patronus::PatronusState;
+use crate::services::PatronusState;
 use git_executor::git_command_executor::GitCommandExecutor;
 
 /// The Space repository costs one push URL of `origin`, and nothing while it is kept

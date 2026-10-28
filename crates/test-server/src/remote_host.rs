@@ -1,5 +1,5 @@
 //! The remote services of one test repository: a fake on a loopback port of its own behind the real service the app
-//! uses, so a bridged command runs the app's client and service against what the test set (`remote_fixtures.rs`).
+//! uses, so a command of the app runs its client and service against what the test set (`remote_fixtures.rs`).
 //! Started on the first need of the repository, stopped when it is deleted; nothing of the developer is reached (a
 //! fixed Space token, no `teamcity` CLI; the GitHub token is only the token file of the host's own app data directory,
 //! `<test root>/<id>.app-data` beside the repository (`AppState::app_data_of`), and a fake `gh` a fixture writes
@@ -153,8 +153,8 @@ pub enum HeldAnswer {
   /// The view of the robots a session derives (`TestSessionEnvironment::before_patronus_view`): what they hold and
   /// land; failed there
   RepositoryView,
-  /// The status of the sign-ins: the read of the sessions (`TestFactSources::auth`) and `get_auth_status` of the
-  /// bridge
+  /// The status of the sign-ins: the read of the sessions (`TestFactSources::auth`) and `get_auth_status` of a window
+  /// without a session (`TestHost::before_auth_status`)
   AuthStatus,
   /// The statuses of the command-line tools of Settings → Tools (`cli_tools_status`, in the bridge)
   CliTools,

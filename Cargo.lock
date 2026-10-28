@@ -152,6 +152,7 @@ dependencies = [
  "moka",
  "object-cache",
  "operations",
+ "patronus",
  "pretty_assertions",
  "remote-facts",
  "repository-model",

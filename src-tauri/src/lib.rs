@@ -39,21 +39,16 @@ use api::generated::*;
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
 use commands::activity::{clear_activity, read_activity, record_activity};
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
-use commands::branch_review::{get_branch_review, prefetch_branch_review};
 use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
-use commands::github::GitHubState;
-use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
-use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
 use commands::repository_browser::browse_repository;
 use commands::repository_config::set_repository_config;
 use commands::settings::{get_settings_changes, set_setting};
-use commands::sign_in::{AppSignIns, SignInsState, cancel_sign_in, get_auth_status, sign_in, sign_out};
-use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
+use commands::sign_in::{AppSignIns, SignInsState, cancel_sign_in, sign_in, sign_out};
 use commands::window_management::{
   BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_drawn, sub_window_loaded, sub_window_ready,
 };
 use commands::window_menu::show_window_menu;
-use commands::youtrack::{YouTrackState, get_youtrack_issue};
+use services::{GitHubState, PatronusState, YouTrackState};
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
@@ -65,7 +60,6 @@ use github::sign_in_session::GitHubSignInSession;
 use menu::{configure_app_menu, handle_menu_event, set_auto_sync_menu_checked};
 use remote_facts::sign_in::SignIns;
 use std::sync::Arc;
-use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 use title_bar::{init_title_bar, prepare_title_bar, restart_app, title_bar_script, with_title_bar};
@@ -268,12 +262,6 @@ pub fn run() {
       app.manage(repository_state.clone());
       let (sessions, registry) = services::start_sessions(app.handle(), &git, &repository_state);
       app.manage(app_settings::branch_prefixes::BranchPrefixes::default());
-      app.manage(BranchReviewMemo::new());
-      // one cache of the files of a range for the reviews' lists and their diffs (`get_range_files`, `get_file_diffs`),
-      // and the read ahead of a branch review (`prefetch_branch_review`)
-      let file_diffs = file_diffs::service::FileDiffs::default();
-      app.manage(file_diffs.range_files.clone());
-      app.manage(BranchNameSuggestionState::default());
       app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
@@ -322,15 +310,19 @@ pub fn run() {
         settings: Arc::clone(&settings_service),
         prefixes: app.state::<app_settings::branch_prefixes::BranchPrefixes>().inner().clone(),
         repository_state,
-        file_diffs,
+        // one memory of the diffs and the files of the ranges for the reviews' lists and their diffs (`get_range_files`,
+        // `get_file_diffs`) and the read ahead of a branch review (`prefetch_branch_review`)
+        file_diffs: file_diffs::service::FileDiffs::default(),
         symbol_indexes: Arc::new(app_api::reads::symbols::Accio),
         conflict_fix: app_api::reads::conflict_fix::ConflictFixSearch::default(),
         sessions,
         registry,
         windows: Arc::default(),
         services: Arc::clone(&services) as Arc<dyn remote_facts::service_sources::ServiceHost>,
-        rewrites: services,
+        rewrites: Arc::clone(&services) as Arc<dyn operations::rewrite::RewriteHost>,
         events: Arc::new(api::TauriEvents(app.handle().clone())),
+        host: services,
+        remote: app_api::remote::RemoteMemory::default(),
       });
       app.manage(settings_service);
 

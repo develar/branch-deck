@@ -15,11 +15,13 @@ targets:
   - ../../crates/sync-utils/src/secret_store.rs
   - ../../crates/github/src/token.rs
   - ../../crates/domain-types/src/pull_request.rs
-  - ../../src-tauri/src/commands/github.rs
+  - ../../src-tauri/src/services.rs
+  - ../../crates/app-api/src/remote/accounts.rs
   - ../../src-tauri/src/commands/sign_in.rs
   - ../../src-tauri/src/lib.rs
   - ../../crates/bd-core/src/context.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
+  - ../../crates/test-server/src/host.rs
   - ../../crates/test-server/src/remote_host.rs
   - ../../src/stores/auth.ts
   - ../../src/lib/sign-in-run.ts

@@ -17,11 +17,14 @@ targets:
   - ../../crates/youtrack/src/token_store.rs
   - ../../crates/sync-utils/src/secret_store.rs
   - ../../crates/domain-types/src/youtrack.rs
-  - ../../src-tauri/src/commands/youtrack.rs
+  - ../../crates/app-api/src/remote/accounts.rs
+  - ../../crates/app-api/src/remote/pull_requests.rs
+  - ../../src-tauri/src/services.rs
   - ../../crates/operations/src/issue.rs
   - ../../src/lib/issue-actions.ts
   - ../../src-tauri/src/lib.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
+  - ../../crates/test-server/src/host.rs
   - ../../crates/test-server/src/youtrack_fixtures.rs
   - ../../src/lib/youtrack.ts
   - ../../src/stores/youtrack-issues.ts

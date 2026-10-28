@@ -16,7 +16,7 @@ targets:
   - ../../src/lib/branch-review.ts
   - ../../src/lib/branch-review-window.ts
   - ../../src/hooks/usePreviewHotkeys.ts
-  - ../../src-tauri/src/commands/branch_review.rs
+  - ../../crates/app-api/src/remote/branch_review.rs
   - ../../src/lib/review-owners.ts
   - ../../src/lib/range-review.ts
   - ../../src/components/review/RangeReview.tsx
@@ -46,7 +46,6 @@ targets:
   - ../../src/router.ts
   - ../../src-tauri/capabilities/sub-windows.json
   - ../../src-tauri/capabilities/desktop.json
-  - ../../src-tauri/src/commands/branch_review.rs
   - ../../crates/sync-core/src/branch_review.rs
   - ../../crates/git-ops/src/ownership.rs
   - ../../crates/app-api/src/reads/commits.rs

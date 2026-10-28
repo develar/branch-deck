@@ -1,4 +1,4 @@
-//! The YouTrack sign-in and issues as the app shows them (`youtrack` crate, `src-tauri/src/commands/youtrack.rs`).
+//! The YouTrack sign-in and issues as the app shows them (`youtrack` crate, `crates/app-api/src/remote/accounts.rs`).
 
 use serde::{Deserialize, Serialize};
 

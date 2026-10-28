@@ -3,10 +3,11 @@
 //! tools of the machine. A test sets what is installed (`POST /repositories/{id}/cli-tools`) and reads what the fakes
 //! were asked (`GET`). The newest release of each tool is the fixture's until the app checks the releases itself.
 
+use crate::host::held_or_failed;
 use crate::invoke::{CommandResult, Rejection, failed};
 use crate::remote_host::HeldAnswer;
 use crate::state::{AppState, TestRepository};
-use crate::tauri_command_bridge::{held_or_failed, requesting_repository};
+use crate::tauri_command_bridge::requesting_repository;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
