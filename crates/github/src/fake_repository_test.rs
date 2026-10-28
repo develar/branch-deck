@@ -148,6 +148,8 @@ fn bob_pull(repository: &FakeGitHubRepository) {
         updated_at: 0,
         reviewers: Vec::new(),
         author: Some("bob".to_string()),
+        merge_state: None,
+        auto_merge: None,
       },
       body: String::new(),
       comments: Vec::new(),

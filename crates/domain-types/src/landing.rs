@@ -8,7 +8,7 @@
 
 use crate::error::ApiError;
 use crate::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot};
-use crate::pull_request::PullRequestReviewEvent;
+use crate::pull_request::{MergeMethod, PullRequestReviewEvent};
 use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
@@ -366,6 +366,12 @@ pub enum Confirmation {
   /// What the gate of the route asks (`domain_policy::landing_route`): a rule of the target the user may bypass, the
   /// status checks a push lands without, a refusal of the server before (`LandingAllowances::bypass_rules` in `bd`)
   RouteRule { reason: Reason },
+  /// Checks of the open pull request `number` that the rules of its base don't require fail or still run
+  /// (`mergeStateStatus` `UNSTABLE`): GitHub merges it all the same (`LandingAllowances::allow_without_checks` in `bd`)
+  ChecksNotRequired { number: u32 },
+  /// The repository allows only squash merges: the commit GitHub writes pairs with no original, so the update after it
+  /// may stop on a conflict of the originals
+  SquashOnly { number: u32 },
 }
 
 /// Why the checks of CI did not pass on the commit a push into the target lands
@@ -415,6 +421,8 @@ pub enum LandFact {
   Permission,
   /// The rules of the target a push goes into (the gate of the route)
   TargetRules,
+  /// Whether GitHub can merge the open pull request `number` now (`mergeStateStatus`), which it computes lazily
+  MergeState { number: u32 },
 }
 
 /// What a start or a restart does, in the order of its effects (the contract's `PlannedEffect`)
@@ -470,6 +478,25 @@ pub enum PlannedEffect {
   /// branch of the baseline on its remote `remote` ("origin"), `target` ("master"): a fast-forward the server takes or
   /// refuses whole (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
   PushBaseline { subject: Subject, tip: String, remote: String, target: String },
+  /// GitHub merges the open pull request `number` of `subject` by `method`, while its head is `head`, the commit the
+  /// user saw (`expectedHeadOid`: a moved head refuses it); `Intent::Land` of a repository that lands by a merge of the
+  /// pull request (`domain_policy::land_direct`)
+  MergePullRequest {
+    subject: Subject,
+    number: u32,
+    method: MergeMethod,
+    head: String,
+  },
+  /// GitHub merges the open pull request `number` of `subject` by `method` once its checks pass (auto-merge), while its
+  /// head is `head`: after the push before it, which restarts the checks, or while they still run
+  EnableAutoMerge {
+    subject: Subject,
+    number: u32,
+    method: MergeMethod,
+    head: String,
+  },
+  /// The auto-merge of the open pull request `number` is disabled (`Intent::DisableAutoMerge`)
+  DisableAutoMerge { number: u32 },
 }
 
 impl PlannedEffect {

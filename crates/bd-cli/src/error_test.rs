@@ -106,6 +106,8 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::BaselineMoved, 3, true),
   (ErrorCode::ChecksNotPassed, 4, false),
   (ErrorCode::LandingRouteUnsupported, 4, false),
+  (ErrorCode::NotMergeable, 4, false),
+  (ErrorCode::MergeBlocked, 4, false),
 ];
 
 #[test_log::test]

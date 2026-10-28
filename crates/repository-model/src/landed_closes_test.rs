@@ -29,6 +29,7 @@ fn facts_of(table: BranchTable, pull_requests: Vec<PullRequest>) -> FactStore {
     at(2),
     FactResult::PullRequests(PullRequestsResult {
       viewer_permission: None,
+      merge_methods: None,
       availability: PullRequestAvailability::Available {
         owner: "acme".to_owned(),
         name: "monorepo".to_owned(),

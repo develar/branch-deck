@@ -32,7 +32,7 @@ use domain_types::session::{Fact, LandedSection, SubjectReadiness};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::FactSources;
 use repository_model::branch_table::BranchTable;
-use repository_model::derive::{LandSources, land_decision, landing_route_of, with_land_sources};
+use repository_model::derive::{LandSources, land_decision, landing_route_of, patronus_lands, with_land_sources};
 use repository_model::facts::FactRecord;
 use repository_model::one_shot::OneShot;
 use repository_model::session::{SessionKey, Sessions};
@@ -105,6 +105,7 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
   let route = landing_route_of(header, &session.state().sections().landed, facts);
   let sources = LandSources {
     route: &route,
+    patronus: patronus_lands(session.facts().robots.view()),
     // a command keeps no push of its own: its process ends with it
     pushed: None,
     header,

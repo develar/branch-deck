@@ -1735,7 +1735,13 @@ Lands the branch into master by the route of the repository (`branchdeck.landing
   piece, the stack branch of a whole stack) into `target` by the push URL after it, a fast-forward
   ([Push into the baseline](../design/git-operations.md#push-into-the-baseline)). `--check` pushes nothing and prints
   `lands`, `confirmations`, `next_step` and `refusals`.
-- the merge of a pull request on GitHub: `landing_route_unsupported`, not yet.
+- `pull-request`: the same frame, GitHub merging the open pull request of the branch (`pull_request`) by the first
+  method the repository allows of rebase, a merge commit and squash, while it shows the commit the copy is
+  (`expectedHeadOid`); while its required checks run, and after the push of the branch when it shows another commit,
+  the auto-merge instead (`auto_merge: true`: GitHub merges it once they pass, nothing landed yet). On Space this route
+  is the Safe Push; a repository off GitHub or a mirror is `landing_route_unsupported`. Refusals: `no_pull_request`
+  (none open into the target), `merge_blocked` (approvals, required checks, changes requested, a draft),
+  `not_mergeable` (a conflict, a head behind its base: `bd update` then `bd push`; GitHub's refusal in its words).
 
 A push into master lands without a robot and without the CI of a pull request: what CI did not pass on the commit
 and the changes requested on its pull request refuse it as `checks_not_passed` until `--without-checks`; what the gate
@@ -1744,7 +1750,7 @@ it with the code of its reason until `--bypass-rules`. Both flags are the user's
 access it is `no_write_access`, a rule no push passes `baseline_refused`, a server that refused it `baseline_refused`
 with what the server said, a target that moved `baseline_moved` (exit 3; master is fetched, `bd update` comes next),
 and so is a fetched master with commits the branch is not built on, before anything is sent.
-It never updates: a push that landed prints `landed: true` and `next: "bd update"`, and `closes`: the open pull requests
+It never updates: a push that landed, and a merge, print `landed: true` and `next: "bd update"`; a push `closes`: the open pull requests
 of what it landed that show an older version of a branch, which the app closes with a comment (`bd` closes none; one
 whose head the push put into master GitHub merges by itself). Name them to the user.
 

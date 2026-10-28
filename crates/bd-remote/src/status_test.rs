@@ -29,6 +29,18 @@ fn stacked_repo() -> (TestRepo, Vec<String>) {
   (repo, ids)
 }
 
+/// The next step `bd status` names of a branch off Space whose pull requests are on GitHub: GitHub merges them, and
+/// `bd status` doesn't ask GitHub what the token may do there
+fn pending_permission() -> Value {
+  json!({
+    "row": "0",
+    "step": "pending",
+    "waits_for": "permission",
+    "safe_push_blocked": "Waits for GitHub to tell what the token may do in the repository",
+    "dry_run_blocked": "a Dry Run is a robot of Patronus, and the repository lands without one",
+  })
+}
+
 #[test_log::test]
 fn status_shape() {
   let (repo, ids) = grouped_repo();
@@ -57,6 +69,7 @@ fn status_shape() {
             { "id": short_id(&ids[3]), "subject": "Add logout" },
             { "id": short_id(&ids[0]), "subject": "Add login" },
           ],
+          "next_step": pending_permission(),
         },
         {
           "name": "ABC-12",
@@ -67,6 +80,7 @@ fn status_shape() {
           "commit_count": 1,
           "tip": null,
           "commits": [{ "id": short_id(&ids[1]), "subject": "ABC-12 Fix crash" }],
+          "next_step": pending_permission(),
         },
       ],
       "unassigned": [{ "id": short_id(&ids[2]), "subject": "Tidy up" }],
@@ -569,6 +583,13 @@ fn the_stack_branch_of_a_forking_stack_in_sync_and_status() {
     "error": "Not the build of these commits: `bd sync` builds it or says why not",
     "commits": 3,
     "members": ["auth", "login", "session"],
+    "next_step": {
+      "row": "0",
+      "step": "pending",
+      "waits_for": "pull_requests",
+      "safe_push_blocked": "the stack branch of auth is not the build of its commits; fix it, then sync",
+      "dry_run_blocked": "a Dry Run is a robot of Patronus, and the repository lands without one",
+    },
   });
   assert_eq!(status["stacks"], json!([stale]));
 
@@ -591,10 +612,12 @@ fn the_stack_branch_of_a_forking_stack_in_sync_and_status() {
     "tip": short_id(&tip),
     "commits": 3,
     "members": ["auth", "login", "session"],
+    "next_step": pending_permission(),
   });
   assert_eq!(status["stacks"], json!([built]));
   let (_, brief) = run_in(&repo, &["status", "--brief"]);
-  assert_eq!(brief["stacks"], json!([built]));
+  assert_eq!(brief["stacks"][0].get("next_step"), None, "{brief}");
+  assert_eq!(brief["stacks"][0]["tip"], built["tip"]);
   let (_, branch) = run_in(&repo, &["status", "--branch", "auth"]);
   assert_eq!(branch.get("stacks"), None);
 

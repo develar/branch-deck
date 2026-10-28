@@ -202,6 +202,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     at(4),
     FactResult::PullRequests(PullRequestsResult {
       viewer_permission: None,
+      merge_methods: None,
       availability: PullRequestAvailability::Available {
         owner: "acme".to_owned(),
         name: "monorepo".to_owned(),

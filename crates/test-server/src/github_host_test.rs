@@ -36,6 +36,7 @@ fn reviewer(login: &str, state: ReviewerState, requested: bool) -> Reviewer {
 fn available(pull_requests: BTreeMap<String, PullRequest>, stack_pull_requests: BTreeMap<String, PullRequest>) -> PullRequestsResult {
   PullRequestsResult {
     viewer_permission: None,
+    merge_methods: None,
     availability: PullRequestAvailability::Available {
       owner: "acme".to_string(),
       name: "monorepo".to_string(),

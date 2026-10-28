@@ -6,7 +6,7 @@
 use crate::error::ApiError;
 use crate::landing::{Landed, LandingRefusal};
 use crate::patronus::MissingReviewGroup;
-use crate::pull_request::PullRequestAvailability;
+use crate::pull_request::{MergeMethod, PullRequestAvailability};
 use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use crate::session::{BranchStatus, Parked};
@@ -31,6 +31,8 @@ pub enum StepFact {
   Permission,
   /// The rules of the target a push goes into (the gate of the route)
   TargetRules,
+  /// Whether GitHub can merge the open pull request now (`mergeStateStatus`), which it computes lazily
+  MergeState,
 }
 
 /// Why a read the next step decides on failed: no start is decided on it
@@ -116,6 +118,19 @@ pub enum StepRow {
   /// The row before it while the fetched baseline has commits the copy is not built on: "Update Project"
   #[serde(rename = "push′")]
   PushPrime,
+  /// The row of a repository that lands by a merge of the pull request on GitHub (spec/branch/next-step.spec.md, "A
+  /// merge of the pull request") without an open pull request into the target: "Create Pull Request…"
+  #[serde(rename = "pr")]
+  PullRequest,
+  /// Its row of an open pull request GitHub can merge: "Merge #7", "Auto-Merge #7"
+  #[serde(rename = "merge")]
+  Merge,
+  /// Its row of an open pull request whose auto-merge is enabled: GitHub merges it once its checks pass
+  #[serde(rename = "merge′")]
+  MergePrime,
+  /// Its row of an open pull request whose merge the rules of its base hold back, or that can't merge: the reason
+  #[serde(rename = "merge″")]
+  MergeDoublePrime,
 }
 
 impl StepRow {
@@ -142,6 +157,10 @@ impl StepRow {
       Self::Eleven => "11",
       Self::Push => "push",
       Self::PushPrime => "push′",
+      Self::PullRequest => "pr",
+      Self::Merge => "merge",
+      Self::MergePrime => "merge′",
+      Self::MergeDoublePrime => "merge″",
     }
   }
 }
@@ -220,6 +239,19 @@ pub enum StepKind {
   /// the copy is built on, so a push of it is no fast-forward: Update Project builds it anew on them first; Push to
   /// master is disabled with `Reason::BaselineAhead` (`NextStep::safe_push`)
   UpdateProject { upstream: String },
+  /// The row `pr` of a repository that lands by a merge of the pull request: no open pull request into the target,
+  /// "Create Pull Request…"
+  OpenPullRequest,
+  /// The row `merge`: GitHub merges the open pull request `number` now by `method` ("Merge #7"), or, `auto`, once the
+  /// checks of the commit it lands pass ("Auto-Merge #7": they still run, or the push before it restarts them); its
+  /// start is `NextStep::safe_push`
+  MergePullRequest { number: u32, auto: bool, method: MergeMethod },
+  /// The row `merge′`: the auto-merge of the open pull request `number` is enabled, GitHub merges it by `method` once its
+  /// checks pass (Cancel Auto-Merge)
+  AutoMerging { number: u32, method: MergeMethod },
+  /// The row `merge″`: the merge of the open pull request `number` waits, or can't: the reason is
+  /// `NextStep::safe_push` (approvals, checks, changes requested, a conflict, a head behind its base, a draft)
+  MergeHeld { number: u32 },
 }
 
 /// Why "Safe Push" (or a Dry Run) can't open now, the same on every surface

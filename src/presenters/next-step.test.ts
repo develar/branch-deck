@@ -261,6 +261,25 @@ describe("the words of the next step", () => {
     const refused = presentNextStep(testStep({ kind: "pushToBaseline", target: "master" }, { safePush: rule(reasonOf("noWriteAccess")) }), testContext())
     expect(refused.item).toMatchObject({ disabled: true, description: "You have no write access to develar/branch-deck: someone who has lands it into master" })
   })
+
+  it("rows of a merge: Merge #7 and Auto-Merge #7 by the method, merge′ merges by itself, merge″ says why the merge waits, pr creates the pull request", () => {
+    const merge = presentNextStep(testStep({ kind: "mergePullRequest", number: 7, auto: false, method: "rebase" }), testContext())
+    expect(merge.item).toMatchObject({ id: "merge-pull-request", label: "Merge #7", disabled: false, description: "GitHub merges #7 of auth into master by rebase" })
+    const auto = presentNextStep(testStep({ kind: "mergePullRequest", number: 7, auto: true, method: "merge" }, { lands: 2 }), testContext())
+    expect(auto.item).toMatchObject({
+      label: "Auto-Merge #7",
+      description: "GitHub merges #7 of auth with the branch it is built on into master by merge commit once its checks pass",
+    })
+    const merging = presentNextStep(testStep({ kind: "autoMerging", number: 7, method: "squash" }, { safePush: { code: "step" } }), testContext())
+    expect(merging.item).toMatchObject({ label: "Merges when checks pass", description: "GitHub merges #7 by squash once its checks pass\nOpen Pull Request #7" })
+    const held = presentNextStep(testStep({ kind: "mergeHeld", number: 7 }, { safePush: rule({ code: "mergeNeedsApprovals", number: 7 }) }), testContext())
+    expect(held.item).toMatchObject({ label: "Awaiting Approval", description: "#7 waits for the approvals its base requires\nOpen Pull Request #7" })
+    expect(held.tone).toBe("quiet")
+    const conflict = presentNextStep(testStep({ kind: "mergeHeld", number: 7 }, { safePush: rule({ code: "mergeConflict", number: 7 }) }), testContext())
+    expect([conflict.item?.label, conflict.tone]).toEqual(["Conflict", "destructive"])
+    const none = presentNextStep(testStep({ kind: "openPullRequest" }, { safePush: rule({ code: "noPullRequestToMerge", branch: "auth" }) }), testContext())
+    expect(none.item).toMatchObject({ id: "create-pull-request", description: "auth has no open pull request: GitHub merges it once you create one" })
+  })
 })
 
 describe("the step's blocker of a start", () => {

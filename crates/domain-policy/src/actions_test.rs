@@ -14,10 +14,10 @@ use domain_types::{PushAction, RemoteStatusUpdate};
 use pretty_assertions::assert_eq;
 
 use ActionId::{
-  AddIssueReference, AmendChanges, CancelRobot, CheckApprovals, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest, CreateStackPullRequest, DryRun, DryRunWholeStack,
-  ForgetStart, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest, OpenUnknownStart, Park, Push, PushAndRestartRobot, PushToBaseline, PushWithChildren,
-  Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack, SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile,
-  SafePushWithoutReview, SquashFixups, StackOn, Unapply, Ungroup, Unpark, Unstack,
+  AddIssueReference, AmendChanges, CancelAutoMerge, CancelRobot, CheckApprovals, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest, CreateStackPullRequest, DryRun,
+  DryRunWholeStack, ForgetStart, MergePullRequest, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest, OpenUnknownStart, Park, Push,
+  PushAndRestartRobot, PushToBaseline, PushWithChildren, Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack, SafePush, SafePushMainLine,
+  SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, Unapply, Ungroup, Unpark, Unstack,
 };
 
 /// The actions as the table reads them: the id and why it can't run, `None` when it can
@@ -97,6 +97,7 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
     comment_route: None,
     stacks_enabled: true,
     push_route: false,
+    merge_route: false,
   }
 }
 
@@ -644,6 +645,7 @@ fn stack_facts<'a>(shape: StackShape<'a>, step: Option<&'a NextStep>) -> StackFa
     repository: true,
     landed: None,
     push_route: false,
+    merge_route: false,
   }
 }
 
@@ -1208,4 +1210,72 @@ fn a_push_into_the_target_offers_its_push_with_the_reason_of_its_step_and_no_sta
     ..stack_facts(StackShape::Chain { length: 2, review: None }, Some(&step))
   };
   assert_eq!(ids(&stack_actions(&chain)), [ReviewWholeStack]);
+}
+
+/// A merge of the pull request on GitHub offers its merge with the reason of its step, none of the robot's starts; while
+/// its auto-merge is enabled, Cancel Auto-Merge instead; of a whole stack that forks the merge of its stack branch's
+#[test]
+fn a_merge_of_the_pull_request_offers_its_merge_and_cancel_auto_merge_while_github_merges_it() {
+  use domain_types::pull_request::MergeMethod;
+  let step = NextStep {
+    row: StepRow::Merge,
+    kind: StepKind::MergePullRequest {
+      number: 7,
+      auto: false,
+      method: MergeMethod::Rebase,
+    },
+    ..ready_step()
+  };
+  let status = remote(PushAction::Push);
+  let merge_route = |step: &NextStep| {
+    let facts = BranchFacts {
+      patronus: PatronusAnswer::NotOnSpace,
+      merge_route: true,
+      ..facts(step, &status)
+    };
+    branch_actions(&facts)
+  };
+  let actions = merge_route(&step);
+  assert_eq!(ids(&actions)[..3], [MergePullRequest, Push, ReviewChanges]);
+  assert_eq!(reason_of(&actions, MergePullRequest), None);
+  let approvals = NextStep {
+    row: StepRow::MergeDoublePrime,
+    kind: StepKind::MergeHeld { number: 7 },
+    safe_push: Some(StepBlocker::Rule {
+      reason: Reason::MergeNeedsApprovals { number: 7 },
+    }),
+    ..step.clone()
+  };
+  assert_eq!(
+    reason_of(&merge_route(&approvals), MergePullRequest),
+    Some(ActionBlocker::Step {
+      blocker: StepBlocker::Rule {
+        reason: Reason::MergeNeedsApprovals { number: 7 }
+      }
+    })
+  );
+  let auto_merging = NextStep {
+    row: StepRow::MergePrime,
+    kind: StepKind::AutoMerging {
+      number: 7,
+      method: MergeMethod::Rebase,
+    },
+    safe_push: Some(StepBlocker::Step),
+    ..step.clone()
+  };
+  let actions = merge_route(&auto_merging);
+  assert_eq!(ids(&actions)[..2], [CancelAutoMerge, Push]);
+  assert_eq!(reason_of(&actions, CancelAutoMerge), None);
+
+  let built = StackShape::Forking {
+    not_built: None,
+    tip: true,
+    main_line: None,
+  };
+  let stack = StackFacts {
+    patronus: PatronusAnswer::NotOnSpace,
+    merge_route: true,
+    ..stack_facts(built, Some(&step))
+  };
+  assert_eq!(ids(&stack_actions(&stack))[..1], [MergePullRequest]);
 }

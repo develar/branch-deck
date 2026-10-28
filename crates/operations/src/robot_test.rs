@@ -81,6 +81,7 @@ impl Sources {
     let readiness = |key: &str| self.readiness.get(key);
     let route = LandingRoute::Patronus { gate: RouteGate::Open };
     let sources = LandSources {
+      patronus: true,
       route: &route,
       pushed: None,
       header: &TableHeader::default(),

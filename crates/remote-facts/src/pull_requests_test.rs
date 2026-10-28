@@ -448,3 +448,50 @@ async fn classifies_failures() {
     }
   );
 }
+
+/// Whether GitHub can merge each pull request (`mergeStateStatus`), its auto-merge and the merge methods of the repository
+/// come with the listing, the same query: a state this version doesn't know is none, never "can't"
+#[test(tokio::test)]
+async fn the_merge_state_the_auto_merge_and_the_merge_methods_come_with_the_listing() {
+  use domain_types::pull_request::{MergeMethod, MergeMethods, MergeStateStatus};
+  let mut clean = node(7, "develar/virtual/auth", "OPEN", "2026-10-28T10:00:00Z");
+  clean["mergeStateStatus"] = serde_json::json!("CLEAN");
+  let mut auto = node(8, "develar/virtual/login", "OPEN", "2026-10-28T10:00:00Z");
+  auto["mergeStateStatus"] = serde_json::json!("BLOCKED");
+  auto["autoMergeRequest"] = serde_json::json!({"mergeMethod": "SQUASH"});
+  let mut strange = node(9, "develar/virtual/oauth", "OPEN", "2026-10-28T10:00:00Z");
+  strange["mergeStateStatus"] = serde_json::json!("SOMETHING_NEW");
+  for owned in [&mut clean, &mut auto, &mut strange] {
+    owned["headRepositoryOwner"] = serde_json::json!({"login": "acme"});
+  }
+  let data = serde_json::json!({"data": {
+    "repository": {"viewerPermission": "WRITE", "rebaseMergeAllowed": false, "mergeCommitAllowed": true, "squashMergeAllowed": true, "autoMergeAllowed": true},
+    "search": {"nodes": [clean, auto, strange]},
+  }});
+  let (result, requests) = list(FakeAnswer::ok(data), &repository("acme", "monorepo")).await;
+  let states: Vec<_> = result
+    .pull_requests
+    .values()
+    .map(|pull_request| (pull_request.number, pull_request.merge_state, pull_request.auto_merge))
+    .collect();
+  assert_eq!(
+    states,
+    [
+      (7, Some(MergeStateStatus::Clean), None),
+      (8, Some(MergeStateStatus::Blocked), Some(MergeMethod::Squash)),
+      (9, None, None),
+    ]
+  );
+  assert_eq!(
+    result.merge_methods,
+    Some(MergeMethods {
+      rebase: false,
+      merge: true,
+      squash: true,
+      auto_merge: true,
+    })
+  );
+  assert_eq!(result.merge_methods.and_then(MergeMethods::preferred), Some(MergeMethod::Merge));
+  let query = requests[0].json()["query"].as_str().unwrap().to_owned();
+  assert!(query.contains("mergeStateStatus") && query.contains("autoMergeRequest { mergeMethod }") && query.contains("autoMergeAllowed"));
+}

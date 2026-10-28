@@ -212,13 +212,14 @@ fn pull_requests_change(last: &PullRequestsView, now: &PullRequestsView) -> Opti
   let (stack_pull_requests, removed_stack_pull_requests) = diff_keyed(&last.stack_pull_requests, &now.stack_pull_requests);
   let head = changed(&last.head, &now.head);
   // they change only with an answer, which changes the head
-  let (repository, viewer_permission) = match head {
-    Some(_) => (now.repository.clone(), now.viewer_permission),
-    None => (None, None),
+  let (repository, viewer_permission, merge_methods) = match head {
+    Some(_) => (now.repository.clone(), now.viewer_permission, now.merge_methods),
+    None => (None, None, None),
   };
   let change = PullRequestsChange {
     repository,
     viewer_permission,
+    merge_methods,
     head,
     pull_requests,
     removed_pull_requests,

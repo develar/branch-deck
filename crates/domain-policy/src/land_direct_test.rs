@@ -9,7 +9,9 @@ use domain_types::landing::{Confirmation, FactWait, Land, LandDecision, LandFact
 use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobotStatus, PatronusStartOptions};
-use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
+use domain_types::pull_request::{
+  ChecksState, ChecksSummary, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestState, ReviewDecision, Reviewer, ReviewerState,
+};
 use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState, Parked, PullRequestsView};
 use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
@@ -53,12 +55,21 @@ fn world() -> World {
 
 impl World {
   fn decide(&self, gate: RouteGate, land: &Land) -> LandDecision {
-    let robots = Robots::new(&[]);
-    let profiles = Fact::<PatronusStartOptions>::default();
     let route = LandingRoute::Push {
       gate,
       remote: Some("origin".to_owned()),
     };
+    self.decide_on(&route, land)
+  }
+
+  /// The decision of a repository that lands by a merge of the pull request on GitHub, its gate `merge`
+  fn merge(&self, merge: RouteGate, land: &Land) -> LandDecision {
+    self.decide_on(&LandingRoute::PullRequest { merge }, land)
+  }
+
+  fn decide_on(&self, route: &LandingRoute, land: &Land) -> LandDecision {
+    let robots = Robots::new(&[]);
+    let profiles = Fact::<PatronusStartOptions>::default();
     let chain = ["auth", "login"].map(|name| LandsBranch {
       name,
       landed_whole: false,
@@ -68,7 +79,8 @@ impl World {
       not_built: false,
     });
     let facts = LandFacts {
-      route: &route,
+      route,
+      patronus: false,
       target: "master",
       prefix: "user",
       github: false,
@@ -318,6 +330,7 @@ fn a_whole_stack_pushes_its_stack_branch_only_once_the_sync_built_it() {
     };
     let facts = LandFacts {
       route: &route,
+      patronus: false,
       target: "master",
       prefix: "user",
       github: false,
@@ -414,4 +427,246 @@ fn the_update_follows_a_push_into_the_target_that_landed_or_found_it_moved() {
     EffectStatus::Done,
   )];
   assert_eq!(update_after(&started), None);
+}
+
+/// The open pull request #7 of login into master, on the tip of its copy, with GitHub's `mergeStateStatus` `state`
+fn merging(state: MergeStateStatus) -> PullRequest {
+  PullRequest {
+    merge_state: Some(state),
+    ..passing(pull_request("login", 7))
+  }
+}
+
+/// login with its pull request `pull_request` in a repository that allows `methods`
+fn merge_world(pull_request: PullRequest, methods: Option<MergeMethods>) -> World {
+  let mut pull_requests = listed(&[("login", pull_request)]);
+  pull_requests.merge_methods = methods;
+  World { pull_requests, ..world() }
+}
+
+fn merge_effect(method: MergeMethod) -> PlannedEffect {
+  PlannedEffect::MergePullRequest {
+    subject: Subject::branch("login"),
+    number: 7,
+    method,
+    head: "login-tip".to_string(),
+  }
+}
+
+const ALL_METHODS: MergeMethods = MergeMethods {
+  rebase: true,
+  merge: true,
+  squash: true,
+  auto_merge: true,
+};
+
+/// A pull request GitHub can merge (`CLEAN`, `HAS_HOOKS`) merges on its head, which the copy is, by rebase where the
+/// repository allows it, else a merge commit, else squash, which asks first: it pairs no original with what lands; one
+/// whose checks that its base doesn't require fail (`UNSTABLE`) merges once the user accepts it
+#[test]
+fn a_clean_pull_request_merges_by_the_first_method_the_repository_allows_and_an_unstable_one_asks_first() {
+  let safe_push = land(PatronusPushMode::RebaseAutosquash);
+  let decision = merge_world(merging(MergeStateStatus::Clean), Some(ALL_METHODS)).merge(OPEN, &safe_push);
+  assert_eq!(
+    decision,
+    LandDecision {
+      confirmations: vec![Confirmation::LandsMoreThanRow { count: 1 }],
+      effects: vec![merge_effect(MergeMethod::Rebase)],
+      lands: vec!["auth".to_string(), "login".to_string()],
+      pull_request: Some(7),
+      ..LandDecision::default()
+    }
+  );
+  let only = |methods: MergeMethods| merge_world(merging(MergeStateStatus::HasHooks), Some(methods)).merge(OPEN, &safe_push);
+  let merge_commit = only(MergeMethods { rebase: false, ..ALL_METHODS });
+  assert_eq!(merge_commit.effects, vec![merge_effect(MergeMethod::Merge)]);
+  let squash = only(MergeMethods {
+    squash: true,
+    ..MergeMethods::default()
+  });
+  assert_eq!(squash.effects, vec![merge_effect(MergeMethod::Squash)]);
+  assert_eq!(squash.confirmations[1..], [Confirmation::SquashOnly { number: 7 }]);
+  // GitHub didn't name the methods: the rebase
+  assert_eq!(
+    merge_world(merging(MergeStateStatus::Clean), None).merge(OPEN, &safe_push).effects,
+    vec![merge_effect(MergeMethod::Rebase)]
+  );
+
+  let unstable = merge_world(merging(MergeStateStatus::Unstable), Some(ALL_METHODS)).merge(OPEN, &safe_push);
+  assert_eq!(unstable.confirmations[1..], [Confirmation::ChecksNotRequired { number: 7 }]);
+  assert_eq!(unstable.effects, vec![merge_effect(MergeMethod::Rebase)]);
+  let allowed = Land {
+    allow: LandingAllowances {
+      allow_without_checks: true,
+      ..LandingAllowances::default()
+    },
+    ..safe_push
+  };
+  assert_eq!(unaccepted(&unstable.confirmations, &allowed.allow), Vec::<&Confirmation>::new());
+}
+
+/// What holds a merge back refuses it with its reason (`BLOCKED` by changes requested, by approvals the base requires,
+/// by failing required checks, by something GitHub doesn't name; `DIRTY`, `BEHIND`, a draft); required checks that still
+/// run enable the auto-merge where the repository allows it; GitHub that has not computed it (`UNKNOWN`, or not said)
+/// is a wait, never "no"
+#[test]
+fn what_holds_the_merge_back_refuses_it_running_checks_enable_the_auto_merge_and_an_unknown_state_waits() {
+  let safe_push = land(PatronusPushMode::RebaseAutosquash);
+  let decided = |pull_request: PullRequest, methods: Option<MergeMethods>| merge_world(pull_request, methods).merge(OPEN, &safe_push);
+  let blocked = |change: fn(&mut PullRequest)| {
+    let mut pull_request = merging(MergeStateStatus::Blocked);
+    change(&mut pull_request);
+    decided(pull_request, Some(ALL_METHODS)).blockers
+  };
+  assert_eq!(
+    blocked(|it| it.review_decision = Some(ReviewDecision::ChangesRequested)),
+    [Reason::MergeChangesRequested { number: 7, by: Vec::new() }]
+  );
+  assert_eq!(
+    blocked(|it| it.review_decision = Some(ReviewDecision::ReviewRequired)),
+    [Reason::MergeNeedsApprovals { number: 7 }]
+  );
+  assert_eq!(
+    blocked(|it| it.checks.as_mut().unwrap().state = ChecksState::Failing),
+    [Reason::MergeChecksFail { number: 7 }]
+  );
+  assert_eq!(blocked(|_| {}), [Reason::MergeBlocked { number: 7 }]);
+  assert_eq!(decided(merging(MergeStateStatus::Dirty), None).blockers, [Reason::MergeConflict { number: 7 }]);
+  assert_eq!(
+    decided(merging(MergeStateStatus::Behind), None).blockers,
+    [Reason::MergeBehind {
+      number: 7,
+      target: "master".to_string()
+    }]
+  );
+  let draft = PullRequest {
+    is_draft: true,
+    ..merging(MergeStateStatus::Draft)
+  };
+  assert_eq!(decided(draft, None).blockers, [Reason::MergeDraft { number: 7 }]);
+
+  let mut running = merging(MergeStateStatus::Blocked);
+  running.checks.as_mut().unwrap().state = ChecksState::Pending;
+  let auto = decided(running.clone(), Some(ALL_METHODS));
+  assert_eq!(
+    auto.effects,
+    vec![PlannedEffect::EnableAutoMerge {
+      subject: Subject::branch("login"),
+      number: 7,
+      method: MergeMethod::Rebase,
+      head: "login-tip".to_string(),
+    }]
+  );
+  assert_eq!(auto.blockers, []);
+  let no_auto = MergeMethods { auto_merge: false, ..ALL_METHODS };
+  assert_eq!(decided(running, Some(no_auto)).blockers, [Reason::MergeChecksRunning { number: 7 }]);
+
+  for unknown in [Some(MergeStateStatus::Unknown), None] {
+    let pull_request = PullRequest {
+      merge_state: unknown,
+      ..merging(MergeStateStatus::Clean)
+    };
+    let decision = decided(pull_request, Some(ALL_METHODS));
+    assert_eq!(
+      (decision.waits, decision.effects, decision.blockers),
+      (
+        vec![FactWait {
+          fact: LandFact::MergeState { number: 7 },
+          failed: None
+        }],
+        Vec::new(),
+        Vec::new()
+      )
+    );
+  }
+}
+
+/// A pull request that shows another commit than the copy is pushed first, then GitHub merges the pushed commit once
+/// its checks pass (a merge now would merge the old head); without auto-merge the push is the user's first; one whose
+/// auto-merge is enabled starts nothing; no open pull request into the target refuses it (Create Pull Request first),
+/// one into another base too; the merge gate refuses it below write access
+#[test]
+fn a_head_behind_the_copy_is_pushed_then_auto_merged_and_without_a_pull_request_nothing_merges() {
+  let safe_push = land(PatronusPushMode::RebaseAutosquash);
+  let behind = PullRequest {
+    head_ref_oid: "older".to_string(),
+    ..merging(MergeStateStatus::Clean)
+  };
+  let pushed = merge_world(behind.clone(), Some(ALL_METHODS)).merge(OPEN, &safe_push);
+  assert_eq!(
+    pushed.effects,
+    vec![
+      PlannedEffect::Push {
+        branches: vec!["login".to_string()],
+        force: false,
+      },
+      PlannedEffect::EnableAutoMerge {
+        subject: Subject::branch("login"),
+        number: 7,
+        method: MergeMethod::Rebase,
+        head: "login-tip".to_string(),
+      },
+    ]
+  );
+  let no_auto = MergeMethods { auto_merge: false, ..ALL_METHODS };
+  assert_eq!(merge_world(behind, Some(no_auto)).merge(OPEN, &safe_push).blockers, [Reason::MergeHeadBehind { number: 7 }]);
+
+  let auto_merging = PullRequest {
+    auto_merge: Some(MergeMethod::Rebase),
+    ..merging(MergeStateStatus::Blocked)
+  };
+  let decision = merge_world(auto_merging, Some(ALL_METHODS)).merge(OPEN, &safe_push);
+  assert_eq!((decision.effects, decision.blockers), (Vec::new(), Vec::new()));
+
+  let none = World {
+    pull_requests: listed(&[]),
+    ..world()
+  };
+  assert_eq!(none.merge(OPEN, &safe_push).blockers, [Reason::NoPullRequestToMerge { branch: "login".to_string() }]);
+  let other = PullRequest {
+    base_ref_name: "release/253".to_string(),
+    ..merging(MergeStateStatus::Clean)
+  };
+  assert_eq!(
+    merge_world(other, None).merge(OPEN, &safe_push).blockers,
+    [Reason::OtherBase {
+      number: 7,
+      base: "release/253".to_string(),
+      target: "master".to_string()
+    }]
+  );
+  let no_access = RouteGate::Refused {
+    reason: Reason::NoWriteAccess {
+      repository: "acme/monorepo".to_string(),
+      target: "master".to_string(),
+    },
+  };
+  let refused = merge_world(merging(MergeStateStatus::Clean), None).merge(no_access, &safe_push);
+  assert_eq!(codes(&refused), ["noWriteAccess"]);
+  // a Dry Run is a robot of Patronus
+  assert_eq!(
+    codes(&merge_world(merging(MergeStateStatus::Clean), None).merge(OPEN, &land(PatronusPushMode::DryRun))),
+    ["dryRunNeedsPatronus"]
+  );
+}
+
+/// Update Project follows a merge by the click; an auto-merge GitHub completes later runs none
+#[test]
+fn the_update_follows_a_merge_of_the_pull_request_and_no_auto_merge() {
+  let ran = |effect: PlannedEffect, status| vec![EffectRecord::new(effect, status)];
+  assert_eq!(
+    update_after(&ran(merge_effect(MergeMethod::Rebase), EffectStatus::Done)),
+    Some(Intent::UpdateProject { fetch: true })
+  );
+  let refused = EffectStatus::Failed {
+    error: ApiError::new(ErrorCode::NotMergeable, "Pull request is not mergeable"),
+  };
+  assert_eq!(update_after(&ran(merge_effect(MergeMethod::Rebase), refused)), None);
+  let auto = PlannedEffect::EnableAutoMerge {
+    subject: Subject::branch("login"),
+    number: 7,
+    method: MergeMethod::Rebase,
+    head: "login-tip".to_string(),
+  };
+  assert_eq!(update_after(&ran(auto, EffectStatus::Done)), None);
 }

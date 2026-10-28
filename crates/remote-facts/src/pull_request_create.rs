@@ -455,6 +455,8 @@ fn to_pull_request(gh: GhCreatedPullRequest, requested: Vec<String>) -> PullRequ
       })
       .collect(),
     author: gh.user.map(|user| user.login),
+    merge_state: None,
+    auto_merge: None,
   }
 }
 

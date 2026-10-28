@@ -406,6 +406,7 @@ impl World {
     };
     let facts = LandFacts {
       route: &PATRONUS,
+      patronus: true,
       target: "master",
       prefix: "user",
       github: true,
@@ -1070,6 +1071,7 @@ fn the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced()
       let robots = Robots::new(&robots_list);
       let facts = LandFacts {
         route: &PATRONUS,
+        patronus: true,
         target: "master",
         prefix: "user",
         github: true,

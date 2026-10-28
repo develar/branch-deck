@@ -23,9 +23,17 @@
 //! (spec/branch/next-step.spec.md, "A push into the target"; `push_step`): row 1 as above, row 0 while the gate of the
 //! route or the pull requests have no answer, 1′ and 1″ as above, then the row `push`, "Push to master", disabled with
 //! the refusal of the gate; a Dry Run is a robot of Patronus, which no push runs.
+//!
+//! A repository that lands by a merge of the pull request on GitHub (`LandingRoute::PullRequest` where no robot of
+//! Patronus lands it, `land::merges_on_github`) takes the table of its route too (spec/branch/next-step.spec.md, "A merge
+//! of the pull request"; `merge_step`): rows 1, 0, 1′ and 1″ as a push's (row 0 also while GitHub computes whether it
+//! can merge), then by `land_direct::merge_of`: `pr` Create Pull Request…, 5 and 5′ a pull request into another base,
+//! `merge` "Merge #7" or "Auto-Merge #7", `merge′` its auto-merge enabled, `merge″` what holds the merge back.
 
 use crate::facts::RemoteBranch;
 use crate::holds::is_active;
+use crate::land::merges_on_github;
+use crate::land_direct::{MergeAnswer, merge_of};
 use crate::readiness::waiting_reviewers;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{Landed, LandedBy, LandingRefusal, Subject};
@@ -34,7 +42,7 @@ use domain_types::next_step::{NextStep, StackPullRequest, StepBlocker, StepFact,
 use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotStatus, ReviewReadiness, UnavailableReadinessReason,
 };
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, ReviewerState};
+use domain_types::pull_request::{MergeMethods, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, ReviewerState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::LandingNeeds;
 use domain_types::session::{Fact, FactState, Parked, RobotsHead, SubjectReadiness};
@@ -216,6 +224,8 @@ pub struct StepFacts<'a> {
   pub stack_pull_request: Option<&'a StackPullRequest>,
   /// The GitHub repository of the branches is known: a pull request can be created
   pub repository: bool,
+  /// The merge methods the repository allows, as the listing of the pull requests named them
+  pub merge_methods: Option<MergeMethods>,
   /// The branches a Safe Push of it lands now (1 for a lone branch): it and those it is built on that are not landed
   /// whole; of a whole stack what is left of it
   pub lands: u32,
@@ -290,8 +300,10 @@ pub fn next_step(facts: &StepFacts<'_>) -> NextStep {
   let landed = landed_whole(facts, slot);
   let general = start_reason(facts, facts.start, landed.as_ref());
   let dry_run = start_reason(facts, facts.dry_run_start, landed.as_ref());
+  let patronus = !matches!(facts.patronus, PatronusAnswer::NotOnSpace);
   let mut step = match facts.route {
     LandingRoute::Push { gate, .. } => push_step(facts, slot, gate, general, landed.as_ref()),
+    LandingRoute::PullRequest { merge } if merges_on_github(facts.route, patronus) => merge_step(facts, slot, merge, general, landed.as_ref()),
     LandingRoute::Patronus { .. } | LandingRoute::PullRequest { .. } => decide(facts, slot, general, dry_run, landed.as_ref()),
   };
   step.landed = landed;
@@ -528,31 +540,18 @@ fn push_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Optio
   if holds_still(facts, slot, landed) {
     return settled(general, dry_run);
   }
-  let refused = match gate {
-    // row push′: the copy is built on the commit before the new ones of the fetched baseline, the update builds it anew
-    RouteGate::Refused {
-      reason: reason @ Reason::BaselineAhead { upstream },
-    } => {
-      let blocker = general.or_else(|| Some(StepBlocker::Rule { reason: reason.clone() }));
-      return step(StepRow::PushPrime, StepKind::UpdateProject { upstream: upstream.clone() }, blocker, dry_run);
-    }
-    RouteGate::Refused { reason } => Some(StepBlocker::Rule { reason: reason.clone() }),
-    RouteGate::Wait { fact, .. } if general.is_none() => {
-      let fact = match fact {
-        RouteFact::Permission => StepFact::Permission,
-        RouteFact::TargetRules => StepFact::TargetRules,
-      };
-      return pending(fact, general, dry_run);
-    }
-    RouteGate::Wait { .. } | RouteGate::Open | RouteGate::Confirm { .. } => None,
-  };
-  let blocker = general.or(refused);
-  if let Needs::Known(refusals) = facts.needs
-    && !refusals.is_empty()
+  // row push′: the copy is built on the commit before the new ones of the fetched baseline, the update builds it anew
+  if let RouteGate::Refused {
+    reason: reason @ Reason::BaselineAhead { upstream },
+  } = gate
   {
-    // row 1′: the push stays enabled, its popover says why before it
-    return step(StepRow::OnePrime, StepKind::NeedsBranch { refusals: refusals.to_vec() }, blocker, dry_run);
+    let blocker = general.or_else(|| Some(StepBlocker::Rule { reason: reason.clone() }));
+    return step(StepRow::PushPrime, StepKind::UpdateProject { upstream: upstream.clone() }, blocker, dry_run);
   }
+  let blocker = match gated(facts, gate, general, dry_run.as_ref()) {
+    Ok(blocker) => blocker,
+    Err(step) => return *step,
+  };
   if blocker.is_none() {
     // whether CI passed on the tip, what the build needs: never a push a later answer holds back
     if matches!(facts.listing, Listing::Loading) {
@@ -566,6 +565,104 @@ fn push_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Optio
     return step(StepRow::OneDoublePrime, StepKind::PickRemoteCommits { count }, blocker, dry_run);
   }
   step(StepRow::Push, StepKind::PushToBaseline { target: facts.target.to_owned() }, blocker, dry_run)
+}
+
+/// The blocker of the start of a landing without a robot by the gate of its route (its refusal behind `general`, the
+/// reason of the subject), or the step before it: row 0 while the gate waits (a reason of the subject outranks it), row 1′
+/// while the build of what lands needs a branch outside it (the start stays enabled, its popover says why)
+fn gated(facts: &StepFacts<'_>, gate: &RouteGate, general: Option<StepBlocker>, dry_run: Option<&StepBlocker>) -> Result<Option<StepBlocker>, Box<NextStep>> {
+  let refused = match gate {
+    RouteGate::Refused { reason } => Some(StepBlocker::Rule { reason: reason.clone() }),
+    RouteGate::Wait { fact, .. } if general.is_none() => {
+      let fact = match fact {
+        RouteFact::Permission => StepFact::Permission,
+        RouteFact::TargetRules => StepFact::TargetRules,
+      };
+      return Err(Box::new(pending(fact, general, dry_run.cloned())));
+    }
+    RouteGate::Wait { .. } | RouteGate::Open | RouteGate::Confirm { .. } => None,
+  };
+  let blocker = general.or(refused);
+  if let Needs::Known(refusals) = facts.needs
+    && !refusals.is_empty()
+  {
+    return Err(Box::new(step(
+      StepRow::OnePrime,
+      StepKind::NeedsBranch { refusals: refusals.to_vec() },
+      blocker,
+      dry_run.cloned(),
+    )));
+  }
+  Ok(blocker)
+}
+
+/// The step of a repository that lands by a merge of the pull request on GitHub (the module's header): rows 1, 0, 1′
+/// and 1″ as `push_step`, then what GitHub tells of a merge of the pull request (`land_direct::merge_of`), the refusal
+/// of the gate the blocker of the merge
+fn merge_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Option<StepBlocker>, landed: Option<&Landed>) -> NextStep {
+  let dry_run = Some(StepBlocker::Rule {
+    reason: Reason::DryRunNeedsPatronus,
+  });
+  if holds_still(facts, slot, landed) {
+    return settled(general, dry_run);
+  }
+  let blocker = match gated(facts, gate, general, dry_run.as_ref()) {
+    Ok(blocker) => blocker,
+    Err(step) => return *step,
+  };
+  // which pull request merges, whether CI passed, what the build needs: never a merge a later answer holds back
+  if !matches!(facts.listing, Listing::Listed) {
+    return pending(StepFact::PullRequests, blocker, dry_run);
+  }
+  if blocker.is_none() && matches!(facts.needs, Needs::Computing) {
+    return pending(StepFact::LandingNeeds, None, dry_run);
+  }
+  if let Some(count) = facts.remote.map(|remote| remote.others).filter(|others| *others > 0) {
+    return step(StepRow::OneDoublePrime, StepKind::PickRemoteCommits { count }, blocker, dry_run);
+  }
+  let pull_request = facts.pull_request.map(|it| it.pull_request);
+  let base = facts.pull_request.and_then(|it| it.base).cloned().unwrap_or(PullRequestBase::Target);
+  let target = facts.target;
+  match merge_of(pull_request, |_| base, facts.tip, facts.merge_methods, target) {
+    MergeAnswer::NoPullRequest => {
+      let branch = facts.subject.name().to_owned();
+      let blocker = blocker.or(Some(StepBlocker::Rule {
+        reason: Reason::NoPullRequestToMerge { branch },
+      }));
+      step(StepRow::PullRequest, StepKind::OpenPullRequest, blocker, dry_run)
+    }
+    MergeAnswer::OtherBase { pull_request, base } => {
+      let number = pull_request.number;
+      let retarget = Some(StepRetarget {
+        number,
+        base: pull_request.base_ref_name.clone(),
+        target: target.to_owned(),
+      });
+      let base_name = pull_request.base_ref_name.clone();
+      let reason = Reason::OtherBase {
+        number,
+        base: base_name.clone(),
+        target: target.to_owned(),
+      };
+      let (row, kind) = match base {
+        PullRequestBase::Virtual { .. } => (StepRow::Five, StepKind::Retarget { number, base: base_name }),
+        PullRequestBase::Other { .. } | PullRequestBase::Target => (StepRow::FivePrime, StepKind::OtherBase { number, base: base_name }),
+      };
+      NextStep {
+        retarget,
+        ..step(row, kind, blocker.or(Some(StepBlocker::Rule { reason })), dry_run)
+      }
+    }
+    MergeAnswer::Waits { .. } => pending(StepFact::MergeState, blocker, dry_run),
+    MergeAnswer::Held { number, reason } => step(
+      StepRow::MergeDoublePrime,
+      StepKind::MergeHeld { number },
+      blocker.or(Some(StepBlocker::Rule { reason })),
+      dry_run,
+    ),
+    MergeAnswer::Merge { number, method, auto, .. } => step(StepRow::Merge, StepKind::MergePullRequest { number, auto, method }, blocker, dry_run),
+    MergeAnswer::AutoMerging { number, method } => step(StepRow::MergePrime, StepKind::AutoMerging { number, method }, blocker.or(Some(StepBlocker::Step)), dry_run),
+  }
 }
 
 /// The readiness of a subject as the step reads it: none while it loads or nobody asked; a failed read is

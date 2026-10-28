@@ -571,8 +571,10 @@ pub const LAND_HELP: &str = "\
 `bd land <branch>` lands the branch into master by the route of the repository (`branchdeck.landing`, `route`): a
 Safe Push of Patronus (`patronus`: what `bd safe-push` does, its output in `safe_push`), or a push of the copy into
 the target (`push`: the commit the sync built of the branch on the baseline, `commit`, pushed into `target` as a
-fast-forward; it lands without the robot and without the CI of a pull request). The merge of a pull request on
-GitHub is not done by bd yet: `landing_route_unsupported` (exit 4). First, always, `bd land <branch> --check`: it
+fast-forward; it lands without the robot and without the CI of a pull request), or a merge of its pull request on
+GitHub (`pull-request`: `pull_request` merges by rebase, else a merge commit, else squash; while its required checks
+run, or after the push of a branch its pull request shows an older commit of, `auto_merge: true`: GitHub merges it once
+they pass, nothing landed yet). First, always, `bd land <branch> --check`: it
 syncs and pushes nothing, and prints `lands` (a stacked branch lands the branches it is built on with it;
 --whole-stack the whole stack, from its stack branch once the sync built it), `confirmations` and the `refusals` a
 push would meet. A push into master is as final as a merge: show `lands` and every confirmation to the user, and push
@@ -597,6 +599,11 @@ Refusals, nothing pushed:
   --allow-missing` only when the user says it is a false alarm. `parked`, `robot_running`, `stack_not_built`: as
   for `bd safe-push`.
 - `busy` (exit 3): another process lands into the same target; retry once it is done.
+- `no_pull_request` (exit 4): a merge needs an open pull request into the target: `bd safe-push <branch>
+  --create-pull-request` opens one. `merge_blocked` (exit 4): approvals, required checks, changes requested or a
+  draft hold the merge back: tell the user, it lands once they come. `not_mergeable` (exit 4): a conflict, a head
+  behind its base (`bd update`, then `bd push`), or GitHub refused the merge (its words). `landing_route_unsupported`
+  (exit 4): the pull requests are off GitHub or on a mirror `origin` doesn't push to.
 ";
 
 /// `bd request-review --help`: whom it asks and its refusals

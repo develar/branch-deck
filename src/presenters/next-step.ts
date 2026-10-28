@@ -22,6 +22,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { getErrorDetails } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
+import { describeMerge, formatMergeLabel, formatMergeMethod } from "@/lib/merge-pull-request"
 import { describeStart, formatPatronusAvailabilityHint, formatStartLabel } from "@/lib/patronus"
 import { formatAvailabilityHint } from "@/lib/pull-request"
 import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
@@ -243,6 +244,7 @@ const PENDING_FACTS: Readonly<Record<PendingFact, (subject: string) => { readonl
   readiness: () => ({ reason: "Waits for Patronus to check the approvals", from: "Patronus" }),
   permission: () => ({ reason: "Waits for GitHub to tell what you may do in the repository", from: "GitHub" }),
   targetRules: () => ({ reason: "Waits for GitHub to tell the rules of the target", from: "GitHub" }),
+  mergeState: () => ({ reason: "Waits for GitHub to tell whether it can merge the pull request", from: "GitHub" }),
 }
 
 /** Why the step of `subject` waits for `fact`, in the words of its hover and of every disabled Safe Push */
@@ -444,6 +446,37 @@ function requestReview(kind: Extract<StepKind, { kind: "requestReview" }>, conte
   return { kind: "requestReview", item, own: reason, notice }
 }
 
+/** Row merge″: what holds the merge of the pull request back, its reason the blocker of the step; a fix in red */
+function mergeHeld(step: NextStep, number: number, context: StepContext): Shown {
+  const reason = step.safePush?.code === "rule" ? step.safePush.reason : null
+  const words = reason === null ? `The merge of #${number} waits` : formatReason(reason)
+  const [label, icon, fix]: [string, MenuItem["icon"], boolean] = (() => {
+    switch (reason?.code) {
+      case "mergeConflict":
+        return ["Conflict", TriangleAlertIcon, true]
+      case "mergeChangesRequested":
+        return ["Changes Requested", MessageSquareWarningIcon, true]
+      case "mergeChecksFail":
+        return ["Checks Fail", TriangleAlertIcon, true]
+      case "mergeBehind":
+        return ["Update Needed", RefreshCwIcon, false]
+      case "mergeHeadBehind":
+        return ["Push First", RefreshCwIcon, false]
+      case "mergeDraft":
+        return ["Draft", FileTextIcon, false]
+      case "mergeNeedsApprovals":
+        return ["Awaiting Approval", ClockIcon, false]
+      case "mergeChecksRunning":
+        return ["Checks Running", ClockIcon, false]
+      default:
+        return ["Merge Blocked", ClockIcon, false]
+    }
+  })()
+  const item = quietItem(context.actions, label, `${words}\nOpen Pull Request #${number}`, icon)
+  const notice = { title: `The merge of #${number} of ${context.subject} waits`, description: words }
+  return { kind: fix ? "changesRequested" : "awaiting", item, tone: fix ? "destructive" : "quiet", own: words, notice }
+}
+
 /** Row 10: someone of every missing group is asked: the wait, its hover a line per group */
 function awaiting(kind: Extract<StepKind, { kind: "awaiting" }>, context: StepContext): Shown {
   const { groups, number } = kind
@@ -561,6 +594,34 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       const description = general ?? context.startDescription ?? describePushToBaseline(subject, step.lands, kind.target)
       return { kind: "safePush", item: { ...safePushItem(step, context, general), id: "push-to-baseline", label, icon: GitMergeIcon, description } }
     }
+    case "openPullRequest": {
+      // row pr: GitHub merges a pull request, so the step is its creation
+      const reason = `${subject} has no open pull request: GitHub merges it once you create one`
+      const item = actions.createPullRequest ?? {
+        id: "create-pull-request",
+        label: "Create Pull Request…",
+        icon: GitPullRequestArrowIcon,
+        disabled: true,
+        description: "The GitHub repository of the branches is unknown",
+        onSelect: () => {},
+      }
+      const notice = { title: `${subject} needs a pull request`, description: reason }
+      return { kind: "createPullRequest", item: { ...item, description: item.disabled === true ? item.description : reason }, own: reason, notice }
+    }
+    case "mergePullRequest": {
+      // row merge: GitHub merges the pull request now, or once its checks pass; the start of the row
+      const label = formatMergeLabel(kind.number, kind.auto)
+      const description = general ?? context.startDescription ?? describeMerge(subject, step.lands, kind.number, context.target, kind.method, kind.auto)
+      return { kind: "safePush", item: { ...safePushItem(step, context, general), id: "merge-pull-request", label, icon: GitMergeIcon, description } }
+    }
+    case "autoMerging": {
+      // row merge′: GitHub merges it by itself once its checks pass; Cancel Auto-Merge is in the menus
+      const reason = `GitHub merges #${kind.number} by ${formatMergeMethod(kind.method)} once its checks pass`
+      const item = { ...quietItem(actions, "Merges when checks pass", `${reason}\nOpen Pull Request #${kind.number}`, ClockIcon), compactLabel: "Auto-Merge" }
+      return { kind: "awaiting", item, tone: "quiet", own: reason, notice: { title: `#${kind.number} of ${subject} merges by itself`, description: reason } }
+    }
+    case "mergeHeld":
+      return mergeHeld(step, kind.number, context)
   }
 }
 

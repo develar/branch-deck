@@ -2,13 +2,16 @@
 //! its branch (`PATCH pulls/<n>`, before the push of a branch whose parent was pushed, merged or changed), the pull
 //! requests of the ancestors a Safe Push of a stacked branch landed with it are closed with a comment, and the user
 //! approves or requests changes on a pull request that waits for the review (`pulls/<n>/reviews`), and asks users to
-//! review a pull request of the user (`pulls/<n>/requested_reviewers`, also for a new one). The other writes are the
+//! review a pull request of the user (`pulls/<n>/requested_reviewers`, also for a new one); GitHub merges a pull request,
+//! or does once its checks pass, and its auto-merge is disabled, through GraphQL (`mergePullRequest`,
+//! `enablePullRequestAutoMerge`, `disablePullRequestAutoMerge`: REST has no auto-merge), each after one read of its node
+//! and with the head the user saw (`expectedHeadOid`). The other writes are the
 //! `/patronus` comment (`patronus_command.rs`), whose merge of a reviewed pull request checks its head first
 //! (`read_pull_request_head`), and a new pull request (`pull_request_create.rs`).
 
-use crate::pull_requests::GitHubWriteError;
+use crate::pull_requests::{GitHubWriteError, visible_data};
 
-use domain_types::pull_request::{PullRequestReviewEvent, RefusedReviewer, RequestedReviewers};
+use domain_types::pull_request::{MergeMethod, PullRequestReviewEvent, RefusedReviewer, RequestedReviewers};
 use git_ops::revs::is_object_id;
 use github::client::{GitHubClient, GitHubError};
 use github::service::{GitHubService, RequestKind};
@@ -237,4 +240,143 @@ struct GhPullRequestState {
   state: String,
   #[serde(default)]
   merged: bool,
+}
+
+/// The node id and the head GitHub shows of pull request `$number`, which a mutation of it names
+const PULL_REQUEST_NODE_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { id headRefOid } }
+}";
+
+/// GitHub merges the pull request `$id` by `$method` while its head is `$head`
+const MERGE_PULL_REQUEST_MUTATION: &str = "mutation($id: ID!, $method: PullRequestMergeMethod!, $head: GitObjectID!) {
+  mergePullRequest(input: {pullRequestId: $id, mergeMethod: $method, expectedHeadOid: $head}) { pullRequest { state } }
+}";
+
+/// GitHub merges the pull request `$id` by `$method` once its checks pass, while its head is `$head`
+const ENABLE_AUTO_MERGE_MUTATION: &str = "mutation($id: ID!, $method: PullRequestMergeMethod!, $head: GitObjectID!) {
+  enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: $method, expectedHeadOid: $head}) { pullRequest { number } }
+}";
+
+/// The auto-merge of the pull request `$id` is disabled
+const DISABLE_AUTO_MERGE_MUTATION: &str = "mutation($id: ID!) {
+  disablePullRequestAutoMerge(input: {pullRequestId: $id}) { pullRequest { number } }
+}";
+
+/// What GitHub did with a merge of a pull request, or with its auto-merge
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MergeWrite {
+  Done,
+  /// The pull request shows `head`, not the commit the merge was asked for: nothing was sent
+  HeadMoved {
+    head: String,
+  },
+}
+
+/// When GitHub merges a pull request
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeWhen {
+  /// Now (`mergePullRequest`)
+  Now,
+  /// Once its checks pass, its auto-merge enabled (`enablePullRequestAutoMerge`)
+  ChecksPass,
+}
+
+/// GitHub merges pull request `number` by `method` while it shows `head`, now or once its checks pass (`when`), with
+/// `expectedHeadOid`: a head that moved after the read refuses it on GitHub too; one read of its node first, then the
+/// mutation, never repeated
+#[instrument(skip(github))]
+pub async fn merge_pull_request(
+  github: &GitHubService,
+  repository_path: &str,
+  repository: &GitHubRepository,
+  number: u32,
+  method: MergeMethod,
+  head: &str,
+  when: MergeWhen,
+) -> Result<MergeWrite, GitHubWriteError> {
+  let mutation = match when {
+    MergeWhen::Now => MERGE_PULL_REQUEST_MUTATION,
+    MergeWhen::ChecksPass => ENABLE_AUTO_MERGE_MUTATION,
+  };
+  pull_request_mutation(github, repository_path, repository, number, Some(head), mutation, Some(method)).await
+}
+
+/// The auto-merge of pull request `number` is disabled (`disablePullRequestAutoMerge`)
+#[instrument(skip(github))]
+pub async fn disable_auto_merge(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32) -> Result<MergeWrite, GitHubWriteError> {
+  pull_request_mutation(github, repository_path, repository, number, None, DISABLE_AUTO_MERGE_MUTATION, None).await
+}
+
+/// The read of the node of pull request `number`, then `mutation` of it with `method` and `head` (when it shows `head`):
+/// GitHub's error the refusal in its words
+async fn pull_request_mutation(
+  github: &GitHubService,
+  repository_path: &str,
+  repository: &GitHubRepository,
+  number: u32,
+  head: Option<&str>,
+  mutation: &str,
+  method: Option<MergeMethod>,
+) -> Result<MergeWrite, GitHubWriteError> {
+  // the ids go into fields of the request
+  if head.is_some_and(|head| !is_object_id(head)) {
+    return Err(GitHubWriteError::Refused(format!("{head:?} is not a commit id")));
+  }
+  let full_name = repository.full_name();
+  let variables = serde_json::json!({"owner": repository.owner, "name": repository.name, "number": number});
+  let (variables, full_name_ref) = (&variables, full_name.as_str());
+  let node: GhPullRequestNodeData = github
+    .ask(repository_path, &full_name, RequestKind::Single, |client, token| async move {
+      let response = client.graphql::<GhPullRequestNodeData>(&token, PULL_REQUEST_NODE_QUERY, variables).await?;
+      visible_data(response, full_name_ref, |data| data.repository.is_some())
+    })
+    .await?;
+  let Some(pull_request) = node.repository.and_then(|repository| repository.pull_request) else {
+    return Err(GitHubWriteError::Refused(format!("GitHub has no pull request #{number} in {full_name}")));
+  };
+  if head.is_some_and(|head| head != pull_request.head_ref_oid) {
+    return Ok(MergeWrite::HeadMoved { head: pull_request.head_ref_oid });
+  }
+  let mut input = serde_json::json!({"id": pull_request.id});
+  if let Some(method) = method {
+    input["method"] = serde_json::Value::from(method.graphql());
+  }
+  if let Some(head) = head {
+    input["head"] = serde_json::Value::from(head);
+  }
+  let input = &input;
+  let response = github
+    .ask(repository_path, &full_name, RequestKind::Single, |client, token| async move {
+      client.graphql_mutation::<IgnoredAny>(&token, mutation, input).await
+    })
+    .await?;
+  let refused: Vec<&str> = response.errors.iter().filter_map(|error| error.message.as_deref()).collect();
+  if !refused.is_empty() || response.data.is_none() {
+    let words = if refused.is_empty() {
+      "GitHub answered no data".to_string()
+    } else {
+      refused.join("; ")
+    };
+    return Err(GitHubWriteError::Refused(format!("GitHub refused it for #{number}: {words}")));
+  }
+  Ok(MergeWrite::Done)
+}
+
+#[derive(Debug, Deserialize)]
+struct GhPullRequestNodeData {
+  repository: Option<GhPullRequestNodeRepository>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPullRequestNodeRepository {
+  pull_request: Option<GhPullRequestNode>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPullRequestNode {
+  id: String,
+  #[serde(default)]
+  head_ref_oid: String,
 }

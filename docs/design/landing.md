@@ -101,6 +101,22 @@ The specs are the contract of each part:
   Landing names the route. `bd land` lands by the route of the repository and names `bd update` after it.
   - *Rationale:* the update is a rule of Rust, not of the page: a landing by a click leaves the branch where the next
     click lands nothing twice; `bd` never moves the files of an agent's checkout by itself.
+- **Merge #7.** On the pull-request route, where no robot of Patronus lands the repository and a merge on GitHub lands
+  into the target, the start of a piece or of a whole stack is a merge of its open pull request on GitHub
+  (`land_direct::decide_merge`, the rows `pr`, `merge`, `merge′`, `merge″` of
+  [Next Step](../../spec/branch/next-step.spec.md#a-merge-of-the-pull-request)): "Merge #7" while GitHub can merge it,
+  "Auto-Merge #7" while its required checks still run, or after the push of a branch its pull request shows an older
+  commit of (the push restarts the checks, a merge now would merge the old head); what holds the merge back is said as
+  its reason, a fix, the user's step or a wait. What GitHub can merge (`mergeStateStatus`) rides on the listing of the
+  pull requests, no request of its own; GitHub computes it lazily, so `UNKNOWN` asks the listing once more and waits,
+  never "no". The method is the first the repository allows of rebase, a merge commit and squash.
+  - *Rationale:* rebase first: GitHub keeps author, time and message of each commit, so the update pairs what landed
+    with its originals and drops them; a merge commit keeps the copies themselves; squash pairs nothing, and the
+    update after it may stop on a conflict, which the start says first.
+  - *Rationale:* the merge carries the head the user saw (`expectedHeadOid`): a push of someone else between the click
+    and the merge refuses it on GitHub, as the witness refuses a moved ref locally.
+  - After a merge by the click Update Project follows as after a push; an auto-merge GitHub completes later runs no
+    update by itself: the session tells it as news, the page offers Update Project.
 
 The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
 

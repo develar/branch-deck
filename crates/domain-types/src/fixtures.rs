@@ -53,6 +53,8 @@ pub fn pull_request(branch: &str, number: u32) -> PullRequest {
     updated_at: 1_704_139_200,
     reviewers: Vec::new(),
     author: Some("user".to_string()),
+    merge_state: None,
+    auto_merge: None,
   }
 }
 

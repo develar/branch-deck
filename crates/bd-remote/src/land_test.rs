@@ -87,9 +87,10 @@ fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
   assert_eq!(remote_tip(&remote, "master"), theirs, "nothing was pushed");
 }
 
-/// The merge of a pull request on GitHub is no route of `bd land` yet; Patronus off Space neither
+/// A repository that lands through its pull request whose `origin` is not on GitHub has no pull request a merge lands
+/// into its target: `bd land` merges nothing; Patronus off Space starts nothing
 #[test_log::test]
-fn a_repository_that_lands_through_its_pull_request_is_not_landed_by_bd_yet() {
+fn a_pull_request_route_off_github_merges_nothing_and_patronus_off_space_starts_nothing() {
   let (repo, _remote) = repo_with_remote(&["(auth) Add login"]);
   let (exit_code, output) = run_in(&repo, &["land", "auth"]);
   assert_error(&output, exit_code, (4, "landing_route_unsupported"));
@@ -110,8 +111,5 @@ fn bd_status_decides_the_steps_by_the_route_of_the_repository() {
   assert_eq!(exit_code, 0, "{status}");
   let step = &status["branches"][0]["next_step"];
   assert_eq!((&step["step"], &step["waits_for"]), (&json!("pending"), &json!("pull_requests")), "{status}");
-  assert_eq!(
-    step["dry_run_blocked"],
-    json!("a Dry Run is a robot of Patronus, and the repository lands by a push into its target")
-  );
+  assert_eq!(step["dry_run_blocked"], json!("a Dry Run is a robot of Patronus, and the repository lands without one"));
 }

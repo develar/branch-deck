@@ -331,5 +331,52 @@
   {
     "code": "baselineAhead",
     "upstream": "origin/master"
+  },
+  {
+    "code": "noPullRequestToMerge",
+    "branch": "auth"
+  },
+  {
+    "code": "mergeDraft",
+    "number": 7
+  },
+  {
+    "code": "mergeConflict",
+    "number": 7
+  },
+  {
+    "code": "mergeBehind",
+    "number": 7,
+    "target": "master"
+  },
+  {
+    "code": "mergeNeedsApprovals",
+    "number": 7
+  },
+  {
+    "code": "mergeChangesRequested",
+    "number": 7,
+    "by": ["alice"]
+  },
+  {
+    "code": "mergeChangesRequested",
+    "number": 7,
+    "by": []
+  },
+  {
+    "code": "mergeChecksFail",
+    "number": 7
+  },
+  {
+    "code": "mergeChecksRunning",
+    "number": 7
+  },
+  {
+    "code": "mergeBlocked",
+    "number": 7
+  },
+  {
+    "code": "mergeHeadBehind",
+    "number": 7
   }
 ]

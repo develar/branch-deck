@@ -73,6 +73,11 @@ const fn kind_name(kind: &StepKind) -> &'static str {
     StepKind::SafePush => "safe_push",
     StepKind::PushToBaseline { .. } => "push_to_baseline",
     StepKind::UpdateProject { .. } => "update_project",
+    StepKind::OpenPullRequest => "open_pull_request",
+    StepKind::MergePullRequest { auto: false, .. } => "merge_pull_request",
+    StepKind::MergePullRequest { auto: true, .. } => "auto_merge",
+    StepKind::AutoMerging { .. } => "auto_merging",
+    StepKind::MergeHeld { .. } => "merge_held",
   }
 }
 
@@ -85,6 +90,7 @@ const fn fact_name(fact: StepFact) -> &'static str {
     StepFact::Readiness => "readiness",
     StepFact::Permission => "permission",
     StepFact::TargetRules => "target_rules",
+    StepFact::MergeState => "merge_state",
   }
 }
 
@@ -106,7 +112,10 @@ fn pull_request_of(kind: &StepKind) -> Option<u32> {
     | StepKind::RequestReview { number, .. }
     | StepKind::Awaiting { number, .. }
     | StepKind::ChangesRequestedUnjudged { number, .. }
-    | StepKind::AwaitingUnjudged { number, .. } => Some(*number),
+    | StepKind::AwaitingUnjudged { number, .. }
+    | StepKind::MergePullRequest { number, .. }
+    | StepKind::AutoMerging { number, .. }
+    | StepKind::MergeHeld { number } => Some(*number),
     StepKind::CreatePullRequest { stack, .. } => stack.as_ref().map(|stack| stack.number),
     StepKind::Hidden
     | StepKind::Settled
@@ -117,7 +126,8 @@ fn pull_request_of(kind: &StepKind) -> Option<u32> {
     | StepKind::Restart { .. }
     | StepKind::SafePush
     | StepKind::PushToBaseline { .. }
-    | StepKind::UpdateProject { .. } => None,
+    | StepKind::UpdateProject { .. }
+    | StepKind::OpenPullRequest => None,
   }
 }
 
@@ -144,6 +154,7 @@ fn step_words(kind: &StepKind, what: &str) -> String {
       StepFact::Readiness => "Waits for Patronus to check the approvals".to_owned(),
       StepFact::Permission => "Waits for GitHub to tell what the token may do in the repository".to_owned(),
       StepFact::TargetRules => "Waits for GitHub to tell the rules of the target".to_owned(),
+      StepFact::MergeState => "Waits for GitHub to tell whether it can merge the pull request".to_owned(),
     },
     StepKind::Unavailable { failure, .. } => match failure {
       StepFailure::NotLoggedIn => "Run ./safePush.cmd once to log in to Patronus".to_owned(),
@@ -174,6 +185,7 @@ fn step_words(kind: &StepKind, what: &str) -> String {
       format!("The remote branch has {commits} of someone else that {what} lacks: `bd pick --remote {what}` takes them in, a push drops them")
     }
     StepKind::UpdateProject { upstream } => format!("{upstream} has new commits: `bd update` builds the copy of {what} anew on them before its push"),
+    StepKind::AutoMerging { number, .. } => format!("GitHub merges #{number} once its checks pass"),
     StepKind::Hidden
     | StepKind::Settled
     | StepKind::NeedsBranch { .. }
@@ -183,7 +195,10 @@ fn step_words(kind: &StepKind, what: &str) -> String {
     | StepKind::ChangesRequestedUnjudged { .. }
     | StepKind::AwaitingUnjudged { .. }
     | StepKind::SafePush
-    | StepKind::PushToBaseline { .. } => String::new(),
+    | StepKind::PushToBaseline { .. }
+    | StepKind::OpenPullRequest
+    | StepKind::MergePullRequest { .. }
+    | StepKind::MergeHeld { .. } => String::new(),
   }
 }
 

@@ -26,6 +26,10 @@ const ROWS: Readonly<Record<StepKind["kind"], StepRow>> = {
   awaitingUnjudged: "10′",
   safePush: "11",
   pushToBaseline: "push",
+  openPullRequest: "pr",
+  mergePullRequest: "merge",
+  autoMerging: "merge′",
+  mergeHeld: "merge″",
 }
 
 /** The step of `kind`, nothing against its starts, of a lone branch, `extra` over it */

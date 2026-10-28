@@ -14,7 +14,7 @@
 //! for an approval come after the shown ones.
 
 use domain_types::patronus::PatronusRobotStatus;
-use domain_types::pull_request::PullRequestAvailability;
+use domain_types::pull_request::{MergeStateStatus, PullRequestAvailability, PullRequestState, PullRequestsResult};
 use std::time::Duration;
 
 const MINUTE: Duration = Duration::from_secs(60);
@@ -265,6 +265,17 @@ pub fn pull_requests_due(reason: RefreshReason, now: Duration, list: FactTiming,
 /// A push and the refresh button during a list ask once more after it
 pub const fn pull_requests_follows_up(reason: RefreshReason) -> bool {
   matches!(reason, RefreshReason::Push | RefreshReason::Manual)
+}
+
+/// GitHub has not computed whether it can merge an open pull request of `result` (`mergeStateStatus` `UNKNOWN`): it
+/// computes it once asked, so one more list looks at `PUSH_RECHECK_DELAY` after the answer, as after a push
+#[must_use]
+pub fn merge_state_computing(result: &PullRequestsResult) -> bool {
+  result
+    .pull_requests
+    .values()
+    .chain(result.stack_pull_requests.values())
+    .any(|pull_request| pull_request.state == PullRequestState::Open && pull_request.merge_state == Some(MergeStateStatus::Unknown))
 }
 
 /// After the list a push asked: when GitHub still shows an old head for a pushed branch, one more list (a push) at

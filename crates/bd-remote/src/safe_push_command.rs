@@ -1651,7 +1651,17 @@ impl Told<'_> {
       | Reason::BaselineRestrictsUpdates { .. }
       | Reason::BaselineRequiresStatusChecks { .. }
       | Reason::DryRunNeedsPatronus
-      | Reason::BaselineRefusedPush { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
+      | Reason::BaselineRefusedPush { .. }
+      | Reason::NoPullRequestToMerge { .. }
+      | Reason::MergeDraft { .. }
+      | Reason::MergeConflict { .. }
+      | Reason::MergeBehind { .. }
+      | Reason::MergeNeedsApprovals { .. }
+      | Reason::MergeChangesRequested { .. }
+      | Reason::MergeChecksFail { .. }
+      | Reason::MergeChecksRunning { .. }
+      | Reason::MergeBlocked { .. }
+      | Reason::MergeHeadBehind { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
       Reason::OtherBase { number, base, target } => {
         let message = format!(
           "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"

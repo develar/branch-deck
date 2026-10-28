@@ -1406,10 +1406,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd land <branch>` must land the branch into master by the route of the repository (`branchdeck.landing`,
   `domain_policy::landing_route::route`, [Landing Routes](../branch/landing-routes.spec.md)): Patronus runs the Safe
   Push of `bd safe-push` (`route: patronus`, its output in `safe_push`); a push (`route: push`) pushes the copy the sync
-  built (`commit`) into the target as a fast-forward; the merge of a pull request on GitHub is refused as not yet done
-  (`landing_route_unsupported`), and Patronus named off Space as `not_on_space`. `--whole-stack` lands the whole stack,
-  `--check` syncs and pushes nothing: `lands`, `confirmations`, `next_step` and the `refusals` a push would meet.
-  [@test] ../../crates/bd-remote/src/land_test.rs (`a_repository_that_lands_through_its_pull_request_is_not_landed_by_bd_yet`)
+  built (`commit`) into the target as a fast-forward; a merge of the pull request (`route: pull-request`) merges the
+  open pull request of the subject on GitHub, or enables its auto-merge ([Landing Routes](../branch/landing-routes.spec.md#merge)),
+  where no robot of Patronus lands the repository (on Space the route is the Safe Push) and the pull request lands into
+  the target (a repository off GitHub or a mirror `origin` doesn't push to: `landing_route_unsupported`); Patronus named
+  off Space is `not_on_space`. `--whole-stack` lands the whole stack, `--check` syncs and pushes nothing: `lands`,
+  `confirmations`, `next_step` and the `refusals` a push or a merge would meet.
+  [@test] ../../crates/bd-remote/src/land_test.rs (`a_pull_request_route_off_github_merges_nothing_and_patronus_off_space_starts_nothing`)
 - A push must run the plan of the app's start (`operations::land::prepare_one_shot` over the one-shot session of the
   command: the pull requests with the permission of the token, the rules of the target, the landing gate of the
   subject) through the engine (`operations::land_execute::execute`): no check against the newest target, the witness
@@ -1422,7 +1425,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`, `a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
-- `bd land` must never update: a push that landed prints `landed: true` and `next: "bd update"`, which brings the
+- A merge must run the plan of the app's start the same way: the pull requests with the merge state, the auto-merge
+  and the merge methods, the robots (off Space Patronus lands nothing), the landing gate. It prints `pull_request`;
+  `landed: true` after GitHub merged it, `auto_merge: true` once GitHub merges it when its checks pass (enabled now,
+  after the push of the branch when its pull request showed another commit, or before). What holds the merge back
+  refuses it with the code of its reason: `no_pull_request` (create it first), `merge_blocked` (approvals, required
+  checks, changes requested, a draft), `not_mergeable` (a conflict, a head behind its base with `bd update` next, a
+  branch to push first with `bd push` next, a refusal of GitHub in its words); checks its base doesn't require that
+  fail are `checks_not_passed` until `--without-checks`; a head GitHub moved meanwhile is `plan_changed`.
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
+- `bd land` must never update: a push that landed, and a merge, print `landed: true` and `next: "bd update"`, which brings the
   branch onto the target and drops the commits that landed. It lists the open pull requests its push closes as
   `closes` (`{branch, number}`: of what it landed, those that show an older version of a branch, by the rule of the app,
   `domain_policy::landed::pull_requests_to_close`) and closes none: the app's session closes them with their comments

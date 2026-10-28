@@ -1,6 +1,9 @@
 use crate::patronus_command_test::repository;
-use crate::pull_request_writes::{close_pull_request, read_pull_request_head, request_pull_request_reviewers, retarget_pull_request, submit_pull_request_review};
-use domain_types::pull_request::{PullRequestReviewEvent, RefusedReviewer, RequestedReviewers};
+use crate::pull_request_writes::{
+  MergeWhen, MergeWrite, close_pull_request, disable_auto_merge, merge_pull_request, read_pull_request_head, request_pull_request_reviewers, retarget_pull_request,
+  submit_pull_request_review,
+};
+use domain_types::pull_request::{MergeMethod, PullRequestReviewEvent, RefusedReviewer, RequestedReviewers};
 use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -248,4 +251,71 @@ async fn a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing() {
     .to_string();
   assert_eq!(error, "No reviewer to ask");
   assert_eq!(bodies(&fake).len(), 1);
+}
+
+/// GitHub answers the node of #7 on `head`, and every mutation as done
+fn mergeable(fake: &github::fake_github::FakeGitHub, head: &str) {
+  let node = json!({"data": {"repository": {"pullRequest": {"id": "PR_7", "headRefOid": head}}}});
+  fake.answer_with_body("POST", "/graphql", "pullRequest(number: $number)", FakeAnswer::ok(node));
+  fake.answer("POST", "/graphql", FakeAnswer::ok(json!({"data": {"done": {"pullRequest": {"number": 7}}}})));
+}
+
+/// A merge reads the node of the pull request, then sends the mutation once with the method and the head the user saw
+/// (`expectedHeadOid`); a head that moved since sends nothing; what GitHub refuses is its words
+#[test(tokio::test)]
+async fn a_merge_reads_the_node_then_sends_the_mutation_once_with_the_head_and_a_moved_head_sends_nothing() {
+  let (fake, github) = start_fake_service("t").await;
+  mergeable(&fake, HEAD);
+  let merged = merge_pull_request(&github, ".", &repository(), 7, MergeMethod::Rebase, HEAD, MergeWhen::Now).await.unwrap();
+  assert_eq!(merged, MergeWrite::Done);
+  let bodies: Vec<Value> = fake.requests_to("POST", "/graphql").iter().map(github::fake_github::FakeRequest::json).collect();
+  assert_eq!(bodies.len(), 2);
+  assert_eq!(bodies[0]["variables"], json!({"owner": "acme", "name": "monorepo", "number": 7}));
+  assert!(
+    bodies[1]["query"]
+      .as_str()
+      .unwrap()
+      .contains("mergePullRequest(input: {pullRequestId: $id, mergeMethod: $method, expectedHeadOid: $head})")
+  );
+  assert_eq!(bodies[1]["variables"], json!({"id": "PR_7", "method": "REBASE", "head": HEAD}));
+
+  let (fake, github) = start_fake_service("t").await;
+  mergeable(&fake, "fedcba9876543210fedcba9876543210fedcba98");
+  let moved = merge_pull_request(&github, ".", &repository(), 7, MergeMethod::Merge, HEAD, MergeWhen::Now).await.unwrap();
+  assert_eq!(
+    moved,
+    MergeWrite::HeadMoved {
+      head: "fedcba9876543210fedcba9876543210fedcba98".to_string()
+    }
+  );
+  assert_eq!(fake.requests_to("POST", "/graphql").len(), 1);
+
+  let (fake, github) = start_fake_service("t").await;
+  mergeable(&fake, HEAD);
+  let refusal = json!({"data": {"mergePullRequest": null}, "errors": [{"type": "UNPROCESSABLE", "message": "Pull request is not mergeable"}]});
+  fake.answer("POST", "/graphql", FakeAnswer::ok(refusal));
+  let error = merge_pull_request(&github, ".", &repository(), 7, MergeMethod::Rebase, HEAD, MergeWhen::Now)
+    .await
+    .unwrap_err()
+    .to_string();
+  assert_eq!(error, "GitHub refused it for #7: Pull request is not mergeable");
+}
+
+/// The auto-merge is enabled with the method and the head, and disabled with the node alone
+#[test(tokio::test)]
+async fn the_auto_merge_is_enabled_on_the_head_and_disabled_by_the_node() {
+  let (fake, github) = start_fake_service("t").await;
+  mergeable(&fake, HEAD);
+  assert_eq!(
+    merge_pull_request(&github, ".", &repository(), 7, MergeMethod::Squash, HEAD, MergeWhen::ChecksPass)
+      .await
+      .unwrap(),
+    MergeWrite::Done
+  );
+  assert_eq!(disable_auto_merge(&github, ".", &repository(), 7).await.unwrap(), MergeWrite::Done);
+  let bodies: Vec<Value> = fake.requests_to("POST", "/graphql").iter().map(github::fake_github::FakeRequest::json).collect();
+  assert!(bodies[1]["query"].as_str().unwrap().contains("enablePullRequestAutoMerge("));
+  assert_eq!(bodies[1]["variables"], json!({"id": "PR_7", "method": "SQUASH", "head": HEAD}));
+  assert!(bodies[3]["query"].as_str().unwrap().contains("disablePullRequestAutoMerge("));
+  assert_eq!(bodies[3]["variables"], json!({"id": "PR_7"}));
 }

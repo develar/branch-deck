@@ -216,3 +216,53 @@ fn a_listing_tells_the_requests_it_adds_and_re_requests_never_one_back_to_the_us
   assert_eq!(review_requested(&known, &listing), Some(NewsEvent::ReviewRequested { numbers: vec![2, 3] }));
   assert_eq!(review_requested(&known, &listing[..1]), None);
 }
+
+/// A pull request the listing before knew open with its auto-merge enabled, which a listing shows merged, is news, of a
+/// branch and of a whole stack; one merged by the click (the session marked it merged), one without an auto-merge, and
+/// another pull request of the branch are not
+#[test]
+fn a_pull_request_github_merged_by_its_auto_merge_is_news_once() {
+  use crate::news::auto_merged;
+  use domain_types::fixtures::pull_request;
+  use domain_types::pull_request::{MergeMethod, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult};
+  use domain_types::session::{NewsEvent, PullRequestsView};
+  let known = |auto: Option<MergeMethod>, state: PullRequestState| {
+    let mut auth = pull_request("auth", 7);
+    auth.auto_merge = auto;
+    auth.state = state;
+    let mut stack = pull_request("air", 12);
+    stack.auto_merge = Some(MergeMethod::Merge);
+    PullRequestsView {
+      pull_requests: [("auth".to_string(), auth)].into(),
+      stack_pull_requests: [("air".to_string(), stack)].into(),
+      ..PullRequestsView::default()
+    }
+  };
+  let merged = |pull_request: &mut PullRequest| pull_request.state = PullRequestState::Merged;
+  let mut listed = PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub);
+  let mut auth = pull_request("auth", 7);
+  merged(&mut auth);
+  listed.pull_requests.insert("auth".to_string(), auth);
+  let mut stack = pull_request("air", 12);
+  merged(&mut stack);
+  listed.stack_pull_requests.insert("air".to_string(), stack);
+  let news = auto_merged(&known(Some(MergeMethod::Rebase), PullRequestState::Open), &listed);
+  assert_eq!(
+    news,
+    [
+      NewsEvent::AutoMerged {
+        number: 7,
+        subject: "auth".to_string(),
+        into: "master".to_string()
+      },
+      NewsEvent::AutoMerged {
+        number: 12,
+        subject: "stack:air".to_string(),
+        into: "master".to_string()
+      },
+    ]
+  );
+  let told = |auto, state| auto_merged(&known(auto, state), &listed).len();
+  assert_eq!(told(None, PullRequestState::Open), 1, "the stack's only");
+  assert_eq!(told(Some(MergeMethod::Rebase), PullRequestState::Merged), 1, "the stack's only");
+}

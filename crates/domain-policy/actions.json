@@ -9,6 +9,8 @@
     "push-with-children",
     "pick-remote-commits",
     "push-to-baseline",
+    "merge-pull-request",
+    "cancel-auto-merge",
     "review-changes",
     "open-pull-request",
     "request-review",

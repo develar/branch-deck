@@ -58,6 +58,18 @@ const WRITES: &[Write] = &[
     callers: &[("crates/operations/src/close.rs", 1, OPERATIONS)],
   },
   Write {
+    call: "merge_pull_request(",
+    callers: &[(
+      "crates/operations/src/land_execute.rs",
+      1,
+      "the merge and the auto-merge of a plan (`PlannedEffect::MergePullRequest`, `EnableAutoMerge`)",
+    )],
+  },
+  Write {
+    call: "disable_auto_merge(",
+    callers: &[("crates/operations/src/auto_merge.rs", 1, "Cancel Auto-Merge (`Intent::DisableAutoMerge`)")],
+  },
+  Write {
     call: "submit_pull_request_review(",
     callers: &[("crates/operations/src/review.rs", 1, OPERATIONS)],
   },

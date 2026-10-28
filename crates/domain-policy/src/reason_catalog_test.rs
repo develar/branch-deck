@@ -53,10 +53,20 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::DryRunNeedsPatronus => 36,
     Reason::BaselineRefusedPush { .. } => 37,
     Reason::BaselineAhead { .. } => 38,
+    Reason::NoPullRequestToMerge { .. } => 39,
+    Reason::MergeDraft { .. } => 40,
+    Reason::MergeConflict { .. } => 41,
+    Reason::MergeBehind { .. } => 42,
+    Reason::MergeNeedsApprovals { .. } => 43,
+    Reason::MergeChangesRequested { .. } => 44,
+    Reason::MergeChecksFail { .. } => 45,
+    Reason::MergeChecksRunning { .. } => 46,
+    Reason::MergeBlocked { .. } => 47,
+    Reason::MergeHeadBehind { .. } => 48,
   }
 }
 
-const CODES: usize = 39;
+const CODES: usize = 49;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -249,6 +259,17 @@ fn examples() -> Vec<Reason> {
       message: s("remote: master is protected"),
     },
     Reason::BaselineAhead { upstream: s("origin/master") },
+    Reason::NoPullRequestToMerge { branch: s("auth") },
+    Reason::MergeDraft { number: 7 },
+    Reason::MergeConflict { number: 7 },
+    Reason::MergeBehind { number: 7, target: s("master") },
+    Reason::MergeNeedsApprovals { number: 7 },
+    Reason::MergeChangesRequested { number: 7, by: vec![s("alice")] },
+    Reason::MergeChangesRequested { number: 7, by: Vec::new() },
+    Reason::MergeChecksFail { number: 7 },
+    Reason::MergeChecksRunning { number: 7 },
+    Reason::MergeBlocked { number: 7 },
+    Reason::MergeHeadBehind { number: 7 },
   ]
 }
 

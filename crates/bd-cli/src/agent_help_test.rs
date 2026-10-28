@@ -226,7 +226,9 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::BaselineRefused
     | ErrorCode::BaselineMoved
     | ErrorCode::ChecksNotPassed
-    | ErrorCode::LandingRouteUnsupported => &["land"],
+    | ErrorCode::LandingRouteUnsupported
+    | ErrorCode::NotMergeable
+    | ErrorCode::MergeBlocked => &["land"],
     ErrorCode::HunkConflict | ErrorCode::BlockNotFound => &["move-hunk"],
     ErrorCode::HeadMoved => &["help agent", "group"],
     ErrorCode::GroupsMoved | ErrorCode::StacksMoved => &["group"],

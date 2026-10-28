@@ -31,6 +31,11 @@ pub enum ActionId {
   /// The copy pushed into the target where the repository lands by a push (`Intent::Land`): of a branch, of a whole
   /// stack
   PushToBaseline,
+  /// The merge of its pull request on GitHub where the repository lands by one (`Intent::Land`): of a branch, of a whole
+  /// stack; now ("Merge #7"), or once the checks pass ("Auto-Merge #7")
+  MergePullRequest,
+  /// The auto-merge of its pull request disabled (`Intent::DisableAutoMerge`)
+  CancelAutoMerge,
   // its review
   ReviewChanges,
   OpenPullRequest,
@@ -84,7 +89,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 46] = [
+  pub const ALL: [Self; 48] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -94,6 +99,8 @@ impl ActionId {
     Self::PushWithChildren,
     Self::PickRemoteCommits,
     Self::PushToBaseline,
+    Self::MergePullRequest,
+    Self::CancelAutoMerge,
     Self::ReviewChanges,
     Self::OpenPullRequest,
     Self::RequestReview,

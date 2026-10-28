@@ -141,5 +141,133 @@
         "lands": ["auth"]
       }
     }
+  },
+  {
+    "id": "merge-of-a-clean-pull-request",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a merge of the pull request: GitHub can merge it, so it merges by rebase on the commit the copy is",
+    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/branch/next-step.spec.md#the-table:merge", "spec/cli/agent-cli.spec.md#bd-land"],
+    "given": {
+      "route": "pullRequest",
+      "notOnSpace": true,
+      "readiness": "notAsked",
+      "pullRequest": {
+        "mergeState": "CLEAN"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "merge",
+        "kind": "mergePullRequest",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "lands": ["auth"],
+        "merges": "merge:7"
+      }
+    }
+  },
+  {
+    "id": "auto-merge-while-the-required-checks-run",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a merge of the pull request: its required checks still run, so GitHub merges it once they pass",
+    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#bd-land", "spec/branch/next-step.spec.md#the-table:merge"],
+    "given": {
+      "route": "pullRequest",
+      "notOnSpace": true,
+      "readiness": "notAsked",
+      "pullRequest": {
+        "mergeState": "BLOCKED",
+        "checksRunning": true
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "merge",
+        "kind": "mergePullRequest",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "lands": ["auth"],
+        "merges": "autoMerge:7"
+      }
+    }
+  },
+  {
+    "id": "auto-merge-enabled",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a merge of the pull request: its auto-merge is enabled, GitHub merges it by itself, nothing starts",
+    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#bd-land", "spec/branch/next-step.spec.md#the-table:merge′"],
+    "given": {
+      "route": "pullRequest",
+      "notOnSpace": true,
+      "readiness": "notAsked",
+      "pullRequest": {
+        "mergeState": "BLOCKED",
+        "checksRunning": true,
+        "autoMerge": true
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "merge′",
+        "kind": "autoMerging",
+        "safePush": "step",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "lands": ["auth"]
+      }
+    }
+  },
+  {
+    "id": "merge-held-for-approvals",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a merge of the pull request: its base requires approvals it lacks, so the merge waits for them",
+    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#bd-land", "spec/branch/next-step.spec.md#the-table:merge″"],
+    "given": {
+      "route": "pullRequest",
+      "notOnSpace": true,
+      "readiness": "notAsked",
+      "pullRequest": {
+        "mergeState": "BLOCKED",
+        "reviewDecision": "REVIEW_REQUIRED"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "merge″",
+        "kind": "mergeHeld",
+        "safePush": "mergeNeedsApprovals",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "blockers": ["mergeNeedsApprovals"],
+        "lands": ["auth"]
+      }
+    }
+  },
+  {
+    "id": "merge-without-a-pull-request",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a merge of the pull request: the branch has none, so Create Pull Request comes first",
+    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#bd-land", "spec/branch/next-step.spec.md#the-table:pr"],
+    "given": {
+      "route": "pullRequest",
+      "notOnSpace": true,
+      "readiness": "notAsked"
+    },
+    "expect": {
+      "step": {
+        "row": "pr",
+        "kind": "openPullRequest",
+        "safePush": "noPullRequestToMerge",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "blockers": ["noPullRequestToMerge"],
+        "lands": ["auth"]
+      }
+    }
   }
 ]

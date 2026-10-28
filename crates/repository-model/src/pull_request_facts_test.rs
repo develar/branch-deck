@@ -245,3 +245,35 @@ fn a_listing_shows_the_pushed_head_or_an_old_one() {
   assert!(!head(PullRequestSubject::Stack("auth".to_owned()), Some("new")).shows_old_head(&result));
   assert!(!head(PullRequestSubject::Branch("auth".to_owned()), None).shows_old_head(&result));
 }
+
+/// The merge methods of the repository go with the listing as the permission does; a merge by the click marks the pull
+/// request merged at once (it lands its subject before a listing shows it) and ends its auto-merge, whose enable and
+/// cancel go into it too; a listing before them keeps them
+#[test]
+fn a_merge_and_the_auto_merge_go_into_the_pull_request_at_once_and_the_methods_with_the_listing() {
+  use domain_types::pull_request::{MergeMethod, MergeMethods};
+  let mut fact = PullRequestsFact::default();
+  let methods = MergeMethods {
+    rebase: true,
+    auto_merge: true,
+    ..MergeMethods::default()
+  };
+  let listed = PullRequestsResult {
+    merge_methods: Some(methods),
+    ..listing(&[pull_request("auth", 1)])
+  };
+  assert!(fact.answer(at(1, 10), listed.clone()));
+  assert_eq!(fact.view().merge_methods, Some(methods));
+  let auth = |fact: &PullRequestsFact| fact.view().pull_requests["auth"].clone();
+  let auto = PullRequestWrite::AutoMerge {
+    number: 1,
+    method: Some(MergeMethod::Rebase),
+  };
+  assert!(fact.write(Seq(2), Duration::from_secs(11), "user", auto));
+  assert_eq!(auth(&fact).auto_merge, Some(MergeMethod::Rebase));
+  assert!(fact.write(Seq(3), Duration::from_secs(12), "user", PullRequestWrite::Merged { number: 1 }));
+  assert_eq!((auth(&fact).state, auth(&fact).auto_merge), (PullRequestState::Merged, None));
+  // a listing that started before the merge keeps it
+  fact.answer(at(2, 13), listed);
+  assert_eq!(auth(&fact).state, PullRequestState::Merged);
+}

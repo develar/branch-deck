@@ -12,6 +12,7 @@ import type { LucideIcon } from "lucide-react"
 import {
   ArchiveXIcon,
   CirclePauseIcon,
+  CircleSlashIcon,
   CirclePlayIcon,
   ClipboardCopyIcon,
   ClipboardListIcon,
@@ -80,6 +81,9 @@ export const ACTION_LOOKS = {
   "pick-remote-commits": { label: "Pick Remote Commits…", icon: DownloadIcon },
   // its label names the target of the baseline ("Push to main"), each surface by the facts
   "push-to-baseline": { label: "Push to master", icon: GitMergeIcon, kbds: ["s"] },
+  // its label names the pull request ("Merge #7", "Auto-Merge #7"), each surface by the facts
+  "merge-pull-request": { label: "Merge", icon: GitMergeIcon, kbds: ["s"] },
+  "cancel-auto-merge": { label: "Cancel Auto-Merge", icon: CircleSlashIcon },
   "review-changes": { label: "Review Changes", icon: FileDiffIcon, kbds: ["d"] },
   "open-pull-request": { label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"] },
   "request-review": { label: "Request Review…", icon: UserPlusIcon },

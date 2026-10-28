@@ -442,8 +442,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   | push | Nothing of the table above holds it | "Push to master" ("Push to master · 3" for what it is built on), its node ready | disabled with the refusal of the gate ("You have no write access to acme/monorepo"), else enabled: its popover confirms what CI did not check and what the gate asks |
 
   A Dry Run is a robot of Patronus: never offered on this route (`dryRunNeedsPatronus`). The whole stack of a root that
-  forks takes the same rows in its header. The merge of a pull request on GitHub keeps the table above in this phase.
-  The slot is the start of the row as "Safe Push" is (`SafePushButton`: its steps while it runs, "Pushing 45%"): a click
+  forks takes the same rows in its header. The slot is the start of the row as "Safe Push" is (`SafePushButton`: its steps while it runs, "Pushing 45%"): a click
   opens its popover at the slot when it asks something, S opens it always, Enter pushes; the menus, the preview, the
   review window and the header of an island start the same ([Landing Routes](landing-routes.spec.md#the-page)). The
   label names the target: "Push to main" where the baseline is `origin/main`.
@@ -460,6 +459,31 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_fetched_baseline_ahead_of_the_copy_makes_the_update_the_users_step`)
   [@test] ../../src/presenters/next-step.test.ts (`row push′: updates the project, whose fetched baseline has commits the copy is not built on, and Push to master says why it waits`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should offer Update Project while the fetched master has commits the branch is not built on, and push after it`)
+
+### A merge of the pull request
+
+- A repository that lands by a merge of the pull request on GitHub (`LandingRoute::PullRequest`,
+  [Landing Routes](landing-routes.spec.md#merge)) takes the table of its route while no robot of Patronus lands it
+  (Patronus answers that the repository is not its) and a merge there lands into its target (the gate refuses neither a
+  mirror nor a repository off GitHub; there the rows of the Patronus table stay, the slot hidden): rows 1, 0, 1′ and 1″
+  as a push's (row 0 also while the listing of the pull requests has no answer, and while GitHub has not computed
+  whether it can merge the pull request, `mergeState`: `UNKNOWN` is asked again, never "no"), then by what GitHub tells
+  of the open pull request of the subject into the target (`land_direct::merge_of`); one into a virtual branch or
+  another base takes rows 5 and 5′ of the table above, the merge disabled with the base:
+
+  | # | State | Slot | Start elsewhere |
+  |---|---|---|---|
+  | pr | No open pull request into the target | "Create Pull Request…", its node the user's step | Merge disabled: "auth has no open pull request: create one, GitHub merges it" |
+  | merge | GitHub can merge it (`CLEAN`, `HAS_HOOKS`, `UNSTABLE` with a confirmation); its required checks still run (`BLOCKED` by them) where the repository allows auto-merge; it shows another commit than the copy, which a push restarts the checks of | "Merge #7", or "Auto-Merge #7" (the push first when it shows another commit), its node ready | disabled with the refusal of the gate ("You have no write access to acme/monorepo"), else enabled: its popover names the method and what it asks |
+  | merge′ | Its auto-merge is enabled | "Merges when checks pass", Cancel Auto-Merge; its node landing | — |
+  | merge″ | What holds the merge back: a draft, changes requested, approvals the base requires, required checks that fail, or still run without auto-merge, a head behind its base (`BEHIND`), a conflict (`DIRTY`), a pull request that shows another commit without auto-merge, what GitHub doesn't name | its reason; the node a fix (a conflict, changes, failing checks), the user's step (a head behind, a branch to push, a draft) or a wait (approvals, running checks) | Merge disabled with the reason |
+
+  A Dry Run is a robot of Patronus: never offered on this route (`dryRunNeedsPatronus`). The whole stack of a root that
+  forks takes the same rows in its header, of the pull request of its stack branch.
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_merge_of_the_pull_request_is_the_step_of_its_route_by_what_github_tells`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_merge_of_the_pull_request_is_ready_landing_a_fix_or_a_wait_by_what_holds_it_back`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_merge_of_the_pull_request_offers_its_merge_and_cancel_auto_merge_while_github_merges_it`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 
 ### The surfaces
 

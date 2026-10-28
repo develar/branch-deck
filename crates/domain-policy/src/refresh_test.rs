@@ -438,3 +438,24 @@ fn the_sign_ins_are_read_when_the_session_opens_after_a_sign_in_and_on_a_focus_b
   check_rows(rows, |reason, timing| auth_due(reason, NOW, timing));
   assert!(auth_follows_up(Manual) && auth_follows_up(Demand) && !auth_follows_up(Focus));
 }
+
+/// GitHub computes whether it can merge a pull request once asked: an open one it answered `UNKNOWN` of makes the list
+/// look once more, a closed one or a computed state none
+#[test]
+fn an_open_pull_request_whose_merge_state_github_computes_asks_the_list_again() {
+  use crate::refresh::merge_state_computing;
+  use domain_types::fixtures::pull_request;
+  use domain_types::pull_request::{MergeStateStatus, PullRequestState, PullRequestsResult};
+  let listed = |state: PullRequestState, merge_state: Option<MergeStateStatus>| {
+    let mut result = PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub);
+    let mut auth = pull_request("auth", 7);
+    auth.state = state;
+    auth.merge_state = merge_state;
+    result.pull_requests.insert("auth".to_string(), auth);
+    result
+  };
+  assert!(merge_state_computing(&listed(PullRequestState::Open, Some(MergeStateStatus::Unknown))));
+  assert!(!merge_state_computing(&listed(PullRequestState::Open, Some(MergeStateStatus::Clean))));
+  assert!(!merge_state_computing(&listed(PullRequestState::Open, None)));
+  assert!(!merge_state_computing(&listed(PullRequestState::Merged, Some(MergeStateStatus::Unknown))));
+}

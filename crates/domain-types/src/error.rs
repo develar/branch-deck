@@ -230,9 +230,16 @@ pub enum ErrorCode {
   /// checks failing or running, GitHub listing none), or changes are requested on its pull request: a push into the
   /// target runs no CI. Nothing was pushed; ask the user, `--without-checks` pushes once they agree
   ChecksNotPassed,
-  /// `bd land`: the route of the repository (`branchdeck.landing`) lands no branch through `bd land` yet: the merge of
-  /// a pull request on GitHub. Nothing was pushed
+  /// `bd land`: the route of the repository (`branchdeck.landing`) lands no branch through `bd land` yet. Nothing was
+  /// pushed
   LandingRouteUnsupported,
+  /// `bd land`: GitHub can't merge the pull request of the branch: a merge would conflict, the base requires its head to
+  /// be up to date (`bd update`, then `bd push`), or GitHub refused the merge (the message says what it said). Nothing
+  /// was merged
+  NotMergeable,
+  /// `bd land`: the rules of the target hold the merge of the pull request back: approvals or required checks are
+  /// missing, changes are requested, it is a draft. Nothing was merged; it lands once they come
+  MergeBlocked,
   /// `bd request-review`: the branch has no open pull request, or only a draft; `bd safe-push <branch>
   /// --create-pull-request` opens one, a draft is marked ready for review on GitHub
   NoPullRequest,
@@ -375,6 +382,8 @@ impl ErrorCode {
       | Self::BaselineRefused
       | Self::ChecksNotPassed
       | Self::LandingRouteUnsupported
+      | Self::NotMergeable
+      | Self::MergeBlocked
       | Self::NoPullRequest
       | Self::NoReviewer
       | Self::NeedsPush
@@ -574,6 +583,7 @@ pub enum OperationKind {
   CreatePullRequest,
   RequestReview,
   ClosePullRequest,
+  DisableAutoMerge,
   CloseLandedPullRequests,
   SubmitReview,
   SetIssueState,

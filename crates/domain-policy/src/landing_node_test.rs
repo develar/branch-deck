@@ -297,3 +297,31 @@ fn a_fetched_baseline_ahead_of_the_copy_makes_the_update_the_users_step() {
     (LandingNodeKind::YourStep, NodeLabel::Step { step }) if matches!(step.kind, StepKind::UpdateProject { .. })
   ));
 }
+
+/// A merge of the pull request on GitHub: ready when GitHub can merge it, landing while its auto-merge is enabled, a fix
+/// for a conflict or failing required checks, the user's step for a head behind its base, a wait for approvals; a refusal
+/// of the gate waits
+#[test]
+fn a_merge_of_the_pull_request_is_ready_landing_a_fix_or_a_wait_by_what_holds_it_back() {
+  use domain_types::pull_request::{MergeMethod, MergeStateStatus, ReviewDecision};
+  let merging = Fixture::merging;
+  let kind = |fixture: &Fixture| node(fixture).kind;
+  assert_eq!(kind(&merging(RouteGate::Open, Some(MergeStateStatus::Clean))), LandingNodeKind::Ready);
+  let auto = merging(RouteGate::Open, Some(MergeStateStatus::Blocked)).with_pull_request(|pull_request| pull_request.auto_merge = Some(MergeMethod::Rebase));
+  assert_eq!(kind(&auto), LandingNodeKind::Landing);
+  assert_eq!(kind(&merging(RouteGate::Open, Some(MergeStateStatus::Dirty))), LandingNodeKind::NeedsFix);
+  assert_eq!(kind(&merging(RouteGate::Open, Some(MergeStateStatus::Behind))), LandingNodeKind::YourStep);
+  let approvals = merging(RouteGate::Open, Some(MergeStateStatus::Blocked)).with_pull_request(|pull_request| pull_request.review_decision = Some(ReviewDecision::ReviewRequired));
+  assert_eq!(kind(&approvals), LandingNodeKind::Waiting);
+  assert_eq!(kind(&merging(RouteGate::Open, None).with(|it| it.pull_request = None)), LandingNodeKind::YourStep);
+  let no_access = Reason::NoWriteAccess {
+    repository: "acme/monorepo".to_string(),
+    target: "master".to_string(),
+  };
+  assert_eq!(
+    kind_and_label(&node(&merging(RouteGate::Refused { reason: no_access.clone() }, Some(MergeStateStatus::Clean)))),
+    (LandingNodeKind::Waiting, NodeLabel::StartWaits { reason: no_access })
+  );
+  let unknown = node(&merging(RouteGate::Open, Some(MergeStateStatus::Unknown)));
+  assert_eq!((unknown.kind, unknown.pending), (LandingNodeKind::Waiting, true));
+}

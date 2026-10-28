@@ -6,8 +6,11 @@
 //! start refused by the robots (a robot that lands an ancestor is said apart). The page lays a running move of the row
 //! (a start, a review request: the `moves` of an operation of the view) over the node: it shows in place of a node that
 //! says so (`move_shows`). A repository that lands by a push into the target is ready once its push can land it
-//! (`push_ready`), the refusal of the gate of the route a wait.
+//! (`push_ready`), the refusal of the gate of the route a wait; one that lands by a merge of the pull request on GitHub
+//! once GitHub can merge it (`merge_ready`), landing while its auto-merge is enabled, and what holds the merge back
+//! (`merge_held`) a fix, the user's step or a wait.
 
+use crate::land::merges_on_github;
 use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, changes_requested_by, landed_whole, next_step, problems_failed, problems_pending, slot};
 use crate::readiness::waiting_reviewers;
 use domain_types::landing_route::LandingRoute;
@@ -126,8 +129,9 @@ pub fn landing_node(facts: &NodeFacts<'_>) -> LandingNode {
   if let Some(by) = facts.lands_with {
     return node(LandingNodeKind::Landing, NodeLabel::LandsWith { by: by.clone() });
   }
-  // a push into the target lands it: its own table decides, whatever Patronus answers
-  if matches!(step.route, LandingRoute::Push { .. }) {
+  // a push into the target or a merge on GitHub lands it: its own table decides
+  let merges = merges_on_github(step.route, !matches!(step.patronus, PatronusAnswer::NotOnSpace));
+  if matches!(step.route, LandingRoute::Push { .. }) || merges {
     if step.held {
       return node(LandingNodeKind::Waiting, NodeLabel::Held);
     }
@@ -180,8 +184,11 @@ fn of_step(facts: &NodeFacts<'_>) -> LandingNode {
   });
   let kind = match &step.kind {
     StepKind::SafePush | StepKind::Restart { .. } => return ready(facts),
-    StepKind::PushToBaseline { .. } => return push_ready(facts, step),
-    StepKind::Retarget { .. }
+    StepKind::PushToBaseline { .. } | StepKind::MergePullRequest { .. } => return push_ready(facts, step),
+    StepKind::AutoMerging { .. } => LandingNodeKind::Landing,
+    StepKind::MergeHeld { .. } => merge_held(&step),
+    StepKind::OpenPullRequest
+    | StepKind::Retarget { .. }
     | StepKind::Draft { .. }
     | StepKind::NeedsBranch { .. }
     | StepKind::PickRemoteCommits { .. }
@@ -240,8 +247,23 @@ fn ready(facts: &NodeFacts<'_>) -> LandingNode {
   node(LandingNodeKind::YourStep, NodeLabel::AtStart { lands, unlisted })
 }
 
-/// A push into the target lands it now: the user's move, unless a robot that lands a part of it runs or the gate of the
-/// route refuses it, which the node says as a wait
+/// What holds the merge of the pull request back (`StepKind::MergeHeld`, its reason the blocker of the step): a
+/// conflict, changes requested and failing required checks are fixes; a head behind its base, a branch to push and a
+/// draft the user's step; approvals, running checks and what GitHub doesn't name a wait
+const fn merge_held(step: &NextStep) -> LandingNodeKind {
+  match &step.safe_push {
+    Some(StepBlocker::Rule {
+      reason: Reason::MergeConflict { .. } | Reason::MergeChangesRequested { .. } | Reason::MergeChecksFail { .. },
+    }) => LandingNodeKind::NeedsFix,
+    Some(StepBlocker::Rule {
+      reason: Reason::MergeBehind { .. } | Reason::MergeHeadBehind { .. } | Reason::MergeDraft { .. },
+    }) => LandingNodeKind::YourStep,
+    _ => LandingNodeKind::Waiting,
+  }
+}
+
+/// A push into the target, or a merge of the pull request, lands it now: the user's move, unless a robot that lands a
+/// part of it runs or the gate of the route refuses it, which the node says as a wait
 fn push_ready(facts: &NodeFacts<'_>, step: NextStep) -> LandingNode {
   let refused = match &step.safe_push {
     Some(StepBlocker::Rule { reason }) => Some(reason),

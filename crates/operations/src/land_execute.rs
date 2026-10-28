@@ -56,7 +56,7 @@ use domain_types::operation::{
   StartComment, StartNote,
 };
 use domain_types::patronus::{PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot};
-use domain_types::pull_request::{CreatedPullRequest, RequestedReviewers};
+use domain_types::pull_request::{CreatedPullRequest, MergeMethod, RequestedReviewers};
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::HoldKind;
@@ -68,7 +68,7 @@ use history_rewrite::repository_lock::{LockHolder, RepositoryLock, RepositoryLoc
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::pull_request_create::{CreatePullRequestParams, MIRROR_WAIT, create_pull_request, wait_for_branch};
-use remote_facts::pull_request_writes::request_pull_request_reviewers;
+use remote_facts::pull_request_writes::{MergeWhen, MergeWrite, merge_pull_request, request_pull_request_reviewers};
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::pull_requests::failure_message;
 use repository_model::branch_table::BranchTable;
@@ -676,7 +676,16 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     }
     // no robot lands off Space, nor where a push into the target lands it; no pull request of GitHub merges it
     Reason::NotOnSpace | Reason::DryRunNeedsPatronus => ErrorCode::NotOnSpace,
-    Reason::GitHubMirror { .. } | Reason::NotOnGitHub => ErrorCode::NoPullRequest,
+    Reason::GitHubMirror { .. } | Reason::NotOnGitHub | Reason::NoPullRequestToMerge { .. } => ErrorCode::NoPullRequest,
+    // GitHub can't merge it: a conflict, a head behind its base, a branch to push first
+    Reason::MergeConflict { .. } | Reason::MergeBehind { .. } | Reason::MergeHeadBehind { .. } => ErrorCode::NotMergeable,
+    // the rules of the base hold it back until what they need comes
+    Reason::MergeDraft { .. }
+    | Reason::MergeNeedsApprovals { .. }
+    | Reason::MergeChangesRequested { .. }
+    | Reason::MergeChecksFail { .. }
+    | Reason::MergeChecksRunning { .. }
+    | Reason::MergeBlocked { .. } => ErrorCode::MergeBlocked,
   }
 }
 
@@ -806,8 +815,11 @@ impl<'a> Run<'a> {
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
           PlannedEffect::PushBaseline { tip, remote, target, .. } => self.push_baseline(tip, remote, target).await,
+          PlannedEffect::MergePullRequest { number, method, head, .. } => self.merge(*number, *method, head, false).await,
+          PlannedEffect::EnableAutoMerge { number, method, head, .. } => self.merge(*number, *method, head, true).await,
           // a close, a review, the state of an issue and a forget are operations of their own, never a step of a start
           PlannedEffect::ClosePullRequest { .. }
+          | PlannedEffect::DisableAutoMerge { .. }
           | PlannedEffect::SubmitReview { .. }
           | PlannedEffect::SetIssueState { .. }
           | PlannedEffect::ForgetStart { .. }
@@ -1056,6 +1068,39 @@ impl Run<'_> {
     }
   }
 
+  /// GitHub merges the open pull request `number` by `method` while it shows `head`, now or (`auto`) once its checks
+  /// pass, after the checks before a start (a pushed branch that moved since its push): what it did into the facts; a
+  /// head that moved meanwhile skips it as `plan_changed`, what GitHub refused fails it as `not_mergeable` in its words
+  async fn merge(&mut self, number: u32, method: MergeMethod, head: &str, auto: bool) -> EffectStatus {
+    let (github, repository) = match self.before_write().await {
+      Ok(github) => github,
+      Err(status) => return status,
+    };
+    let when = if auto { MergeWhen::ChecksPass } else { MergeWhen::Now };
+    let written = merge_pull_request(&github, &self.services.repository_path, &repository, number, method, head, when).await;
+    let what = if auto { "enable the auto-merge of" } else { "merge" };
+    match written {
+      Ok(MergeWrite::Done) => {
+        let write = if auto {
+          PullRequestWrite::AutoMerge { number, method: Some(method) }
+        } else {
+          PullRequestWrite::Merged { number }
+        };
+        self.version = self.host.write_pull_request(write).await.or(self.version);
+        EffectStatus::Done
+      }
+      Ok(MergeWrite::HeadMoved { head: shown }) => {
+        let moved = format!("#{number} shows {} now, not {}", short_id(&shown), short_id(head));
+        self.skip(ApiError::new(ErrorCode::PlanChanged, format!("{moved}: nothing was merged")))
+      }
+      Err(GitHubWriteError::Refused(message)) => self.fail(ApiError::new(ErrorCode::NotMergeable, format!("Cannot {what} #{number}: {message}"))),
+      Err(error) => {
+        let failure = crate::robot_start::github_failure(error);
+        self.fail(ApiError::new(failure.code, format!("Cannot {what} #{number}: {}", failure.message)))
+      }
+    }
+  }
+
   /// What a push of the copy at `tip` landed, by subject key: each branch the plan lands at the tip its witness froze, and
   /// the subject at `tip` (of a whole stack, `stack:<root>`)
   fn landed_by_push(&self, tip: &str) -> Vec<(String, PushedCopy)> {
@@ -1099,7 +1144,7 @@ impl Run<'_> {
         Err(error) => return Some(self.fail(error)),
         Ok(read) if read != tips => {
           let moved: Vec<String> = read.iter().filter(|(name, tip)| tips.get(*name) != Some(tip)).map(|(name, _)| short(name)).collect();
-          let changed = changed_before_start(&format!("{} changed after the push", moved.join(", ")), &self.planned.plan.intent);
+          let changed = changed_before_start(&format!("{} changed after the push", moved.join(", ")), &self.planned.plan);
           return Some(self.skip(changed));
         }
         Ok(_) => {}
@@ -1118,7 +1163,7 @@ impl Run<'_> {
       lands && is_active(robot) && (robot.push_mode == PatronusPushMode::DryRun) == dry_run && !self.known.contains(&robot.id) && Some(robot.id.as_str()) != canceled
     });
     if let Some(robot) = started {
-      return Some(self.skip(changed_before_start(&format!("a robot of what it lands started meanwhile ({})", robot.url), &plan.intent)));
+      return Some(self.skip(changed_before_start(&format!("a robot of what it lands started meanwhile ({})", robot.url), plan)));
     }
     if let Some(StartRoute::Comment { number }) = plan.start_route()
       && let Some(closed) = current
@@ -1128,11 +1173,16 @@ impl Run<'_> {
     {
       return Some(self.skip(changed_before_start(
         &format!("pull request #{} is {:?} now", closed.number, closed.state).to_lowercase(),
-        &plan.intent,
+        plan,
       )));
     }
     None
   }
+}
+
+/// The first 7 characters of a commit id, as a message names it
+fn short_id(id: &str) -> &str {
+  id.get(..7).unwrap_or(id)
 }
 
 /// "auth" of `refs/heads/user/virtual/auth`
@@ -1140,10 +1190,15 @@ fn short(full: &str) -> String {
   full.rsplit('/').next().unwrap_or(full).to_string()
 }
 
-/// What the run of `intent` was planned on changed after its first effects, before its last one (`what`): no robot
-/// started, no pull request was opened, nobody was asked; the effects before stay done
-fn changed_before_start(what: &str, intent: &Intent) -> ApiError {
-  let undone = match intent {
+/// What the run of `plan` was planned on changed after its first effects, before its last one (`what`): no robot
+/// started, no pull request was opened or merged, nobody was asked; the effects before stay done
+fn changed_before_start(what: &str, plan: &Plan) -> ApiError {
+  let merges = plan
+    .effects
+    .iter()
+    .any(|effect| matches!(effect, PlannedEffect::MergePullRequest { .. } | PlannedEffect::EnableAutoMerge { .. }));
+  let undone = match &plan.intent {
+    Intent::Land(_) if merges => "nothing was merged",
     Intent::CreatePullRequest(create) if create.on_github => "GitHub's form was not opened",
     Intent::CreatePullRequest(_) => "no pull request was opened",
     Intent::RequestReview { .. } => "nobody was asked to review",

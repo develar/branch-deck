@@ -131,6 +131,31 @@ pub enum Reason {
   /// The fetched baseline `upstream` (`origin/master`) has commits the fork point of the checked out branch lacks, which
   /// the copies are built on: a push of one is no fast-forward, so the update comes first and builds it anew on them
   BaselineAhead { upstream: String },
+  /// The repository lands by a merge of the pull request on GitHub, and `branch` (a branch, or the root of a whole
+  /// stack) has no open pull request into the target: Create Pull Request first
+  NoPullRequestToMerge { branch: String },
+  /// The open pull request `number` is a draft: GitHub merges none; it is marked ready for review on GitHub first
+  MergeDraft { number: u32 },
+  /// A merge of the open pull request `number` would conflict with its base (`mergeStateStatus` `DIRTY`)
+  MergeConflict { number: u32 },
+  /// The rules of `target` require the head of the open pull request `number` to be up to date with it (`BEHIND`): the
+  /// update of the branch and its push first
+  MergeBehind { number: u32, target: String },
+  /// The open pull request `number` lacks the approvals the rules of its base require
+  MergeNeedsApprovals { number: u32 },
+  /// `by` requested changes on the open pull request `number` (GitHub's decision when `by` is empty), which the rules
+  /// of its base hold the merge back for
+  MergeChangesRequested { number: u32, by: Vec<String> },
+  /// Required checks of the open pull request `number` fail
+  MergeChecksFail { number: u32 },
+  /// Required checks of the open pull request `number` still run, and the repository allows no auto-merge
+  MergeChecksRunning { number: u32 },
+  /// The rules of the base hold the merge of the open pull request `number` back for something GitHub doesn't name
+  /// (`BLOCKED`, approvals and checks as they should be)
+  MergeBlocked { number: u32 },
+  /// The open pull request `number` shows another commit than its branch, and the repository allows no auto-merge, which
+  /// would wait for the checks of the pushed commit: the push of the branch first
+  MergeHeadBehind { number: u32 },
 }
 
 impl Reason {
@@ -175,7 +200,17 @@ impl Reason {
       | Self::NotOnGitHub
       | Self::DryRunNeedsPatronus
       | Self::BaselineRefusedPush { .. }
-      | Self::BaselineAhead { .. } => None,
+      | Self::BaselineAhead { .. }
+      | Self::NoPullRequestToMerge { .. }
+      | Self::MergeDraft { .. }
+      | Self::MergeConflict { .. }
+      | Self::MergeBehind { .. }
+      | Self::MergeNeedsApprovals { .. }
+      | Self::MergeChangesRequested { .. }
+      | Self::MergeChecksFail { .. }
+      | Self::MergeChecksRunning { .. }
+      | Self::MergeBlocked { .. }
+      | Self::MergeHeadBehind { .. } => None,
     }
   }
 }

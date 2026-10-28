@@ -8,7 +8,8 @@
 use anyhow::Result;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::pull_request::{
-  ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, ViewerPermission,
+  ChecksState, ChecksSummary, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer,
+  ReviewerState, ViewerPermission,
 };
 use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
@@ -27,13 +28,14 @@ macro_rules! pull_requests_query {
   ($team:literal) => {
     concat!(
       "query($q: String!, $owner: String!, $name: String!) {
-  repository(owner: $owner, name: $name) { viewerPermission }
+  repository(owner: $owner, name: $name) { viewerPermission rebaseMergeAllowed mergeCommitAllowed squashMergeAllowed autoMergeAllowed }
   search(query: $q, type: ISSUE, first: 50) {
     nodes {
       ... on PullRequest {
         number title url state isDraft reviewDecision
         author { login }
-        headRefName headRefOid baseRefName isCrossRepository updatedAt
+        headRefName headRefOid baseRefName isCrossRepository updatedAt mergeStateStatus
+        autoMergeRequest { mergeMethod }
         headRepositoryOwner { login }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
@@ -104,6 +106,7 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
     .await;
   match answer {
     Ok(data) => {
+      let merge_methods = data.repository.as_ref().map(GhRepository::merge_methods);
       let viewer_permission = data
         .repository
         .and_then(|repository| repository.viewer_permission)
@@ -115,6 +118,7 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
           name: repository.name.clone(),
         },
         viewer_permission,
+        merge_methods,
         pull_requests,
         stack_pull_requests,
       }
@@ -215,9 +219,29 @@ pub struct PullRequestsData {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "the merge settings of a repository, each a boolean of GitHub's answer")]
 struct GhRepository {
   /// `ADMIN`, `MAINTAIN`, `WRITE`, `TRIAGE`, `READ`; null when GitHub names none
   viewer_permission: Option<String>,
+  #[serde(default)]
+  rebase_merge_allowed: bool,
+  #[serde(default)]
+  merge_commit_allowed: bool,
+  #[serde(default)]
+  squash_merge_allowed: bool,
+  #[serde(default)]
+  auto_merge_allowed: bool,
+}
+
+impl GhRepository {
+  const fn merge_methods(&self) -> MergeMethods {
+    MergeMethods {
+      rebase: self.rebase_merge_allowed,
+      merge: self.merge_commit_allowed,
+      squash: self.squash_merge_allowed,
+      auto_merge: self.auto_merge_allowed,
+    }
+  }
 }
 
 #[derive(Debug, Deserialize)]
@@ -274,6 +298,16 @@ struct GhPullRequest {
   latest_reviews: Option<Nodes<GhReview>>,
   review_requests: Option<Nodes<GhReviewRequestNode>>,
   labels: Option<Nodes<GhLabel>>,
+  /// `CLEAN`, `BLOCKED`, …; absent of a query that doesn't ask it
+  merge_state_status: Option<String>,
+  /// Null while no auto-merge is enabled
+  auto_merge_request: Option<GhAutoMerge>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhAutoMerge {
+  merge_method: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -422,6 +456,11 @@ fn to_pull_request(gh: GhPullRequest) -> Option<PullRequest> {
     updated_at: gh.updated_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0),
     reviewers: collect_reviewers(Nodes::into_nodes(gh.latest_reviews), requests),
     author: gh.author.and_then(|author| author.login),
+    merge_state: gh.merge_state_status.as_deref().and_then(MergeStateStatus::parse),
+    // an auto-merge of a method this version doesn't know merges all the same: a rebase is what it shows
+    auto_merge: gh
+      .auto_merge_request
+      .map(|request| request.merge_method.as_deref().and_then(MergeMethod::parse).unwrap_or(MergeMethod::Rebase)),
   })
 }
 

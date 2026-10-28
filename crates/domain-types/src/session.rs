@@ -27,7 +27,7 @@ use crate::landing_route::{LandingRemote, LandingRoute};
 use crate::next_step::NextStepView;
 use crate::operation::{OperationId, RunningOperation};
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
-use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView, ViewerPermission};
+use crate::pull_request::{BranchRules, MergeMethods, PullRequest, PullRequestAvailability, PullRequestView, ViewerPermission};
 use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
 use crate::review_request::{ReviewEntry, ReviewRequest};
@@ -549,6 +549,9 @@ pub struct PullRequestsView {
   /// What the token may do in that repository, as the listing named it; `None` without one or when GitHub named none:
   /// never "no access"
   pub viewer_permission: Option<ViewerPermission>,
+  /// The merge methods that repository allows, as the listing named them; `None` without one
+  #[serde(default)]
+  pub merge_methods: Option<MergeMethods>,
   /// By virtual branch name (without the `{prefix}/virtual/` namespace)
   pub pull_requests: BTreeMap<String, PullRequest>,
   /// By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's
@@ -629,6 +632,10 @@ pub enum NewsEvent {
   /// new head (`moved_remote`): `count` commits of others (`others_behind`) the branch lacks at the remote tip `tip`, by
   /// `authors` (newest first, each once). Told once per tip
   RemoteCommits { branch: String, tip: String, count: u32, authors: Vec<String> },
+  /// GitHub merged the pull request `number` of `subject` (a branch, `stack:<root>`) into `into` by its auto-merge, which
+  /// the session knew enabled on it open (`domain_policy::news::auto_merged`): no update follows by itself, the page
+  /// offers Update Project
+  AutoMerged { number: u32, subject: String, into: String },
 }
 
 /// What the last answer of Patronus said of the repository
@@ -1309,6 +1316,9 @@ pub struct PullRequestsChange {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub viewer_permission: Option<ViewerPermission>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub merge_methods: Option<MergeMethods>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub pull_requests: BTreeMap<String, PullRequest>,

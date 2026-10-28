@@ -204,7 +204,7 @@ impl GitHubClient {
     &self.http
   }
 
-  /// A GraphQL query (never a mutation: the writes are REST), asked again once after a transient failure. A
+  /// A GraphQL query (never a mutation: `graphql_mutation`), asked again once after a transient failure. A
   /// `RATE_LIMITED` error is an `Err`; any other error comes with the data, for the caller to judge.
   #[instrument(skip(self, token, query, variables))]
   pub async fn graphql<T: DeserializeOwned>(&self, token: &str, query: &str, variables: &serde_json::Value) -> Result<GraphQlResponse<T>, GitHubError> {
@@ -213,18 +213,17 @@ impl GitHubClient {
       self.request(Method::POST, &url, token).json(&GraphQlRequest { query, variables }).send()
     })
     .await?;
-    let body: GraphQlBody<T> = serde_json::from_slice(&response.body).map_err(|e| GitHubError::InvalidResponse(e.to_string()))?;
-    let errors = body.errors.unwrap_or_default();
-    if errors.iter().any(|error| error.kind.as_deref() == Some("RATE_LIMITED")) {
-      return Err(GitHubError::RateLimited {
-        retry_at: rate_limit_reset(&response.headers).unwrap_or_else(|| unix_now() + SECONDARY_RATE_LIMIT_WAIT),
-      });
-    }
-    Ok(GraphQlResponse {
-      data: body.data,
-      errors,
-      sso_partial: is_sso_partial(&response.headers),
-    })
+    graphql_answer(&response)
+  }
+
+  /// A GraphQL mutation (the merge of a pull request and its auto-merge, which REST lacks): never repeated by itself,
+  /// answered as a query is
+  #[instrument(skip(self, token, mutation, variables))]
+  pub async fn graphql_mutation<T: DeserializeOwned>(&self, token: &str, mutation: &str, variables: &serde_json::Value) -> Result<GraphQlResponse<T>, GitHubError> {
+    let url = format!("{}/graphql", self.api_url);
+    let request = GraphQlRequest { query: mutation, variables };
+    let response = read_response(self.request(Method::POST, &url, token).json(&request).send().await).await?;
+    graphql_answer(&response)
   }
 
   /// A REST GET of `path` (segments, each escaped) with `query`, asked again once after a transient failure;
@@ -329,6 +328,22 @@ async fn read_with_retry<R: Future<Output = reqwest::Result<reqwest::Response>>>
     }
     result => result,
   }
+}
+
+/// The data and the errors of a GraphQL answer; a `RATE_LIMITED` error is an `Err`
+fn graphql_answer<T: DeserializeOwned>(response: &ReadResponse) -> Result<GraphQlResponse<T>, GitHubError> {
+  let body: GraphQlBody<T> = serde_json::from_slice(&response.body).map_err(|e| GitHubError::InvalidResponse(e.to_string()))?;
+  let errors = body.errors.unwrap_or_default();
+  if errors.iter().any(|error| error.kind.as_deref() == Some("RATE_LIMITED")) {
+    return Err(GitHubError::RateLimited {
+      retry_at: rate_limit_reset(&response.headers).unwrap_or_else(|| unix_now() + SECONDARY_RATE_LIMIT_WAIT),
+    });
+  }
+  Ok(GraphQlResponse {
+    data: body.data,
+    errors,
+    sso_partial: is_sso_partial(&response.headers),
+  })
 }
 
 /// A successful or `304` answer; a failure classified

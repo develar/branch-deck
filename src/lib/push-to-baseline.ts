@@ -3,9 +3,12 @@
 // lands, and what it does in the hover of every surface that offers it (the slot, the menus, the preview, the review)
 import type { MenuItem } from "@/lib/menu"
 
-/** The item of a step that starts the landing of its subject: "Safe Push", or "Push to master" of a repository that lands by a push */
+/**
+ * The item of a step that starts the landing of its subject: "Safe Push", "Push to master" of a repository that lands by
+ * a push, "Merge #7" of one that lands by a merge of the pull request
+ */
 export function isStartItem(item: MenuItem): boolean {
-  return item.id === "safe-push" || item.id === "push-to-baseline"
+  return item.id === "safe-push" || item.id === "push-to-baseline" || item.id === "merge-pull-request"
 }
 
 /** "Push to master", "Push to master · 3": the branch with the branches it is built on, which its copy carries */

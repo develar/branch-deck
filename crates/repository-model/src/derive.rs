@@ -73,7 +73,9 @@ use domain_types::branch_names::baseline_on_remote;
 use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::{NextStepView, StackPullRequest};
-use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
+use domain_types::patronus::{
+  LandingAllowances, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness,
+};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
@@ -1011,6 +1013,9 @@ pub fn landed_states(table: &BranchTable, remote: &RemoteFacts, landed: &LandedF
 pub struct LandSources<'a> {
   /// The route of the repository into master with its gate (`landing_route_of`)
   pub route: &'a LandingRoute,
+  /// A robot of Patronus lands the repository: its robots answered for it, or have not answered yet
+  /// (`land::merges_on_github`)
+  pub patronus: bool,
   /// The copies the pushes of the session into the target landed (`BaselinePushes::landed`); `None` for `bd`
   pub pushed: Option<&'a BTreeMap<String, BaselinePush>>,
   /// The head of the table as its grouping read it: the checked out branch with HEAD (which holds the originals of the
@@ -1092,6 +1097,7 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
   let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts);
   let sources = LandSources {
     route: &route,
+    patronus: patronus_lands(facts.robots.view()),
     pushed: Some(&facts.baseline_pushes.landed),
     header: &state.parts.header,
     table: &table.table,
@@ -1111,6 +1117,13 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
     target_conflict: checks.target_conflict.as_ref().map(|(commit, files)| TargetConflictFact { commit, files }),
   };
   Some(decide(&sources))
+}
+
+/// A robot of Patronus lands the repository of `robots`: they answered for it (logged in or not, failing), or have not
+/// answered yet; not where Patronus said the repository is not its (`NotPatronus`)
+#[must_use]
+pub fn patronus_lands(robots: &RobotsView) -> bool {
+  !matches!(robots.head.value.as_ref().map(|head| &head.availability), Some(PatronusAvailability::NotPatronus))
 }
 
 /// The decisions of the default intents of every branch and of every whole stack that forks
@@ -1188,6 +1201,7 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
   let last = robot.and_then(|robot| robot.profile.as_ref());
   let facts = LandFacts {
     route: sources.route,
+    patronus: sources.patronus,
     target: sources.target,
     prefix: sources.prefix,
     github: sources.github,
@@ -1433,6 +1447,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       readiness: (sources.readiness)(name),
       stack_pull_request: stack_pull_request.as_ref(),
       repository,
+      merge_methods: sources.pull_requests.merge_methods,
       lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
     };
     let node = NodeFacts {
@@ -1502,6 +1517,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       readiness: (sources.readiness)(&key),
       stack_pull_request: None,
       repository,
+      merge_methods: sources.pull_requests.merge_methods,
       lands: u32::try_from(lands).unwrap_or(u32::MAX),
     };
     let node = NodeFacts {

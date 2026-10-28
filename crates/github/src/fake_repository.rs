@@ -305,6 +305,8 @@ impl FakeGitHubRepository {
         updated_at: state.clock,
         reviewers: Vec::new(),
         author: Some(state.viewer.clone()),
+        merge_state: None,
+        auto_merge: None,
       },
       body: body["body"].as_str().unwrap_or_default().to_string(),
       comments: Vec::new(),

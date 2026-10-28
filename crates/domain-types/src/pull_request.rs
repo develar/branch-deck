@@ -37,6 +37,123 @@ pub struct PullRequest {
   pub reviewers: Vec<Reviewer>,
   /// The login of the author; null for a deleted account
   pub author: Option<String>,
+  /// Whether GitHub can merge it now (`mergeStateStatus`); absent when GitHub didn't say. GitHub computes it lazily:
+  /// `Unknown` is a wait, never "no"
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub merge_state: Option<MergeStateStatus>,
+  /// The method of the auto-merge someone enabled on it (`autoMergeRequest`): GitHub merges it once its checks pass;
+  /// absent while none is enabled
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub auto_merge: Option<MergeMethod>,
+}
+
+/// Whether GitHub can merge a pull request now (GitHub's `MergeStateStatus`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum MergeStateStatus {
+  /// Mergeable, its checks pass
+  Clean,
+  /// Mergeable, checks that are not required fail or run
+  Unstable,
+  /// Something the rules of the base require is missing: approvals, required checks that fail or run
+  Blocked,
+  /// The base requires the head to be up to date with it, and it is not
+  Behind,
+  /// A merge would conflict
+  Dirty,
+  /// A draft
+  Draft,
+  /// Mergeable, its checks pass, and the server runs pre-receive hooks
+  HasHooks,
+  /// GitHub has not computed it yet: asked again, it answers
+  Unknown,
+}
+
+impl MergeStateStatus {
+  /// The value GitHub's GraphQL names (`CLEAN`, `UNSTABLE`, …); `None` for another
+  #[must_use]
+  pub fn parse(value: &str) -> Option<Self> {
+    match value {
+      "CLEAN" => Some(Self::Clean),
+      "UNSTABLE" => Some(Self::Unstable),
+      "BLOCKED" => Some(Self::Blocked),
+      "BEHIND" => Some(Self::Behind),
+      "DIRTY" => Some(Self::Dirty),
+      "DRAFT" => Some(Self::Draft),
+      "HAS_HOOKS" => Some(Self::HasHooks),
+      "UNKNOWN" => Some(Self::Unknown),
+      _ => None,
+    }
+  }
+}
+
+/// How GitHub merges a pull request (GitHub's `PullRequestMergeMethod`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum MergeMethod {
+  /// Its commits rebased onto the base: author, time and message stay, so the update pairs them with the originals
+  Rebase,
+  /// A merge commit: its commits stay as they are
+  Merge,
+  /// One commit of all of them: nothing pairs it with the originals
+  Squash,
+}
+
+impl MergeMethod {
+  /// The value GitHub's GraphQL names (`REBASE`, `MERGE`, `SQUASH`); `None` for another
+  #[must_use]
+  pub fn parse(value: &str) -> Option<Self> {
+    match value {
+      "REBASE" => Some(Self::Rebase),
+      "MERGE" => Some(Self::Merge),
+      "SQUASH" => Some(Self::Squash),
+      _ => None,
+    }
+  }
+
+  /// The value of GitHub's GraphQL
+  #[must_use]
+  pub const fn graphql(self) -> &'static str {
+    match self {
+      Self::Rebase => "REBASE",
+      Self::Merge => "MERGE",
+      Self::Squash => "SQUASH",
+    }
+  }
+}
+
+/// The merge methods a GitHub repository allows, and whether it allows auto-merge (`mergeCommitAllowed`,
+/// `squashMergeAllowed`, `rebaseMergeAllowed`, `autoMergeAllowed` of the listing)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "independent settings of a repository, each one GitHub tells")]
+pub struct MergeMethods {
+  pub rebase: bool,
+  pub merge: bool,
+  pub squash: bool,
+  pub auto_merge: bool,
+}
+
+impl MergeMethods {
+  /// The method a merge of Branch Deck asks for: rebase, else a merge commit, else squash, among the allowed ones;
+  /// `None` when GitHub allows none
+  #[must_use]
+  pub const fn preferred(self) -> Option<MergeMethod> {
+    if self.rebase {
+      Some(MergeMethod::Rebase)
+    } else if self.merge {
+      Some(MergeMethod::Merge)
+    } else if self.squash {
+      Some(MergeMethod::Squash)
+    } else {
+      None
+    }
+  }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,6 +312,10 @@ pub struct PullRequestsResult {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub viewer_permission: Option<ViewerPermission>,
+  /// The merge methods the repository allows (the same query); `None` unless available
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub merge_methods: Option<MergeMethods>,
   /// By virtual branch name (without the `{prefix}/virtual/` namespace); empty unless available
   pub pull_requests: BTreeMap<String, PullRequest>,
   /// The pull requests of the stack branches (`{prefix}/stack/<root>`, the whole stack), by the root of the stack; the
@@ -209,6 +330,7 @@ impl PullRequestsResult {
     Self {
       availability,
       viewer_permission: None,
+      merge_methods: None,
       pull_requests: BTreeMap::new(),
       stack_pull_requests: BTreeMap::new(),
     }

@@ -546,3 +546,103 @@ async fn a_refusal_of_the_server_is_baseline_refused_in_its_words_and_goes_into_
     "{told:?}"
   );
 }
+
+/// A fake GitHub of acme/monorepo whose pull request #7 shows `head` and takes every mutation, the services of the
+/// fixture on it
+async fn on_github(fixture: &mut Fixture, head: &str) -> Arc<github::fake_github::FakeGitHub> {
+  use github::fake_github::{FakeAnswer, start_fake_service};
+  let (fake, service) = start_fake_service("t").await;
+  let node = serde_json::json!({"data": {"repository": {"pullRequest": {"id": "PR_7", "headRefOid": head}}}});
+  fake.answer_with_body("POST", "/graphql", "pullRequest(number: $number)", FakeAnswer::ok(node));
+  fake.answer("POST", "/graphql", FakeAnswer::ok(serde_json::json!({"data": {"done": {"pullRequest": {"number": 7}}}})));
+  let repository = sync_core::github_repository::GitHubRepository {
+    owner: "acme".to_string(),
+    name: "monorepo".to_string(),
+  };
+  fixture.services.github = Some((Arc::new(service), repository));
+  fake
+}
+
+fn merge_alpha(head: &str, auto: bool) -> PlannedEffect {
+  let (subject, number, method, head) = (Subject::branch("alpha"), 7, domain_types::pull_request::MergeMethod::Rebase, head.to_string());
+  if auto {
+    PlannedEffect::EnableAutoMerge { subject, number, method, head }
+  } else {
+    PlannedEffect::MergePullRequest { subject, number, method, head }
+  }
+}
+
+/// The mutations the fake GitHub got, by the name of each
+fn mutations(fake: &github::fake_github::FakeGitHub) -> Vec<String> {
+  fake
+    .requests_to("POST", "/graphql")
+    .iter()
+    .filter_map(|request| {
+      let query = request.json()["query"].as_str()?.to_owned();
+      let name = query.strip_prefix("mutation(")?.split_once("{\n  ")?.1.split('(').next()?.to_owned();
+      Some(format!("{name} {}", request.json()["variables"]))
+    })
+    .collect()
+}
+
+/// GitHub merges the pull request of the subject on the head the plan saw, which goes into the facts as merged (it lands
+/// its subject at once); a head that moved since sends nothing and skips it as `plan_changed`; GitHub's refusal is
+/// `not_mergeable` in its words
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_of_the_pull_request_goes_into_the_facts_and_a_moved_head_or_a_refusal_of_github_merges_nothing() {
+  let head = "0123456789abcdef0123456789abcdef01234567";
+  let mut fixture = fixture().await;
+  let fake = on_github(&mut fixture, head).await;
+  let host = Fixture::host(fixture.planned(vec![merge_alpha(head, false)]));
+  let started = fixture.run(&host, &Steps::none()).await.unwrap();
+  assert_eq!(statuses(&started), [&EffectStatus::Done]);
+  assert_eq!(mutations(&fake), [format!(r#"mergePullRequest {{"head":"{head}","id":"PR_7","method":"REBASE"}}"#)]);
+  assert_eq!(host.told(), ["pull request Merged { number: 7 }"]);
+  assert_eq!(fixture.starts(), 0);
+
+  let mut fixture = self::fixture().await;
+  let fake = on_github(&mut fixture, "fedcba9876543210fedcba9876543210fedcba98").await;
+  let host = Fixture::host(fixture.planned(vec![merge_alpha(head, false)]));
+  let started = fixture.run(&host, &Steps::none()).await.unwrap();
+  assert!(
+    matches!(&started.outcome.effects[0].status, EffectStatus::Skipped { reason: Some(error) } if error.code == ErrorCode::PlanChanged),
+    "{:?}",
+    started.outcome.effects
+  );
+  assert_eq!(mutations(&fake), Vec::<String>::new());
+
+  let mut fixture = self::fixture().await;
+  let fake = on_github(&mut fixture, head).await;
+  let refusal = serde_json::json!({"data": null, "errors": [{"message": "Pull request is not mergeable"}]});
+  fake.answer("POST", "/graphql", github::fake_github::FakeAnswer::ok(refusal));
+  let host = Fixture::host(fixture.planned(vec![merge_alpha(head, false)]));
+  let started = fixture.run(&host, &Steps::none()).await.unwrap();
+  let EffectStatus::Failed { error } = &started.outcome.effects[0].status else {
+    panic!("{:?}", started.outcome.effects)
+  };
+  assert_eq!(error.code, ErrorCode::NotMergeable);
+  assert!(error.message.contains("Pull request is not mergeable"), "{}", error.message);
+  assert_eq!(host.told(), Vec::<String>::new());
+}
+
+/// A pull request that showed another commit: the push of the branch first, then the auto-merge on the pushed commit,
+/// which goes into the facts
+#[tokio::test(flavor = "multi_thread")]
+async fn the_auto_merge_after_the_push_of_the_branch_goes_on_the_pushed_commit() {
+  let mut fixture = fixture().await;
+  let tip = fixture.repo.rev_parse("test/virtual/alpha").unwrap();
+  let fake = on_github(&mut fixture, &tip).await;
+  let push = PlannedEffect::Push {
+    branches: vec!["alpha".to_string()],
+    force: false,
+  };
+  let host = Fixture::host(fixture.planned(vec![push, merge_alpha(&tip, true)]));
+  let started = fixture.run(&host, &Steps::none()).await.unwrap();
+  assert_eq!(statuses(&started), [&EffectStatus::Done, &EffectStatus::Done]);
+  assert_eq!(fixture.remote_alpha(), Some(tip.clone()));
+  assert_eq!(
+    mutations(&fake),
+    [format!(r#"enablePullRequestAutoMerge {{"head":"{tip}","id":"PR_7","method":"REBASE"}}"#)]
+  );
+  assert_eq!(host.told()[2..], ["pull request AutoMerge { number: 7, method: Some(Rebase) }".to_string()]);
+}

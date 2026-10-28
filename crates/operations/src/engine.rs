@@ -27,12 +27,14 @@ use crate::land_session::{SessionStart, pull_request_start, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
 use crate::witness::{Witness, check};
-use crate::{close, forget, issue, land, pull_request, push, review, review_fetch, robot, update};
+use crate::{auto_merge, close, forget, issue, land, pull_request, push, review, review_fetch, robot, update};
 use domain_policy::land_direct::update_after;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Land, PlannedEffect, Subject};
-use domain_types::operation::{EffectRecord, Intent, NewsKey, OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, Resource, RunningMove};
+use domain_types::operation::{
+  EffectRecord, Intent, NewsKey, OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, PullRequestField, Resource, RunningMove,
+};
 use domain_types::rewrite::RewriteIntent;
 use domain_types::session::Version;
 use remote_facts::service_sources::ServiceHost;
@@ -104,6 +106,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::Retarget { number } => Ok(pull_request::prepare_retarget(sessions, key, number).await),
     Intent::CreatePullRequest(_) | Intent::RequestReview { .. } => Ok(pull_request::prepare_planned(sessions, key, &intent).await.map(|planned| planned.plan)),
     Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. } => Ok(close::prepare_close(sessions, key, &intent).await),
+    Intent::DisableAutoMerge { number } => Ok(auto_merge::prepare_disable(sessions, key, number).await),
     Intent::SubmitReview { .. } => review::review_plan(&intent).map(Some),
     Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
     Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
@@ -135,6 +138,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     Intent::Retarget { number } => pull_request::execute_retarget(registry, key, number, accepted, services, events).await,
     intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. }) => Box::pin(pull_request::execute_pull_request(registry, key, intent, accepted, services, events)).await,
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::execute_close(registry, key, intent, accepted, services, events).await,
+    Intent::DisableAutoMerge { number } => auto_merge::execute_disable(registry, key, number, accepted, services, events).await,
     intent @ Intent::SubmitReview { .. } => Box::pin(review::execute_review(registry, key, intent, accepted, services, events)).await,
     intent @ Intent::SetIssueState { .. } => issue::execute_issue(registry, key, intent, accepted, services, events).await,
     Intent::Push(push) => Box::pin(push::execute_push(registry, key, push, accepted, services, events)).await,
@@ -223,9 +227,16 @@ pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, acc
   answer
 }
 
-/// The plan pushes the copy of its subject into the target: no robot of Patronus starts
-fn pushes_into_target(plan: &Plan) -> bool {
-  plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::PushBaseline { .. }))
+/// The plan pushes the copy of its subject into the target, or GitHub merges its pull request: no robot of Patronus
+/// starts (`bd land` too)
+#[must_use]
+pub fn pushes_into_target(plan: &Plan) -> bool {
+  plan.effects.iter().any(|effect| {
+    matches!(
+      effect,
+      PlannedEffect::PushBaseline { .. } | PlannedEffect::MergePullRequest { .. } | PlannedEffect::EnableAutoMerge { .. }
+    )
+  })
 }
 
 /// What the start `land` of a session of `prefix` asks the registry for: what its plan (as the session has it now)
@@ -256,6 +267,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     Intent::Retarget { number } => pull_request::retarget_request(*number),
     intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. }) => pull_request::pull_request_request(intent, Some(planned)),
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::close_request(intent, Some(plan)),
+    Intent::DisableAutoMerge { number } => auto_merge::disable_request(*number),
     intent @ Intent::SubmitReview { number, .. } => review::review_request(intent, *number),
     intent @ Intent::SetIssueState { key, .. } => issue::issue_request(intent, key),
     intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),
@@ -317,6 +329,15 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
       // the remote-tracking ref of the target: a fetch of it, and another landing into it, wait for the push
       PlannedEffect::PushBaseline { remote, target, .. } => resources.push(Resource::Ref {
         name: format!("refs/remotes/{remote}/{target}"),
+      }),
+      // its state: a close of it waits; its auto-merge: a cancel of it waits
+      PlannedEffect::MergePullRequest { number, .. } => resources.push(Resource::PullRequest {
+        number: *number,
+        field: PullRequestField::State,
+      }),
+      PlannedEffect::EnableAutoMerge { number, .. } => resources.push(Resource::PullRequest {
+        number: *number,
+        field: PullRequestField::AutoMerge,
       }),
       _ => {}
     }

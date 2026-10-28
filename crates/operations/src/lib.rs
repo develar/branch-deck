@@ -72,6 +72,7 @@
 //!   from one `for-each-ref`, the pull requests and the robots it reads, and the check before the first effect
 //!   (`plan_changed`)
 
+pub mod auto_merge;
 pub mod close;
 pub mod engine;
 pub mod events;

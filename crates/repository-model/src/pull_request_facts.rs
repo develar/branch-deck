@@ -18,7 +18,7 @@ use crate::facts::Seq;
 use domain_policy::pull_request::base_of;
 use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_namespace};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, Reviewer, ReviewerState};
+use domain_types::pull_request::{MergeMethod, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, Reviewer, ReviewerState};
 use domain_types::session::{FactState, PullRequestsView};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
@@ -50,6 +50,15 @@ pub enum PullRequestWrite {
   },
   Created {
     pull_request: Box<PullRequest>,
+  },
+  /// GitHub merged it by the click (`mergePullRequest`): it lands its subject at once, before the listing shows it
+  Merged {
+    number: u32,
+  },
+  /// Its auto-merge was enabled with `method`, or disabled (`None`)
+  AutoMerge {
+    number: u32,
+    method: Option<MergeMethod>,
   },
 }
 
@@ -112,6 +121,7 @@ impl PullRequestsFact {
     let PullRequestsResult {
       availability,
       viewer_permission,
+      merge_methods,
       pull_requests,
       stack_pull_requests,
     } = result;
@@ -129,12 +139,16 @@ impl PullRequestsFact {
         PullRequestAvailability::Available { owner, name } => Some(format!("{owner}/{name}")),
         _ => None,
       };
-      changed |=
-        self.view.pull_requests != listed || self.view.stack_pull_requests != stacks || self.view.repository != repository || self.view.viewer_permission != viewer_permission;
+      changed |= self.view.pull_requests != listed
+        || self.view.stack_pull_requests != stacks
+        || self.view.repository != repository
+        || self.view.viewer_permission != viewer_permission
+        || self.view.merge_methods != merge_methods;
       self.view.pull_requests = listed;
       self.view.stack_pull_requests = stacks;
       self.view.repository = repository;
       self.view.viewer_permission = viewer_permission;
+      self.view.merge_methods = merge_methods;
       self.listed = matches!(availability, PullRequestAvailability::Available { .. });
       // a write the listing saw needs keeping no more
       self.written.retain(|_, written| *written > seq);
@@ -189,7 +203,11 @@ impl PullRequestsFact {
   pub fn write(&mut self, seq: Seq, at: Duration, prefix: &str, write: PullRequestWrite) -> bool {
     let subject = match &write {
       PullRequestWrite::Created { pull_request } => subject_of_head(&pull_request.head_ref_name, prefix),
-      PullRequestWrite::Retargeted { number, .. } | PullRequestWrite::Closed { number } | PullRequestWrite::ReviewersRequested { number, .. } => self.subject_of(*number),
+      PullRequestWrite::Retargeted { number, .. }
+      | PullRequestWrite::Closed { number }
+      | PullRequestWrite::ReviewersRequested { number, .. }
+      | PullRequestWrite::Merged { number }
+      | PullRequestWrite::AutoMerge { number, .. } => self.subject_of(*number),
     };
     let Some(subject) = subject else {
       return false;
@@ -217,6 +235,17 @@ impl PullRequestsFact {
       PullRequestWrite::ReviewersRequested { requested, .. } => {
         if let Some(pull_request) = map.get_mut(&name) {
           mark_requested(&mut pull_request.reviewers, &requested);
+        }
+      }
+      PullRequestWrite::Merged { .. } => {
+        if let Some(pull_request) = map.get_mut(&name) {
+          pull_request.state = PullRequestState::Merged;
+          pull_request.auto_merge = None;
+        }
+      }
+      PullRequestWrite::AutoMerge { method, .. } => {
+        if let Some(pull_request) = map.get_mut(&name) {
+          pull_request.auto_merge = method;
         }
       }
     }

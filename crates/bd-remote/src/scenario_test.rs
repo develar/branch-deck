@@ -205,6 +205,9 @@ struct Given {
 #[serde(rename_all = "camelCase")]
 enum GivenRoute {
   Push,
+  /// A merge of the pull request on GitHub, `origin` pushing to github.com/acme/monorepo off Space, which allows every
+  /// merge method and auto-merge; the pull request shows the tip of the copy the sync builds
+  PullRequest,
 }
 
 /// The `viewerPermission` of the listing of the pull requests
@@ -357,6 +360,14 @@ struct GivenPullRequest {
   reviewers: Vec<String>,
   changes_requested: Vec<String>,
   state: PullRequestState,
+  /// GitHub's `mergeStateStatus` (`CLEAN`, `BLOCKED`, …)
+  merge_state: Option<String>,
+  /// GitHub's `reviewDecision` (`REVIEW_REQUIRED`, …)
+  review_decision: Option<String>,
+  /// A check of its head still runs
+  checks_running: bool,
+  /// Its auto-merge is enabled (by rebase)
+  auto_merge: bool,
 }
 
 impl Default for GivenPullRequest {
@@ -369,6 +380,10 @@ impl Default for GivenPullRequest {
       reviewers: Vec::new(),
       changes_requested: Vec::new(),
       state: PullRequestState::Open,
+      merge_state: None,
+      review_decision: None,
+      checks_running: false,
+      auto_merge: false,
     }
   }
 }
@@ -633,7 +648,23 @@ fn pull_request_of(given: &GivenPullRequest, branch: &str) -> Value {
   pull_request["isDraft"] = json!(given.draft);
   pull_request["baseRefName"] = json!(given.base);
   pull_request["state"] = json!(format!("{:?}", given.state).to_uppercase());
+  pull_request["mergeStateStatus"] = json!(given.merge_state);
+  pull_request["reviewDecision"] = json!(given.review_decision);
+  if given.checks_running {
+    let running = json!({"__typename": "CheckRun", "name": "build", "status": "IN_PROGRESS", "conclusion": null});
+    pull_request["commits"] = json!({"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [running]}}}}]});
+  }
+  if given.auto_merge {
+    pull_request["autoMergeRequest"] = json!({"mergeMethod": "REBASE"});
+  }
   pull_request
+}
+
+/// The answer of the search of the pull requests in a repository that lands by a merge of the pull request: every
+/// merge method and auto-merge allowed
+fn merge_search_answer(pull_requests: &[Value]) -> FakeAnswer {
+  let repository = json!({"viewerPermission": "WRITE", "rebaseMergeAllowed": true, "mergeCommitAllowed": true, "squashMergeAllowed": true, "autoMergeAllowed": true});
+  FakeAnswer::ok(json!({"data": {"repository": repository, "search": {"nodes": pull_requests}}}))
 }
 
 /// The open pull request #12 of the stack branch of `root` into master
@@ -773,6 +804,17 @@ fn fetch_a_commit_of_someone_else(repo: &TestRepo) {
   git(repo, &["checkout", "-q", &branch]);
 }
 
+/// GitHub merges the pull request #7 `listed` (its node id and the head it shows), and enables its auto-merge
+fn merge_answers(github: &FakeGitHub, listed: Option<&Value>) {
+  let head = listed.map_or(json!(null), |pull_request| pull_request["headRefOid"].clone());
+  let node = json!({"data": {"repository": {"pullRequest": {"id": "PR_7", "headRefOid": head}}}});
+  github.answer_with_body("POST", "/graphql", "pullRequest(number: $number) { id headRefOid }", FakeAnswer::ok(node));
+  let merged = json!({"data": {"mergePullRequest": {"pullRequest": {"state": "MERGED"}}}});
+  github.answer_with_body("POST", "/graphql", "mergePullRequest(", FakeAnswer::ok(merged));
+  let enabled = json!({"data": {"enablePullRequestAutoMerge": {"pullRequest": {"number": 7}}}});
+  github.answer_with_body("POST", "/graphql", "enablePullRequestAutoMerge(", FakeAnswer::ok(enabled));
+}
+
 /// `bd <args>` in the repository of the case, which succeeds
 fn bd_ok(environment: &Environment, args: &[&str]) {
   let mut all_args = vec!["--prefix", PREFIX];
@@ -789,7 +831,10 @@ impl Situation {
     if given.route == Some(GivenRoute::Push) {
       git(&space.repo, &["config", "branchdeck.landing", "push"]);
     }
-    if given.permission.is_some() {
+    if given.route == Some(GivenRoute::PullRequest) {
+      git(&space.repo, &["config", "branchdeck.landing", "pull-request"]);
+    }
+    if given.permission.is_some() || given.route == Some(GivenRoute::PullRequest) {
       // GitHub's facts count for the repository `origin` pushes to
       git(&space.repo, &["config", "remote.origin.pushurl", "https://github.com/acme/monorepo.git"]);
     }
@@ -904,23 +949,28 @@ impl Situation {
       let _ = run_json(&environment, &["--prefix", PREFIX, "sync"]);
       add_robots(&space, &mut environment, given);
     }
-    // a merged pull request merged the commits the branch has: its head is the tip the sync builds
-    if let Some(github) = github
-      .as_ref()
-      .filter(|_| given.pull_request.as_ref().is_some_and(|pull_request| pull_request.state == PullRequestState::Merged))
-    {
+    // a merged pull request merged the commits the branch has, one to merge shows them: its head is the tip the sync
+    // builds
+    let merged = given.pull_request.as_ref().is_some_and(|pull_request| pull_request.state == PullRequestState::Merged);
+    let merging = given.route == Some(GivenRoute::PullRequest);
+    if let Some(github) = github.as_ref().filter(|_| merged || merging) {
       let _ = run_json(&environment, &["--prefix", PREFIX, "sync"]);
       let merged: Vec<Value> = pull_requests
         .iter()
         .map(|pull_request| {
           let mut pull_request = pull_request.clone();
-          if pull_request["state"] == "MERGED" {
+          if pull_request["state"] == "MERGED" || merging {
             pull_request["headRefOid"] = json!(space.local_tip(pull_request["headRefName"].as_str().unwrap()));
           }
           pull_request
         })
         .collect();
-      list_pull_requests(github, &merged);
+      if merging {
+        github.answer("POST", "/graphql", merge_search_answer(&merged));
+        merge_answers(github, merged.first());
+      } else {
+        list_pull_requests(github, &merged);
+      }
     }
     if given.not_on_space.is_some() {
       git(&space.repo, &["remote", "set-url", "origin", space.remote.path().to_str().unwrap()]);
@@ -936,7 +986,7 @@ impl Situation {
   /// the plan
   fn check(&self, given: &Given) -> Result<BdCheck, CliError> {
     let context = self.context()?;
-    if given.route == Some(GivenRoute::Push) {
+    if given.route.is_some() {
       let output = land_command(&context, &given.land_args(true), &self.environment)?;
       return Ok(BdCheck {
         plan: output.decided.plan,
@@ -964,7 +1014,7 @@ impl Situation {
 
   /// `bd safe-push` without `--check`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
   fn start(&self, given: &Given) -> Value {
-    if given.route == Some(GivenRoute::Push) {
+    if given.route.is_some() {
       let mut args = vec!["--prefix", PREFIX, "land", given.branch.as_str()];
       if given.has(Flag::WithoutChecks) {
         args.push("--without-checks");
@@ -976,7 +1026,9 @@ impl Situation {
         args.push("--whole-stack");
       }
       let (exit_code, output) = run_json(&self.environment, &args);
-      return if exit_code == 0 {
+      return if exit_code == 0 && given.route == Some(GivenRoute::PullRequest) {
+        json!({"landed": output["landed"], "autoMerge": output.get("auto_merge").is_some_and(|it| it == true)})
+      } else if exit_code == 0 {
         json!({"landed": output["landed"]})
       } else {
         json!({"error": output["error"]["code"]})
@@ -1356,6 +1408,12 @@ fn land_answer(decision: Option<&Plan>) -> Value {
       PlannedEffect::PushBaseline { target, .. } => Some(json!(target)),
       _ => None,
     }),
+    // a merge of the pull request on GitHub: `merge:<number>`, `autoMerge:<number>` once its checks pass
+    "merges": decision.effects.iter().find_map(|effect| match effect {
+      PlannedEffect::MergePullRequest { number, .. } => Some(json!(format!("merge:{number}"))),
+      PlannedEffect::EnableAutoMerge { number, .. } => Some(json!(format!("autoMerge:{number}"))),
+      _ => None,
+    }),
   })
 }
 
@@ -1411,6 +1469,10 @@ fn start_differences(situation: &Situation, given: &Given, decision: &Plan) -> V
   let starts = decision.blockers.is_empty() && decision.waits.is_empty() && unaccepted(&decision.confirmations, &given.allowances()).is_empty();
   let expected = if starts && given.route == Some(GivenRoute::Push) {
     json!({"landed": true})
+  } else if starts && given.route == Some(GivenRoute::PullRequest) {
+    // GitHub merges it now, or once its checks pass (enabled now, or before)
+    let merges = decision.effects.iter().any(|effect| matches!(effect, PlannedEffect::MergePullRequest { .. }));
+    json!({"landed": merges, "autoMerge": !merges})
   } else if starts {
     let via = match decision.start_route() {
       Some(StartRoute::Api { .. }) if !decision.effects.contains(&PlannedEffect::CreatePullRequest) => "api",

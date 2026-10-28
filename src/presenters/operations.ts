@@ -20,6 +20,7 @@ const KIND_WORDS: Record<OperationKind, string> = {
   create_pull_request: "creation of the pull request",
   request_review: "review request",
   close_pull_request: "close of a pull request",
+  disable_auto_merge: "cancel of an auto-merge",
   close_landed_pull_requests: "close of the pull requests a robot landed",
   submit_review: "review of a pull request",
   set_issue_state: "change of the state of an issue",
@@ -96,6 +97,8 @@ function runningWords(intent: Intent, resources: readonly Resource[] = []): read
       return [`Requesting a review of ${subjectName(intent.subject)}`, `a review request of ${subjectName(intent.subject)}`]
     case "closePullRequest":
       return [`Closing #${intent.number}`, `a close of #${intent.number}`]
+    case "disableAutoMerge":
+      return [`Canceling the auto-merge of #${intent.number}`, `a cancel of the auto-merge of #${intent.number}`]
     case "closeLandedPullRequests":
       return intent.landing.by === "robot"
         ? [`Closing the pull requests robot ${intent.landing.robotId} landed`, `the close of the pull requests robot ${intent.landing.robotId} landed`]

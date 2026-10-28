@@ -30,9 +30,15 @@ export type PromptLine =
   | "landing"
   /** Its push replaces commits of the remote someone else pushed */
   | "force"
-  /** A push into the target: CI did not pass on the commit it lands, or changes are requested on its pull request */
+  /**
+   * A push into the target: CI did not pass on the commit it lands, or changes are requested on its pull request; a
+   * merge: checks its base doesn't require fail or run, changes are requested
+   */
   | "checks"
-  /** A push into the target: what the gate of the route asks (a rule the user may bypass, the status checks it lands without) */
+  /**
+   * A push into the target: what the gate of the route asks (a rule the user may bypass, the status checks it lands
+   * without); a merge: the repository allows only squash merges
+   */
   | "route"
 
 /** What a start does now, as the click and the popover present it */
@@ -97,11 +103,13 @@ function waitWords(wait: FactWait, subject: string): string {
       return "Checking what you may do in the repository…"
     case "targetRules":
       return "Checking the rules of the target…"
+    case "mergeState":
+      return `Asking GitHub whether it can merge #${wait.fact.number}…`
   }
 }
 
 /** The order the waits are said in: the subject itself first, then the profiles, the review, the rules, the build */
-const WAIT_ORDER: readonly FactWait["fact"]["kind"][] = ["remote", "permission", "targetRules", "profiles", "pullRequests", "readiness", "rules", "landingNeeds"]
+const WAIT_ORDER: readonly FactWait["fact"]["kind"][] = ["remote", "permission", "targetRules", "profiles", "pullRequests", "mergeState", "readiness", "rules", "landingNeeds"]
 
 /** The popover line of a confirmation */
 function lineOf(confirmation: Confirmation): PromptLine {
@@ -127,8 +135,10 @@ function lineOf(confirmation: Confirmation): PromptLine {
       return "force"
     case "unchecked":
     case "changesRequested":
+    case "checksNotRequired":
       return "checks"
     case "routeRule":
+    case "squashOnly":
       return "route"
   }
 }

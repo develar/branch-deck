@@ -83,9 +83,20 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::LocalBaseline { baseline } => format!("the baseline {baseline} is a local branch: no remote branch takes the push"),
     Reason::GitHubMirror { repository } => format!("{repository} is a mirror origin doesn't push to: a merge there lands nothing"),
     Reason::NotOnGitHub => "the pull requests of the branches are not on GitHub".to_string(),
-    Reason::DryRunNeedsPatronus => "a Dry Run is a robot of Patronus, and the repository lands by a push into its target".to_string(),
+    Reason::DryRunNeedsPatronus => "a Dry Run is a robot of Patronus, and the repository lands without one".to_string(),
     Reason::BaselineRefusedPush { target, message } => format!("the server refused a push into {target} before: {message}"),
     Reason::BaselineAhead { upstream } => format!("{upstream} has new commits, and the copy of {subject} is built on the commit before them: the update builds it anew on them"),
+    Reason::NoPullRequestToMerge { branch } => format!("{branch} has no open pull request: create one, GitHub merges it"),
+    Reason::MergeDraft { number } => format!("#{number} is a draft: mark it ready for review on GitHub first"),
+    Reason::MergeConflict { number } => format!("#{number} conflicts with its base: GitHub can't merge it"),
+    Reason::MergeBehind { number, target } => format!("{target} requires #{number} to be up to date with it: update the branch and push it"),
+    Reason::MergeNeedsApprovals { number } => format!("#{number} lacks the approvals the rules of its base require"),
+    Reason::MergeChangesRequested { number, by } if by.is_empty() => format!("changes are requested on #{number}"),
+    Reason::MergeChangesRequested { number, by } => format!("{} requested changes on #{number}", join_names(by)),
+    Reason::MergeChecksFail { number } => format!("required checks of #{number} fail"),
+    Reason::MergeChecksRunning { number } => format!("required checks of #{number} still run, and the repository allows no auto-merge"),
+    Reason::MergeBlocked { number } => format!("the rules of the base hold the merge of #{number} back"),
+    Reason::MergeHeadBehind { number } => format!("#{number} shows another commit than {subject}, and the repository allows no auto-merge: push the branch first"),
   }
 }
 

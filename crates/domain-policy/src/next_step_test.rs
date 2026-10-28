@@ -9,7 +9,7 @@ use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusPullRequestLink, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch,
   UnknownReadinessReason,
 };
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, Reviewer, ReviewerState};
+use domain_types::pull_request::{MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestBase, ReviewDecision, Reviewer, ReviewerState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::LandingNeeds;
 use domain_types::session::{Fact, FactState, Parked, RobotsHead, SubjectReadiness};
@@ -52,6 +52,8 @@ pub(crate) struct Fixture {
   pub lands: u32,
   /// The route of the repository into master: Patronus unless a test names another
   pub route: LandingRoute,
+  /// The merge methods the repository allows
+  pub merge_methods: Option<MergeMethods>,
 }
 
 pub(crate) fn fresh<T>(value: T) -> Fact<T> {
@@ -122,6 +124,7 @@ impl Fixture {
       repository: true,
       lands: 2,
       route: LandingRoute::Patronus { gate: RouteGate::Open },
+      merge_methods: None,
     }
   }
 
@@ -167,6 +170,7 @@ impl Fixture {
         base: base.as_ref(),
       }),
       target: "master",
+      merge_methods: self.merge_methods,
       needs: Needs::of(self.needs.as_ref(), &self.needs_state),
       readiness: self.readiness.as_ref(),
       stack_pull_request: self.stack_pull_request.as_ref(),
@@ -192,6 +196,39 @@ impl Fixture {
         gate,
         remote: Some("origin".to_owned()),
       }
+    })
+  }
+
+  /// The fixture with its pull request changed by `change`
+  pub(crate) fn with_pull_request(self, change: impl FnOnce(&mut PullRequest)) -> Self {
+    self.with(|it| {
+      if let Some((pull_request, _)) = it.pull_request.as_mut() {
+        change(pull_request);
+      }
+    })
+  }
+
+  /// auth in a repository off Space that lands by a merge of the pull request on GitHub (its gate `merge`), its open
+  /// pull request #7 into master on its tip `t1` with GitHub's `mergeStateStatus` `state`, every method and auto-merge
+  /// allowed
+  pub(crate) fn merging(merge: RouteGate, state: Option<MergeStateStatus>) -> Self {
+    Self::branch().with(|it| {
+      it.route = LandingRoute::PullRequest { merge };
+      it.robots_head = fresh(RobotsHead {
+        availability: PatronusAvailability::NotPatronus,
+        github_repository: None,
+      });
+      it.readiness = None;
+      it.merge_methods = Some(MergeMethods {
+        rebase: true,
+        merge: true,
+        squash: true,
+        auto_merge: true,
+      });
+      open(PullRequestBase::Target, |pull_request| {
+        pull_request.head_ref_oid = "t1".to_string();
+        pull_request.merge_state = state;
+      })(it);
     })
   }
 }
@@ -1172,4 +1209,97 @@ fn a_fetched_baseline_ahead_of_the_copy_offers_update_project_before_the_push() 
       rule(Reason::DryRunNeedsPatronus)
     )
   );
+}
+
+/// A repository off Space that lands by a merge of the pull request on GitHub takes the table of its route: no pull
+/// request is Create Pull Request… (`pr`), a mergeable one "Merge #7" (`merge`), required checks still running
+/// "Auto-Merge #7", an enabled auto-merge its wait (`merge′`, Cancel Auto-Merge), what holds the merge back its reason
+/// (`merge″`); GitHub not knowing whether it can merge waits (row 0), and so does the gate; a refusal of the gate
+/// disables the merge
+#[test]
+fn a_merge_of_the_pull_request_is_the_step_of_its_route_by_what_github_tells() {
+  let merging = Fixture::merging;
+  let open_gate = RouteGate::Open;
+  let no_dry_run = rule(Reason::DryRunNeedsPatronus);
+  let merge = |auto| StepKind::MergePullRequest {
+    number: 7,
+    auto,
+    method: MergeMethod::Rebase,
+  };
+  assert_eq!(
+    shape(&merging(open_gate.clone(), Some(MergeStateStatus::Clean)).step()),
+    (StepRow::Merge, merge(false), None, no_dry_run.clone())
+  );
+  let mut running = merging(open_gate.clone(), Some(MergeStateStatus::Blocked));
+  if let Some((pull_request, _)) = running.pull_request.as_mut() {
+    pull_request.checks = Some(domain_types::pull_request::ChecksSummary {
+      state: domain_types::pull_request::ChecksState::Pending,
+      passed: 1,
+      failed: 0,
+      pending: 1,
+      failed_names: Vec::new(),
+    });
+  }
+  assert_eq!(shape(&running.step()), (StepRow::Merge, merge(true), None, no_dry_run.clone()));
+  let approvals = merging(open_gate.clone(), Some(MergeStateStatus::Blocked)).with_pull_request(|pull_request| pull_request.review_decision = Some(ReviewDecision::ReviewRequired));
+  assert_eq!(
+    shape(&approvals.step()),
+    (
+      StepRow::MergeDoublePrime,
+      StepKind::MergeHeld { number: 7 },
+      rule(Reason::MergeNeedsApprovals { number: 7 }),
+      no_dry_run.clone()
+    )
+  );
+  let auto_merging = merging(open_gate.clone(), Some(MergeStateStatus::Blocked)).with_pull_request(|pull_request| pull_request.auto_merge = Some(MergeMethod::Rebase));
+  assert_eq!(
+    shape(&auto_merging.step()),
+    (
+      StepRow::MergePrime,
+      StepKind::AutoMerging {
+        number: 7,
+        method: MergeMethod::Rebase
+      },
+      Some(StepBlocker::Step),
+      no_dry_run.clone()
+    )
+  );
+  let none = merging(open_gate.clone(), None).with(|it| it.pull_request = None);
+  assert_eq!(
+    shape(&none.step()),
+    (
+      StepRow::PullRequest,
+      StepKind::OpenPullRequest,
+      rule(Reason::NoPullRequestToMerge { branch: "auth".to_string() }),
+      no_dry_run.clone()
+    )
+  );
+  // GitHub computes it lazily: asked again, it answers; never "it can't"
+  assert_eq!(
+    merging(open_gate.clone(), Some(MergeStateStatus::Unknown)).step().kind,
+    StepKind::Pending { fact: StepFact::MergeState }
+  );
+  assert_eq!(merging(open_gate.clone(), None).step().kind, StepKind::Pending { fact: StepFact::MergeState });
+  let waits = merging(
+    RouteGate::Wait {
+      fact: RouteFact::Permission,
+      failed: None,
+    },
+    Some(MergeStateStatus::Clean),
+  );
+  assert_eq!(waits.step().kind, StepKind::Pending { fact: StepFact::Permission });
+  let no_access = Reason::NoWriteAccess {
+    repository: "acme/monorepo".to_string(),
+    target: "master".to_string(),
+  };
+  assert_eq!(
+    shape(&merging(RouteGate::Refused { reason: no_access.clone() }, Some(MergeStateStatus::Clean)).step()),
+    (StepRow::Merge, merge(false), rule(no_access), no_dry_run)
+  );
+  // while Patronus lands the repository, its robot is the start, as before
+  let patronus = merging(open_gate, Some(MergeStateStatus::Clean)).with(|it| {
+    it.robots_head = available_head();
+    it.readiness = Some(answered(ReviewReadiness::NotRequired));
+  });
+  assert_eq!(patronus.step().kind, StepKind::SafePush);
 }

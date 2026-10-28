@@ -2,17 +2,18 @@
 //! of a fact that a window tells once. A robot known running or canceling that an answer shows finished
 //! (`robot_finished`: merged when it pushed, failed); the approvals of a subject that waited for them
 //! (`approval_news`, between two answers of the review readiness of the same commits); the review requests of others a
-//! listing adds (`review_requested`). The appliers of the facts (`repository_model::facts`, `readiness_facts`,
+//! listing adds (`review_requested`); the pull requests GitHub merged by an auto-merge the listing before knew enabled on
+//! them open (`auto_merged`). The appliers of the facts (`repository_model::facts`, `readiness_facts`,
 //! `review_request_facts`) call them and tell what they answer; a merge carries the pull requests its landing closes
 //! (`landed::pull_requests_to_close`).
 
 use crate::holds::is_active;
 use crate::readiness::{Answered, is_unjudged, waiting_reviewers};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
-use domain_types::pull_request::ReviewerState;
+use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestsResult, ReviewerState};
 use domain_types::review_request::ReviewRequest;
-use domain_types::session::NewsEvent;
-use std::collections::BTreeSet;
+use domain_types::session::{NewsEvent, PullRequestsView, stack_readiness_key};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// How a robot known running or canceling finished
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +47,32 @@ pub fn review_requested(known: &BTreeSet<(u32, u32)>, requests: &[ReviewRequest]
     .map(|request| request.number)
     .collect();
   (!numbers.is_empty()).then_some(NewsEvent::ReviewRequested { numbers })
+}
+
+/// The pull requests of `listed`, a listing, that GitHub merged by the auto-merge the listing before (`known`) had on
+/// them open, each with its subject (a branch, `stack:<root>`) and its base; a merge by the click marked it merged first,
+/// so it tells none
+#[must_use]
+pub fn auto_merged(known: &PullRequestsView, listed: &PullRequestsResult) -> Vec<NewsEvent> {
+  let of = |known: &BTreeMap<String, PullRequest>, listed: &BTreeMap<String, PullRequest>, key: &dyn Fn(&str) -> String| -> Vec<NewsEvent> {
+    listed
+      .iter()
+      .filter(|(name, pull_request)| {
+        pull_request.state == PullRequestState::Merged
+          && known
+            .get(name.as_str())
+            .is_some_and(|known| known.number == pull_request.number && known.state == PullRequestState::Open && known.auto_merge.is_some())
+      })
+      .map(|(name, pull_request)| NewsEvent::AutoMerged {
+        number: pull_request.number,
+        subject: key(name),
+        into: pull_request.base_ref_name.clone(),
+      })
+      .collect()
+  };
+  let mut news = of(&known.pull_requests, &listed.pull_requests, &|name| name.to_owned());
+  news.extend(of(&known.stack_pull_requests, &listed.stack_pull_requests, &|root| stack_readiness_key(root)));
+  news
 }
 
 /// A request as the user was asked: a re-request is a new one, a move of the other side after the user's answer is not

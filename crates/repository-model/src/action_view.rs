@@ -7,12 +7,13 @@
 //! (`with_operations`: what runs, what a start waits behind, what holds a remote action back). The view derives them
 //! with every patch, a sync and a change of the operations included.
 
-use crate::derive::{github_repository_known, landing_route_of, live_hold, row_of_view};
+use crate::derive::{github_repository_known, landing_route_of, live_hold, patronus_lands, row_of_view};
 use crate::facts::FactStore;
 use crate::table::TableState;
 use domain_policy::actions::{
   BranchFacts, Children, Of, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, review_blocker, robot_actions, stack_actions, start_actions, with_operations,
 };
+use domain_policy::land::merges_on_github;
 use domain_policy::next_step::{Listing, PatronusStanding};
 use domain_types::actions::{ActionState, NothingBeyond};
 use domain_types::branch_names::to_final_branch_name;
@@ -52,7 +53,9 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
   let repository = github_repository_known(pull_requests, robots);
   let sync_running = matches!(state.sync, SyncState::Running { .. });
   let operations = state.operations();
-  let push_route = matches!(landing_route_of(&parts.header, &parts.sections.landed, facts), LandingRoute::Push { .. });
+  let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
+  let push_route = matches!(route, LandingRoute::Push { .. });
+  let merge_route = merges_on_github(&route, patronus_lands(facts.robots.view()));
   let mut actions = BTreeMap::new();
   for (name, branch) in &parts.branches {
     let Some(step) = sources.steps.get(name) else {
@@ -100,6 +103,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       }),
       stacks_enabled: parts.header.stacks_enabled,
       push_route,
+      merge_route,
     };
     // what a push of it writes, read only while an operation may hold it
     let pushes = (!operations.is_empty()).then(|| to_final_branch_name(sources.prefix, name).ok()).flatten();
@@ -161,6 +165,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       repository,
       landed: sources.landed.get(&key),
       push_route,
+      merge_route,
     };
     let of = Of::WholeStack {
       root,

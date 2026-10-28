@@ -140,6 +140,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::CreatePullRequest(create) => (format!("the pull request of {}", create.subject.words()), "create it again"),
     Intent::RequestReview { subject, .. } => (format!("the review request of {}", subject.words()), "request the review again"),
     Intent::ClosePullRequest { number, .. } => (format!("the close of pull request #{number}"), "close it again"),
+    Intent::DisableAutoMerge { number } => (format!("the cancel of the auto-merge of pull request #{number}"), "cancel it again"),
     Intent::CloseLandedPullRequests { .. } => ("the closes of the landed pull requests".to_string(), "close them again"),
     Intent::SubmitReview { number, .. } => (format!("the review of pull request #{number}"), "review it again"),
     Intent::SetIssueState { key, .. } => (format!("the state of {key}"), "set it again"),

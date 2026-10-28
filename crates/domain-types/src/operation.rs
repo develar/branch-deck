@@ -55,6 +55,9 @@ pub enum Intent {
   RequestReview { subject: Subject, reviewers: Vec<String>, push_first: bool },
   /// The pull request `number` is closed with `comment`
   ClosePullRequest { number: u32, comment: String },
+  /// The auto-merge of the open pull request `number` is disabled (Cancel Auto-Merge): GitHub merges it no more by
+  /// itself
+  DisableAutoMerge { number: u32 },
   /// The open pull requests that hold nothing more than what `landing` landed are closed: of the branches a merged
   /// robot landed whole besides its own, of a push into the target, of the fetched baseline, of a merged pull request
   /// (`domain_policy::landed::pull_requests_to_close`)
@@ -111,6 +114,7 @@ impl Intent {
       Self::CreatePullRequest(_) => OperationKind::CreatePullRequest,
       Self::RequestReview { .. } => OperationKind::RequestReview,
       Self::ClosePullRequest { .. } => OperationKind::ClosePullRequest,
+      Self::DisableAutoMerge { .. } => OperationKind::DisableAutoMerge,
       Self::CloseLandedPullRequests { .. } => OperationKind::CloseLandedPullRequests,
       Self::SubmitReview { .. } => OperationKind::SubmitReview,
       Self::SetIssueState { .. } => OperationKind::SetIssueState,
@@ -233,6 +237,8 @@ pub enum PullRequestField {
   State,
   /// A review of the user
   Review,
+  /// Its auto-merge: enabled or disabled
+  AutoMerge,
 }
 
 /// Where an operation runs

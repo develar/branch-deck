@@ -6,7 +6,9 @@
 //!
 //! - The starts take the reasons of the next step of the subject (`NextStep::safe_push`, `dry_run`, `without_review`):
 //!   one rule for the slot, the menu, S and the popover. A repository that lands by a push into the target offers its
-//!   push instead (`push-to-baseline`, of a branch and of a whole stack), none of the robot's starts.
+//!   push instead (`push-to-baseline`, of a branch and of a whole stack), none of the robot's starts; one that lands by a
+//!   merge of the pull request on GitHub its merge (`merge-pull-request`) and, while its auto-merge is enabled, Cancel
+//!   Auto-Merge (`cancel-auto-merge`).
 //! - The push waits for the facts its button reads: parked, blocked, failed, held, a sync that rebuilds the branch,
 //!   nothing to push. Push with Children says what it lacks beyond the branch (`NothingBeyond`).
 //! - A rewrite needs commits and a build; the fixes of a stack problem run while the problem blocks the rest. A sync
@@ -95,6 +97,8 @@ pub struct BranchFacts<'a> {
   pub stacks_enabled: bool,
   /// The repository lands by a push of the copy into the target (`LandingRoute::Push`): its push is the start
   pub push_route: bool,
+  /// The repository lands by a merge of the pull request on GitHub (`land::merges_on_github`): its merge is the start
+  pub merge_route: bool,
 }
 
 /// The actions of a branch, in the order of the enum
@@ -108,6 +112,8 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   // the push into the target lands it
   if facts.push_route {
     offer(ActionId::PushToBaseline, step.safe_push.as_ref().map(of_step));
+  } else if facts.merge_route {
+    offer_merge(&mut offer, step);
   } else if !matches!(facts.patronus, PatronusAnswer::NotOnSpace) {
     offer(ActionId::SafePush, step.safe_push.as_ref().map(of_step));
     let profile = step
@@ -355,6 +361,18 @@ pub struct StackFacts<'a> {
   /// The repository lands by a push of the copy into the target (`LandingRoute::Push`): the push of its stack branch is
   /// its start
   pub push_route: bool,
+  /// The repository lands by a merge of the pull request on GitHub: the merge of the pull request of its stack branch is
+  /// its start
+  pub merge_route: bool,
+}
+
+/// The merge of the pull request of a subject on the merge route, and Cancel Auto-Merge while its auto-merge is enabled
+fn offer_merge(offer: &mut impl FnMut(ActionId, Option<ActionBlocker>), step: &NextStep) {
+  if matches!(step.kind, StepKind::AutoMerging { .. }) {
+    offer(ActionId::CancelAutoMerge, None);
+  } else {
+    offer(ActionId::MergePullRequest, step.safe_push.as_ref().map(of_step));
+  }
 }
 
 /// The actions of the whole stack of a root, in the order of the enum; the robot of the whole stack has its own
@@ -363,10 +381,14 @@ pub struct StackFacts<'a> {
 pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
   let mut actions = Vec::new();
   let mut offer = |id: ActionId, reason: Option<ActionBlocker>| actions.push(state(id, reason));
-  let offered = !matches!(facts.patronus, PatronusAnswer::NotOnSpace) && !facts.push_route;
+  let offered = !matches!(facts.patronus, PatronusAnswer::NotOnSpace) && !facts.push_route && !facts.merge_route;
   // the push of a whole stack is of its stack branch: a stack that forks
   if let Some(step) = facts.step.filter(|_| facts.push_route && matches!(facts.shape, StackShape::Forking { .. })) {
     offer(ActionId::PushToBaseline, step.safe_push.as_ref().map(of_step));
+  }
+  // the whole stack's pull request is the one of its stack branch: a stack that forks
+  if let Some(step) = facts.step.filter(|_| facts.merge_route && matches!(facts.shape, StackShape::Forking { .. })) {
+    offer_merge(&mut offer, step);
   }
   if let Some(step) = facts.step.filter(|step| offered && step.kind != StepKind::Hidden) {
     offer(ActionId::SafePushWholeStack, step.safe_push.as_ref().map(of_step));
@@ -682,6 +704,7 @@ fn needs(id: ActionId, of: Of<'_>) -> Vec<Resource> {
   match (of, id) {
     (Of::Branch { pushes, .. }, ActionId::Push | ActionId::PushWithChildren) => pushes.map(|name| Resource::Ref { name: name.to_owned() }).into_iter().collect(),
     (Of::Branch { pull_request, .. }, ActionId::RetargetPullRequest) => field(pull_request, PullRequestField::Base),
+    (Of::Branch { pull_request, .. } | Of::WholeStack { pull_request, .. }, ActionId::CancelAutoMerge) => field(pull_request, PullRequestField::AutoMerge),
     (Of::Branch { pull_request, .. } | Of::WholeStack { pull_request, .. }, ActionId::RequestReview) => field(pull_request, PullRequestField::Reviewers),
     (Of::Robot { id: robot }, ActionId::RestartRobot | ActionId::PushAndRestartRobot | ActionId::CancelRobot) => vec![Resource::Robot { id: robot.to_owned() }],
     _ => Vec::new(),
@@ -693,20 +716,23 @@ fn is_own(id: ActionId, of: Of<'_>, intent: &Intent) -> bool {
   match of {
     Of::Branch { name, unparks, pull_request, .. } => match (id, intent) {
       // the push into the target is the start of its route: the same intent
-      (ActionId::SafePush | ActionId::SafePushWithProfile | ActionId::SafePushWithoutReview | ActionId::PushToBaseline, Intent::Land(land)) => {
+      (ActionId::SafePush | ActionId::SafePushWithProfile | ActionId::SafePushWithoutReview | ActionId::PushToBaseline | ActionId::MergePullRequest, Intent::Land(land)) => {
         land.mode != PatronusPushMode::DryRun && is_branch(&land.subject, name)
       }
       (ActionId::DryRun, Intent::Land(land)) => land.mode == PatronusPushMode::DryRun && is_branch(&land.subject, name),
       (ActionId::Push, Intent::Push(push)) => is_branch(&push.subject, name) && matches!(push.scope, PushScope::Alone | PushScope::WithAncestors | PushScope::UpTo { .. }),
       (ActionId::PushWithChildren, Intent::Push(push)) => is_branch(&push.subject, name) && push.scope == PushScope::WithChildren,
-      (ActionId::RetargetPullRequest, Intent::Retarget { number }) => pull_request == Some(*number),
+      (ActionId::RetargetPullRequest, Intent::Retarget { number }) | (ActionId::CancelAutoMerge, Intent::DisableAutoMerge { number }) => pull_request == Some(*number),
       (ActionId::RequestReview, Intent::RequestReview { subject, .. }) => is_branch(subject, name),
       (ActionId::CreatePullRequest, Intent::CreatePullRequest(create)) => is_branch(&create.subject, name),
       (_, Intent::Rewrite(rewrite)) => is_own_rewrite(id, name, unparks, rewrite),
       _ => false,
     },
-    Of::WholeStack { root, main_line, .. } => match (id, intent) {
-      (ActionId::SafePushWholeStack | ActionId::PushToBaseline, Intent::Land(land)) => land.mode != PatronusPushMode::DryRun && is_stack(&land.subject, root),
+    Of::WholeStack { root, main_line, pull_request } => match (id, intent) {
+      (ActionId::SafePushWholeStack | ActionId::PushToBaseline | ActionId::MergePullRequest, Intent::Land(land)) => {
+        land.mode != PatronusPushMode::DryRun && is_stack(&land.subject, root)
+      }
+      (ActionId::CancelAutoMerge, Intent::DisableAutoMerge { number }) => pull_request == Some(*number),
       (ActionId::DryRunWholeStack, Intent::Land(land)) => land.mode == PatronusPushMode::DryRun && is_stack(&land.subject, root),
       (ActionId::SafePushMainLine, Intent::Land(land)) => land.mode != PatronusPushMode::DryRun && main_line.is_some_and(|leaf| is_branch(&land.subject, leaf)),
       (ActionId::RequestReview, Intent::RequestReview { subject, .. }) => is_stack(subject, root),

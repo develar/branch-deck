@@ -336,6 +336,8 @@ function failureTitle(intent: Intent, subject: string): string {
       return `Cannot request a review of ${subject}`
     case "closePullRequest":
       return `Cannot close pull request #${intent.number}`
+    case "disableAutoMerge":
+      return `Cannot cancel the auto-merge of #${intent.number}`
     case "closeLandedPullRequests":
       return intent.landing.by === "robot" ? "Cannot close the pull requests of the merged robot" : "Cannot close the pull requests that landed"
     case "submitReview":

@@ -502,6 +502,7 @@ fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_land
     at(3, 0, 3),
     FactResult::PullRequests(PullRequestsResult {
       viewer_permission: None,
+      merge_methods: None,
       availability: PullRequestAvailability::Available {
         owner: "acme".to_owned(),
         name: "monorepo".to_owned(),

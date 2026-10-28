@@ -326,6 +326,7 @@ fn apply_pull_requests_change(view: &mut PullRequestsView, change: PullRequestsC
     head,
     repository,
     viewer_permission,
+    merge_methods,
     pull_requests,
     removed_pull_requests,
     stack_pull_requests,
@@ -335,6 +336,7 @@ fn apply_pull_requests_change(view: &mut PullRequestsView, change: PullRequestsC
     view.head = head;
     view.repository = repository;
     view.viewer_permission = viewer_permission;
+    view.merge_methods = merge_methods;
   }
   for name in &removed_pull_requests {
     view.pull_requests.remove(name);

@@ -451,7 +451,15 @@ impl FactStore {
         }
         changed
       }
-      FactResult::PullRequests(result) => self.pull_requests.answer(observation, result),
+      FactResult::PullRequests(result) => {
+        let merged = news::auto_merged(self.pull_requests.view(), &result);
+        let changed = self.pull_requests.answer(observation, result);
+        // an answer older than the last one changes nothing, and tells nothing
+        for news in merged.into_iter().filter(|_| changed) {
+          self.tell(news);
+        }
+        changed
+      }
       FactResult::Rules { branch, result } => self.rules.entry(branch).or_insert_with(FactRecord::loading).answer(observation, result) == Applied::Applied,
       FactResult::Profiles { baseline, result } => {
         let observation = Observation {

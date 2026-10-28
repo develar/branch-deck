@@ -3,7 +3,8 @@
 
 use super::{InFlight, Input, Reply, SessionFacts};
 use domain_policy::refresh::{
-  FactTiming, ProfilesRead, ReadState, RefreshReason, ServiceState, branch_rules_due, profiles_due, pull_requests_due, pull_requests_follows_up, pull_requests_push_recheck_at,
+  FactTiming, ProfilesRead, ReadState, RefreshReason, ServiceState, branch_rules_due, merge_state_computing, profiles_due, pull_requests_due, pull_requests_follows_up,
+  pull_requests_push_recheck_at,
 };
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::session::{FactRefreshReason, Version};
@@ -61,7 +62,8 @@ struct ProfilesSchedule {
 pub(super) struct PullRequestsListed {
   /// `None`: the session was gone
   pub availability: Option<PullRequestAvailability>,
-  /// GitHub still shows another head of a branch the push before it pushed
+  /// GitHub still shows another head of a branch the push before it pushed, or has not computed whether it can merge an
+  /// open pull request (`refresh::merge_state_computing`): one more list looks a little later
   pub shows_old_head: bool,
   /// The version after its patch and the bases whose rules are read
   pub version: Option<Version>,
@@ -156,7 +158,8 @@ impl SessionFacts {
         let listed = match scheduler.port.begin(&key).await {
           Some(ticket) => {
             let result = scheduler.sources.pull_requests(&key).await;
-            let shows_old_head = !recheck && pushed.iter().any(|head| head.shows_old_head(&result));
+            // GitHub shows an old head of a pushed branch, or has not computed whether it can merge a pull request
+            let shows_old_head = !recheck && (pushed.iter().any(|head| head.shows_old_head(&result)) || merge_state_computing(&result));
             let availability = Some(result.availability.clone());
             let applied = scheduler.port.apply(&key, ticket, FactResult::PullRequests(result)).await;
             let moved = applied.as_ref().map_or_default(|applied| applied.moved_remotes.clone());

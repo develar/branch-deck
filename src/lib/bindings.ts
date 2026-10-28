@@ -405,7 +405,14 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  *  The copy pushed into the target where the repository lands by a push (`Intent::Land`): of a branch, of a whole
  *  stack
  */
-"push-to-baseline" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
+"push-to-baseline" | 
+/**
+ *  The merge of its pull request on GitHub where the repository lands by one (`Intent::Land`): of a branch, of a whole
+ *  stack; now ("Merge #7"), or once the checks pass ("Auto-Merge #7")
+ */
+"merge-pull-request" | 
+/**  The auto-merge of its pull request disabled (`Intent::DisableAutoMerge`) */
+"cancel-auto-merge" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
 /**  Approve and Safe Push, or the Safe Push alone after an approval of the head */
 "safe-push-pull-request" | "request-changes" | 
 /**  The branch of the table an own pull request is of */
@@ -1400,7 +1407,17 @@ export type Confirmation =
  *  What the gate of the route asks (`domain_policy::landing_route`): a rule of the target the user may bypass, the
  *  status checks a push lands without, a refusal of the server before (`LandingAllowances::bypass_rules` in `bd`)
  */
-{ kind: "routeRule"; reason: Reason };
+{ kind: "routeRule"; reason: Reason } | 
+/**
+ *  Checks of the open pull request `number` that the rules of its base don't require fail or still run
+ *  (`mergeStateStatus` `UNSTABLE`): GitHub merges it all the same (`LandingAllowances::allow_without_checks` in `bd`)
+ */
+{ kind: "checksNotRequired"; number: number } | 
+/**
+ *  The repository allows only squash merges: the commit GitHub writes pairs with no original, so the update after it
+ *  may stop on a conflict of the originals
+ */
+{ kind: "squashOnly"; number: number };
 
 /**  Analysis results for a merge conflict, including missing commits and divergence information. */
 export type ConflictAnalysis = {
@@ -2029,10 +2046,21 @@ export type ErrorCode =
  */
 "checks_not_passed" | 
 /**
- *  `bd land`: the route of the repository (`branchdeck.landing`) lands no branch through `bd land` yet: the merge of
- *  a pull request on GitHub. Nothing was pushed
+ *  `bd land`: the route of the repository (`branchdeck.landing`) lands no branch through `bd land` yet. Nothing was
+ *  pushed
  */
 "landing_route_unsupported" | 
+/**
+ *  `bd land`: GitHub can't merge the pull request of the branch: a merge would conflict, the base requires its head to
+ *  be up to date (`bd update`, then `bd push`), or GitHub refused the merge (the message says what it said). Nothing
+ *  was merged
+ */
+"not_mergeable" | 
+/**
+ *  `bd land`: the rules of the target hold the merge of the pull request back: approvals or required checks are
+ *  missing, changes are requested, it is a draft. Nothing was merged; it lands once they come
+ */
+"merge_blocked" | 
 /**
  *  `bd request-review`: the branch has no open pull request, or only a draft; `bd safe-push <branch>
  *  --create-pull-request` opens one, a draft is marked ready for review on GitHub
@@ -2836,6 +2864,11 @@ export type Intent =
 /**  The pull request `number` is closed with `comment` */
 ({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
+ *  The auto-merge of the open pull request `number` is disabled (Cancel Auto-Merge): GitHub merges it no more by
+ *  itself
+ */
+({ kind: "disableAutoMerge"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**
  *  The open pull requests that hold nothing more than what `landing` landed are closed: of the branches a merged
  *  robot landed whole besides its own, of a push into the target, of the fetched baseline, of a merged pull request
  *  (`domain_policy::landed::pull_requests_to_close`)
@@ -3033,7 +3066,9 @@ export type LandFact =
 /**  What the token may do in the repository a push into the target goes to (the gate of the route) */
 { kind: "permission" } | 
 /**  The rules of the target a push goes into (the gate of the route) */
-{ kind: "targetRules" };
+{ kind: "targetRules" } | 
+/**  Whether GitHub can merge the open pull request `number` now (`mergeStateStatus`), which it computes lazily */
+{ kind: "mergeState"; number: number };
 
 /**  The merge profiles a start offers (`domain_policy::land::offered_profiles`), as its popover lists them */
 export type LandProfiles = {
@@ -3454,6 +3489,26 @@ export type MergeContent = {
 /**  One side deleted the file and the other changed it: the diff of the base to the changed side, as two-way */
 ({ kind: "oneSided"; deleted: MergeSide; diff: TextDiff }) & { baseBytes?: never; baseCommit?: never; leftBytes?: never; leftCommit?: never; rightBytes?: never; rightCommit?: never };
 
+/**  How GitHub merges a pull request (GitHub's `PullRequestMergeMethod`) */
+export type MergeMethod = 
+/**  Its commits rebased onto the base: author, time and message stay, so the update pairs them with the originals */
+"rebase" | 
+/**  A merge commit: its commits stay as they are */
+"merge" | 
+/**  One commit of all of them: nothing pairs it with the originals */
+"squash";
+
+/**
+ *  The merge methods a GitHub repository allows, and whether it allows auto-merge (`mergeCommitAllowed`,
+ *  `squashMergeAllowed`, `rebaseMergeAllowed`, `autoMergeAllowed` of the listing)
+ */
+export type MergeMethods = {
+	rebase: boolean,
+	merge: boolean,
+	squash: boolean,
+	autoMerge: boolean,
+};
+
 /**  How a merge block resolves (`MergeConflictResolutionStrategy` without the language-specific one) */
 export type MergeResolution = 
 /**  Take the side that changed */
@@ -3472,6 +3527,25 @@ export type MergeSource =
  *  file then names its blob in the copy (`FileMergeHeader::resolved_id`)
  */
 { kind: "cherryPick"; parent: string; target: string; commit: string; resolved?: string | null };
+
+/**  Whether GitHub can merge a pull request now (GitHub's `MergeStateStatus`) */
+export type MergeStateStatus = 
+/**  Mergeable, its checks pass */
+"clean" | 
+/**  Mergeable, checks that are not required fail or run */
+"unstable" | 
+/**  Something the rules of the base require is missing: approvals, required checks that fail or run */
+"blocked" | 
+/**  The base requires the head to be up to date with it, and it is not */
+"behind" | 
+/**  A merge would conflict */
+"dirty" | 
+/**  A draft */
+"draft" | 
+/**  Mergeable, its checks pass, and the server runs pre-receive hooks */
+"hasHooks" | 
+/**  GitHub has not computed it yet: asked again, it answers */
+"unknown";
 
 /**  Why the approvals are missing */
 export type MissingApprovalsReason = 
@@ -3625,7 +3699,13 @@ export type NewsEvent =
  *  new head (`moved_remote`): `count` commits of others (`others_behind`) the branch lacks at the remote tip `tip`, by
  *  `authors` (newest first, each once). Told once per tip
  */
-{ kind: "remoteCommits"; branch: string; tip: string; count: number; authors: string[] };
+{ kind: "remoteCommits"; branch: string; tip: string; count: number; authors: string[] } | 
+/**
+ *  GitHub merged the pull request `number` of `subject` (a branch, `stack:<root>`) into `into` by its auto-merge, which
+ *  the session knew enabled on it open (`domain_policy::news::auto_merged`): no update follows by itself, the page
+ *  offers Update Project
+ */
+{ kind: "autoMerged"; number: number; subject: string; into: string };
 
 /**
  *  The object and the event an outcome or a news tells, one toast each (`toastKeys` of `src/lib/event-toast.ts`, which
@@ -3816,7 +3896,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -4431,7 +4511,20 @@ export type PlannedEffect =
  *  branch of the baseline on its remote `remote` ("origin"), `target` ("master"): a fast-forward the server takes or
  *  refuses whole (`Intent::Land` of a repository that lands by a push, `domain_policy::land_direct`)
  */
-{ kind: "pushBaseline"; subject: Subject; tip: string; remote: string; target: string };
+{ kind: "pushBaseline"; subject: Subject; tip: string; remote: string; target: string } | 
+/**
+ *  GitHub merges the open pull request `number` of `subject` by `method`, while its head is `head`, the commit the
+ *  user saw (`expectedHeadOid`: a moved head refuses it); `Intent::Land` of a repository that lands by a merge of the
+ *  pull request (`domain_policy::land_direct`)
+ */
+{ kind: "mergePullRequest"; subject: Subject; number: number; method: MergeMethod; head: string } | 
+/**
+ *  GitHub merges the open pull request `number` of `subject` by `method` once its checks pass (auto-merge), while its
+ *  head is `head`: after the push before it, which restarts the checks, or while they still run
+ */
+{ kind: "enableAutoMerge"; subject: Subject; number: number; method: MergeMethod; head: string } | 
+/**  The auto-merge of the open pull request `number` is disabled (`Intent::DisableAutoMerge`) */
+{ kind: "disableAutoMerge"; number: number };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -4525,6 +4618,16 @@ export type PullRequest = {
 	reviewers: Reviewer[],
 	/**  The login of the author; null for a deleted account */
 	author: string | null,
+	/**
+	 *  Whether GitHub can merge it now (`mergeStateStatus`); absent when GitHub didn't say. GitHub computes it lazily:
+	 *  `Unknown` is a wait, never "no"
+	 */
+	mergeState?: MergeStateStatus | null,
+	/**
+	 *  The method of the auto-merge someone enabled on it (`autoMergeRequest`): GitHub merges it once its checks pass;
+	 *  absent while none is enabled
+	 */
+	autoMerge?: MergeMethod | null,
 };
 
 /**  Whether pull requests can be listed for the repository */
@@ -4576,7 +4679,9 @@ export type PullRequestField = "base" | "reviewers" |
 /**  Open or closed */
 "state" | 
 /**  A review of the user */
-"review";
+"review" | 
+/**  Its auto-merge: enabled or disabled */
+"autoMerge";
 
 /**  What a review of the user says */
 export type PullRequestReviewEvent = "approve" | 
@@ -4607,6 +4712,7 @@ export type PullRequestsChange = {
 	 */
 	repository?: string | null,
 	viewerPermission?: ViewerPermission | null,
+	mergeMethods?: MergeMethods | null,
 	pullRequests?: { [key in string]: PullRequest },
 	removedPullRequests?: string[],
 	stackPullRequests?: { [key in string]: PullRequest },
@@ -4630,6 +4736,8 @@ export type PullRequestsView = {
 	 *  never "no access"
 	 */
 	viewerPermission: ViewerPermission | null,
+	/**  The merge methods that repository allows, as the listing named them; `None` without one */
+	mergeMethods?: MergeMethods | null,
 	/**  By virtual branch name (without the `{prefix}/virtual/` namespace) */
 	pullRequests: { [key in string]: PullRequest },
 	/**  By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's */
@@ -4885,7 +4993,42 @@ export type Reason =
  *  The fetched baseline `upstream` (`origin/master`) has commits the fork point of the checked out branch lacks, which
  *  the copies are built on: a push of one is no fast-forward, so the update comes first and builds it anew on them
  */
-{ code: "baselineAhead"; upstream: string };
+{ code: "baselineAhead"; upstream: string } | 
+/**
+ *  The repository lands by a merge of the pull request on GitHub, and `branch` (a branch, or the root of a whole
+ *  stack) has no open pull request into the target: Create Pull Request first
+ */
+{ code: "noPullRequestToMerge"; branch: string } | 
+/**  The open pull request `number` is a draft: GitHub merges none; it is marked ready for review on GitHub first */
+{ code: "mergeDraft"; number: number } | 
+/**  A merge of the open pull request `number` would conflict with its base (`mergeStateStatus` `DIRTY`) */
+{ code: "mergeConflict"; number: number } | 
+/**
+ *  The rules of `target` require the head of the open pull request `number` to be up to date with it (`BEHIND`): the
+ *  update of the branch and its push first
+ */
+{ code: "mergeBehind"; number: number; target: string } | 
+/**  The open pull request `number` lacks the approvals the rules of its base require */
+{ code: "mergeNeedsApprovals"; number: number } | 
+/**
+ *  `by` requested changes on the open pull request `number` (GitHub's decision when `by` is empty), which the rules
+ *  of its base hold the merge back for
+ */
+{ code: "mergeChangesRequested"; number: number; by: string[] } | 
+/**  Required checks of the open pull request `number` fail */
+{ code: "mergeChecksFail"; number: number } | 
+/**  Required checks of the open pull request `number` still run, and the repository allows no auto-merge */
+{ code: "mergeChecksRunning"; number: number } | 
+/**
+ *  The rules of the base hold the merge of the open pull request `number` back for something GitHub doesn't name
+ *  (`BLOCKED`, approvals and checks as they should be)
+ */
+{ code: "mergeBlocked"; number: number } | 
+/**
+ *  The open pull request `number` shows another commit than its branch, and the repository allows no auto-merge, which
+ *  would wait for the checks of the pushed commit: the push of the branch first
+ */
+{ code: "mergeHeadBehind"; number: number };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";
@@ -6422,7 +6565,9 @@ export type StepFact =
 /**  What the token may do in the repository a push into the target goes to (the gate of the route) */
 "permission" | 
 /**  The rules of the target a push goes into (the gate of the route) */
-"targetRules";
+"targetRules" | 
+/**  Whether GitHub can merge the open pull request now (`mergeStateStatus`), which it computes lazily */
+"mergeState";
 
 /**  Why a read the next step decides on failed: no start is decided on it */
 export type StepFailure = 
@@ -6512,7 +6657,28 @@ export type StepKind =
  *  the copy is built on, so a push of it is no fast-forward: Update Project builds it anew on them first; Push to
  *  master is disabled with `Reason::BaselineAhead` (`NextStep::safe_push`)
  */
-{ kind: "updateProject"; upstream: string };
+{ kind: "updateProject"; upstream: string } | 
+/**
+ *  The row `pr` of a repository that lands by a merge of the pull request: no open pull request into the target,
+ *  "Create Pull Request…"
+ */
+{ kind: "openPullRequest" } | 
+/**
+ *  The row `merge`: GitHub merges the open pull request `number` now by `method` ("Merge #7"), or, `auto`, once the
+ *  checks of the commit it lands pass ("Auto-Merge #7": they still run, or the push before it restarts them); its
+ *  start is `NextStep::safe_push`
+ */
+{ kind: "mergePullRequest"; number: number; auto: boolean; method: MergeMethod } | 
+/**
+ *  The row `merge′`: the auto-merge of the open pull request `number` is enabled, GitHub merges it by `method` once its
+ *  checks pass (Cancel Auto-Merge)
+ */
+{ kind: "autoMerging"; number: number; method: MergeMethod } | 
+/**
+ *  The row `merge″`: the merge of the open pull request `number` waits, or can't: the reason is
+ *  `NextStep::safe_push` (approvals, checks, changes requested, a conflict, a head behind its base, a draft)
+ */
+{ kind: "mergeHeld"; number: number };
 
 /**  The retarget "⋯" offers of an open pull request into another base than the target */
 export type StepRetarget = {
@@ -6532,7 +6698,18 @@ export type StepRow = "noSlot" | "0" | "1" | "1′" | "1″" | "2" | "3" | "5" |
  */
 "push" | 
 /**  The row before it while the fetched baseline has commits the copy is not built on: "Update Project" */
-"push′";
+"push′" | 
+/**
+ *  The row of a repository that lands by a merge of the pull request on GitHub (spec/branch/next-step.spec.md, "A
+ *  merge of the pull request") without an open pull request into the target: "Create Pull Request…"
+ */
+"pr" | 
+/**  Its row of an open pull request GitHub can merge: "Merge #7", "Auto-Merge #7" */
+"merge" | 
+/**  Its row of an open pull request whose auto-merge is enabled: GitHub merges it once its checks pass */
+"merge′" | 
+/**  Its row of an open pull request whose merge the rules of its base hold back, or that can't merge: the reason */
+"merge″";
 
 /**
  *  The commits of the refs of Branch Deck that a grouping reads and the rewrites write

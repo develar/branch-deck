@@ -53,7 +53,7 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
       robots.into_iter().chain([FactNeed::PullRequests]).chain(readiness).collect()
     }
     Intent::Push(_) | Intent::CloseLandedPullRequests { .. } => vec![FactNeed::Robots, FactNeed::PullRequests],
-    Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::ClosePullRequest { .. } => vec![FactNeed::PullRequests],
+    Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::ClosePullRequest { .. } | Intent::DisableAutoMerge { .. } => vec![FactNeed::PullRequests],
     Intent::SubmitReview { .. }
     | Intent::SetIssueState { .. }
     | Intent::ForgetStart { .. }
@@ -68,7 +68,8 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
 
 /// What the first plan of a start of `subject` into `target` waits for (`waits`) that it reads now: the review of the
 /// subject, the rules of the target for a push into an approved pull request and for the gate of a push into the target,
-/// the listing of the pull requests a failed first read left without the permission of the token; the other facts it
+/// the listing of the pull requests a failed first read left without the permission of the token, or whose pull request
+/// GitHub had not computed whether it can merge (`UNKNOWN`: asked again once); the other facts it
 /// waits for are read first or are the host's (the landing gate, the remote of a sync)
 #[must_use]
 pub fn waits(waits: &[FactWait], subject: &Subject, target: &str) -> Vec<FactNeed> {
@@ -78,8 +79,9 @@ pub fn waits(waits: &[FactWait], subject: &Subject, target: &str) -> Vec<FactNee
       LandFact::Readiness => FactNeed::Readiness(subject.clone()),
       // the rules of the target: of a push into an approved pull request, of the gate of a push into the target
       LandFact::Rules { .. } | LandFact::TargetRules => FactNeed::Rules { branch: target.to_owned() },
-      // the permission of the token comes with the listing of the pull requests, read first
-      LandFact::Permission => FactNeed::PullRequests,
+      // the permission of the token comes with the listing of the pull requests, read first; whether GitHub can merge a
+      // pull request too, which GitHub computes once asked: the listing asked again answers it
+      LandFact::Permission | LandFact::MergeState { .. } => FactNeed::PullRequests,
       LandFact::Remote | LandFact::Profiles | LandFact::PullRequests | LandFact::LandingNeeds => continue,
     };
     if !needs.contains(&need) {

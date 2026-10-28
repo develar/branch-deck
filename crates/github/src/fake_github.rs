@@ -63,6 +63,9 @@ impl FakeRequest {
 pub struct FakeGitHub {
   /// By `METHOD /path`: the answers still to give; the last one is given again and again
   answers: Mutex<HashMap<String, VecDeque<FakeAnswer>>>,
+  /// The answers to a `METHOD /path` whose body has a text (one GraphQL query or mutation: `POST /graphql` serves them
+  /// all), before those by `METHOD /path` alone
+  body_answers: Mutex<Vec<(String, String, FakeAnswer)>>,
   requests: Mutex<Vec<FakeRequest>>,
   /// Answers what no answer is scripted for
   repository: Option<Arc<FakeGitHubRepository>>,
@@ -120,6 +123,15 @@ impl FakeGitHub {
   /// Answers `method path` (without the query) with `answer` from now on
   pub fn answer(&self, method: &str, path: &str, answer: FakeAnswer) {
     self.answer_in_turn(method, path, vec![answer]);
+  }
+
+  /// Answers `method path` whose body has `body` (a GraphQL query or mutation) with `answer` from now on, before an
+  /// answer of `answer`
+  pub fn answer_with_body(&self, method: &str, path: &str, body: &str, answer: FakeAnswer) {
+    let key = format!("{method} {path}");
+    let mut answers = self.body_answers.lock().unwrap();
+    answers.retain(|(other, marker, _)| *other != key || marker != body);
+    answers.push((key, body.to_string(), answer));
   }
 
   /// Answers `method path` with `answers` in turn, then with the last one
@@ -251,8 +263,16 @@ impl FakeGitHub {
       body: String::from_utf8_lossy(body).into_owned(),
     };
     self.requests.lock().unwrap().push(request.clone());
-    let answer = self
-      .next_answer(&format!("{method} {}", uri.path()))
+    let key = format!("{method} {}", uri.path());
+    let by_body = self
+      .body_answers
+      .lock()
+      .unwrap()
+      .iter()
+      .find(|(other, marker, _)| *other == key && request.body.contains(marker.as_str()))
+      .map(|(_, _, answer)| answer.clone());
+    let answer = by_body
+      .or_else(|| self.next_answer(&key))
       .or_else(|| self.repository.as_ref().and_then(|repository| repository.answer(&request)))
       .or_else(|| self.device_flow_answer(&request));
     let Some(answer) = answer else {

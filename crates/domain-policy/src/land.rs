@@ -39,8 +39,9 @@
 //! default only one that skips the review) are read here too.
 //!
 //! `decide` is the dispatcher of the route of the repository (`LandFacts::route`, `landing_route::route`): the robot of
-//! Patronus decides here (a Patronus named off Space refused first; the merge of a pull request on GitHub starts the
-//! robot as before until it has a way of its own), a push of the copy into the target in `land_direct`. Both read the
+//! Patronus decides here (a Patronus named off Space refused first; on the pull-request route while Patronus lands the
+//! repository, or no merge on GitHub lands into its target: `merges_on_github`), a push of the copy into the target and
+//! a merge of the pull request on GitHub in `land_direct`. Both read the
 //! subject part of here: what lands (`branch_lands`, `stack_lands`), what the table alone refuses (`table_blocker`), the
 //! robots of part 1 (`start_refusal`), what the landing gate refuses unless allowed (`gate_blockers`) and a conflict with
 //! the newest target (`conflict_blocker`).
@@ -243,6 +244,9 @@ pub struct TargetConflictFact<'a> {
 pub struct LandFacts<'a> {
   /// The route of the repository into master with its gate (`landing_route::route`): which tail decides the start
   pub route: &'a LandingRoute,
+  /// A robot of Patronus lands the repository: its robots answer for it, or have not answered yet; the pull-request
+  /// route merges on GitHub only without one (`merges_on_github`)
+  pub patronus: bool,
   /// The branch of origin the robot pushes into
   pub target: &'a str,
   /// The branch prefix of the virtual branches (a pull request into one goes into the target)
@@ -323,6 +327,25 @@ fn chosen_profile(options: &PatronusStartOptions, last: Option<&PatronusRobotPro
   profiles.offered.iter().chain(&profiles.emergency).find(|profile| profile.id == id).cloned()
 }
 
+/// The pull-request route lands by a merge on GitHub (`land_direct::decide_merge`): while no robot of Patronus lands the
+/// repository (`patronus`: its robots answer for it, a Space repository that names the pull-request route, or before
+/// its answer), and a merge there lands into the target (the gate refuses neither a mirror nor a repository off GitHub)
+#[must_use]
+pub const fn merges_on_github(route: &LandingRoute, patronus: bool) -> bool {
+  match route {
+    LandingRoute::PullRequest { merge } => {
+      !patronus
+        && !matches!(
+          merge,
+          RouteGate::Refused {
+            reason: Reason::GitHubMirror { .. } | Reason::NotOnGitHub
+          }
+        )
+    }
+    LandingRoute::Patronus { .. } | LandingRoute::Push { .. } => false,
+  }
+}
+
 /// What the table alone refuses of a start, before any fact of the remote: the sync did not build the branch, the
 /// branch stays local (parked, or built on parked), the stack branch of a whole stack holds a parked member
 #[must_use]
@@ -349,8 +372,8 @@ pub fn table_blocker(subject: &SubjectFacts<'_>) -> Option<Reason> {
 
 /// The confirmations of `confirmations` that `allow` doesn't accept, of those an allowance accepts in `bd` (a flag): the
 /// cancel of the robot the start replaces, a review Patronus couldn't answer, rules GitHub didn't answer; of a push into
-/// the target the checks that did not pass and the changes requested (`allow_without_checks`), what the gate of the
-/// route asks (`bypass_rules`). The others the start says and `bd` prints; the app's popover asks every one
+/// the target the checks that did not pass and the changes requested (`allow_without_checks`), of a merge the checks
+/// its base doesn't require that fail (`allow_without_checks`), what the gate of the route asks (`bypass_rules`). The others the start says and `bd` prints; the app's popover asks every one
 #[must_use]
 pub fn unaccepted<'c>(confirmations: &'c [Confirmation], allow: &LandingAllowances) -> Vec<&'c Confirmation> {
   confirmations
@@ -359,7 +382,7 @@ pub fn unaccepted<'c>(confirmations: &'c [Confirmation], allow: &LandingAllowanc
       Confirmation::CancelsRobot { .. } => !allow.cancel_running,
       Confirmation::ReviewUnknown { .. } => !allow.allow_unknown_review,
       Confirmation::RulesUnknown { .. } => !allow.allow_unknown_rules,
-      Confirmation::Unchecked { .. } | Confirmation::ChangesRequested { .. } => !allow.allow_without_checks,
+      Confirmation::Unchecked { .. } | Confirmation::ChangesRequested { .. } | Confirmation::ChecksNotRequired { .. } => !allow.allow_without_checks,
       Confirmation::RouteRule { .. } => !allow.bypass_rules,
       _ => false,
     })
@@ -392,8 +415,9 @@ struct SubjectPart<'a> {
 pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
   match facts.route {
     LandingRoute::Push { gate, remote } => crate::land_direct::decide_push(facts, land, gate, remote.as_deref()),
-    // the merge of a pull request on GitHub has no way of its own yet: the start is the robot's, as before the routes
     LandingRoute::Patronus { gate } => decide_robot(facts, land, Some(gate)),
+    LandingRoute::PullRequest { merge } if merges_on_github(facts.route, facts.patronus) => crate::land_direct::decide_merge(facts, land, merge),
+    // Patronus lands the repository, or no merge on GitHub lands into its target (a mirror, off GitHub): the robot's
     LandingRoute::PullRequest { .. } => decide_robot(facts, land, None),
   }
 }
@@ -698,7 +722,7 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
 
 /// The remote branches of `pushed` whose push drops commits the branch lacks (someone's work): each refuses the start
 /// unless the user allowed it (D12), which makes it a confirmation
-fn drops<'a>(pushed: impl Iterator<Item = (&'a str, Option<RemoteBranch<'a>>)>, land: &Land, decision: &mut LandDecision) -> Vec<Confirmation> {
+pub(crate) fn drops<'a>(pushed: impl Iterator<Item = (&'a str, Option<RemoteBranch<'a>>)>, land: &Land, decision: &mut LandDecision) -> Vec<Confirmation> {
   let mut forced = Vec::new();
   for (branch, remote) in pushed {
     let Some(remote) = remote.filter(|remote| remote.drops > 0) else {

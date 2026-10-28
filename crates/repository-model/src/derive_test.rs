@@ -450,6 +450,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
   };
   let route = LandingRoute::Patronus { gate: RouteGate::Open };
   let sources = LandSources {
+    patronus: true,
     route: &route,
     pushed: None,
     header: &TableHeader::default(),
@@ -513,6 +514,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
 
   // landing needs being computed: the start waits for them
   let loading = LandSources {
+    patronus: true,
     landing_needs: &FactState::Loading,
     ..sources
   };

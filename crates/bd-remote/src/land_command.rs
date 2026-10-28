@@ -9,7 +9,13 @@
 //!   target by the push URL after it). What CI did not check and what the gate of the route asks are accepted only by
 //!   flags (`--without-checks`, `--bypass-rules`, `domain_policy::land::unaccepted`), once the user said so. It never
 //!   updates: the output names `bd update` as the next step.
-//! - The merge of a pull request on GitHub: not yet (`landing_route_unsupported`).
+//! - The merge of a pull request on GitHub (`land::merges_on_github`): the same frame as a push, the plan of the app's
+//!   start merging the open pull request of the subject on GitHub, or enabling its auto-merge after the push of its
+//!   branch, or while its checks run (`land_direct::decide_merge`); what refuses it is `not_mergeable` (a conflict, a
+//!   head behind its base) or `merge_blocked` (approvals, checks, changes requested, a draft), a pull request to create
+//!   first `no_pull_request`. It never updates: after a merge the output names `bd update`. On Space the pull-request
+//!   route is the Safe Push, as the app has it while Patronus lands the repository; a merge on a mirror `origin` doesn't
+//!   push to lands nothing (`landing_route_unsupported`).
 
 use crate::landed::landed_branches;
 use crate::push_command::{github_repository, unknown_or_unapplied};
@@ -42,6 +48,7 @@ use domain_types::patronus::{LandingAllowances, PatronusPushMode};
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::reason::Reason;
 use domain_types::session::PullRequestsView;
+use operations::engine::pushes_into_target;
 use operations::land::LandHost;
 use operations::land_execute::{Accepted, Steps, execute, refusal_code};
 use operations::needs::FactNeed;
@@ -93,8 +100,8 @@ pub struct LandOutput {
   pub repository: String,
   pub prefix: String,
   pub branch: String,
-  /// How the repository lands into master (`branchdeck.landing`): `patronus` (a Safe Push, `safe_push` tells it) or
-  /// `push` (the copy pushed into the target)
+  /// How the repository lands into master (`branchdeck.landing`): `patronus` (a Safe Push, `safe_push` tells it), `push`
+  /// (the copy pushed into the target) or `pull-request` (GitHub merges its pull request)
   pub route: String,
   /// The branch of the baseline on its remote the push lands into, e.g. `master`
   pub target: String,
@@ -118,8 +125,16 @@ pub struct LandOutput {
   /// With `--check`: what refuses the push, each with the error code it would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refusals: Vec<Refusal>,
-  /// The push landed the commit into the target; `false` with `--check`
+  /// The push landed the commit into the target, or GitHub merged the pull request; `false` with `--check`
   pub landed: bool,
+  /// The route `pull-request`: the pull request GitHub merges
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pull_request: Option<u32>,
+  /// The route `pull-request`: GitHub merges the pull request once its checks pass (its auto-merge is enabled, after the
+  /// push of the branch when its pull request showed another commit); nothing landed yet, and no update follows: tell the
+  /// user it lands by itself
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub auto_merge: bool,
   /// The open pull requests of what the push landed that show an older version of a branch (a head the push left out),
   /// the pushed branch's own too: the app closes them with a comment, `bd` closes none
   /// (`domain_policy::landed::pull_requests_to_close`); one whose head the push put into the target is GitHub's to
@@ -177,7 +192,7 @@ pub fn land(context: &RepoContext, args: &LandArgs, environment: &Environment) -
     update: None,
   });
   match routed {
-    LandingRoute::Push { .. } => land_by_push(context, args, environment),
+    LandingRoute::Push { .. } => land_directly(context, args, environment, Direct::Push),
     // Patronus named off Space
     LandingRoute::Patronus {
       gate: RouteGate::Refused { reason },
@@ -185,16 +200,36 @@ pub fn land(context: &RepoContext, args: &LandArgs, environment: &Environment) -
       refusal_code(&reason),
       format!("Nothing was pushed or started: {}", start_refusal_text(&reason, &args.branch, &[])),
     )),
+    // Patronus lands a repository on Space, as the app has it
     LandingRoute::Patronus { .. } => land_by_robot(context, args, environment),
-    LandingRoute::PullRequest { .. } => Err(CliError::new(
-      ErrorCode::LandingRouteUnsupported,
-      format!(
-        "Nothing was pushed: the repository lands through the merge of its pull request on GitHub ({}), which bd land doesn't do yet; push the branch (`{} push {}`) and merge its pull request on GitHub, or ask the user to name another route",
-        domain_types::landing_route::LANDING_CONFIG_KEY,
-        context.bd,
-        shell_word(&args.branch)
-      ),
-    )),
+    LandingRoute::PullRequest { .. } if remote.on_space => land_by_robot(context, args, environment),
+    LandingRoute::PullRequest { .. } => land_directly(context, args, environment, Direct::Merge),
+  }
+}
+
+/// How a landing without a robot lands
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Direct {
+  /// A push of the copy into the target
+  Push,
+  /// GitHub merges the pull request
+  Merge,
+}
+
+impl Direct {
+  const fn route(self) -> &'static str {
+    match self {
+      Self::Push => "push",
+      Self::Merge => "pull-request",
+    }
+  }
+
+  /// What a refusal says was not done
+  const fn nothing(self) -> &'static str {
+    match self {
+      Self::Push => "Nothing was pushed",
+      Self::Merge => "Nothing was pushed or merged",
+    }
   }
 }
 
@@ -223,6 +258,8 @@ fn land_by_robot(context: &RepoContext, args: &LandArgs, environment: &Environme
     next_step: None,
     refusals: Vec::new(),
     landed: false,
+    pull_request: None,
+    auto_merge: false,
     closes: Vec::new(),
     next: None,
     decided: Decided {
@@ -233,8 +270,8 @@ fn land_by_robot(context: &RepoContext, args: &LandArgs, environment: &Environme
   })
 }
 
-/// The route of a push into the target (the module's header)
-fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environment) -> Result<LandOutput, CliError> {
+/// The route of a push into the target, or of a merge of the pull request on GitHub (the module's header)
+fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environment, direct: Direct) -> Result<LandOutput, CliError> {
   let github_service = Arc::new(github_service(context, environment));
   // the sync is the part under the lock (its merge-tree writes the virtual branches); the reads of GitHub and the trial
   // after it keep no other bd writer waiting, and the run takes the lock again only to witness the refs
@@ -272,9 +309,32 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
     ..BdServices::new(context, Arc::clone(&github_service))
   };
   let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), services.sources());
-  // the pull requests with the permission of the token: whether CI passed on the tip, the gate of the route
-  let first: Vec<FactNeed> = patronus.iter().map(|_| FactNeed::Robots).chain([FactNeed::PullRequests]).collect();
+  // the pull requests with the permission of the token: whether CI passed on the tip, the gate of the route; of a merge
+  // the robots too, which answer off Space that Patronus lands nothing (`land::merges_on_github`)
+  let robots = (patronus.is_some() || direct == Direct::Merge).then_some(FactNeed::Robots);
+  let first: Vec<FactNeed> = robots.into_iter().chain([FactNeed::PullRequests]).collect();
   facts.read(context, &first)?;
+  if direct == Direct::Merge {
+    let session = &facts.session;
+    let routed = landing_route_of(session.state().header(), &session.state().sections().landed, session.facts());
+    if let LandingRoute::PullRequest {
+      merge: RouteGate::Refused {
+        reason: reason @ (Reason::GitHubMirror { .. } | Reason::NotOnGitHub),
+      },
+    } = &routed
+    {
+      return Err(CliError::new(
+        ErrorCode::LandingRouteUnsupported,
+        format!(
+          "Nothing was pushed: the repository lands through the merge of its pull request ({}), and {}; push the branch (`{} push {}`) and merge its pull request where it lands, or ask the user to name another route",
+          domain_types::landing_route::LANDING_CONFIG_KEY,
+          start_refusal_text(reason, &args.branch, &[]),
+          context.bd,
+          shell_word(&args.branch)
+        ),
+      ));
+    }
+  }
 
   // what lands, in one trial: a removed declaration that another branch's commit still changes the use of, a name that a
   // branch outside it adds; the landing needs of a branch are its gate's
@@ -326,7 +386,7 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
     branch: args.branch.clone(),
-    route: "push".to_owned(),
+    route: direct.route().to_owned(),
     target: target.clone(),
     lands: plan.lands.clone(),
     whole_stack: whole.as_ref().map(|whole| whole_stack_summary(whole, &synced.report.stack_branches, &context.prefix)),
@@ -335,6 +395,8 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
     next_step: None,
     refusals: Vec::new(),
     landed: false,
+    pull_request: plan.pull_request.filter(|_| direct == Direct::Merge),
+    auto_merge: false,
     closes: Vec::new(),
     next: None,
     safe_push: None,
@@ -343,7 +405,7 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
       step: None,
     },
   };
-  let refusals = refusals_of(context, plan, land.allow, &what, &robots);
+  let refusals = refusals_of(context, plan, land.allow, &what, &robots, direct);
   if args.check {
     let read = CheckRead {
       table: &table,
@@ -362,12 +424,18 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
       error.with_next_step(step.command, step.needs_approval)
     }));
   }
-  if pushed_tip(plan).is_none() {
+  // the auto-merge of the pull request is enabled already: GitHub merges it once its checks pass
+  if direct == Direct::Merge && plan.effects.is_empty() {
+    output.auto_merge = true;
+    return Ok(output);
+  }
+  if !pushes_into_target(plan) {
     // another route since the sync read it: the plan starts a robot, which `bd land` of a push never does
     return Err(CliError::new(
       ErrorCode::PlanChanged,
       format!(
-        "Nothing was pushed: the route of the repository changed since the sync; run `{} land {}` again",
+        "{}: the route of the repository changed since the sync; run `{} land {}` again",
+        direct.nothing(),
         context.bd,
         shell_word(&args.branch)
       ),
@@ -407,7 +475,13 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
     }
   }
   output.landed = update_after(&started.outcome.effects).is_some();
-  if output.landed {
+  output.auto_merge = started
+    .outcome
+    .effects
+    .iter()
+    .any(|record| matches!(record.effect, PlannedEffect::EnableAutoMerge { .. }) && record.status == EffectStatus::Done);
+  // the pull requests a merge closes the app's session tells by content once the listing shows it merged
+  if output.landed && direct == Direct::Push {
     output.closes = landed_closes(&table, facts.session.facts().pull_requests.view(), &plan.lands, matches!(start, Start::Branch(_)));
   }
   // the update is the user's command: it moves the checked out branch and its files
@@ -445,17 +519,19 @@ fn start_of<'a>(args: &LandArgs, synced: &'a SyncOutput, whole: Option<&WholeSta
   }
 }
 
-/// The commit the push of `plan` lands
+/// The commit the push of `plan` lands, or the head GitHub merges
 fn pushed_tip(plan: &Plan) -> Option<&str> {
   plan.effects.iter().find_map(|effect| match effect {
     PlannedEffect::PushBaseline { tip, .. } => Some(tip.as_str()),
+    PlannedEffect::MergePullRequest { head, .. } | PlannedEffect::EnableAutoMerge { head, .. } => Some(head.as_str()),
     _ => None,
   })
 }
 
 /// What refuses the push of `plan` of `what`, in order: its blockers, the facts it still waits for, then the
 /// confirmations `allow` doesn't accept, each with its code and the flag that accepts it
-fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, what: &str, robots: &[domain_types::patronus::PatronusRobot]) -> Vec<Refusal> {
+fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, what: &str, robots: &[domain_types::patronus::PatronusRobot], direct: Direct) -> Vec<Refusal> {
+  let nothing = direct.nothing();
   let blockers = plan.blockers.iter().map(|reason| {
     let words = match reason {
       Reason::LandingRefused { refusal } => refusal.reason(),
@@ -469,9 +545,13 @@ fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, wha
       },
       _ => words,
     };
-    let refusal = Refusal::new(refusal_code(reason), format!("Nothing was pushed: {words}"));
+    let refusal = Refusal::new(refusal_code(reason), format!("{nothing}: {words}"));
     match reason {
-      Reason::LandedIn { .. } | Reason::BaselineAhead { .. } => refusal.with_next_step(format!("{} update", context.bd), true),
+      // a head behind its base: the update of the branch onto it, then the push of it
+      Reason::LandedIn { .. } | Reason::BaselineAhead { .. } | Reason::PullRequestMerged { .. } | Reason::MergeBehind { .. } => {
+        refusal.with_next_step(format!("{} update", context.bd), true)
+      }
+      Reason::MergeHeadBehind { .. } => refusal.with_next_step(format!("{} push {}", context.bd, shell_word(what)), true),
       _ => refusal,
     }
   });
@@ -482,13 +562,14 @@ fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, wha
       LandFact::PullRequests => "the pull requests",
       LandFact::Remote => "the copy the sync builds",
       LandFact::LandingNeeds => "what the build of what lands needs",
+      LandFact::MergeState { .. } => "whether it can merge the pull request (it computes that once asked)",
       LandFact::Profiles | LandFact::Readiness | LandFact::Rules { .. } => "an answer of Patronus",
     };
     let (code, why) = wait
       .failed
       .as_ref()
       .map_or((ErrorCode::NetworkError, String::new()), |failed| (failed.code, format!(": {}", failed.message)));
-    Refusal::new(code, format!("Nothing was pushed: GitHub didn't answer {fact}{why}; run it again"))
+    Refusal::new(code, format!("{nothing}: GitHub didn't answer {fact}{why}; run it again"))
   });
   let asked = unaccepted(&plan.confirmations, &allow).into_iter().map(|confirmation| {
     let (code, flag) = match confirmation {
@@ -497,10 +578,7 @@ fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, wha
     };
     Refusal::new(
       code,
-      format!(
-        "Nothing was pushed: {}; ask the user, and only once they agree pass {flag}",
-        confirmation_words(confirmation)
-      ),
+      format!("{nothing}: {}; ask the user, and only once they agree pass {flag}", confirmation_words(confirmation)),
     )
   });
   blockers.chain(waits).chain(asked).collect()
@@ -523,6 +601,10 @@ fn confirmation_words(confirmation: &Confirmation) -> String {
     Confirmation::ChangesRequested { number, by } if by.is_empty() => format!("changes are requested on pull request #{number} (--without-checks)"),
     Confirmation::ChangesRequested { number, by } => format!("{} requested changes on pull request #{number} (--without-checks)", by.join(", ")),
     Confirmation::RouteRule { reason } => format!("{} (--bypass-rules)", start_refusal_text(reason, "", &[])),
+    Confirmation::ChecksNotRequired { number } => format!("checks of pull request #{number} that its base doesn't require fail or still run (--without-checks)"),
+    Confirmation::SquashOnly { number } => {
+      format!("the repository allows only squash merges: the commit GitHub writes of #{number} pairs with no original, so `bd update` may stop on a conflict")
+    }
     // the confirmations of a Safe Push, never of a push into the target
     other => format!("{other:?}"),
   }
