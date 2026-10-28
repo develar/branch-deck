@@ -7,7 +7,7 @@ use crate::state::View;
 use crate::table::TableState;
 use crate::table::table_test::{branch_status, grouped, remote_status, run_sync, synced};
 use domain_policy::parked::parked_state;
-use domain_types::actions::{ActionId, Availability};
+use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability};
 use domain_types::error::ApiError;
 use domain_types::fixtures::branches_grouped;
 use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot};
@@ -94,7 +94,7 @@ fn tree() -> Vec<GroupedBranchInfo> {
 /// of its own; the patch sends the order once, never a second list of the same names
 #[test]
 fn a_grouping_places_every_branch_with_its_section() {
-  let mut table = TableState::new();
+  let mut table = TableState::with_prefix("user");
   table.begin_sync();
   table.apply(grouping(tree(), &[("login", "waits for IJPL-1")], &[]));
   let structure = |name: &str| table.branch(name).map(|branch| branch.structure.clone()).unwrap();
@@ -128,7 +128,7 @@ fn a_grouping_places_every_branch_with_its_section() {
   let section = |name: &str| structure(name).section;
   let (parked, main): (Vec<&str>, Vec<&str>) = table.order().iter().map(String::as_str).partition(|name| section(name) == BranchSection::Parked);
   assert_eq!((main, parked), (vec!["docs", "session", "auth"], vec!["oauth", "login"]));
-  let mut view = View::new(1, "user");
+  let mut view = View::new(1);
   let patch = view.diff(&table, &FactStore::new()).unwrap();
   assert_eq!(patch.changes.order.as_deref(), Some(table.order()));
   assert_eq!(patch.changes.branches["auth"].structure, Some(structure("auth")));
@@ -145,10 +145,10 @@ fn a_grouping_places_every_branch_with_its_section() {
 /// structure
 #[test]
 fn a_patch_carries_only_the_structures_that_changed() {
-  let mut table = TableState::new();
+  let mut table = TableState::with_prefix("user");
   table.begin_sync();
   table.apply(grouping(tree(), &[], &["auth"]));
-  let mut view = View::new(1, "user");
+  let mut view = View::new(1);
   let _ = view.diff(&table, &FactStore::new());
   table.apply(grouping(tree(), &[], &["auth"]));
   let again = view.diff(&table, &FactStore::new());
@@ -182,7 +182,7 @@ fn a_patch_carries_only_the_structures_that_changed() {
 
 /// The table of `tree`, the stack branch of auth reported
 fn tree_with_its_stack_branch() -> TableState {
-  let mut table = TableState::new();
+  let mut table = TableState::with_prefix("user");
   table.begin_sync();
   table.apply(grouping(tree(), &[], &["auth"]));
   table.apply(stack_branch("auth", &["auth", "session", "login", "oauth"]));
@@ -199,7 +199,7 @@ fn the_root_of_a_stack_carries_its_whole_stack() {
   assert_eq!((whole_stack(&table, "login"), whole_stack(&table, "docs")), (None, None));
 
   let chain = vec![on("oauth", Some("login")), on("login", Some("auth")), on("auth", None)];
-  let mut table = TableState::new();
+  let mut table = TableState::with_prefix("user");
   table.begin_sync();
   table.apply(grouping(chain.clone(), &[], &[]));
   assert_eq!(whole_stack(&table, "auth"), Some(WholeStackView::Chain { leaf: "oauth".to_string() }));
@@ -212,13 +212,13 @@ fn the_root_of_a_stack_carries_its_whole_stack() {
 /// pushes send it alone is not listed
 #[test]
 fn the_view_orders_the_pushes_of_each_branch() {
-  let mut table = TableState::new();
+  let mut table = TableState::with_prefix("user");
   table.begin_sync();
   table.apply(grouping(tree(), &[], &["auth"]));
   for (branch, unpushed) in [("auth", &["a"][..]), ("login", &["l"]), ("oauth", &["o"]), ("session", &[]), ("docs", &["d"])] {
     table.apply(SyncEvent::RemoteStatusUpdate(remote_status(branch, unpushed)));
   }
-  let mut view = View::new(1, "user");
+  let mut view = View::new(1);
   // a running sync sends none: its remote statuses come one by one
   assert_eq!(view.diff(&table, &FactStore::new()).map(|patch| patch.changes.pushes.len()), Some(0));
   table.finish_sync(Ok(()));
@@ -262,7 +262,7 @@ fn the_view_orders_the_pushes_of_each_branch() {
 /// older version of it pushes whole, and one stacked on an ancestor whose push drops remote commits stops at it
 #[test]
 fn the_view_sends_push_up_to_here_only_where_it_differs_from_the_common_answer() {
-  let mut table = TableState::new();
+  let mut table = TableState::with_prefix("user");
   table.begin_sync();
   table.apply(grouping(tree(), &[], &[]));
   let rewritten = RemoteStatusUpdate {
@@ -280,7 +280,7 @@ fn the_view_sends_push_up_to_here_only_where_it_differs_from_the_common_answer()
     table.apply(SyncEvent::RemoteStatusUpdate(remote_status(branch, unpushed)));
   }
   table.finish_sync(Ok(()));
-  let mut view = View::new(1, "user");
+  let mut view = View::new(1);
   let pushes = view.diff(&table, &FactStore::new()).unwrap().changes.pushes;
   let up_to = |name: &str| pushes.get(name).and_then(|push| push.up_to.clone());
   assert_eq!(up_to("session"), None, "the common answer");
@@ -598,7 +598,7 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
     landing: whole(reported),
     landed: Vec::new(),
   });
-  let mut state = TableState::new();
+  let mut state = TableState::with_prefix("user");
   run_sync(&mut state, events);
 
   // the table of the sync with its landing report (`BranchTable::from_report`)
@@ -648,7 +648,7 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
   decide_landing(&mut view, &table, &session_remote(&table, &state), &robots, &HashMap::new(), &BTreeMap::new());
   answer_patronus(&mut facts, 3, view, &table);
 
-  let patch = View::new(1, "user").diff(&state, &facts).unwrap();
+  let patch = View::new(1).diff(&state, &facts).unwrap();
   let decision = &patch.changes.lands["login"].safe_push;
   let decided = decision.effects.iter().find_map(|effect| match effect {
     PlannedEffect::Push { branches, .. } => Some(branches.clone()),
@@ -709,7 +709,7 @@ fn the_pushes_of_the_view_read_the_landing_report_of_the_table_as_the_decision_o
 #[test]
 fn the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_those_that_changed() {
   let (state, mut facts) = crate::derive::derive_budget_test::session();
-  let mut view = View::new(1, "user");
+  let mut view = View::new(1);
   let first = view.diff(&state, &facts).unwrap();
   assert_eq!(first.changes.next_steps.len(), 141 + 3);
   let running = &first.changes.next_steps["lone001"];
@@ -753,7 +753,7 @@ fn finish_merged(facts: &mut FactStore) -> String {
 #[test]
 fn the_view_offers_the_actions_of_each_subject_and_a_patch_only_those_that_changed() {
   let (state, mut facts) = crate::derive::derive_budget_test::session();
-  let mut view = View::new(1, "user");
+  let mut view = View::new(1);
   let first = view.diff(&state, &facts).unwrap();
   let actions = &first.changes.actions;
   let availability = |key: &str, id: ActionId| actions[key].iter().find(|action| action.id == id).map(|action| action.availability.clone());
@@ -774,6 +774,49 @@ fn the_view_offers_the_actions_of_each_subject_and_a_patch_only_those_that_chang
   );
 }
 
+/// The cached frame of an earlier run (`TableState::cached`) shows its rows with the steps the facts decide, and the
+/// actions they offer: every remote action waits for the first sync (`ActionBlocker::Cached`), a rewrite does not; the
+/// sync that commits sends that the table is cached no more and gives the remote actions back
+#[test]
+fn a_cached_frame_shows_its_steps_and_holds_its_remote_actions_back_until_the_first_sync_commits() {
+  let (mut state, facts) = crate::derive::derive_budget_test::session();
+  let checked = View::new(1).diff(&state, &facts).unwrap();
+  state.cached = true;
+  let mut view = View::new(1);
+  let first = view.diff(&state, &facts).unwrap();
+  assert_eq!((first.changes.cached, view.snapshot().cached), (Some(true), true));
+  assert_eq!(
+    first.changes.next_steps, checked.changes.next_steps,
+    "the steps and the nodes show as the facts decide them"
+  );
+  let availability =
+    |actions: &BTreeMap<String, Vec<ActionState>>, key: &str, id: ActionId| actions[key].iter().find(|action| action.id == id).map(|action| action.availability.clone());
+  let cached = Some(Availability::Disabled { reason: ActionBlocker::Cached });
+  let actions = &first.changes.actions;
+  for (key, id) in [
+    ("lone001", ActionId::SafePush),
+    ("lone001", ActionId::DryRun),
+    ("lone001", ActionId::Push),
+    ("stack:stack0", ActionId::SafePushWholeStack),
+    ("robot:r0", ActionId::CancelRobot),
+  ] {
+    assert_eq!(availability(actions, key, id), cached, "{key} {id:?} waits for the first sync");
+  }
+  assert_eq!(
+    availability(actions, "lone001", ActionId::Rename),
+    Some(Availability::Enabled),
+    "a rewrite runs after that sync"
+  );
+  assert_eq!(availability(actions, "lone001", ActionId::OpenPullRequest), Some(Availability::Enabled), "a link");
+  assert_eq!(availability(actions, "robot:r0", ActionId::OpenRobot), Some(Availability::Enabled));
+
+  state.finish_sync(Ok(()));
+  let committed = view.diff(&state, &facts).unwrap();
+  assert_eq!(committed.changes.cached, Some(false));
+  assert_eq!(availability(&committed.changes.actions, "lone001", ActionId::SafePush), Some(Availability::Enabled));
+  assert_eq!(view.snapshot().actions, checked.changes.actions, "the actions of the checked table");
+}
+
 /// The operations of the session lie over the actions of the view (`domain_policy::actions::with_operations`): a rewrite
 /// admitted makes its own item running and the rewrites of every row wait behind it, a patch of the actions of every row;
 /// its end gives them back, the actions as they were before it
@@ -783,7 +826,7 @@ fn the_view_lays_the_operations_of_the_session_over_the_actions_from_the_admissi
   use domain_types::operation::{Intent, OperationId, OperationStep, Origin, Resource, RunningOperation};
   use domain_types::rewrite::{RewriteIntent, TableWitness};
   let (mut state, facts) = crate::derive::derive_budget_test::session();
-  let mut view = View::new(1, "user");
+  let mut view = View::new(1);
   let first = view.diff(&state, &facts).unwrap();
   let before = first.changes.actions;
   let op = OperationId("u1".to_string());
@@ -847,8 +890,8 @@ fn a_blocked_row_names_the_parent_it_waits_for() {
 /// The robot of a subject needs the user (`domain_policy::attention`) while it failed on its row as it is and nothing
 /// else holds the subject: a lone branch, a branch once the Safe Push of a branch built on it no longer holds it, the
 /// whole stack on its stack branch the sync built while no robot of a branch of it lands a part of it; never a branch
-/// fixed since, a parked one, one the fetched baseline has whole or a stack branch not rebuilt. A patch carries only the
-/// subjects whose answer changed
+/// fixed since, a parked one, one the fetched baseline has whole or a stack branch not rebuilt, nor any of the cached frame
+/// of an earlier run. A patch carries only the subjects whose answer changed
 #[test]
 fn the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are() {
   let names = ["login", "auth", "docs", "cache", "notes"];
@@ -862,7 +905,7 @@ fn the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are() {
     events.push(branch_status(name, BranchSyncStatus::Created));
   }
   events.push(stack_branch("auth", &["auth", "login"]));
-  let mut state = TableState::new();
+  let mut state = TableState::with_prefix("user");
   run_sync(&mut state, events);
 
   let failed = |id: &str, branch: &str, source: &str| PatronusRobot {
@@ -940,7 +983,11 @@ fn the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are() {
   let needs = |facts: &FactStore, state: &TableState| attention_of(state, facts).into_iter().map(|(key, attention)| (key, attention.robot_id)).collect::<Vec<_>>();
   let pair = |key: &str, robot_id: &str| (key.to_string(), robot_id.to_string());
   assert_eq!(needs(&facts, &state), [pair("docs", "docs-failed")], "fixed, parked, held: only docs");
-  let mut window = View::new(1, "user");
+  // the same rows as the cached frame of an earlier run: no count a fresh answer takes back
+  state.cached = true;
+  assert_eq!(needs(&facts, &state), Vec::<(String, String)>::new(), "the cached frame");
+  state.cached = false;
+  let mut window = View::new(1);
   let _ = window.diff(&state, &facts);
 
   // the Safe Push of login is canceled: it holds and lands nothing, the failures of auth and of the whole stack count

@@ -49,6 +49,7 @@
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline, remote_fact};
 use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::table::{TableParts, TableState};
+use domain_policy::actions::on_cached_frame;
 use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, branch_attention, stack_attention};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, is_pushing, push_blocker, restart_action, stack_branch_hold};
@@ -949,7 +950,8 @@ pub fn landed_subject<'a>(table: &'a BranchTable, remote: &'a RemoteFacts, of: O
 
 /// What landed each subject of `state` (`domain_policy::landed::landed_state`), by subject key: every branch and every
 /// whole stack that forks, over the landing report of the table, the Patronus view while it stands (what merged Safe
-/// Pushes landed) and the listing of the pull requests; none before the first sync
+/// Pushes landed; also as the cached frame of an earlier run has it) and the listing of the pull requests; none before
+/// the first sync
 #[must_use]
 pub fn landed_states_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, Landed> {
   let Some(table) = facts.table_facts(state) else {
@@ -960,7 +962,7 @@ pub fn landed_states_of(state: &TableState, facts: &FactStore) -> BTreeMap<Strin
   let robots = Robots::new(&robots);
   let landed = LandedFacts {
     baseline: &state.parts.sections.landed,
-    view: matches!(part.state, FactState::Fresh | FactState::Stale { .. }).then_some(&part.view),
+    view: matches!(part.state, FactState::Fresh | FactState::Stale { .. } | FactState::Cached).then_some(&part.view),
     robots: &robots,
     pushed: Some(&facts.baseline_pushes.landed),
   };
@@ -1590,12 +1592,14 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
 /// rows and each stack branch over its tip and its remote status as its row shows them (the parts of the view, a sync
 /// included), its robot of the Patronus view and what else holds it there (a hold whose robot still holds, a running
 /// robot of a branch it is built on or of a branch of the stack), the landing section (all of it in the fetched
-/// baseline) and its structure (parked); none before the first sync
+/// baseline) and its structure (parked); none before the first sync, nor of the cached frame of an earlier run (its
+/// table or its robots)
 #[must_use]
 pub fn attention_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, RobotAttention> {
   let parts = &state.parts;
   let view = &facts.patronus.part().view;
   let robots = facts.robots.view();
+  let cached = on_cached_frame(state.cached(), [&robots.head.state]);
   let robot_of = |id: Option<&String>| robots.robots.get(id?.as_str());
   let active = |of: Option<&RobotOf>| of.and_then(|of| robots.robots.get(&of.robot_id)).is_some_and(is_active);
   let attention = |robot: &PatronusRobot| RobotAttention { robot_id: robot.id.clone() };
@@ -1613,6 +1617,7 @@ pub fn attention_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, R
       robot,
       tip: shown_tip(branch.copies.first().and_then(|copy| copy.hash.as_deref())),
       remote: remote.as_ref().and_then(RemoteFact::branch),
+      cached,
     };
     let carriers = BranchCarriers {
       parked: branch.structure.parked.is_some(),
@@ -1636,6 +1641,7 @@ pub fn attention_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, R
       robot,
       tip: shown_tip(stack.tip.as_deref()),
       remote: remote.as_ref().and_then(RemoteFact::branch),
+      cached,
     };
     let carriers = StackCarriers {
       built: stack.state == StackBranchState::Built,

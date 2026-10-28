@@ -22,20 +22,17 @@ use std::hash::{BuildHasher, RandomState};
 #[derive(Clone, Debug)]
 pub struct View {
   last_sent: RepositoryView,
-  /// The branch prefix of the session: the virtual branches a pull request may go into
-  prefix: String,
 }
 
 impl View {
-  /// An empty view at the start of `epoch` of the session of `prefix`; the first `diff` sends everything the table has
+  /// An empty view at the start of `epoch` of a session; the first `diff` sends everything the table has
   #[must_use]
-  pub fn new(epoch: u32, prefix: &str) -> Self {
+  pub fn new(epoch: u32) -> Self {
     Self {
       last_sent: RepositoryView {
         version: Version { epoch, seq: 0 },
         ..RepositoryView::default()
       },
-      prefix: prefix.to_owned(),
     }
   }
 
@@ -54,6 +51,8 @@ impl View {
   pub fn diff(&mut self, state: &TableState, facts: &FactStore) -> Option<ViewPatch> {
     let last = &self.last_sent;
     let parts = &state.parts;
+    // the branch prefix of the session: the virtual branches a pull request may go into, the refs its pushes write
+    let prefix = parts.header.prefix.as_str();
     let mut branches = BTreeMap::new();
     for (name, branch) in &parts.branches {
       if let Some(change) = branch_change(last.branches.get(name), branch) {
@@ -67,10 +66,10 @@ impl View {
     let syncing = matches!(state.sync, SyncState::Running { .. });
     let pushes_now = (!syncing).then(|| push_view(parts, facts));
     let (pushes, removed_pushes) = pushes_now.as_ref().map_or_else(|| (BTreeMap::new(), Vec::new()), |now| diff_keyed(&last.pushes, now));
-    let open = session_open_pull_requests(state, facts, &self.prefix);
+    let open = session_open_pull_requests(state, facts, prefix);
     let (open_pull_requests, removed_open_pull_requests) = diff_keyed(&last.open_pull_requests, &open);
     // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
-    let lands_now = (!syncing).then(|| lands_of(state, facts, &self.prefix));
+    let lands_now = (!syncing).then(|| lands_of(state, facts, prefix));
     let (lands, removed_lands) = lands_now.as_ref().map_or_else(|| (BTreeMap::new(), Vec::new()), |now| diff_keyed(&last.lands, now));
     // what landed each subject, as the starts: over the table a sync leaves, its landing report with it
     let landed = landed_states_of(state, facts);
@@ -85,7 +84,7 @@ impl View {
     // the actions of the subjects as they are, a sync included (a reason): over the steps just derived, and the pushes
     // and the starts as the view keeps them through a sync
     let sources = ActionSources {
-      prefix: &self.prefix,
+      prefix,
       steps: &steps,
       pushes: pushes_now.as_ref().unwrap_or(&last.pushes),
       lands: lands_now.as_ref().unwrap_or(&last.lands),
@@ -109,6 +108,7 @@ impl View {
       removed_integration,
     };
     let changes = TableChanges {
+      cached: changed(&last.cached, &state.cached),
       sync: changed(&last.sync, &state.sync),
       header: changed(&last.header, &parts.header),
       order: changed(&last.order, &parts.order),

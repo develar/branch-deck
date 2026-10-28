@@ -16,7 +16,7 @@ use test_utils::sync_fixtures::TestReporter;
 
 /// The view a window holds after `patches`, from an empty one of `epoch`
 fn fold(epoch: u32, patches: Vec<ViewPatch>) -> RepositoryView {
-  let mut view = View::new(epoch, "user").snapshot();
+  let mut view = View::new(epoch).snapshot();
   for patch in patches {
     apply_patch(&mut view, patch).unwrap();
   }
@@ -27,8 +27,8 @@ fn fold(epoch: u32, patches: Vec<ViewPatch>) -> RepositoryView {
 /// snapshot, and a state that did not change sends nothing
 #[test]
 fn a_patch_carries_only_the_parts_that_changed() {
-  let mut state = TableState::new();
-  let mut view = View::new(7, "user");
+  let mut state = TableState::with_prefix("user");
+  let mut view = View::new(7);
   run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
   let first = view.diff(&state, &FactStore::new()).unwrap();
   assert_eq!((first.base, first.next), (Version { epoch: 7, seq: 0 }, Version { epoch: 7, seq: 1 }));
@@ -55,20 +55,20 @@ fn a_patch_carries_only_the_parts_that_changed() {
 /// asks for a snapshot
 #[test]
 fn a_patch_applies_only_to_the_view_at_its_base_in_its_epoch() {
-  let mut state = TableState::new();
-  let mut view = View::new(3, "user");
+  let mut state = TableState::with_prefix("user");
+  let mut view = View::new(3);
   run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
   let first = view.diff(&state, &FactStore::new()).unwrap();
   state.apply(SyncEvent::RemoteStatusUpdate(remote_status("ui", &[])));
   let second = view.diff(&state, &FactStore::new()).unwrap();
 
-  let mut window = View::new(3, "user").snapshot();
+  let mut window = View::new(3).snapshot();
   assert_eq!(
     apply_patch(&mut window, second.clone()),
     Err(PatchRejected::MissingBase { view: 0, base: 1 }),
     "a lost patch"
   );
-  let mut foreign = View::new(4, "user").snapshot();
+  let mut foreign = View::new(4).snapshot();
   assert_eq!(apply_patch(&mut foreign, first.clone()), Err(PatchRejected::ForeignEpoch { view: 4, patch: 3 }));
   apply_patch(&mut window, first.clone()).unwrap();
   assert_eq!(apply_patch(&mut window, first), Err(PatchRejected::MissingBase { view: 1, base: 0 }), "a patch twice");
@@ -103,8 +103,8 @@ fn operation(id: &str, number: u32) -> RunningOperation {
 /// was joined, and the id of the one that ended; a sync never touches them
 #[test]
 fn a_patch_carries_the_operations_that_came_changed_or_ended_by_id() {
-  let mut state = TableState::new();
-  let mut view = View::new(7, "user");
+  let mut state = TableState::with_prefix("user");
+  let mut view = View::new(7);
   let facts = FactStore::new();
   let mut patches = vec![view.diff(&state, &facts)].into_iter().flatten().collect::<Vec<_>>();
   state.apply_operation(OperationPatch::Admitted(operation("a", 1)));
@@ -139,8 +139,8 @@ fn a_patch_carries_the_operations_that_came_changed_or_ended_by_id() {
 
 /// A table synced once with every commit and branch unchanged, and the view of a window that has it
 fn synced_unchanged() -> (TableState, View) {
-  let mut state = TableState::new();
-  let mut view = View::new(1, "user");
+  let mut state = TableState::with_prefix("user");
+  let mut view = View::new(1);
   run_sync(&mut state, sync_events(CommitSyncStatus::Unchanged, BranchSyncStatus::Unchanged));
   view.diff(&state, &FactStore::new()).unwrap();
   (state, view)
@@ -251,8 +251,8 @@ async fn the_patches_of_a_large_table_cost_less_than_its_events() {
   test_utils::repo_template::templates::branch_table_large().build(directory.path()).unwrap();
   let path = directory.path().to_str().unwrap();
   let git = GitCommandExecutor::new();
-  let mut state = TableState::new();
-  let mut view = View::new(new_epoch(), "user");
+  let mut state = TableState::with_prefix("user");
+  let mut view = View::new(new_epoch());
   let epoch = view.version().epoch;
 
   let (first, events) = patches_of_sync(&git, path, &mut state, &mut view, EVENTS_PER_PATCH).await;
@@ -303,7 +303,7 @@ async fn a_branch_moved_by_another_process_asks_for_a_retry() {
   };
   let report = sync_branches(&git, repo.path_str(), "test", reporter.clone(), SyncOptions::default()).await.unwrap();
   assert!(report.retry);
-  let mut state = TableState::new();
+  let mut state = TableState::with_prefix("user");
   run_sync(&mut state, reporter.events.get_events());
   let auth = state.branch("auth").unwrap();
   assert_eq!((auth.sync.status, auth.sync.has_error), (domain_types::session::BranchStatus::Error, true));

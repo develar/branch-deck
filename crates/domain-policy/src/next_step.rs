@@ -12,6 +12,8 @@
 //!   2 and 3 restart a failed robot; 5 and 5′ a pull request into another base; 6 a draft; 7 to 10 the approvals that
 //!   count are missing; 8′ and 10′ the wait GitHub tells while Patronus can't judge them; 11 "Safe Push".
 //! - A stale answer of the readiness keeps its step, its action waits for the new one (`stale_readiness`).
+//! - A value of the cached frame of an earlier run (`FactState::Cached`) is a value: the step and the node it decides
+//!   show; of the readiness it is a stale answer, whose action waits for the fresh one.
 //! - "Safe Push elsewhere" is the step's `safe_push`; a Dry Run (`dry_run`) is never held back by the approvals, a
 //!   draft, another base or a robot that lands an ancestor.
 //!
@@ -114,12 +116,13 @@ pub enum Listing<'a> {
 
 impl<'a> Listing<'a> {
   /// Of the head of the listing of the session (`PullRequestsView::head`): none before GitHub's first answer; a listing
-  /// stands while GitHub lists them and through a failed refresh after one (`Stale`); otherwise GitHub can't list them
+  /// stands while GitHub lists them, through a failed refresh after one (`Stale`) and as the cached frame has it
+  /// (`Cached`); otherwise GitHub can't list them
   #[must_use]
   pub const fn of(head: &'a Fact<PullRequestAvailability>) -> Self {
     match (&head.value, &head.state) {
       (None, _) => Self::Loading,
-      (Some(_), FactState::Stale { .. }) | (Some(PullRequestAvailability::Available { .. }), FactState::Fresh) => Self::Listed,
+      (Some(_), FactState::Stale { .. }) | (Some(PullRequestAvailability::Available { .. }), FactState::Fresh | FactState::Cached) => Self::Listed,
       (Some(PullRequestAvailability::NotGitHub), _) => Self::Unlisted { why: None },
       (Some(availability), _) => Self::Unlisted { why: Some(availability) },
     }
@@ -141,7 +144,7 @@ impl<'a> Needs<'a> {
   /// Of what the view has of a branch (`BranchPatronus::landing_needs`; `None` none of it) and how the landing needs of
   /// the view stand (`PatronusPart::landing_needs`): computing while they have no answer for a branch they don't know
   /// yet; a computation that failed waits for nothing (the gate of the start checks), nor a branch they answered none
-  /// of
+  /// of, nor the needs of the cached frame (a value)
   #[must_use]
   pub fn of(needs: Option<&'a LandingNeeds>, state: &FactState) -> Self {
     match needs {
@@ -666,13 +669,14 @@ fn merge_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Opti
 }
 
 /// The readiness of a subject as the step reads it: none while it loads or nobody asked; a failed read is
-/// `unavailable`, never a stale answer the start would wait on; `stale` while it is asked again for new inputs
+/// `unavailable`, never a stale answer the start would wait on; `stale` while it is asked again for new inputs and while
+/// it is the value of the cached frame
 fn readiness_of(fact: Option<&Fact<SubjectReadiness>>) -> Option<(ReviewReadiness, bool)> {
   let fact = fact?;
   let failure = match &fact.state {
     FactState::Loading | FactState::Unknown => return None,
     FactState::Unavailable { reason } | FactState::Stale { reason: Some(reason) } => Some(reason),
-    FactState::Fresh | FactState::Stale { reason: None } => None,
+    FactState::Fresh | FactState::Stale { reason: None } | FactState::Cached => None,
   };
   if let Some(reason) = failure {
     let unavailable = if reason.code == ErrorCode::NotLoggedIn {

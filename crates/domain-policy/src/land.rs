@@ -846,7 +846,8 @@ fn rules_part(facts: &LandFacts<'_>, land: &Land, part: &SubjectPart<'_>, start_
 }
 
 /// The answer of `fact` that stands: the newest, or an earlier one after a read that failed; none while it is read for
-/// the first time or again for other inputs
+/// the first time or again for other inputs, nor the value of the cached frame of an earlier run (`Cached`): a start
+/// waits for the fresh answer as it waits while the fact loads
 #[must_use]
 pub const fn standing<T>(fact: &Fact<T>) -> Option<&T> {
   match fact.state {

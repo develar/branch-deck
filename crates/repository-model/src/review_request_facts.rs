@@ -13,7 +13,7 @@
 
 use crate::facts::Observation;
 use crate::pull_request_facts::availability_error;
-use domain_policy::news::{request_key, review_requested};
+use domain_policy::news::{request_key, review_requested, tells_after};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
 use domain_types::session::{Demand, Fact, FactState, NewsEvent, ReviewRequestsView};
@@ -75,7 +75,8 @@ impl ReviewRequestsFact {
     let state = match &availability {
       PullRequestAvailability::Available { .. } => {
         requests.sort_by_key(|request| (request.waiting_since, request.number));
-        news = self.told(&requests);
+        // a listing after the one of the cached frame of an earlier run is no news
+        news = tells_after(&self.view.head.state).then(|| self.told(&requests)).flatten();
         self.known = Some(requests.iter().map(request_key).collect());
         self.remember(&requests, &answered, others.as_ref());
         self.answered = answered;

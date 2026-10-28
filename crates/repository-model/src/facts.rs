@@ -875,16 +875,18 @@ impl RobotsFact {
   }
 
   /// Keeps `robot` unless a newer observation wrote it; the profile kept when the answer names none (a list never does).
-  /// A robot known running or canceling that finished merged or failed goes into `finished`
+  /// A robot known running or canceling that finished merged or failed goes into `finished`; none while the robots are
+  /// the cached frame of an earlier run (`news::tells_after` of the head as it stood before the answer)
   fn put(&mut self, seq: u32, mut robot: PatronusRobot, finished: &mut Vec<Finished>) {
     if self.written.get(&robot.id).is_some_and(|kept| *kept >= seq) {
       return;
     }
+    let tells = news::tells_after(&self.view.head.state);
     if let Some(known) = self.view.robots.get(&robot.id) {
       if robot.profile.is_none() {
         robot.profile.clone_from(&known.profile);
       }
-      match robot_finished(known, &robot) {
+      match robot_finished(known, &robot).filter(|_| tells) {
         Some(news::Finished::Merged) => finished.push(Finished::Merged(robot.id.clone())),
         Some(news::Finished::Failed) => finished.push(Finished::Failed(robot.id.clone())),
         None => {}

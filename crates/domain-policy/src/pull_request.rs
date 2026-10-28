@@ -71,7 +71,8 @@ pub enum RulesAnswer<'a> {
 
 /// What a push of new commits into `pull_request` does to its approvals, by `rules`, the rules of its base as the session
 /// (or `bd`, one GET) read them: a pull request nobody approved keeps what it has; a read that failed is `Unknown`, one
-/// not answered yet (or nobody asks for) `Loading`. A stale answer is the last one GitHub gave
+/// not answered yet (or nobody asks for) `Loading`, as is the value of the cached frame of an earlier run, which a start
+/// waits on. A stale answer is the last one GitHub gave
 #[must_use]
 pub fn dismisses_approvals<'a>(rules: Option<&'a Fact<BranchRules>>, pull_request: &PullRequest) -> RulesAnswer<'a> {
   if !pull_request.reviewers.iter().any(|reviewer| reviewer.state == ReviewerState::Approved) {

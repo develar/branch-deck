@@ -6,7 +6,7 @@
 
 use crate::facts::FactStore;
 use crate::table::TableState;
-use domain_policy::actions::{PullRequestFacts, Target, review_actions};
+use domain_policy::actions::{PullRequestFacts, Target, on_cached_frame, review_actions};
 use domain_policy::landing_node::is_users_move;
 use domain_policy::reviews::{ReviewsFacts, is_returned, sections};
 use domain_types::actions::ActionState;
@@ -54,6 +54,8 @@ pub fn reviews_view(state: &TableState, facts: &FactStore, steps: &BTreeMap<Stri
 pub fn review_actions_of(state: &TableState, facts: &FactStore, reviews: &ReviewsView) -> BTreeMap<String, Vec<ActionState>> {
   let fact = &facts.review_requests;
   let target = target(state, facts);
+  // the commit a request shows, the branch Patronus pushes into: of the cached frame until fresh answers come
+  let cached = on_cached_frame(state.cached(), [&fact.view().head.state]);
   let mut actions = BTreeMap::new();
   let mut add = |request: &ReviewRequest, involvement: Option<&ReviewInvolvement>| {
     let key = pull_key(request.number);
@@ -74,6 +76,7 @@ pub fn review_actions_of(state: &TableState, facts: &FactStore, reviews: &Review
       branch,
       approved: fact.approved(request),
       target,
+      cached,
     };
     actions.insert(key, review_actions(&facts));
   };

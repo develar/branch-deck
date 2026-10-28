@@ -22,7 +22,7 @@
 
 use crate::facts::{Applied, FactRecord, Observation};
 use crate::table::TableState;
-use domain_policy::news::approval_news;
+use domain_policy::news::{approval_news, tells_after};
 use domain_policy::pull_request::start_pull_request;
 use domain_policy::readiness::{Answered, awaits_approval};
 use domain_policy::refresh::{ReadinessPriority, readiness_priority};
@@ -246,6 +246,8 @@ impl ReadinessFact {
       readiness: answered.readiness,
     });
     let answered = value.as_ref().ok().cloned();
+    // an answer after the value of the cached frame of an earlier run is no news
+    let tells = tells_after(&record.fact.fact().state);
     if record.fact.answer(observation, value) == Applied::Older {
       return (false, None);
     }
@@ -257,7 +259,7 @@ impl ReadinessFact {
     let news = record
       .last_answered
       .as_ref()
-      .filter(|_| fresh)
+      .filter(|_| fresh && tells)
       .and_then(|previous| approval_news(answered_of(previous), answered_of(&answered)));
     if !matches!(answered.readiness, ReviewReadiness::Unavailable { .. }) {
       record.last_answered = Some(answered);

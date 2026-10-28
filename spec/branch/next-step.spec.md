@@ -385,6 +385,18 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   the approvals again", S says it; a quiet step only opens the pull request and stays.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_stale_readiness_keeps_its_step_and_its_action_waits_for_the_new_answer`)
   [@test] ../../src/presenters/next-step.test.ts (`keeps a stale answer, its action waiting for the new one, and a start reads only a fresh one`)
+- A value of the cached frame of an earlier run (`FactState::Cached`: the robots, the pull requests, the view of the
+  robots, the landing needs, the readiness the frame saved, which no answer of this run replaced yet) is a value, never
+  a wait: every row decides over it the step and the node the same answers would decide fresh, so the frame shows its
+  steps from its first paint; a readiness of the frame is a stale answer, its step kept and its action waiting for the
+  fresh one. A start reads only fresh answers: its decision waits for each such fact as it waits while the fact loads
+  (`domain_policy::land::standing`), and every remote action of the frame waits for the first sync ([Branch
+  Row](branch-row.spec.md#actions-cell)). The first fresh answer after a value of the frame is no news
+  (`domain_policy::news::tells_after`): a robot that finished while the app was closed shows, nothing tells it.
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`every_row_over_the_values_of_the_cached_frame_decides_the_step_of_the_fresh_answers`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`every_fact_without_an_answer_waits_or_confirms_and_never_refuses`)
+  [@test] ../../crates/domain-policy/src/news_test.rs (`an_answer_after_the_value_of_the_cached_frame_is_no_news`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`a_robot_of_the_cached_frame_that_the_first_fresh_answer_shows_finished_is_no_news`)
 
 ### The whole stack
 

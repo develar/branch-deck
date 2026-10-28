@@ -525,10 +525,22 @@ fn every_fact_without_an_answer_waits_or_confirms_and_never_refuses() {
     ..world()
   };
   assert_eq!(stale_profiles.decide(&land(SAFE_PUSH)).waits, vec![wait(LandFact::Profiles)]);
+  // a value of the cached frame of an earlier run: the start waits for the fresh answer as while the fact loads
+  let cached_profiles = World {
+    profiles: Fact {
+      state: FactState::Cached,
+      ..fresh(options(true))
+    },
+    ..world()
+  };
+  assert_eq!(cached_profiles.decide(&land(SAFE_PUSH)).waits, vec![wait(LandFact::Profiles)]);
 
   let mut loading_listing = world();
   loading_listing.pull_requests.head = Fact::default();
   assert_eq!(loading_listing.decide(&land(DRY_RUN)).waits, vec![wait(LandFact::PullRequests)]);
+  let mut cached_listing = world();
+  cached_listing.pull_requests.head.state = FactState::Cached;
+  assert_eq!(cached_listing.decide(&land(DRY_RUN)).waits, vec![wait(LandFact::PullRequests)]);
   let mut failed_listing = world();
   failed_listing.pull_requests.head = failed("GitHub is down");
   let decision = failed_listing.decide(&land(SAFE_PUSH));
@@ -542,6 +554,10 @@ fn every_fact_without_an_answer_waits_or_confirms_and_never_refuses() {
     Some(Fact::default()),
     Some(Fact {
       state: FactState::Stale { reason: None },
+      ..readiness(ReviewReadiness::NotRequired)
+    }),
+    Some(Fact {
+      state: FactState::Cached,
       ..readiness(ReviewReadiness::NotRequired)
     }),
   ] {

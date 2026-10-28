@@ -16,6 +16,9 @@
 //!   decides it on HEAD as it is then (C14).
 //! - A robot's restart waits for why it failed and for the approvals its step misses; a fact without an answer is never
 //!   "no": `Pending`.
+//! - On a frame nobody checked yet (the cached frame of an earlier run, a fact that is a value of it: `on_cached_frame`)
+//!   every remote action waits for the first sync and the fresh answers (`ActionBlocker::Cached`), whatever else the
+//!   frame says of it; the rewrites and the reads stay as they are, the session runs a rewrite after that sync.
 //!
 //! What runs lies over them (`with_operations`, docs/design/operations.md, "Items"), from the operations of the session:
 //! the item of an intent that runs or waits in this process is `Running` or `Queued` (a start joins it); a rewrite that
@@ -38,7 +41,7 @@ use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestView}
 use domain_types::reason::Reason;
 use domain_types::repository_view::{RestartAction, RobotRestart};
 use domain_types::rewrite::{AutosquashScope, RewriteIntent};
-use domain_types::session::{BranchStatus, ChildrenPush, Parked, StackBranchAlong};
+use domain_types::session::{BranchStatus, ChildrenPush, FactState, Parked, StackBranchAlong};
 use domain_types::stack::{StackFix, StackProblemView};
 use domain_types::{PushAction, RemoteStatusUpdate};
 
@@ -99,6 +102,8 @@ pub struct BranchFacts<'a> {
   pub push_route: bool,
   /// The repository lands by a merge of the pull request on GitHub (`land::merges_on_github`): its merge is the start
   pub merge_route: bool,
+  /// Its remote actions read a frame nobody checked yet (`on_cached_frame`)
+  pub cached: bool,
 }
 
 /// The actions of a branch, in the order of the enum
@@ -195,7 +200,7 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
       offer(ActionId::Park, held.or(no_commits));
     }
   }
-  actions
+  checked(actions, facts.cached)
 }
 
 fn state(id: ActionId, reason: Option<ActionBlocker>) -> ActionState {
@@ -203,6 +208,55 @@ fn state(id: ActionId, reason: Option<ActionBlocker>) -> ActionState {
     id,
     availability: Availability::of(reason),
   }
+}
+
+/// Whether the remote actions of a subject read a frame nobody checked yet: the table is the frame an earlier run of the
+/// app saved (`RepositoryView::cached`), or one of `facts`, those the actions read, is a value of it
+/// (`FactState::Cached`)
+#[must_use]
+pub fn on_cached_frame<'a>(table: bool, facts: impl IntoIterator<Item = &'a FactState>) -> bool {
+  table || facts.into_iter().any(|fact| *fact == FactState::Cached)
+}
+
+/// The actions that write the remote: a push, a start, a restart or a cancel of a robot, a pull request and its base, a
+/// review request, a review
+const REMOTE: [ActionId; 20] = [
+  ActionId::SafePush,
+  ActionId::SafePushWithProfile,
+  ActionId::DryRun,
+  ActionId::SafePushWithoutReview,
+  ActionId::Push,
+  ActionId::PushWithChildren,
+  ActionId::PushToBaseline,
+  ActionId::RequestReview,
+  ActionId::RetargetPullRequest,
+  ActionId::CreatePullRequest,
+  ActionId::SafePushWholeStack,
+  ActionId::DryRunWholeStack,
+  ActionId::SafePushMainLine,
+  ActionId::CreateStackPullRequest,
+  ActionId::RestartRobot,
+  ActionId::PushAndRestartRobot,
+  ActionId::CancelRobot,
+  ActionId::Approve,
+  ActionId::SafePushPullRequest,
+  ActionId::RequestChanges,
+];
+
+/// `actions` as a frame nobody checked offers them (`cached`): every remote action waits for the first sync and the
+/// fresh answers, whatever the frame says of it; the rest as they are
+fn checked(actions: Vec<ActionState>, cached: bool) -> Vec<ActionState> {
+  if !cached {
+    return actions;
+  }
+  let wait = |action: ActionState| {
+    if REMOTE.contains(&action.id) {
+      state(action.id, Some(ActionBlocker::Cached))
+    } else {
+      action
+    }
+  };
+  actions.into_iter().map(wait).collect()
 }
 
 /// A reason of the next step of the subject, which the step words
@@ -363,6 +417,8 @@ pub struct StackFacts<'a> {
   pub push_route: bool,
   /// The repository lands by a merge of the pull request on GitHub: the merge of the pull request of its stack branch is
   /// its start
+  /// Its remote actions read a frame nobody checked yet (`on_cached_frame`)
+  pub cached: bool,
   pub merge_route: bool,
 }
 
@@ -428,7 +484,7 @@ pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
     StackShape::Chain { length, review } if length >= 2 => offer(ActionId::ReviewWholeStack, review.cloned()),
     StackShape::Chain { .. } => {}
   }
-  actions
+  checked(actions, facts.cached)
 }
 
 /// A stack branch the sync built without a tip yet: "sync first"
@@ -469,6 +525,8 @@ pub struct RobotFacts<'a> {
   /// The next step of the row of its branch: a restart of a robot that failed for the approvals its step still misses
   /// fails again
   pub step: Option<&'a NextStep>,
+  /// Its restart and its cancel read a frame nobody checked yet (`on_cached_frame`)
+  pub cached: bool,
 }
 
 /// The actions of a robot, one list for every surface that shows it, in the order of the enum
@@ -510,7 +568,7 @@ pub fn robot_actions(facts: &RobotFacts<'_>) -> Vec<ActionState> {
   if robot.pull_request.is_some() {
     actions.push(state(ActionId::OpenRobotPullRequest, None));
   }
-  actions
+  checked(actions, facts.cached)
 }
 
 /// The actions of a start whose answer was lost (`OperationStep::StartUnknown`), of any process: Open in Patronus where
@@ -567,6 +625,8 @@ pub struct PullRequestFacts<'a> {
   /// The commit the user approved last: the session's review, else GitHub's latest review of the user
   pub approved: Option<&'a str>,
   pub target: Target<'a>,
+  /// Its reviews read a frame nobody checked yet (`on_cached_frame`): the commit it shows may be another
+  pub cached: bool,
 }
 
 /// The actions of a pull request to review, one list for its row, its menu and the header of its review window:
@@ -604,7 +664,7 @@ pub fn review_actions(facts: &PullRequestFacts<'_>) -> Vec<ActionState> {
   if facts.linked {
     actions.push(state(ActionId::RemoveFromReviews, None));
   }
-  actions
+  checked(actions, facts.cached)
 }
 
 /// The subject whose actions the operations of the session lie over (`with_operations`), as the operations name it

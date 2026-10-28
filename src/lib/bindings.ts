@@ -366,6 +366,12 @@ export type ActionBlocker =
  */
 { code: "syncing" } | 
 /**
+ *  A remote action on a frame nobody checked yet: the table is the frame an earlier run of the app saved
+ *  (`RepositoryView::cached`), or a fact the action reads is a value of it (`FactState::Cached`). It waits for the first
+ *  sync and the fresh answers of this process; a rewrite does not, the session runs it after that sync
+ */
+{ code: "cached" } | 
+/**
  *  The operation `op` holds what it needs (a ref it pushes, a robot, a field of a pull request): of this process, it
  *  would wait for it in the queue of the session; of another process, the registry refuses it as `busy`
  */
@@ -2256,7 +2262,13 @@ export type FactState =
 /**  No answer: the read failed before any answer came */
 { kind: "unavailable"; reason: ApiError } | 
 /**  Nothing asks for it (no window demands it) */
-{ kind: "unknown" };
+{ kind: "unknown" } | 
+/**
+ *  The value is what the frame of an earlier run of the app saved (the warm start): no observation of this process
+ *  answered it yet. The rules read it as a value (a step and a node show), a start waits for a fresh answer as it does
+ *  while the fact loads, a remote action is `ActionBlocker::Cached`, and its first fresh answer is no news
+ */
+{ kind: "cached" };
 
 /**  A fact a start waits for: no answer yet, or `failed` with why the read failed; never read as "no" */
 export type FactWait = {
@@ -5214,6 +5226,12 @@ export type RepositoryJournal = {
  */
 export type RepositoryView = {
 	version: Version,
+	/**
+	 *  The table is the frame an earlier run of the app saved, seeded when the session opened, until the first sync of
+	 *  this process commits: its rows show, a remote action waits for that sync (`ActionBlocker::Cached`), no robot needs
+	 *  the user
+	 */
+	cached: boolean,
 	sync: SyncState,
 	header: TableHeader,
 	/**
@@ -6889,6 +6907,7 @@ export type SyncStep =
  *  integration of the archived branches) carry only the keys that changed and the keys removed
  */
 export type TableChanges = {
+	cached?: boolean | null,
 	sync?: SyncState | null,
 	header?: TableHeader | null,
 	order?: string[] | null,
@@ -6931,6 +6950,11 @@ export type TableChanges = {
 
 /**  What the table as a whole was grouped and checked with */
 export type TableHeader = {
+	/**
+	 *  The prefix the session names the branches with (`branchdeck.branchPrefix`, the app's prefix), as it was opened
+	 *  with: the page names the virtual branches by it before any sync
+	 */
+	prefix: string,
 	/**  The baseline the sync compared with (`origin/master`); empty before the first grouping */
 	baselineBranch: string,
 	/**  Stacked branches are on (`branchdeck.stacks`) */

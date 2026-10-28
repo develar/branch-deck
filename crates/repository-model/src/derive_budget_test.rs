@@ -128,7 +128,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     events.push(branch_status(&branch.name, BranchSyncStatus::Created));
   }
   events.extend(stacks.iter().cloned().map(|stack| SyncEvent::StackBranchUpdate(Box::new(stack))));
-  let mut state = TableState::new();
+  let mut state = TableState::with_prefix("user");
   run_sync(&mut state, events);
 
   let tips: HashMap<String, String> = branches
@@ -300,7 +300,7 @@ fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_
     let _ = actions(&steps);
   });
   let patch = least(|| {
-    let mut view = View::new(1, "user");
+    let mut view = View::new(1);
     let _ = view.diff(&state, &facts);
   });
   eprintln!("the next steps and the actions of 141 rows per flush: {flush:?} (budget {BUDGET:?}); the first patch of the view: {patch:?}");

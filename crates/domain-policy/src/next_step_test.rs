@@ -1136,6 +1136,44 @@ fn every_row_with_every_fact_without_a_fresh_answer_never_answers_an_action_the_
   assert_eq!(failures, Vec::<String>::new());
 }
 
+/// The values of the cached frame of an earlier run (`FactState::Cached`) are values: every row over them decides the
+/// step the fresh answers decide, so the frame shows its steps; of the readiness such a value is a stale answer, whose
+/// step stays while its start waits for the fresh one
+#[test]
+fn every_row_over_the_values_of_the_cached_frame_decides_the_step_of_the_fresh_answers() {
+  let families = [Family::Patronus, Family::PatronusView, Family::PullRequests, Family::LandingNeeds, Family::Readiness];
+  let mut failures = Vec::new();
+  for (name, fixture) in rows() {
+    let fresh = fixture.step();
+    for family in families {
+      let step = fixture
+        .clone()
+        .with(|it| match family {
+          Family::Patronus => it.robots_head.state = FactState::Cached,
+          Family::PatronusView => it.view = FactState::Cached,
+          Family::PullRequests => it.listing.state = FactState::Cached,
+          Family::LandingNeeds => it.needs_state = FactState::Cached,
+          Family::Readiness => {
+            if let Some(readiness) = &mut it.readiness {
+              readiness.state = FactState::Cached;
+            }
+          }
+          Family::RobotProblems => {}
+        })
+        .step();
+      let ok = if family == Family::Readiness && fresh.needs_readiness {
+        step.row == fresh.row && step.kind == fresh.kind && step.stale_readiness && step.safe_push.is_some()
+      } else {
+        step == fresh
+      };
+      if !ok {
+        failures.push(format!("row {name}, {family:?} cached: {step:?} instead of {fresh:?}"));
+      }
+    }
+  }
+  assert_eq!(failures, Vec::<String>::new());
+}
+
 /// A repository that lands by a push into the target takes the table of its route, on Space or off it: row 1 while the
 /// Status cell says why, row 0 while the gate of the route or the pull requests have no answer, 1′ before the push,
 /// then "Push to master", disabled with the refusal of the gate; a Dry Run is a robot of Patronus, never offered

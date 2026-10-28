@@ -1,5 +1,6 @@
-use crate::news::{ApprovalNews, Finished, approval_news, request_key, review_requested, robot_finished};
+use crate::news::{ApprovalNews, Finished, approval_news, request_key, review_requested, robot_finished, tells_after};
 use crate::readiness::Answered;
+use domain_types::error::ApiError;
 use domain_types::fixtures;
 use domain_types::patronus::{
   ApprovedReviewGroup, MissingApprovalsReason, MissingReviewGroup, PatronusPushMode, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch,
@@ -7,7 +8,7 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{Reviewer, ReviewerState};
 use domain_types::review_request::{BackToYou, ReviewRequest};
-use domain_types::session::NewsEvent;
+use domain_types::session::{FactState, NewsEvent};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeSet;
 
@@ -265,4 +266,23 @@ fn a_pull_request_github_merged_by_its_auto_merge_is_news_once() {
   let told = |auto, state| auto_merged(&known(auto, state), &listed).len();
   assert_eq!(told(None, PullRequestState::Open), 1, "the stack's only");
   assert_eq!(told(Some(MergeMethod::Rebase), PullRequestState::Merged), 1, "the stack's only");
+}
+
+/// Only a change from what this process observed is news: an answer after the value of the cached frame of an earlier run
+/// tells nothing, an answer after one of this process (fresh, stale, failed) or after none can
+#[test]
+fn an_answer_after_the_value_of_the_cached_frame_is_no_news() {
+  let failed = ApiError::internal("502");
+  let cases = [
+    (FactState::Cached, false),
+    (FactState::Fresh, true),
+    (FactState::Stale { reason: None }, true),
+    (FactState::Stale { reason: Some(failed.clone()) }, true),
+    (FactState::Unavailable { reason: failed }, true),
+    (FactState::Loading, true),
+    (FactState::Unknown, true),
+  ];
+  for (before, tells) in cases {
+    assert_eq!(tells_after(&before), tells, "{before:?}");
+  }
 }

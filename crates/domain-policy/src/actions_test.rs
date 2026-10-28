@@ -1,4 +1,4 @@
-use crate::actions::{BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, robot_actions, stack_actions, start_actions};
+use crate::actions::{BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, on_cached_frame, robot_actions, stack_actions, start_actions};
 use crate::next_step::{Listing, PatronusAnswer};
 use crate::next_step_test::landed_by_oauth;
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, NothingBeyond};
@@ -8,7 +8,7 @@ use domain_types::patronus::{PatronusPushMode, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestBase, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView, RestartAction, RobotRestart};
-use domain_types::session::{BranchStatus, ChildrenPush, Parked, StackBranchAlong};
+use domain_types::session::{BranchStatus, ChildrenPush, FactState, Parked, StackBranchAlong};
 use domain_types::stack::{StackBranchState, StackFix, StackProblem, StackProblemView};
 use domain_types::{PushAction, RemoteStatusUpdate};
 use pretty_assertions::assert_eq;
@@ -98,6 +98,7 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
     stacks_enabled: true,
     push_route: false,
     merge_route: false,
+    cached: false,
   }
 }
 
@@ -646,6 +647,7 @@ fn stack_facts<'a>(shape: StackShape<'a>, step: Option<&'a NextStep>) -> StackFa
     landed: None,
     push_route: false,
     merge_route: false,
+    cached: false,
   }
 }
 
@@ -748,6 +750,7 @@ fn robot_facts<'a>(robot: &'a domain_types::patronus::PatronusRobot, restart: Op
     failing: false,
     problems: Problems::Known,
     step: None,
+    cached: false,
   }
 }
 
@@ -843,6 +846,7 @@ fn pull_request_to_review() -> crate::actions::PullRequestFacts<'static> {
     branch: None,
     approved: None,
     target: crate::actions::Target::Branch("master"),
+    cached: false,
   }
 }
 
@@ -1408,4 +1412,93 @@ fn a_whole_stack_off_the_robot_offers_the_push_or_the_merge_of_its_stack_branch_
     [(MergePullRequest, None)]
   );
   assert_eq!(starts(&stack_actions(&merge_route(chain, &merge, PatronusAnswer::NotOnSpace))), []);
+}
+
+/// On a frame nobody checked yet (the cached frame of an earlier run, or a fact of it the actions read) every remote
+/// action of a branch, a whole stack, a robot and a pull request to review waits for the first sync and the fresh
+/// answers, whatever else the frame says of it (a push it holds back for its own reason too); the rewrites, the park,
+/// the reviews and the links stay as they are
+#[test]
+fn on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_the_rest_stays() {
+  use crate::actions::review_actions;
+  use ActionId::{Approve, RequestChanges, Review, SafePushPullRequest};
+  let cached = Some(ActionBlocker::Cached);
+  let writes = [
+    SafePush,
+    SafePushWithProfile,
+    DryRun,
+    Push,
+    PushWithChildren,
+    PushToBaseline,
+    RequestReview,
+    RetargetPullRequest,
+    CreatePullRequest,
+    SafePushWholeStack,
+    DryRunWholeStack,
+    SafePushMainLine,
+    CreateStackPullRequest,
+    RestartRobot,
+    PushAndRestartRobot,
+    CancelRobot,
+    Approve,
+    SafePushPullRequest,
+    RequestChanges,
+  ];
+  let assert_waits = |of: &str, fresh: Vec<ActionState>, frame: Vec<ActionState>| {
+    assert_eq!(ids(&frame), ids(&fresh), "{of}: the frame offers what the facts offer");
+    for ((id, reason), (_, fresh)) in table(&frame).into_iter().zip(table(&fresh)) {
+      let expected = if writes.contains(&id) { cached.clone() } else { fresh };
+      assert_eq!(reason, expected, "{of}: {id:?}");
+    }
+  };
+
+  let step = ready_step();
+  let status = remote(PushAction::UpToDate);
+  let branch = facts(&step, &status);
+  let frame = branch_actions(&BranchFacts { cached: true, ..branch.clone() });
+  assert_eq!(reason_of(&frame, Push), cached, "up to date as the frame says: the push waits for the sync all the same");
+  assert_eq!((reason_of(&frame, Rename), reason_of(&frame, Park), reason_of(&frame, CheckApprovals)), (None, None, None));
+  assert_waits("a branch", branch_actions(&branch), frame);
+
+  let stack = stack_facts(
+    StackShape::Forking {
+      not_built: None,
+      tip: true,
+      main_line: None,
+    },
+    Some(&step),
+  );
+  assert_waits("a whole stack", stack_actions(&stack), stack_actions(&StackFacts { cached: true, ..stack.clone() }));
+
+  let failed = robot("r1", Some("auth"), PatronusRobotStatus::Failure, 1);
+  let restart = restart(RestartAction::Restart, None);
+  let of_robot = robot_facts(&failed, Some(&restart));
+  assert_waits("a failed robot", robot_actions(&of_robot), robot_actions(&RobotFacts { cached: true, ..of_robot.clone() }));
+  let running = robot("r2", Some("auth"), PatronusRobotStatus::Running, 1);
+  let of_running = robot_facts(&running, None);
+  assert_waits(
+    "a running robot",
+    robot_actions(&of_running),
+    robot_actions(&RobotFacts {
+      cached: true,
+      ..of_running.clone()
+    }),
+  );
+
+  let to_review = pull_request_to_review();
+  let frame = review_actions(&crate::actions::PullRequestFacts { cached: true, ..to_review });
+  assert_eq!(reason_of(&frame, Review), None, "the review opens: it reads the pull request as GitHub has it");
+  assert_waits("a pull request to review", review_actions(&to_review), frame);
+}
+
+/// The remote actions read a frame nobody checked while the table is the cached frame of an earlier run, or one of the
+/// facts they read is a value of it; facts of this process, however they stand, check it
+#[test]
+fn a_frame_is_unchecked_while_its_table_or_a_fact_the_actions_read_is_the_cached_one() {
+  let fresh = FactState::Fresh;
+  let stale = FactState::Stale { reason: None };
+  assert!(on_cached_frame(true, [&fresh]));
+  assert!(on_cached_frame(false, [&fresh, &FactState::Cached]));
+  assert!(!on_cached_frame(false, [&fresh, &stale, &FactState::Loading, &FactState::Unknown]));
+  assert!(!on_cached_frame(false, []));
 }

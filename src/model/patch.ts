@@ -69,6 +69,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
   const archived = changes.archived
   return {
     version: patch.next,
+    cached: changes.cached ?? view.cached,
     sync: changes.sync ?? view.sync,
     header: changes.header ?? view.header,
     order: changes.order ?? view.order,

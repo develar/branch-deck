@@ -1,7 +1,7 @@
 use crate::branch_table::RemoteFact;
 use crate::facts::{
-  Applied, AskedRobots, FactRecord, FactResult, FactStore, Needs, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence, robots_digest,
-  session_remote,
+  Applied, AskedRobots, FactRecord, FactResult, FactStore, Finished, Needs, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence,
+  robots_digest, session_remote,
 };
 use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
@@ -193,6 +193,23 @@ fn a_list_started_before_a_write_or_a_poll_never_rolls_their_robot_back() {
   assert_eq!(ids(&fact), Vec::<&str>::new());
 }
 
+/// A robot of the cached frame of an earlier run that the first fresh answer shows finished is no news: it finished while
+/// the app was closed, the row shows it; once this process listed the robots, a finish is news again
+#[test]
+fn a_robot_of_the_cached_frame_that_the_first_fresh_answer_shows_finished_is_no_news() {
+  let running = |id: &str| robot(id, Some(id), PatronusRobotStatus::Running, 10);
+  let mut fact = RobotsFact::default();
+  fact.answer(at(1, 0, 1), FULL_LIST, listed(vec![running("auth"), running("ui")]), &mut Vec::new());
+  // as the frame seeds them: the robots of an earlier run, which no observation of this process answered
+  fact.view.head.state = FactState::Cached;
+  let mut finished = Vec::new();
+  let failed = |id: &str| robot(id, Some(id), PatronusRobotStatus::Failure, 10);
+  fact.answer(at(2, 0, 2), FULL_LIST, listed(vec![failed("auth"), running("ui")]), &mut finished);
+  assert_eq!((finished.clone(), fact.view().head.state.clone()), (Vec::new(), FactState::Fresh));
+  fact.answer(at(3, 0, 3), FULL_LIST, listed(vec![failed("auth"), failed("ui")]), &mut finished);
+  assert_eq!(finished, vec![Finished::Failed("ui".to_string())]);
+}
+
 /// A failed answer keeps the robots shown and says why: `Stale` after robots were listed, `Unavailable` before; "not on
 /// Space" is an answer
 #[test]
@@ -284,7 +301,7 @@ fn keeps_the_objects_of_unchanged_robots_and_the_record_when_nothing_changed() {
       robot("b", Some("ui"), PatronusRobotStatus::Running, 9),
     ]
   };
-  let (mut facts, state, mut view) = (FactStore::new(), TableState::new(), View::new(7, "user"));
+  let (mut facts, state, mut view) = (FactStore::new(), TableState::with_prefix("user"), View::new(7));
   facts.robots.answer(at(1, 0, 1), FULL_LIST, listed(robots()), &mut Vec::new());
   view.diff(&state, &facts).unwrap();
   facts.robots.answer(at(2, 0, 2), FULL_LIST, listed(robots()), &mut Vec::new());
@@ -303,7 +320,7 @@ fn keeps_the_objects_of_unchanged_robots_and_the_record_when_nothing_changed() {
 
 /// The table of `auth` (its copies `copy-a2`, `copy-a1`) and `ui` (pushed at `pushed-ui`) after a sync
 fn synced_table() -> TableState {
-  let mut state = TableState::new();
+  let mut state = TableState::with_prefix("user");
   let mut events = sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created);
   events.push(SyncEvent::RemoteStatusUpdate(remote_at("ui", "pushed-ui")));
   run_sync(&mut state, events);
@@ -482,7 +499,7 @@ fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
 /// landed auth, whose pull request is at its tip; its own pull request is Patronus' to close
 #[test]
 fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_landing_closes() {
-  let state = TableState::new();
+  let state = TableState::with_prefix("user");
   let mut facts = FactStore::new();
   let _ = facts.table.answer(at(1, 0, 1), Ok(Arc::new(chain())));
   let login = |status| robot("r", Some("login"), status, 20);
@@ -556,7 +573,7 @@ fn the_session_knows_the_remote_branches_a_push_moved_without_a_sync() {
       ..RemoteFact::default()
     },
   );
-  let mut state = TableState::new();
+  let mut state = TableState::with_prefix("user");
   run_sync(&mut state, vec![grouping(vec![grouped("auth", &["a1"]), grouped("login", &["l1"])])]);
   state.end_push(&[RemoteSubject::Branch("login".to_string())], Some(vec![remote_at("login", "pushed-tip")]));
   let remote = session_remote(&table, &state);

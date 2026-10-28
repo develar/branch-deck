@@ -39,10 +39,11 @@ const fn code_index(blocker: &ActionBlocker) -> usize {
     ActionBlocker::NoTarget => 17,
     ActionBlocker::OtherBase { .. } => 18,
     ActionBlocker::Busy { .. } => 19,
+    ActionBlocker::Cached => 20,
   }
 }
 
-const CODES: usize = 20;
+const CODES: usize = 21;
 
 /// What the page reads: every id, and the blockers with the action each is an example of
 #[derive(Serialize)]
@@ -66,6 +67,7 @@ fn examples() -> Vec<(ActionId, ActionBlocker)> {
     (ActionId::CreatePullRequest, ActionBlocker::Pending { fact: StepFact::PullRequests }),
     (ActionId::RestartRobot, ActionBlocker::ProblemsFailed { message: s("502 Bad Gateway") }),
     (ActionId::Push, ActionBlocker::Syncing),
+    (ActionId::SafePush, ActionBlocker::Cached),
     (ActionId::Push, ActionBlocker::SyncFailed { problem: None }),
     (
       ActionId::Rename,

@@ -40,6 +40,7 @@ describe("the actions Rust offers", () => {
       "Waits for GitHub to list the pull requests",
       "Patronus didn't tell why the Safe Push failed (502 Bad Gateway): Check Approvals Again asks again",
       "Wait for the sync to finish",
+      "Waits for the first sync",
       "The branch failed to sync: merge conflict",
       "auth is in a stack cycle",
       "No commits to push",

@@ -45,6 +45,7 @@ export interface HeldSync {
 
 /** The header of a table before its first grouping */
 const EMPTY_HEADER: TableHeader = {
+  prefix: "user",
   baselineBranch: "",
   stacksEnabled: false,
   issueGroups: {},
@@ -62,6 +63,7 @@ const EMPTY_HEADER: TableHeader = {
 export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryView {
   return {
     version,
+    cached: false,
     sync: { kind: "idle" },
     header: EMPTY_HEADER,
     order: [],

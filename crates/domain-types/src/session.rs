@@ -109,6 +109,10 @@ pub enum FactState {
   Unavailable { reason: ApiError },
   /// Nothing asks for it (no window demands it)
   Unknown,
+  /// The value is what the frame of an earlier run of the app saved (the warm start): no observation of this process
+  /// answered it yet. The rules read it as a value (a step and a node show), a start waits for a fresh answer as it does
+  /// while the fact loads, a remote action is `ActionBlocker::Cached`, and its first fresh answer is no news
+  Cached,
 }
 
 /// What a window shows and needs of a session (docs/design/rust-domain-authority.md, "Demand"), the one thing the page
@@ -348,6 +352,10 @@ pub enum SyncStep {
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryView {
   pub version: Version,
+  /// The table is the frame an earlier run of the app saved, seeded when the session opened, until the first sync of
+  /// this process commits: its rows show, a remote action waits for that sync (`ActionBlocker::Cached`), no robot needs
+  /// the user
+  pub cached: bool,
   pub sync: SyncState,
   pub header: TableHeader,
   /// The names of the branches in the order of the table, as the sync grouped them (newest first); the rows of each
@@ -655,6 +663,9 @@ pub struct RobotsHead {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TableHeader {
+  /// The prefix the session names the branches with (`branchdeck.branchPrefix`, the app's prefix), as it was opened
+  /// with: the page names the virtual branches by it before any sync
+  pub prefix: String,
   /// The baseline the sync compared with (`origin/master`); empty before the first grouping
   pub baseline_branch: String,
   /// Stacked branches are on (`branchdeck.stacks`)
@@ -1123,6 +1134,9 @@ pub struct ViewPatch {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TableChanges {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub cached: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub sync: Option<SyncState>,

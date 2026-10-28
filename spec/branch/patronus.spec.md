@@ -1366,7 +1366,10 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [Next Step](next-step.spec.md#the-table)): its commits are in the target. One with commits after the landed ones
   restarts, for them. A parked branch stays local, and so does a whole stack with a parked member: its restart is
   refused before anything else ("Parked: Unpark it to push"), as its start is; a restart that pushes first is refused for
-  a branch the sync did not build.
+  a branch the sync did not build. On the cached frame of an earlier run (its table, its robots) the restart and the
+  cancel wait for the first sync ("Waits for the first sync", [Branch Row](branch-row.spec.md#actions-cell)): the robot
+  may have finished or been restarted since.
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_the_rest_stays`)
   [@test] ../../src/presenters/robot-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_restart_is_refused_by_the_table_first_then_as_a_start_without_its_own_robot_then_by_a_landing`)
@@ -1729,9 +1732,11 @@ explicit choice of the user, offered only where the approvals count in a pull re
   failure is in the line of the last day of the landing overview. Once that robot merged or failed, the failure is
   judged by content again. Rust decides it (`domain_policy::attention`), the view names each subject whose robot needs
   the user (`attention`, derived with every patch over the rows as they are, `derive::attention_of`), and the page lists
-  what the view names.
+  what the view names. No robot of the cached frame of an earlier run needs the user (its table until the first sync of
+  this run commits, its robots until Patronus answers this run): no move, no badge that a fresh answer takes back.
   [@test] ../../crates/domain-policy/src/attention_test.rs (`a_robot_failed_on_the_subject_as_it_is_only_on_its_tip_or_on_the_same_commits_rebuilt`)
   [@test] ../../crates/domain-policy/src/attention_test.rs (`the_failed_robot_of_a_branch_needs_the_user_unless_something_else_holds_the_branch`)
+  [@test] ../../crates/domain-policy/src/attention_test.rs (`the_failed_robot_of_a_whole_stack_needs_the_user_only_on_a_built_stack_branch_no_robot_of_a_branch_lands`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are`)
   [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for a failure the view does not name, nor for one it names of another robot than the row's: it is finished history`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should not count the failed robot of a branch while the Safe Push of a branch built on it lands it`)

@@ -5,15 +5,24 @@
 //! listing adds (`review_requested`); the pull requests GitHub merged by an auto-merge the listing before knew enabled on
 //! them open (`auto_merged`). The appliers of the facts (`repository_model::facts`, `readiness_facts`,
 //! `review_request_facts`) call them and tell what they answer; a merge carries the pull requests its landing closes
-//! (`landed::pull_requests_to_close`).
+//! (`landed::pull_requests_to_close`). Only a change from what this process observed is news (`tells_after`): the
+//! first fresh answer after the cached frame of an earlier run tells nothing.
 
 use crate::holds::is_active;
 use crate::readiness::{Answered, is_unjudged, waiting_reviewers};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestsResult, ReviewerState};
 use domain_types::review_request::ReviewRequest;
-use domain_types::session::{NewsEvent, PullRequestsView, stack_readiness_key};
+use domain_types::session::{FactState, NewsEvent, PullRequestsView, stack_readiness_key};
 use std::collections::{BTreeMap, BTreeSet};
+
+/// Whether an answer after a fact that stood as `before` can be news: a value of the cached frame of an earlier run
+/// (`FactState::Cached`) is what that run saw, not what this process knew, so a change from it (a robot that finished
+/// while the app was closed, approvals that came meanwhile, a request already there) shows and tells nothing
+#[must_use]
+pub const fn tells_after(before: &FactState) -> bool {
+  !matches!(before, FactState::Cached)
+}
 
 /// How a robot known running or canceling finished
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

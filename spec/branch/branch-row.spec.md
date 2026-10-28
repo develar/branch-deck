@@ -481,6 +481,17 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
+- On the cached frame of an earlier run (the table the session seeded when it opened, `RepositoryView.cached`, until
+  the first sync of this run commits; or a fact of it no fresh answer replaced yet, `FactState::Cached`) the cell must
+  show what the frame says (the push button, the step in the Safe Push slot), and every remote action of the row, of
+  its whole stack, of its robot and of a pull request to review (a push, a start, a restart or a cancel, a pull
+  request, a retarget, a review request, a review) must be disabled with "Waits for the first sync"
+  (`ActionBlocker::Cached`), whatever else the frame says of it: a press on a frame nobody checked never acts on what a
+  sync may change. The rewrites, the park, the reviews and the links stay as the frame offers them; no robot of the
+  frame needs the user ([Patronus](patronus.spec.md#landing-overview)).
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_the_rest_stays`, `a_frame_is_unchecked_while_its_table_or_a_fact_the_actions_read_is_the_cached_one`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`a_cached_frame_shows_its_steps_and_holds_its_remote_actions_back_until_the_first_sync_commits`)
+  [@test] ../../src/presenters/actions.test.ts (`words every blocker of the catalog as the page says it`)
 - "⋯" must open the branch menu under the button: exactly the menu of the right-click, so its actions are found without
   knowing the right-click. It is disabled while the row runs an inline action, as the right-click opens no menu then.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open the branch menu from the more actions button without toggling the row`)

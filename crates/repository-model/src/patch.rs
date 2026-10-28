@@ -75,6 +75,7 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
   check_base(view.version, &patch)?;
   let ViewPatch { next, changes, .. } = patch;
   let TableChanges {
+    cached,
     sync,
     header,
     order,
@@ -117,6 +118,7 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
   }
 
   view.version = next;
+  set_if_some(&mut view.cached, cached);
   set_if_some(&mut view.sync, sync);
   set_if_some(&mut view.header, header);
   set_if_some(&mut view.order, order);

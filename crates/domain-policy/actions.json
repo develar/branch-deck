@@ -92,6 +92,12 @@
       }
     ],
     [
+      "safe-push",
+      {
+        "code": "cached"
+      }
+    ],
+    [
       "push",
       {
         "code": "syncFailed",

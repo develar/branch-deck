@@ -186,6 +186,9 @@ function noCommitsWords(id: ActionId): string {
 /** The words of a sync that rebuilds the branch, whose push waits for the build */
 const SYNC_WAIT = "Wait for the sync to finish"
 
+/** The words of a remote action on the cached frame of an earlier run, which waits for the first sync of this one */
+const FIRST_SYNC_WAIT = "Waits for the first sync"
+
 /** The operation `op` of the session of the repository the main window shows (`RepositoryView.operations`) */
 function operationOf(op: OperationId): RunningOperation | undefined {
   return branchSyncStore.getState().operations[op]
@@ -218,6 +221,7 @@ const BLOCKERS = {
   pending: ({ fact }) => formatPendingFact(fact),
   problemsFailed: ({ message }) => formatProblemsFailure(message),
   syncing: () => SYNC_WAIT,
+  cached: () => FIRST_SYNC_WAIT,
   syncFailed: ({ problem }, id, words) => syncFailedWords(id, problem, words),
   noCommits: (_blocker, id) => noCommitsWords(id),
   upToDate: () => "The remote branch is up to date",

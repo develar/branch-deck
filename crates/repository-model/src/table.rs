@@ -8,6 +8,8 @@
 //!
 //! A sync that fails restores the table of the sync before (`finish_sync`): the rows of a failed sync are never shown
 //! as the table. The texts of the statuses, the marks of what to expand and the badges are the page's presentation.
+//! A table seeded from the cached frame of an earlier run is `cached` until the first sync of this process commits
+//! (a failed one restores it, cached still): the rules hold its remote actions back meanwhile.
 //!
 //! `bd sync` folds the events of its sync into a table of its own and summarizes it, so the app and `bd` read one
 //! applier; beside the parts of the view it reads two facts the page has no use for: the order in which the sync
@@ -67,6 +69,9 @@ pub(crate) struct TableParts {
 pub struct TableState {
   pub(crate) sync: SyncState,
   pub(crate) parts: TableParts,
+  /// The parts are the frame an earlier run saved, seeded when the session opened, until a sync of this process commits
+  /// (`RepositoryView::cached`)
+  pub(crate) cached: bool,
   /// Branch -> original id -> the index of the commit in `BranchView::commits`
   commit_index: HashMap<String, HashMap<String, usize>>,
   /// The parts when the running sync started, restored when it fails
@@ -173,9 +178,23 @@ impl TableState {
     Self::default()
   }
 
+  /// The table of a session whose branches `prefix` names, before any sync (`TableHeader::prefix`)
+  #[must_use]
+  pub fn with_prefix(prefix: &str) -> Self {
+    let mut state = Self::default();
+    prefix.clone_into(&mut state.parts.header.prefix);
+    state
+  }
+
   #[must_use]
   pub const fn sync(&self) -> &SyncState {
     &self.sync
+  }
+
+  /// The parts are the frame of an earlier run, which no sync of this process committed yet
+  #[must_use]
+  pub const fn cached(&self) -> bool {
+    self.cached
   }
 
   #[must_use]
@@ -255,14 +274,15 @@ impl TableState {
     self.run
   }
 
-  /// The sync ended: on success the table is what its events left; on a failure the table of the sync before comes
-  /// back, with the error
+  /// The sync ended: on success the table is what its events left, no frame of an earlier run any more; on a failure the
+  /// table of the sync before comes back, with the error
   pub fn finish_sync(&mut self, result: Result<(), ApiError>) {
     match result {
       Ok(()) => {
         self.before_sync = None;
         self.writes.clear();
         self.sync = SyncState::Idle;
+        self.cached = false;
       }
       Err(error) => {
         self.restore_before_sync();

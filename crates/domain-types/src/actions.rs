@@ -202,6 +202,10 @@ pub enum ActionBlocker {
   /// sync computes are to come. No rewrite waits for a sync: the session admits it at once, named on the table its window
   /// showed
   Syncing,
+  /// A remote action on a frame nobody checked yet: the table is the frame an earlier run of the app saved
+  /// (`RepositoryView::cached`), or a fact the action reads is a value of it (`FactState::Cached`). It waits for the first
+  /// sync and the fresh answers of this process; a rewrite does not, the session runs it after that sync
+  Cached,
   /// The operation `op` holds what it needs (a ref it pushes, a robot, a field of a pull request): of this process, it
   /// would wait for it in the queue of the session; of another process, the registry refuses it as `busy`
   Busy {

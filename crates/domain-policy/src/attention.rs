@@ -3,7 +3,8 @@
 //! `robot_match`) that failed, for missing approvals too, on the subject as it is (`land::took_as_is`), while nothing
 //! else carries the subject. The landing overview lists it among the moves, Attention of the header lists it and the
 //! Dock badge counts it; the view says it of each subject (`RepositoryView::attention`,
-//! `repository_model::derive::attention_of`), the page lists what the view says.
+//! `repository_model::derive::attention_of`), the page lists what the view says. A frame nobody checked yet (the cached
+//! frame of an earlier run, its robots) needs nothing of the user: no count a fresh answer takes back.
 
 use crate::facts::RemoteBranch;
 use crate::land::took_as_is;
@@ -17,6 +18,9 @@ pub struct RobotOnSubject<'a> {
   pub tip: Option<&'a str>,
   /// Its remote branch as the last remote status said it; `None` before one did
   pub remote: Option<RemoteBranch<'a>>,
+  /// The robot or the row is a value of the cached frame of an earlier run (`FactState::Cached`,
+  /// `RepositoryView::cached`): no answer of this process says it failed on the subject as it is
+  pub cached: bool,
 }
 
 /// What else holds a branch, beside its own robot
@@ -47,17 +51,17 @@ pub struct StackCarriers {
 
 /// The robot of the branch needs the user: it failed on the branch as it is (`failed_as_is`) and nothing else holds the
 /// branch (`carriers`), whose row waits then and whose old failure asks for nothing; once that robot merged or failed,
-/// the failure is judged by content again
+/// the failure is judged by content again; a robot of the cached frame needs nothing
 #[must_use]
 pub fn branch_attention(on: &RobotOnSubject<'_>, carriers: BranchCarriers) -> bool {
-  !(carriers.parked || carriers.held || carriers.in_baseline || carriers.landing_part) && failed_as_is(on)
+  !(on.cached || carriers.parked || carriers.held || carriers.in_baseline || carriers.landing_part) && failed_as_is(on)
 }
 
 /// The robot of the whole stack needs the user: it failed on the stack branch as it is, the sync built it, and no robot
-/// of a branch of it lands a part of it
+/// of a branch of it lands a part of it; a robot of the cached frame needs nothing
 #[must_use]
 pub fn stack_attention(on: &RobotOnSubject<'_>, carriers: StackCarriers) -> bool {
-  carriers.built && !carriers.landing_part && failed_as_is(on)
+  !on.cached && carriers.built && !carriers.landing_part && failed_as_is(on)
 }
 
 /// The robot failed, also for missing approvals, on the subject as it is: it took its tip, or the same commits before a

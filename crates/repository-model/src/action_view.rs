@@ -5,13 +5,15 @@
 //! starts, the open pull requests, what landed each subject, and the facts of the remote services
 //! (docs/design/rust-domain-authority.md, s8-policy), with the operations of the session laid over them
 //! (`with_operations`: what runs, what a start waits behind, what holds a remote action back). The view derives them
-//! with every patch, a sync and a change of the operations included.
+//! with every patch, a sync and a change of the operations included. A table of the cached frame of an earlier run, or
+//! robots or pull requests that are values of it, hold the remote actions back (`on_cached_frame`).
 
 use crate::derive::{github_repository_known, landing_route_of, live_hold, patronus_lands, row_of_view};
 use crate::facts::FactStore;
 use crate::table::TableState;
 use domain_policy::actions::{
-  BranchFacts, Children, Of, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, review_blocker, robot_actions, stack_actions, start_actions, with_operations,
+  BranchFacts, Children, Of, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, on_cached_frame, review_blocker, robot_actions, stack_actions, start_actions,
+  with_operations,
 };
 use domain_policy::land::merges_on_github;
 use domain_policy::next_step::{Listing, PatronusStanding};
@@ -56,6 +58,9 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
   let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
   let push_route = matches!(route, LandingRoute::Push { .. });
   let merge_route = merges_on_github(&route, patronus_lands(facts.robots.view()));
+  // what the pushes, the starts and the pull requests read; a restart and a cancel only the robots
+  let cached = on_cached_frame(state.cached(), [&robots.head.state, &pull_requests.head.state, &part.state]);
+  let robots_cached = on_cached_frame(state.cached(), [&robots.head.state]);
   let mut actions = BTreeMap::new();
   for (name, branch) in &parts.branches {
     let Some(step) = sources.steps.get(name) else {
@@ -104,6 +109,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       stacks_enabled: parts.header.stacks_enabled,
       push_route,
       merge_route,
+      cached,
     };
     // what a push of it writes, read only while an operation may hold it
     let pushes = (!operations.is_empty()).then(|| to_final_branch_name(sources.prefix, name).ok()).flatten();
@@ -166,6 +172,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       landed: sources.landed.get(&key),
       push_route,
       merge_route,
+      cached,
     };
     let of = Of::WholeStack {
       root,
@@ -202,6 +209,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       failing: robots.failing.contains(&robot.id),
       problems,
       step: row.and_then(|name| sources.steps.get(name)).map(|view| &view.step),
+      cached: robots_cached,
     };
     let offered = with_operations(robot_actions(&facts), Of::Robot { id: &robot.id }, operations);
     actions.insert(format!("robot:{}", robot.id), offered);

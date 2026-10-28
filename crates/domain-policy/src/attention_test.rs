@@ -33,7 +33,12 @@ fn a_robot_failed_on_the_subject_as_it_is_only_on_its_tip_or_on_the_same_commits
   };
   let running = on_commit(Some("tip"), PatronusRobotStatus::Running);
   let no_commit = on_commit(None, PatronusRobotStatus::Failure);
-  let on = |robot, tip, remote| RobotOnSubject { robot, tip, remote };
+  let on = |robot, tip, remote| RobotOnSubject {
+    robot,
+    tip,
+    remote,
+    cached: false,
+  };
   let cases = [
     ("on its tip", on(&failed, Some("tip"), None), true),
     ("a dry run on its tip", on(&dry_run, Some("tip"), None), true),
@@ -61,7 +66,8 @@ fn a_robot_failed_on_the_subject_as_it_is_only_on_its_tip_or_on_the_same_commits
 
 /// The failed robot of a branch as it is needs the user while nothing else holds the branch: parked, held by a running
 /// Safe Push of a branch built on it or landed whole by a merged one, all of it in the fetched baseline, or a part of it
-/// landed by a running robot of a branch it is built on, its row waits and its old failure asks for nothing
+/// landed by a running robot of a branch it is built on, its row waits and its old failure asks for nothing; a robot of
+/// the cached frame of an earlier run needs nothing either
 #[test]
 fn the_failed_robot_of_a_branch_needs_the_user_unless_something_else_holds_the_branch() {
   let failed = on_commit(Some("tip"), PatronusRobotStatus::Failure);
@@ -69,6 +75,7 @@ fn the_failed_robot_of_a_branch_needs_the_user_unless_something_else_holds_the_b
     robot: &failed,
     tip: Some("tip"),
     remote: None,
+    cached: false,
   };
   let free = BranchCarriers::default();
   let cases = [
@@ -83,10 +90,12 @@ fn the_failed_robot_of_a_branch_needs_the_user_unless_something_else_holds_the_b
   }
   let fixed = RobotOnSubject { tip: Some("fixed"), ..on };
   assert!(!branch_attention(&fixed, free), "a branch fixed since needs nothing");
+  let cached = RobotOnSubject { cached: true, ..on };
+  assert!(!branch_attention(&cached, free), "a robot of the cached frame: no count a fresh answer takes back");
 }
 
 /// The failed robot of a whole stack needs the user only on a stack branch the sync built, and not while a running robot
-/// of a branch of it lands a part of it
+/// of a branch of it lands a part of it, nor as the cached frame of an earlier run has it
 #[test]
 fn the_failed_robot_of_a_whole_stack_needs_the_user_only_on_a_built_stack_branch_no_robot_of_a_branch_lands() {
   let failed = stack_robot("whole", "air", PatronusRobotStatus::Failure, "stack-tip");
@@ -94,6 +103,7 @@ fn the_failed_robot_of_a_whole_stack_needs_the_user_only_on_a_built_stack_branch
     robot: &failed,
     tip: Some("stack-tip"),
     remote: None,
+    cached: false,
   };
   let built = StackCarriers { built: true, landing_part: false };
   assert!(stack_attention(&on, built));
@@ -109,4 +119,5 @@ fn the_failed_robot_of_a_whole_stack_needs_the_user_only_on_a_built_stack_branch
     !stack_attention(&RobotOnSubject { tip: Some("rebuilt"), ..on }, built),
     "a stack branch changed since needs nothing"
   );
+  assert!(!stack_attention(&RobotOnSubject { cached: true, ..on }, built), "a robot of the cached frame");
 }
