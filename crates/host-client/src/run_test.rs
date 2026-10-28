@@ -416,15 +416,14 @@ fn a_host_without_a_near_commit_gets_the_far_candidates_then_refuses_behind() {
   assert_eq!(failure.facts.commit.as_deref(), Some(ids[39].as_str()));
 }
 
-/// A pack that the agent refuses cancels the started run, stops the follow, and refuses with the code of the pack;
-/// the checkout of the run waits for the pack, so the command did not run
-#[test]
-fn a_failed_pack_cancels_the_run_and_refuses_with_its_code() {
-  let Commits { repo, first, .. } = two_commits();
-  let (setup, _) = agent(repo, known(vec![first]), |request, channel| match request {
+/// The failure of a run whose pack `on_pack` of the agent breaks. The agent knows the first commit, takes the cancel,
+/// and sends nothing to a follow. Checks what every failed pack does: the client cancels the started run, says that the
+/// cancel came, and sends no other request
+fn failed_pack(commits: Commits, on_pack: impl Fn(&mut Channel) + Send + Sync + 'static) -> RunFailure {
+  let Commits { repo, first, .. } = commits;
+  let (setup, _) = agent(repo, known(vec![first]), move |request, channel| match request {
     Request::Pack { .. } => {
-      let _ = channel.recv_stream(&mut Vec::new());
-      let _ = channel.send(&Reply::refused(Code::PackFailed, "git index-pack failed"));
+      on_pack(channel);
       true
     }
     Request::Cancel { .. } => {
@@ -435,16 +434,29 @@ fn a_failed_pack_cancels_the_run_and_refuses_with_its_code() {
     _ => false,
   });
   let failure = run_in(&setup, &|_| {}, &calm, &[], RunOptions::default()).unwrap_err();
-  assert_eq!((failure.refusal.code, failure.exit), (Code::PackFailed, Exit::NotRun));
+  assert_eq!(failure.exit, Exit::NotRun);
+  assert!(failure.refusal.message.starts_with("the pack did not reach studio: "), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("; studio has the cancel of the run "), "{}", failure.refusal.message);
+  // The follow starts with the run, beside the pack, so its requests come in any order
+  let kinds: Vec<&str> = kinds(&setup).into_iter().filter(|kind| *kind != "follow").collect();
+  assert_eq!(kinds, ["have", "start", "pack", "cancel"]);
+  failure
+}
+
+/// A pack that the agent refuses cancels the started run, stops the follow, and refuses with the code of the pack;
+/// the checkout of the run waits for the pack, so the command did not run
+#[test]
+fn a_failed_pack_cancels_the_run_and_refuses_with_its_code() {
+  let failure = failed_pack(two_commits(), |channel| {
+    let _ = channel.recv_stream(&mut Vec::new());
+    let _ = channel.send(&Reply::refused(Code::PackFailed, "git index-pack failed"));
+  });
+  assert_eq!(failure.refusal.code, Code::PackFailed);
   assert!(
     failure.refusal.message.starts_with("the pack did not reach studio: studio: git index-pack failed"),
     "{}",
     failure.refusal.message
   );
-  assert!(failure.refusal.message.contains("; studio has the cancel of the run "), "{}", failure.refusal.message);
-  // The follow starts with the run, beside the pack, so its requests come in any order
-  let kinds: Vec<&str> = kinds(&setup).into_iter().filter(|kind| *kind != "follow").collect();
-  assert_eq!(kinds, ["have", "start", "pack", "cancel"]);
 }
 
 /// The run goes to the repository of the same name as the local one beside the repository of the host file, and to
@@ -728,20 +740,26 @@ fn agent_that_waits_for_the_cancel(repo: TestRepo, has: impl Fn(&[String]) -> Ve
   (setup, cancelled)
 }
 
+/// Runs to the end with one Ctrl+C after the first `Follow`, and answers the outcome and the said lines. Ctrl+C before
+/// the start would refuse the run
+fn run_with_ctrl_c_after_the_follow(setup: &Setup) -> (RunOutcome, Vec<String>) {
+  let said = Said::default();
+  let say = |line: &str| said.push(line);
+  let (count, watcher) = press_after(setup, "follow", 1);
+  let presses = || count.load(Ordering::SeqCst);
+  let outcome = run_in(setup, &say, &presses, &[], RunOptions::default()).unwrap();
+  watcher.join().unwrap();
+  (outcome, said.lines())
+}
+
 /// Ctrl+C after the start sends `Cancel` on its own connection, and the output follows up to the exit
 #[test]
 fn ctrl_c_cancels_the_run_and_follows_it_to_its_end() {
   let Commits { repo, head, .. } = two_commits();
   let (setup, cancelled) = agent_that_waits_for_the_cancel(repo, known(vec![head]), "interrupted");
-  let said = Said::default();
-  let say = |line: &str| said.push(line);
-  let (count, watcher) = press_after(&setup, "follow", 1);
-  let presses = || count.load(Ordering::SeqCst);
-  let outcome = run_in(&setup, &say, &presses, &[], RunOptions::default()).unwrap();
-  watcher.join().unwrap();
+  let (outcome, lines) = run_with_ctrl_c_after_the_follow(&setup);
   assert_eq!(outcome.code, 130);
   assert!(cancelled.load(Ordering::SeqCst));
-  let lines = said.lines();
   assert!(lines.iter().any(|line| line.starts_with("bd-host: Ctrl+C: cancelling the run")), "{lines:#?}");
   assert!(lines.contains(&"interrupted".to_owned()), "{lines:#?}");
 }
@@ -1056,4 +1074,133 @@ fn a_failed_base_sync_only_warns() {
     warnings[0]
   );
   assert_eq!(setup.config.base(ALIAS, AFFINITY), None);
+}
+
+/// Text of `size` bytes that zlib cannot make much smaller: 6 random bits in each byte
+fn noise(size: usize) -> String {
+  const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+  (0..size)
+    .map(|_| {
+      state ^= state << 13;
+      state ^= state >> 7;
+      state ^= state << 17;
+      char::from(ALPHABET[usize::try_from(state >> 58).unwrap()])
+    })
+    .collect()
+}
+
+/// The smallest pack of `two_commits_with_a_large_file`. It is much larger than the first socket buffers of the
+/// loopback (128 KiB on macOS), so the writes of the client wait while the agent does not read
+const LARGE_PACK: usize = 1024 * 1024;
+
+/// Two commits whose second one adds a file of noise, so the pack of that commit holds more than `LARGE_PACK` bytes
+fn two_commits_with_a_large_file() -> Commits {
+  let repo = TestRepo::new();
+  let first = repo.create_commit("Add a", "a.txt", "a\n");
+  let head = repo.create_commit("Add large", "large.txt", &noise(LARGE_PACK * 3 / 2));
+  Commits { repo, first, head }
+}
+
+/// An agent that reads the pack late: each write of the pack waits up to the read deadline, not up to the short
+/// connect deadline. The stall of 2 s is four times the connect deadline, so a write with that deadline fails
+#[test]
+fn a_slow_agent_reader_takes_a_large_pack() {
+  let Commits { repo, first, .. } = two_commits_with_a_large_file();
+  let packed = Arc::new(Mutex::new(Vec::new()));
+  let (setup, _) = agent(repo, known(vec![first]), {
+    let packed = Arc::clone(&packed);
+    move |request, channel| match request {
+      // The first chunk of the pack comes after the build, so the wait holds the upload and not the build
+      Request::Pack { .. } => {
+        let mut bytes = Vec::new();
+        while let Ok(Frame::Bytes(chunk)) = channel.recv_frame() {
+          if bytes.is_empty() && !chunk.is_empty() {
+            thread::sleep(Duration::from_secs(2));
+          }
+          bytes.extend_from_slice(&chunk);
+        }
+        *packed.lock().unwrap_or_else(PoisonError::into_inner) = bytes;
+        let _ = channel.send(&Reply::Packed);
+        true
+      }
+      Request::Follow { .. } => {
+        exit(channel, 0);
+        true
+      }
+      _ => false,
+    }
+  });
+  let timing = Timing {
+    connect: Duration::from_millis(500),
+    read: Duration::from_secs(5),
+    ..crate::testkit::FAST
+  };
+  let (command, processes) = (command(), FakeProcesses::default());
+  let request = RunRequest {
+    checkout: setup.repo.path(),
+    repo: None,
+    affinity: AFFINITY,
+    command: &command,
+    fetch: &[],
+  };
+  let outcome = setup
+    .client(&processes, &|_| {}, &calm)
+    .with_timing(timing)
+    .run(ALIAS, &request, RunOptions::default())
+    .unwrap();
+  assert_eq!(outcome.code, 0);
+  let bytes = packed.lock().unwrap_or_else(PoisonError::into_inner);
+  assert!(bytes.len() > LARGE_PACK, "{} bytes", bytes.len());
+  assert!(bytes.starts_with(b"PACK"));
+}
+
+/// An agent that drops the connection in the middle of the pack is a lost link, not a git failure. The run started
+/// already, so the client cancels it, and nothing follows it. The checkout of the run waits for the pack, so the command
+/// did not run (exit 75)
+#[test]
+fn a_link_lost_during_the_pack_cancels_the_started_run_with_a_link_refusal() {
+  // The empty chunks of the build, then one chunk of the pack, then the connection closes
+  let failure = failed_pack(two_commits_with_a_large_file(), |channel| {
+    while let Ok(Frame::Bytes(chunk)) = channel.recv_frame() {
+      if !chunk.is_empty() {
+        break;
+      }
+    }
+  });
+  assert!(matches!(failure.refusal.code, Code::Link | Code::TimedOut), "{:?}", failure.refusal);
+}
+
+/// A cancel whose first connection fails connects again, and the run still ends with its own exit
+#[test]
+fn a_failed_cancel_connects_again() {
+  let Commits { repo, head, .. } = two_commits();
+  let cancels = Arc::new(AtomicU32::new(0));
+  let (setup, _) = agent(repo, known(vec![head]), {
+    let cancels = Arc::clone(&cancels);
+    move |request, channel| match request {
+      Request::Follow { .. } => {
+        let started = Instant::now();
+        while cancels.load(Ordering::SeqCst) < 2 && started.elapsed() < Duration::from_secs(5) {
+          thread::sleep(Duration::from_millis(100));
+          let _ = channel.send(&Reply::Heartbeat { elapsed_ms: 100 });
+        }
+        exit(channel, 130);
+        true
+      }
+      // The first cancel gets no reply: the connection closes
+      Request::Cancel { .. } => {
+        if cancels.fetch_add(1, Ordering::SeqCst) > 0 {
+          done(channel, "the host has the cancel");
+        }
+        true
+      }
+      _ => false,
+    }
+  });
+  let (outcome, lines) = run_with_ctrl_c_after_the_follow(&setup);
+  assert_eq!(outcome.code, 130);
+  assert_eq!(cancels.load(Ordering::SeqCst), 2);
+  assert!(lines.iter().any(|line| line.starts_with("bd-host: cannot send the cancel of the run ")), "{lines:#?}");
+  assert!(lines.contains(&"bd-host: the host has the cancel".to_owned()), "{lines:#?}");
 }

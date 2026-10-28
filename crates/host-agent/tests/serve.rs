@@ -24,6 +24,9 @@ mod lend;
 #[path = "serve/upgrade.rs"]
 mod upgrade;
 
+#[path = "serve/follow.rs"]
+mod follow;
+
 use host_agent::serve::spawn_on_loopback;
 use host_link::allow::AllowList;
 use host_link::channel::{Channel, ClientTls};

@@ -76,6 +76,7 @@ This spec is a draft of the port. A requirement names the test that will cover i
   at most 64 KiB. An empty chunk keeps a byte stream alive. An end frame completes it. A frame of an unknown kind, a
   frame over its limit, or a message that the protocol does not allow there is a protocol error.
   [@test] ../../crates/host-link/src/channel_test.rs (`a_frame_over_its_limit_or_of_an_unknown_kind_is_a_protocol_error`, `the_frames_go_to_tls_in_one_write_per_full_buffer_and_at_a_flush`)
+  [@test] ../../crates/host-agent/tests/serve/follow.rs (`a_fetch_of_many_small_files_takes_few_tls_records`)
   [@test] ../../crates/host-link/src/proto_test.rs (`a_request_and_a_reply_have_a_tagged_json_shape`, `a_start_carries_the_run_spec_inline_without_a_ref`)
 - `Request::Pack` must name its target as `{"run": "<id>"}` or `{"base": "<name>"}`, never a ref name. The agent lands
   it as `refs/branch-deck/host/run/<id>` or `refs/branch-deck/host/base/<name>` (`lease_pool::host_refs`). `RunSpec`
@@ -90,9 +91,11 @@ This spec is a draft of the port. A requirement names the test that will cover i
   [@test] ../../crates/host-link/src/channel_test.rs (`a_port_without_an_agent_is_unreachable_and_a_silent_agent_times_out`)
 - Every read and every write must have a deadline. A request that waits gets `Reply::Heartbeat` every 15 s, and the
   client resets its read deadline at each one. A TLS handshake has 3 s in all. The agent takes at most 128 handshakes
-  at a time and 8 of one peer address.
+  at a time and 8 of one peer address. After the hello, each write of the client has the read deadline, so a large
+  pack to a slow reader does not fail at the short connect deadline.
   [@test] ../../crates/host-agent/tests/serve/link.rs (`a_slow_handshake_is_cut_at_the_deadline_and_a_socket_over_the_cap_closes_at_once`, `heartbeats_go_on_while_the_follow_thread_is_held_in_a_file_read`)
   [@test] ../../crates/host-agent/tests/serve/lend.rs (`a_have_sends_heartbeats_while_it_waits_for_an_upgrade_of_git`)
+  [@test] ../../crates/host-client/src/run_test.rs (`a_slow_agent_reader_takes_a_large_pack`)
 - On macOS a connection that Local Network privacy refuses (`EHOSTUNREACH`) must go again through `/usr/bin/nc`, which
   the client starts responsible for itself. TLS stays end to end. The process remembers the address, so its next
   connection takes the relay at once.
@@ -158,8 +161,8 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   with `--apply`, the apply of the patch. Up to `Start`, nothing runs on the host.
   [@test] ../../crates/host-client/src/run_test.rs (`a_run_starts_follows_packs_syncs_the_base_and_fetches_in_order`)
 - A failed pack must cancel the run, stop the follow and refuse with the code of the pack. The message says whether the
-  cancel came.
-  [@test] ../../crates/host-client/src/run_test.rs (`a_failed_pack_cancels_the_run_and_refuses_with_its_code`)
+  cancel came. A connection that breaks during the pack refuses with `link` or `timed_out` (exit 75).
+  [@test] ../../crates/host-client/src/run_test.rs (`a_failed_pack_cancels_the_run_and_refuses_with_its_code`, `a_link_lost_during_the_pack_cancels_the_started_run_with_a_link_refusal`)
 - The run goes to the repository of the same name as the local one beside the repository of the host file, else to
   the one of the host file. `--repo` names another one. `--affinity` names the affinity of the lend, by default
   `checkout-<12 hex>` of the local checkout path. The base of the pack goes to `base:<affinity>`.
@@ -168,8 +171,8 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   `[host]` alone. `--fetch <dir>` (repeatable) brings back the new entries of `<dir>`, relative to the slot root.
 - Ctrl+C before `Start` must run nothing on the host and exit 130 (`interrupted`). Ctrl+C after it must send `Cancel`
   and stop the pack, and the output follows to the end of the run. A second press stops the follow at once with 130,
-  and the run goes on on the host.
-  [@test] ../../crates/host-client/src/run_test.rs (`ctrl_c_before_the_start_reaches_no_host`, `ctrl_c_cancels_the_run_and_follows_it_to_its_end`, `a_second_ctrl_c_stops_the_follow_at_once`)
+  and the run goes on on the host. A `Cancel` whose connection fails connects again for up to 120 s.
+  [@test] ../../crates/host-client/src/run_test.rs (`ctrl_c_before_the_start_reaches_no_host`, `ctrl_c_cancels_the_run_and_follows_it_to_its_end`, `a_second_ctrl_c_stops_the_follow_at_once`, `a_failed_cancel_connects_again`)
 - The stdout of `bd-host run` must hold only the stdout of the command, line by line as it comes. Every line of
   bd-host and every stderr line of the host go to the stderr. The lines of bd-host start with `bd-host: `:
   `bd-host: run <id> of <commit> on <alias>` first, `bd-host: running in <slot> (slot <n>): load …, nice …, … open
@@ -181,6 +184,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   each new connection was `unreachable`. A follow that the agent answers with `unknown_run` after the start exits 255,
   never 75: whether the command ran is unknown.
   [@test] ../../crates/host-client/src/run_test.rs (`a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255`, `an_agent_that_ends_during_the_follow_times_out_with_255_and_not_75`)
+  [@test] ../../crates/host-agent/tests/serve/follow.rs (`a_follow_from_an_offset_in_the_middle_of_a_run_goes_on_from_there`)
 - Any other refusal of the client after the start, before it saw the end of the run, must exit 255. A code whose
   exit is always 75, such as `untrusted` from a new connection, becomes `link` and keeps its name in the message. Only
   a second Ctrl+C keeps `interrupted` (exit 130).
