@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test"
 import { expect } from "@playwright/test"
+import type { CachedModel } from "../../../src/lib/bindings"
 import { clearClipboard } from "./clipboard-helpers"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
 import { registerWindowBuild } from "./sub-window-helpers"
@@ -17,6 +18,12 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   const repoBuilder = new TestRepositoryBuilder().useTemplate(templateName).withPrepopulateStore(parsedOptions.prepopulateStore)
 
   await repoBuilder.init()
+
+  // the frame an earlier run left: before every fixture, which the first sync of the page meets
+  if (parsedOptions.warmStart) {
+    await repoBuilder.buildWarmStart()
+    parsedOptions.syncedAgoMs ??= WARM_START_SYNCED_AGO_MS
+  }
 
   // the first sync asks for the pull requests and the Patronus robots
   if (parsedOptions.pullRequests !== undefined) {
@@ -92,6 +99,15 @@ export async function setupTestRepository(page: Page, templateName: string, opti
       throw new Error(`Failed to set the repository state: ${response.statusText}`)
     }
     parsedOptions.initialStoreValues.repositoryState = repositoryState
+  }
+
+  // the start of the app: the session opened seeded from the frame, its first sync running, and its seed for the page
+  if (parsedOptions.warmStart) {
+    const model = await repoBuilder.warmStartModel()
+    if (model === null) {
+      throw new Error(`Test setup error: the frame of ${templateName} seeds no session`)
+    }
+    await injectWarmModel(page, model)
   }
 
   // Inject store values into window.__TAURI_STORE__ before navigation
@@ -208,7 +224,7 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   // Skip sync button wait for:
   // - NO_REPO and empty-non-git templates since they don't have functional git operations
   // - When prepopulateStore is false since no repository is selected yet
-  if (templateName !== "NO_REPO" && templateName !== "empty-non-git" && templateName !== "bare" && parsedOptions.prepopulateStore) {
+  if (templateName !== "NO_REPO" && templateName !== "empty-non-git" && templateName !== "bare" && parsedOptions.prepopulateStore && parsedOptions.waitForSync) {
     // a repository without a branch prefix keeps Sync disabled: the welcome card then says the prefix has loaded
     const syncButton = page.locator('[data-testid="sync-button"]:not([data-disabled])')
     await expect(syncButton.or(page.getByTestId("welcome-card")).first()).toBeVisible({ timeout: 30000 })
@@ -232,9 +248,32 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   return repoBuilder
 }
 
+/** How long ago a repository that starts warm was synced (`warmStart`): its session syncs as it opens */
+const WARM_START_SYNCED_AGO_MS = 60 * 60 * 1000
+
 /**
- * Setup browser console logging
+ * The seed the start of the app hands the main window's page (`window.__BD_MODEL__`), in an init script of its own: a
+ * later one (`reloadWarm`) replaces it for the next load, as the init script of the next start would
  */
+export async function injectWarmModel(page: Page, model: CachedModel): Promise<void> {
+  await page.addInitScript(injected => Object.assign(window, { __BD_MODEL__: injected }), model)
+}
+
+/**
+ * The app quits and starts again warm: the sessions of the repository close (each saves its frame), the start opens the
+ * session seeded from the frame, and the page loads again with that seed (`window.__BD_MODEL__`); answers the seed
+ */
+export async function reloadWarm(page: Page, repo: TestRepositoryBuilder): Promise<CachedModel> {
+  await repo.closeSessions()
+  const model = await repo.warmStartModel()
+  if (model === null) {
+    throw new Error("The frame of the repository seeds no session")
+  }
+  await injectWarmModel(page, model)
+  await page.reload()
+  return model
+}
+
 /** Logs a setup step with DEBUG_E2E=1 */
 function debugLog(...args: unknown[]): void {
   if (process.env.DEBUG_E2E) {

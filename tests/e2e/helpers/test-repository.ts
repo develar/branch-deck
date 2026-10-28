@@ -1,5 +1,6 @@
 import type {
   BranchNameSuggestionOutcome,
+  CachedModel,
   Intent,
   IssueNavigationConfig,
   PatronusMergeRequest,
@@ -555,6 +556,24 @@ export class TestRepositoryBuilder {
    */
   async advanceBackendClock(ms: number): Promise<void> {
     await this.setFixture("clock/advance", { ms })
+  }
+
+  /**
+   * The frame of the repository's session as an earlier run of the app left it (`POST …/warm-start/build`): a sync
+   * without a page, whose table the repository keeps from now on, as the saves of its sessions after it do. Answers the
+   * rows of the frame
+   */
+  async buildWarmStart(): Promise<number> {
+    return ((await (await this.postFixture("warm-start/build", {})).json()) as { rows: number }).rows
+  }
+
+  /**
+   * The start of the app with the frame of the repository (`GET …/warm-start`): the session opened seeded from it, its
+   * first sync running for a repository synced before, and the seed the page gets as `window.__BD_MODEL__`; null without
+   * a frame
+   */
+  async warmStartModel(): Promise<CachedModel | null> {
+    return this.getFixture<CachedModel | null>("warm-start")
   }
 
   /**

@@ -350,6 +350,16 @@ used to download and compile the main window's tree before its own page: 61 modu
   listing reads refs only since (0.03 s); the rest of those 3.7 s is cold work the rows need, the commit list ahead of
   the baseline with its notes and the stores of the grouping, while the update check reads beside them
   ([Git Operations](git-operations.md#virtual-branch-sync)).
+- The main window starts warm: before it is built, Rust opens the session of the selected project seeded from the
+  frame its last run saved and puts the seed into the init script (`window.__BD_MODEL__`, `src-tauri/src/warm_start.rs`,
+  [Onboarding](../../spec/repository/onboarding.spec.md#before-the-first-sync)), so the first frame with content is the
+  rows of that frame, not the loading table, and `BranchCreator` says the content settled on them. The lazy main route
+  puts the seed into the store before the first render (`adoptCachedModel` in `src/router.ts`, beside the import of the
+  page, so the store stays out of the bundle of the sub-windows) and subscribes holding it: one `subscribe_view`, whose
+  answer is the patch from the seed (or nothing), and its channel, before the rows (B7, `warm-start.spec.ts`); the first
+  sync, which the session started before the webview loaded, patches only what differs from the frame. The JSON of
+  the view is a string the page parses (`JSON.parse('…')`), which JavaScript engines parse faster than the same object
+  as a literal. Without a frame (a first start, another schema, a prefix the config left) the page starts as above.
 - The first frame of a window is its content: a window due to show waits for its webview to present the page as it
   is (`show_window`, `-[WKWebView _doAfterNextPresentationUpdate:]`, then `[CATransaction flush]`), at most 1 s. A
   page says its content settled from an effect, after React's commit and before WebKit's rendering update, and the

@@ -15,6 +15,7 @@ use app_api::operation::run_blocking;
 use app_api::repository_state::RepositoryStateCache;
 use app_api::transport::AppHost;
 use app_settings::linked_pull_requests::{forget, linked};
+use app_settings::projects::synced_before;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
@@ -47,6 +48,7 @@ use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{OneClock, SessionClocks, SessionKey, Sessions};
+use repository_model::warm_start::{CachedSession, read_frame, write_frame};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -138,6 +140,22 @@ impl SessionEnvironment for AppEnvironment {
     let ctx = self.app.state::<AppContext>();
     let cache = ctx.repository_state.object_cache(&ctx.git, &key.worktree);
     Ok(landing_needs_of(&ctx.git, &cache, &key.worktree, &key.prefix, landed)?)
+  }
+
+  /// In the object cache of the repository, where the start of the app reads it without git (`warm_start`)
+  fn frame(&self, key: &SessionKey) -> Option<CachedSession> {
+    let ctx = self.app.state::<AppContext>();
+    read_frame(&ctx.repository_state.object_cache(&ctx.git, &key.worktree), &key.worktree)
+  }
+
+  fn save_frame(&self, frame: &CachedSession) {
+    let ctx = self.app.state::<AppContext>();
+    write_frame(&ctx.repository_state.object_cache(&ctx.git, &frame.key.worktree), frame);
+  }
+
+  /// The `lastSyncTime` of the repository in the state the writer of the settings keeps
+  fn synced_before(&self, key: &SessionKey) -> bool {
+    synced_before(&self.app.state::<AppContext>().settings, &key.worktree)
   }
 }
 

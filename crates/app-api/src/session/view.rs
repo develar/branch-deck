@@ -8,7 +8,7 @@ use crate::transport::{Call, Sink};
 use app_settings::journals::remember_journal;
 use domain_types::commit::{CommitGroup, PreviewGroupParams};
 use domain_types::error::ApiError;
-use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
+use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SubscribeViewParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use serde::Deserialize;
 use tracing::{instrument, warn};
@@ -55,11 +55,11 @@ impl Subscriber for PagePatches {
 
 /// Through the registry, which watches the operations registry of the repository while the window subscribes, kept
 /// under the page of the call (`Windows::keep`)
-pub async fn subscribe_view(ctx: &AppContext, call: &Call, key: SessionKey, _params: SessionParams, patches: Sink<ViewPatch>) -> Result<ViewSubscription, ApiError> {
+pub async fn subscribe_view(ctx: &AppContext, call: &Call, key: SessionKey, params: SubscribeViewParams, patches: Sink<ViewPatch>) -> Result<ViewSubscription, ApiError> {
   remember_journal_of(ctx, &key).await;
-  let (id, view) = ctx
+  let (id, joined) = ctx
     .registry
-    .subscribe(&key, Box::new(PagePatches(patches)))
+    .subscribe(&key, Box::new(PagePatches(patches)), params.have)
     .await
     .ok_or_else(|| ApiError::internal("The session closed while the window subscribed"))?;
   if !ctx.windows.keep(call, id) {
@@ -67,7 +67,7 @@ pub async fn subscribe_view(ctx: &AppContext, call: &Call, key: SessionKey, _par
     ctx.sessions.unsubscribe(id);
     return Err(ApiError::internal("The page of the window went away while it subscribed"));
   }
-  Ok(ViewSubscription { id: id.0, view })
+  Ok(joined.answer(id))
 }
 
 /// Remembers the journal of the repository of the session of `key` for its project, which Activity reads without a git

@@ -145,8 +145,8 @@ export type SessionOperations = Readonly<Record<OperationId, RunningOperation>>
 /**
  * The busy state of `operation` as every surface that shows it says it: whom it waits for while another holder has the
  * repository lock ("Waiting for `bd pick` (pid 4242, for 12 s)"), what it waits behind in the queue of the session
- * ("Waits for Unstacking oauth"), else its own ("Unstacking tool-events"); `labelOf` the busy state of an operation, as
- * the window that started it named it
+ * ("Waits for Unstacking oauth"), that it waits for a sync ("Unstacking oauth after the sync"), else its own
+ * ("Unstacking tool-events"); `labelOf` the busy state of an operation, as the window that started it named it
  */
 export function presentOperationBusy(operation: RunningOperation, operations: SessionOperations, labelOf: (operation: RunningOperation) => string): string {
   const lockWait = presentOperationLockWait(operation)
@@ -156,6 +156,10 @@ export function presentOperationBusy(operation: RunningOperation, operations: Se
   if (operation.step.kind === "queued") {
     const behind = operations[operation.step.behind]
     return `Waits for ${behind === undefined ? "another operation" : labelOf(behind)}`
+  }
+  if (operation.step.kind === "waitingForSync") {
+    // a rewrite asked on the rows of the frame of an earlier run, a push of a tip the running sync brings
+    return `${labelOf(operation)} after the sync`
   }
   return labelOf(operation)
 }

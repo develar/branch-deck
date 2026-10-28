@@ -9,6 +9,8 @@
 //! - `journals`: the journal of the repository of each recent project, which Rust remembers when a window opens its
 //!   session and Activity reads (`activity_projects`)
 //! - `linked_pull_requests`: the pull requests the user added to Reviews by their links, by GitHub repository
+//! - `projects`: the selected project and whether a project was synced before, as the start of the app and the session
+//!   of a project read them
 //! - `resolve`: the order of the branch prefixes, with where the prefix came from (`resolve_branch_prefix`)
 //! - `service`: the one writer of both files (`SettingsService`): each key in its file, patches in the order they
 //!   arrive, one version counter, a debounced save of the changed files on one thread, `flush`
@@ -21,6 +23,7 @@ pub mod branch_prefixes;
 pub mod file;
 pub mod journals;
 pub mod linked_pull_requests;
+pub mod projects;
 pub mod resolve;
 pub mod service;
 pub mod windows;
@@ -33,6 +36,8 @@ mod file_test;
 mod journals_test;
 #[cfg(test)]
 mod linked_pull_requests_test;
+#[cfg(test)]
+mod projects_test;
 #[cfg(test)]
 mod resolve_test;
 #[cfg(test)]

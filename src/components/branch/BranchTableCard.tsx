@@ -73,6 +73,8 @@ export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
   // the roots of the side stacks, with the rows of each the tables show
   const sideStackShown = useMemo(() => sideStackSizes(rows), [rows])
   const branchCount = useBranchSync(state => state.branchOrder.length)
+  // the rows of the frame an earlier run saved, until the first sync of this run commits (`RepositoryView.cached`)
+  const cached = useBranchSync(state => state.cached)
   // the lane segments a running Safe Push lands, from the root of its stack down to its branch
   const spans = useLandingSpans()
   const laneRows = useMemo(() => rows.flatMap(row => (row.kind === "branch" ? [row] : [])), [rows])
@@ -232,7 +234,7 @@ export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
   return (
     // the table and its islands: their columns line up (`ColumnTrack`)
     <BranchColumnsRoot>
-      <Card className="gap-0 py-0">
+      <Card className="gap-0 py-0" data-cached={cached ? "true" : undefined}>
         <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
         <BranchSelectionBar />
         <NewBranchForm />

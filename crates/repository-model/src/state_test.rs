@@ -323,8 +323,7 @@ async fn a_branch_moved_by_another_process_asks_for_a_retry() {
 #[test]
 fn a_seeded_view_is_the_frame_at_the_first_version_and_a_window_that_holds_it_catches_up() {
   let frame = frame_of(&key(), &synced_state(), &answered_facts());
-  let mut state = TableState::from_cached("user", frame.table);
-  let facts = FactStore::from_cached(frame.facts, "origin/master");
+  let (mut state, facts) = frame.seed();
   let mut view = View::seeded(5, &state, &facts);
   let seed = view.snapshot();
   assert_eq!(seed.version, Version { epoch: 5, seq: 0 });

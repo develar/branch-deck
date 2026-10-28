@@ -14,8 +14,9 @@ use crate::derive::{attention_of, landed_states_of, landing_route_of, lands_of, 
 use crate::facts::FactStore;
 use crate::patch::{Now, apply_changes, apply_patch, changed, changes, diff_views, keyed_facts_change, pull_requests_change, robots_change};
 use crate::review_view::{review_actions_of, reviews_view};
+use crate::session::SubscriptionId;
 use crate::table::TableState;
-use domain_types::session::{FactsChanges, FactsView, RepositoryView, SyncState, TableChanges, Version, ViewPatch};
+use domain_types::session::{FactsChanges, FactsView, RepositoryView, SyncState, TableChanges, Version, ViewPatch, ViewSubscription};
 use std::hash::{BuildHasher, RandomState};
 
 /// The view of a session as its windows hold it
@@ -35,6 +36,20 @@ pub enum Joined {
   CatchUp(Box<ViewPatch>),
   /// The view at the version of the last patch
   Snapshot(Box<RepositoryView>),
+}
+
+impl Joined {
+  /// What the window that subscribed as `id` is answered (`ViewSubscription`): the snapshot, or the catch-up from the
+  /// seed it holds, or neither when it holds the view of the last patch
+  #[must_use]
+  pub fn answer(self, id: SubscriptionId) -> ViewSubscription {
+    let (view, catch_up) = match self {
+      Self::Holds => (None, None),
+      Self::CatchUp(patch) => (None, Some(*patch)),
+      Self::Snapshot(view) => (Some(*view), None),
+    };
+    ViewSubscription { id: id.0, view, catch_up }
+  }
 }
 
 impl View {
@@ -67,6 +82,12 @@ impl View {
   #[must_use]
   pub const fn version(&self) -> Version {
     self.last_sent.version
+  }
+
+  /// The view of the frame the session was seeded from, at the first version of its epoch; none for a session not seeded
+  #[must_use]
+  pub const fn seed(&self) -> Option<&RepositoryView> {
+    self.seed.as_ref()
   }
 
   /// The view at the version of the last patch

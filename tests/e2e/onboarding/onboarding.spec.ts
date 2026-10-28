@@ -242,15 +242,16 @@ test.describe("Onboarding", () => {
     await waitForStorePersistence(page, "appSettings", settings => (settings as { autoSyncOnFocus?: boolean } | undefined)?.autoSyncOnFocus === false)
     // a prefix set in a terminal is another session, which has no table yet; the window saw a sync end already
     await repo.setBranchPrefixInTerminal("team")
-    const release = await holdCommand(page, "sync")
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
     await emitTauriEvent(page, "tauri://focus")
     await expect.poll(() => viewEpoch(page)).not.toBe(synced)
     const loading = page.getByTestId("branch-table-loading")
-    await expect(loading).toContainText("Syncing branches…")
+    // the session's sync waits in its first step
+    await expect(loading).toContainText("Grouping the commits…")
     await expect(page.getByTestId("branch-row")).toHaveCount(0)
     await expect(page.getByTestId("error-alert")).toHaveCount(0)
 
-    release()
+    await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect(findBranchRow(page, "test-branch")).toBeVisible()
     await expect(loading).toHaveCount(0)
   })

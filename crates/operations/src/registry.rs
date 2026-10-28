@@ -33,7 +33,7 @@ use crate::registry_watch::{SessionWatch, Watches};
 use domain_policy::admission::admit;
 use domain_types::error::{ApiError, HolderTool};
 use domain_types::operation::{Admission, Intent, JournalTransition, OperationEvent, OperationId, OperationStep, Origin, Outcome, Resource, RunningMove, RunningOperation};
-use domain_types::session::{RepositoryView, ViewPatch};
+use domain_types::session::{Version, ViewPatch};
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::FactsPort;
 use remote_facts::service_sources::ServiceHost;
@@ -253,16 +253,16 @@ impl Registry {
     Some(crate::journal::journal_path_in(registry.dir()))
   }
 
-  /// Subscribes a window to the session of `key` (`Sessions::subscribe`, opening it), and watches the operations
-  /// registry of its repository while the subscription lives (`registry_watch`): the view shows the operations of the
-  /// other processes of the repository from the first read of the registry on, a patch after the snapshot, and a stamp of
-  /// `bd` syncs the session. `None` only when the session's actor is gone
-  pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>) -> Option<(SubscriptionId, RepositoryView)> {
+  /// Subscribes a window that holds the view at `have` to the session of `key` (`Sessions::subscribe_from`, opening it),
+  /// and watches the operations registry of its repository while the subscription lives (`registry_watch`): the view
+  /// shows the operations of the other processes of the repository from the first read of the registry on, a patch after
+  /// what the window got, and a stamp of `bd` syncs the session. `None` only when the session's actor is gone
+  pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>, have: Option<Version>) -> Option<(SubscriptionId, repository_model::state::Joined)> {
     let Some(registry) = self.files.registry_of(key).await else {
-      return self.sessions.subscribe(key, subscriber).await;
+      return self.sessions.subscribe_from(key, subscriber, have).await;
     };
     let watch = self.watches.watch(&self.sessions, &registry, key);
-    let subscribed = self.sessions.subscribe(key, Box::new(Watching { subscriber, _watch: watch })).await;
+    let subscribed = self.sessions.subscribe_from(key, Box::new(Watching { subscriber, _watch: watch }), have).await;
     // the session is open now: the first read shows in it
     self.watches.reread(&registry);
     subscribed

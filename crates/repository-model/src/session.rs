@@ -556,8 +556,22 @@ impl Sessions {
     answer.await.ok().map(|joined| (id, joined))
   }
 
-  /// `subscribe_from` of a window that holds nothing: the snapshot at the subscription, then every patch after it. The
-  /// hosts subscribe so until their windows tell what they hold (s13-warm-start)
+  /// Opens the session of the key `frame` names, seeded from it rather than from the host's frame: the start of the app,
+  /// which read the frame of its last project before its window (`warm_start` of the app), and the E2E server's
+  /// `/warm-start`. Answers the seed, the view of the frame at the first version of the session's epoch, which the window
+  /// shows before it subscribes and then names as what it holds (`subscribe_from`); `None` when the frame seeds nothing
+  /// (another schema), the session was open already without a seed, or its actor is gone. The session syncs as it opens
+  /// when the host says its worktree was synced before, with no window yet
+  pub async fn open_seeded(&self, frame: CachedSession) -> Option<RepositoryView> {
+    let key = frame.key.clone();
+    let (reply, answer) = oneshot::channel();
+    self.with_entry_from(&key, Some(frame), |entry| {
+      let _ = entry.mailbox.send(Message::Seed(reply));
+    });
+    answer.await.ok().flatten()
+  }
+
+  /// `subscribe_from` of a window that holds nothing: the snapshot at the subscription, then every patch after it
   pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>) -> Option<(SubscriptionId, RepositoryView)> {
     let (id, joined) = self.subscribe_from(key, subscriber, None).await?;
     match joined {
@@ -788,6 +802,11 @@ impl Sessions {
   /// push) names another epoch than its view's and `get_snapshot` has none of the view's epoch either
   /// (`whenServedViewAt` in `src/model/store.ts`)
   fn with_entry(&self, key: &SessionKey, action: impl FnOnce(&Entry)) {
+    self.with_entry_from(key, None, action);
+  }
+
+  /// `with_entry`, a session it creates seeded from `frame` (`open_seeded`) rather than from the host's
+  fn with_entry_from(&self, key: &SessionKey, frame: Option<CachedSession>, action: impl FnOnce(&Entry)) {
     let mut entries = self.lock();
     if entries.get(key).is_some_and(Entry::is_dead) {
       tracing::warn!(worktree = %key.worktree, prefix = %key.prefix, "The actor of the session is gone: the session opens again");
@@ -796,7 +815,7 @@ impl Sessions {
     }
     let entry = entries.entry(key.clone()).or_insert_with(|| {
       let life = Arc::new(SessionLife::new(self.clocks.of(key)));
-      let mailbox = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life), Arc::clone(&self.events));
+      let mailbox = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life), Arc::clone(&self.events), frame);
       Entry { mailbox, life }
     });
     action(entry);

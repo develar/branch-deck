@@ -404,9 +404,10 @@ operation.
    writes. The one wait of a rewrite for a sync is on a table seeded from the frame of an earlier run
    (`TableState::cached`, s13-warm-start): what the window named there is of no HEAD this process read, so the rewrite,
    admitted and holding HEAD, waits for the first sync of the session to commit (its step `WaitingForSync`, joining
-   the sync the session started as it opened; Stop Waiting ends it, `canceled`), then resolves what it named on that
-   table, by the keys the frame kept; a press on the frame is never lost nor refused, and the rewrites queued behind it
-   wait no longer than they would for it.
+   the sync the session started as it opened; a `cancel_operation` of it ends it, `canceled`, and its surfaces say
+   "Unstacking oauth after the sync"; the page offers Stop Waiting only for the wait for the lock so far), then
+   resolves what it named on that table, by the keys the frame kept; a press on the frame is never lost nor refused,
+   and the rewrites queued behind it wait no longer than they would for it.
    A rewrite names the repository of its click (`RewriteRunSpec.repositoryPath`), and so does its Undo: one of a repository the main window no longer shows (an Undo clicked after a switch) runs in the
    session of that repository, which syncs it.
 4. **Decision**: every rewrite of the app expects the HEAD its witness resolved, the regroups too

@@ -104,13 +104,13 @@ export function fakeHead(name: string): BranchHead {
   return { name, latestCommitTime: 1, summary: "subject", allCommitsHaveIssueReferences: false, origin: "Prefix" }
 }
 
-/** The changes of a grouping of `names`, each a new branch of one commit, the baseline `origin/master` */
+/** The changes of a grouping of `names`, each a new branch of one commit, the baseline `origin/master`, on HEAD `head` */
 export function grouping(...names: string[]): TableChanges {
   const branches: Record<string, BranchChange> = Object.fromEntries(names.map(name => [name, { head: fakeHead(name), commits: [fakeCommit(name)] }]))
   return {
     order: names,
     branches,
-    header: { ...EMPTY_HEADER, baselineBranch: "origin/master" },
+    header: { ...EMPTY_HEADER, baselineBranch: "origin/master", head: "head" },
   }
 }
 
@@ -148,7 +148,12 @@ export class FakeSessions {
   /** The repositories `get_snapshot` was asked for, in order */
   readonly snapshotCalls: string[] = []
   /** Every `subscribe_view`, in order */
-  readonly subscribeCalls: { repositoryPath: string }[] = []
+  readonly subscribeCalls: { repositoryPath: string; have?: Version }[] = []
+  /**
+   * The seed each session was opened with (the warm start, `seed`) and the changes sent since: a window that holds it
+   * gets them as one patch from it
+   */
+  private readonly seeds = new Map<string, { seed: RepositoryView; since: TableChanges[] }>()
   /** While true, `subscribe_view` answers once `releaseSubscriptions` runs: patches sent meanwhile come first */
   holdSubscriptions = false
   /** What `get_snapshot` answers instead of the view, once (`null`: the session went away) */
@@ -172,6 +177,7 @@ export class FakeSessions {
     this.syncs.length = 0
     this.snapshotCalls.length = 0
     this.subscribeCalls.length = 0
+    this.seeds.clear()
     this.holdSubscriptions = false
     this.heldSubscriptions = []
     this.snapshotAnswer = undefined
@@ -191,11 +197,18 @@ export class FakeSessions {
     return view
   }
 
+  /** The session of `repositoryPath` opened seeded from a frame (the start of the app): `seed` its view and its seed */
+  seed(repositoryPath: string, seed: RepositoryView): void {
+    this.views.set(repositoryPath, seed)
+    this.seeds.set(repositoryPath, { seed, since: [] })
+  }
+
   /** A patch of `changes` on the view of the session of `repositoryPath`, to each of its subscribers */
   send(repositoryPath: string, changes: TableChanges): ViewPatch {
     const base = this.view(repositoryPath).version
     const patch: ViewPatch = { base, next: { epoch: base.epoch, seq: base.seq + 1 }, changes }
     this.views.set(repositoryPath, applyViewPatch(this.view(repositoryPath), patch))
+    this.seeds.get(repositoryPath)?.since.push(changes)
     this.deliver(repositoryPath, patch)
     return patch
   }
@@ -234,20 +247,19 @@ export class FakeSessions {
   }
 
   readonly commands = {
-    subscribeView: (params: { repositoryPath: string }, channel: { onmessage: (patch: ViewPatch) => void }): Promise<Result<ViewSubscription>> => {
+    subscribeView: (params: { repositoryPath: string; have?: Version }, channel: { onmessage: (patch: ViewPatch) => void }): Promise<Result<ViewSubscription>> => {
       this.subscribeCalls.push(params)
       if (this.subscribeFailure !== null) {
         return Promise.resolve({ status: "error", error: this.subscribeFailure })
       }
       const subscription = { id: this.nextId++, repositoryPath: params.repositoryPath, channel }
       this.subscriptions.push(subscription)
-      const answer = (): Result<ViewSubscription> => ({ status: "ok", data: { id: subscription.id, view: this.view(params.repositoryPath) } })
+      // what brings the window to the view at the subscription; the patches after it go to the channel before a held answer
+      const answer: Result<ViewSubscription> = { status: "ok", data: { id: subscription.id, ...this.joined(params.repositoryPath, params.have) } }
       if (!this.holdSubscriptions) {
-        return Promise.resolve(answer())
+        return Promise.resolve(answer)
       }
-      // the view at the subscription, the patches after it go to the channel before the answer
-      const view = this.view(params.repositoryPath)
-      return new Promise(resolve => this.heldSubscriptions.push(() => resolve({ status: "ok", data: { id: subscription.id, view } })))
+      return new Promise(resolve => this.heldSubscriptions.push(() => resolve(answer)))
     },
     unsubscribeView: async (params: { id: number }): Promise<Result<null>> => {
       const index = this.subscriptions.findIndex(it => it.id === params.id)
@@ -276,6 +288,23 @@ export class FakeSessions {
       }
       return this.hold({ repositoryPath: params.repositoryPath, reason: "focus" })
     },
+  }
+
+  /**
+   * What a window that holds the view at `have` gets, as `View::join` answers it: nothing when it holds the view, the
+   * changes sent since the seed as one patch when it holds the seed, else the view
+   */
+  private joined(repositoryPath: string, have: Version | undefined): Pick<ViewSubscription, "view" | "catchUp"> {
+    const view = this.view(repositoryPath)
+    const same = (version: Version) => have !== undefined && version.epoch === have.epoch && version.seq === have.seq
+    if (same(view.version)) {
+      return { view: null, catchUp: null }
+    }
+    const seeded = this.seeds.get(repositoryPath)
+    if (seeded !== undefined && same(seeded.seed.version)) {
+      return { view: null, catchUp: { base: seeded.seed.version, next: view.version, changes: Object.assign({}, ...seeded.since) as TableChanges } }
+    }
+    return { view, catchUp: null }
   }
 
   private hold(params: SyncParams): Promise<Result<SyncAnswer>> {

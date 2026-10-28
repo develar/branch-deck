@@ -112,11 +112,13 @@ macro_rules! for_each_command {
       /// null when the session is not open, so the window subscribes again
       read session get_snapshot(params: $crate::session::view::SessionParams) -> Option<domain_types::session::RepositoryView> = $crate::session::view::get_snapshot;
 
-      /// Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer has the
-      /// view at the subscription, the channel every patch after it until `unsubscribe_view`, the window's close or its next
-      /// page load. While it lasts, the operations registry of the repository is watched (`Registry::subscribe`): the
-      /// operations of `bd` show in the view, and a stamp of `bd` syncs the session
-      read session(window) subscribe_view(params: $crate::session::view::SessionParams) [channel patches: domain_types::session::ViewPatch, open] -> domain_types::session::ViewSubscription = $crate::session::view::subscribe_view;
+      /// Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer brings
+      /// the window from the view it holds (`have`: the seed of the start, `window.__BD_MODEL__`; null for none) to the view at
+      /// the subscription (the view, the patch from the seed, or nothing when it holds that view), the channel every patch
+      /// after it until `unsubscribe_view`, the window's close or its next page load. While it lasts, the operations registry
+      /// of the repository is watched (`Registry::subscribe`): the operations of `bd` show in the view, and a stamp of `bd`
+      /// syncs the session
+      read session(window) subscribe_view(params: domain_types::session::SubscribeViewParams) [channel patches: domain_types::session::ViewPatch, open] -> domain_types::session::ViewSubscription = $crate::session::view::subscribe_view;
 
       /// Ends a subscription of the calling window; the last one of a session makes it idle
       read now unsubscribe_view(params: $crate::session::view::UnsubscribeViewParams) = $crate::session::view::unsubscribe_view;

@@ -5,7 +5,8 @@ import { internalError } from "@/lib/api-error"
 import type { RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
 import { toRemoteStatus } from "@/lib/remote-status"
 import { resetDemand } from "@/model/demand"
-import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
+import { applyViewPatch } from "@/model/patch"
+import { adoptCachedModel, closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
 import { branchSyncStore, getBranch, getStackBranch, whenSynced } from "@/stores/branch-sync"
 import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
 
@@ -203,6 +204,47 @@ describe("the view of the session", () => {
   })
 })
 
+describe("the warm start", () => {
+  /** The seed of a session opened from a frame with the rows `names`, at the first version of epoch 3 */
+  function seedOf(...names: string[]) {
+    const empty = emptyView({ epoch: 3, seq: 0 })
+    const grouped = applyViewPatch(empty, { base: empty.version, next: { epoch: 3, seq: 1 }, changes: grouping(...names) })
+    return { ...grouped, version: empty.version, cached: true }
+  }
+
+  it("shows the rows of the seed before anything answers, and catches up by the patch from it, the patches before the answer after it", async () => {
+    const seed = seedOf("a")
+    fakeSessions.seed("/repo", seed)
+    fakeSessions.holdSubscriptions = true
+    adoptCachedModel({ repositoryPath: "/repo", view: seed })
+    expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a"], cached: true, syncedRepositoryPath: null, viewVersion: seed.version })
+    expect(fakeSessions.subscribeCalls).toEqual([{ repositoryPath: "/repo", have: seed.version }])
+
+    // the first sync commits before the subscription answers: its patch waits for the catch-up, which it is part of
+    const committed = fakeSessions.send("/repo", { ...grouping("a", "b"), cached: false })
+    expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
+    fakeSessions.releaseSubscriptions()
+    await whenSessionReady()
+    expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a", "b"], cached: false, syncedRepositoryPath: "/repo", viewVersion: committed.next })
+    expect(fakeSessions.snapshotCalls).toEqual([])
+  })
+
+  it("keeps the seed when the session sent nothing since, and leaves a model of another project", async () => {
+    const seed = seedOf("a")
+    adoptCachedModel({ repositoryPath: "/other", view: seed })
+    expect(fakeSessions.subscribeCalls).toEqual([])
+    expect(branchSyncStore.getState().branchOrder).toEqual([])
+
+    fakeSessions.seed("/repo", seed)
+    adoptCachedModel({ repositoryPath: "/repo", view: seed })
+    await whenSessionReady()
+    expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a"], cached: true, viewVersion: seed.version })
+    await send({ ...grouping("a"), cached: false })
+    expect(branchSyncStore.getState()).toMatchObject({ cached: false, syncedRepositoryPath: "/repo" })
+    expect(fakeSessions.snapshotCalls).toEqual([])
+  })
+})
+
 describe("a sync of the session", () => {
   it("keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended", async () => {
     await open()
@@ -334,7 +376,7 @@ describe("a sync of the session", () => {
   })
 
   it("resolves the prefix again when the git config names another one than the session's, quietly", async () => {
-    // a repository synced before: the window syncs the session of the new prefix as it opens it (`useSyncOnOpen`)
+    // a repository synced before: the session of the new prefix syncs as it opens
     await open()
     const first = requestSessionSync("manual")
     await send(grouping("a"))

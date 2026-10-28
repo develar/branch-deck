@@ -228,7 +228,7 @@ impl App {
     };
     scheduler.start(&runtime, events);
     let (patches, patched) = mpsc::unbounded_channel();
-    let (subscription, _view) = registry.subscribe(&key, Box::new(Window(patches))).await.unwrap();
+    let (subscription, _joined) = registry.subscribe(&key, Box::new(Window(patches)), None).await.unwrap();
     // the slot of each row shows its step: the session asks what a start of the rows needs
     let demand = Demand {
       focused: true,

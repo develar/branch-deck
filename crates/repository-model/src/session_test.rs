@@ -1,5 +1,5 @@
 use crate::branch_table::BranchTable;
-use crate::facts::{BaselineRefusal, FactResult, FactStore, Needs, PatronusOf, RobotsDigest, RobotsRead, derive_patronus};
+use crate::facts::{BaselineRefusal, FactResult, Needs, PatronusOf, RobotsDigest, RobotsRead, derive_patronus};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::PullRequestWrite;
 use crate::readiness_facts::ReadinessAnswer;
@@ -11,6 +11,7 @@ use crate::table::table_test::{branch_status, grouped, grouping, remote_at, run_
 use crate::table::{RemoteSubject, TableState};
 use crate::warm_start::warm_start_test::answered_facts;
 use crate::warm_start::{CachedSession, FRAME_SCHEMA, frame_of};
+use domain_types::actions::{ActionBlocker, ActionId, Availability};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{BaselinePush, LandedBy, LandingFix, LandingRefusal, StackCommit};
@@ -1361,6 +1362,17 @@ async fn a_push_route_reads_the_rules_of_the_target() {
   assert_eq!(applied.rule_bases, vec!["main".to_owned(), "master".to_owned()]);
 }
 
+/// The table a sync of `auth` leaves (`auth_built`): `auth` built at its copy
+fn auth_table() -> BranchTable {
+  BranchTable {
+    prefix: "test".to_owned(),
+    baseline: "origin/master".to_owned(),
+    branches: vec![grouped("auth", &["a1"])],
+    tips: [("test/virtual/auth".to_owned(), "copy-a1".to_owned())].into(),
+    ..BranchTable::default()
+  }
+}
+
 /// What a push into the target told the session: the copy it landed lands its subject at the tip it pushed, until a
 /// fetch shows it, so a second click pushes nothing; a refusal of the server stays for the gate of the route, which asks
 /// about it before the next push, and a push that lands forgets it. The route reaches the view as its own part
@@ -1378,15 +1390,7 @@ async fn a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_st
       ..LandingRemote::default()
     };
   }
-  // the table of the sync: `auth` built at its copy
-  let table = BranchTable {
-    prefix: "test".to_owned(),
-    baseline: "origin/master".to_owned(),
-    branches: vec![grouped("auth", &["a1"])],
-    tips: [("test/virtual/auth".to_owned(), "copy-a1".to_owned())].into(),
-    ..BranchTable::default()
-  };
-  host.push_table(events, Ok(report(false, &[])), table);
+  host.push_table(events, Ok(report(false, &[])), auth_table());
   let key = key("/repo");
   sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
@@ -1438,14 +1442,30 @@ async fn a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_st
 /// The Patronus part of the session's view once `done` says it is, asked again until then (the view and the landing
 /// needs are derived in the blocking pool)
 async fn patronus_when(sessions: &Sessions, key: &SessionKey, done: impl Fn(&PatronusPart) -> bool) -> PatronusPart {
+  view_when(sessions, key, |view| done(&view.patronus)).await.patronus
+}
+
+/// The view of the session of `key` once `done` holds of it
+async fn view_when(sessions: &Sessions, key: &SessionKey, done: impl Fn(&RepositoryView) -> bool) -> RepositoryView {
   for _ in 0..2000 {
-    let part = snapshot(sessions, key).await.patronus;
-    if done(&part) {
-      return part;
+    let view = snapshot(sessions, key).await;
+    if done(&view) {
+      return view;
     }
     tokio::time::sleep(Duration::from_millis(5)).await;
   }
-  panic!("the Patronus part never came: {:?}", snapshot(sessions, key).await.patronus)
+  panic!("the view never came: {:?}", snapshot(sessions, key).await)
+}
+
+/// Waits until `done` holds of what a host counted
+async fn counted(done: impl Fn() -> bool) {
+  for _ in 0..2000 {
+    if done() {
+      return;
+    }
+    tokio::time::sleep(Duration::from_millis(5)).await;
+  }
+  panic!("the host never counted it");
 }
 
 /// Patronus answered the session of `key` with `robots`, a full list
@@ -1605,14 +1625,15 @@ async fn a_window_that_holds_the_seed_catches_up_by_one_patch() {
   let frame = auth_frame();
   let host = Arc::new(ScriptedHost::with_frame(Some(frame.clone())));
   host.push(auth_built(), Ok(report(false, &[])));
+  // the windows that subscribe after the sync find what it read unchanged
+  host.set_inputs(1);
   let (sessions, _clock) = scripted(&host);
   let key = key("/repo");
   sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
   let synced = snapshot(&sessions, &key).await;
   let epoch = synced.version.epoch;
 
-  let state = TableState::from_cached("test", frame.table);
-  let facts = FactStore::from_cached(frame.facts, &state.header().baseline_branch);
+  let (state, facts) = frame.seed();
   let mut seed = View::seeded(epoch, &state, &facts).snapshot();
   let have = Some(Version { epoch, seq: 0 });
   let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), have).await.unwrap();
@@ -1624,6 +1645,101 @@ async fn a_window_that_holds_the_seed_catches_up_by_one_patch() {
   assert_eq!(seed, synced);
   let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), Some(synced.version)).await.unwrap();
   assert_eq!(joined, Joined::Holds);
+}
+
+/// The start of the app opens the session of the frame it read (`open_seeded`): the session answers the seed of that
+/// frame, `cached` at the first version of its epoch, the host's own frame not read, and syncs with no window (the
+/// worktree was synced before); a window that holds the seed and subscribes during that sync catches up and joins it
+#[tokio::test]
+async fn a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs_with_no_window() {
+  // synced before, with no frame of the host: the seed can only be the start's
+  let host = Arc::new(ScriptedHost::with_frame(None));
+  host.set_inputs(1);
+  let gate = Arc::new(Notify::new());
+  host.push_gated(auth_built(), Ok(report(false, &[])), Some(Arc::clone(&gate)));
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+
+  let seed = sessions.open_seeded(auth_frame()).await.unwrap();
+  assert!(seed.cached);
+  assert_eq!((seed.version.seq, seed.order.clone()), (0, vec!["auth".to_string()]));
+  assert_eq!(seed.facts.robots.head.state, FactState::Cached);
+  let running = view_when(&sessions, &key, |view| matches!(view.sync, SyncState::Running { .. })).await;
+  assert!(running.version.seq > 0, "the sync of the open patched the view with no window");
+
+  let window = Window::default();
+  let (_, joined) = sessions.subscribe_from(&key, Box::new(window.clone()), Some(seed.version)).await.unwrap();
+  let Joined::CatchUp(catch_up) = joined else {
+    panic!("the window that holds the seed catches up, not {joined:?}");
+  };
+  let mut shown = seed;
+  crate::patch::apply_patch(&mut shown, *catch_up).unwrap();
+  assert!(matches!(shown.sync, SyncState::Running { .. }));
+  gate.notify_one();
+  let synced = view_when(&sessions, &key, |view| !view.cached && view.sync == SyncState::Idle).await;
+  for patch in window.take() {
+    crate::patch::apply_patch(&mut shown, patch).unwrap();
+  }
+  assert_eq!(shown, synced);
+  assert_eq!(host.runs(), 1, "the window joined the sync of the open");
+}
+
+/// A window that comes back to a session kept idle (a switch back within `IDLE_LIMIT`) syncs it as a window that opens
+/// it: a sync of the session committed its table, so the inputs are read and it runs when they changed; a session never
+/// synced reads nothing
+#[tokio::test]
+async fn a_window_that_watches_a_kept_session_anew_syncs_it_when_the_inputs_changed() {
+  let host = Arc::new(ScriptedHost::default());
+  host.set_inputs(1);
+  host.push(auth_built(), Ok(report(false, &[])));
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+  let (id, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  sessions.unsubscribe(id);
+  let (id, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  snapshot(&sessions, &key).await;
+  assert_eq!((*host.checks.lock().unwrap(), host.runs()), (0, 0), "never synced: nothing is read");
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  let checks = *host.checks.lock().unwrap();
+  sessions.unsubscribe(id);
+
+  // back with nothing changed: the inputs read once, no run
+  let (id, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  counted(|| *host.checks.lock().unwrap() == checks + 1).await;
+  view_when(&sessions, &key, |view| view.sync == SyncState::Idle).await;
+  assert_eq!(host.runs(), 1);
+  sessions.unsubscribe(id);
+
+  // back after a commit elsewhere: it syncs
+  host.set_inputs(2);
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  counted(|| host.runs() == 2).await;
+}
+
+/// The frame keeps what the sync built of the rows beside them (`CachedBuild`), so the session it seeds derives the next
+/// step and the actions of each row before its first sync: the rewrites run, a push waits for that sync
+/// (`ActionBlocker::Cached`, "Waits for the first sync")
+#[tokio::test]
+async fn a_seeded_session_shows_the_steps_and_the_actions_of_its_rows_a_push_waiting_for_the_first_sync() {
+  let host = Arc::new(ScriptedHost::default());
+  host.push_table(auth_built(), Ok(report(false, &[])), auth_table());
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  let frame = host.saved(1).await.remove(0);
+  let built = frame.table.built.clone().expect("the frame keeps the build of its sync");
+  assert_eq!((built.baseline.as_str(), built.tips.len()), ("origin/master", 1));
+  let synced = snapshot(&sessions, &key).await;
+
+  // the next start of the app
+  let (other, _clock) = scripted(&host);
+  let seed = other.open_seeded(serde_json::from_value(serde_json::to_value(frame).unwrap()).unwrap()).await.unwrap();
+  assert!(seed.cached);
+  assert_eq!(seed.next_steps.get("auth").map(|step| &step.step), synced.next_steps.get("auth").map(|step| &step.step));
+  let action = |id: ActionId| seed.actions["auth"].iter().find(|action| action.id == id).map(|action| action.availability.clone());
+  assert_eq!(action(ActionId::Push), Some(Availability::Disabled { reason: ActionBlocker::Cached }));
+  assert!(seed.actions["auth"].iter().any(|action| action.availability == Availability::Enabled), "the rewrites run");
 }
 
 /// A frame of another prefix of the worktree, or of another schema, seeds nothing: the session opens empty

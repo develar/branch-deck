@@ -208,6 +208,7 @@ impl TableState {
       stacks,
       mut sections,
       mut identities,
+      ..
     } = table;
     prefix.clone_into(&mut header.prefix);
     let commits = branches.values_mut().flat_map(|branch| branch.commits.iter_mut()).chain(sections.unassigned.iter_mut());
@@ -245,6 +246,7 @@ impl TableState {
       stacks: parts.stacks.clone(),
       sections: parts.sections.clone(),
       identities: parts.commits().map(|commit| (commit.id.clone(), CommitIdentity::of(commit))).collect(),
+      built: None,
     }
   }
 

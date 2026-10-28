@@ -665,7 +665,7 @@ fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode, String)> {
 }
 
 /// The key of the session of the repository at `path`, as the commands of its app key it (`AppContext::session_key`)
-async fn session_of(state: &AppState, path: &str) -> Result<SessionKey, (StatusCode, String)> {
+pub(crate) async fn session_of(state: &AppState, path: &str) -> Result<SessionKey, (StatusCode, String)> {
   let context = state
     .repository(path)
     .map(|repository| Arc::clone(&repository.context))

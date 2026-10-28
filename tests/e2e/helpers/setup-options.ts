@@ -32,6 +32,23 @@ export const SetupRepoOptionsSchema = z.object({
   syncedAgoMs: z.number().optional(),
 
   /**
+   * The app starts warm (`src-tauri/src/warm_start.rs`): before the page opens, a sync without a page builds the frame of
+   * the repository's session (`POST …/warm-start/build`, before every other fixture, so the first sync of the page
+   * meets them), and the start opens the session seeded from it (`GET …/warm-start`), whose seed goes into the page as
+   * `window.__BD_MODEL__`. A repository synced before (`syncedAgoMs`, an hour ago unless set): its session syncs as it
+   * opens, with no page yet
+   * Default: false - no frame, the page starts without a cache
+   */
+  warmStart: z.boolean().default(false),
+
+  /**
+   * Whether the setup waits for Sync to be enabled (the first sync of the page done); false for a test that holds that
+   * sync (`remoteAnswers: { hold: ["sync"] }`) and looks at the page before it: the setup then waits for the header only
+   * Default: true
+   */
+  waitForSync: z.boolean().default(true),
+
+  /**
    * How many branches that last sync had (`lastBranchCount` of `repositoryState`), with `syncedAgoMs`: the table loads in
    * their room until the first sync's rows come
    * Default: undefined - not recorded, the loading table is one row tall

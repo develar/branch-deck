@@ -214,6 +214,10 @@ pub struct TestRepository {
   /// What the next sync of the repository's session reports differently (`sync_overrides`), until a run takes it (never,
   /// for the overrides of every sync)
   pub sync_overrides: std::sync::Mutex<Option<crate::sync_overrides::SyncOverrides>>,
+  /// The frame of the repository's session (`repository_model::warm_start`), as the app keeps it in the object cache:
+  /// in memory, and only once a test built one (`POST /repositories/{id}/warm-start/build`), so the sessions of every
+  /// other test seed from none; its sessions then save theirs here
+  pub frame: std::sync::Mutex<Option<repository_model::warm_start::CachedSession>>,
 }
 
 impl TestRepository {

@@ -34,7 +34,7 @@ async fn watched(host: Arc<dyn SessionHost>, common_dir: &Path) -> (Registry, Se
   let registry = Registry::new(sessions, RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone())));
   let key = session("user");
   let (patches, patched) = mpsc::unbounded_channel();
-  registry.subscribe(&key, Box::new(Window(patches))).await.unwrap();
+  registry.subscribe(&key, Box::new(Window(patches)), None).await.unwrap();
   (registry, key, patched)
 }
 

@@ -121,12 +121,28 @@ sequenceDiagram
 
 7. **Decision**: A repository synced before is the option `syncedAgoMs` of `setupRepo`: the setup sets the
    `repositoryState` of the repository (its `lastSyncTime`) through the test server's writer (`/store/{repo}/{key}`)
-   and injects it, so the window syncs it on open as the app does.
+   and injects it, so its session syncs as it opens, as the app's does (`synced_before` of the server's session
+   environment reads the writer of the test repository).
    **Rationale**: The writer is the app's (`SettingsService`), so the key lands in its own file
    (`repository-state.json`) and the page's later patches of the key apply to the value the writer has; an init script
    that edits `__TAURI_STORE__` changes only what the page starts from.
 
-8. **Decision**: The commands of the test server run without the object cache (`ObjectCache::disabled()`; the
+8. **Decision**: A warm start is the option `warmStart` of `setupRepo`. Before the page opens, a sync without a page
+   (`POST /repositories/{id}/warm-start/build`, as `bd sync` syncs: the session reads no fact without a window) leaves
+   the frame of the repository's session, which the server keeps in the memory of the test repository
+   (`TestRepository::frame`, saved again by its sessions from then on); the session closes, as the app quits. The setup
+   then starts the app as Rust does (`GET /repositories/{id}/warm-start`: the session opened seeded from the frame,
+   whose first sync starts at once for a repository synced before, `syncedAgoMs` an hour ago unless set) and injects the
+   seed it answers as `window.__BD_MODEL__` from an init script of its own, before the page loads; `reloadWarm` quits
+   and starts again the same way, its init script replacing the one before for the next load. A test that looks at the
+   rows before the first sync holds it in the session (`remoteAnswers: { hold: ["sync"] }`, `HeldAnswer::Sync`, with
+   `waitForSync: false`, so the setup waits for the header only).
+   **Rationale**: The frame is the one a sync of the app's core makes, seeded through the same `Sessions::open_seeded`
+   as the start of the app, so the test checks the path of the app and not a frame of its own making; the frame of a
+   test is in its repository's memory because the server runs without the object cache (the next decision), and only a
+   test that built one seeds from it, so a reload of every other test starts as before.
+
+9. **Decision**: The commands of the test server run without the object cache (`ObjectCache::disabled()`; the
    commands of app-api by the context of a test repository, `RepositoryStateCache::without_object_caches` of
    `AppState::context_of`); not for determinism, the app's cache answers by content
    **Rationale**: Measured 2026-10-24 on the 197 tests of patronus-actions, next-step, commit-files, stacked-branches,
@@ -141,7 +157,7 @@ sequenceDiagram
    and closes them under the lock of the open environments. A cache shared by the repositories of a run would hit
    across the tests of one template and make a test's path depend on the tests before it
 
-9. **Decision**: One registry of the commands for both hosts. The grammar is `api_commands!` of
+10. **Decision**: One registry of the commands for both hosts. The grammar is `api_commands!` of
    `crates/app-api/src/registry.rs`, the entries are `for_each_command!` of `commands.rs` (the docs of the bindings,
    the class, the kind, the arguments, the channel, the output, the body), and every host is a callback of it: the
    app's `#[tauri::command]` wrappers, `collect_commands!` of the typed ones and `generate_handler!` of the raw ones
@@ -177,7 +193,7 @@ Mock implementation:
   `crates/app-api/src/commands.rs`) has one generic route, `/invoke/<name>` of `crates/test-server/src/invoke.rs`, which
   runs the app's body in the `AppContext` of the test repository the request names (`X-Repository-Id`), built when
   the repository is (`AppState::context_of`): the settings of its page, its own memory of the diffs and of the reviews
-  of branches, no object cache (decision 8), the fakes of the repository as its services (`TestServices`) and its host
+  of branches, no object cache (decision 9), the fakes of the repository as its services (`TestServices`) and its host
   (`TestHost` of `host.rs`: the accounts of the fakes, no `teamcity` CLI, the branch names of the fixture, since E2E
   never runs claude, the page's clock in UTC and the fakes of the CLIs of Settings → Tools), its desktop (`TestDesktop`,
   `TestUpdater`, `TestAgentCli`: below, **Command registry**), and the git of a test machine, `GIT_CONFIG_GLOBAL` the repository's
@@ -566,6 +582,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 | `POST`/`GET …/remote-gates` | answers of the fakes held or failed, and those that arrived | `holdRemoteAnswers`, `getArrivedAnswers` |
 | `POST …/update`, `POST`/`GET …/cli-tools` | the update of the updater; the CLIs of Settings → Tools and what they were asked | `setAvailableUpdate`, `setCliTools`, `getCliToolsLog` |
 | `POST …/sessions/close`, `…/clock/advance` | the app quits; the clock of the sessions moves | `closeSessions`, `advanceBackendClock` |
+| `POST …/warm-start/build`, `GET …/warm-start` | the frame an earlier run of the app left, the start of the app on it (`session_routes.rs`) | `buildWarmStart`, `warmStartModel` (the option `warmStart` of `setupRepo`, `reloadWarm`) |
 | `GET /health` | the checkout the server serves | global setup |
 
 ### Remote services

@@ -42,7 +42,7 @@ use std::collections::BTreeMap;
 /// The version of what a window holds of a session. `epoch` is random per process and session, `seq` grows by one with
 /// each patch. A patch applies only to the view at its `base`; any other view (a lost patch, another epoch) asks for a
 /// snapshot. Both are `u32`, a number in TypeScript
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct Version {
@@ -298,15 +298,39 @@ impl<T> ViewAnswer<T> {
   }
 }
 
-/// A window's subscription to the patches of a session: its id (`unsubscribe_view`) and the view at the subscription,
-/// which the first patch on the channel follows. A patch may reach the window before this answer: the window keeps it
-/// until it has the view
+/// What the start of the app hands the page of the main window before it subscribes (`window.__BD_MODEL__`,
+/// `src-tauri/src/warm_start.rs`): the project the view is of and the seed of its session, the view of the frame an
+/// earlier run saved
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct CachedModel {
+  pub repository_path: String,
+  pub view: RepositoryView,
+}
+
+/// What a window subscribes to the session of a repository with (`subscribe_view`): the version of the view it holds
+/// already, the seed the start of the app injected (`window.__BD_MODEL__`), null for none
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct SubscribeViewParams {
+  pub repository_path: String,
+  #[serde(default)]
+  pub have: Option<Version>,
+}
+
+/// A window's subscription to the patches of a session: its id (`unsubscribe_view`) and what brings the window to the
+/// view at the subscription, which the first patch on the channel follows: the view (`view`), the patch from the seed
+/// it holds (`catch_up`), or neither when it holds that view already. A patch may reach the window before this answer:
+/// the window keeps it until it has the answer
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ViewSubscription {
   pub id: u32,
-  pub view: RepositoryView,
+  pub view: Option<RepositoryView>,
+  pub catch_up: Option<ViewPatch>,
 }
 
 /// Whether a sync runs, and what it does

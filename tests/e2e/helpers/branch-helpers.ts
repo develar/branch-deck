@@ -8,6 +8,27 @@ export function findBranchRow(page: Page, branchName: string): Locator {
   return page.locator(`[data-testid="branch-row"][data-branch-name="${branchName}"]`)
 }
 
+/** `name@depth` of the branch rows in display order */
+export async function branchTree(page: Page): Promise<string[]> {
+  return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => `${row.getAttribute("data-branch-name")}@${row.getAttribute("data-depth") ?? 0}`))
+}
+
+/**
+ * Unstacks oauth from login (`stacked_branches`) with its row's menu while the session holds the rewrite back (the
+ * repository lock another process holds, the first sync of a warm start): the "⋯" of the row shows the wait, and its
+ * tooltip says `busy`; answers that "⋯"
+ */
+export async function unstackOauthFromMenuWaiting(page: Page, busy: string | RegExp): Promise<Locator> {
+  await page.locator('[data-testid="branch-row"][data-branch-name="oauth"]').click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Unstack from login" }).click()
+  const more = findBranchRow(page, "oauth").getByRole("button", { name: "More actions for oauth" })
+  await expect(more).toHaveAttribute("aria-busy", "true")
+  await more.hover()
+  // the tooltip of the menu item the click closed may still fade out
+  await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: busy })).toBeVisible()
+  return more
+}
+
 /**
  * Get all cells from a branch row with proper typing
  */

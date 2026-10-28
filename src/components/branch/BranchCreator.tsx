@@ -56,7 +56,7 @@ export function BranchCreator() {
     isLoadingBranchPrefix,
     hasError,
   })
-  // a repository synced before syncs when the window opens it (useSyncOnOpen): only the first sync needs the card
+  // a repository synced before syncs when its session opens (the session's own sync): only the first sync needs the card
   const showReadyToSync = hasRepository && neverSynced && hasBranchPrefix && !isLoadingBranchPrefix && pathValidation.valid && !hasSynced && !hasError
 
   // the window shows on its first frame with content: the first rows of a sync, or a state without rows (no repository,

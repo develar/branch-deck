@@ -3,7 +3,9 @@
  * a repository in Rust owns the branch table and its syncs; a window subscribes to it (`subscribe_view`, under the
  * window's label: the main window to the selected repository's, the review window of a branch to its repository's,
  * each with a store of its own), takes the view at the subscription and then each patch on the channel, and keeps
- * `branchSyncStore` in the shape the components read. A patch applies only to the view at its base: one of another
+ * `branchSyncStore` in the shape the components read. The main window starts warm (`adoptCachedModel`): the seed the
+ * start of the app injected (`window.__BD_MODEL__`, the frame an earlier run saved) is the view before anything is
+ * asked, and the window subscribes as the one that holds it, so the answer is the patch from it (`catchUp`), or nothing. A patch applies only to the view at its base: one of another
  * epoch (the session was opened again) or after a gap asks for the snapshot (`get_snapshot`); one that came before the
  * subscription answered waits for it. A branch record is built again only from the parts a patch changed, so a row
  * that reads an untouched branch does not render again.
@@ -25,6 +27,7 @@ import type {
   ActionState,
   ApiError,
   BranchChange,
+  CachedModel,
   BranchStructure as StructureView,
   BranchView,
   Commit,
@@ -69,9 +72,9 @@ import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied
 /** The subscription of the window to the session of one repository */
 interface Session {
   readonly repositoryPath: string
-  /** The view as the session sent it, at its version; null until the subscription answered */
+  /** The view as the session sent it, at its version (the seed of the start until the answer); null until then */
   view: RepositoryView | null
-  /** The patches that came while the view is not there yet (before the answer, while a snapshot is asked) */
+  /** The patches that came before the answer or while a snapshot is asked: they wait for it */
   early: ViewPatch[]
   /** The id of the subscription, for `unsubscribe_view`; null until it answered */
   id: number | null
@@ -154,6 +157,20 @@ export function viewVersionKey(version: Version | null): string | null {
 }
 
 /**
+ * The start of the main window with `model`, the seed the start of the app injected (`window.__BD_MODEL__`,
+ * `src-tauri/src/warm_start.rs`): the view of the frame of the session of the selected project, which Rust opened
+ * before the window and whose first sync runs while the page loads. Called before the first render: the rows show on
+ * the first frame, and the window subscribes at once, holding the seed, so the session answers the patch from it. A
+ * model of another project (a reload after a switch) is left
+ */
+export function adoptCachedModel(model: CachedModel | undefined): void {
+  if (model === undefined || session !== null || model.repositoryPath !== getSelectedRepositoryPath()) {
+    return
+  }
+  subscribe(model.repositoryPath, { count: 0 }, model.view)
+}
+
+/**
  * Subscribes the window to the session of `repositoryPath`, forgetting the table of the one it held: a switch of the
  * repository or of its branch prefix (another session); the late patches of the old one are dropped by their
  * subscription, which ends here
@@ -219,7 +236,11 @@ export async function refreshSessionFacts(repositoryPath: string, family: FactFa
   return result.data !== null
 }
 
-function subscribe(repositoryPath: string, pending: { count: number } = { count: 0 }): void {
+/**
+ * Subscribes the window to the session of `repositoryPath`; `held`, the seed of the start (`adoptCachedModel`), is the
+ * view the store shows until the answer brings it to the session's
+ */
+function subscribe(repositoryPath: string, pending: { count: number } = { count: 0 }, held: RepositoryView | null = null): void {
   const opened: Session = {
     repositoryPath,
     view: null,
@@ -235,7 +256,10 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
   const channel = new Channel<ViewPatch>()
   channel.onmessage = patch => receive(opened, patch)
   session = opened
-  opened.ready = commands.subscribeView({ repositoryPath }, channel).then(
+  if (held !== null) {
+    install(opened, held)
+  }
+  opened.ready = commands.subscribeView({ repositoryPath, ...(held !== null && { have: held.version }) }, channel).then(
     result => {
       if (result.status === "error") {
         fail(opened, result.error)
@@ -245,10 +269,19 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
         void commands.unsubscribeView({ id: result.data.id })
         return
       }
-      opened.id = result.data.id
+      const { id, view, catchUp } = result.data
+      opened.id = id
       // what the window shows goes to its new subscription
-      setDemandSubscription(opened.id)
-      install(opened, result.data.view)
+      setDemandSubscription(id)
+      if (view !== null) {
+        install(opened, view)
+      } else if (opened.view !== null) {
+        // the seed it holds: the patch from it, or nothing when the session sent none since
+        if (catchUp !== null) {
+          applyOrRefresh(opened, opened.view, catchUp)
+        }
+        applyEarly(opened)
+      }
     },
     (error: unknown) => fail(opened, error),
   )
@@ -282,7 +315,8 @@ function receive(target: Session, patch: ViewPatch): void {
   if (target !== session) {
     return
   }
-  if (target.view === null || target.refreshing) {
+  // before the answer: a patch follows what the answer brings the view to, also past a seed the window holds
+  if (target.id === null || target.view === null || target.refreshing) {
     target.early.push(patch)
     return
   }
@@ -340,8 +374,13 @@ function install(target: Session, view: RepositoryView): void {
   const news = target.toldNews === null ? [] : view.news
   target.toldNews ??= view.news.at(-1)?.id ?? 0
   projectView(target.repositoryPath, previous, view, null, untoldNews(target, news))
-  const early = target.early
-  target.early = []
+  applyEarly(target)
+}
+
+/** The patches that came before the view they follow, applied now; those that still wait are kept */
+function applyEarly(target: Session): void {
+  const early = target.id === null ? [] : target.early
+  target.early = target.id === null ? target.early : []
   for (const patch of early) {
     if (target.view === null || target.refreshing) {
       target.early.push(patch)
@@ -368,7 +407,12 @@ function untoldNews(target: Session, news: readonly News[]): readonly News[] {
 
 function projectView(repositoryPath: string, previous: RepositoryView | null, next: RepositoryView, changes: TableChanges | null, news: readonly News[]): void {
   const state = branchSyncStore.getState()
-  const update: Partial<BranchSyncState> = { viewVersion: next.version }
+  const update: Partial<BranchSyncState> = { viewVersion: next.version, cached: next.cached }
+  // a table of this run: a sync of the session committed it (the frame of an earlier run and a session no sync built
+  // have none)
+  if (!next.cached && next.header.head !== "") {
+    update.syncedRepositoryPath = repositoryPath
+  }
   const running = next.sync.kind === "running"
   const wasRunning = previous?.sync.kind === "running"
   if (running && !wasRunning) {
@@ -380,6 +424,11 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   }
   if (!running && wasRunning) {
     update.syncCount = state.syncCount + 1
+    // a run no request of this window waits for (the session's own on open, the follow-up of a rewrite, `bd`, another
+    // window): the repository is synced now; a request records its own run with its time (`recordSync`)
+    if (next.sync.kind === "idle" && isMainWindow && (session?.pending.count ?? 0) === 0) {
+      recordSynced(repositoryPath, next.order.length)
+    }
   }
   update.isSyncing = running || (session?.pending.count ?? 0) > 0
   update.syncError = syncErrorOf(next)
@@ -463,8 +512,11 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (!running && (wasRunning || changes === null)) {
     // a placeholder still waiting got no result, also after a failed run
     settleArchivedPlaceholders()
-    // the fixups of the table the run left, whoever asked it: this window, another, a rewrite of the engine
-    void loadAutosquashPlan(repositoryPath)
+    // the fixups of the table the run left, whoever asked it: this window, another, a rewrite of the engine; none of the
+    // frame of an earlier run, whose HEAD git may have moved since
+    if (!next.cached) {
+      void loadAutosquashPlan(repositoryPath)
+    }
   }
 }
 
@@ -747,6 +799,7 @@ function resetTable(): void {
     syncDeferred: null,
     syncStep: null,
     syncedRepositoryPath: null,
+    cached: false,
     inputsCheckedAt: null,
     viewVersion: null,
     baselineBranch: null,
@@ -974,7 +1027,7 @@ async function settle(
  * user's own (`manual`) says so in an `info` toast, any other waits; the view says why it waits (`deferred`), which the
  * page shows where it has no table. Nor is a sync of a session whose prefix the git config no longer names
  * (`prefix_changed`: a `git config` in a terminal): the run resolved the prefix again, the page shows the new one, and
- * the window opens the session under it, which it syncs for a repository synced before (`useSyncOnOpen`). Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is asked
+ * the window opens the session under it (`useSyncOnOpen`), which syncs as it opens for a repository synced before. Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is asked
  * again once the page has the prefix: the session of the new prefix serves it
  */
 async function refused(target: Session, reason: SyncReason, error: ApiError, askAgain: (() => Promise<SyncAnswer | null>) | null): Promise<SyncAnswer | null> {
@@ -1023,19 +1076,27 @@ function recordSync(repositoryPath: string, answer: SyncAnswer, reason: SyncReas
     return
   }
   if (answer.outcome === "unchanged") {
-    branchSyncStore.setState({ syncedRepositoryPath: repositoryPath, inputsCheckedAt: reason === "focus" ? Date.now() : branchSyncStore.getState().inputsCheckedAt })
+    branchSyncStore.setState({ inputsCheckedAt: reason === "focus" ? Date.now() : branchSyncStore.getState().inputsCheckedAt })
     return
   }
   // the usual time of a sync is the share of the sync of an update (`update-progress.ts`): every sync teaches it
-  // (`repositoryState`, a file of its own, so a sync never rewrites the user's settings)
+  recordSynced(repositoryPath, branchSyncStore.getState().branchOrder.length, Date.now() - startedAt)
+  branchSyncStore.setState({ inputsCheckedAt: null })
+}
+
+/**
+ * The repository is synced now, with `branchCount` branches (the room of the loading table at the next start), and
+ * the sync took `took` ms when the window knows when it was asked; the Landed island hides what the user saw
+ * (`hideAfterSync`). In `repositoryState`, a file of its own, so a sync never rewrites the user's settings
+ */
+function recordSynced(repositoryPath: string, branchCount: number, took?: number): void {
   const syncedAt = Date.now()
   updateRepositoryState(repositoryPath, state => ({
     ...state,
     lastSyncTime: syncedAt,
-    lastBranchCount: branchSyncStore.getState().branchOrder.length,
-    updateTimings: addTiming(state.updateTimings, "sync", syncedAt - startedAt),
+    lastBranchCount: branchCount,
+    ...(took !== undefined && { updateTimings: addTiming(state.updateTimings, "sync", took) }),
   }))
-  branchSyncStore.setState({ syncedRepositoryPath: repositoryPath, inputsCheckedAt: null })
   hideAfterSync(repositoryPath)
 }
 

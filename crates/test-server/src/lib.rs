@@ -281,6 +281,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
     )
     .route("/repositories/{id}/sessions/close", post(session_routes::close_sessions))
+    .route("/repositories/{id}/warm-start", get(session_routes::warm_start))
+    .route("/repositories/{id}/warm-start/build", post(session_routes::build_warm_start))
     .route("/repositories/{id}/clock/advance", post(session_routes::advance_clock))
     // Store endpoints
     .route("/store/{repo_id}", get(get_store_snapshot))
@@ -687,6 +689,7 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
     fetch_held: std::sync::Mutex::default(),
     foreign_operation: Arc::default(),
     sync_overrides: std::sync::Mutex::default(),
+    frame: std::sync::Mutex::default(),
   };
   state.repositories.insert(id.to_string(), repo);
   Ok(())

@@ -2,8 +2,9 @@
 //! and their hosts"): the frame of a session, which a later start of the app shows before its first sync.
 //!
 //! - **What a frame is** (`CachedSession`): the key of its session, the parts of its table as the last sync committed
-//!   them (`CachedTable`: the header with the prefix, the order, the rows, the stack branches, the sections, and of each
-//!   commit what its view leaves out but a rewrite finds it again by, `CommitIdentity`) and the facts of the remote
+//!   them (`CachedTable`: the header with the prefix, the order, the rows, the stack branches, the sections, of each
+//!   commit what its view leaves out but a rewrite finds it again by, `CommitIdentity`, and what that sync built of the
+//!   rows beside them, `CachedBuild`, which the next steps, the pushes and the actions read) and the facts of the remote
 //!   services as the view had them (`CachedFacts`: the robots, the Patronus view, the pull requests, the rules, the
 //!   merge profiles, the readiness, the review requests, the sign-ins). The parts the rules
 //!   decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need the user) are not
@@ -13,24 +14,28 @@
 //!   hash of its path) under the version of the schema (`FRAME_SCHEMA`), so the start reads it without a git process and
 //!   a frame of another schema is never read. The record names its key: a session seeds from it only under the same key
 //!   (`CachedSession::seeds`), so a frame of another prefix seeds nothing.
-//! - **The seed** (`TableState::from_cached`, `FactStore::from_cached`): the table is `cached` until the first sync of
+//! - **The seed** (`CachedSession::seed`: `TableState::from_cached`, `FactStore::from_cached`, the table of the last
+//!   sync rebuilt from the rows and the build, `CachedBuild::table`): the table is `cached` until the first sync of
 //!   the session commits, each fact of the frame that stood (`Fresh`, `Stale`, `Cached`) is `Cached` until an answer of
 //!   this process replaces it; a failure of that first read leaves what a failure without an answer leaves
 //!   (`Unavailable`, the value gone), so no value of an earlier run stands as an answer of this one.
 
+use crate::branch_table::{BranchTable, RemoteFacts};
 use crate::facts::FactStore;
 use crate::session::SessionKey;
-use crate::table::TableState;
+use crate::table::{TableParts, TableState};
+use domain_types::GroupedBranchInfo;
 use domain_types::commit::Commit;
 use domain_types::patronus::PatronusStartOptions;
 use domain_types::pull_request::BranchRules;
 use domain_types::session::{BranchView, Fact, PatronusPart, PullRequestsView, ReviewRequestsView, RobotsView, SubjectReadiness, TableHeader, TableSections};
 use domain_types::sign_in::AuthStatus;
+use domain_types::stack::BlockReason;
 use domain_types::stack::StackBranchUpdate;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
@@ -51,6 +56,21 @@ impl CachedSession {
   pub fn seeds(&self, key: &SessionKey) -> bool {
     self.schema == FRAME_SCHEMA && self.key == *key
   }
+
+  /// The table state and the facts the frame seeds: its rows `cached`, its facts `Cached`, and the table of its last
+  /// sync (`FactStore::table`) rebuilt from the rows and what that sync built of them, `Cached` too, so the next steps,
+  /// the pushes and the actions of the rows are derived as over a table this process committed
+  #[must_use]
+  pub fn seed(self) -> (TableState, FactStore) {
+    let Self { key, mut table, facts, .. } = self;
+    let built = table.built.take();
+    let state = TableState::from_cached(&key.prefix, table);
+    let mut store = FactStore::from_cached(facts, &state.header().baseline_branch);
+    if let Some(built) = built {
+      store.seed_table(built.table(&key.prefix, &state.parts));
+    }
+    (state, store)
+  }
 }
 
 /// The parts of a table a frame keeps: what the last sync committed, without what the rules derive of it
@@ -63,6 +83,81 @@ pub struct CachedTable {
   pub sections: TableSections,
   /// By original id, of each commit of the rows and of the unassigned ones
   pub identities: BTreeMap<String, CommitIdentity>,
+  /// What the sync that committed the rows built of them; none for a frame of a table no sync of its run committed
+  #[serde(default)]
+  pub built: Option<CachedBuild>,
+}
+
+/// What the table of a sync (`BranchTable`) has beside the rows of the frame, whose branches, commits and stack
+/// branches it rebuilds from them (`table`): the baseline, the virtual tips, the branches not built, the copy of each
+/// commit of the rows (the one the sync wrote, else the one its mapping note named, which the commits of a frame don't
+/// keep), the notes of the parked branches, what the sync knew of the remote branches and what the baseline has whole
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CachedBuild {
+  pub baseline: String,
+  pub tips: BTreeMap<String, String>,
+  pub not_built: BTreeMap<String, BlockReason>,
+  pub copies: BTreeMap<String, String>,
+  pub parked: BTreeMap<String, String>,
+  pub remote: RemoteFacts,
+  pub in_baseline: BTreeSet<String>,
+}
+
+impl CachedBuild {
+  /// What `table` built beside its rows
+  #[must_use]
+  pub fn of(table: &BranchTable) -> Self {
+    let copies = table
+      .branches
+      .iter()
+      .flat_map(|branch| &branch.commits)
+      .filter_map(|commit| Some((commit.id.clone(), table.copy_of(commit)?.to_owned())))
+      .collect();
+    Self {
+      baseline: table.baseline.clone(),
+      tips: table.tips.iter().map(|(name, tip)| (name.clone(), tip.clone())).collect(),
+      not_built: table.not_built.iter().map(|(name, reason)| (name.clone(), *reason)).collect(),
+      copies,
+      parked: table.parked.clone(),
+      remote: table.remote.clone(),
+      in_baseline: table.in_baseline.clone(),
+    }
+  }
+
+  /// The table of the sync under `prefix` with the rows of `parts`: its branches in the order of the table, each with
+  /// the head and the commits of its row, and the stack branches of the rows
+  pub(crate) fn table(self, prefix: &str, parts: &TableParts) -> BranchTable {
+    let branches = parts.order.iter().filter_map(|name| parts.branches.get(name)).map(grouped_of).collect();
+    BranchTable {
+      prefix: prefix.to_owned(),
+      baseline: self.baseline,
+      branches,
+      tips: self.tips.into_iter().collect(),
+      not_built: self.not_built.into_iter().collect(),
+      copies: self.copies.into_iter().collect(),
+      stack_branches: parts.stacks.values().cloned().collect(),
+      parked: self.parked,
+      remote: self.remote,
+      in_baseline: self.in_baseline,
+    }
+  }
+}
+
+/// The grouped branch of a row, as the sync that built the row grouped it
+fn grouped_of(row: &BranchView) -> GroupedBranchInfo {
+  let head = &row.head;
+  GroupedBranchInfo {
+    name: head.name.clone(),
+    commits: row.commits.clone(),
+    latest_commit_time: head.latest_commit_time,
+    summary: head.summary.clone(),
+    description_title: head.description_title.clone(),
+    all_commits_have_issue_references: head.all_commits_have_issue_references,
+    my_email: head.my_email.clone(),
+    origin: head.origin,
+    issue_key: head.issue_key.clone(),
+    stack: head.stack.clone(),
+  }
 }
 
 /// What a frame keeps of a commit beside its row, whose view leaves it out: what finds the commit again on a HEAD that
@@ -112,10 +207,12 @@ pub struct CachedFacts {
 /// runs, the one before it) and the facts as they stand
 #[must_use]
 pub fn frame_of(key: &SessionKey, state: &TableState, facts: &FactStore) -> CachedSession {
+  let mut table = state.committed_frame();
+  table.built = facts.table.value().map(|table| CachedBuild::of(table));
   CachedSession {
     schema: FRAME_SCHEMA,
     key: key.clone(),
-    table: state.committed_frame(),
+    table,
     facts: facts.frame(),
   }
 }

@@ -105,7 +105,7 @@ pub fn in_baseline(landing: &[LandedBranch]) -> impl Iterator<Item = &str> {
 
 /// What a remote branch is now, as the deriver of the Patronus view knows it: the session from its table, which a push
 /// moves without a sync (`facts::session_remote`), `bd` from its sync
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct RemoteFact {
   /// The tip of the remote branch; `None` without one
   pub remote_tip: Option<String>,
@@ -134,7 +134,7 @@ impl RemoteFact {
 }
 
 /// The remote facts of the branches and of the stack branches (by root)
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct RemoteFacts {
   pub branches: BTreeMap<String, RemoteFact>,
   pub stacks: BTreeMap<String, RemoteFact>,

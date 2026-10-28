@@ -106,12 +106,14 @@ export const commands = {
 	 */
 	getSnapshot: (params: SessionParams) => typedError<RepositoryView | null, ApiError>(__TAURI_INVOKE("get_snapshot", { params })),
 	/**
-	 *  Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer has the
-	 *  view at the subscription, the channel every patch after it until `unsubscribe_view`, the window's close or its next
-	 *  page load. While it lasts, the operations registry of the repository is watched (`Registry::subscribe`): the
-	 *  operations of `bd` show in the view, and a stamp of `bd` syncs the session
+	 *  Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer brings
+	 *  the window from the view it holds (`have`: the seed of the start, `window.__BD_MODEL__`; null for none) to the view at
+	 *  the subscription (the view, the patch from the seed, or nothing when it holds that view), the channel every patch
+	 *  after it until `unsubscribe_view`, the window's close or its next page load. While it lasts, the operations registry
+	 *  of the repository is watched (`Registry::subscribe`): the operations of `bd` show in the view, and a stamp of `bd`
+	 *  syncs the session
 	 */
-	subscribeView: (params: SessionParams, patches: Channel<ViewPatch>) => typedError<ViewSubscription, ApiError>(__TAURI_INVOKE("subscribe_view", { params, patches })),
+	subscribeView: (params: SubscribeViewParams, patches: Channel<ViewPatch>) => typedError<ViewSubscription, ApiError>(__TAURI_INVOKE("subscribe_view", { params, patches })),
 	/**  Ends a subscription of the calling window; the last one of a session makes it idle */
 	unsubscribeView: (params: UnsubscribeViewParams) => __TAURI_INVOKE<void>("unsubscribe_view", { params }),
 	/**
@@ -1054,6 +1056,16 @@ export type BuildProblem = {
 	kind: string | null,
 	/**  Cut to the limit */
 	details: string,
+};
+
+/**
+ *  What the start of the app hands the page of the main window before it subscribes (`window.__BD_MODEL__`,
+ *  `src-tauri/src/warm_start.rs`): the project the view is of and the seed of its session, the view of the frame an
+ *  earlier run saved
+ */
+export type CachedModel = {
+	repositoryPath: string,
+	view: RepositoryView,
 };
 
 /**
@@ -6821,6 +6833,15 @@ export type SubjectReadiness = {
 	readiness: ReviewReadiness,
 };
 
+/**
+ *  What a window subscribes to the session of a repository with (`subscribe_view`): the version of the view it holds
+ *  already, the seed the start of the app injected (`window.__BD_MODEL__`), null for none
+ */
+export type SubscribeViewParams = {
+	repositoryPath: string,
+	have?: Version | null,
+};
+
 export type SuggestBranchNamesParams = {
 	repositoryPath: string,
 	/**  The commits of the new branch; the message is not sent, the backend reads it from git with the changed files */
@@ -7362,13 +7383,15 @@ export type ViewPatch = {
 };
 
 /**
- *  A window's subscription to the patches of a session: its id (`unsubscribe_view`) and the view at the subscription,
- *  which the first patch on the channel follows. A patch may reach the window before this answer: the window keeps it
- *  until it has the view
+ *  A window's subscription to the patches of a session: its id (`unsubscribe_view`) and what brings the window to the
+ *  view at the subscription, which the first patch on the channel follows: the view (`view`), the patch from the seed
+ *  it holds (`catch_up`), or neither when it holds that view already. A patch may reach the window before this answer:
+ *  the window keeps it until it has the answer
  */
 export type ViewSubscription = {
 	id: number,
-	view: RepositoryView,
+	view: RepositoryView | null,
+	catchUp: ViewPatch | null,
 };
 
 /**

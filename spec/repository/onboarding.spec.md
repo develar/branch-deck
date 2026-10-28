@@ -23,6 +23,10 @@ targets:
   - ../../crates/git-ops/src/rewrite_guard.rs
   - ../../src/hooks/useSyncOnOpen.ts
   - ../../src/model/store.ts
+  - ../../src/router.ts
+  - ../../src-tauri/src/warm_start.rs
+  - ../../crates/repository-model/src/warm_start.rs
+  - ../../crates/app-settings/src/projects.rs
   - ../../crates/repository-model/src/sync_scheduler.rs
   - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/repository-model/src/session.rs
@@ -153,16 +157,41 @@ alert with the reason and the next step, never a raw Git error.
   change it makes, and on focus after a commit, a fetch or a push elsewhere, Auto-sync on Focus). Its Sync button syncs (with the
   spinner while it runs, its label stays "Sync"); the card goes when the sync completes, or gives way to the error alert.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says what Sync does before the first sync, then gives way to the branches`)
-- A repository synced before syncs when the window opens it, at start and on a switch, also with Auto-sync on Focus
-  off: no card, the spinner of Sync in the header, then the branches and Update. A failed sync is the error alert and is not
-  repeated until the window opens the repository again (⌘R retries). Synced before is what the last sync recorded of
-  the repository in `repositoryState` (when it ended, the "Last synced" of the header, and how many branches it had,
-  the line under the path in the repository selector), which the backend keeps beside the settings
-  (`repository-state.json`): a sync never rewrites `settings.json`.
+- A repository synced before syncs when its session opens, at start and on a switch, and when a window comes back to
+  a session kept idle (then only when what a sync reads changed), also with Auto-sync on Focus off: no card, the
+  spinner of Sync in the header, then the branches and Update. The session starts that sync itself, with or without a
+  window (`SessionHost::synced_before`), so the page asks for none and a focus during it is one check after it. A
+  failed sync is the error alert and is not repeated until the window opens the repository again (⌘R retries). Synced
+  before is what the last sync recorded of the repository in `repositoryState` (when it ended, the "Last synced" of the
+  header, and how many branches it had, the line under the path in the repository selector), which the backend keeps
+  beside the settings (`repository-state.json`): a sync never rewrites `settings.json`. The main window records every
+  run of its session that ended, the ones no request of it waited for too (the sync of the open, of a rewrite, of `bd`).
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
-  [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`, `a_window_that_watches_a_kept_session_anew_syncs_it_when_the_inputs_changed`)
+  [@test] ../../crates/app-settings/src/projects_test.rs (`a_project_was_synced_before_when_its_state_has_the_time_of_a_sync`)
   [@test] ../../src/model/store.test.ts (`keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended`)
+- The app starts warm: before the main window is built, Rust reads the frame the session of the selected project saved
+  last (`repository_model::warm_start`: the rows, the stacks, the sections and the facts of the remote as its last
+  sync and its last answers left them) from the object cache of the repository, without a git process (the common
+  git directory found by the files of the worktree), opens the session seeded from it, whose first sync starts at
+  once, and puts its seed into the page as `window.__BD_MODEL__`. The page shows those rows on its first frame
+  (`data-cached` on the table) and subscribes holding the seed (`subscribe_view` with `have`): the answer is the patch
+  from it to the view of the session, or nothing; the rows come with that one command and its channel. Until the first
+  sync commits, the rows are of the frame (`RepositoryView.cached`): a push and every other action of the remote waits
+  for it ("Waits for the first sync"), a rewrite pressed then (Unstack) says it waits ("Unstacking oauth after the
+  sync") and runs on the table the sync committed, and a focus during that sync is one check after it. A frame of
+  another prefix or schema, a project without one, or a model of another project (a reload after a switch) start as
+  before, without rows until the first sync.
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`shows the rows of the frame before the first sync, asking only for the subscription, and the first sync's table after it`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`says a push of the rows of the frame waits for the first sync, and offers it once the sync committed`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`runs an unstack pressed on the rows of the frame once the first sync committed, waiting for it until then`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`checks a focus during the first sync once after it, with no second run`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs_with_no_window`, `a_seeded_session_shows_the_steps_and_the_actions_of_its_rows_a_push_waiting_for_the_first_sync`, `a_frame_of_another_prefix_or_schema_seeds_nothing`)
+  [@test] ../../src-tauri/src/warm_start_test.rs (`the_common_dir_is_found_by_the_files_of_the_main_and_of_a_linked_worktree`, `the_model_is_the_json_of_the_path_and_the_view_in_a_string_that_json_parse_reads`)
+  [@test] ../../crates/app-settings/src/projects_test.rs (`the_selected_project_is_the_first_recent_one`)
+  [@test] ../../src/model/store.test.ts (`shows the rows of the seed before anything answers, and catches up by the patch from it, the patches before the answer after it`, `keeps the seed when the session sent nothing since, and leaves a model of another project`)
+  [@test] ../../src/presenters/operations.test.ts (`says that an operation waits for the sync, behind another one, or what it does`)
 - While a sync runs and the page has no rows to show (the first sync of a session of a repository synced before: when
   the window opens it at start, or another session of it, under a prefix changed in a terminal or in Settings; a sync
   after one that failed or waited for git), the body is the loading table where the rows will
@@ -204,7 +233,7 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_after_the_sessions_own_push_runs_no_sync`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs nothing on the focus after its own push, the remote branch it moved known to the session`)
 - A prefix changed in a terminal (`git config branchdeck.branchPrefix`) shows on the next focus: the window resolves the
-  prefix again and opens the session under it, which it syncs as it opens a repository synced before, whichever of that
+  prefix again and opens the session under it, which syncs as it opens for a repository synced before, whichever of that
   resolve and the check of the focus (100 ms later) ends first, so the table is never the empty one of a session no
   sync built. A run of the session under the old prefix builds nothing under it: it answers `prefix_changed`, which is
   no failure, and the page resolves the prefix again. A Sync the user pressed that comes back so for a repository never

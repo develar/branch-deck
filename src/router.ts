@@ -11,11 +11,17 @@ export const router = createBrowserRouter([
     // rendered while a lazy sub-window page loads on initial navigation
     HydrateFallback: () => null,
     children: [
-      // lazy as the sub-window pages: a sub-window shares this bundle and never needs the main window's tree
+      // lazy as the sub-window pages: a sub-window shares this bundle and never needs the main window's tree. The rows
+      // of the frame the start injected are in the store before the first render, and the window subscribed holding
+      // them (`adoptCachedModel`)
       {
         index: true,
         lazy: {
-          Component: async () => (await import("@/pages/IndexPage")).IndexPage,
+          Component: async () => {
+            const [{ IndexPage }, { adoptCachedModel }] = await Promise.all([import("@/pages/IndexPage"), import("@/model/store")])
+            adoptCachedModel(window.__BD_MODEL__)
+            return IndexPage
+          },
         },
       },
       {

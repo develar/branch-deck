@@ -509,6 +509,20 @@ impl FactStore {
     }
   }
 
+  /// The table of the last sync of the frame the session was seeded from (`CachedSession::seed`), `Cached` until a sync
+  /// of this process answers it
+  pub(crate) fn seed_table(&mut self, table: BranchTable) {
+    let fact = Fact {
+      value: Some(Arc::new(table)),
+      state: FactState::Fresh,
+      seq: 0,
+      observed_at: 0,
+    };
+    if let Some(record) = FactRecord::cached(fact, 0) {
+      self.table = record;
+    }
+  }
+
   /// The facts a frame keeps (`warm_start::frame_of`), as the view has them: the merge profiles only of the baseline
   /// the table has now
   #[must_use]

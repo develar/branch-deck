@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import {
+  branchTree,
   collapseBranch,
   expandBranch,
   expectNothingToPush,
@@ -12,6 +13,7 @@ import {
   getMoreButton,
   getPushButton,
   getStackChip,
+  unstackOauthFromMenuWaiting,
   verifyCommitCount,
 } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
@@ -92,11 +94,6 @@ async function expectRewritesWaitAndUnstackOnce(page: Page, repo: TestRepository
   expect(await finishedSyncCount(page)).toBe(syncs + 1)
 }
 
-/** `name@depth` of the branch rows in display order */
-async function tree(page: Page): Promise<string[]> {
-  return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => `${row.getAttribute("data-branch-name")}@${row.getAttribute("data-depth") ?? 0}`))
-}
-
 /** `name@lane` of the branch rows in display order: the lane of the node in the stack graph */
 async function lanes(page: Page): Promise<string[]> {
   return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => `${row.getAttribute("data-branch-name")}@${row.getAttribute("data-lane")}`))
@@ -132,7 +129,7 @@ test.describe("Stacked branches", () => {
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, "login"), 1)
 
-    expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
     // a graph, not a staircase: the chain auth → login → oauth stays on lane 0, session forks off it on lane 1
     expect(await lanes(page)).toEqual(["docs@0", "auth@0", "session@1", "login@0", "oauth@0"])
     const authX = await nodeX(page, "auth")
@@ -256,7 +253,7 @@ test.describe("Stacked branches", () => {
     await expect(page.getByTestId("stack-chip")).toHaveCount(1)
 
     await chip.click()
-    expect(await tree(page)).toEqual(["docs@0", "auth@0"])
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
     await expect(chip).toHaveAttribute("data-stack", "collapsed")
     // where the hidden rows are on their way into master, in the colour of their nodes: neither Patronus nor GitHub, so
     // their push is the user's step
@@ -275,9 +272,9 @@ test.describe("Stacked branches", () => {
     await waitForStorePersistence(page, "recentProjects", projects => (projects as { collapsedStacks?: string[] }[] | undefined)?.[0]?.collapsedStacks?.includes("auth") === true)
     await page.reload()
     await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="auth"]'])
-    expect(await tree(page)).toEqual(["docs@0", "auth@0"])
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
     await getStackChip(findBranchRow(page, "auth")).click()
-    expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 
   test("should name in the chip of a collapsed stack only the robots that failed on its branches as they are", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -309,18 +306,18 @@ test.describe("Stacked branches", () => {
     await findBranchRow(page, "oauth").focus()
 
     await page.keyboard.press("Alt+ArrowLeft")
-    expect(await tree(page)).toEqual(["docs@0", "auth@0"])
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
     // the focus moves from the hidden row to the root
     await expect(findBranchRow(page, "auth")).toBeFocused()
     await page.keyboard.press("Alt+ArrowRight")
-    await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
     // a lone branch has no stack to collapse; the menu offers it on a branch of a stack
     await findBranchRow(page, "docs").focus()
     await page.keyboard.press("Alt+ArrowLeft")
     await expect(page.getByTestId("branch-row")).toHaveCount(5)
     await openContextMenu(page, findBranchRow(page, "login"))
     await clickContextMenuItem(page, "Collapse Stack")
-    expect(await tree(page)).toEqual(["docs@0", "auth@0"])
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
   })
 
   test("should block the children of a parent that doesn't build", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -366,11 +363,11 @@ test.describe("Stacked branches", () => {
     await runAndWaitForSync(page, () => clickContextMenuItem(page, "oauth"))
     // the toast comes once the sync showed the result
     await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
-    await expect.poll(() => tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
+    await expect.poll(() => branchTree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
 
     await openContextMenu(page, findBranchRow(page, "docs"))
     await runAndWaitForSync(page, () => clickContextMenuItem(page, "Unstack from oauth"))
-    await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 
   test("should stack a dragged branch dropped on the Stack on chip of a row, refuse a cycle there, and unstack it on the unstack zone", async ({
@@ -380,7 +377,7 @@ test.describe("Stacked branches", () => {
   }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
-    expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
 
     // the chip shows over the row under the pointer, and a drop on it stacks instead of moving the commits
     await startDrag(page, findBranchRow(page, "docs"))
@@ -393,7 +390,7 @@ test.describe("Stacked branches", () => {
     await expect(chip).toHaveText("Stack on oauth")
     await runAndWaitForSync(page, () => dropOn(page, chip))
     await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
-    await expect.poll(() => tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
+    await expect.poll(() => branchTree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
 
     // a branch stacked on the dragged one is refused, with the reason in the chip and in the drag bar
     await startDrag(page, findBranchRow(page, "auth"))
@@ -404,7 +401,7 @@ test.describe("Stacked branches", () => {
     await refused.hover()
     await expect(page.getByTestId("drag-target-status")).toHaveText("Cannot stack auth on oauth: oauth is stacked on it")
     await dropOn(page, refused)
-    expect(await tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
+    expect(await branchTree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
 
     // the unstack zone of the drag bar makes it a root again
     await startDrag(page, findBranchRow(page, "docs"))
@@ -412,27 +409,27 @@ test.describe("Stacked branches", () => {
     await expect(unstack).toHaveText("Unstack docs")
     await runAndWaitForSync(page, () => dropAt(page, unstack))
     await expect(page.getByText("Unstacked docs")).toBeVisible()
-    await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 
   test("should stack an issue branch without a rewrite and undo it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_issues")
     await syncAndWaitForBranches()
     // docs is stacked on ABC-1 by the stack parents, its prefix names no parent
-    expect(await tree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
+    expect(await branchTree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
 
     await openContextMenu(page, findBranchRow(page, "ABC-2"))
     await page.getByRole("menuitem", { name: "Stack On…" }).hover()
     await runAndWaitForSync(page, () => clickContextMenuItem(page, "ABC-1"))
     // no commit moved: the toast names no count
     await expect(page.getByText("Stacked ABC-2 on ABC-1", { exact: true })).toBeVisible()
-    await expect.poll(() => tree(page)).toEqual(["ABC-1@0", "docs@1", "ABC-2@1"])
+    await expect.poll(() => branchTree(page)).toEqual(["ABC-1@0", "docs@1", "ABC-2@1"])
     await expandBranch(page, findBranchRow(page, "ABC-2"))
     // the commit keeps its message; the row of ABC-2 shows the key
     await expect(getBranchCommitRow(page, "ABC-2", "Parse lists")).toBeVisible()
 
     await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
-    await expect.poll(() => tree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
+    await expect.poll(() => branchTree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
   })
 
   test("should not offer a branch's own descendants to stack on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -462,7 +459,7 @@ test.describe("Stacked branches", () => {
     await expect(page.getByText("session, login, oauth stay stacked on it")).toBeVisible()
     await runAndWaitForSync(page, () => input.press("Enter"))
 
-    await expect.poll(() => tree(page)).toEqual(["docs@0", "identity@0", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "identity@0", "session@1", "login@1", "oauth@2"])
   })
 
   test("should build a child on the baseline once its parent has no commits, and unstack it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -491,7 +488,7 @@ test.describe("Stacked branches", () => {
 
     // the user rewrites the prefixes, never the sync
     await runAndWaitForSync(page, () => alert.getByRole("button", { name: "Unstack from login" }).click())
-    await expect.poll(() => tree(page)).toContain("oauth@0")
+    await expect.poll(() => branchTree(page)).toContain("oauth@0")
     await expect(findBranchRow(page, "oauth").getByTestId("stack-base")).toHaveCount(0)
     await expect(getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")).toHaveCount(0)
   })
@@ -522,7 +519,7 @@ test.describe("Stacked branches", () => {
     await expect(more).not.toHaveAttribute("aria-busy")
     await expectRewritesWaitAndUnstackOnce(page, repo, unstacks)
     await expect(page.getByText("Cannot unstack oauth")).toHaveCount(0)
-    await expect.poll(() => tree(page)).toContain("oauth@0")
+    await expect.poll(() => branchTree(page)).toContain("oauth@0")
     await expect(getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")).toHaveCount(0)
   })
 
@@ -537,14 +534,8 @@ test.describe("Stacked branches", () => {
     // the unstack reaches the session and waits there for the repository lock another process holds
     const unstacks = await recordRewrites(page, "unstack")
     await repo.holdRepositoryLock(true)
-    await openContextMenu(page, findBranchRow(page, "oauth"))
-    await clickContextMenuItem(page, "Unstack from login")
     // its "⋯" shows the wait, and its menu is the Stop Waiting of it
-    const more = findBranchRow(page, "oauth").getByRole("button", { name: "More actions for oauth" })
-    await expect(more).toHaveAttribute("aria-busy", "true")
-    await more.hover()
-    // the tooltip of the menu item the click closed may still fade out
-    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: WAITING_FOR_HOLDER })).toBeVisible()
+    const more = await unstackOauthFromMenuWaiting(page, WAITING_FOR_HOLDER)
     // a key runs the item it is the hint of: M on another row opens its form, whose move would wait for the unstack
     await findBranchRow(page, "docs").focus()
     await page.keyboard.press("m")
@@ -580,7 +571,7 @@ test.describe("Stacked branches", () => {
 
     await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
-    await expect.poll(() => tree(page)).toContain("oauth@0")
+    await expect.poll(() => branchTree(page)).toContain("oauth@0")
     await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot / })).toHaveCount(0)
     // the held sync and the one the rewrite asked
     expect(await finishedSyncCount(page)).toBe(syncs + 2)
@@ -603,7 +594,7 @@ test.describe("Stacked branches", () => {
     await inlineBranchCreator.getInput(page).fill("auth/guide")
     await runAndWaitForSync(page, () => inlineBranchCreator.getInput(page).press("Enter"))
 
-    await expect.poll(() => tree(page)).toEqual(["auth@0", "guide@1", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["auth@0", "guide@1", "session@1", "login@1", "oauth@2"])
     await expect(findBranchRow(page, "guide")).toHaveAttribute("data-state", "open")
   })
 
@@ -1508,7 +1499,7 @@ test.describe("Stacked branches", () => {
       await openContextMenu(page, findBranchRow(page, "auth"))
       await page.getByRole("menuitem", { name: "Stack On…" }).hover()
       await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
-      await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@1", "session@2", "login@2", "oauth@3"])
+      await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@1", "session@2", "login@2", "oauth@3"])
       // auth and login stay held: the robot's commit has their commits, the reason counts them
       await expect(findBranchRow(page, "auth").getByTestId("landing-span")).toHaveText("lands with oauth")
       const authRow = findBranchRow(page, "auth")
@@ -1805,7 +1796,7 @@ test.describe("Stacked branches", () => {
       // the popover shows itself again, of oauth alone, a root now: no start after the unstack
       await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands oauth into master: 1 commit.")
       await expect(alone).toHaveCount(0)
-      await expect.poll(() => tree(page)).toContain("oauth@0")
+      await expect.poll(() => branchTree(page)).toContain("oauth@0")
       expect((await repo.getPatronusLog()).starts).toEqual([])
       await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
       await expectPatronusStarts(repo, [startRequest("oauth")])
@@ -1873,7 +1864,7 @@ test.describe("Stacked branches", () => {
       await expect(moved.getByRole("button", { name: "Unstack from IJPL-257337" })).toBeVisible()
       await expect(alone).toHaveAttribute("data-action", "unstack")
       await expect(alone).toContainText("To land perf-part-2 alone: it applies on the baseline without IJPL-257337 and uses no name it adds. Not checked by a compiler.")
-      expect(await tree(page)).toEqual(["IJPL-257337@0", "perf-part-2@1"])
+      expect(await branchTree(page)).toEqual(["IJPL-257337@0", "perf-part-2@1"])
 
       // the review of the new tip waits: until it answers, the popover says so and shows no review of the whole stack
       await repo.holdRemoteAnswers({ hold: ["readiness"] })
@@ -1884,7 +1875,7 @@ test.describe("Stacked branches", () => {
       await expect(review).toHaveCount(0)
       await repo.holdRemoteAnswers({ release: ["readiness"] })
       // two roots now, in the order of their latest commits
-      expect((await tree(page)).toSorted()).toEqual(["IJPL-257337@0", "perf-part-2@0"])
+      expect((await branchTree(page)).toSorted()).toEqual(["IJPL-257337@0", "perf-part-2@0"])
       await verifyCommitCount(findBranchRow(page, "perf-part-2"), 2)
       await expect(review).toContainText("Needs review by the code owners: a Safe Push fails without these approvals.")
       await expect(groups).toHaveText([/^UI Team/])

@@ -1,4 +1,4 @@
-import type { SubWindowOpen } from "@/lib/bindings"
+import type { CachedModel, SubWindowOpen } from "@/lib/bindings"
 
 declare global {
   interface Window {
@@ -12,6 +12,11 @@ declare global {
     __TAURI_STORE_VERSION__?: number
     /** How every window draws its title bar, injected by the window builder (`titleBar` in src/lib/title-bar.ts) */
     __BD_TITLE_BAR__?: import("@/lib/title-bar").TitleBar
+    /**
+     * The seed of the session of the selected project, the view of the frame an earlier run saved, injected into the main
+     * window by the start of the app (`src-tauri/src/warm_start.rs`); none without a frame (`adoptCachedModel`)
+     */
+    __BD_MODEL__?: CachedModel
   }
 
   interface WindowEventMap {

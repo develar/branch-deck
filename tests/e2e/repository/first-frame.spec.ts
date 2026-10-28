@@ -2,7 +2,6 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { getSubWindowReadyOpen, getWindowReadyRows, getWindowShell, observeWindowStages } from "../helpers/sub-window-helpers"
-import { holdCommand } from "../helpers/wait-helpers"
 
 /** The repository was synced an hour ago: the window syncs it by itself when it opens it */
 const SYNCED_AN_HOUR_AGO = 60 * 60 * 1000
@@ -17,16 +16,21 @@ test.describe("The first frame of the main window", () => {
   })
 
   test("should show the main window on the first rows of its sync, the table loading where they come until then", async ({ page, setupRepo }) => {
-    // the first sync of the window, held: what the window shows before its rows
-    const release = await holdCommand(page, "sync")
-    // the setup waits for Sync, which the held sync keeps disabled
-    const setup = setupRepo("branch_filter", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, syncedBranchCount: BRANCH_FILTER_ROWS })
+    // the first sync of the session, held in it: what the window shows before its rows
+    const repo = await setupRepo("branch_filter", {
+      prepopulateStore: true,
+      syncedAgoMs: SYNCED_AN_HOUR_AGO,
+      syncedBranchCount: BRANCH_FILTER_ROWS,
+      remoteAnswers: { hold: ["sync"] },
+      waitForSync: false,
+    })
 
     // the title row and, where the rows come, the table loading in the room of the last sync's rows and their filter bar
     const loading = page.getByTestId("branch-table-loading")
     await expect(loading).toHaveAttribute("aria-busy", "true")
     await expect(loading.getByRole("columnheader", { name: "Branch Name" })).toBeVisible()
-    await expect(loading).toContainText("Syncing branches…")
+    // the session's sync waits in its first step
+    await expect(loading).toContainText("Grouping the commits…")
     await expect(page.getByTestId("sync-button")).toBeVisible()
     const loadingBox = await loading.boundingBox()
     // the shell is said with the title row and the loading table: the 1 s budget of the rows counts from it, so the
@@ -35,8 +39,7 @@ test.describe("The first frame of the main window", () => {
     // the window is still hidden: the backend shows it by its budget if the rows take longer
     expect(await getSubWindowReadyOpen(page)).toBeNull()
 
-    release()
-    await setup
+    await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect(findBranchRow(page, "core")).toBeVisible()
     await expect.poll(() => getSubWindowReadyOpen(page)).toBe(1)
     // said with the rows in the page, not before them

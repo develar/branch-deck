@@ -1,7 +1,7 @@
 // @spec spec/branch/patronus.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { Intent, RunningOperation } from "@/lib/bindings"
-import { presentOperationHolder, presentOtherProcess } from "@/presenters/operations"
+import { presentOperationBusy, presentOperationHolder, presentOtherProcess } from "@/presenters/operations"
 
 /** `intent` that `bd` with pid 4242 runs, as the session shows it from the operations registry of the repository */
 function ofBd(intent: Intent): RunningOperation {
@@ -53,5 +53,16 @@ describe("presentOperationHolder", () => {
     expect(presentOperationHolder({ op: "01K", tool: "bd", pid: 4242, kind: "safe_push", subject: "auth", held_for: 90, unknown: true })).toBe(
       "Cannot tell whether the Safe Push of auth that `bd` (pid 4242) sent started: it holds until Patronus lists its robot, or until Forget This Start",
     )
+  })
+})
+
+describe("presentOperationBusy", () => {
+  it("says that an operation waits for the sync, behind another one, or what it does", () => {
+    const unstack: RunningOperation = { ...ofBd(SAFE_PUSH), id: "unstack", origin: { kind: "thisProcess" }, step: { kind: "waitingForSync" } }
+    const labelOf = (operation: RunningOperation) => (operation.id === "unstack" ? "Unstacking oauth" : "Squashing 2 commits")
+    expect(presentOperationBusy(unstack, { unstack }, labelOf)).toBe("Unstacking oauth after the sync")
+    const squash: RunningOperation = { ...unstack, id: "squash", step: { kind: "queued", behind: "unstack" } }
+    expect(presentOperationBusy(squash, { unstack, squash }, labelOf)).toBe("Waits for Unstacking oauth")
+    expect(presentOperationBusy({ ...unstack, step: { kind: "checking" } }, { unstack }, labelOf)).toBe("Unstacking oauth")
   })
 })

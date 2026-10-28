@@ -4154,7 +4154,10 @@ The frame of a session (`warm_start.rs`, s13-warm-start): what a later start sho
 (`CachedSession`) is the key of the session, the parts of its table as the last sync committed them (the header with
 the prefix, the order, the rows, the stack branches, the sections; while a sync runs, the table it started from; and
 by id, of each commit of the rows and of the unassigned ones, the author's email and the subject that its view leaves
-out, `CommitIdentity`, which a rewrite pressed on the seeded table finds it again by) and the facts of the remote
+out, `CommitIdentity`, which a rewrite pressed on the seeded table finds it again by; what that sync built of the rows
+beside them, `CachedBuild`: the virtual tips, the branches not built, the copy of each commit, the parked notes, the
+remote facts and what the baseline has whole, from which the seed rebuilds the table of the last sync, `BranchTable`,
+`Cached` in `FactStore::table`, so the next steps, the pushes and the actions of the rows show) and the facts of the remote
 services as the view has them (the robots, the Patronus view with its landing needs, the pull
 requests, the rules, the merge profiles of the table's baseline, the readiness, the review requests, the sign-ins);
 the parts the rules decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need
@@ -4162,8 +4165,10 @@ the user) are not kept but derived again from the frame by the binary that reads
 with the demand of a window. It lives in the object cache of the repository, store `session_frame`: one frame per
 worktree, keyed by the hash of its path under the version of the schema (`FRAME_SCHEMA`), as JSON (the parts of a view
 are tagged by a field, which postcard can't read back), so the start reads it without a git process and a frame of
-another schema is never read. The host reads it when the session opens (`SessionHost::frame`; the app's through
-`SessionEnvironment::frame_cache`, a disabled cache until the hosts keep frames), and the session seeds from it only
+another schema is never read. The host reads it when the session opens (`SessionHost::frame`, `SessionEnvironment::frame`:
+the app's in the object cache of the repository, the E2E server's in the memory of a test repository once its test
+built one, `POST /repositories/{id}/warm-start/build`), unless the opener hands it the frame it read
+(`Sessions::open_seeded`: the start of the app), and the session seeds from it only
 under the same key and schema (`CachedSession::seeds`): the table is `cached` (`RepositoryView.cached`) until a sync of
 this process commits, the structure of each row and the order of the stack branches derived again, each commit with
 its identity; a rewrite pressed meanwhile waits for that commit ("Rewrite in the engine", step 3); each fact of the
@@ -4175,11 +4180,19 @@ derive of the frame at the first version of its epoch (`View::seeded`), its seed
 with that version (`Sessions::subscribe_from`, `have`) and catches up by one patch (`Joined::CatchUp`,
 `patch::diff_views`, which brings the view at its base to the view at its `next`: a patch applies to the view at its
 base and brings it to a newer version, the next one live, a later one in a catch-up), a window that holds the view
-of the last patch gets nothing more (`Joined::Holds`), any other the snapshot; `Sessions::subscribe`, which the hosts
-call until they pass what their window holds, is the subscription of a window that holds nothing. A worktree synced
-before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the app's writer keeps) syncs when its
-session opens (`Open`, with or without a window), so the first sync of the start runs while the window loads; a window
-that opens or gains the focus during it is served by it or checks once after it. The actor saves the frame on the
+of the last patch gets nothing more (`Joined::Holds`), any other the snapshot (`Joined::answer`, the
+`ViewSubscription` of the hosts: `view`, `catchUp` or neither); `Sessions::subscribe` is the subscription of a window
+that holds nothing. A worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
+app's writer keeps, `app_settings::projects::synced_before`) syncs when its session opens (`Open`, with or without a
+window), so the first sync of the start runs while the window loads, and so does a session a window watches anew (a
+switch back within `IDLE_LIMIT`; also one a sync of this session committed), which then runs only when what a sync
+reads changed; a window that opens or gains the focus during it is served by it or checks once after it. The start
+of the app (`src-tauri/src/warm_start.rs`) reads the frame of the selected project (`projects::selected_project`)
+before the main window is built: the common git directory by the files of the worktree (its `.git`
+directory, or the `commondir` a linked worktree's `.git` file names, `lease_slot::linked_worktree`), the object cache
+there, then `Sessions::open_seeded` under the key the frame names, whose seed goes into the init script of the window
+as `window.__BD_MODEL__ = JSON.parse('…')` beside `__TAURI_STORE__`; a frame of a prefix the git config left seeds a
+session no window subscribes to, which goes idle, and the window's own key opens the session it gets the snapshot of. The actor saves the frame on the
 blocking pool, one save at a time and the newest next: at once after a sync committed the table, at most every
 `FRAME_INTERVAL` (5 s on the session clock) after a patch of the facts (the last change waits for it), and when the
 session is swept or closed (`Message::Close`) or the registry goes with what changed since; a session whose run found
@@ -4192,8 +4205,10 @@ differs only, one run with a focus during it), a frame of another prefix or sche
 The hosts: the commands of the sessions are app-api's (`crates/app-api/src/session/`), which the app and the E2E server
 both run; the frame of each (`session` of `registry.rs`) resolves the session key from the repository path with the
 prefix the commands resolve (`AppContext::session_key`, `PrefixInputs`, refused as `no_branch_prefix` without one)
-before its body runs: `subscribe_view` opens the session and subscribes the calling window on a channel of
-`ViewPatch`es, answering its id with the view at that moment (`ViewSubscription`), `get_snapshot` answers the view of
+before its body runs: `subscribe_view` opens the session and subscribes the calling window, which names the version of
+the view it holds (`have`: the seed of the start, or none), on a channel of `ViewPatch`es, answering its id with what
+brings the window to the view at that moment (`ViewSubscription`: the view, the catch-up from the seed, or nothing),
+`get_snapshot` answers the view of
 an open session (null for one that is not: the window subscribes again), `unsubscribe_view` ends a subscription by id,
 `set_window_focus` tells the session that a window gained or lost the focus and, for a gained one while the host
 syncs on focus (`SessionHost::syncs_on_focus`: Auto-sync on Focus as the app's `SettingsService` has it, the settings
@@ -4214,9 +4229,9 @@ each page load of it (a reload, `forget_page`), and a subscription is kept for t
 before it awaited anything (`Call`, `WindowSubscriptions`): one that answers after that page went away ends at once; the
 app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the windows and the sessions of a
 test repository when it deletes it (`forget_windows`, `Sessions::close_worktree`, which drops the subscribers at once). The main window has
-no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; a switch of
-the repository or of its prefix is another subscription, and the session of a changed prefix syncs as an opened
-repository does, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix again, and the user's own Sync of a
+no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; at start
+holding the seed of the warm start, `adoptCachedModel`; a switch of the repository or of its prefix is another
+subscription, and the session of a changed prefix syncs as it opens, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix again, and the user's own Sync of a
 repository never synced, which no sync of an opened repository serves, is asked again of the session of the new
 prefix), applies its patches, asks `sync` (Sync, ⌘R, after a change; ⌘R during a sync asks a `Focus` check after it;
 an answer of another epoch than the view's subscribes the window again, once, to the session open now, the table kept

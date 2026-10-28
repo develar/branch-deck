@@ -49,7 +49,7 @@ use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost
 use crate::state::{Joined, View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
-use crate::warm_start::{CachedSession, frame_of, read_frame, write_frame};
+use crate::warm_start::{CachedSession, frame_of};
 use domain_policy::landing_route::rules_target;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
@@ -59,7 +59,6 @@ use domain_types::session::{Demand, FactFamily, FactRefreshReason, FactState, Re
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use object_cache::cache::ObjectCache;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -101,6 +100,8 @@ pub(crate) enum Message {
   /// is saved with what changed since the last save
   Close,
   Snapshot(oneshot::Sender<RepositoryView>),
+  /// The view of the frame the session was seeded from (`Sessions::open_seeded`), none for a session not seeded
+  Seed(oneshot::Sender<Option<RepositoryView>>),
   /// The table of the last successful sync with the memo and the remote branches as the session knows them
   Table(oneshot::Sender<Option<TableFacts>>),
   /// A read of the table state and the facts of the session (`Sessions::read`): the plan of an intent
@@ -210,7 +211,14 @@ pub(crate) enum Message {
 /// mailbox is gone (the registry's and those of its runs in flight). The actor and the checks and runs it starts log in
 /// the span `session{worktree prefix}`, a root: the actor outlives the command that opened it and serves the requests of
 /// every window, so it belongs to no one operation
-pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn SessionHost>, life: Arc<SessionLife>, events: Arc<EventSink>) -> mpsc::UnboundedSender<Message> {
+pub(crate) fn spawn_actor(
+  runtime: &Handle,
+  key: SessionKey,
+  host: Arc<dyn SessionHost>,
+  life: Arc<SessionLife>,
+  events: Arc<EventSink>,
+  frame: Option<CachedSession>,
+) -> mpsc::UnboundedSender<Message> {
   let (mailbox, messages) = mpsc::unbounded_channel();
   let span = info_span!(parent: None, "session", worktree = %key.worktree, prefix = %key.prefix);
   let view = View::new(new_epoch());
@@ -237,8 +245,9 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     in_flight: None,
     moved: MovedFetches::default(),
     frames,
+    synced_before: false,
   };
-  span.in_scope(|| runtime.spawn(actor.run(messages).in_current_span()));
+  span.in_scope(|| runtime.spawn(actor.run(messages, frame).in_current_span()));
   mailbox
 }
 
@@ -319,11 +328,14 @@ struct Actor {
   /// The last fetch of each remote branch whose pull request showed a head it lacked
   moved: MovedFetches,
   frames: FrameSaves,
+  /// The worktree was synced before, as the host said when the session opened (`SessionHost::synced_before`): it syncs
+  /// when it opens and when a window watches it anew
+  synced_before: bool,
 }
 
 impl Actor {
-  async fn run(mut self, mut messages: mpsc::UnboundedReceiver<Message>) {
-    self.open().await;
+  async fn run(mut self, mut messages: mpsc::UnboundedReceiver<Message>, frame: Option<CachedSession>) {
+    self.open(frame).await;
     loop {
       let message = match self.flush_at {
         Some(at) => tokio::select! {
@@ -350,18 +362,19 @@ impl Actor {
     }
   }
 
-  /// The session opens: seeded from the frame of its worktree when the host has one of its key and schema, the view of
-  /// the frame at the first version of the epoch; a worktree synced before syncs at once (`SyncReason::Open`), with or
-  /// without a window, so its first sync runs while a window loads
-  async fn open(&mut self) {
-    let (host, key) = (Arc::clone(&self.host), self.key.clone());
-    let opened = tokio::task::spawn_blocking(in_current_span(move || (host.frame(&key), host.synced_before(&key)))).await;
+  /// The session opens: seeded from `preloaded` (the frame the start of the app read, `Sessions::open_seeded`) or else
+  /// from the frame of its worktree the host has, when it is of its key and schema, the view of the frame at the first
+  /// version of the epoch; a worktree synced before syncs at once (`SyncReason::Open`), with or without a window, so its
+  /// first sync runs while a window loads
+  async fn open(&mut self, preloaded: Option<CachedSession>) {
+    let (host, key, read) = (Arc::clone(&self.host), self.key.clone(), preloaded.is_none());
+    let opened = tokio::task::spawn_blocking(in_current_span(move || (read.then(|| host.frame(&key)).flatten(), host.synced_before(&key)))).await;
     let Ok((frame, synced_before)) = opened else {
       return;
     };
-    if let Some(frame) = frame.filter(|frame| frame.seeds(&self.key)) {
-      self.state = TableState::from_cached(&self.key.prefix, frame.table);
-      self.facts = FactStore::from_cached(frame.facts, &self.state.header().baseline_branch);
+    self.synced_before = synced_before;
+    if let Some(frame) = preloaded.or(frame).filter(|frame| frame.seeds(&self.key)) {
+      (self.state, self.facts) = frame.seed();
       self.view = View::seeded(self.view.version().epoch, &self.state, &self.facts);
       self.frames.keeps = true;
     }
@@ -411,6 +424,16 @@ impl Actor {
     }
   }
 
+  /// A window watches the session that none did: a worktree synced before, or one a sync of this session committed,
+  /// syncs as it opens (`SyncReason::Open`: it joins the run in flight, the one of the open among them, else it runs
+  /// when what a sync reads changed), so a window that comes back to a session kept idle shows its branches current
+  fn watched_anew(&mut self) {
+    if self.synced_before || self.facts.table.value().is_some() {
+      let waiter = Waiter::unheard(&self.life);
+      self.handle(Message::Sync { reason: SyncReason::Open, waiter });
+    }
+  }
+
   fn handle(&mut self, message: Message) {
     match message {
       Message::Subscribe { id, subscriber, have, reply } => {
@@ -418,6 +441,7 @@ impl Actor {
         // the patches after what it gets follow it
         let _ = reply.send(self.view.join(have));
         if self.subscribers.len() == 1 {
+          self.watched_anew();
           // the window that watches anew hears no news of the requests that came while none did
           self.facts.review_requests.watched_anew();
           self.events.emit(&self.key, SessionEventKind::Watched(true));
@@ -436,6 +460,9 @@ impl Actor {
           self.life.subscriber_left();
           self.windows_changed();
         }
+      }
+      Message::Seed(reply) => {
+        let _ = reply.send(self.view.seed().cloned());
       }
       Message::Snapshot(reply) => {
         let _ = reply.send(self.view.snapshot());
@@ -1083,11 +1110,15 @@ pub trait SessionEnvironment: Send + Sync + 'static {
     Ok(())
   }
 
-  /// The object cache the frames of the sessions of `key` are kept in (`warm_start`), the one the host keeps per
-  /// repository; a disabled one by default, which keeps no frame. Blocking
-  fn frame_cache(&self, _key: &SessionKey) -> ObjectCache {
-    ObjectCache::disabled()
+  /// The frame the worktree of `key` was saved with last (`SessionHost::frame`): the app's in the object cache of the
+  /// repository (`warm_start::read_frame`), the E2E server's in the memory of the test repository; none by default.
+  /// Blocking
+  fn frame(&self, _key: &SessionKey) -> Option<CachedSession> {
+    None
   }
+
+  /// Keeps `frame` as the frame of its worktree (`SessionHost::save_frame`); nothing by default. Blocking
+  fn save_frame(&self, _frame: &CachedSession) {}
 
   /// Whether the worktree of `key` was synced before (`SessionHost::synced_before`): the `lastSyncTime` of its state in
   /// the app's settings; false by default
@@ -1161,11 +1192,11 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
   }
 
   fn frame(&self, key: &SessionKey) -> Option<CachedSession> {
-    read_frame(&self.environment.frame_cache(key), &key.worktree)
+    self.environment.frame(key)
   }
 
   fn save_frame(&self, frame: &CachedSession) {
-    write_frame(&self.environment.frame_cache(&frame.key), frame);
+    self.environment.save_frame(frame);
   }
 
   fn synced_before(&self, key: &SessionKey) -> bool {

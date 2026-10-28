@@ -9,6 +9,7 @@ pub mod services;
 pub mod settings;
 pub mod title_bar;
 pub mod tracing_log;
+pub mod warm_start;
 pub mod zoom;
 
 #[cfg(test)]
@@ -25,6 +26,8 @@ mod presentation_test;
 mod title_bar_test;
 #[cfg(test)]
 mod tracing_log_test;
+#[cfg(test)]
+mod warm_start_test;
 #[cfg(test)]
 mod zoom_test;
 
@@ -66,6 +69,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     // how far a fetch or a push is, as the page shows it: the fields of `OperationEvent::Progress` of a fetch, an update
     // and a push (`src/lib/transfer-progress.ts`)
     .typ::<sync_core::transfer_progress::TransferProgress>()
+    // what the start hands the main window's page before it subscribes (`window.__BD_MODEL__`, `warm_start`)
+    .typ::<domain_types::session::CachedModel>()
     .constant(APP_SETTINGS_DEFAULTS, domain_types::settings::AppSettings::default().to_full())
 }
 
@@ -242,9 +247,12 @@ pub fn run() {
       // the main window's page catches up from the version of this snapshot itself (`get_settings_changes`): a reload
       // runs this script again
       let (settings_script, _) = settings_script(&ctx.settings, app_settings::windows::MAIN_WINDOW);
+      // the rows of the selected project as its session left them, seeded before the window, whose first sync runs
+      // while the webview loads (`warm_start`)
+      let model_script = app_settings::projects::selected_project(&ctx.settings).map_or_default(|path| warm_start::model_script(&ctx.sessions, &path));
       // the open of the window, which its page settles once it drew its first rows (`sub_window_ready`)
       let open = ctx.sub_windows.next_open(epoch_millis());
-      let init_script = format!("{settings_script} {} {}", open_script(&open), title_bar_script());
+      let init_script = format!("{settings_script} {model_script} {} {}", open_script(&open), title_bar_script());
 
       let zoom = app_settings.zoom;
       let min_width = min_window_width(zoom);

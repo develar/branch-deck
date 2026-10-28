@@ -5,11 +5,14 @@
 //! <ViewPatch>}` until `unsubscribe_view` or the deletion of the repository (`delete_repository` closes its windows and
 //! its sessions, so the stream ends and the deletion does not wait for it). The next run of a session takes the
 //! overrides a test set for its repository (`sync_overrides`). The clock of the sessions of a repository stands still
-//! until its test moves it (`POST /repositories/{id}/clock/advance`, `advance_clock`). The facts of the sessions are read
+//! until its test moves it (`POST /repositories/{id}/clock/advance`, `advance_clock`). A test that starts warm builds the
+//! frame of its repository's session (`POST /repositories/{id}/warm-start/build`, kept in `TestRepository::frame`) and
+//! starts the app on it (`GET /repositories/{id}/warm-start`, `warm_start`). The facts of the sessions are read
 //! by the scheduler of the facts, as the app reads them, over the fakes of each test repository (`TestFactSources`),
 //! and the effects of the engine go to the same fakes (`TestServices`).
 
 use crate::host::held_or_failed;
+use crate::remote_fixtures::{session_of, unknown_repository};
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
 use crate::review_fixtures::review_requests_of;
@@ -18,6 +21,7 @@ use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use app_api::api_error::{api_error, patronus_error};
 use app_api::operation::run_blocking;
+use app_settings::projects::synced_before;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -27,6 +31,7 @@ use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
+use domain_types::session::{CachedModel, SyncReason};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
@@ -36,6 +41,7 @@ use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session, skip_in_session};
 use repository_model::runtime::{RunSetup, SessionEnvironment};
 use repository_model::session::SessionKey;
+use repository_model::warm_start::{CachedSession, frame_of};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -129,6 +135,36 @@ impl SessionEnvironment for TestSessionEnvironment {
       Some(host) if host.fails(HeldAnswer::RepositoryView) => Err(ApiError::internal("the fixture fails this read")),
       _ => Ok(()),
     }
+  }
+
+  /// The frame the repository keeps in memory (`TestRepository::frame`); none until a test built one
+  fn frame(&self, key: &SessionKey) -> Option<CachedSession> {
+    let state = self.state.upgrade()?;
+    let repository = state.repository(&key.worktree).ok()?;
+    repository.frame.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+  }
+
+  /// In the memory of the repository once a test built a frame of it: the sessions of the other repositories keep none
+  fn save_frame(&self, frame: &CachedSession) {
+    let Some(state) = self.state.upgrade() else {
+      return;
+    };
+    if let Ok(repository) = state.repository(&frame.key.worktree) {
+      let mut kept = repository.frame.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+      if kept.is_some() {
+        *kept = Some(frame.clone());
+      }
+    }
+  }
+
+  /// The `lastSyncTime` of the repository in the store of its test (`syncedAgoMs` of the setup), as the app's writer
+  /// keeps it
+  fn synced_before(&self, key: &SessionKey) -> bool {
+    self
+      .state
+      .upgrade()
+      .and_then(|state| state.repository(&key.worktree).ok().map(|repository| synced_before(&repository.store, &key.worktree)))
+      .unwrap_or(false)
   }
 
   /// Records the `keep` of the repository (`prunes` of `GET /repositories/{id}/review-requests`), then prunes as the app
@@ -517,6 +553,58 @@ pub async fn close_sessions(Path(id): Path<String>, State(state): State<Arc<AppS
   context.forget_windows();
   state.sessions.close_worktree(&path);
   Ok(StatusCode::OK)
+}
+
+/// The frame of the repository's session as an earlier run of the app left it (`POST /repositories/{id}/warm-start/build`):
+/// a sync without a page, as `bd sync` syncs (the session reads no fact without a window), whose table the repository
+/// keeps from now on (`TestRepository::frame`), as do the saves of its sessions after it. The session closes then, as
+/// the app quits, so the next start (`warm_start`) opens one seeded from the frame. Answers the rows of the frame
+pub async fn build_warm_start(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let path = state.repositories.get(&id).map(|repository| repository.path.clone()).ok_or_else(unknown_repository)?;
+  let key = session_of(&state, &path).await?;
+  state
+    .sessions
+    .sync(&key, SyncReason::Manual)
+    .wait()
+    .await
+    .map_err(|error| fixture_failed("sync before the frame", &error))?;
+  let of = key.clone();
+  let frame = state
+    .sessions
+    .read(&key, move |table, facts| frame_of(&of, table, facts))
+    .await
+    .ok_or_else(|| fixture_failed("build the frame", &ApiError::internal("The session closed while the frame was built")))?;
+  let rows = frame.table.order.len();
+  *state
+    .repository(&path)
+    .map_err(|_gone| unknown_repository())?
+    .frame
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(frame);
+  state.sessions.close_worktree(&path);
+  Ok(Json(serde_json::json!({ "rows": rows })))
+}
+
+/// The start of the app with the frame of the repository (`GET /repositories/{id}/warm-start`), as
+/// `src-tauri/src/warm_start.rs` starts it before the main window: the session opened seeded from the frame (its first
+/// sync runs at once for a repository synced before) and what the page gets as `window.__BD_MODEL__`, the path and the
+/// seed; null without a frame
+pub async fn warm_start(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<Option<CachedModel>>, (StatusCode, String)> {
+  let (path, frame) = {
+    let repository = state.repositories.get(&id).ok_or_else(unknown_repository)?;
+    let frame = repository.frame.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    (repository.path.clone(), frame)
+  };
+  let Some(frame) = frame else {
+    return Ok(Json(None));
+  };
+  let view = state.sessions.open_seeded(frame).await;
+  Ok(Json(view.map(|view| CachedModel { repository_path: path, view })))
+}
+
+/// The rejection of a fixture route that could not `operation`: a failure of the test, not an answer of the app
+fn fixture_failed(operation: &str, error: &ApiError) -> (StatusCode, String) {
+  (StatusCode::INTERNAL_SERVER_ERROR, format!("Cannot {operation}: {}", error.message))
 }
 
 /// Moves the clock of the sessions of the repository `id` (`AppState::session_clocks`) by `ms`: the timers of its

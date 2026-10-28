@@ -188,8 +188,13 @@ export interface BranchSyncState {
   syncDeferred: SyncDeferral | null
   /** What the running sync of the session does; null while none runs */
   syncStep: SyncStep | null
-  /** The repository whose branches the store holds, set by the first request of a sync that ended; null before it */
+  /**
+   * The repository whose branches the store holds as a sync of its session committed them (the view has a table of this
+   * run: a HEAD, not the frame of an earlier run); null before it
+   */
   syncedRepositoryPath: string | null
+  /** The rows are the frame an earlier run saved (`RepositoryView.cached`), until the first sync of the session commits */
+  cached: boolean
   /** The version of the session's view the store holds (`data-view-version`); null without one */
   viewVersion: Version | null
   /**
@@ -314,6 +319,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   syncDeferred: null,
   syncStep: null,
   syncedRepositoryPath: null,
+  cached: false,
   viewVersion: null,
   tableRevision: 0,
   commitsRevision: 0,

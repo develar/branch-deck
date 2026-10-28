@@ -10,14 +10,14 @@ export async function viewEpoch(page: Page): Promise<string | undefined> {
 
 /**
  * Waits until the main window holds another session than the one of `epoch`, the session of `repo` under the prefix
- * `team`, and synced it once as an opened repository: test-branch shows, Sync is idle, the one sync the window asked
- * since `syncs` began recording is `open`, and the branch is built under the new prefix
+ * `team`, which synced itself as it opened (the repository was synced before): test-branch shows, Sync is idle, the
+ * window asked for no sync since `syncs` began recording, and the branch is built under the new prefix
  */
 export async function expectTeamSessionSyncedOnOpen(page: Page, repo: TestRepositoryBuilder, epoch: string | undefined, syncs: Record<string, unknown>[]): Promise<void> {
   await expect.poll(() => viewEpoch(page)).not.toBe(epoch)
   await expect(findBranchRow(page, "test-branch")).toBeVisible()
   await expect(page.getByTestId("sync-button")).toBeEnabled()
-  expect(syncs).toEqual([{ repositoryPath: repo.path, reason: "open" }])
+  expect(syncs).toEqual([])
   expect(await repo.revision("team/virtual/test-branch")).toMatch(/^[0-9a-f]{40}$/)
 }
 

@@ -25,8 +25,8 @@ export function useRepositoryConfigChanges(): void {
     }
     switch (key) {
       case "branchPrefix":
-        // the names the page shows: a changed prefix is another session, which the window opens and syncs
-        // (`useSyncOnOpen`); the same prefix again changes nothing to sync
+        // the names the page shows: a changed prefix is another session, which the window opens (`useSyncOnOpen`)
+        // and which syncs as it opens; the same prefix again changes nothing to sync
         void refreshBranchPrefix()
         break
       case "stacks":
