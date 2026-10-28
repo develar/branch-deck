@@ -8,7 +8,6 @@ import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { showToast } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
 import { inlineSurface, openInline, withRowProgress } from "@/stores/inline-row-action"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
 
 interface UncommittedChangesState {
@@ -55,11 +54,6 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
     async () => {
       const done = await runRewriteIntent(
         {
-          id: "amend-changes",
-          subject: branchSubject(branch.name),
-          objects: [branch.name],
-          // an amend of other files is an amend of its own: it waits for this one, never joins it
-          parameters: JSON.stringify(files),
           label: `Amending changes to ${branch.name}`,
           surface: inlineSurface(branch.name),
           repositoryPath,

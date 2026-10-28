@@ -27,6 +27,7 @@ import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useMissingCommitOwners } from "@/hooks/useMissingCommitOwners"
+import { useRowOperation } from "@/hooks/useRowOperation"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import type { MissingCommit } from "@/lib/bindings"
@@ -47,7 +48,6 @@ import { useRowPart } from "@/model/store"
 import { isActionEnabled } from "@/presenters/actions"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useIsBranchPushing } from "@/stores/branch-sync"
-import { useObjectBusy } from "@/stores/operations"
 import { useBranchRobot, useLandedBy, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
@@ -85,7 +85,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const index = currentName === null ? -1 : names.indexOf(currentName)
 
   const isPushing = useIsBranchPushing(currentName ?? "")
-  const processing = useObjectBusy(currentName ?? "") !== null
+  const processing = useRowOperation(currentName ?? "") !== undefined
   // as Rust decides the push and the review of the branch, with what runs on the page over the push
   const actions = useRowPart(currentName ?? "", "actions")
   const canPush = branch !== undefined && isActionEnabled(actions, "push") && !isPushing && !processing

@@ -5,7 +5,6 @@ import type { RewriteDone, RewriteRunSpec } from "@/lib/rewrite-run"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { joinNames } from "@/lib/text"
 import { presentRewrite } from "@/presenters/rewrite"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 export interface ParkOptions {
@@ -29,7 +28,7 @@ export async function parkBranches(names: readonly string[], note: string, optio
   // the repository of the click: the park and its Undo go there, whichever the main window shows when they run
   const repositoryPath = getSelectedRepositoryPath()
   const rewrite = witnessed<Extract<RewriteIntent, { rewrite: "park" }>>(repositoryPath, { rewrite: "park", branches: names.map(branchName => ({ branchName, note })) })
-  const done = await runRewriteIntent(parkSpec("park", names, repositoryPath, options), rewrite)
+  const done = await runRewriteIntent(parkSpec(repositoryPath, options), rewrite)
   const result = parkedOf(done)
   if (done === null || result === null) {
     return false
@@ -57,7 +56,7 @@ export function unparkBranch(branchName: string, options: ParkOptions = {}): Pro
 export async function unparkBranches(names: readonly string[], options: ParkOptions = {}): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
   const rewrite = witnessed<Extract<RewriteIntent, { rewrite: "unpark" }>>(repositoryPath, { rewrite: "unpark", branchNames: [...names] })
-  const done = await runRewriteIntent(parkSpec("unpark", names, repositoryPath, options), rewrite)
+  const done = await runRewriteIntent(parkSpec(repositoryPath, options), rewrite)
   if (done === null || parkedOf(done) === null) {
     return false
   }
@@ -79,13 +78,6 @@ function offerUndo(repositoryPath: string, title: string, rewrite: RewriteIntent
   showUndoToast(repositoryPath, title, () => undoRegroup(repositoryPath, done.undo?.token, `Cannot undo ${phrase}`, `Undoing ${phrase}`), undefined, done.outcome.op)
 }
 
-function parkSpec(id: "park" | "unpark", names: readonly string[], repositoryPath: string, options: ParkOptions): RewriteRunSpec {
-  const [only] = names
-  return {
-    id,
-    subject: names.length === 1 && only !== undefined ? branchSubject(only) : `branches:${names.join("\n")}`,
-    objects: names,
-    surface: options.surface,
-    repositoryPath,
-  }
+function parkSpec(repositoryPath: string, options: ParkOptions): RewriteRunSpec {
+  return { surface: options.surface, repositoryPath }
 }

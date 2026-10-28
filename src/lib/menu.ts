@@ -32,7 +32,7 @@ export interface MenuItem {
   description?: string
   /** A checkbox item ("Auto-sync on Focus"): `onSelect` toggles it */
   checked?: boolean
-  /** The action runs (`operationItem`): disabled, with the spinner where it was started */
+  /** The action runs in the session (`Availability.running`, `queued`): disabled, with the spinner where it was started */
   running?: boolean
   /** Not called for an item with `children` */
   onSelect: (context: SelectContext) => void

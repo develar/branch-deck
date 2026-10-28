@@ -23,7 +23,6 @@ import { pushUpToCommitsIn } from "@/presenters/push"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useOperations } from "@/stores/operations"
 import { useRobotCoverage } from "@/stores/robot-coverage"
 import { usePushUpToCommits } from "@/stores/stack-view"
 
@@ -125,10 +124,9 @@ function BlockedAlert({ branch }: { branch: Branch }) {
  */
 function PassedParentAlert({ branch }: { branch: Branch }) {
   const baseline = useBaselineOnRemote()
-  const operations = useOperations()
   const actions = useRowPart(branch.name, "actions")
   const passed = passedParentOf(branch)
-  const unstack = getBranchUnstackItem(branch, operations, actions)
+  const unstack = getBranchUnstackItem(branch, actions)
   if (passed === null || unstack === null) {
     return null
   }

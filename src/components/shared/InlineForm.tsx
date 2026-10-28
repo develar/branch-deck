@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { StopWaitingButton } from "@/components/shared/LockWaitNotice"
+import { useIndicatorClaim } from "@/stores/indicators"
 import { inlineSurface, useInlineProcessing, useInlineRowAction } from "@/stores/inline-row-action"
-import { useIndicatorClaim } from "@/stores/operations"
 
 export interface InlineFormProps {
   title: string

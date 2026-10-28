@@ -16,7 +16,7 @@ import { formatCommitCount, groupFor } from "@/lib/commit"
 import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
 import { useBranchSync, useMoveTargets, useStackParents, useStacksEnabled } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
-import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
 import { useSelectedProjectPath } from "@/stores/repository"
 
 /** Existing branches offered as chips */

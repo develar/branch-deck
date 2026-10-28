@@ -11,7 +11,7 @@ import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import { PendingSection } from "@/components/shared/PendingSection"
-import { getRobotItems, robotProblemsReason, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
+import { getRobotItems, robotProblemsReason, useRobotParts } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -122,7 +122,6 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const needsReview = useRobotNeedsReview(robot.id)
   const failing = useRobotFailing(robot.id)
   // a restart or a cancel that runs shows in its button
-  const operations = useSessionOperations()
   const localTip = useBranchTip(branchName)
   const remote = useBranchRemoteStatus(branchName)
   const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
@@ -256,7 +255,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
         {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
-        {getRobotItems(robot, operations, robotParts).map(action => (
+        {getRobotItems(robot, robotParts).map(action => (
           <RobotActionButton key={action.id} action={action} />
         ))}
       </div>
@@ -282,7 +281,7 @@ function PullRequestLink({ pullRequest }: { pullRequest: { readonly number: numb
  * that pushes first has the name of a restart
  */
 export function RobotActionButton({ action }: { action: MenuItem }) {
-  // a restart or a cancel that runs: the spinner in place of its icon (`operationItem`)
+  // a restart or a cancel that runs in the session: the spinner in place of its icon (`with_operations`)
   const running = action.running === true
   const content = (
     <>

@@ -3,12 +3,14 @@ import { test, testWithUnassigned, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { dropOn, selectCommit, startDrag } from "../helpers/selection-helpers"
-import { finishedSyncCount, runAndWaitForSync, waitForSyncComplete } from "../helpers/sync-helpers"
-import { holdCommand } from "../helpers/wait-helpers"
+import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 test.describe("Combine branches", () => {
+  let repo: TestRepositoryBuilder
+
   test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_combine")
+    repo = await setupRepo("issue_combine")
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, "IJPL-1"), 2)
   })
@@ -34,26 +36,23 @@ test.describe("Combine branches", () => {
     await verifyCommitCount(docs, 1)
   })
 
-  test("should drag a branch while a sync runs, say why the targets wait for it, and take the drop once it ended", async ({ page }) => {
-    const releaseSync = await holdCommand(page, "sync")
+  test("should take the drop of a branch while a sync runs: its move goes to the session at once", async ({ page }) => {
+    // the sync of the session runs until the test releases it
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
     const previousCount = await finishedSyncCount(page)
     const syncButton = page.getByTestId("sync-button")
     await syncButton.click()
     await expect(syncButton).toHaveAttribute("aria-busy", "true")
 
-    // the row drags during the sync; a target waits for it with the reason of Move to… in its menu
+    // the row drags during the sync; a target takes it, no reason to wait
     await startDrag(page, findBranchRow(page, "IJPL-2"))
     const docs = findBranchRow(page, "docs")
-    await expect(docs).toHaveAttribute("data-drop-target", "refused")
-    await docs.hover()
-    await expect(page.getByTestId("drag-target-status")).toHaveText("Cannot move IJPL-2 to docs: Wait for the sync to finish")
-
-    // the end of the sync changes the answer under the pointer, the drag goes on
-    releaseSync()
-    await waitForSyncComplete(page, previousCount)
-    await expect(docs).toHaveAttribute("data-drop-target", "over")
+    await expect(docs).toHaveAttribute("data-drop-target", "ready")
+    await dropOn(page, docs)
     await expect(page.getByTestId("drag-target-status")).toHaveCount(0)
-    await runAndWaitForSync(page, () => dropOn(page, docs))
+
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await waitForSyncComplete(page, previousCount)
     await verifyCommitCount(docs, 2)
     await expect(findBranchRow(page, "IJPL-2")).toHaveCount(0)
   })

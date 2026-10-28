@@ -6,7 +6,7 @@ import type { Commit, ConflictFix, FixComponent, MoveCommitsResult } from "@/lib
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import { getCommitSubject, getSubjectLine, parseSubject } from "@/lib/commit"
-import { branchesOfFix, componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
+import { componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
 import type { SubjectOf } from "@/lib/conflict-fix"
 import { getErrorDetails } from "@/lib/errors"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
@@ -133,9 +133,6 @@ export async function applyConflictFix(component: FixComponent): Promise<void> {
   const description = component.steps.map(step => describeFixStep(step, subjectOf)).join("; ")
   const done = await runRewriteIntent(
     {
-      id: "apply-conflict-fix",
-      subject: "conflict-fix",
-      objects: branchesOfFix(component),
       label: "Applying the fix",
       surface: APPLY_FIX_SURFACE,
       repositoryPath,

@@ -392,7 +392,7 @@ test.describe("Commit message", () => {
       expect(await finishedSyncCount(page)).toBe(syncs)
     })
 
-    test("should disable the edit while a sync runs", async ({ page }) => {
+    test("should keep the edit enabled while a sync runs: the save goes to the session at once", async ({ page }) => {
       const preview = await openPerfCommit(page)
       const editButton = preview.getByRole("button", { name: /Edit/ })
       await expect(editButton).toBeEnabled()
@@ -400,15 +400,14 @@ test.describe("Commit message", () => {
       // hold the sync until the checks are done
       const releaseSync = await holdCommand(page, "sync")
       const syncDone = syncFromMenu(page)
+      await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
 
-      await expect(editButton).toBeDisabled()
+      await expect(editButton).toBeEnabled()
       await page.keyboard.press("e")
-      await expect(preview.getByTestId("commit-message-editor")).toHaveCount(0)
+      await expect(preview.getByTestId("commit-message-editor")).toBeFocused()
 
       releaseSync()
       await syncDone
-      await expect(editButton).toBeEnabled()
-      await page.keyboard.press("e")
       await expect(preview.getByTestId("commit-message-editor")).toBeFocused()
     })
 

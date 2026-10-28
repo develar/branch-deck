@@ -767,6 +767,57 @@ fn the_view_offers_the_actions_of_each_subject_and_a_patch_only_those_that_chang
   );
 }
 
+/// The operations of the session lie over the actions of the view (`domain_policy::actions::with_operations`): a rewrite
+/// admitted makes its own item running and the rewrites of every row wait behind it, a patch of the actions of every row;
+/// its end gives them back, the actions as they were before it
+#[test]
+fn the_view_lays_the_operations_of_the_session_over_the_actions_from_the_admission_of_a_rewrite_to_its_end() {
+  use crate::table::OperationPatch;
+  use domain_types::operation::{Intent, OperationId, OperationStep, Origin, Resource, RunningOperation};
+  use domain_types::rewrite::{RewriteIntent, TableWitness};
+  let (mut state, facts) = crate::derive::derive_budget_test::session();
+  let mut view = View::new(1, "user");
+  let first = view.diff(&state, &facts).unwrap();
+  let before = first.changes.actions;
+  let op = OperationId("u1".to_string());
+  state.apply_operation(OperationPatch::Admitted(RunningOperation {
+    id: op.clone(),
+    intent: Intent::Rewrite(Box::new(RewriteIntent::Rename {
+      branch_name: "lone001".to_string(),
+      new_name: "lone".to_string(),
+      witness: TableWitness::default(),
+    })),
+    resources: vec![Resource::Head],
+    step: OperationStep::Rewriting,
+    origin: Origin::ThisProcess,
+    moves: Vec::new(),
+    joined: 0,
+  }));
+  let admitted = view.diff(&state, &facts).unwrap();
+  let availability = |key: &str, id: ActionId| {
+    admitted.changes.actions[key]
+      .iter()
+      .find(|action| action.id == id)
+      .map(|action| action.availability.clone())
+  };
+  assert_eq!(availability("lone001", ActionId::Rename), Some(Availability::Running { op: op.clone() }));
+  assert_eq!(
+    availability("lone002", ActionId::Rename),
+    Some(Availability::Waits { op: op.clone() }),
+    "another row queues behind it"
+  );
+  assert_eq!(
+    availability("lone002", ActionId::ReviewChanges),
+    Some(Availability::Enabled),
+    "no rewrite: it runs beside one"
+  );
+  state.apply_operation(OperationPatch::Ended(op));
+  let ended = view.diff(&state, &facts).unwrap();
+  for (key, actions) in &ended.changes.actions {
+    assert_eq!(Some(actions), before.get(key), "{key}: as before the rewrite");
+  }
+}
+
 /// A blocked row names the parent it waits for (the hover of its node offers to show it): the one its block names, else
 /// the branch it is built on, else its declared parent; a row that is not blocked waits for none
 #[test]

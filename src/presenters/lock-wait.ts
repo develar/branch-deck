@@ -42,12 +42,17 @@ export function presentOperationLockWait(operation: RunningOperation | undefined
   return operation?.step.kind === "waitingForLock" ? presentLockWait(operation.step.holder) : null
 }
 
-/** An operation of the session the page shows while it runs (a record of `runOperation`), as Stop Waiting reads it */
+/** An operation of the session a surface shows while it runs (`useSurfaceOperation`, `waitingOf`), as Stop Waiting reads it */
 export interface WaitingOperation {
   /** The operation of the session, once its channel named it; null before */
   readonly op: OperationId | null
   /** Whom it waits for while another holder has the repository lock (`presentLockWait`); null while it waits for nobody */
   readonly lockWait: string | null
+}
+
+/** `operation` of the view as Stop Waiting reads it: one of another process, which no window here stops, never waits */
+export function waitingOf(operation: RunningOperation | undefined): WaitingOperation | undefined {
+  return operation === undefined || operation.origin.kind !== "thisProcess" ? undefined : { op: operation.id, lockWait: presentOperationLockWait(operation) }
 }
 
 /**

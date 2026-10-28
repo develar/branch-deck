@@ -23,8 +23,8 @@ import { copyFocusedBranchRow } from "@/lib/clipboard"
 import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
 import { useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
+import { useSurfaceBusy } from "@/stores/indicators"
 import { inlineSurface, openInline, useActiveInlineForRow, withRowProgress } from "@/stores/inline-row-action"
-import { useSurfaceBusy } from "@/stores/operations"
 
 const columnCount = 4
 

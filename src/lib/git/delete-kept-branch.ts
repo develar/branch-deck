@@ -6,15 +6,14 @@ import type { RewriteIntent } from "@/lib/bindings"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { showToast } from "@/lib/toast-message"
 import { inlineSurface } from "@/stores/inline-row-action"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 type DeleteIntent = Extract<RewriteIntent, { rewrite: "deleteArchived" | "deleteUnapplied" }>
 
-/** The kind of the branch each delete deletes, in its words, and the id of its menu item */
+/** The kind of the branch each delete deletes, in its words */
 const DELETES = {
-  deleteArchived: { kind: "archived", id: "delete-archived" },
-  deleteUnapplied: { kind: "unapplied", id: "delete-unapplied" },
+  deleteArchived: "archived",
+  deleteUnapplied: "unapplied",
 } as const
 
 /**
@@ -25,9 +24,8 @@ const DELETES = {
  */
 export async function deleteKeptBranch(rewrite: DeleteIntent["rewrite"], name: string, shown: string): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
-  const { kind, id } = DELETES[rewrite]
-  const branch = `the ${kind} branch ${shown}`
-  const spec = { id, subject: branchSubject(name), objects: [name], label: `Deleting ${shown}`, surface: inlineSurface(name), repositoryPath }
+  const branch = `the ${DELETES[rewrite]} branch ${shown}`
+  const spec = { label: `Deleting ${shown}`, surface: inlineSurface(name), repositoryPath }
   const done = await runRewriteIntent(spec, witnessed<DeleteIntent>(repositoryPath, { rewrite, branchName: name }), `Cannot delete ${branch}`)
   if (done === null) {
     return false

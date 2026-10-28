@@ -775,8 +775,9 @@ fn no_push_plan(push: &Push) -> ApiError {
 }
 
 /// Runs the push `push` in the session of `key` on the plan its caller accepted: admitted over the operations of the
-/// session per ref (the same push joins it, another push of the ref waits for it), after the sync of the session that
-/// runs, if one does; then planned again and run as a start runs (`land_execute::run_planned`: the witness, the lock only
+/// session per ref (the same push joins it, another push of the ref waits for it), after the rewrites of this process
+/// admitted before it (`RunningGuard::wait_behind`, which hold HEAD: a rewrite after it runs beside it) and the sync of
+/// the session that runs, if one does; then planned again and run as a start runs (`land_execute::run_planned`: the witness, the lock only
 /// for the full witness and the freeze, the retarget, the cancel, the push of the frozen commit with its lease, once more
 /// over a remote that moved without commits the branch lacks, then the restart) over the services of `services`
 /// (`push_start`: neither Patronus nor GitHub needed), its steps in the view and its progress and outcome to `events`.
@@ -792,8 +793,10 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
   let planned = prepare_push(sessions, key, &push).await;
   let request = push_request(&key.prefix, &push, planned.as_ref());
   run(registry, key, request, events, async |guard| {
+    // the rewrites admitted before it (a move out of the branch): it sends what they leave, after the sync they ask
+    let behind = guard.wait_behind(vec![Resource::Head], OperationStep::Checking).await;
     let synced = wait_for_running_sync(sessions, key, &guard.stepper()).await;
-    let waited = synced || guard.queued();
+    let waited = behind || synced || guard.queued();
     let checked = checked_holds(services, sessions, key, &push).await.map(Arc::new);
     let (prefix, intent, holds) = (key.prefix.clone(), push.clone(), checked.clone());
     let expect = if waited { ExpectRemote::OfSession } else { ExpectRemote::OfIntent };
@@ -831,19 +834,30 @@ async fn checked_holds(services: &dyn ServiceHost, sessions: &Sessions, key: &Se
   })
 }
 
-/// Waits for the sync of the session of `key` that runs, if one does (a rewrite's, a focus'), with the step
-/// `WaitingForSync`: it brings the tips into the table the push is checked on; a sync asked after it is not waited for.
-/// Whether it waited
+/// How many runs of a sync a push waits for: the one that runs and the quiet follow-up a rewrite asked during it
+const SYNCS_TO_WAIT: usize = 2;
+
+/// Waits for the sync of the session of `key` that runs, if one does (a rewrite's, a focus'), and for the follow-up that
+/// starts as it ends (the sync a rewrite asked during it), with the step `WaitingForSync`: they bring the tips into the
+/// table the push is checked on; a sync asked later is not waited for. Whether it waited
 async fn wait_for_running_sync(sessions: &Sessions, key: &SessionKey, stepper: &Stepper) -> bool {
-  if sessions.apply_with(key, |state| matches!(state.sync(), SyncState::Running { .. })).await != Some(true) {
-    return false;
+  let mut waited = false;
+  for _ in 0..SYNCS_TO_WAIT {
+    if sessions.apply_with(key, |state| matches!(state.sync(), SyncState::Running { .. })).await != Some(true) {
+      break;
+    }
+    if !waited {
+      stepper.step(OperationStep::WaitingForSync);
+    }
+    waited = true;
+    if let Err(error) = sessions.sync(key, SyncReason::Open).wait().await {
+      debug!(error = %error.message, "the push checks the table of the last successful sync");
+    }
   }
-  stepper.step(OperationStep::WaitingForSync);
-  if let Err(error) = sessions.sync(key, SyncReason::Open).wait().await {
-    debug!(error = %error.message, "the push checks the table of the last successful sync");
+  if waited {
+    stepper.step(OperationStep::Checking);
   }
-  stepper.step(OperationStep::Checking);
-  true
+  waited
 }
 
 #[cfg(test)]

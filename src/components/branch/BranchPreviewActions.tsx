@@ -12,16 +12,17 @@ import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import { useLandingPushes, useUnpushedChildren } from "@/hooks/useBranchPushes"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
+import { useUnclaimedOperation } from "@/hooks/useRowOperation"
 import type { MenuItemGroups } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
 import { openPullRequest } from "@/lib/pull-request"
 import { useRowPart } from "@/model/store"
-import { presentStopWaiting } from "@/presenters/lock-wait"
+import { presentStopWaiting, waitingOf } from "@/presenters/lock-wait"
 import { firstPushPending, firstPushWait } from "@/presenters/push-button"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { branchSubject, operationLabel, useUnclaimedOperation } from "@/stores/operations"
+import { operationBusyOf } from "@/stores/indicators"
 import { usePatronusAvailable, usePatronusOffered, usePatronusPending, usePushHold } from "@/stores/patronus"
 import { usePullRequest, usePullRequestsLoading } from "@/stores/pull-requests"
 
@@ -96,10 +97,15 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
  */
 export function BranchPreviewMenu({ name }: { name: string }) {
   // an action started from this menu shows its spinner here, as on the row's "⋯"
-  const operation = useUnclaimedOperation(branchSubject(name))
-  const busy = operation === undefined ? null : operationLabel(operation)
+  const operation = useUnclaimedOperation(name)
+  const busy = operation === undefined ? null : operationBusyOf(operation)
   return (
-    <MoreActionsMenu name={name} busy={busy} stopWaiting={presentStopWaiting(operation)} menu={<BranchMenuItems name={name} setExpanded={expandRow} Items={PreviewMenuItems} />} />
+    <MoreActionsMenu
+      name={name}
+      busy={busy}
+      stopWaiting={presentStopWaiting(waitingOf(operation))}
+      menu={<BranchMenuItems name={name} setExpanded={expandRow} Items={PreviewMenuItems} />}
+    />
   )
 }
 

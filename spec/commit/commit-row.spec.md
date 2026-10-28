@@ -173,8 +173,9 @@ The commit hash popover shows the same header and body.
 ### Message editing
 
 - The preview of a commit in a branch table or in the unassigned commits card must offer the edit: E or the Edit button.
-  The menu of its row offers "Reword…" (one commit), which opens the preview with the message in edit; disabled with
-  "Wait for the sync to finish" while a sync runs. Escape ends that edit as any other, the preview stays.
+  The menu of its row offers "Reword…" (one commit), which opens the preview with the message in edit, also while a sync
+  or another rewrite runs: the save goes to the session at once, named on the table the preview shows, and waits there
+  (C14). Escape ends that edit as any other, the preview stays.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should reword a commit from the menu of its row, in its preview`)
 - The preview of a commit that is not on the current branch (an archived or a missing commit) must not offer it.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should open one preview for a missing commit nested in a conflict row`)
@@ -193,8 +194,9 @@ The commit hash popover shows the same header and body.
 - A save that moves the commit to another list must close the preview.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should warn that a changed grouping prefix moves the commit, and move it`)
   [@test] ../../src/lib/commit.test.ts (`returns the explicit prefix of the subject`, `skips the blank lines before the subject`, `groups %j into the prefix branch %j`, `groups %j into the issue branch %j`, `returns null for %j`)
-- The edit and the save must be disabled while a sync runs.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should disable the edit while a sync runs`)
+- The edit and the save must stay enabled while a sync runs: the reword goes to the session at once, named on the
+  table the preview shows, and waits there (C14).
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep the edit enabled while a sync runs: the save goes to the session at once`)
 - A failed save must keep the edit open with the draft and show the error in a toast.
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should refuse a reword that strands a fixup, and keep the draft`)
 - A save of a commit that changed meanwhile (reworded in a terminal) must change nothing: the session brings its table
@@ -455,9 +457,8 @@ The commit hash popover shows the same header and body.
   in `text-xs text-muted-foreground` below a `border-border` rule. A list of one commit has no `↑ ↓` hint.
 - The footer then shows the ghost `xs` buttons `D Review Changes`, which reviews the commit in its window and closes
   the preview ([Commit Review](commit-review.spec.md)), and `F Files`, which shows or hides the changed files.
-- An editable preview ends the footer with a ghost `xs` button `E Edit`, disabled with "Wait for the sync to finish"
-  on its hover while a sync runs; "D Review Changes" of a commit without files is disabled with "The commit changes no
-  files". A preview of a list with a row menu has "⋯" in its header, before the close button: the menu of the row (Move to…, Squash into, Push Up to
+- An editable preview ends the footer with a ghost `xs` button `E Edit`, enabled during a sync too; "D Review Changes"
+  of a commit without files is disabled with "The commit changes no files". A preview of a list with a row menu has "⋯" in its header, before the close button: the menu of the row (Move to…, Squash into, Push Up to
   Here, the copies), its key hints only for the keys of the preview; an item that opens a form of the row closes the
   preview first, a copy keeps it (`toPreviewMenu`). One builder lists the menu of commits for the row, its preview and
   the commit in the review window of its branch (`getCommitMenuGroups`), every item by a stable id

@@ -4,7 +4,6 @@ import type { ActionId, StackProblemView } from "@/lib/bindings"
 import type { BranchDropFacts } from "@/lib/branch-drop"
 import { moveDrop, parkDrop, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
 import type { ParkedState } from "@/lib/parked"
-import { SYNC_WAIT } from "@/presenters/actions"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
 
@@ -51,26 +50,24 @@ const RUST: Record<string, Partial<Record<ActionId, string | null>>> = {
   oauth: { "move-to": null, park: null, "stack-on": null, unstack: null },
 }
 
-/** The facts of a drop, the actions as Rust decides them (`RUST`), a sync of the table over them as the page lays it */
+/** The facts of a drop, the actions as Rust decides them (`RUST`), the operations of the session over them */
 function facts(patch: Partial<Omit<BranchDropFacts, "blocker">> & { readonly rust?: typeof RUST } = {}): BranchDropFacts {
   const { rust = RUST, ...rest } = patch
-  const isSyncing = rest.isSyncing ?? false
   return {
     branch: name => branches[name],
     parked: name => parked[name] ?? null,
-    blocker: (name, id) => {
-      const blocker = rust[name]?.[id]
-      return blocker === null && isSyncing ? SYNC_WAIT : blocker
-    },
+    blocker: (name, id) => rust[name]?.[id],
     descendants: name => descendants[name] ?? [],
     stacksEnabled: true,
-    isSyncing,
     ...rest,
   }
 }
 
+/** The actions of `RUST` while the session unstacks login: its own item runs, a start of the others waits in the queue */
+const UNSTACKING: typeof RUST = { ...RUST, login: { ...RUST.login, unstack: "Unstacking login…" } }
+
 describe("branch drop", () => {
-  it("parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and waits for the sync", () => {
+  it("parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and never waits for a sync", () => {
     expect(showsParkDrop(["docs"], facts())).toBe(true)
     // the Parked card is where they come from
     expect(showsParkDrop(["auth", "login"], facts())).toBe(false)
@@ -79,7 +76,8 @@ describe("branch drop", () => {
     expect(parkDrop(["docs", "auth", "login"], facts())).toEqual({ names: ["docs"] })
     expect(parkDrop(["auth"], facts())).toEqual({ refusal: "Cannot park auth: It is parked already" })
     expect(parkDrop(["auth", "login"], facts())).toEqual({ refusal: "Cannot park: They are parked already" })
-    expect(parkDrop(["docs"], facts({ isSyncing: true }))).toEqual({ refusal: "Cannot park docs: Wait for the sync to finish" })
+    // during a sync or a rewrite: the park goes to the session, which queues it
+    expect(parkDrop(["docs"], facts({ rust: UNSTACKING }))).toEqual({ names: ["docs"] })
 
     // a robot lands it: as Park Branch… of its menu says it
     const held = "A Safe Push of docs is running: wait until it merges, or restart it on the current branch: it lands whatever a park says"
@@ -94,14 +92,13 @@ describe("branch drop", () => {
     expect(unparkDrop(["auth", "login", "oauth"], facts())).toEqual({ names: ["auth"] })
     expect(unparkDrop(["login"], facts())).toEqual({ refusal: "Cannot unpark login: It carries the commits of parked auth, drag auth here" })
     expect(unparkDrop(["auth", "docs"], facts())).toEqual({ names: ["auth"] })
-    expect(unparkDrop(["auth"], facts({ isSyncing: true }))).toEqual({ refusal: "Cannot unpark: Wait for the sync to finish" })
   })
 
   it("stacks one dragged branch on another, never on itself, its parent or a branch stacked on it", () => {
     expect(stackOnDrop(["docs"], "oauth", facts())).toEqual({ names: ["docs"] })
     expect(stackOnDrop(["login"], "auth", facts())).toEqual({ refusal: "Cannot stack login on auth: It is stacked on auth already" })
     expect(stackOnDrop(["auth"], "oauth", facts())).toEqual({ refusal: "Cannot stack auth on oauth: oauth is stacked on it" })
-    expect(stackOnDrop(["docs"], "auth", facts({ isSyncing: true }))).toEqual({ refusal: "Cannot stack docs on auth: Wait for the sync to finish" })
+    expect(stackOnDrop(["docs"], "auth", facts({ rust: UNSTACKING }))).toEqual({ names: ["docs"] })
     // no chip: its own row, two branches, stacked branches off
     expect(stackOnDrop(["docs"], "docs", facts())).toBeNull()
     expect(stackOnDrop(["docs", "auth"], "oauth", facts())).toBeNull()
@@ -112,7 +109,6 @@ describe("branch drop", () => {
     expect(moveDrop(["viewer"], "docs", facts())).toEqual({ refusal: "Cannot move viewer to docs: viewer has conflicting parents" })
     // a fix of its problem runs
     expect(stackOnDrop(["viewer"], "tools", facts())).toEqual({ names: ["viewer"] })
-    expect(stackOnDrop(["viewer"], "ci", facts({ isSyncing: true }))).toEqual({ refusal: "Cannot stack viewer on ci: Wait for the sync to finish" })
     // no declared parent, yet the problem offers the unstack
     expect(unstackDrop(["viewer"], facts())).toEqual({ names: ["viewer"] })
   })
@@ -124,17 +120,17 @@ describe("branch drop", () => {
     expect(unstackDrop(["login"], facts({ stacksEnabled: false }))).toBeNull()
     // Rust offers no Unstack of the branch: no zone
     expect(unstackDrop(["login"], facts({ rust: { login: {} } }))).toBeNull()
-    expect(unstackDrop(["login"], facts({ isSyncing: true }))).toEqual({ refusal: "Cannot unstack login from auth: Wait for the sync to finish" })
+    // its own unstack runs in the session: as the menu says it
+    expect(unstackDrop(["login"], facts({ rust: UNSTACKING }))).toEqual({ refusal: "Cannot unstack login from auth: Unstacking login…" })
   })
 
   it("moves dragged commits onto a branch, leaves a drag of branches that land to the Parked card from its rows, and waits as Move to… does", () => {
-    // commit rows: during a sync too, as Move to… of a commit
-    expect(moveDrop([], "docs", facts({ isSyncing: true }))).toEqual({ names: [] })
-    // whole branches: as Move to… of their menu
+    expect(moveDrop([], "docs", facts())).toEqual({ names: [] })
+    // whole branches: as Move to… of their menu, which a sync or a rewrite that runs leaves as it is
     expect(moveDrop(["docs"], "oauth", facts())).toBeNull()
     expect(moveDrop(["docs"], "login", facts({ parked: () => null }))).toEqual({ names: ["docs"] })
-    expect(moveDrop(["docs"], "login", facts({ parked: () => null, isSyncing: true }))).toEqual({ refusal: "Cannot move docs to login: Wait for the sync to finish" })
-    expect(moveDrop(["docs"], null, facts({ isSyncing: true }))).toEqual({ refusal: "Cannot move docs back: Wait for the sync to finish" })
+    expect(moveDrop(["docs"], "login", facts({ parked: () => null, rust: UNSTACKING }))).toEqual({ names: ["docs"] })
+    expect(moveDrop(["viewer"], null, facts())).toEqual({ refusal: "Cannot move viewer back: viewer has conflicting parents" })
     // a row of the Parked card takes a drag of parked branches and of commits
     expect(moveDrop(["login"], "oauth", facts())).toEqual({ names: ["login"] })
     expect(moveDrop([], "oauth", facts())).toEqual({ names: [] })

@@ -17,7 +17,7 @@ import { formatShortHash } from "@/lib/hash"
 import { isMac } from "@/lib/platform"
 import { buildSquashMessage, countPushedCommits } from "@/lib/squash-message"
 import { useBranchSync } from "@/stores/branch-sync"
-import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
 
 export interface SquashCommitsDialogProps {
   /** The commits to squash in list order, newest first; null while closed */
@@ -58,10 +58,10 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
 
   useIndicatorClaim(SQUASH_SURFACE)
   const isSquashing = useSurfaceBusy(SQUASH_SURFACE) !== null
-  const isSyncing = useBranchSync(state => state.isSyncing)
   const remoteStatus = useBranchSync(state => (branchName === null ? null : state.branches[branchName]?.remoteStatus))
   const pushedCount = countPushedCommits(shown, remoteStatus)
-  const canSquash = open && !isSquashing && !isSyncing && draft.trim() !== ""
+  // a squash during a sync goes to the session at once: it is named on the table the dialog shows
+  const canSquash = open && !isSquashing && draft.trim() !== ""
 
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)

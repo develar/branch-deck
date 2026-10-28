@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { useRowBusy } from "@/hooks/useRowOperation"
 import type { SafePushRead } from "@/hooks/useSafePush"
 import { pushAlone, requestSafePush, startPlanned, useSafePushRead } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
@@ -51,7 +52,7 @@ import type { LandingRefused } from "@/presenters/landing"
 import { describeLandingRefusals, formatLandingFix } from "@/presenters/landing"
 import { formatPerson } from "@/presenters/next-step"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
-import { useIndicatorClaim, useObjectBusy } from "@/stores/operations"
+import { useIndicatorClaim } from "@/stores/indicators"
 import { peekBranchRules, usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { closeSafePushPopover } from "@/stores/safe-push"
@@ -108,7 +109,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   // the unstack and the move it offers run from here (its status line shows them); any operation on the branch holds the start
   const surface = `safe-push-popover:${branchName}`
   useIndicatorClaim(surface)
-  const busy = useObjectBusy(branchName)
+  const busy = useRowBusy(branchName)
   const startRef = useRef<HTMLButtonElement>(null)
   const popupRef = useRef<HTMLDivElement>(null)
 

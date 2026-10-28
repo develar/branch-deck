@@ -4,8 +4,6 @@ import { formatCommitCount } from "@/lib/commit"
 import type { RewriteDone } from "@/lib/rewrite-run"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
 import { showToast } from "@/lib/toast-message"
-import { getBranchesOfCommits } from "@/stores/branch-sync"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
@@ -18,14 +16,8 @@ import { getSelectedRepositoryPath } from "@/stores/repository"
 export async function squashCommits(commits: readonly Commit[], message: string, surface: string | null = null): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
   const commitIds = commits.map(commit => commit.originalHash)
-  const branchName = getBranchesOfCommits(commitIds)[0] ?? null
   const done = await runRewriteIntent(
     {
-      id: "squash",
-      subject: branchSubject(branchName ?? ""),
-      // a squash of other commits of the branch, or with another message, is a squash of its own
-      parameters: JSON.stringify([commitIds, message]),
-      objects: branchName === null ? [] : [branchName],
       label: `Squashing ${formatCommitCount(commits.length)}`,
       surface,
       repositoryPath,

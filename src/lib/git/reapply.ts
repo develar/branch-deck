@@ -2,7 +2,6 @@ import type { RewriteIntent, UndoToken } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 
@@ -20,7 +19,7 @@ export async function reapplyBranch(name: string): Promise<boolean> {
   // the repository of the click: the reapply and its Undo go there, whichever the main window shows when they run
   const repositoryPath = getSelectedRepositoryPath()
   const rewrite = witnessed<Extract<RewriteIntent, { rewrite: "reapply" }>>(repositoryPath, { rewrite: "reapply", branchName: branch.branch })
-  const done = await runRewriteIntent({ id: "reapply", subject: branchSubject(name), objects: [name], repositoryPath }, rewrite)
+  const done = await runRewriteIntent({ repositoryPath }, rewrite)
   if (done?.result.rewrite !== "reapplied") {
     return false
   }

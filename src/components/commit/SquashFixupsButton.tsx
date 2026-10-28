@@ -5,8 +5,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { squashFixupsSurface, useListFixups } from "@/hooks/useSquashFixups"
 import { formatSquashFixupsLabel } from "@/lib/autosquash"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
+import { useSurfaceBusy } from "@/stores/indicators"
 import { closeInline, openInline, useActiveInlineForRow } from "@/stores/inline-row-action"
-import { useSurfaceBusy } from "@/stores/operations"
 
 const loadSquashFixupsPopover = () => import("@/components/commit/SquashFixupsPopover")
 const SquashFixupsPopover = lazy(() => loadSquashFixupsPopover().then(it => ({ default: it.SquashFixupsPopover })))

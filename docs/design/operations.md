@@ -22,26 +22,30 @@ held it.
 
 ## Solution Overview
 
-One registry of the operations that run (`src/stores/operations.ts`), and one way to start an action:
-`runOperation(spec, run)`. While an operation runs, every surface of the app reads the same record:
+One registry of the operations that run, the session's in Rust (`operations::registry`, admitted by
+`domain_policy::admission`), and one way to start an action: `execute` of its intent. The registry is a part of the
+view (`RepositoryView.operations`), so every window and every surface reads the same operations:
 
-- **join**: a second start of the same action of the same object with the same parameters (a double click, the same
-  item in another surface) runs nothing and resolves with the first;
-- **queue**: a rewrite that conflicts with a running one waits for it and runs after it, in the order of the starts;
-  its menu item stays enabled, and its rows and its surface say what it waits for ("Waits for Unstacking
-  tool-events"). A remote action that conflicts with a running one doesn't start; its menu item is disabled with the
-  running operation's busy state as the reason ("Restarting the Safe Push…");
-- **one indicator**: the surface that started it shows the spinner; a start from a menu, a key or a toast shows it on
-  the "⋯" of the object's row;
-- **the whole action**: a rewrite runs until the sync that shows its result ends (`runRewriteIntent`), so a row never
-  offers the action again while it still shows the state before it.
+- **join**: a second start of the same intent (a double click, the same item in another surface or window) runs
+  nothing and gets the answer of the first;
+- **queue**: a rewrite while another rewrite or Update Project holds HEAD waits for it and runs after it, in the order
+  of the starts, never refused; its menu item stays enabled and says what its start waits behind ("Waits for Unstacking
+  tool-events…"). A remote action whose resource an operation holds (a ref a push writes, a field of a pull request, a
+  robot) is disabled with that operation's busy state ("Pushing login…", "Restarting robot r1…");
+- **one indicator**: the surface that started it shows the spinner until its answer; a start from a menu, a key or a
+  toast shows it on the "⋯" of the object's row;
+- **the whole action**: a rewrite ends once it asked the sync that shows its result, and its `execute` answers once
+  that sync ended: its toast comes beside what it changed.
 
-Every rewrite of the page is a rewrite of the engine (Move, Rename, Stack On, Unstack, Park, Unpark, Reword, Squash,
-Squash Fixups, Amend, Add Issue Reference, Apply Fix, Unapply, Reapply, Pick Remote Commits, the deletes of an archived
-and an unapplied branch, and their Undo), admitted by the session in Rust: its record here only shows it, the session
-joins and queues it ([Rewrites](#rewrites)); the page queues no rewrite. Update Project, the Fetch of a merge toast and
-Dismiss Landed are operations of the session too ([Update Project](#update-project)): the page keeps only the run it
-shows of each.
+Rust lays the operations over the actions of the view (`domain_policy::actions::with_operations`): the item of an
+intent that runs or waits is `Running` or `Queued`, a rewrite that can start `Waits` behind the newest holder of HEAD,
+a remote action behind an operation that holds what it needs `Disabled(Busy)`. The page presents them
+(`src/presenters/actions.ts`) and keeps only what a window alone knows: which of its surfaces started an operation
+(`src/stores/indicators.ts`). Every rewrite of the page (Move, Rename, Stack On, Unstack, Ungroup, Park, Unpark,
+Reword, Squash, Squash Fixups, Amend, Add Issue Reference, Apply Fix, Unapply, Reapply, Pick Remote Commits, the
+deletes of an archived and an unapplied branch, and their Undo), the pushes, the starts of a robot, the writes to GitHub
+and YouTrack, Update Project, the Fetch of a merge toast and Dismiss Landed are operations of the session
+([Rewrites](#rewrites), [Update Project](#update-project)).
 
 ## Design
 
@@ -49,90 +53,98 @@ shows of each.
 flowchart LR
     Menu[menu item, key, toast] -->|"onSelect({ surface: null })"| Action
     Button[MenuItemButton, form, dialog] -->|"onSelect({ surface })"| Action
-    Action[restackBranch, moveCommits, squashCommits, unapplyBranch, deleteKeptBranch, …] --> Rewrite[runRewriteIntent]
-    Rewrite --> Run[runOperation]
-    Rewrite --> Execute["execute(rewrite): the session admits and queues it"]
-    Run --> Registry[(operationsStore: running, claims)]
-    Registry --> Item[operationItem: running / disabled]
-    Registry --> Row["row: busy, ⋯ spinner"]
-    Registry --> Surface[the surface's spinner]
+    Action[restackBranch, moveCommits, squashCommits, pushBranch, …] --> Execute["execute(intent)"]
+    Action --> Indicator["startIndicator(surface): the surface's spinner until the answer"]
+    Execute --> Registry[(session: operations, admitted in Rust)]
+    Registry --> Actions["with_operations: Running, Queued, Waits, Busy"]
+    Registry --> Row["useRowOperation: the row busy, ⋯ spinner"]
+    Actions --> Item[presentAction: running, waits, disabled]
 ```
 
 ### The record
 
-An `Operation` is the action's `id` (the `id` of its menu item: `unstack`, `move-to`, `squash-fixups`), its `subject`
-(`branch:auth`, the row whose menu starts it), the `objects` it works on (the branches whose rows are busy), its `kind`,
-its busy state (`label`: "Unstacking tool-events"), its repository and the `surface` that started it. It declares no
-move: the moves of a row are those of the operations of the session ([Moves](#moves)).
+An operation of the session (`RunningOperation`) is its intent, the resources it holds, its step, its origin (this
+process or another, `Origin`), the moves of rows it makes and how many requests joined it. The page keeps no record of
+its own: `startIndicator(surface, label)` (`src/stores/indicators.ts`) remembers which surface of the window started
+it and the busy state the window gave it ("Unstacking oauth from login"), from the click until its `execute`
+answered, its operation by its id once the channel of the `execute` named it.
 
 ### Conflicts
 
-`getOperationBlocker(running, key)` is the one rule; `runOperation` and every builder read it.
+`domain_policy::admission` is the one rule of the registry, and `domain_policy::actions::with_operations` lays the same
+operations over the actions the surfaces offer.
 
-1. **The same action of the same subject with the same parameters** joins: the promise of the running one, also of one
-   that waits. An action whose starts differ by what they act on names it (`parameters`: the commits and the target of a
-   move, the commit and the message of a reword, the commits and the message of a squash, the files of an amend, the
-   key of an added issue reference): a drag of another commit of the branch onto the same target is a move of its own,
-   which waits in the queue, never one that resolves with the first and moves nothing. A menu item names none, so it
-   shows running only an action without parameters; its start of another move queues.
-2. **A rewrite waits for any rewrite of the repository, in the queue of the session.** Every rewrite moves HEAD or a
-   ref of Branch Deck (the deletes only the ref they drop); the session runs them one after the other, each on what the
-   one before it left (`Resource::Head`, [Rewrites](#rewrites)), as the triple Unstack showed it must. `runOperation`
-   records a rewrite at once and starts it at once: the page queues none. Its record says what it waits for as the steps
-   of its operation tell it (`setSessionStep`: `waitsFor`, the busy state of the rewrite it waits behind, and
-   `operationLabel` says "Waits for Unstacking tool-events"; `lockWait`, whom it waits for while another holder has the
-   repository lock), its rows are busy, and it is never refused. What it acts on the session reads when it runs, in the
-   repository of its click (`repositoryPath`), whichever the main window shows by then: a move, a squash, a reword, an
-   amend and an added issue reference name the commits on the table the window showed (`TableWitness`), and the
-   session resolves them on HEAD as the rewrite before it left it (by the new ids that rewrite reported, else by the
-   commit key after its sync); a commit that is gone changes the plan (`plan_changed`). A branch goes by its name. A
-   push waits for the rewrites of its repository, their syncs included (`whenRewritesDone`): it sends what they leave.
-   The check and the move of Update Project wait behind them in the queue of the session, and the rewrites after it
-   behind them ([Update Project](#update-project)).
-3. **A remote action waits for a remote action of its subject or of a branch it works on**, and on the page is
-   refused meanwhile. The restart and the cancel of one robot wait for each other in Rust instead (the registry of the
-   session queues the cancel behind the restart and decides it again once the restart ended), as a retarget waits
-   for a retarget of the same pull request.
-   Where an action names the resources it writes (`resources`: a field of a pull request, `pr:<n>:base` of a retarget,
-   `pr:<n>:reviewers` of a review request), two such actions wait only for one that writes the same resource: a
-   retarget and a review request of one pull request run side by side. A review request that pushes first names the
-   base too: the push may retarget the pull request (`retargetBeforePush`), so the slot's retarget waits for it.
-4. **A rewrite and a remote action run side by side**, as before the registry: a push during a rewrite waits for the
-   sync itself and pushes what it leaves.
+1. **The same intent** joins: the answer of the running one, also of one that waits. An intent names what it acts on
+   (the commits and the target of a move, the commit and the message of a reword, the commits and the message of a
+   squash, the files of an amend, the key of an added issue reference, the table it was asked on): a drag of another
+   commit of the branch onto the same target is a move of its own, which waits in the queue, never one that resolves
+   with the first and moves nothing. A menu item names no commits, files or message, so Move to…, Amend Changes… and
+   Add Issue Reference… only wait; the items of the intents they name in full (Rename, Stack On, Unstack, Ungroup,
+   Squash Fixups, Unapply, Park, Unpark, Pick Remote Commits, a push, a restart, a cancel) show running.
+2. **A rewrite waits for any rewrite of the process, in the queue of the session.** Every rewrite holds HEAD
+   (`Resource::Head`; the deletes only the ref they drop); the session runs them one after the other, each on what the
+   one before it left, as the triple Unstack showed it must, and its item says what its start waits behind (`Waits`).
+   A rewrite is never refused; what it acts on the session reads when it runs, in the repository of its click
+   (`repositoryPath`), whichever the main window shows by then: a move, a squash, a reword, an amend and an added issue
+   reference name the commits on the table the window showed (`TableWitness`), and the session resolves them on HEAD
+   as the rewrite before it left it (by the new ids that rewrite reported, else by the commit key after its sync); a
+   commit that is gone changes the plan (`plan_changed`). A branch goes by its name. The check and the move of Update
+   Project wait behind them in the queue of the session, and the rewrites after it behind them ([Update
+   Project](#update-project)).
+3. **A remote action waits for an operation that holds what it needs**: a push for the push of a stack that sends its
+   branch, a cancel for the restart of its robot, a retarget for a review request that pushes first. In the process the
+   registry queues it; its item is disabled meanwhile with that operation's busy state (`Busy`), as an action another
+   process runs is (the registry of the repository refuses it as `busy`). A retarget and a review request of one pull
+   request hold other fields of it (`PullRequestField::Base`, `Reviewers`) and run side by side, unless the review
+   request pushes first, which may retarget it too.
+4. **A rewrite and a remote action run side by side**, but a push: it waits behind the rewrites of the process admitted
+   before it (`RunningGuard::wait_behind`, its step `Queued`, holding no HEAD, so a rewrite after it runs at once) and
+   for the sync they end with, then is decided again on what they left: it sends the branches as they leave them.
 
-A sync is no operation: a rewrite started during one still runs (an Undo in a toast during the auto-sync on focus), the
-backend lock orders them and the session's scheduler runs one more sync after it (`AfterRewrite`), which reads the
-result. Only the menus disable the rewrites during a sync
-(`getRewriteBlocker`, "Wait for the sync to finish"), as they did.
+A sync is no operation and disables no rewrite (C14): a rewrite started during one goes to the session at once (an Undo
+in a toast during the auto-sync on focus, a drag during a held sync), named on the table the window shows; the app's
+sync writes no HEAD, so the rewrite runs once HEAD is as its witness says, and the session's scheduler runs one more
+sync after it (`AfterRewrite`), which reads the result. Only the push waits for a sync that rebuilds its branch
+(`ActionBlocker::Syncing`): its virtual branch is not built yet.
 
 ### Items
 
-A builder marks its items with `operationItem(running, item, key)`: the running action's item is `running` and
-disabled; the item of a rewrite that must wait stays as it is (its start queues), the item of a remote action that must
-wait is disabled with the busy state as its `description`; an item disabled for its own reason keeps it. The rewrites of the branch menu go through `rewriteItem` (the sync blocker first), the commit menus
-through the same call. A surface that renders a builder reads it through a selector cached by the states of the stores it reads, the
-registry among them (`useBranchMenu`), or subscribes to the registry and passes its snapshot (`useOperations`): a store
-read inside a builder that the React Compiler memoizes would show a stale menu
-([Rendering Performance](rendering-performance.md)). Callers outside React (the keys, the review window's bridge) pass
-`getOperations()`. A disabled submenu (Stack On ›) is an item that says why on hover.
+Rust decides the state of every action of a subject with the operations laid over it (`RepositoryView.actions`,
+`Availability`): `running` and `queued` (its intent runs or waits: disabled, a spinner in place of its icon, a start
+joins it), `waits` (enabled, its start queues behind the operation named), `disabled` with `Busy` (a remote action
+behind the operation that holds what it needs) or any other reason. `presentAction` words them: the busy state of the
+operation ("Unstacking oauth…", "Waits for Moving 1 commit to docs…", whom it waits for while another holder has the
+repository lock), the words of a surface where it has its own (a restart: "Restarting the Safe Push…"); the busy state
+of an operation of this window is the one it gave it (`operationLabelOf`), of another process its row's ("bd: Pushing
+auth"). The commit menus are the page's and stay enabled: their move, squash and reword queue in the session. A surface
+that renders a builder reads it through a selector cached by the states of the stores it reads, the view and the
+indicators among them (`useBranchMenu`, `menuSources`): a store read inside a builder that the React Compiler memoizes
+would show a stale menu ([Rendering Performance](rendering-performance.md)). A disabled submenu (Stack On ›) is an item
+that says why on hover.
 
 `MenuItem.onSelect` takes a `SelectContext`: `{ surface }` of the button that started it, `FROM_MENU` (`surface:
-null`) for a menu, a key or a toast. The action passes it to its operation.
+null`) for a menu, a key or a toast. The action passes it to its indicator (`startIndicator`).
 
 A surface that is no menu runs the item itself (`selectMenuItemById`, `findMenuItem` in `src/lib/menu.ts`), so it
-can't miss a reason the builder knows: the keys of a branch row (P, D, O, M, `selectRowItem`; a disabled item says why
-in an `info` toast) and the review window, which asks the main window to run an item by its id. A toast's action
-(Undo, the unstack the move offers) calls the action itself, which waits or joins as any start does.
+can't miss a reason the builder knows: the keys of a branch row (P, D, O, M, `selectRowItem`; a disabled or running
+item says why in an `info` toast) and the review window, which asks the main window to run an item by its id; the main
+window relays the items unchanged, running ones included, and a request of one that runs is that start already (a
+click in the window and on the row at once run it once). A toast's action (Undo, the unstack the move offers) calls the
+action itself, which waits or joins as any start does.
 
 ### The indicator
 
-A surface that stays while its action runs claims its key (`useIndicatorClaim`, a count per key in the store) and shows
-the spinner of the operation it started (`useSurfaceBusy`): `MenuItemButton` with a `surface` (the Unstack of the
-notice, `unstack-alert:<branch>`), an inline form (`inline:<branch>`, its progress row in place of itself), the Safe
-Push popover (its status line), the squash dialog, the commit message editor, the move form, Apply Fix. An operation
-whose surface has no mounted claim (a menu, a key, a toast, a popover the click closed) shows its spinner on the "⋯" of
-its subject's row (`useUnclaimedOperation`, `MoreActionsMenu busy`), and of the branch preview's header while it is open.
-Every row the operation works on is busy (`useObjectBusy`): no right-click menu, "⋯" disabled, no drag, no push.
+A surface that stays while its action runs claims its key (`useIndicatorClaim`, a count per key in
+`src/stores/indicators.ts`) and shows the spinner of what it started from the click until its `execute` answered
+(`startIndicator`, `useSurfaceBusy`, its words those of its operation in the view once the channel named it): a
+`MenuItemButton` with a `surface` (the Unstack of the notice, `unstack-alert:<branch>`), an inline form
+(`inline:<branch>`, its progress row in place of itself), the Safe Push popover (its status line), the squash dialog,
+the commit message editor, the move form, Apply Fix. An operation of the view whose surface has no mounted claim (a
+menu, a key, a toast, a popover the click closed, another window, another process) shows its spinner on the "⋯" of the
+row it is about (`useUnclaimedOperation`, `MoreActionsMenu busy`; of a move the row of its first commit), and of the
+branch preview's header while it is open. Every row an operation of the view works on is busy (`useRowOperation`,
+`worksOnRow`: a rewrite of the branch or of its commits, the retarget of its pull request): no right-click menu, "⋯"
+disabled, no drag, no push; a push or a start never holds its row.
 
 ### Waiting for the repository lock
 
@@ -140,16 +152,16 @@ The session orders the rewrites of the app; another process (an agent's `bd pick
 of the app may still hold the repository lock when a rewrite reaches its core. An operation of the app waits for the
 app's own ones in the line of its process (a fair queue before the file lock, in the order they came, never refused),
 then for another process as long as the holder lives ([Git Operations](git-operations.md), "Repository lock"), and its
-step says whom for: a rewrite hears its steps on the channel of its `execute` (`runRewriteIntent`, `setSessionStep`):
-`waitingForLock` with the holder sets the record's `lockWait` ("Waiting for `bd pick` (pid 4242, for 12 s)", told
-again about once a second, `presentLockWait`), `queued` behind another operation sets `waitsFor` (the busy state of that
-one), and the record keeps the id of its operation (`op`). `operationLabel` says it in place of the busy state, so every
-surface of the operation shows it: the spinner's hover on the "⋯" of its row (`useUnclaimedOperation`), the label of a
-`MenuItemButton`, the progress row of an inline form, and `LockWaitNotice` on the surfaces that show their own busy
-state (the squash dialog, the commit message editor, the move form, the squash of the fixups, Apply Fix).
+step in the view says whom for: `waitingForLock` with the holder ("Waiting for `bd pick` (pid 4242, for 12 s)", told
+again about once a second, `presentLockWait`), `queued` behind another operation (the busy state of that one).
+`operationBusyOf` (`src/stores/indicators.ts`, `presentOperationBusy`) says it in place of the busy state, so every
+surface of the operation shows it, in every window: the spinner's hover on the "⋯" of its row
+(`useUnclaimedOperation`), its item in the menus, the label of a `MenuItemButton`, the progress row of an inline form,
+and `LockWaitNotice` on the surfaces that show their own busy state (the squash dialog, the commit message editor, the
+move form, the squash of the fixups, Apply Fix).
 
-Stop Waiting is one builder, `presentStopWaiting(operation)` of `src/presenters/lock-wait.ts` (null while it waits for
-nobody), and every surface that shows the waiting operation renders it: the "⋯" opens a menu of it, a `MenuItemButton`
+Stop Waiting is one builder, `presentStopWaiting(waitingOf(operation))` of `src/presenters/lock-wait.ts` (null while it
+waits for nobody, and for an operation of another process), and every surface that shows the waiting operation renders it: the "⋯" opens a menu of it, a `MenuItemButton`
 and an inline form show it beside themselves, `LockWaitNotice` beside the text. It calls `cancel_operation` of the
 operation: the rewrite answers the code `canceled`, nothing changed, and says so in an info toast ("Canceled squashing
 2 commits before it started", `canceledBeforeStart`), never an error; the surface that started it stays (the squash
@@ -164,17 +176,20 @@ beside the Update button: `cancel_operation` of its operation, nothing changed b
 
 `runRewriteIntent(spec, rewrite)` (`src/lib/rewrite-run.ts`) runs every rewrite of the page, a rewrite of the engine
 (`execute` of the intent `rewrite`, no `prepare`: the rewrite names the table the window shows, `TableWitness` of the
-view's header, and asks nothing to accept): Move (a drag, Move to…, Ungroup, Remove Prefix), Rename, Stack On,
+view's header, and asks nothing to accept): Move (a drag, Move to…, Remove Prefix), Ungroup (the intent `ungroup`, the
+move back of the commits the branch has when it runs), Rename, Stack On,
 Unstack, Park, Unpark, Reword, Squash, Squash Fixups and Squash Into, Amend, Add Issue Reference, Apply Fix, Unapply,
 Reapply, Pick Remote Commits, the deletes of an archived and an unapplied branch (`deleteKeptBranch`), and the Undo of
 each (`undoRewrite`, the rewrite `undo` of the token of its outcome, in the repository of the click: a regroup's token,
 a squash's `<previous>..<new>`, `unapply:`, `reapply:`, `pick:`). The session admits it: a second click of the same
 rewrite joins it, another rewrite waits behind it in the queue of the session (an Undo clicked during an Unstack, a
-second drag during a move: no info toast, its rows say "Waits for Unstacking tool-events"), each decided again on what
+second drag during a move, a rewrite during a sync: no info toast, its rows say "Waits for Unstacking tool-events"),
+each decided again on what
 the one before left; it ends once it asked its sync, and its `execute` answers once that sync ended, with the version
 of its last patch, which the page waits for (`whenSessionViewAt`) before its toast with Undo. A delete asks no sync: its
-answer names the patch that removed its row. Its record in `operationsStore` shows it on its surfaces from the click
-until then, never queued by the page. A failure is an error toast in the words of the rewrite (`presentRewrite`) or
+answer names the patch that removed its row. The view shows it on every surface from its admission until it asked its
+sync (`RepositoryView.operations`, the actions Rust lays it over); the surface that started it shows its spinner from
+the click until the answer (`startIndicator`); the page queues nothing. A failure is an error toast in the words of the rewrite (`presentRewrite`) or
 the title its caller gives, a stopped wait an info toast. The toast closes and the Activity entry (naming the operation)
 says "undone" only once the undo undid it (`recordRewrite`); after a failed or stopped one both keep their Undo.
 
@@ -186,7 +201,7 @@ failure where it has one.
 The family in the engine is `Intent::Rewrite` ([Rewrite in the engine](git-operations.md#rewrite-in-the-engine)):
 each holds `Resource::Head` (a delete only `Resource::Ref` of the branch it drops, a reapply that ref too), so a second
 click joins it, another rewrite of the process (an undo too) waits in the queue of the session and is decided again on
-what it left, and a push runs beside it; a wait for the lock is its step `WaitingForLock`, stopped by
+what it left, and a push waits behind it without holding HEAD (`RunningGuard::wait_behind`); a wait for the lock is its step `WaitingForLock`, stopped by
 `cancel_operation`; every step the queue gives it (`Queued` behind another, then the step it starts at) goes to its
 caller as the view shows it.
 
@@ -194,12 +209,13 @@ caller as the view shows it.
 
 - **The robot**: its restart (with the push first of a robot whose branch moved past its commit) and its cancel are
   operations of the session in Rust (`RestartRobot`, `CancelRobot` of `operations::robot`, holding `Resource::Robot`;
-  `src/lib/robot-run.ts` runs them, `runIntent`): `getRobotActionItems` marks the item of one the session runs running
-  (`RepositoryView.operations`), so the slot, the details and the landing overview show it (a spinner in place of its
-  icon) in every window; a second restart joins it in Rust, and a cancel during it waits there.
-- **The pull request**: the retarget of the next step (`retargetToTarget`, subject `pr:<n>`: its slot and its row
-  busy, the retarget itself an operation of the session, `Retarget` of `operations::pull_request`, which holds its
-  base, so a review request of it runs beside). The creation, "Continue on GitHub" and "Request Review…" are operations
+  `src/lib/robot-run.ts` runs them, `runIntent`): Rust lays the one that runs over the actions of its robot
+  (`robot:<id>`: the restart or the cancel `Running`, the other `Busy` behind it), so the slot, the details and the
+  landing overview show it (a spinner in place of its icon) in every window; a second restart joins it in Rust, and a
+  cancel during it waits there.
+- **The pull request**: the retarget of the next step (`retargetToTarget`: the retarget an operation of the session,
+  `Retarget` of `operations::pull_request`, which holds its base, so a review request of it runs beside; its row busy
+  and its item running in the slot, from the view). The creation, "Continue on GitHub" and "Request Review…" are operations
   of the session in Rust (`CreatePullRequest`, `RequestReview` of `operations::pull_request`; `src/lib/pull-request-run.ts`
   runs them, `runIntent`), each with its push first: the creation holds the head of its subject (a second submit joins
   it, another text waits for it and is decided again), a review request the reviewers of its pull request; the dialog
@@ -209,8 +225,9 @@ caller as the view shows it.
   the same one joins); `getReviewBusy` reads them from `RepositoryView.operations`, for the review list and the review
   window (`ReviewWindowState.busy`).
 
-The next step reads the operation on its row (`NextStepFacts.busy`): the slot's own action runs (`running`), the
-others wait with its busy state.
+The next step reads the operation of the view on its row (`busyOf`, `useRowOperation`): the slot's own action runs
+(`running`, a retarget), the others wait with its busy state, but an action that writes another field of the pull
+request.
 
 
 ### Update Project
@@ -321,9 +338,12 @@ operation.
 
 ## Key Decisions
 
-1. **Decision**: one registry for every window's actions, not a flag per action.
-   **Rationale**: the surfaces of an action are many (menu, button, key, toast, review window); only a shared record
-   lets all of them say the same.
+1. **Decision**: one registry for every window's actions, not a flag per action: the session's in Rust
+   (`operations::registry`), laid over the actions of the view (`with_operations`); the page keeps only which of its
+   surfaces started what (`src/stores/indicators.ts`), and `pnpm lint:arch` (`operations-store`) refuses an admission
+   of its own.
+   **Rationale**: the surfaces of an action are many (menu, button, key, toast, review window, another window); only a
+   shared record lets all of them say the same, and only the one that admits can say what a start waits for.
 2. **Decision**: a second start of the same action joins the first instead of being refused.
    **Rationale**: a double click is no mistake to report; the caller of the second start gets the first one's result.
 3. **Decision**: a rewrite of the engine (`Rewrite`, `operations::rewrite`) and Update Project (`operations::update`)
@@ -333,12 +353,15 @@ operation.
    **Rationale**: the row shows the state before the rewrite until the sync; offering the action again then is what
    ran it three times. In Rust a second click joins the running rewrite, and a rewrite after it names its commits on
    what the first left (its `TableWitness`, the new ids the first reported, the commit keys), so it needs no wait for
-   the sync, which would hold every rewrite queued behind it for as long.
+   the sync, which would hold every rewrite queued behind it for as long; for the same reason no sync disables a
+   rewrite (C14). A push is the one that waits for the rewrites before it and their sync: it sends refs the sync
+   writes.
    A rewrite names the repository of its click (`RewriteRunSpec.repositoryPath`), and so does its Undo: one of a repository the main window no longer shows (an Undo clicked after a switch) runs in the
    session of that repository, which syncs it.
 4. **Decision**: no `expect_head` for the regroups.
    **Rationale**: an unstack writes only `refs/branch-deck/stack-parents`, HEAD may stay; the registry closes the
-   double start in the app, and a `bd` process meanwhile gets the exact error under the lock.
+   double start in the app (the same intent joins, in every window), and a `bd` process meanwhile gets the exact error
+   under the lock.
 5. **Decision**: the identical error toast updates in place (`notifyError` passes an id of the title and the
    description; Base UI updates the open toast of that id).
    **Rationale**: a poll or two surfaces must not stack copies of one error; Activity still records each.

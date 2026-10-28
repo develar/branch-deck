@@ -1,6 +1,6 @@
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { presentStopWaiting } from "@/presenters/lock-wait"
-import { useSurfaceOperation } from "@/stores/operations"
+import { useSurfaceOperation } from "@/stores/indicators"
 
 /**
  * Stop Waiting of the operation `surface` started, while its command waits for another holder of the repository lock;

@@ -28,6 +28,7 @@ fn table(actions: &[ActionState]) -> Vec<(ActionId, Option<ActionBlocker>)> {
       let reason = match &action.availability {
         Availability::Enabled => None,
         Availability::Disabled { reason } => Some(reason.clone()),
+        operation => panic!("no operation runs, yet {:?} is {operation:?}", action.id),
       };
       (action.id, reason)
     })
@@ -274,7 +275,7 @@ fn the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_i
 }
 
 /// Pick Remote Commits is offered only while the remote has commits the branch lacks, enabled unless the branch is
-/// parked, blocked, held or rebuilt by a sync
+/// parked, blocked or held; a sync that rebuilds it holds the pick back no more than another rewrite
 #[test]
 fn pick_remote_commits_is_offered_while_the_remote_has_commits_the_branch_lacks() {
   let step = ready_step();
@@ -295,7 +296,7 @@ fn pick_remote_commits_is_offered_while_the_remote_has_commits_the_branch_lacks(
         row: Row { syncing: true, ..row("auth") },
         ..base()
       },
-      Some(ActionBlocker::Syncing),
+      None,
     ),
     ("held", BranchFacts { hold: Some(&own), ..base() }, Some(ActionBlocker::Rule { reason: own.clone() })),
   ];
@@ -315,11 +316,11 @@ fn problem(fixes: Vec<StackFix>) -> StackProblemView {
   }
 }
 
-/// A rewrite needs commits, a build and no sync that rebuilds the branch; the fixes of a stack problem run while the problem blocks
-/// the rest, a sync stops them too; Add Issue Reference says when every commit has one; Unstack only of a stacked branch
-/// or where a fix offers it
+/// A rewrite needs commits and a build, and no sync holds it back (the session admits it at once, C14); the fixes of a
+/// stack problem run while the problem blocks the rest; Add Issue Reference says when every commit has one; Unstack only
+/// of a stacked branch or where a fix offers it
 #[test]
-fn a_rewrite_needs_commits_a_build_and_no_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest() {
+fn a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest() {
   let step = ready_step();
   let status = remote(PushAction::Push);
   let cycle = problem(vec![StackFix::StackOn("main".to_string()), StackFix::Unstack]);
@@ -348,15 +349,16 @@ fn a_rewrite_needs_commits_a_build_and_no_sync_and_the_fixes_of_a_stack_problem_
     },
     ..facts(&step, &status)
   });
-  assert_eq!((reason_of(&rebuilt, StackOn), reason_of(&rebuilt, Rename)), (Some(ActionBlocker::Syncing), failure));
+  assert_eq!((reason_of(&rebuilt, StackOn), reason_of(&rebuilt, Rename)), (None, failure));
 
   let syncing = branch_actions(&BranchFacts {
     row: Row { syncing: true, ..row("auth") },
     ..facts(&step, &status)
   });
   for id in REWRITES {
-    assert_eq!(reason_of(&syncing, id), Some(ActionBlocker::Syncing), "{id:?} waits for the sync that rebuilds the branch");
+    assert_eq!(reason_of(&syncing, id), None, "{id:?} goes to the session during the sync that rebuilds the branch");
   }
+  assert_eq!(reason_of(&syncing, Push), Some(ActionBlocker::Syncing), "the push waits for the build");
   let empty = branch_actions(&BranchFacts {
     row: Row { commit_count: 0, ..row("auth") },
     ..facts(&step, &status)
@@ -375,8 +377,8 @@ fn a_rewrite_needs_commits_a_build_and_no_sync_and_the_fixes_of_a_stack_problem_
   assert!(!ids(&branch_actions(&facts(&step, &status))).contains(&Unstack), "a root has nothing to unstack from");
 }
 
-/// A park waits for a robot that lands the branch (a merged one landed it: the park goes), its commits and the sync; a
-/// parked branch edits its note and unparks, one parked with its parent only unparks the parent
+/// A park waits for a robot that lands the branch (a merged one landed it: the park goes) and its commits, never for a
+/// sync; a parked branch edits its note and unparks, one parked with its parent only unparks the parent
 #[test]
 fn a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks() {
   let step = ready_step();
@@ -398,7 +400,7 @@ fn a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks() 
       hold_landed: true,
       ..facts(&step, &status)
     }),
-    Some(ActionBlocker::Syncing)
+    None
   );
   let note = Parked {
     note: "after the release".to_string(),
@@ -424,7 +426,7 @@ fn a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks() 
     },
     ..facts(&step, &status)
   });
-  assert_eq!(table(&carried).last(), Some(&(Unpark, Some(ActionBlocker::Syncing))));
+  assert_eq!(table(&carried).last(), Some(&(Unpark, None)));
   assert!(!ids(&carried).contains(&Park));
 }
 
@@ -936,4 +938,212 @@ fn a_start_whose_answer_was_lost_offers_open_in_patronus_and_forget_this_start()
   );
   assert_eq!(table(&start_actions(&unknown(None))), [(ForgetStart, None)]);
   assert_eq!(table(&start_actions(&operation(OperationStep::Starting))), []);
+}
+
+/// An operation of the session as the view has it
+fn operation(
+  id: &str,
+  intent: domain_types::operation::Intent,
+  resources: Vec<domain_types::operation::Resource>,
+  step: domain_types::operation::OperationStep,
+) -> domain_types::operation::RunningOperation {
+  domain_types::operation::RunningOperation {
+    id: domain_types::operation::OperationId(id.to_string()),
+    intent,
+    resources,
+    step,
+    origin: domain_types::operation::Origin::ThisProcess,
+    moves: Vec::new(),
+    joined: 0,
+  }
+}
+
+/// The rewrite `rewrite` of the engine, holding HEAD
+fn rewrite_operation(id: &str, rewrite: domain_types::rewrite::RewriteIntent, step: domain_types::operation::OperationStep) -> domain_types::operation::RunningOperation {
+  operation(
+    id,
+    domain_types::operation::Intent::Rewrite(Box::new(rewrite)),
+    vec![domain_types::operation::Resource::Head],
+    step,
+  )
+}
+
+fn op(id: &str) -> domain_types::operation::OperationId {
+  domain_types::operation::OperationId(id.to_string())
+}
+
+/// The operations of the session lie over the actions of a branch: the item of its own intent runs (or waits in the queue
+/// behind the one its step names), every other rewrite that can run waits behind the newest operation that holds HEAD
+/// (its start queues, never refused), a push whose ref an operation holds is busy, and an item disabled for its own
+/// reason keeps it; a menu item of a move names no commits, so it only waits
+#[test]
+fn the_operations_of_the_session_lie_over_the_actions_its_own_runs_a_rewrite_waits_a_push_behind_its_ref_is_busy() {
+  use crate::actions::{Of, with_operations};
+  use domain_types::operation::{OperationStep, Origin, Resource};
+  use domain_types::rewrite::{RewriteIntent, TableWitness};
+  let step = ready_step();
+  let status = remote(PushAction::Push);
+  let offered = || {
+    branch_actions(&BranchFacts {
+      row: Row {
+        declared_parent: Some("core"),
+        ..row("auth")
+      },
+      ..facts(&step, &status)
+    })
+  };
+  let auth = Of::Branch {
+    name: "auth",
+    pushes: Some("user/virtual/auth"),
+    unparks: "auth",
+    pull_request: Some(7),
+  };
+  let unstack = |branch: &str| RewriteIntent::Unstack {
+    branch_name: branch.to_string(),
+    witness: TableWitness::default(),
+  };
+  let availability = |actions: &[ActionState], id: ActionId| {
+    actions
+      .iter()
+      .find(|action| action.id == id)
+      .unwrap_or_else(|| panic!("{id:?} is not offered"))
+      .availability
+      .clone()
+  };
+
+  assert_eq!(with_operations(offered(), auth, &[]), offered(), "nothing runs: as the facts offer them");
+
+  let running = [rewrite_operation("u1", unstack("auth"), OperationStep::Rewriting)];
+  let actions = with_operations(offered(), auth, &running);
+  assert_eq!(
+    availability(&actions, Unstack),
+    Availability::Running { op: op("u1") },
+    "its own intent runs: a start joins it"
+  );
+  for id in [Rename, MoveTo, StackOn, Ungroup, AmendChanges, AddIssueReference, SquashFixups, Unapply, Park] {
+    assert_eq!(availability(&actions, id), Availability::Waits { op: op("u1") }, "{id:?} queues behind the unstack");
+  }
+  for id in [SafePush, DryRun, Push, ReviewChanges, CreatePullRequest] {
+    assert_eq!(availability(&actions, id), Availability::Enabled, "{id:?} runs beside a rewrite");
+  }
+
+  // a second rewrite queued behind the first: its own item waits in the queue, the others behind the newest
+  let queued = [
+    rewrite_operation("u1", unstack("login"), OperationStep::Rewriting),
+    rewrite_operation("u2", unstack("auth"), OperationStep::Queued { behind: op("u1") }),
+  ];
+  let actions = with_operations(offered(), auth, &queued);
+  assert_eq!(availability(&actions, Unstack), Availability::Queued { op: op("u2"), behind: op("u1") });
+  assert_eq!(availability(&actions, Rename), Availability::Waits { op: op("u2") });
+
+  // a push of a stack that sends auth holds its ref: the push of auth waits for it, busy; its own push runs
+  let stack_push = [operation(
+    "p1",
+    domain_types::fixtures::push_intent("login"),
+    vec![
+      Resource::Ref {
+        name: "user/virtual/auth".to_string(),
+      },
+      Resource::Ref {
+        name: "user/virtual/login".to_string(),
+      },
+    ],
+    OperationStep::Pushing,
+  )];
+  let actions = with_operations(offered(), auth, &stack_push);
+  assert_eq!(
+    availability(&actions, Push),
+    Availability::Disabled {
+      reason: ActionBlocker::Busy { op: op("p1") }
+    }
+  );
+  assert_eq!(availability(&actions, Rename), Availability::Enabled, "a rewrite runs beside a push");
+  let own_push = [operation(
+    "p2",
+    domain_types::fixtures::push_intent("auth"),
+    vec![Resource::Ref {
+      name: "user/virtual/auth".to_string(),
+    }],
+    OperationStep::Pushing,
+  )];
+  assert_eq!(availability(&with_operations(offered(), auth, &own_push), Push), Availability::Running { op: op("p2") });
+
+  // a review request that pushes first holds the base of the pull request too: the retarget waits for it
+  let review = [operation(
+    "r1",
+    domain_types::operation::Intent::RequestReview {
+      subject: domain_types::landing::Subject::branch("auth"),
+      reviewers: Vec::new(),
+      push_first: true,
+    },
+    vec![Resource::PullRequest {
+      number: 7,
+      field: domain_types::operation::PullRequestField::Reviewers,
+    }],
+    OperationStep::Writing,
+  )];
+  let retarget = NextStep {
+    retarget: Some(StepRetarget {
+      number: 7,
+      base: "user/virtual/core".to_string(),
+      target: "master".to_string(),
+    }),
+    ..ready_step()
+  };
+  let with_review = BranchFacts {
+    step: &retarget,
+    ..facts(&step, &status)
+  };
+  let actions = with_operations(branch_actions(&with_review), auth, &review);
+  assert_eq!(availability(&actions, RetargetPullRequest), Availability::Enabled, "another field of the pull request");
+
+  // a push of another process holds the ref: busy, never joined; an item disabled for its own reason keeps it
+  let foreign = [domain_types::operation::RunningOperation {
+    origin: Origin::OtherProcess {
+      tool: domain_types::error::HolderTool::Bd,
+      pid: 4242,
+    },
+    ..own_push[0].clone()
+  }];
+  assert_eq!(
+    availability(&with_operations(offered(), auth, &foreign), Push),
+    Availability::Disabled {
+      reason: ActionBlocker::Busy { op: op("p2") }
+    }
+  );
+  let empty = branch_actions(&BranchFacts {
+    row: Row { commit_count: 0, ..row("auth") },
+    ..facts(&step, &status)
+  });
+  assert_eq!(
+    availability(&with_operations(empty, auth, &running), Rename),
+    Availability::Disabled { reason: ActionBlocker::NoCommits }
+  );
+}
+
+/// The restart and the cancel of a robot run in the session: the item of the one that runs is running, the other waits
+/// for it, busy; Forget This Start runs while its forget does
+#[test]
+fn the_restart_and_the_cancel_of_a_robot_run_once_and_hold_each_other_back() {
+  use crate::actions::{Of, with_operations};
+  use domain_types::operation::{Intent, OperationStep, Resource};
+  let failed = robot("r1", Some("auth"), PatronusRobotStatus::Running, 1);
+  let restart = restart(RestartAction::Restart, None);
+  let offered = robot_actions(&robot_facts(&failed, Some(&restart)));
+  let restarting = [operation(
+    "o1",
+    Intent::RestartRobot { robot_id: "r1".to_string() },
+    vec![Resource::Robot { id: "r1".to_string() }],
+    OperationStep::Starting,
+  )];
+  let actions = with_operations(offered, Of::Robot { id: "r1" }, &restarting);
+  let of = |id: ActionId| actions.iter().find(|action| action.id == id).map(|action| action.availability.clone());
+  assert_eq!(of(RestartRobot), Some(Availability::Running { op: op("o1") }));
+  assert_eq!(
+    of(CancelRobot),
+    Some(Availability::Disabled {
+      reason: ActionBlocker::Busy { op: op("o1") }
+    })
+  );
+  assert_eq!(of(OpenRobot), Some(Availability::Enabled));
 }

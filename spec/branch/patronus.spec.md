@@ -1610,9 +1610,11 @@ explicit choice of the user, offered only where the approvals count in a pull re
   worktree or another one under the same branch prefix) must show on its row in every window while it runs: the slot
   of the row busy with "bd: Safe Push of auth…", its hover naming the process ("`bd` (pid 4242) runs the Safe Push of
   auth, which holds what it needs until it ends"). S, a click and the menu say why the start can't start in an info
-  toast ("Safe Push of auth can't start" with those words) and open no popover; a push or a start of the app that needs
-  what it holds is refused in Rust as `busy` before anything runs, its toast naming it ("Cannot push auth: `bd` (pid
-  4242) has run the Safe Push of auth for 12 s"); another branch pushes and starts beside it. Once the other process
+  toast ("Safe Push of auth can't start" with those words) and open no popover; the push of the branch, which needs
+  what it holds, is disabled with it before Rust is asked (`Busy`: "bd: Safe Push of auth…" on its item and its
+  button, P says it in an info toast), and a push or a start of the app that reaches Rust all the same is refused as
+  `busy` before anything runs, its toast naming it ("Cannot push auth: `bd` (pid 4242) has run the Safe Push of auth
+  for 12 s"); another branch pushes and starts beside it. Once the other process
   ended (its record left the operations registry of the repository), the row offers the start again and it starts once.
   The other way round, `bd safe-push auth` beside the app's Safe Push of auth is `busy` naming the app's operation.
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)

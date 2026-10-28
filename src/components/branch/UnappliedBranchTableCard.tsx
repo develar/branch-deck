@@ -11,13 +11,14 @@ import { HelpPopover } from "@/components/shared/HelpPopover"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
+import { useRowBusy } from "@/hooks/useRowOperation"
 import { useUnappliedBranchMenu } from "@/hooks/useUnappliedBranchMenu"
 import { copyFocusedBranchRow } from "@/lib/clipboard"
 import { formatCommitCount } from "@/lib/commit"
 import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
+import { useSurfaceBusy } from "@/stores/indicators"
 import { inlineSurface, useActiveInlineForRow, withRowProgress } from "@/stores/inline-row-action"
-import { useObjectBusy, useSurfaceBusy } from "@/stores/operations"
 import type { UnappliedBranch } from "@/stores/unapplied-branches"
 import { getUnappliedBranch, loadUnappliedCommits, useUnappliedBranch, useUnappliedBranchOrder } from "@/stores/unapplied-branches"
 
@@ -81,7 +82,7 @@ const UnappliedBranchRow = memo(function UnappliedBranchRow({ name, expanded, on
   const activeInline = useActiveInlineForRow(name)
   // the delete runs from the form below the row, the push from a menu
   const processing = useSurfaceBusy(inlineSurface(name)) !== null
-  const busy = useObjectBusy(name)
+  const busy = useRowBusy(name)
   const working = processing || busy !== null
   if (branch === undefined) {
     return null

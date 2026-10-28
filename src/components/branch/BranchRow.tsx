@@ -21,6 +21,7 @@ import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { acceptanceOf, beginCommitDrag, dropTargetState, getBranchDropFacts, useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { useRowOperation } from "@/hooks/useRowOperation"
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { TRACK_GROUP_CLASS } from "@/lib/branch-columns"
@@ -45,7 +46,6 @@ import {
 } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow, useInlineProcessing } from "@/stores/inline-row-action"
-import { useObjectBusy } from "@/stores/operations"
 import { useBranchRobot } from "@/stores/patronus"
 import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -133,7 +133,7 @@ export const BranchRow = memo(function BranchRow({
   const isDragged = useCommitMove(state => state.drag?.branches.includes(name) === true)
   const selected = useIsBranchSelected(name)
   // an operation works on the branch: the row takes no other action meanwhile; the form below it shows its own
-  const processing = useObjectBusy(name) !== null
+  const processing = useRowOperation(name) !== undefined
   const formProcessing = useInlineProcessing(name) !== null
 
   // commits just moved here: show them (the commit list selects them); a request without commits is done here

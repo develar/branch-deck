@@ -4,11 +4,11 @@ import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
 import type { BranchDrop, BranchDropFacts } from "@/lib/branch-drop"
 import { getRowPart } from "@/model/store"
-import { actionBlocker, SYNC_WAIT } from "@/presenters/actions"
+import { actionBlocker } from "@/presenters/actions"
 import { branchSyncStore, getBranch, getBranchCommits, getParkedState, getStackDescendants, isStacksEnabled, resolveCommits } from "@/stores/branch-sync"
 import type { CommitDrag } from "@/stores/commit-move"
 import { clearHoverRefusal, commitMoveStore, endCommitDrag, isDroppableOn, setDragOrigin, setHoverRefusal, useDroppableDrag } from "@/stores/commit-move"
-import { operationsStore } from "@/stores/operations"
+import { indicatorsStore } from "@/stores/indicators"
 import { patronusStore } from "@/stores/patronus"
 
 /** `dataTransfer` type of a commit drag; the commits themselves are in the commit move store */
@@ -65,15 +65,9 @@ export function getBranchDropFacts(): BranchDropFacts {
   return {
     branch: getBranch,
     parked: getParkedState,
-    blocker: (name, id) => {
-      const branch = getBranch(name)
-      const blocker = actionBlocker(getRowPart(name, "actions"), id, { subject: name, statusText: branch?.statusText ?? "" })
-      // a rewrite and a park wait for a sync of the table, as the menu says
-      return blocker === null && branchSyncStore.getState().isSyncing ? SYNC_WAIT : blocker
-    },
+    blocker: (name, id) => actionBlocker(getRowPart(name, "actions"), id, { subject: name, statusText: getBranch(name)?.statusText ?? "" }),
     descendants: getStackDescendants,
     stacksEnabled: isStacksEnabled(),
-    isSyncing: branchSyncStore.getState().isSyncing,
   }
 }
 
@@ -91,13 +85,14 @@ export function dropTargetState(target: CommitDropTarget): "ready" | "over" | "r
 }
 
 /**
- * Renders again with `select` when a store that a drop target decides by changes: the drag, the branches, the robots,
- * the operations. `select` reads them with `getState()` and returns a primitive.
+ * Renders again with `select` when a store that a drop target decides by changes: the drag, the branches and the
+ * operations of the view, the robots, the busy states this window gave its operations. `select` reads them with
+ * `getState()` and returns a primitive.
  */
 export function useDragStores<T>(select: () => T): T {
   useStore(branchSyncStore, select)
   useStore(patronusStore, select)
-  useStore(operationsStore, select)
+  useStore(indicatorsStore, select)
   return useStore(commitMoveStore, select)
 }
 

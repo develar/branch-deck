@@ -394,8 +394,8 @@ menu stacks, unstacks and renames branches.
   sync and computes what to push on the branches as it leaves them. It is disabled with the reason, never hidden,
   while it would push nothing beyond the branch ("Nothing to push: the stack is on the remote", "Only auth has
   commits to push: its own push sends them", "login asks first in its row: the push drops remote commits"; "Wait for
-  the sync to finish" while the sync computes the remote statuses), while the stack is being pushed ("The stack is being
-  pushed") and while a running Safe Push holds the branch: every Safe Push of the stack lands it. A branch a merged
+  the sync to finish" while the sync computes the remote statuses), while another push that sends the branch holds it
+  ("Pushing login…"; running while its own push runs) and while a running Safe Push holds the branch: every Safe Push of the stack lands it. A branch a merged
   Safe Push landed whole is only left out, its own branch included: the branches built on it push without it, from its
   menu, the island's header and the description of its push ("session is stacked on auth and has commits to push.",
   "Push with Children (session)"). Once it and every branch built on it landed, nothing is left: "Landed in master
@@ -627,7 +627,7 @@ menu stacks, unstacks and renames branches.
   "The branch failed to sync"; a drag takes the fixes too (`stackOnDrop`, `unstackDrop`).
   [@test] ../../tests/e2e/stacked-branches/stack-problems.spec.ts (`should name conflicting parents, keep the commits and stack on a parent from the alert`, `should offer the fixes in the menu and block the other rewrites with the problem`, `should unstack a branch with conflicting parents from the menu`, `should cut a branch out of a parent cycle from its alert`, `should open the rename of a branch whose name differs from another only in case`, `should show the problem with its fixes in the preview, a fix closing the preview`)
   [@test] ../../src/lib/branch-drop.test.ts (`blocks the rewrites of a branch with a stack problem by the reason Rust gives, and runs the fixes it offers`)
-  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_a_build_and_no_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
 - A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,
   a disabled push button (in the row and the preview), no share in a push of the stack (`domain_policy::push::push_plan`
   leaves a branch the last sync did not build out, `Kept::NotBuilt`), and, expanded, a `warning` alert with a link that

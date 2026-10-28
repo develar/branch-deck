@@ -26,9 +26,8 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { handlePreviewItemSwitchKey, handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
-import { useBranchSync } from "@/stores/branch-sync"
 import { toggleCommitFilesSection, useIsCommitFilesSectionOpen } from "@/stores/commit-files"
-import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
 
 export interface CommitPreviewDialogProps {
   commits: readonly CommitUnion[]
@@ -95,8 +94,8 @@ export function CommitPreviewDialog({
   // the reword runs from the editor: its Save shows the progress until the sync shows the new commit
   useIndicatorClaim(REWORD_SURFACE)
   const isSaving = useSurfaceBusy(REWORD_SURFACE) !== null
-  const isSyncing = useBranchSync(state => state.isSyncing)
-  const canEdit = onSaveMessage !== undefined && commit !== undefined && !isSyncing
+  // a save during a sync goes to the session at once: the reword is named on the table the preview shows
+  const canEdit = onSaveMessage !== undefined && commit !== undefined
   const fileStats = useCommitFileStats(hash)
   const isFilesOpen = useIsCommitFilesSectionOpen()
   const canReview = fileStats === undefined || fileStats.count > 0
@@ -131,7 +130,7 @@ export function CommitPreviewDialog({
   }
 
   const save = async () => {
-    if (commit === undefined || onSaveMessage === undefined || isSaving || isSyncing) {
+    if (commit === undefined || onSaveMessage === undefined || isSaving) {
       return
     }
     const saved = await onSaveMessage(commit, draft)
@@ -277,7 +276,7 @@ export function CommitPreviewDialog({
             {isEditing ? (
               <>
                 <KeyHint keys={<Kbd>Esc</Kbd>}>Cancel</KeyHint>
-                <Button size="xs" disabled={isSaving || isSyncing} onClick={() => void save()}>
+                <Button size="xs" disabled={isSaving} onClick={() => void save()}>
                   {isSaving && <Spinner data-icon="inline-start" />}
                   Save
                   <Kbd className={PRIMARY_KBD_CLASS_NAME}>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
@@ -304,11 +303,10 @@ export function CommitPreviewDialog({
                   Files
                 </Button>
                 {onSaveMessage !== undefined && (
-                  <ReasonTooltip reason={canEdit ? null : "Wait for the sync to finish"}>
-                    <Button variant="ghost" size="xs" disabled={!canEdit} focusableWhenDisabled className={cn(!canEdit && "opacity-50")} onClick={startEdit} />
+                  <Button variant="ghost" size="xs" disabled={!canEdit} onClick={startEdit}>
                     <Kbd>E</Kbd>
                     Edit
-                  </ReasonTooltip>
+                  </Button>
                 )}
               </>
             )}

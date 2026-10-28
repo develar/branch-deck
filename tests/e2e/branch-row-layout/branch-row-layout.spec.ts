@@ -17,12 +17,14 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { pushedRemote, waitForBranchSyncComplete } from "../helpers/sync-helpers"
-import { holdCommand } from "../helpers/wait-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 test.describe("Branch Row Layout and Copy Functionality", () => {
+  let repo: TestRepositoryBuilder
+
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
     // Setup test repository with simple template
-    await setupRepo("simple")
+    repo = await setupRepo("simple")
 
     // Sync branches and wait for them to load
     await syncAndWaitForBranches()
@@ -178,24 +180,23 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await verifyBranchState(branchRow, "closed")
   })
 
-  test("should keep the actions of the branch menu during a sync, the rewrites disabled with the reason", async ({ page }) => {
+  test("should keep the actions of the branch menu during a sync, the rewrites enabled", async ({ page }) => {
     const branchRow = findBranchRow(page, "test-branch")
     await waitForBranchSyncComplete(page, "test-branch")
-    // a sync that runs while the menu is open
-    const releaseSync = await holdCommand(page, "sync")
+    // a sync of the session that runs while the menu is open
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
     const syncButton = page.getByTestId("sync-button")
     await syncButton.click()
     await expect(syncButton).toHaveAttribute("aria-busy", "true")
 
     await openContextMenu(page, branchRow)
-    const rename = page.getByRole("menuitem", { name: "Rename…" })
-    await expect(rename).toBeDisabled()
-    await rename.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Wait for the sync to finish")
+    // a rewrite goes to the session at once, named on the table the row shows
+    await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeEnabled()
+    await expect(page.getByRole("menuitem", { name: "Move to…" })).toBeEnabled()
     // a review rewrites nothing: it opens during the sync
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
     await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.url)).toEqual([expect.stringMatching(/branch-review/)])
-    releaseSync()
+    await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect(syncButton).not.toHaveAttribute("aria-busy", "true")
   })
 

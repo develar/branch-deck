@@ -1,10 +1,11 @@
 import { GitPullRequestCreateIcon } from "lucide-react"
 import { useStore } from "zustand"
+import { getRowOperation, useRowOperation } from "@/hooks/useRowOperation"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
-import type { ActionState, LandingFix, NextStep, NextStepView, PatronusRobot, PullRequest, PullRequestView } from "@/lib/bindings"
+import type { ActionState, LandingFix, NextStep, NextStepView, PatronusRobot, PullRequest, PullRequestView, RunningOperation } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
@@ -17,7 +18,7 @@ import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
-import type { RobotAction, SessionOperations } from "@/presenters/actions"
+import type { RobotAction } from "@/presenters/actions"
 import { getRobotActionItems, isRestart } from "@/presenters/actions"
 import type { BranchNextStep, NextStepActions, NextStepBusy, StepContext } from "@/presenters/next-step"
 import { formatPendingFact, formatProblemsFailure, presentNextStep } from "@/presenters/next-step"
@@ -27,8 +28,7 @@ import { recordApproval } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, useBranchSyncEntry, useBranchSyncField } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
-import type { Operation } from "@/stores/operations"
-import { getObjectBusy, operationLabel, runOperation, useObjectOperation } from "@/stores/operations"
+import { operationBusyOf } from "@/stores/indicators"
 import { getRobot, getRobotProblemsFailure, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, retargetPullRequest } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
@@ -48,28 +48,15 @@ export async function retargetToTarget(branchName: string): Promise<void> {
     return
   }
   const base = getReadinessTarget()
-  const failure = `Cannot retarget pull request #${pullRequest.number}`
-  // an operation of the pull request: a second click joins it, the slot and the menu say it runs
-  await runOperation(
-    {
-      id: "retarget-pull-request",
-      subject: `pr:${pullRequest.number}`,
-      objects: [branchName],
-      kind: "remote",
-      label: `Retargeting #${pullRequest.number} to ${base}`,
-      // the base of the pull request: a review request of it runs beside
-      resources: [`pr:${pullRequest.number}:base`],
+  // an operation of the session that holds the base of the pull request: a second click joins it, the slot and the
+  // menu say it runs, a review request of it runs beside
+  await retargetPullRequest(branchName).then(
+    () => {
+      const title = `Retargeted #${pullRequest.number} to ${base}`
+      const description = `${branchName} · its approvals count for a Safe Push now`
+      showToast({ title, description, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
     },
-    () =>
-      retargetPullRequest(branchName).then(
-        () => {
-          const title = `Retargeted #${pullRequest.number} to ${base}`
-          const description = `${branchName} · its approvals count for a Safe Push now`
-          showToast({ title, description, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
-        },
-        (error: unknown) => notifyError(failure, error),
-      ),
-    reason => showToast({ type: "info", title: failure, description: reason }),
+    (error: unknown) => notifyError(`Cannot retarget pull request #${pullRequest.number}`, error),
   )
 }
 
@@ -89,16 +76,14 @@ export function fixLanding(fix: LandingFix): void {
 export interface StepInputs {
   /** The branch Patronus pushes into ("master") */
   readonly target: string
-  /** The operation that works on the row */
-  readonly operation: Operation | undefined
+  /** The operation of the session that works on the row (`useRowOperation`) */
+  readonly operation: RunningOperation | undefined
   /** The start of a Safe Push or a Dry Run of the row that runs, or the click that waits for its plan */
   readonly starting: LandRun | null
   /** The robot the step restarts; undefined while the step restarts none */
   readonly robot: PatronusRobot | undefined
-  /** The actions Rust offers of that robot (`robot:<id>`), its restart among them */
+  /** The actions Rust offers of that robot (`robot:<id>`), its restart among them, running while the session runs it */
   readonly robotActions: readonly ActionState[] | undefined
-  /** The operations of the session, while the step restarts a robot (its item says a running restart) */
-  readonly running: SessionOperations | null
   /** The open pull request of the subject, while the step asks for a review of it */
   readonly pullRequest: PullRequestView | undefined
   readonly repositoryPath: string | null
@@ -121,11 +106,10 @@ export function useStepInputs(key: string, step: NextStep | undefined): StepInpu
   const review = asksReview(step)
   return {
     target: useBranchSyncField("baselineBranch", baseline => baselineOnRemote(baseline ?? "")),
-    operation: useObjectOperation(key),
+    operation: useRowOperation(key),
     starting: useLandRun(key),
     robot: useStore(patronusStore, () => (robotId === null ? undefined : getRobot(robotId))),
     robotActions: useRowPart(robotId === null ? "" : `robot:${robotId}`, "actions"),
-    running: useBranchSyncField("operations", operations => (robotId === null ? null : operations)),
     pullRequest: useBranchSyncEntry("openPullRequests", key, pullRequest => (review ? pullRequest : undefined)),
     repositoryPath: useSelectedProjectPath() ?? null,
   }
@@ -136,11 +120,10 @@ export function getStepInputs(key: string, step: NextStep | undefined): StepInpu
   const robotId = restartedRobotOf(step)
   return {
     target: getReadinessTarget(),
-    operation: getObjectBusy(key),
+    operation: getRowOperation(key),
     starting: getLandRun(key),
     robot: robotId === null ? undefined : getRobot(robotId),
     robotActions: robotId === null ? undefined : getRowPart(`robot:${robotId}`, "actions"),
-    running: robotId === null ? null : branchSyncStore.getState().operations,
     pullRequest: asksReview(step) ? branchSyncStore.getState().openPullRequests[key] : undefined,
     repositoryPath: getSelectedProject()?.path ?? null,
   }
@@ -154,7 +137,10 @@ export function getStepInputs(key: string, step: NextStep | undefined): StepInpu
 export function busyOf(inputs: StepInputs, forStart: boolean): NextStepBusy | null {
   const { operation } = inputs
   if (operation !== undefined) {
-    return { id: operation.id, label: operationLabel(operation), ...(operation.resources === undefined ? null : { resources: operation.resources }) }
+    // the item of the step a retarget runs is the retarget; the fields of the pull request it writes, `pr:<n>:<field>`
+    const id = operation.intent.kind === "retarget" ? "retarget-pull-request" : operation.intent.kind
+    const resources = operation.resources.flatMap(resource => (resource.kind === "pullRequest" ? [`pr:${resource.number}:${resource.field}`] : []))
+    return { id, label: operationBusyOf(operation), resources }
   }
   // a start another process runs holds every start of the row, the one asked too
   const starting = forStart && inputs.starting?.by == null ? null : inputs.starting
@@ -167,7 +153,7 @@ export function busyOf(inputs: StepInputs, forStart: boolean): NextStepBusy | nu
  * click, and the items still built here of `inputs`
  */
 export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextStepActions, "openPullRequest" | "retarget" | "createPullRequest">): NextStepActions {
-  const { robot, running, repositoryPath } = inputs
+  const { robot, repositoryPath } = inputs
   return {
     ...items,
     openSafePush: () => void requestSafePush(key, { mode: "rebaseAutosquash", via: "click" }),
@@ -181,7 +167,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),
-    restart: robot === undefined || running === null ? null : (getRobotActionItems(robot, { offered: inputs.robotActions, running }).find(isRestart) ?? null),
+    restart: robot === undefined ? null : (getRobotActionItems(robot, { offered: inputs.robotActions }).find(isRestart) ?? null),
     requestReview: inputs.pullRequest === undefined ? null : getRequestReviewItem(key),
   }
 }
@@ -319,15 +305,10 @@ export function useRobotParts(robot: PatronusRobot | null | undefined): RobotPar
 /**
  * The actions of a robot as Rust offers them (`getRobotActionItems`) for every surface that shows them (the branch menu,
  * the robot details, the robots indicator, the hold of a push): a restart the approvals its branch misses hold back
- * says so in the words of the step of the branch. A component passes the parts and the operations of the session it
- * subscribed to (`useRobotParts`, `useSessionOperations`), so its list follows them.
+ * says so in the words of the step of the branch. A component passes the parts it subscribed to (`useRobotParts`), so
+ * its list follows them, a restart or a cancel that runs in the session included.
  */
-export function getRobotItems(robot: PatronusRobot, running: SessionOperations = branchSyncStore.getState().operations, parts: RobotParts = robotPartsOf(robot)): RobotAction[] {
+export function getRobotItems(robot: PatronusRobot, parts: RobotParts = robotPartsOf(robot)): RobotAction[] {
   const step = robot.branchName === null || parts.landing === undefined ? null : getBranchNextStep(robot.branchName)
-  return getRobotActionItems(robot, { stepReason: step?.safePushBlocker ?? null, offered: parts.actions, running })
-}
-
-/** The operations of the session of the repository the main window shows, re-rendering when they change */
-export function useSessionOperations(): SessionOperations {
-  return useBranchSyncField("operations", operations => operations)
+  return getRobotActionItems(robot, { stepReason: step?.safePushBlocker ?? null, offered: parts.actions })
 }

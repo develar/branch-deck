@@ -4,7 +4,6 @@ import { formatCommitCount } from "@/lib/commit"
 import { closeEventToasts, toastKeys } from "@/lib/event-toast"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
 import { getBranch } from "@/stores/branch-sync"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
@@ -28,7 +27,7 @@ export async function pickRemoteCommits(branchName: string, expectedRemote?: str
     myEmail: branch.myEmail,
     expectedRemote: expectedRemote ?? branch.remoteStatus?.remoteTip ?? null,
   })
-  const done = await runRewriteIntent({ id: "pick-remote", subject: branchSubject(branchName), objects: [branchName], surface: null, repositoryPath }, rewrite)
+  const done = await runRewriteIntent({ repositoryPath }, rewrite)
   if (done?.result.rewrite !== "picked") {
     return false
   }

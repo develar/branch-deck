@@ -5,27 +5,29 @@
 // click of the same rewrite joins it, another waits for it in the queue of the session and runs on what it left, a
 // rewrite runs during a sync; the operation ends once it asked the sync that shows it, and its answer comes once that
 // sync ended, so the toast with Undo shows beside what it changed; a delete asks no sync, its answer comes with the
-// patch that removed its row. The window that
-// starts it shows it while it runs (a record of `runOperation`, never queued in the page): its surface or its row busy,
-// and from the steps of its operation whom it waits for while another holder has the repository lock (Stop Waiting:
-// `cancel_operation`, `presentStopWaiting`) or which rewrite it waits behind. The page decides nothing of it: it words
-// the failure and the outcome.
-import type { ApiError, OperationEvent, OperationId, Outcome, RewriteIntent, RewriteResult, TableWitness, UndoToken } from "@/lib/bindings"
+// patch that removed its row. Every window shows it from the view (`RepositoryView.operations`: its rows busy, the
+// actions Rust lays it over, whom it waits for while another holder has the repository lock, Stop Waiting:
+// `cancel_operation`); the window that starts it knows only where it started (`startIndicator`: the surface's spinner
+// from the click to the answer). The page decides nothing of it: it words the failure and the outcome.
+import type { ApiError, OperationEvent, Outcome, RewriteIntent, RewriteResult, TableWitness, UndoToken } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { executeRewrite } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
 import { getSessionWitness } from "@/model/store"
-import { actionOfLabel, canceledBeforeStart, presentLockWait } from "@/presenters/lock-wait"
-import { presentRunningLabel } from "@/presenters/operations"
+import { actionOfLabel, canceledBeforeStart } from "@/presenters/lock-wait"
 import { presentRewrite } from "@/presenters/rewrite"
-import { branchSyncStore } from "@/stores/branch-sync"
-import type { OperationSpec } from "@/stores/operations"
-import { runOperation, setSessionStep } from "@/stores/operations"
+import { startIndicator } from "@/stores/indicators"
 
-/** A rewrite as the page shows it while it runs: its operation without the kind; the label of the rewrite by default */
-export interface RewriteRunSpec extends Omit<OperationSpec, "kind" | "label" | "repositoryPath"> {
+/** Where a rewrite starts and what it says while it runs */
+export interface RewriteRunSpec {
   /** The repository of the click: the rewrite and its Undo go there, whichever the main window shows when they run */
   readonly repositoryPath: string
+  /**
+   * The surface that started it (`SelectContext.surface`): it shows the spinner until the rewrite answered; null or
+   * none for a menu, a key or a toast, whose row shows it on its "⋯"
+   */
+  readonly surface?: string | null
+  /** Its busy state: the label of the rewrite by default ("Unstacking oauth") */
   readonly label?: string
   /**
    * Runs once its core wrote what it changed (the operation ended, `done` on its channel), before the sync it asked
@@ -50,66 +52,35 @@ export function witnessed<R extends RewriteIntent = RewriteIntent>(repositoryPat
   return named as R
 }
 
-/** The busy state of the operation a step names, by its id: the rewrites this window started */
-const labels = new Map<OperationId, string>()
-
-/** The busy state of the operation `op` a rewrite waits behind: one of this window, else as the view names it (a rewrite, an update) */
-function labelOf(op: OperationId): string {
-  const own = labels.get(op)
-  if (own !== undefined) {
-    return own
-  }
-  const operation = branchSyncStore.getState().operations[op]
-  return operation === undefined ? "another rewrite" : presentRunningLabel(operation)
-}
-
 /**
- * Runs `rewrite` in its repository (`executeRewrite`) as the operation `spec` of the page: its surfaces busy from the
- * click until the sync it asked showed what it changed, saying what it waits for; a failure is an error toast titled
- * `failureTitle` (the failure words of the rewrite by default), a stopped wait an info toast ("Canceled moving 1 commit
- * to docs before it started"). Resolves to what it did, null after a failure or a stop; a second start of the same
- * action with the same parameters resolves with the first
+ * Runs `rewrite` in its repository (`executeRewrite`) from `spec.surface`, which shows its spinner from the click until
+ * the sync it asked showed what it changed; a failure is an error toast titled `failureTitle` (the failure words of the
+ * rewrite by default), a stopped wait an info toast ("Canceled moving 1 commit to docs before it started"). Resolves to
+ * what it did, null after a failure or a stop; a second start of the same rewrite joins the first in the session and
+ * resolves with its outcome
  */
 export async function runRewriteIntent(spec: RewriteRunSpec, rewrite: RewriteIntent, failureTitle?: string): Promise<RewriteDone | null> {
   const words = presentRewrite(rewrite)
   const label = spec.label ?? words.label
-  const { onWritten: _written, ...operation } = spec
-  const done = await runOperation({ ...operation, kind: "rewrite", label }, async key => {
-    let op: OperationId | null = null
-    const onEvent = (event: OperationEvent) => {
-      if (event.kind === "done") {
-        spec.onWritten?.(event.outcome)
-        return
-      }
-      if (event.kind !== "step") {
-        return
-      }
-      op = event.op
-      labels.set(event.op, label)
-      const { step } = event
-      setSessionStep(key, {
-        op: event.op,
-        lockWait: step.kind === "waitingForLock" ? presentLockWait(step.holder) : null,
-        waitsFor: step.kind === "queued" ? labelOf(step.behind) : null,
-      })
+  const indicator = startIndicator(spec.surface, label)
+  const onEvent = (event: OperationEvent) => {
+    if (event.kind === "done") {
+      spec.onWritten?.(event.outcome)
+    } else if (event.kind === "step") {
+      indicator.named(event.op)
     }
-    const run = await executeRewrite(spec.repositoryPath, rewrite, onEvent).finally(() => {
-      if (op !== null) {
-        labels.delete(op)
-      }
-    })
-    if (run.kind === "failed") {
-      tellFailure(run.error, label, failureTitle ?? words.failure)
-      return null
-    }
-    const { outcome } = run
-    if (outcome.result.kind !== "rewrite") {
-      return null
-    }
-    const result: RewriteResult = outcome.result
-    return { outcome, result, undo: outcome.undo }
-  })
-  return done ?? null
+  }
+  const run = await executeRewrite(spec.repositoryPath, rewrite, onEvent).finally(indicator.done)
+  if (run.kind === "failed") {
+    tellFailure(run.error, label, failureTitle ?? words.failure)
+    return null
+  }
+  const { outcome } = run
+  if (outcome.result.kind !== "rewrite") {
+    return null
+  }
+  const result: RewriteResult = outcome.result
+  return { outcome, result, undo: outcome.undo }
 }
 
 function tellFailure(error: ApiError, label: string, failureTitle: string): void {
@@ -128,7 +99,7 @@ function tellFailure(error: ApiError, label: string, failureTitle: string): void
  * the rewrite offer their Undo again after a failure (`showUndoToast`)
  */
 export async function undoRewrite(repositoryPath: string, token: UndoToken, label: string, failureTitle: string, onWritten?: () => void): Promise<boolean> {
-  const spec: RewriteRunSpec = { id: "undo", subject: `undo:${token.token}`, objects: [], label, repositoryPath, ...(onWritten !== undefined && { onWritten }) }
+  const spec: RewriteRunSpec = { label, repositoryPath, ...(onWritten !== undefined && { onWritten }) }
   const done = await runRewriteIntent(spec, { rewrite: "undo", token }, failureTitle)
   return done !== null
 }

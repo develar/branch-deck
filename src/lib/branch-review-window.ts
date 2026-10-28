@@ -29,7 +29,6 @@ import { branchSyncStore, getBranch, getStackAncestors, getStackBranch, getStack
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { requestCommitForm, requestReveal } from "@/stores/commit-move"
 import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
-import { getOperations } from "@/stores/operations"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
 import type {
@@ -381,7 +380,7 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
     const branch = getBranch(name)
     if (branch !== undefined) {
       items[name] = getBranchReviewItems(branch).map(toReviewItem)
-      menus[name] = getBranchContextMenuItems(branch, revealRow, getOperations())
+      menus[name] = getBranchContextMenuItems(branch, revealRow)
         .map(group => group.filter(item => item.id !== undefined && item.children === undefined).map(toMenuItem))
         .filter(group => group.length > 0)
       for (const commit of branch.commits) {
@@ -435,6 +434,7 @@ function toMenuItem(item: MenuItem): BranchReviewMenuItem {
     id: item.id!,
     label: item.label,
     ...(item.disabled === true && { disabled: true }),
+    ...(item.running === true && { running: true }),
     ...(item.description !== undefined && { description: item.description }),
   }
 }
@@ -452,6 +452,7 @@ function toReviewItem(item: BranchActionItem): BranchReviewItem {
     label: item.label,
     ...(item.kbds !== undefined && { kbds: item.kbds }),
     ...(item.disabled === true && { disabled: true }),
+    ...(item.running === true && { running: true }),
     ...(item.description !== undefined && { description: item.description }),
     ...(item.url !== undefined && { url: item.url }),
   }
@@ -565,8 +566,15 @@ function refuserOf(title: string, send: (feedback: BranchReviewFeedback) => void
   }
 }
 
-/** Runs an item the window asked for as the row would: the main window comes to the front and shows the row; a disabled one is refused */
+/**
+ * Runs an item the window asked for as the row would: the main window comes to the front and shows the row; one whose
+ * intent runs in the session is that start already (a click of the main window and of the window at once run it once);
+ * a disabled one is refused
+ */
 function runItem(item: MenuItem, reveal: RevealRequest, refuse: (reason: unknown) => false): boolean {
+  if (item.running === true) {
+    return true
+  }
   if (item.disabled === true) {
     return refuse(item.description ?? `${item.label} is not available now`)
   }
@@ -645,7 +653,7 @@ async function moveReview(
 /** The item of the branch's menu the review window asks to run, as the row's menu has it now */
 function findBranchMenuItem(branchName: string, id: string): MenuItem | undefined {
   const branch = getBranch(branchName)
-  return branch === undefined ? undefined : findMenuItem(getBranchContextMenuItems(branch, revealRow, getOperations()), id)
+  return branch === undefined ? undefined : findMenuItem(getBranchContextMenuItems(branch, revealRow), id)
 }
 
 /** Why the main window doesn't offer the action of a request on the branch */

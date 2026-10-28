@@ -1,9 +1,17 @@
 // @spec spec/branch/branch-row.spec.md
-import { describe, expect, it } from "vite-plus/test"
-import type { ActionBlocker, ActionId, Reason, RunningOperation } from "@/lib/bindings"
-import { ACTION_LOOKS, formatActionBlocker, getStartActionItems, presentAction, whileSyncing } from "@/presenters/actions"
+import { afterEach, describe, expect, it } from "vite-plus/test"
+import type { ActionBlocker, ActionId, ActionState, Intent, Reason, RunningOperation } from "@/lib/bindings"
+import { ACTION_LOOKS, formatActionBlocker, getStartActionItems, presentAction } from "@/presenters/actions"
 import { formatStackHold } from "@/presenters/reasons"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { disabled, enabled } from "@/test-support/actions"
+
+/** The operation `id` of the view of the session with `intent` at `step`, of this app unless `origin` says otherwise */
+function operation(id: string, intent: Intent, step: RunningOperation["step"], origin: RunningOperation["origin"] = { kind: "thisProcess" }): RunningOperation {
+  return { id, intent, resources: [], step, origin, moves: [] }
+}
+
+afterEach(() => branchSyncStore.setState({ operations: {} }))
 
 /** Every action Rust offers and an example of every blocker it gives (`action_catalog_test.rs` writes it) */
 const CATALOG = Object.values(
@@ -24,6 +32,8 @@ describe("the actions Rust offers", () => {
 
   it("words every blocker of the catalog as the page says it", () => {
     const words = { subject: "auth", statusText: "merge conflict" }
+    const restart = operation("01JBUSY0000000000000000000", { kind: "restartRobot", robotId: "r1" }, { kind: "starting" })
+    branchSyncStore.setState({ operations: { [restart.id]: restart } })
     expect(CATALOG.blockers.map(([id, blocker]) => formatActionBlocker(id, blocker, words))).toEqual([
       "Parked: Unpark it to push",
       "Wait for the sync to finish",
@@ -52,6 +62,7 @@ describe("the actions Rust offers", () => {
       "Reading the branch Patronus pushes into…",
       "Patronus pushes into a branch of origin: the baseline is none",
       "#101 merges into release/253: Patronus would merge it there, not into master",
+      "Restarting robot r1…",
     ])
   })
 
@@ -85,12 +96,30 @@ describe("the actions Rust offers", () => {
     expect(presentAction(enabled("push"), "push", { onSelect: () => {}, kbds: null }, { subject: "auth" })?.kbds).toBeUndefined()
   })
 
-  it("lays a sync of the table over a rewrite, keeping the reason Rust gave", () => {
-    const rename = presentAction(enabled("rename"), "rename", { onSelect: () => {} }, { subject: "auth" })!
-    expect(whileSyncing(rename, true)).toMatchObject({ disabled: true, description: "Wait for the sync to finish" })
-    expect(whileSyncing(rename, false)).toBe(rename)
-    const failed = presentAction([disabled("rename", { code: "noCommits" })], "rename", { onSelect: () => {} }, { subject: "auth" })!
-    expect(whileSyncing(failed, true)).toMatchObject({ disabled: true, description: "The branch has no commits" })
+  it("lays the operations of the session over an item as Rust decides it: its own runs, a rewrite waits behind HEAD, a remote action is busy", () => {
+    const unstack: Intent = { kind: "rewrite", rewrite: "unstack", branchName: "oauth", witness: { head: "h", storeTips: { issueGroups: null, stackParents: null, parked: null } } }
+    const push: Intent = { kind: "push", subject: { kind: "branch", name: "auth" }, scope: { kind: "alone" }, expectRemote: null, force: false, restartRunning: false }
+    branchSyncStore.setState({
+      operations: {
+        u1: operation("u1", unstack, { kind: "rewriting" }),
+        u2: operation("u2", { ...unstack, branchName: "auth" } as Intent, { kind: "queued", behind: "u1" }),
+        l1: operation("l1", unstack, { kind: "waitingForLock", holder: { tool: "bd", command: "bd pick", pid: 4242, held_for: 12 } }),
+        p1: operation("p1", push, { kind: "pushing" }, { kind: "otherProcess", tool: "bd", pid: 4242 }),
+      },
+    })
+    const item = (action: ActionState) => presentAction([action], action.id, { onSelect: () => {} }, { subject: "auth" })
+    expect(item({ id: "unstack", availability: { kind: "running", op: "u1" } })).toMatchObject({ running: true, disabled: true, description: "Unstacking oauth…" })
+    expect(item({ id: "unstack", availability: { kind: "queued", op: "u2", behind: "u1" } })).toMatchObject({
+      running: true,
+      disabled: true,
+      description: "Waits for Unstacking oauth…",
+    })
+    expect(item({ id: "unstack", availability: { kind: "running", op: "l1" } })?.description).toBe("Waiting for `bd pick` (pid 4242, for 12 s)…")
+    // its start goes to the session, which queues it
+    const waits = item({ id: "rename", availability: { kind: "waits", op: "u1" } })
+    expect(waits).toMatchObject({ description: "Waits for Unstacking oauth…" })
+    expect(waits?.disabled).toBeUndefined()
+    expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op: "p1" } } })).toMatchObject({ disabled: true, description: "bd: Pushing auth…" })
   })
 })
 

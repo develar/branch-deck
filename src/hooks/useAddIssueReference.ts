@@ -4,7 +4,6 @@ import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { showToast } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
 import { inlineSurface, withRowProgress } from "@/stores/inline-row-action"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
@@ -29,11 +28,6 @@ export async function addIssueReference(issueReference: string, branch: Branch):
     async () => {
       const done = await runRewriteIntent(
         {
-          id: "add-issue-reference",
-          subject: branchSubject(branch.name),
-          objects: [branch.name],
-          // another reference is a start of its own: it waits for this one, never joins it
-          parameters: issueReference,
           surface: inlineSurface(branch.name),
           repositoryPath,
         },

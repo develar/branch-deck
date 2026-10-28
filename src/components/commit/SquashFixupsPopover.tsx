@@ -14,8 +14,8 @@ import { invokeCommand } from "@/lib/command"
 import { parseSubject } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
 import { withRowProgress } from "@/stores/inline-row-action"
-import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { getSelectedProject } from "@/stores/repository"
 
 export interface SquashFixupsPopoverProps {
@@ -65,7 +65,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
 
   const fixups: ListFixups = getListFixups(plan, branch)
   // closes the popover after a failure too: the plan it shows is stale
-  const squash = () => void withRowProgress(key, () => squashFixups(getAutosquashScope(branch), { list: key, surface }))
+  const squash = () => void withRowProgress(key, () => squashFixups(getAutosquashScope(branch), { surface }))
   return (
     <>
       <div className="flex flex-col gap-1">

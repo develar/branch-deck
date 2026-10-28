@@ -561,6 +561,27 @@ fn requeue(
   if queued { Decision::Queued } else { Decision::Run }
 }
 
+/// The newest operation of this process admitted before `id` that holds one of `needs`, on the actor of the session: `id`
+/// goes to the step `Queued` behind it, its caller told, and waits for its answer; `None` while none holds one
+fn behind_holder(state: &mut TableState, channels: &Mutex<HashMap<OperationId, Channel>>, id: &OperationId, needs: &[Resource]) -> Option<watch::Receiver<Option<Answer>>> {
+  let operations = state.operations();
+  let at = operations.iter().position(|operation| operation.id == *id)?;
+  let holder = operations[..at]
+    .iter()
+    .rfind(|operation| operation.origin == Origin::ThisProcess && operation.resources.iter().any(|held| needs.contains(held)))?
+    .id
+    .clone();
+  let channels = lock(channels);
+  let answer = channels.get(&holder)?.answer.subscribe();
+  let step = OperationStep::Queued { behind: holder };
+  if let Some(channel) = channels.get(id) {
+    told(channel, id, &step);
+  }
+  drop(channels);
+  state.apply_operation(OperationPatch::Step { id: id.clone(), step });
+  Some(answer)
+}
+
 /// The end of `id` with `answer`, on the actor of the session: it leaves the session, the ones that waited are admitted
 /// again in the order they came (each over the ones before it), each caller told its new step, and the requests that
 /// joined it get its answer
@@ -678,6 +699,30 @@ impl RunningGuard {
       Decision::Queued => woken.await.map_err(|_closed| closed()),
       Decision::Join { .. } | Decision::Closed => Err(closed()),
     }
+  }
+
+  /// Waits, without holding them, until no operation of this process admitted before it holds one of `resources`: a push
+  /// waits for the rewrites before it (`Resource::Head`), so it sends what they leave, while a rewrite after it runs beside
+  /// it. Its step is `Queued` behind the newest of them while it waits (its caller told, the view shows it), then
+  /// `step`. Whether it waited
+  pub async fn wait_behind(&self, resources: Vec<Resource>, step: OperationStep) -> bool {
+    let mut waited = false;
+    loop {
+      let (channels, id, needs) = (Arc::clone(&self.channels), self.id.clone(), resources.clone());
+      let ahead = self
+        .sessions
+        .apply_with(&self.key, move |state| behind_holder(state, &channels, &id, &needs))
+        .await
+        .flatten();
+      let Some(mut ended) = ahead else { break };
+      waited = true;
+      // the end of the holder, or of its channel with its session: either way it is no longer ahead
+      let _ = ended.wait_for(Option::is_some).await;
+    }
+    if waited {
+      self.step(step);
+    }
+    waited
   }
 
   /// How far its push or its fetch is, as git said it last: only the caller hears it

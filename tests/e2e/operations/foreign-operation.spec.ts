@@ -35,9 +35,16 @@ test.describe("Operations of another process of the repository", () => {
     await expect(toastWith(page, "Safe Push of JIRA-456 can't start")).toContainText(`\`bd\` (pid ${agent!.pid}) runs the Safe Push of JIRA-456`)
     await expect(safePushPopover(page)).toHaveCount(0)
 
-    // a push of the branch is refused in Rust by the operations registry, naming the holder; another branch pushes
-    await runAndWaitForAnswer(page, "execute", () => pushFromRowMenu(page, "JIRA-456"))
-    await expect(toastWith(page, "Cannot push JIRA-456")).toContainText(new RegExp(`^.*\`bd\` \\(pid ${agent!.pid}\\) has run the Safe Push of JIRA-456 for \\d+ s`))
+    // a push of the branch needs what bd holds: its item says so before Rust is asked, and P says it in an info toast;
+    // another branch pushes
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    // as its button: disabled, named without what it would send
+    const push = page.getByRole("menuitem", { name: /^Push P$/ })
+    await expect(push).toHaveAttribute("aria-disabled", "true")
+    await page.keyboard.press("Escape")
+    await findBranchRow(page, "JIRA-456").focus()
+    await page.keyboard.press("p")
+    await expect(toastWith(page, "bd: Safe Push of JIRA-456…")).toBeVisible()
     await runAndWaitForAnswer(page, "execute", () => pushFromRowMenu(page, "ABC-123"))
     await expectPushedToRemote(repo, ["ABC-123"])
     expect(await pushedBranches(repo)).toEqual(["ABC-123"])

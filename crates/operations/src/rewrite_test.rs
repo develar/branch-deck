@@ -1,5 +1,5 @@
 use crate::events::NoEvents;
-use crate::push::push_test::{Fixture, OFFLINE, fixture, waits_for_the_agent};
+use crate::push::push_test::{Fixture, OFFLINE, alone, fixture, waits_for_the_agent};
 use crate::rewrite::execute_rewrite;
 use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
@@ -284,6 +284,40 @@ async fn an_undo_during_a_rewrite_waits_behind_it_and_runs_after_it() {
   assert_eq!(undone.unwrap().result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
   assert_eq!(fixture.repo.git(&["for-each-ref", "refs/branch-deck/parked"]), "", "the store is back to none");
   assert_eq!(fixture.subjects(), ["(beta) Beta", "(alpha) Alpha"]);
+}
+
+/// A push clicked while a rewrite waits for the lock waits behind it in the queue of the session (`Queued`), holding no
+/// HEAD, then for the sync the rewrite asked: it pushes the branch as the rewrite left it, the copy that sync built
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_clicked_during_a_rewrite_waits_behind_it_and_its_sync_and_pushes_what_it_left() {
+  let fixture = fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let held = fixture.lock();
+  let reworded = reword(&beta, "(alpha/beta) Beta, reworded", &witness);
+  let push = alone("beta", None);
+  let release = async {
+    let operations = fixture
+      .until(|operations| waits_for_the_agent(operations) && operations.len() == 2 && matches!(operations[1].step, OperationStep::Queued { .. }))
+      .await;
+    assert_eq!(operations[1].step, OperationStep::Queued { behind: operations[0].id.clone() }, "{operations:?}");
+    assert!(
+      !operations[1].resources.contains(&domain_types::operation::Resource::Head),
+      "it holds no HEAD: {operations:?}"
+    );
+    drop(held);
+  };
+  let push_later = async {
+    fixture.until(waits_with(1)).await;
+    fixture.execute(&push, Vec::new()).await
+  };
+  let (rewritten, pushed, ()) = within_a_minute(Box::pin(async { tokio::join!(fixture.rewrite(&reworded), push_later, release) })).await;
+  rewritten.unwrap();
+  pushed.unwrap();
+  let built = fixture.repo.rev_parse("test/virtual/beta").unwrap();
+  let remote = fixture.repo.git(&["--git-dir", ".git/origin.git", "rev-parse", "refs/heads/test/virtual/beta"]);
+  assert_eq!(remote, built, "the copy the sync after the reword built");
+  let subject = fixture.repo.git(&["log", "-1", "--format=%s", &built]);
+  assert!(subject.ends_with("Beta, reworded"), "{subject}");
 }
 
 /// A rewrite asked on a table whose HEAD another process moved since: when its commit is still there (a commit was

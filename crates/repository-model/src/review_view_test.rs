@@ -138,6 +138,7 @@ fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_
     actions[&pull_key(number)].iter().find(|action| action.id == id).map(|action| match &action.availability {
       Availability::Enabled => None,
       Availability::Disabled { reason } => Some(reason.clone()),
+      operation => panic!("no operation runs, yet {id:?} is {operation:?}"),
     })
   };
   // a request by name into the target: everything runs

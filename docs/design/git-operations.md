@@ -3127,8 +3127,11 @@ and holds the repository lock only in the second (C1, [Rust as the Domain Author
    session per ref it writes
    (`Resource::Ref`, the full name of each ref its plan pushes, in their order): a push of a ref another push of the
    process writes waits for it (`Queued` behind it in the view), without a bound, and is decided again on what the one
-   before left; a second click of the same push joins it; the pushes of other refs run side by side. It waits for a
-   sync of its session that runs (`WaitingForSync`, joining that run, not the syncs asked after it), then reads the
+   before left; a second click of the same push joins it; the pushes of other refs run side by side. It waits behind
+   the rewrites of the process admitted before it (`RunningGuard::wait_behind`: `Queued` behind the newest holder of
+   HEAD in the view, holding no HEAD, so a rewrite after it runs at once), then for a sync of its session that runs and
+   the follow-up that starts as it ends (`WaitingForSync`, joining those runs, not the syncs asked after them), and is
+   decided again on what they left; then it reads the
    user's robots, one full list (none for an unapplied branch, on which no Safe Push runs: C3). `bd push` reads its
    robots and the pull requests once after its sync, as the session reads them ("Agent push").
 2. Under the lock: the full witness and the freeze of the commits and leases of every ref (`PreparedPush::leased`, one
@@ -4172,9 +4175,10 @@ Patronus view's, the landing needs the host's.
   that need the user (`attention`, `domain_policy::attention` over the rows as they are: the robot of the row failed on
   the subject as it is, and nothing else holds the subject; the landing overview, Attention and the Dock badge list
   them). The pushes, the lands and what landed wait while a sync runs (its remote statuses come one by one; the patch
-  of its end carries them); the steps, the actions and the attention don't (a branch that syncs is row 1), and the page
-  lays the sync and its running operations over the actions it presents (`whileSyncing`, `operationItem`) until the
-  session has its operations. A part equal to the one sent last is not sent again (`diff_keyed`, `PartialEq`), so a
+  of its end carries them); the steps, the actions and the attention don't (a branch that syncs is row 1). The actions
+  carry the operations of the session too (`domain_policy::actions::with_operations`: its own intent `Running` or
+  `Queued`, a rewrite `Waits` behind the holder of HEAD, a remote action `Busy` behind the holder of what it needs),
+  derived again when an operation is admitted, steps on or ends; no sync disables a rewrite. A part equal to the one sent last is not sent again (`diff_keyed`, `PartialEq`), so a
   patch carries only the subjects whose answer changed; all of them for the 141 branches of `branch_table_large` take about 2 ms in a release build
   (`derive_budget_test.rs`, [Rendering Performance](rendering-performance.md#the-main-thread-of-a-sync)).
 - **The plan of a start** (a click, its popover, any profile, a start without approvals): `prepare { repositoryPath,

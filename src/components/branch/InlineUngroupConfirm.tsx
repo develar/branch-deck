@@ -2,7 +2,7 @@ import { UngroupIcon } from "lucide-react"
 import { StackChildrenNote } from "@/components/branch/StackChildrenNote"
 import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
-import { moveCommits } from "@/hooks/useMoveCommits"
+import { ungroupBranch } from "@/hooks/useMoveCommits"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
 import { closeInline, inlineSurface, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
 
@@ -24,7 +24,7 @@ export function InlineUngroupConfirm({ branchName }: { branchName: string }) {
       onCancel={closeInline}
       onSubmit={() => {
         if (branch !== undefined) {
-          void withRowProgress(branchName, () => moveCommits(branch.commits, null, { id: "ungroup", label: `Ungrouping ${branchName}`, surface: inlineSurface(branchName) }), {
+          void withRowProgress(branchName, () => ungroupBranch(branchName, { surface: inlineSurface(branchName) }), {
             keepFormOnFailure: true,
           })
         }

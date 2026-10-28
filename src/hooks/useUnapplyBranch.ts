@@ -4,7 +4,6 @@ import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 export interface UnapplyOptions {
@@ -31,7 +30,7 @@ export async function unapplyBranch(branch: Branch, options: UnapplyOptions = {}
     branchName: branch.name,
     originalCommitIds: branch.commits.map(commit => commit.originalHash),
   })
-  const spec = { id: "unapply", subject: branchSubject(branch.name), objects: [branch.name], surface: options.surface ?? null, repositoryPath }
+  const spec = { surface: options.surface ?? null, repositoryPath }
   const done = await runRewriteIntent(spec, rewrite)
   if (done?.result.rewrite !== "unapplied") {
     return false

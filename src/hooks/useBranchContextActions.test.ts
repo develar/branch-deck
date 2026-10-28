@@ -2,7 +2,8 @@
 // @spec spec/branch/stacked-branches.spec.md
 // @spec spec/branch/branch-row.spec.md
 // The branch menu presents the actions Rust decides (`RepositoryView.actions`, `domain_policy::actions`, its table test):
-// these tests set what Rust answers and check how the menu lays it out, names it and lays what runs on the page over it
+// these tests set what Rust answers, the operations of the session laid over it, and check how the menu lays it out and
+// names it
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import { getBranchContextMenuItems, getBranchReviewItems } from "@/hooks/useBranchContextActions"
 import type { ActionId, ActionState, BranchPush, ChildrenPush } from "@/lib/bindings"
@@ -10,7 +11,6 @@ import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem } from "@/lib/menu"
 import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { operationsStore } from "@/stores/operations"
 import { CREATE, forcePush, PUSH, placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { disabled, enabled, LANDING_BRANCH, setActions, withActions } from "@/test-support/actions"
 import { pendingStep, setNextSteps, testStep } from "@/test-support/next-step"
@@ -60,7 +60,7 @@ function withChildren(order: readonly string[], offers: boolean, more: Omit<Chil
 
 /** The groups of the menu of `name` */
 function groupsOf(name: string): MenuItemGroups {
-  return getBranchContextMenuItems(branchSyncStore.getState().branches[name]!, () => {}, operationsStore.getState().running)
+  return getBranchContextMenuItems(branchSyncStore.getState().branches[name]!, () => {})
 }
 
 /** The items of the menu of `name`, the actions of the branch in "Patronus ›" and "Copy ›" too, after their submenu */
@@ -75,7 +75,6 @@ function itemOf(name: string, id: string): MenuItem | undefined {
 }
 
 afterEach(() => {
-  operationsStore.setState({ running: [] })
   branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, nextSteps: {}, actions: {}, isSyncing: false, operations: {}, stackBranches: {}, pushes: {} })
 })
 
@@ -113,24 +112,20 @@ describe("Safe Push of the branch menu", () => {
     setNextSteps({ login: testStep({ kind: "safePush" }) })
     setBranchActions("login", enabled("safe-push")[0]!)
     expect(itemOf("login", "safe-push")?.disabled).toBeUndefined()
-    operationsStore.setState({
-      running: [
-        {
-          key: 1,
+    const witness = { head: "h", storeTips: { issueGroups: null, stackParents: null, parked: null } }
+    branchSyncStore.setState({
+      operations: {
+        rename: {
           id: "rename",
-          subject: "branch:login",
-          objects: ["login"],
-          kind: "rewrite",
-          label: "Renaming login to auth",
-          repositoryPath: "",
-          surface: null,
-          waitsFor: null,
-          lockWait: null,
-          op: null,
+          intent: { kind: "rewrite", rewrite: "rename", branchName: "login", newName: "auth", witness },
+          resources: [{ kind: "head" }],
+          step: { kind: "rewriting" },
+          origin: { kind: "thisProcess" },
+          moves: [],
         },
-      ],
+      },
     })
-    // what runs on the row is the page's until the operations are Rust's
+    // a rewrite of the row in the session: the step waits for it
     expect(itemOf("login", "safe-push")).toMatchObject({ disabled: true, description: "Renaming login to auth…" })
   })
 })
@@ -177,19 +172,36 @@ describe("Whole Stack › of the branch menu", () => {
 })
 
 describe("the branch menu during a sync", () => {
-  it("keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is", () => {
+  it("keeps every item during a sync, the rewrites enabled: the session admits them at once; the rest stays as it is", () => {
     setBranches(synced("auth", null, unpushed), synced("docs", null, unpushed))
-    const before = menuOf("auth").map(item => item.id)
+    const before = menuOf("auth")
     branchSyncStore.setState({ isSyncing: true })
     const items = menuOf("auth")
-    expect(items.map(item => item.id)).toEqual(before)
-    const rewrites = ["rename", "move-to", "stack-on", "add-issue-reference", "amend-changes", "unapply", "park"]
-    for (const id of rewrites) {
-      expect(items.find(item => item.id === id)).toMatchObject({ disabled: true, description: "Wait for the sync to finish" })
+    expect(items.map(item => [item.id, item.disabled])).toEqual(before.map(item => [item.id, item.disabled]))
+    for (const id of ["rename", "move-to", "stack-on", "add-issue-reference", "amend-changes", "unapply", "park", "review-changes", "push"]) {
+      expect(items.find(item => item.id === id)?.disabled, id).toBeUndefined()
     }
-    // they rewrite nothing here: Review Changes; a push waits for the sync itself
-    expect(items.find(item => item.id === "review-changes")?.disabled).toBeUndefined()
-    expect(items.find(item => item.id === "push")?.disabled).toBeUndefined()
+  })
+
+  it("shows the rewrite that runs in the session running, and says what the start of every other rewrite waits behind", () => {
+    setBranches(synced("auth", null, unpushed), synced("docs", null, unpushed))
+    const witness = { head: "h", storeTips: { issueGroups: null, stackParents: null, parked: null } }
+    branchSyncStore.setState({
+      operations: {
+        u1: {
+          id: "u1",
+          intent: { kind: "rewrite", rewrite: "unstack", branchName: "docs", witness },
+          resources: [{ kind: "head" }],
+          step: { kind: "rewriting" },
+          origin: { kind: "thisProcess" },
+          moves: [],
+        },
+      },
+    })
+    setBranchActions("auth", { id: "rename", availability: { kind: "waits", op: "u1" } }, { id: "park", availability: { kind: "running", op: "u1" } })
+    expect(itemOf("auth", "rename")).toMatchObject({ description: "Waits for Unstacking docs…" })
+    expect(itemOf("auth", "rename")?.disabled).toBeUndefined()
+    expect(itemOf("auth", "park")).toMatchObject({ running: true, disabled: true, description: "Unstacking docs…" })
   })
 })
 
@@ -226,12 +238,13 @@ describe("the push of the branch menu", () => {
     expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Force Push (1)" })])
   })
 
-  it("is disabled with the reason while the stack push runs, also over the hold of a parked branch it pushes", () => {
+  it("runs while its push of the stack runs in the session, and waits for another push that holds the branch", () => {
     setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
     setStackPush("login", ["auth", "login"])
-    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The stack is being pushed" })])
-    setBranchActions("login", disabled("push", { code: "rule", reason: { code: "parked", branch: "login", with: null, note: "" } }))
-    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The stack is being pushed" })])
+    setBranchActions("login", { id: "push", availability: { kind: "running", op: "push" } })
+    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", running: true, disabled: true, description: "Pushing login…" })])
+    setBranchActions("auth", disabled("push", { code: "busy", op: "push" }))
+    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "Pushing login…" })])
   })
 
   it("is disabled with the reason Rust gives: a branch the last sync did not build names the status of its row, not up to date", () => {
@@ -291,8 +304,9 @@ describe("Push with Children in the branch menu", () => {
     expect(items[items.findIndex(item => item.id === "push") + 1]).toMatchObject({ id: "push-with-children", label: "Push with Children (login)" })
     // a branch without children has nothing to push with them
     expect(menuOf("login").some(item => item.id === "push-with-children")).toBe(false)
-    setStackPush("auth", ["login"])
-    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "The stack is being pushed" })
+    setStackPush("login", ["login"])
+    setBranchActions("auth", disabled("push-with-children", { code: "busy", op: "push" }))
+    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Pushing login…" })
   })
 })
 

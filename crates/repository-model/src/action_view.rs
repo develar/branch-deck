@@ -3,17 +3,19 @@
 //! (`op:<id>`), as `domain_policy::actions`
 //! decides them over the table, the next steps the view derived with the same patch, its pushes and decisions of the
 //! starts, the open pull requests, what landed each subject, and the facts of the remote services
-//! (docs/design/rust-domain-authority.md, s8-policy). The view derives them with every patch, a sync included: a sync
-//! is a reason.
+//! (docs/design/rust-domain-authority.md, s8-policy), with the operations of the session laid over them
+//! (`with_operations`: what runs, what a start waits behind, what holds a remote action back). The view derives them
+//! with every patch, a sync and a change of the operations included.
 
 use crate::derive::{github_repository_known, live_hold, row_of_view};
 use crate::facts::FactStore;
 use crate::table::TableState;
 use domain_policy::actions::{
-  BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, review_blocker, robot_actions, stack_actions, start_actions,
+  BranchFacts, Children, Of, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, review_blocker, robot_actions, stack_actions, start_actions, with_operations,
 };
 use domain_policy::next_step::{Listing, PatronusStanding};
 use domain_types::actions::{ActionState, NothingBeyond};
+use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
 use domain_types::next_step::NextStepView;
 use domain_types::patronus::PatronusRobotStatus;
@@ -26,6 +28,8 @@ use std::collections::{BTreeMap, HashSet};
 /// What the actions of a view are decided on beside the table and the facts: the parts of the view derived with the same
 /// patch
 pub struct ActionSources<'a> {
+  /// The branch prefix of the session: the full names of the virtual branches its pushes write
+  pub prefix: &'a str,
   pub steps: &'a BTreeMap<String, NextStepView>,
   pub pushes: &'a BTreeMap<String, BranchPush>,
   pub lands: &'a BTreeMap<String, LandDecisions>,
@@ -46,6 +50,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
   let listing = Listing::of(&pull_requests.head);
   let repository = github_repository_known(pull_requests, robots);
   let sync_running = matches!(state.sync, SyncState::Running { .. });
+  let operations = state.operations();
   let mut actions = BTreeMap::new();
   for (name, branch) in &parts.branches {
     let Some(step) = sources.steps.get(name) else {
@@ -93,7 +98,15 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       }),
       stacks_enabled: parts.header.stacks_enabled,
     };
-    actions.insert(name.clone(), branch_actions(&facts));
+    // what a push of it writes, read only while an operation may hold it
+    let pushes = (!operations.is_empty()).then(|| to_final_branch_name(sources.prefix, name).ok()).flatten();
+    let of = Of::Branch {
+      name,
+      pushes: pushes.as_deref(),
+      unparks: branch.structure.parked.as_ref().and_then(|parked| parked.with.as_deref()).unwrap_or(name),
+      pull_request: sources.open_pull_requests.get(name).map(|open| open.number),
+    };
+    actions.insert(name.clone(), with_operations(branch_actions(&facts), of, operations));
   }
   for (root, branch) in &parts.branches {
     let Some(whole) = &branch.structure.whole_stack else {
@@ -145,7 +158,13 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       repository,
       landed: sources.landed.get(&key),
     };
-    actions.insert(key, stack_actions(&facts));
+    let of = Of::WholeStack {
+      root,
+      main_line: leaf.map(String::as_str),
+      pull_request: sources.open_pull_requests.get(&key).map(|open| open.number),
+    };
+    let offered = with_operations(stack_actions(&facts), of, operations);
+    actions.insert(key, offered);
   }
   let table_robots: HashSet<&str> = part
     .view
@@ -175,13 +194,14 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       problems,
       step: row.and_then(|name| sources.steps.get(name)).map(|view| &view.step),
     };
-    actions.insert(format!("robot:{}", robot.id), robot_actions(&facts));
+    let offered = with_operations(robot_actions(&facts), Of::Robot { id: &robot.id }, operations);
+    actions.insert(format!("robot:{}", robot.id), offered);
   }
   // a start whose answer was lost, of any process (`op:<id>`)
-  for operation in state.operations() {
+  for operation in operations {
     let offered = start_actions(operation);
     if !offered.is_empty() {
-      actions.insert(format!("op:{}", operation.id), offered);
+      actions.insert(format!("op:{}", operation.id), with_operations(offered, Of::Start { op: &operation.id }, operations));
     }
   }
   actions

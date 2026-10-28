@@ -1,9 +1,12 @@
-// The page's words of an operation of another process of the repository: as its record in the operations registry of
-// the repository names it (`OperationHolder`, `operations::registry_file`), the holder of what an operation of the page
-// needs, which made it `busy` (`ErrorDetails.busy`, `describeError`); and as the session shows it on its row
-// (`RunningOperation` with `origin.otherProcess`, `operations::registry_watch`): "bd: Safe Push of auth".
-import type { HolderTool, Intent, OperationHolder, OperationKind, RunningOperation, Subject } from "@/lib/bindings"
-import { formatHeldFor } from "@/presenters/lock-wait"
+// The page's words of an operation of the session (`RepositoryView.operations`): its busy state as its surfaces say it
+// ("Unstacking oauth", "Waits for Unstacking oauth", whom it waits for while another holder has the repository lock),
+// the rows it works on (`operationOnRow`), and of an operation of another process of the repository: as its record in
+// the operations registry of the repository names it (`OperationHolder`, `operations::registry_file`), the holder of
+// what an operation of the page needs, which made it `busy` (`ErrorDetails.busy`, `describeError`); and as the session
+// shows it on its row (`RunningOperation` with `origin.otherProcess`, `operations::registry_watch`): "bd: Safe Push of
+// auth".
+import type { HolderTool, Intent, OperationHolder, OperationId, OperationKind, RewriteIntent, RunningOperation, Subject } from "@/lib/bindings"
+import { formatHeldFor, presentOperationLockWait } from "@/presenters/lock-wait"
 import { presentRewrite } from "@/presenters/rewrite"
 
 /** What an operation of `kind` does, in the words of a sentence */
@@ -94,6 +97,83 @@ function runningWords(intent: Intent): readonly [label: string, phrase: string] 
 /** The busy state of an operation of the session as a surface says it: "Unstacking oauth", "Updating the project" */
 export function presentRunningLabel(operation: RunningOperation): string {
   return runningWords(operation.intent)[0]
+}
+
+/** The operations of the session of the repository the main window shows, by id (`RepositoryView.operations`) */
+export type SessionOperations = Readonly<Record<OperationId, RunningOperation>>
+
+/**
+ * The busy state of `operation` as every surface that shows it says it: whom it waits for while another holder has the
+ * repository lock ("Waiting for `bd pick` (pid 4242, for 12 s)"), what it waits behind in the queue of the session
+ * ("Waits for Unstacking oauth"), else its own ("Unstacking tool-events"); `labelOf` the busy state of an operation, as
+ * the window that started it named it
+ */
+export function presentOperationBusy(operation: RunningOperation, operations: SessionOperations, labelOf: (operation: RunningOperation) => string): string {
+  const lockWait = presentOperationLockWait(operation)
+  if (lockWait !== null) {
+    return lockWait
+  }
+  if (operation.step.kind === "queued") {
+    const behind = operations[operation.step.behind]
+    return `Waits for ${behind === undefined ? "another operation" : labelOf(behind)}`
+  }
+  return labelOf(operation)
+}
+
+/** What finds the rows of an operation in the table of the page: the branches with the commits it names, the open pull request of a row */
+export interface RowLookup {
+  readonly branchesOf: (originalIds: readonly string[]) => readonly string[]
+  readonly pullRequestOf: (name: string) => number | undefined
+}
+
+/**
+ * The rows a rewrite works on, the one that shows it first: of a move the branches of its commits, then the branch it
+ * goes to; of a squash and a reword the branches of their commits; of the others the branches they name (a fix of a
+ * conflict and an undo name none)
+ */
+function rewriteRows(rewrite: RewriteIntent, lookup: RowLookup): readonly string[] {
+  switch (rewrite.rewrite) {
+    case "move":
+      return [...lookup.branchesOf(rewrite.commitIds), ...(rewrite.targetBranch === null ? [] : [rewrite.targetBranch])]
+    case "squash":
+      return lookup.branchesOf(rewrite.commitIds)
+    case "reword":
+      return lookup.branchesOf(rewrite.rewords.map(reword => reword.commit))
+    case "park":
+      return rewrite.branches.map(line => line.branchName)
+    case "unpark":
+      return rewrite.branchNames
+    case "squashFixups":
+      return rewrite.scope.type === "branch" ? [rewrite.scope.value] : []
+    case "applyConflictFix":
+    case "undo":
+      return []
+    default:
+      return [rewrite.branchName]
+  }
+}
+
+/**
+ * Whether `operation` works on the row `name` (its right-click menu, its "⋯", its drag and its push wait meanwhile): a
+ * rewrite of the branches it names or whose commits it names, the retarget of the open pull request of the row; with
+ * `first`, only on the row that shows its spinner (its "⋯", while no surface that started it shows it): the first of
+ * those
+ */
+export function worksOnRow(operation: RunningOperation, name: string, lookup: RowLookup, first = false): boolean {
+  const { intent } = operation
+  if (intent.kind === "retarget") {
+    return !first && intent.number === lookup.pullRequestOf(name)
+  }
+  if (intent.kind !== "rewrite") {
+    return false
+  }
+  const rows = rewriteRows(intent, lookup)
+  return first ? rows[0] === name : rows.includes(name)
+}
+
+/** The first operation of `operations` that works on the row `name` (`worksOnRow`); undefined while none does */
+export function operationOnRow(operations: SessionOperations, name: string, lookup: RowLookup, first = false): RunningOperation | undefined {
+  return Object.values(operations).find(operation => worksOnRow(operation, name, lookup, first))
 }
 
 /** An operation of another process as its row says it (`presentOtherProcess`) */

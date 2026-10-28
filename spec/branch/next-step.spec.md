@@ -211,13 +211,15 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner a stacked branch's own pull request asks, not for its root`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from S, the preview and the review window`, `should wait for the Safe Push of an ancestor, which lands its commits`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
-- An operation on the row ([Running Operations](../../docs/design/operations.md)) disables the action of the slot with
-  its busy state ("Renaming auth to login…"), never a quiet step: it only opens the pull request, nor a step that
+- An operation on the row ([Running Operations](../../docs/design/operations.md)), as the view of the session has it in
+  every window (`RepositoryView.operations`: a rewrite of the branch or of its commits, the retarget of its pull
+  request; `useRowOperation`), disables the action of the slot with its busy state ("Renaming auth to login…"), never a quiet step: it only opens the pull request, nor a step that
   writes another field of the pull request than the operation does: a retarget (the base) during a review request (the
   reviewers) runs beside it, neither refuses the other. The slot's own action that runs (a retarget, a restart of its
   robot) is running: disabled, its spinner in place of its icon.
   [@test] ../../src/presenters/next-step.test.ts (`words the notice of S as a short title naming the subject, a reason of the subject first`)
   [@test] ../../src/presenters/next-step.test.ts (`lays what runs on the row over the step: its own action runs, the others wait, never a quiet step nor another field of the pull request`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push in the words of its next step, and what runs on the row over it`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should retarget a pull request while a review is requested in it: both reach GitHub, neither refuses the other`)
 - The pull requests are a fact of their own: while GitHub doesn't list them (not configured, signed out, SSO; before
   its first answer the step is row 0), the readiness counts as `unavailable` and rows 5 to 10 don't apply: the table never offers a Create Pull Request… for
@@ -243,7 +245,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   (row 0), a stale one keeps the step of the answer before (a stale readiness holds the action), a read that failed
   is an answer that says so (what helps for Patronus, never missing approvals for the pull requests or the
   readiness, the gate of the start for the landing needs). What runs on the row (an operation, a start, a push, a
-  move) stays the page's until the operations move into Rust. The derivation of the 141 rows of the `perf:table`
+  move) is the session's (`RepositoryView.operations`), which the step presents. The derivation of the 141 rows of the `perf:table`
   template, twice per flush, stays within 20 ms in a debug build.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts`, `row_0_waits_for_a_fact_no_answer_told_yet_and_a_reason_of_the_subject_outranks_it`, `row_0_a_read_that_failed_decides_no_start_and_offers_what_helps`, `row_1_prime_needs_a_branch_outside_what_the_safe_push_lands_and_keeps_the_start`, `rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`, `row_5_retargets_a_pull_request_into_a_virtual_branch_and_5_prime_opens_one_into_another_base`, `row_6_a_draft_is_a_step_that_opens_it_the_safe_push_waits_a_dry_run_runs`, `rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`, `rows_8_prime_and_10_prime_tell_the_wait_github_tells_while_patronus_cannot_judge`, `row_11_safe_push_and_the_start_without_review_while_github_is_signed_out`, `a_stale_readiness_keeps_its_step_and_its_action_waits_for_the_new_answer`, `a_repository_not_on_space_has_no_slot_and_keeps_the_reasons_of_the_subject`, `the_whole_stack_takes_the_rows_of_its_stack_branch`)
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`every_row_with_every_fact_without_a_fresh_answer_never_answers_an_action_the_fresh_one_would_replace`)

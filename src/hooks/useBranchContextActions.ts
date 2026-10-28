@@ -4,7 +4,7 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getBranchNextStep } from "@/hooks/useBranchNextStep"
 import { pushRunsOf } from "@/hooks/useBranchPushes"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
-import { moveCommits } from "@/hooks/useMoveCommits"
+import { ungroupBranch } from "@/hooks/useMoveCommits"
 import { unparkBranch } from "@/hooks/useParkBranch"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
@@ -23,7 +23,7 @@ import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong } from "@/lib/whole-stack"
 import { getRowPart } from "@/model/store"
 import type { ActionItem, BlockerWords } from "@/presenters/actions"
-import { ACTION_LOOKS, findAction, getRobotActionItems, presentAction, whileSyncing } from "@/presenters/actions"
+import { ACTION_LOOKS, findAction, getRobotActionItems, presentAction } from "@/presenters/actions"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP } from "@/presenters/next-step"
 import { getRetargetCommand } from "@/presenters/pull-request-url"
@@ -47,9 +47,8 @@ import {
 } from "@/stores/branch-sync"
 import { commitMoveStore, getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
+import { indicatorsStore } from "@/stores/indicators"
 import { openInline } from "@/stores/inline-row-action"
-import type { Operations } from "@/stores/operations"
-import { branchSubject, getOperations, isObjectBusy, operationItem, operationsStore } from "@/stores/operations"
 import { getBranchRobot, getLandingBranchCount, getPushHold, isPatronusAvailable, isPatronusPending, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading, pullRequestsStore } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
@@ -97,7 +96,7 @@ function present(...items: (MenuItem | null)[]): MenuItem[] {
  * its key only where the focused row has it (`useBranchRowKeys`, `BranchTableCard`). The right-click on the row and the
  * "⋯" of its Actions cell show it.
  */
-export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void, operations: Operations): MenuItemGroups {
+export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
   const groups: MenuItemGroups = []
   const pullRequest = getPullRequest(branch.name)
   // a conflict shows its fix in the expanded row, at the commit that does not apply
@@ -119,7 +118,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const robotActions = robot === undefined ? [] : getRobotActionItems(robot).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
   const landingActions = present(
     // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
-    nextStep.landingFix === null ? null : rewriteItem(branch, nextStep.landingFix, operations),
+    nextStep.landingFix,
     getSafePushMenuItem(branch, nextStep),
   )
   // a listed robot keeps its actions while Patronus doesn't answer for a new start
@@ -157,36 +156,36 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     ),
   )
 
-  const shapeActions = present(getRenameItem(branch), getMoveMenuItem(branch), ...getStackShapeItems(branch), getUngroupItem(branch))
-  groups.push(shapeActions.map(item => rewriteItem(branch, item, operations)))
+  groups.push(present(getRenameItem(branch), getMoveMenuItem(branch), ...getStackShapeItems(branch), getUngroupItem(branch)))
   const stackView = getStackViewItems(branch)
   if (stackView.length > 0) {
     groups.push(stackView)
   }
 
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
-  const commitActions = present(
-    branchItem(branch, "amend-changes", {
-      onSelect: () => {
-        // show the commits; the form loads the uncommitted changes when it opens
-        setExpanded(branch.name, true)
-        openInline("amend-changes", branch.name)
-      },
-    }),
-    branchItem(branch, "add-issue-reference", { onSelect: () => openInline("issue-reference", branch.name) }),
-    // the fixups of the autosquash plan, which the page loads beside the view
-    fixupCount === 0
-      ? null
-      : branchItem(branch, "squash-fixups", {
-          label: formatSquashFixupsLabel(fixupCount),
-          onSelect: () => {
-            // the confirmation opens from the button above the commits
-            setExpanded(branch.name, true)
-            openInline("squash-fixups", branch.name)
-          },
-        }),
+  groups.push(
+    present(
+      branchItem(branch, "amend-changes", {
+        onSelect: () => {
+          // show the commits; the form loads the uncommitted changes when it opens
+          setExpanded(branch.name, true)
+          openInline("amend-changes", branch.name)
+        },
+      }),
+      branchItem(branch, "add-issue-reference", { onSelect: () => openInline("issue-reference", branch.name) }),
+      // the fixups of the autosquash plan, which the page loads beside the view
+      fixupCount === 0
+        ? null
+        : branchItem(branch, "squash-fixups", {
+            label: formatSquashFixupsLabel(fixupCount),
+            onSelect: () => {
+              // the confirmation opens from the button above the commits
+              setExpanded(branch.name, true)
+              openInline("squash-fixups", branch.name)
+            },
+          }),
+    ),
   )
-  groups.push(commitActions.map(item => rewriteItem(branch, item, operations)))
 
   // what takes the branch out of the landing: kept local, or its commits archived
   const unapply = branchItem(branch, "unapply", {
@@ -196,7 +195,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       openInline("unapply", branch.name)
     },
   })
-  groups.push([...getParkMenuItems(branch, operations), ...present(unapply === null ? null : rewriteItem(branch, unapply, operations))])
+  groups.push([...getParkMenuItems(branch), ...present(unapply)])
 
   groups.push([getCopyMenuItem(branch, pullRequest)])
   return groups.filter(group => group.length > 0)
@@ -225,20 +224,17 @@ function getCopyMenuItem(branch: Branch, pullRequest: PullRequest | undefined): 
  * waits for a robot that lands the branch: it lands whatever the park says; an open pull request stays open, a merge on
  * GitHub lands it, which the item says.
  */
-function getParkMenuItems(branch: Branch, operations: Operations): MenuItem[] {
+function getParkMenuItems(branch: Branch): MenuItem[] {
   const name = branch.name
   const parked = getParkedState(name)
-  const writes = (item: MenuItem | null): MenuItem | null => (item === null ? null : rewriteItem(branch, item, operations))
   if (parked?.with != null) {
     const parent = parked.with
-    return present(
-      writes(branchItem(branch, "unpark", { label: `Unpark ${parent}`, description: `${name} carries the commits of ${parent}`, onSelect: () => void unparkBranch(parent) })),
-    )
+    return present(branchItem(branch, "unpark", { label: `Unpark ${parent}`, description: `${name} carries the commits of ${parent}`, onSelect: () => void unparkBranch(parent) }))
   }
   if (parked !== null) {
     return present(
-      writes(branchItem(branch, "park", { label: "Edit Park Note…", onSelect: () => openInline("park", name) })),
-      writes(branchItem(branch, "unpark", { description: "It lands as any other branch again", onSelect: () => void unparkBranch(name) })),
+      branchItem(branch, "park", { label: "Edit Park Note…", onSelect: () => openInline("park", name) }),
+      branchItem(branch, "unpark", { description: "It lands as any other branch again", onSelect: () => void unparkBranch(name) }),
     )
   }
   const pullRequest = getPullRequest(name)
@@ -246,53 +242,25 @@ function getParkMenuItems(branch: Branch, operations: Operations): MenuItem[] {
     pullRequest?.state === "open"
       ? `Keeps it local; #${pullRequest.number} stays open, a merge on GitHub still lands it`
       : "Keeps it local: no push or Safe Push sends it, and it is no move of yours"
-  return present(writes(branchItem(branch, "park", { description, onSelect: () => openInline("park", name) })))
-}
-
-/** What runs on the page that a push waits for: a push of the branch or of its stack, an action on the branch */
-interface PushRuns {
-  readonly isPushing: boolean
-  readonly stackPushing: boolean
-  readonly processing: boolean
-}
-
-/**
- * The push of the branch as Rust decides it, with what runs on the page over it (until the operations are Rust's): a
- * running push is the reason over a park or a hold it keeps the progress of; a blocked or failed branch keeps its own
- */
-function pushOverlay(item: MenuItem, push: ActionState | undefined, { isPushing, stackPushing, processing }: PushRuns): MenuItem {
-  const reason = push?.availability.kind === "disabled" ? push.availability.reason : null
-  const own = reason !== null && (reason.code === "syncFailed" || reason.code === "noCommits" || (reason.code === "rule" && reason.reason.code === "blocked"))
-  if (own || (!isPushing && !stackPushing && reason !== null && reason.code === "rule")) {
-    return item
-  }
-  const running = stackPushing ? "The stack is being pushed" : isPushing ? "The branch is being pushed" : null
-  if (running !== null) {
-    return { ...item, disabled: true, description: running }
-  }
-  if (reason?.code === "syncing" || !processing) {
-    return item
-  }
-  return { ...item, disabled: true, description: "Wait for the action on the branch to finish" }
+  return present(branchItem(branch, "park", { description, onSelect: () => openInline("park", name) }))
 }
 
 /**
  * The push of the push button of the row, named as the button ("Push (2)", "Force Push (1)", "Push Stack (3
  * branches)", `getPushButtonNow`) and pushing as a click on it (`pushFromButton`: the stack while a parent has work for
- * the remote, a push that drops remote commits asks in the button's description); enabled as Rust decides the push
- * (`domain_policy::actions`) with what runs on the page over it, else with the reason. One item for the push of the
- * branch and of its stack: the menu never pushes past the confirmation the button asks for. After it, while the button
- * pushes the stack, the second way its description offers: "Push oauth Only".
+ * the remote, a push that drops remote commits asks in the button's description); as Rust decides the push
+ * (`domain_policy::actions`): running while its push runs in the session, disabled with the reason, a push of a stack
+ * that sends the branch among them ("Pushing login…"). One item for the push of the branch and of its stack: the menu
+ * never pushes past the confirmation the button asks for. After it, while the button pushes the stack, the second way
+ * its description offers: "Push oauth Only".
  */
 function getPushMenuItems(branch: Branch): MenuItem[] {
-  const stackPushing = isStackPushing(branch.name)
-  const isPushing = isBranchPushing(branch.name) || stackPushing
+  const isPushing = isBranchPushing(branch.name) || isStackPushing(branch.name)
   const button = getPushButtonNow(branch, isPushing, pushRunsOf(branch.name))
-  const described = branchItem(branch, "push", { label: button.text, onSelect: () => pushFromButton(branch.name, "row") })
-  if (described === null) {
+  const push = branchItem(branch, "push", { label: button.text, onSelect: () => pushFromButton(branch.name, "row") })
+  if (push === null) {
     return []
   }
-  const push = pushOverlay(described, findAction(actionsOf(branch.name), "push"), { isPushing, stackPushing, processing: isObjectBusy(branch.name) })
   const enabled = push.disabled !== true
   const item = enabled && button.pushesStack ? { ...push, description: `Pushes ${joinNames(getPushOrders(branch.name).button)}, parents first` } : push
   // the second way the description of the button offers while it pushes the stack: the branch alone. Its Push Stack
@@ -313,16 +281,6 @@ function getPushMenuItems(branch: Branch): MenuItem[] {
   ]
 }
 
-/**
- * A rewrite of the branch as the page's state leaves it: a sync of the table it waits for (`whileSyncing`), else running
- * or waiting for another rewrite (`operationItem`, the item's `id` names its operation); an item Rust disabled keeps its
- * reason
- */
-function rewriteItem(branch: Branch, item: MenuItem, operations: Operations): MenuItem {
-  const waiting = whileSyncing(item, branchSyncStore.getState().isSyncing)
-  return operationItem(operations, waiting, { id: item.id ?? item.label, subject: branchSubject(branch.name), objects: [branch.name], kind: "rewrite" })
-}
-
 /** "Rename…", "Name This Branch…" of an issue branch: the inline form of the row */
 function getRenameItem(branch: Branch, actions?: readonly ActionState[]): MenuItem | null {
   return branchItem(branch, "rename", { label: branch.origin === "Issue" ? "Name This Branch…" : "Rename…", onSelect: () => openInline("rename", branch.name) }, undefined, actions)
@@ -331,29 +289,21 @@ function getRenameItem(branch: Branch, actions?: readonly ActionState[]): MenuIt
 /**
  * The fixes of the stack problem of the branch as Rust offers them (`StackProblemView.fixes`), each the item of the
  * branch menu that runs it, for the alert of the problem: "Stack On ‹parent›", "Unstack", "Rename…"; a reword is the
- * commit's ("Reword…"), so none here. Rust runs them while the problem blocks the rest; a sync waits, as do the other
- * rewrites (`isSyncing`, read by the caller's selector). Empty for a branch without a problem. A component passes the
- * actions it subscribed to (`actions`, `useRowPart`), so its items follow them.
+ * commit's ("Reword…"), so none here. Rust runs them while the problem blocks the rest, running while the session runs
+ * one. Empty for a branch without a problem. A component passes the actions it subscribed to (`actions`,
+ * `useRowPart`), so its items follow them.
  */
-export function getBranchStackFixItems(
-  branch: Branch,
-  operations: Operations,
-  isSyncing: boolean,
-  actions: readonly ActionState[] | undefined = actionsOf(branch.name),
-): MenuItem[] {
+export function getBranchStackFixItems(branch: Branch, actions: readonly ActionState[] | undefined = actionsOf(branch.name)): MenuItem[] {
   const problem = stackProblemOf(branch)
   if (problem === null) {
     return []
   }
   const stackOn = (parent: string): MenuItem | null =>
     branchItem(branch, "stack-on", { label: `Stack On ${parent}`, onSelect: context => void restackBranch(branch.name, parent, { surface: context.surface }) }, undefined, actions)
-  const items = present(
+  return present(
     ...stackOnFixes(problem).map(stackOn),
     problem.fixes.includes("Unstack") ? getUnstackItem(branch, actions) : null,
     problem.fixes.includes("Rename") ? getRenameItem(branch, actions) : null,
-  )
-  return items.map(item =>
-    operationItem(operations, whileSyncing(item, isSyncing), { id: item.id ?? item.label, subject: branchSubject(branch.name), objects: [branch.name], kind: "rewrite" }),
   )
 }
 
@@ -536,7 +486,7 @@ const STACK_TARGET_LIMIT = 20
  * "Stack On…" (any other branch that isn't stacked on this one; of a branch with a stack problem, the parents its fixes
  * name) and "Unstack from ‹parent›" ("Unstack" where a stack problem offers it to a branch without a parent), as Rust
  * offers them (stacked branches on, the fixes of a problem running while it blocks the rest): the rewrites of the shape
- * group, which waits for the sync. A "Stack On…" with no branch to list is disabled
+ * group. A "Stack On…" with no branch to list is disabled
  */
 function getStackShapeItems(branch: Branch): (MenuItem | null)[] {
   const parent = branch.stack?.declaredParent ?? null
@@ -572,18 +522,14 @@ function getUngroupItem(branch: Branch): MenuItem | null {
   }
   return branchItem(branch, "ungroup", {
     label: ungroupLabel === "Remove Prefix" || ungroupLabel === "Move Back" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
-    onSelect: context =>
-      getStackChildren(branch.name).length > 0
-        ? openInline("ungroup", branch.name)
-        : void moveCommits(branch.commits, null, { id: "ungroup", label: `Ungrouping ${branch.name}`, surface: context.surface }),
+    onSelect: context => (getStackChildren(branch.name).length > 0 ? openInline("ungroup", branch.name) : void ungroupBranch(branch.name, { surface: context.surface })),
   })
 }
 
 /**
  * The collapse of the stack and, on every branch of a stack, "Whole Stack ›", the actions of the whole stack of its root
  * (`getWholeStackMenuItems`; Push with Children stays beside the push of the root), so a small stack without an island
- * has them in the menu and the preview of each of its branches; none for a branch of no stack. Neither rewrites the
- * branch: they don't wait for the sync.
+ * has them in the menu and the preview of each of its branches; none for a branch of no stack
  */
 function getStackViewItems(branch: Branch): MenuItem[] {
   const items: MenuItem[] = []
@@ -611,8 +557,8 @@ function getStackViewItems(branch: Branch): MenuItem[] {
  * (`ChildrenPush`); of the root of a stack that forks, the stack branch of its whole stack too, while it goes along,
  * counted and named in the hover. Rust offers it on every branch with children to land, also during a sync (the push
  * waits for it and pushes what it leaves), and disables it with the reason (`domain_policy::actions`): parked, a running
- * Safe Push holds the branch, the statuses of a running sync are to come, nothing beyond the branch is left to push;
- * while the stack is being pushed the page says so. Null for a branch without children to land.
+ * Safe Push holds the branch, the statuses of a running sync are to come, nothing beyond the branch is left to push, a
+ * push that holds the branch; running while it runs. Null for a branch without children to land.
  */
 export function getPushWithChildrenItem(name: string): MenuItem | null {
   const branch = getBranch(name)
@@ -624,18 +570,18 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
   const stack = getStackBranch(name)
   const withStackBranch = children.stackBranch?.kind === "along"
   const along = withStackBranch && stack !== undefined ? describeStackBranchAlong(stack, getStackPullRequest(name)) : undefined
-  const item = branchItem(branch, "push-with-children", {
+  return branchItem(branch, "push-with-children", {
     label: children.offers ? formatPushWithChildrenLabel(children.order, withStackBranch) : undefined,
     ...(along !== undefined && { description: along }),
     onSelect: () => void pushWithChildren(name),
   })
-  return item !== null && item.disabled !== true && isStackPushing(name) ? { ...item, disabled: true, description: "The stack is being pushed" } : item
 }
 
 /**
- * The states of every store a menu of a branch or a whole stack reads: the view (its actions and steps), the robots, the
- * pull requests and the readiness its words still read, the operations and the starts that run, the settings, a move of
- * commits, the YouTrack sign-in; a change of any is a new menu
+ * The states of every store a menu of a branch or a whole stack reads: the view (its actions, its steps and the
+ * operations of the session), the robots, the pull requests and the readiness its words still read, the busy states
+ * this window gave its operations, the starts that run, the settings, a move of commits, the YouTrack sign-in; a change
+ * of any is a new menu
  */
 export function menuSources(): readonly unknown[] {
   return [
@@ -643,7 +589,7 @@ export function menuSources(): readonly unknown[] {
     patronusStore.getState(),
     pullRequestsStore.getState(),
     reviewReadinessStore.getState(),
-    operationsStore.getState(),
+    indicatorsStore.getState(),
     safePushStore.getState(),
     repositorySettingsStore.getState(),
     commitMoveStore.getState(),
@@ -661,7 +607,7 @@ export function useMenuStores<T>(select: () => T): T {
   useStore(repositorySettingsStore, select)
   useStore(commitMoveStore, select)
   useStore(youTrackAuthStore, select)
-  return useStore(operationsStore, select)
+  return useStore(indicatorsStore, select)
 }
 
 /** By branch: the menu built last, and the store states it was built from (`getBranchMenuNow`) */
@@ -682,12 +628,12 @@ export function getBranchMenuNow(name: string, setExpanded: (name: string, expan
   if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
     return shown.groups
   }
-  const groups = getBranchContextMenuItems(branch, setExpanded, getOperations())
+  const groups = getBranchContextMenuItems(branch, setExpanded)
   shownMenus.set(name, { sources, groups })
   return groups
 }
 
-/** The menu of the branch, rendered again when a store it reads changes (the operations among them); null without the branch */
+/** The menu of the branch, rendered again when a store it reads changes (the view's operations among them); null without the branch */
 export function useBranchMenu(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
   return useMenuStores(() => getBranchMenuNow(name, setExpanded))
 }
@@ -709,14 +655,10 @@ function getUnstackItem(branch: Branch, actions?: readonly ActionState[]): MenuI
 }
 
 /**
- * "Unstack from ‹parent›" of a stacked branch as the page's state leaves it (`rewriteItem`: running, or waiting for
- * another rewrite, or for the sync), for a surface beside the menu; null for a branch that is not stacked. A component
- * passes the actions it subscribed to (`actions`, `useRowPart`)
+ * "Unstack from ‹parent›" of a stacked branch as Rust offers it (running while the session unstacks it, waiting behind
+ * another rewrite), for a surface beside the menu; null for a branch that is not stacked. A component passes the actions
+ * it subscribed to (`actions`, `useRowPart`)
  */
-export function getBranchUnstackItem(branch: Branch, operations: Operations, actions: readonly ActionState[] | undefined = actionsOf(branch.name)): MenuItem | null {
-  if ((branch.stack?.declaredParent ?? null) === null) {
-    return null
-  }
-  const item = getUnstackItem(branch, actions)
-  return item === null ? null : rewriteItem(branch, item, operations)
+export function getBranchUnstackItem(branch: Branch, actions: readonly ActionState[] | undefined = actionsOf(branch.name)): MenuItem | null {
+  return (branch.stack?.declaredParent ?? null) === null ? null : getUnstackItem(branch, actions)
 }

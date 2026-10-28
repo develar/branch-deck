@@ -7,8 +7,6 @@ import type { StackProblemView } from "@/lib/bindings"
 import { toPreviewMenu } from "@/lib/menu"
 import { useRowPart } from "@/model/store"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchSync } from "@/stores/branch-sync"
-import { useOperations } from "@/stores/operations"
 
 /** The preview handles no key of a fix */
 const NO_KEYS: ReadonlySet<string> = new Set()
@@ -20,11 +18,9 @@ const NO_KEYS: ReadonlySet<string> = new Set()
  * branch preview a fix closes the preview first, as the preview's menu does.
  */
 export function StackProblemAlert({ branch, problem }: { branch: Branch; problem: StackProblemView }) {
-  const operations = useOperations()
-  const isSyncing = useBranchSync(state => state.isSyncing)
   const closePreview = useClosePreview()
   const actions = useRowPart(branch.name, "actions")
-  const fixes = getBranchStackFixItems(branch, operations, isSyncing, actions)
+  const fixes = getBranchStackFixItems(branch, actions)
   const items = closePreview === null ? fixes : (toPreviewMenu([fixes], closePreview, NO_KEYS)[0] ?? [])
   return (
     <Alert variant="destructive" data-testid="branch-stack-problem">

@@ -16,6 +16,12 @@
 // - `rule-module`: a rule module whose rule moved into Rust comes back (`RULE_MODULES`), or src/lib or src/hooks (their
 //   tests aside) exports a function or a constant named as a rule: `can…`, `needs…`, `allows…`, `…Blocker`,
 //   `…Decision`, `is…Blocked`; a formatter (`format…`) words a reason Rust gave and decides nothing.
+// The operations are the session's (docs/design/operations.md): Rust admits, joins and queues every one of them and lays
+// them over the actions of the view; the page only knows which of its surfaces started one (`src/stores/indicators.ts`):
+// - `operations-store`: the deleted registry of the page comes back (`src/stores/operations.ts`), or src/stores or
+//   src/lib (their tests aside) exports an admission of its own: `runOperation`, `getOperationBlocker`, `findSame`,
+//   `operationItem`, `whenRewritesDone`, `whileSyncing`, `setSessionStep`, or a function that admits, queues or joins
+//   an operation (`admit…`, `queue…Operation`, `join…Operation`).
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds; an entry that matches nothing fails, so the list never outlives its code.
 import { globSync, readFileSync } from "node:fs"
@@ -52,6 +58,13 @@ const SOURCES = ["src/**/*.{ts,tsx}", "tests/e2e/**/*.ts"]
 
 /** The rule modules of the page whose rules Rust decides now (`domain-policy`): deleted, they don't come back */
 export const RULE_MODULES = ["src/lib/branch-next-step.ts", "src/lib/landing-node.ts", "src/lib/safe-push-decision.ts"]
+/** The registry of the operations the page kept until the session admitted every one of them: deleted, it doesn't come back */
+export const OPERATIONS_MODULE = "src/stores/operations.ts"
+// the export of an admission of the page, its name the group
+const ADMISSION_EXPORT =
+  /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)(runOperation|getOperationBlocker|findSame|operationItem|whenRewritesDone|whileSyncing|setSessionStep|admit[\w$]*|(?:queue|join)[\w$]*Operation)\b/
+/** The sources whose exports an admission name refuses: the stores and the modules of the page, their tests aside */
+const ADMITTING = /^src\/(?:stores|lib)\/(?!.*\.test\.tsx?$)/
 // the export of a function or a constant named as a rule, its name the group
 const RULE_EXPORT = /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)((?:can|needs|allows)[A-Z][\w$]*|(?!format)[\w$]*(?:Blocker|Decision)|is[\w$]*Blocked)\b/
 /** The sources whose exports a rule name refuses: the modules and the hooks of the page, their tests aside */
@@ -139,6 +152,9 @@ export function findProblems(file, source) {
   if (RULE_MODULES.includes(file)) {
     problems.push({ file, line: 1, rule: "rule-module", text: "a rule module whose rule Rust decides (domain-policy)" })
   }
+  if (file === OPERATIONS_MODULE) {
+    problems.push({ file, line: 1, rule: "operations-store", text: "the registry of the page: the session admits every operation (RepositoryView.operations)" })
+  }
   lines.forEach((line, index) => {
     const at = { file, line: index + 1, text: source.split("\n")[index].trim() }
     if (controlled.test(line)) {
@@ -152,6 +168,9 @@ export function findProblems(file, source) {
     }
     if (RULED.test(file) && RULE_EXPORT.test(line)) {
       problems.push({ ...at, rule: "rule-module" })
+    }
+    if (ADMITTING.test(file) && ADMISSION_EXPORT.test(line)) {
+      problems.push({ ...at, rule: "operations-store" })
     }
   })
   for (const call of text.matchAll(ROUTE_ERROR)) {
@@ -199,7 +218,7 @@ if (import.meta.main) {
   if (problems.length > 0) {
     console.error(problems.join("\n"))
     console.error(
-      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own and decides no rule of the domain (scripts/lint-arch.mjs)`,
+      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain and admits no operation (scripts/lint-arch.mjs)`,
     )
     process.exit(1)
   }

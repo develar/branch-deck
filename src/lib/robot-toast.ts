@@ -7,7 +7,7 @@ import { describeRobot, formatPushMode, formatRobotSubject, openRobot } from "@/
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { operationsStore } from "@/stores/operations"
+import { indicatorsStore } from "@/stores/indicators"
 import { getBranchRobot, getStackRobot, patronusStore } from "@/stores/patronus"
 import { getSelectedRepositoryPath, isSelectedRepository, repositoryStore } from "@/stores/repository"
 
@@ -113,7 +113,7 @@ export function showRobotEventToast({ repositoryPath, robot, type, title, descri
   const place = replaceOnly ? replaceEventToast : showEventToast
   place({
     ...keys,
-    watch: [patronusStore, branchSyncStore, operationsStore, repositoryStore],
+    watch: [patronusStore, branchSyncStore, indicatorsStore, repositoryStore],
     render: () => {
       const current = currentRobot(robot.id) ?? robot
       const newer = newerRobotOf(repositoryPath, current)

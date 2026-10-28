@@ -9,7 +9,6 @@ import { FROM_MENU, selectMenuItemById } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { getBranch } from "@/stores/branch-sync"
-import { getOperations } from "@/stores/operations"
 import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 export interface BranchRowKeysOptions {
@@ -43,15 +42,15 @@ export interface BranchRowKeys {
 
 /**
  * A key of the row runs the item of the branch menu it is the hint of (`getBranchContextMenuItems`), as a click on it
- * does: the same action, disabled while it is, the running one joins (`operationItem`); a disabled one says why in an
- * `info` toast, as its hover does
+ * does: the same action as Rust lays the operations of the session over it (running while its intent runs, a start that
+ * waits behind another rewrite); a disabled or running one says why in an `info` toast, as its hover does
  */
 function selectRowItem(name: string, id: string, setExpanded: (name: string, expanded: boolean) => void): void {
   const branch = getBranch(name)
   if (branch === undefined) {
     return
   }
-  selectMenuItemById(getBranchContextMenuItems(branch, setExpanded, getOperations()), id, FROM_MENU, item => {
+  selectMenuItemById(getBranchContextMenuItems(branch, setExpanded), id, FROM_MENU, item => {
     if (item.description !== undefined) {
       showToast({ type: "info", title: item.description })
     }

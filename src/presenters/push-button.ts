@@ -215,7 +215,7 @@ export function getPushButtonState(
   // the children of a branch a merged Safe Push landed push without it; parked, held, unbuilt branches keep theirs
   const children = childrenEnabled && landedIn === null ? childrenActionOf(branch.name, unpushedChildren, runs) : null
   // a running push keeps its progress until it finished
-  if (!isPushing && blocker !== null && (blocker.code === "rule" || blocker.code === "syncFailed" || blocker.code === "noCommits")) {
+  if (!isPushing && blocker !== null && (blocker.code === "rule" || blocker.code === "syncFailed" || blocker.code === "noCommits" || blocker.code === "busy")) {
     return { ...disabledState(formatActionBlocker("push", blocker, words)), childrenAction: children }
   }
   const remoteStatus = branch.remoteStatus

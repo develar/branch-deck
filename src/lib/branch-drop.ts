@@ -3,8 +3,8 @@
  * ([Move Commits](../../spec/branch/move-commits.spec.md#drag-and-drop)): the Parked card and the park zone of the drag
  * bar park them, the unpark zone unparks them, the "Stack on" chip of a row stacks the branch there, the unstack zone
  * makes it a root. Each answer takes the branches or refuses them with the reason the target shows, the reason the menu
- * gives for the same action. A drop while a rewrite of the repository runs is taken: its action waits for that rewrite in
- * the queue (`runOperation`).
+ * gives for the same action (Rust's, with the operations of the session laid over it). A drop during a sync or while a
+ * rewrite of the repository runs is taken: its rewrite goes to the session at once and waits there in the queue.
  */
 import type { ActionId } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
@@ -15,15 +15,13 @@ export interface BranchDropFacts {
   branch: (name: string) => Branch | undefined
   parked: (name: string) => ParkedState | null
   /**
-   * Why the action `id` of the branch `name` can't run now, as its menu says it (`domain_policy::actions`, a sync of the
-   * table over a rewrite); null while it can, undefined while the branch doesn't offer it
+   * Why the action `id` of the branch `name` can't start now, as its menu says it (`domain_policy::actions`: its
+   * reason, or that it runs); null while its start goes to the session, undefined while the branch doesn't offer it
    */
   blocker: (name: string, id: ActionId) => string | null | undefined
   /** The branches stacked on `name`, directly or further down */
   descendants: (name: string) => readonly string[]
   stacksEnabled: boolean
-  /** A sync rebuilds the branches */
-  isSyncing: boolean
 }
 
 /** A drop target's answer: the branches it acts on, or why it refuses the drag ("Cannot park auth: …") */
@@ -85,9 +83,6 @@ export function showsUnparkDrop(names: readonly string[], facts: BranchDropFacts
  * its parent, which only an unpark of the parent lets land
  */
 export function unparkDrop(names: readonly string[], facts: BranchDropFacts): BranchDrop {
-  if (facts.isSyncing) {
-    return { refusal: "Cannot unpark: Wait for the sync to finish" }
-  }
   const own: string[] = []
   for (const name of names) {
     const parked = facts.parked(name)

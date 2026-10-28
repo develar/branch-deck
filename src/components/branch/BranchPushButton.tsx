@@ -10,8 +10,9 @@ import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { RobotActionButton } from "@/components/branch/PatronusChip"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
-import { getRobotItems, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import { usePushButton, useStackBranchPushAlone } from "@/hooks/useBranchPushes"
+import { useRowOperation } from "@/hooks/useRowOperation"
 import { pickRemoteCommits } from "@/lib/git/pick-remote"
 import { pushFromButton } from "@/lib/push-run"
 import { pushBranch } from "@/lib/push-run"
@@ -21,11 +22,11 @@ import { stopWaitingPushItem, transferAmountNotInLine, transferLabel, transferPe
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
+import { isStartable } from "@/presenters/actions"
 import type { PushButtonAction } from "@/presenters/push-button"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useObjectBusy } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -87,7 +88,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const showsPush = isPushing && !formPushes
   // the one push of a stack reports its progress for each of its branches, the stack branch under its key
   const progress = useBranchPushProgress(stackBranchPush ? stackReadinessKey(branch.name) : (stackPush?.[0] ?? branch.name))
-  const processing = useObjectBusy(branch.name) !== null
+  const processing = useRowOperation(branch.name) !== undefined
   const push = usePushButton(branch, isPushing)
   // Rust offers it while the remote has commits the branch lacks (`domain_policy::actions`)
   const pick = useRowPart(branch.name, "actions")?.find(action => action.id === "pick-remote-commits")
@@ -231,7 +232,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
                     variant="outline"
                     size="xs"
                     data-testid="push-pick-remote"
-                    disabled={disabled || pick.availability.kind === "disabled"}
+                    disabled={disabled || !isStartable(pick.availability)}
                     onClick={() => {
                       close()
                       void pickRemoteCommits(branch.name, request?.options.expectRemote ?? null)
@@ -265,7 +266,6 @@ const HOLD_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-re
 function PushHeldActions({ branch, close }: { branch: Branch; close: () => void }) {
   const hold = usePushHold(branch.name)
   const robotParts = useRobotParts(hold?.robot)
-  const operations = useSessionOperations()
   const blocker = blockingBranchOf(branch)
   if (blocker !== null) {
     return (
@@ -286,7 +286,7 @@ function PushHeldActions({ branch, close }: { branch: Branch; close: () => void 
     return null
   }
   const own = hold.kind === "own"
-  const actions = getRobotItems(hold.robot, operations, robotParts).filter(it => HOLD_ACTIONS.has(it.id) && (own || it.id === "open-robot"))
+  const actions = getRobotItems(hold.robot, robotParts).filter(it => HOLD_ACTIONS.has(it.id) && (own || it.id === "open-robot"))
   return (
     <div className="flex flex-wrap gap-2" data-testid="push-hold-actions">
       {actions.map(action => (

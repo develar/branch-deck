@@ -98,7 +98,6 @@ vi.mock("@/stores/branch-sync", async () => {
     setOperationPushProgress: () => {},
   }
 })
-vi.mock("@/stores/operations", () => ({ whenRewritesDone: async () => {} }))
 vi.mock("@/stores/patronus", () => ({
   getPushHold: (name: string) => (name === "auth" ? { kind: "own", branch: "auth", robot: ROBOT } : null),
   getPatronusGitHubRepository: () => null,

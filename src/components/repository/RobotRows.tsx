@@ -5,7 +5,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { RelativeTime } from "@/components/shared/RelativeTime"
-import { getRobotItems, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -58,7 +58,6 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
   const reveal = entry.stackRoot ?? branchName
   // the actions Rust offers of the robot; a restart or a cancel that runs shows in its button
   const robotParts = useRobotParts(robot)
-  const operations = useSessionOperations()
   const mode = formatPushMode(robot.pushMode)
   const Icon = patronusChipIcons[chip.kind]
   const active = chip.kind === "running"
@@ -135,7 +134,7 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
         )}
       </span>
       <span className="flex">
-        {getRobotItems(robot, operations, robotParts).map(action => (
+        {getRobotItems(robot, robotParts).map(action => (
           <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${subject} in Patronus` : `${action.label} of ${subject}`} />
         ))}
       </span>

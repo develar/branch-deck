@@ -160,3 +160,29 @@ test("a rule of the domain in the page is refused: a deleted rule module, an exp
     { file: "src/lib/branch-next-step.ts", line: 1, rule: "rule-module", text: "a rule module whose rule Rust decides (domain-policy)" },
   ])
 })
+
+test("an admission of the page is refused: the deleted registry, an export of src/stores or src/lib that admits, queues or joins", () => {
+  const source = [
+    "export function runOperation(spec, run) {}",
+    "export function getOperationBlocker(running, key) {}",
+    "export const operationItem = (running, item) => item",
+    "export async function whenRewritesDone(path) {}",
+    "export function whileSyncing(item, syncing) {}",
+    "export function admitRewrite(intent) {}",
+    "export function queueRewriteOperation() {}",
+    // the claims of the surfaces, the words of an operation, a function of the module only
+    "export function useIndicatorClaim(surface) {}",
+    "export function operationBusyOf(operation) {}",
+    "function runOperation() {}",
+  ].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  const refused = ["1 operations-store", "2 operations-store", "3 operations-store", "4 operations-store", "5 operations-store", "6 operations-store", "7 operations-store"]
+  assert.deepEqual(rules("src/stores/example.ts"), refused)
+  // a blocker of a module of the page is a rule besides
+  assert.deepEqual(rules("src/lib/example.ts"), refused.toSpliced(1, 0, "2 rule-module"))
+  assert.deepEqual(rules("src/stores/example.test.ts"), [])
+  assert.deepEqual(rules("src/components/Example.tsx"), [])
+  assert.deepEqual(findProblems("src/stores/operations.ts", "export const x = 1\n"), [
+    { file: "src/stores/operations.ts", line: 1, rule: "operations-store", text: "the registry of the page: the session admits every operation (RepositoryView.operations)" },
+  ])
+})

@@ -1,7 +1,7 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { MergeConflictInfo } from "@/lib/bindings"
-import { useSurfaceBusy } from "@/stores/operations"
+import { useSurfaceBusy } from "@/stores/indicators"
 
 export type InlineActionType =
   | "issue-reference"

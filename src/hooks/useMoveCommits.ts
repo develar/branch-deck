@@ -7,12 +7,9 @@ import { capitalize, countMoved, describeMove } from "@/lib/move-summary"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { branchSyncStore, getBranchesOfCommits } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 export interface MoveOptions {
-  /** The action, as the id of its item: "move-to" by default, "ungroup", "remove-prefix" */
-  id?: string
   /** The busy state, "Moving 3 commits to auth" by default */
   label?: string
   /** The surface that started it and shows its spinner (`SelectContext.surface`) */
@@ -26,30 +23,33 @@ export interface MoveOptions {
  * table the window shows: the move, the sync, then the toast with an undo of the whole move and the moved commits
  * revealed in the target branch; when a stacked branch of the move builds alone afterwards, the toast also offers its
  * unstack. A move that waits for another rewrite in the queue of the session moves the commits as that rewrite left
- * them (the session follows their ids). Resolves after the sync, to false, after an error toast, if the commits could
- * not be moved.
+ * them (the session follows their ids); a move of other commits or to another target is a move of its own, never one
+ * that joins it. Resolves after the sync, to false, after an error toast, if the commits could not be moved.
  */
 export async function moveCommits(commits: readonly Commit[], targetBranch: string | null, options: MoveOptions = {}): Promise<boolean> {
-  const sources = getBranchesOfCommits(commits.map(commit => commit.originalHash))
-  const stacked = stackedBranchesOfMove(sources, targetBranch)
-  const objects = [...new Set([...sources, ...(targetBranch === null ? [] : [targetBranch])])]
   const commitIds = commits.map(commit => commit.originalHash)
+  const sources = getBranchesOfCommits(commitIds)
   // the repository of the move: the move and its Undo go there, whichever the main window shows when they run
   const repositoryPath = getSelectedRepositoryPath()
   const rewrite = witnessed<Extract<RewriteIntent, { rewrite: "move" }>>(repositoryPath, { rewrite: "move", commitIds, targetBranch })
-  const done = await runRewriteIntent(
-    {
-      repositoryPath,
-      id: options.id ?? "move-to",
-      subject: branchSubject(sources[0] ?? targetBranch ?? ""),
-      // a move of other commits or to another target is a move of its own: it waits for this one, never joins it
-      parameters: JSON.stringify([commitIds, targetBranch]),
-      objects,
-      label: options.label,
-      surface: options.surface,
-    },
-    rewrite,
-  )
+  return runMove(repositoryPath, rewrite, sources, targetBranch, options)
+}
+
+/**
+ * Ungroup of the branch `branchName`: every commit of it goes back where its key groups it, the rewrite `ungroup` of the
+ * engine (the move back of the commits the branch has when it runs), as `moveCommits` tells it; a second Ungroup of the
+ * branch joins it in the session, and its menu item runs meanwhile
+ */
+export async function ungroupBranch(branchName: string, options: MoveOptions = {}): Promise<boolean> {
+  const repositoryPath = getSelectedRepositoryPath()
+  const rewrite = witnessed<Extract<RewriteIntent, { rewrite: "ungroup" }>>(repositoryPath, { rewrite: "ungroup", branchName })
+  return runMove(repositoryPath, rewrite, [branchName], null, options)
+}
+
+/** Runs the move `rewrite` of the commits of `sources` to `targetBranch` and tells how it went (`moveCommits`) */
+async function runMove(repositoryPath: string, rewrite: RewriteIntent, sources: readonly string[], targetBranch: string | null, options: MoveOptions): Promise<boolean> {
+  const stacked = stackedBranchesOfMove(sources, targetBranch)
+  const done = await runRewriteIntent({ repositoryPath, label: options.label, surface: options.surface }, rewrite)
   if (done === null || done.result.rewrite !== "moved") {
     return false
   }

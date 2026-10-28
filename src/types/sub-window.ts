@@ -63,6 +63,8 @@ export interface BranchReviewItem {
   readonly label: string
   readonly kbds?: string[]
   readonly disabled?: boolean
+  /** Its intent runs in the session (`Availability.running`, `queued`): a spinner in place of its icon */
+  readonly running?: boolean
   readonly description?: string
   /** The page the window opens itself: the pull request */
   readonly url?: string
@@ -76,6 +78,8 @@ export interface BranchReviewMenuItem {
   readonly id: string
   readonly label: string
   readonly disabled?: boolean
+  /** Its intent runs in the session: a spinner in place of its icon, a request of it joins it */
+  readonly running?: boolean
   readonly description?: string
 }
 

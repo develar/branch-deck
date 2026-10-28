@@ -17,8 +17,9 @@ targets:
   - ../../src/components/shared/InlineForm.tsx
   - ../../src/components/shared/InlineInputDialog.tsx
   - ../../src/stores/inline-row-action.ts
-  - ../../src/stores/operations.ts
-  - ../../src/lib/rewrite.ts
+  - ../../src/stores/indicators.ts
+  - ../../src/hooks/useRowOperation.ts
+  - ../../src/lib/rewrite-run.ts
   - ../../src/components/shared/MoreActionsMenu.tsx
   - ../../src/components/shared/MenuItemButton.tsx
   - ../../src/components/branch/BranchNameCell.tsx
@@ -347,10 +348,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   until the sync reports it, so a sync of 35 branches doesn't turn every row to "syncing…" for a moment. Its push stays
   enabled: a push pressed during the sync waits for it in the session (`WaitingForSync`, the operation of the view)
   with the spinner of a push and pushes the branch as the sync left it, over the remote status the sync brought (a fetch moved the remote branch: one push over its new tip, not a
-  refused one and a second); a rewrite (the menu, a drag, M) still waits for the sync to finish. A push, also the push of an action (a Safe
-  Push start, a pull request, a review request), started while a rewrite of the repository runs waits for it and the
-  sync it ends with the same way, and pushes the branches as the rewrite left them.
-  [@test] ../../src/stores/operations.test.ts (`lets a push wait for the rewrites of its repository and the syncs they end with, the queued ones too`)
+  refused one and a second); a rewrite (the menu, a drag, M) goes to the session at once, named on the table the row
+  shows, and is decided on HEAD as it is when it runs (C14). A push started while a rewrite of the repository runs
+  waits for it in the session (`Queued` behind it, holding no HEAD, so a rewrite after it runs at once) and for the
+  sync it ends with, and pushes the branches as the rewrite left them.
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_push_clicked_during_a_rewrite_waits_behind_it_and_its_sync_and_pushes_what_it_left`)
   [@test] ../../crates/repository-model/src/table_test.rs (`a_quiet_resync_keeps_the_shown_state_and_a_changed_branch_starts_syncing`)
   [@test] ../../src/model/store.test.ts (`keeps the records of the branches a patch leaves alone, and of the commits of a branch whose state alone changed`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once, over the remote tip the sync brought, the row as it was meanwhile`)
@@ -577,15 +579,16 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   surface presents them by their stable ids in one look and one set of words (`src/presenters/actions.ts`: label,
   key, icon, a blocker in words), the menu, the "⋯" of an island, the branch preview, the review window, the robot's
   details and the robots indicator, the command palette, the toasts of a robot and the drops of a drag; an action is
-  disabled with its reason, never hidden for it. What runs on the page lies over them until the operations are Rust's:
-  a running operation (`operationItem`), a running push, and a sync of the table over a rewrite and a park, which
-  queues behind it then. Presence by what only the page holds stays the page's: "Squash N Fixups…" (the autosquash
+  disabled with its reason, never hidden for it. What runs lies over them in Rust too, from the operations of the
+  session (`with_operations`): the item of an intent that runs or waits in this process is running, a rewrite that can
+  start says what its start waits behind, a remote action whose resource an operation holds is disabled with it; no
+  sync disables a rewrite. Presence by what only the page holds stays the page's: "Squash N Fixups…" (the autosquash
   plan), "Ungroup" (the prefix to remove), "Close Pull Request #12…" of a pull request of the whole stack that no
   longer matches it.
-  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus`, `the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_in_this_order`, `a_rewrite_needs_commits_a_build_and_no_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`, `a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus`, `the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_in_this_order`, `a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`, `a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_offers_the_actions_of_each_subject_and_a_patch_only_those_that_changed`)
   [@test] ../../crates/domain-policy/src/action_catalog_test.rs (`every_action_and_every_blocker_code_is_in_the_action_catalog_the_page_reads`)
-  [@test] ../../src/presenters/actions.test.ts (`presents every action of the catalog Rust writes by its id, with its look`, `words every blocker of the catalog as the page says it`, `lays a sync of the table over a rewrite, keeping the reason Rust gave`)
+  [@test] ../../src/presenters/actions.test.ts (`presents every action of the catalog Rust writes by its id, with its look`, `words every blocker of the catalog as the page says it`, `lays the operations of the session over an item as Rust decides it: its own runs, a rewrite waits behind HEAD, a remote action is busy`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`offers only what Rust offers: no item of an action it doesn't offer, none hidden it does`)
 - The groups must come in the order of how often their actions are wanted, Safe Push first: "Fix Conflict…" for a
   branch with a conflict (its next step, above the rest); the landing: where Patronus answers "Safe Push" (`S`; "Safe
@@ -612,31 +615,44 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus`, `the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] ../../src/presenters/robot-actions.test.ts (`cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from`)
-- The menu of a branch that can't change now (no commits, a sync error, a sync running) keeps every item: the
-  rewrites (Rename…, Move to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash
-  Fixups…) are disabled with the reason ("Wait for the sync to finish", "The branch failed to sync", the reason of a
-  stack problem, "The branch has no commits", as Rust decides them, a sync of the table over them), except the fixes of a stack problem, which only wait
-  for the sync ([Stacked Branches](stacked-branches.spec.md#ui)); what rewrites nothing on the branch stays as it is: Review Changes, the pull request
-  and its review request, Push and Push with Children (they wait for the sync themselves), Safe Push, Safe Push With
-  Profile… and Dry Run (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions.
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`)
-  [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
-  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites disabled with the reason`)
-- An action of the menu must run once ([Running Operations](../../docs/design/operations.md)): while it runs, until the
-  sync that shows its result ends, its item is running (disabled, a spinner in place of its icon) on every surface, a
-  second start joins it (a double click runs one unstack); a start of it with other commits, another target or
-  another message (a drag of another commit of the branch onto the same branch, a reword of another commit) is a start
-  of its own, which waits in the queue. Every other rewrite of the repository, in every branch and commit menu, by a
-  drag, a key or a toast's Undo, stays offered and is never refused: its start goes to the session of the repository at
-  once (the rewrites are the engine's, the page queues none) and waits for the running one in the queue of the session,
-  in the order of the starts, its rows busy and its "⋯" saying what it waits for ("Waits for Unstacking oauth…"), then
-  runs on what the one before left (a move, a squash, a reword, an amend and an added issue reference take the commits
-  by the ids that one gave them, also a commit whose subject it changed), in the repository of its start, whichever the
-  window shows by then. A remote action that must wait for another one of its object (a cancel during a restart) is
-  disabled with its busy state ("Restarting the Safe Push…") and a start says so in an info toast titled as its
-  failure; a retarget and a review request of one pull request write other fields of it and run side by side, unless
-  the review request pushes first, which may retarget it too. A success toast with Undo comes after the sync.
-  [@test] ../../src/stores/operations.test.ts (`runs a second start of the same action once: it joins the running one and resolves with it`, `joins only a start with the same parameters and starts every other rewrite at once: the session of its repository queues it`, `lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request`, `ends the operation when its action fails`, `marks the item of the running action running, and leaves the items that would wait for it enabled: their start queues`, `disables the item of a remote action that must wait with the busy state of the one it waits for`)
+- The menu of a branch that can't change now (no commits, a sync error) keeps every item: the rewrites (Rename…, Move
+  to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash Fixups…) are disabled with
+  the reason ("The branch failed to sync", the reason of a stack problem, "The branch has no commits", as Rust decides
+  them), except the fixes of a stack problem, which run while it blocks the rest ([Stacked
+  Branches](stacked-branches.spec.md#ui)); what rewrites nothing on the branch stays as it is: Review Changes, the pull
+  request and its review request, Push and Push with Children (they wait for the sync themselves), Safe Push, Safe Push
+  With Profile… and Dry Run (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions. A
+  sync that runs disables no rewrite (C14): its start goes to the session at once, named on the table the window shows,
+  and runs once HEAD is as the session knows it; its row shows the rewrite on its "⋯" meanwhile, no info toast refuses
+  it, and each rewrite asks one sync after it.
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item during a sync, the rewrites enabled: the session admits them at once; the rest stays as it is`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`, `a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites enabled`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack from the menu during a held sync once that sync ended, without a refusal, one sync for the rewrite`)
+- An action of the menu must run once ([Running Operations](../../docs/design/operations.md)): while its intent runs or
+  waits in the session, its item is running (disabled, a spinner in place of its icon, its busy state as the reason:
+  "Unstacking oauth…", "Waits for Moving 1 commit to docs…", whom it waits for while another holder has the repository
+  lock) on every surface and in every window, as Rust lays the operations of the session over the actions
+  (`domain_policy::actions::with_operations`, `Running`, `Queued`); a second start joins it in the session (a double
+  click runs one unstack), and the surface that started it shows its spinner until its answer, after the sync that
+  shows its result. A start of it with other commits, another target or another message (a drag of another commit of
+  the branch onto the same branch, a reword of another commit) is a start of its own, which waits in the queue; a menu
+  item names no commits, so Move to…, Amend Changes… and Add Issue Reference… only wait. Every other rewrite of the
+  repository, in every branch and commit menu, by a drag, a key or a toast's Undo, stays offered and is never refused:
+  its item says what its start waits behind ("Waits for Unstacking oauth…", `Waits`), its start goes to the session at
+  once (the page queues none) and waits for the running one in the queue of the session, in the order of the starts,
+  its rows busy and its "⋯" saying what it waits for, then runs on what the one before left (a move, a squash, a
+  reword, an amend and an added issue reference take the commits by the ids that one gave them, also a commit whose
+  subject it changed), in the repository of its start, whichever the window shows by then. A remote action whose
+  resource an operation holds (a push of a branch a push of the stack sends, a cancel during a restart, an action
+  another process runs) is disabled with its busy state ("Pushing login…", "bd: Pushing auth…", `Busy`), and a key says
+  so in an info toast; a retarget and a review request of one pull request write other fields of it and run side by
+  side, unless the review request pushes first, which may retarget it too. A success toast with Undo comes after the
+  sync.
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`the_operations_of_the_session_lie_over_the_actions_its_own_runs_a_rewrite_waits_a_push_behind_its_ref_is_busy`, `the_restart_and_the_cancel_of_a_robot_run_once_and_hold_each_other_back`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_lays_the_operations_of_the_session_over_the_actions_from_the_admission_of_a_rewrite_to_its_end`)
+  [@test] ../../src/presenters/actions.test.ts (`lays the operations of the session over an item as Rust decides it: its own runs, a rewrite waits behind HEAD, a remote action is busy`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`shows the rewrite that runs in the session running, and says what the start of every other rewrite waits behind`, `runs while its push of the stack runs in the session, and waits for another push that holds the branch`)
   [@test] ../../src/lib/rewrite-run.test.ts (`says behind which rewrite of this window it waits in the queue of the session`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it`, `should move a second commit of the same branch dragged onto the same target while the first move runs: a move of its own, never joined to the first`)
   [@test] ../../tests/e2e/amend-changes/amend-changes.spec.ts (`should amend in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile`, `should add the issue reference in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile`, `should reword a commit as the issue reference before it in the queue left it: another id, another subject`)
@@ -647,8 +663,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - An action started from the menu, a key or a toast must show its spinner on the "⋯" of its row (`aria-busy`, its
   hover the busy state); one started from a button that stays (the notice's "Unstack from login", a form, a dialog,
-  the Safe Push popover) shows it there, and "⋯" is only disabled. Every row the operation works on is busy meanwhile:
-  no right-click menu, "⋯" disabled, no drag, no push.
+  the Safe Push popover) shows it there, and "⋯" is only disabled. Every row the operation works on is busy meanwhile,
+  as the view of the session has it in every window (`RepositoryView.operations`: a rewrite of the branch or of its
+  commits, the retarget of its pull request; `useRowOperation`): no right-click menu, "⋯" disabled, no drag, no push.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - The same error toast must not stack: an error with the title and the description of an open error toast updates
   it in place; Activity records each.
@@ -663,11 +680,12 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   hover), what it pushes (`pushOrConfirm`: the stack only where the button pushes it, the question in the button's
   description before a push that drops remote commits), enabled as that button (the `push` Rust decides), else disabled with the
   reason ("The remote branch is up to date", the blocked parent, "The branch failed to sync: merge conflict" for a
-  branch the last sync did not build, the running Safe Push that holds it, "The stack is being pushed" while its stack
-  push runs, "Wait for the sync to finish"). It is the one push of the branch in the
+  branch the last sync did not build, the running Safe Push that holds it, "Wait for the sync to finish" while a sync
+  rebuilds the branch), running while its push runs in the session ("Pushing login…"), disabled while another push
+  that sends the branch holds it ("Pushing login…" of the stack push of a branch built on it). It is the one push of the branch in the
   menu: no second "Push Stack" pushes an ancestor past the question its own push button asks. The branch preview and
   the review list the same item.
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `is disabled with the reason while the stack push runs, also over the hold of a parked branch it pushes`, `is disabled with the reason Rust gives: a branch the last sync did not build names the status of its row, not up to date`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `runs while its push of the stack runs in the session, and waits for another push that holds the branch`, `is disabled with the reason Rust gives: a branch the last sync did not build names the status of its row, not up to date`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_in_this_order`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
 - An item shows its key only where the key works: the push `P`, "Safe Push" `S`, "Review Changes" `D`, "Open Pull

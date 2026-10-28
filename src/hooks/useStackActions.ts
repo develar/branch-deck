@@ -8,7 +8,6 @@ import type { RewriteRunSpec } from "@/lib/rewrite-run"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
 import { formatMoveUnstackAction } from "@/lib/stack"
 import { requestReveal } from "@/stores/commit-move"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
 import { forgetCollapsedStack, renameCollapsedStack } from "@/stores/stack-collapse"
 
@@ -61,7 +60,7 @@ async function runStackOperation(
  */
 export async function restackBranch(branchName: string, parent: string | null, options: StackOperationOptions = {}): Promise<boolean> {
   const done = await runStackOperation(
-    { id: parent === null ? "unstack" : "stack-on", subject: branchSubject(branchName), objects: [branchName], surface: options.surface },
+    { surface: options.surface },
     repositoryPath => (parent === null ? witnessed(repositoryPath, { rewrite: "unstack", branchName }) : witnessed(repositoryPath, { rewrite: "restack", branchName, parent })),
     suffix => (parent === null ? `Unstacked ${branchName}${suffix}` : `Stacked ${branchName} on ${parent}${suffix}`),
     branchName,
@@ -76,7 +75,7 @@ export async function restackBranch(branchName: string, parent: string | null, o
 /** Renames a branch together with its name in the prefixes of the branches stacked on it */
 export async function renameBranch(branchName: string, newName: string, options: StackOperationOptions = {}): Promise<boolean> {
   const done = await runStackOperation(
-    { id: "rename", subject: branchSubject(branchName), objects: [branchName], label: options.label, surface: options.surface },
+    { label: options.label, surface: options.surface },
     repositoryPath => witnessed(repositoryPath, { rewrite: "rename", branchName, newName }),
     suffix => `Renamed ${branchName} to ${newName}${suffix}`,
     newName,

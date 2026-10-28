@@ -9,8 +9,8 @@
 // branch that drops, whose Force Push runs the push of the stack again, unforced, with that drop accepted, over the
 // remote head the row shows at the click (a drop of another branch nobody showed stays out; Push Stack is forced: its
 // description named each drop). The session admits
-// it (the same push twice is one, another push of a ref waits), waits for its sync, decides under the repository lock
-// and pushes after it; the view shows it running (`pushOperationIn`, `useStackPush`), the window that runs it how far
+// it (the same push twice is one, another push of a ref waits), waits for the rewrites admitted before it and the sync
+// they end with, so it sends what they leave, decides under the repository lock and pushes after it; the view shows it running (`pushOperationIn`, `useStackPush`), the window that runs it how far
 // it is. The page words the plan's refusal and the outcome: the toast of the pushes, the remote that moved, why not.
 import type { ApiError, Confirmation, Intent, Outcome, PatronusRobot, PushScope, Reason } from "@/lib/bindings"
 import { getErrorCode, notifyError } from "@/lib/errors"
@@ -30,7 +30,6 @@ import type { Retargeted } from "@/presenters/pull-request-url"
 import { formatReason, formatReasonOrNull } from "@/presenters/reasons"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getPushOrders, getStackBranch } from "@/stores/branch-sync"
-import { whenRewritesDone } from "@/stores/operations"
 import { getBranchLanding, getPushHold } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
@@ -100,13 +99,11 @@ export async function pushBranch(branchName: string, options: PushBranchOptions 
 
 /**
  * The push of `branchName` alone in the repository the main window shows (`Push` with the scope `alone`), over the
- * remote head its row shows unless `options` names another, after the rewrites of the repository the page runs (their
- * sync the session's: the push waits for it in Rust)
+ * remote head its row shows unless `options` names another; a rewrite that runs (a move out of the branch) the session
+ * lets it wait for, with the sync it ends with, and decides it again on what they left
  */
 export async function runBranchPush(branchName: string, options: PushBranchOptions = {}): Promise<PushRun> {
   const repositoryPath = getSelectedRepositoryPath()
-  // a rewrite of the repository that runs (a move out of the branch): the push sends what it leaves
-  await whenRewritesDone(repositoryPath)
   // the branches of the table are of the selected repository: another one's branch of the same name is another branch
   const switched = getRepositorySwitchReason(repositoryPath)
   if (switched !== null) {
@@ -407,8 +404,9 @@ function stackIntent(branchName: string, scope: PushScope, force: boolean): Inte
 }
 
 /**
- * Runs the push `intent` of a stack started from `startedFrom` in the repository the main window shows, after its
- * rewrites (their sync the session's: the push waits for it in Rust): its plan, refused by its first blocker; one that
+ * Runs the push `intent` of a stack started from `startedFrom` in the repository the main window shows (a rewrite that
+ * runs and the sync it ends with the session lets it wait for, and decides it again on what they left): its plan,
+ * refused by its first blocker; one that
  * asks first what the user did not accept (`accepted`, the drop a Force Push of `askStackPush` accepted) opens the push
  * button of the branch that drops remote commits (`askStackPush`); else run on its fingerprint and its confirmations,
  * its one atomic push showing its progress on the push buttons of what it sends. What its outcome says: a retarget that failed, the
@@ -418,8 +416,6 @@ function stackIntent(branchName: string, scope: PushScope, force: boolean): Inte
 async function runStackPush(startedFrom: string, intent: Intent, options: StackPushOptions, accepted: readonly Confirmation[] = []): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
   const failure = `Cannot push ${formatReadinessSubject(startedFrom)}`
-  // a rewrite of the repository that runs (a move out of a branch): the push sends what it leaves
-  await whenRewritesDone(repositoryPath)
   const switched = getRepositorySwitchReason(repositoryPath)
   if (switched !== null) {
     notifyError(failure, switched)

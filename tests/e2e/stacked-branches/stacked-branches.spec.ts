@@ -61,27 +61,34 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync, syncBranches, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { holdCommand, holdRewrites, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import type { RewriteCall } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand, recordRewrites, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/acme/monorepo/compare"
 
+/** Whom a rewrite waits for while the test server holds the repository lock, as another process does */
+const WAITING_FOR_HOLDER = /^Waiting for `[^`]+` \(pid \d+, for \d+ s\)…$/
+
 /**
- * While the held unstack of oauth runs, the rewrites of another row wait for it, disabled with its busy state; released,
- * it ran once and its toast comes with the sync
+ * The unstack of oauth waits in the session for the repository lock the test holds (`repo.holdRepositoryLock`): the
+ * rewrites of another row stay offered and say what their start waits behind; released, it ran once and its toast comes
+ * with the sync
  */
-async function expectRewritesWaitAndUnstackOnce(page: Page, restack: { calls: readonly unknown[]; release: () => void }): Promise<void> {
-  // the other rewrites stay offered: a start waits for the unstack in the queue
+async function expectRewritesWaitAndUnstackOnce(page: Page, repo: TestRepositoryBuilder, unstacks: readonly RewriteCall[]): Promise<void> {
+  // the other rewrites stay offered: a start waits for the unstack in the queue of the session
   await openContextMenu(page, findBranchRow(page, "docs"))
   for (const name of [/^Move to…/, /^Stack On…/, /^Unapply…/]) {
     await expect(page.getByRole("menuitem", { name })).not.toHaveAttribute("aria-disabled", "true")
   }
+  await page.getByRole("menuitem", { name: /^Unapply…/ }).hover()
+  await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for Unstacking oauth…" })).toBeVisible()
   await page.keyboard.press("Escape")
   const syncs = await finishedSyncCount(page)
-  await runAndWaitForSync(page, async () => restack.release())
+  await runAndWaitForSync(page, () => repo.holdRepositoryLock(false))
   // its toast comes once the sync showed the result
   await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
   // one rewrite reached the backend, and one sync showed it
-  expect(restack.calls).toHaveLength(1)
+  expect(unstacks).toHaveLength(1)
   expect(await finishedSyncCount(page)).toBe(syncs + 1)
 }
 
@@ -490,7 +497,7 @@ test.describe("Stacked branches", () => {
   })
 
   test("should unstack once from the alert, its spinner on the button until the sync shows the branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_branches")
+    const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
     await openContextMenu(page, findBranchRow(page, "login"))
     await clickContextMenuItem(page, "Ungroup")
@@ -501,17 +508,19 @@ test.describe("Stacked branches", () => {
     const unstack = alert.getByTestId("unstack-from-parent")
     await expect(unstack).toHaveText("Unstack from login")
 
-    const restack = await holdRewrites(page, "unstack")
+    // the unstack reaches the session and waits there for the repository lock another process holds
+    const unstacks = await recordRewrites(page, "unstack")
+    await repo.holdRepositoryLock(true)
     // a double click, as the triple click that once ran three unstacks
     await unstack.dblclick()
     await expect(unstack).toHaveAttribute("aria-busy", "true")
     await expect(unstack).toBeDisabled()
-    await expect(unstack).toHaveText("Unstacking oauth…")
+    await expect(unstack).toHaveText(WAITING_FOR_HOLDER)
     // the button that started it shows the spinner; the row's "⋯" is only disabled
     const more = findBranchRow(page, "oauth").getByRole("button", { name: "More actions for oauth" })
     await expect(more).toBeDisabled()
     await expect(more).not.toHaveAttribute("aria-busy")
-    await expectRewritesWaitAndUnstackOnce(page, restack)
+    await expectRewritesWaitAndUnstackOnce(page, repo, unstacks)
     await expect(page.getByText("Cannot unstack oauth")).toHaveCount(0)
     await expect.poll(() => tree(page)).toContain("oauth@0")
     await expect(getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")).toHaveCount(0)
@@ -522,31 +531,60 @@ test.describe("Stacked branches", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setupRepo("stacked_branches")
+    const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
 
-    const restack = await holdRewrites(page, "unstack")
+    // the unstack reaches the session and waits there for the repository lock another process holds
+    const unstacks = await recordRewrites(page, "unstack")
+    await repo.holdRepositoryLock(true)
     await openContextMenu(page, findBranchRow(page, "oauth"))
     await clickContextMenuItem(page, "Unstack from login")
+    // its "⋯" shows the wait, and its menu is the Stop Waiting of it
     const more = findBranchRow(page, "oauth").getByRole("button", { name: "More actions for oauth" })
     await expect(more).toHaveAttribute("aria-busy", "true")
-    await expect(more).toBeDisabled()
     await more.hover()
     // the tooltip of the menu item the click closed may still fade out
-    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Unstacking oauth…" })).toBeVisible()
+    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: WAITING_FOR_HOLDER })).toBeVisible()
     // a key runs the item it is the hint of: M on another row opens its form, whose move would wait for the unstack
     await findBranchRow(page, "docs").focus()
     await page.keyboard.press("m")
     await expect(page.getByTestId("inline-branch-target")).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(page.getByTestId("inline-branch-target")).toHaveCount(0)
-    await expectRewritesWaitAndUnstackOnce(page, restack)
+    await expectRewritesWaitAndUnstackOnce(page, repo, unstacks)
     await expect(more).toBeEnabled()
     await expect(more).not.toHaveAttribute("aria-busy")
     // the rewrites run again
     await openContextMenu(page, findBranchRow(page, "docs"))
     await expect(page.getByRole("menuitem", { name: /^Move to…/ })).not.toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
+  })
+
+  test("should unstack from the menu during a held sync once that sync ended, without a refusal, one sync for the rewrite", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    const unstacks = await recordRewrites(page, "unstack")
+    // the sync of the session runs until the test releases it (a focus, another window)
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
+    const syncs = await finishedSyncCount(page)
+    const syncButton = page.getByTestId("sync-button")
+    await syncButton.click()
+    await expect(syncButton).toHaveAttribute("aria-busy", "true")
+
+    // the unstack is offered during the sync and goes to the session at once, named on the table the row shows
+    await openContextMenu(page, findBranchRow(page, "oauth"))
+    await clickContextMenuItem(page, "Unstack from login")
+    await expect.poll(() => unstacks.length).toBe(1)
+    // its answer waits for the sync it asked, after the held one: no toast yet, nothing refused
+    await expect(page.getByText(/^Unstacked oauth/)).toHaveCount(0)
+
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
+    await expect.poll(() => tree(page)).toContain("oauth@0")
+    await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot / })).toHaveCount(0)
+    // the held sync and the one the rewrite asked
+    expect(await finishedSyncCount(page)).toBe(syncs + 2)
+    expect(unstacks).toHaveLength(1)
   })
 
   test("should move commits to a new branch on a parent with Move to…", async ({ page, setupRepo, syncAndWaitForBranches }) => {

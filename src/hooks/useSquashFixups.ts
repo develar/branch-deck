@@ -5,7 +5,6 @@ import { formatFixupCount, getListFixups } from "@/lib/autosquash"
 import type { AutosquashScope } from "@/lib/bindings"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { getAutosquashPlan, useAutosquashPlan } from "@/stores/branch-sync"
-import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /** The surface of the squash of the fixups of a list (a branch, the unassigned commits): its popover */
@@ -14,8 +13,6 @@ export function squashFixupsSurface(list: string): string {
 }
 
 export interface SquashFixupsOptions {
-  /** The list whose fixups are squashed (a branch, the unassigned commits): its row is busy meanwhile */
-  list?: string
   /** The surface that started it and shows its spinner */
   surface?: string | null
 }
@@ -28,13 +25,8 @@ export interface SquashFixupsOptions {
  */
 export async function squashFixups(scope: AutosquashScope, options: SquashFixupsOptions = {}): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
-  const branchName = scope.type === "branch" ? scope.value : null
-  const list = options.list ?? branchName
   const done = await runRewriteIntent(
     {
-      id: scope.type === "fixup" ? "squash-into" : "squash-fixups",
-      subject: branchName === null ? `fixups:${scope.type === "fixup" ? scope.value : scope.type}` : branchSubject(branchName),
-      objects: list === null ? [] : [list],
       label: scope.type === "fixup" ? "Squashing the fixup" : "Squashing the fixups",
       surface: options.surface,
       repositoryPath,

@@ -1,6 +1,6 @@
 import { RobotActionButton } from "@/components/branch/PatronusChip"
 import { StatusChip } from "@/components/branch/StatusChip"
-import { getRobotItems, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatPushMode } from "@/lib/patronus"
@@ -41,7 +41,6 @@ export function RobotCommitMarker({ branchName, change }: RobotCommitMarkerProps
 
 /** The robot that lacks the commit, why, and the actions of the robot */
 function RobotCommitDetails({ robot, change }: { robot: PatronusRobot; change: "added" | "changed" }) {
-  const operations = useSessionOperations()
   // the robot of a branch built on this one, or of the whole stack: its actions are the ones Rust offers of it
   const robotParts = useRobotParts(robot)
   const mode = formatPushMode(robot.pushMode)
@@ -73,7 +72,7 @@ function RobotCommitDetails({ robot, change }: { robot: PatronusRobot; change: "
       </dl>
       <p className="text-xs text-muted-foreground">{`The result won't cover this commit. Restart ${mode} to test the current ${what}.`}</p>
       <div className="flex flex-wrap gap-2">
-        {getRobotItems(robot, operations, robotParts).map(action => (
+        {getRobotItems(robot, robotParts).map(action => (
           <RobotActionButton key={action.id} action={action} />
         ))}
       </div>

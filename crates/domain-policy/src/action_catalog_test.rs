@@ -9,6 +9,7 @@ use domain_types::actions::{ActionBlocker, ActionId, NothingBeyond};
 use domain_types::fixtures::robot_of;
 use domain_types::landing::{Landed, LandedBy};
 use domain_types::next_step::{StepBlocker, StepFact};
+use domain_types::operation::OperationId;
 use domain_types::patronus::PatronusPushMode;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView};
@@ -37,10 +38,11 @@ const fn code_index(blocker: &ActionBlocker) -> usize {
     ActionBlocker::TargetUnread => 16,
     ActionBlocker::NoTarget => 17,
     ActionBlocker::OtherBase { .. } => 18,
+    ActionBlocker::Busy { .. } => 19,
   }
 }
 
-const CODES: usize = 19;
+const CODES: usize = 20;
 
 /// What the page reads: every id, and the blockers with the action each is an example of
 #[derive(Serialize)]
@@ -63,7 +65,7 @@ fn examples() -> Vec<(ActionId, ActionBlocker)> {
     (ActionId::SafePush, ActionBlocker::Step { blocker: StepBlocker::Syncing }),
     (ActionId::CreatePullRequest, ActionBlocker::Pending { fact: StepFact::PullRequests }),
     (ActionId::RestartRobot, ActionBlocker::ProblemsFailed { message: s("502 Bad Gateway") }),
-    (ActionId::Rename, ActionBlocker::Syncing),
+    (ActionId::Push, ActionBlocker::Syncing),
     (ActionId::Push, ActionBlocker::SyncFailed { problem: None }),
     (
       ActionId::Rename,
@@ -126,6 +128,12 @@ fn examples() -> Vec<(ActionId, ActionBlocker)> {
         number: 101,
         base: s("release/253"),
         target: s("master"),
+      },
+    ),
+    (
+      ActionId::CancelRobot,
+      ActionBlocker::Busy {
+        op: OperationId(s("01JBUSY0000000000000000000")),
       },
     ),
   ]

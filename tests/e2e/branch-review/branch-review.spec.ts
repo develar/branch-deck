@@ -15,7 +15,7 @@ import { clickContextMenuItem, openContextMenu } from "../helpers/selection-help
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommand } from "../helpers/wait-helpers"
+import { recordRewrites, routeCommand } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -613,6 +613,37 @@ test.describe("Branch review window", () => {
     // the main window runs it: the rename form of the row
     await expect(page.getByTestId("inline-rename-input")).toBeVisible()
     expect(await windowRequests(reviewPage)).toEqual([expect.objectContaining({ branchName: "auth", menuItemId: "rename" })])
+  })
+
+  test("should run an Unstack the window asks for while the row's own runs once: the request joins it, its item running in the window", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    const opened = await openReviewWindow(page, "oauth")
+    const { repositoryPath } = opened.data
+    const unstacks = await recordRewrites(page, "unstack")
+    // the row's menu starts it: it waits in the session for the repository lock another process holds
+    await repo.holdRepositoryLock(true)
+    await openContextMenu(page, findBranchRow(page, "oauth"))
+    await clickContextMenuItem(page, "Unstack from login")
+    await expect.poll(() => unstacks.length).toBe(1)
+    // the window is told: the item of its menu runs, as on the row
+    const unstackOfWindow = async () =>
+      (await getEmittedEvents<BranchReviewWindowState>(page, "branch-review/state"))
+        .at(-1)
+        ?.menus.oauth?.flat()
+        .find(item => item.id === "unstack")
+    await expect.poll(unstackOfWindow).toMatchObject({ running: true, disabled: true })
+    // the window asks for it at the same time: its request is that start, no second one
+    await emitTauriEvent(page, "branch-review/request", { id: "again", repositoryPath, branchName: "oauth", menuItemId: "unstack" } satisfies BranchReviewRequest)
+    await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "again", ok: true }])
+    await runAndWaitForSync(page, () => repo.holdRepositoryLock(false))
+    await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
+    expect(unstacks).toHaveLength(1)
+    expect(await getEmittedEvents(page, "branch-review/feedback")).toEqual([])
   })
 
   test("should create the pull request in the window it was asked in, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {

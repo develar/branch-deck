@@ -9,12 +9,13 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
 import { useChildrenPush, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/useBranchPushes"
+import { useRowOperation, useUnclaimedOperation } from "@/hooks/useRowOperation"
 import type { MenuItemGroups } from "@/lib/menu"
-import { presentStopWaiting } from "@/presenters/lock-wait"
+import { presentStopWaiting, waitingOf } from "@/presenters/lock-wait"
 import { firstPushPending, isFirstPushInLanding } from "@/presenters/push-button"
 import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
-import { branchSubject, operationLabel, useObjectBusy, useUnclaimedOperation } from "@/stores/operations"
+import { operationBusyOf } from "@/stores/indicators"
 import { usePatronusPending, usePushHold } from "@/stores/patronus"
 import { usePullRequestsLoading } from "@/stores/pull-requests"
 
@@ -34,10 +35,10 @@ export interface BranchActionsProps {
  * approvals) and "⋯" with the branch menu. A click in the cell, on a disabled button too, doesn't toggle the row.
  */
 export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
-  const processing = useObjectBusy(branch.name) !== null
+  const processing = useRowOperation(branch.name) !== undefined
   // an action of the row started from its menu, a key or a toast shows its spinner on "⋯"
-  const unclaimed = useUnclaimedOperation(branchSubject(branch.name))
-  const unclaimedBusy = unclaimed === undefined ? null : operationLabel(unclaimed)
+  const unclaimed = useUnclaimedOperation(branch.name)
+  const unclaimedBusy = unclaimed === undefined ? null : operationBusyOf(unclaimed)
   const isPushing = useIsBranchPushing(branch.name)
   const startedStackPush = useStackPush(branch.name)
   // one indicator of a stack push: the island header of the stack it pushes, or the row it started from; so is the push
@@ -82,7 +83,7 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
           name={branch.name}
           disabled={processing}
           busy={unclaimedBusy}
-          stopWaiting={presentStopWaiting(unclaimed)}
+          stopWaiting={presentStopWaiting(waitingOf(unclaimed))}
           menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />}
         />
       </ColumnTrack>

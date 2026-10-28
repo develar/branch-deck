@@ -8,25 +8,33 @@
 //!   one rule for the slot, the menu, S and the popover.
 //! - The push waits for the facts its button reads: parked, blocked, failed, held, a sync that rebuilds the branch,
 //!   nothing to push. Push with Children says what it lacks beyond the branch (`NothingBeyond`).
-//! - A rewrite needs commits, a build and no sync that rebuilds the branch; the fixes of a stack problem run while the
-//!   problem blocks the rest. A sync of the table that leaves the row as it is lies over the rewrites in the page, with
-//!   the operations: no patch of every row when a sync starts.
+//! - A rewrite needs commits and a build; the fixes of a stack problem run while the problem blocks the rest. A sync
+//!   holds no rewrite back: the session admits it at once, named on the table its window showed (`TableWitness`), and
+//!   decides it on HEAD as it is then (C14).
 //! - A robot's restart waits for why it failed and for the approvals its step misses; a fact without an answer is never
 //!   "no": `Pending`.
 //!
-//! Offered by the facts only (a lost start by its record): what runs on the subject (an operation of the view, a rewrite
-//! of the page, a push) the page lays over them (`operationItem`), and what the page alone knows decides the presence of
-//! a few items (the fixups of the autosquash plan, the label of Ungroup, an orphaned pull request of a whole stack).
+//! What runs lies over them (`with_operations`, docs/design/operations.md, "Items"), from the operations of the session:
+//! the item of an intent that runs or waits in this process is `Running` or `Queued` (a start joins it); a rewrite that
+//! can run waits behind the newest operation of this process that holds HEAD (`Waits`: its start queues, never refused);
+//! a remote action whose resource an operation holds is `Busy`, behind it in this process, refused by the registry of
+//! the repository for another process. A menu item names no commits, no files and no message: of a move, an amend and
+//! an added issue reference it only waits, their starts with what they name being operations of their own.
+//!
+//! Offered by the facts only (a lost start by its record); what the page alone knows decides the presence of a few
+//! items (the fixups of the autosquash plan, the label of Ungroup, an orphaned pull request of a whole stack).
 
 use crate::next_step::{Listing, PatronusAnswer};
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, NothingBeyond};
 use domain_types::landing::Landed;
+use domain_types::landing::Subject;
 use domain_types::next_step::{NextStep, StepBlocker, StepFact, StepKind};
-use domain_types::operation::{OperationStep, RunningOperation};
-use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
+use domain_types::operation::{Intent, OperationId, OperationStep, Origin, PullRequestField, PushScope, Resource, RunningOperation};
+use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{RestartAction, RobotRestart};
+use domain_types::rewrite::{AutosquashScope, RewriteIntent};
 use domain_types::session::{BranchStatus, ChildrenPush, Parked, StackBranchAlong};
 use domain_types::stack::{StackFix, StackProblemView};
 use domain_types::{PushAction, RemoteStatusUpdate};
@@ -35,7 +43,7 @@ use domain_types::{PushAction, RemoteStatusUpdate};
 #[derive(Clone, Copy, Debug)]
 pub struct Row<'a> {
   pub name: &'a str,
-  /// The sync rebuilds it
+  /// The sync rebuilds it: its push waits for the build
   pub syncing: bool,
   pub status: BranchStatus,
   /// The parent a blocked branch waits for
@@ -136,9 +144,10 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
     offer(ActionId::CreatePullRequest, reason);
   }
   let rewrite = rewrite_blocker(row);
+  // a fix of the stack problem runs while the problem blocks the rest: a regroup keeps a problem it finds
   let fix = |fix: &dyn Fn(&StackFix) -> bool| {
     if row.problem.is_some_and(|problem| problem.fixes.iter().any(fix)) {
-      fix_blocker(row)
+      None
     } else {
       rewrite.clone()
     }
@@ -159,19 +168,18 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   );
   offer(ActionId::SquashFixups, rewrite.clone());
   offer(ActionId::Unapply, rewrite);
-  let syncing = fix_blocker(row);
   match row.parked {
     // parked with its parent: only the parent's unpark
-    Some(parked) if parked.with.is_some() => offer(ActionId::Unpark, syncing),
+    Some(parked) if parked.with.is_some() => offer(ActionId::Unpark, None),
     Some(_) => {
-      offer(ActionId::Park, syncing.clone());
-      offer(ActionId::Unpark, syncing);
+      offer(ActionId::Park, None);
+      offer(ActionId::Unpark, None);
     }
     None => {
       // a robot that lands it lands whatever a park says
       let held = facts.hold.filter(|_| !facts.hold_landed).map(|reason| ActionBlocker::ParkHeld { reason: reason.clone() });
       let no_commits = (row.commit_count == 0).then_some(ActionBlocker::NoCommits);
-      offer(ActionId::Park, held.or(no_commits).or(syncing));
+      offer(ActionId::Park, held.or(no_commits));
     }
   }
   actions
@@ -219,13 +227,10 @@ fn push_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
   facts.remote.is_some_and(|remote| remote.action == PushAction::UpToDate).then_some(ActionBlocker::UpToDate)
 }
 
-/// Why the commits of the remote branch can't come into the branch: parked, blocked, a sync rebuilds it (the branch it
-/// groups them into is not what the user saw), held by a running Safe Push
+/// Why the commits of the remote branch can't come into the branch: parked, blocked, held by a running Safe Push; a sync
+/// holds it back no more than another rewrite (the pick names the remote tip the row showed)
 fn pick_remote_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
-  let row = &facts.row;
-  set_aside(row)
-    .or_else(|| facts.hold.map(|hold| ActionBlocker::Rule { reason: hold.clone() }))
-    .or_else(|| fix_blocker(row))
+  set_aside(&facts.row).or_else(|| facts.hold.map(|hold| ActionBlocker::Rule { reason: hold.clone() }))
 }
 
 /// The branch is set aside: parked (or built on a parked branch), or blocked by the branch it is built on
@@ -300,24 +305,15 @@ pub fn review_blocker(row: &Row<'_>) -> Option<ActionBlocker> {
   })
 }
 
-/// Why a rewrite of the branch can't run: no commits, it failed to sync (only the fixes of its stack problem run), a sync
-/// rebuilds it
+/// Why a rewrite of the branch can't run: no commits, it failed to sync (only the fixes of its stack problem run); a sync
+/// that rebuilds it is no reason (C14)
 fn rewrite_blocker(row: &Row<'_>) -> Option<ActionBlocker> {
   if row.commit_count == 0 {
     return Some(ActionBlocker::NoCommits);
   }
-  if row.sync_failed {
-    return Some(ActionBlocker::SyncFailed {
-      problem: row.problem.map(|problem| problem.reason.clone()),
-    });
-  }
-  fix_blocker(row)
-}
-
-/// Why a fix of the stack problem of the branch can't run: a sync rebuilds it; the problem doesn't block its fixes, as a
-/// regroup keeps a problem it finds
-fn fix_blocker(row: &Row<'_>) -> Option<ActionBlocker> {
-  row.syncing.then_some(ActionBlocker::Syncing)
+  row.sync_failed.then(|| ActionBlocker::SyncFailed {
+    problem: row.problem.map(|problem| problem.reason.clone()),
+  })
 }
 
 /// What the whole stack of a root is, as its actions read it
@@ -573,4 +569,170 @@ pub fn review_actions(facts: &PullRequestFacts<'_>) -> Vec<ActionState> {
     actions.push(state(ActionId::RemoveFromReviews, None));
   }
   actions
+}
+
+/// The subject whose actions the operations of the session lie over (`with_operations`), as the operations name it
+#[derive(Clone, Copy, Debug)]
+pub enum Of<'a> {
+  /// A branch: `pushes` the full name of its virtual branch, which its push writes; `unparks` the branch its Unpark
+  /// unparks (the parent of a branch parked with it, else itself); `pull_request` the number of its open pull request
+  Branch {
+    name: &'a str,
+    pushes: Option<&'a str>,
+    unparks: &'a str,
+    pull_request: Option<u32>,
+  },
+  /// The whole stack of `root`: `main_line` the last branch of its main line, whose Safe Push lands the stack in pieces;
+  /// `pull_request` the number of the open pull request of its stack branch
+  WholeStack {
+    root: &'a str,
+    main_line: Option<&'a str>,
+    pull_request: Option<u32>,
+  },
+  Robot {
+    id: &'a str,
+  },
+  /// A start whose answer was lost, the operation `op`
+  Start {
+    op: &'a OperationId,
+  },
+}
+
+/// The actions of the subject `of` with the operations of its session laid over them, `operations` in the order they
+/// were admitted (the module's header): its own intent of this process runs (`Running`) or waits in the queue (`Queued`);
+/// an action that can run otherwise keeps its availability but a rewrite, which waits behind the newest operation of
+/// this process that holds HEAD (`Waits`), and a remote action whose resource an operation holds, or whose intent another
+/// process runs (`Busy`); an action disabled for its own reason keeps it
+#[must_use]
+pub fn with_operations(actions: Vec<ActionState>, of: Of<'_>, operations: &[RunningOperation]) -> Vec<ActionState> {
+  if operations.is_empty() {
+    return actions;
+  }
+  actions.into_iter().map(|action| overlay(action, of, operations)).collect()
+}
+
+fn overlay(action: ActionState, of: Of<'_>, operations: &[RunningOperation]) -> ActionState {
+  let id = action.id;
+  let this_process = || operations.iter().filter(|operation| operation.origin == Origin::ThisProcess);
+  if let Some(own) = this_process().find(|operation| is_own(id, of, &operation.intent)) {
+    let op = own.id.clone();
+    let availability = match &own.step {
+      OperationStep::Queued { behind } => Availability::Queued { op, behind: behind.clone() },
+      _ => Availability::Running { op },
+    };
+    return ActionState { id, availability };
+  }
+  if action.availability != Availability::Enabled {
+    return action;
+  }
+  let availability = if is_rewrite(id) {
+    this_process()
+      .rfind(|operation| operation.resources.contains(&Resource::Head))
+      .map(|holder| Availability::Waits { op: holder.id.clone() })
+  } else {
+    let needs = needs(id, of);
+    operations
+      .iter()
+      .rfind(|operation| (operation.origin != Origin::ThisProcess && is_own(id, of, &operation.intent)) || operation.resources.iter().any(|held| needs.contains(held)))
+      .map(|holder| Availability::Disabled {
+        reason: ActionBlocker::Busy { op: holder.id.clone() },
+      })
+  };
+  availability.map_or(action, |availability| ActionState { id, availability })
+}
+
+/// The actions that rewrite HEAD or the refs of Branch Deck: their starts queue behind each other in the session
+const REWRITES: [ActionId; 12] = [
+  ActionId::Rename,
+  ActionId::MoveTo,
+  ActionId::StackOn,
+  ActionId::Unstack,
+  ActionId::Ungroup,
+  ActionId::AmendChanges,
+  ActionId::AddIssueReference,
+  ActionId::SquashFixups,
+  ActionId::Unapply,
+  ActionId::Park,
+  ActionId::Unpark,
+  ActionId::PickRemoteCommits,
+];
+
+fn is_rewrite(id: ActionId) -> bool {
+  REWRITES.contains(&id)
+}
+
+/// What a remote action of `of` holds while it runs, which an operation that holds it first keeps it waiting for: the
+/// ref a push writes, the field of the pull request it writes, the robot it restarts or cancels
+fn needs(id: ActionId, of: Of<'_>) -> Vec<Resource> {
+  let field = |number: Option<u32>, field: PullRequestField| number.map(|number| Resource::PullRequest { number, field }).into_iter().collect();
+  match (of, id) {
+    (Of::Branch { pushes, .. }, ActionId::Push | ActionId::PushWithChildren) => pushes.map(|name| Resource::Ref { name: name.to_owned() }).into_iter().collect(),
+    (Of::Branch { pull_request, .. }, ActionId::RetargetPullRequest) => field(pull_request, PullRequestField::Base),
+    (Of::Branch { pull_request, .. } | Of::WholeStack { pull_request, .. }, ActionId::RequestReview) => field(pull_request, PullRequestField::Reviewers),
+    (Of::Robot { id: robot }, ActionId::RestartRobot | ActionId::PushAndRestartRobot | ActionId::CancelRobot) => vec![Resource::Robot { id: robot.to_owned() }],
+    _ => Vec::new(),
+  }
+}
+
+/// Whether `intent` is what the action `id` of `of` runs: a start of the action joins it
+fn is_own(id: ActionId, of: Of<'_>, intent: &Intent) -> bool {
+  match of {
+    Of::Branch { name, unparks, pull_request, .. } => match (id, intent) {
+      (ActionId::SafePush | ActionId::SafePushWithProfile | ActionId::SafePushWithoutReview, Intent::Land(land)) => {
+        land.mode != PatronusPushMode::DryRun && is_branch(&land.subject, name)
+      }
+      (ActionId::DryRun, Intent::Land(land)) => land.mode == PatronusPushMode::DryRun && is_branch(&land.subject, name),
+      (ActionId::Push, Intent::Push(push)) => is_branch(&push.subject, name) && matches!(push.scope, PushScope::Alone | PushScope::WithAncestors | PushScope::UpTo { .. }),
+      (ActionId::PushWithChildren, Intent::Push(push)) => is_branch(&push.subject, name) && push.scope == PushScope::WithChildren,
+      (ActionId::RetargetPullRequest, Intent::Retarget { number }) => pull_request == Some(*number),
+      (ActionId::RequestReview, Intent::RequestReview { subject, .. }) => is_branch(subject, name),
+      (ActionId::CreatePullRequest, Intent::CreatePullRequest(create)) => is_branch(&create.subject, name),
+      (_, Intent::Rewrite(rewrite)) => is_own_rewrite(id, name, unparks, rewrite),
+      _ => false,
+    },
+    Of::WholeStack { root, main_line, .. } => match (id, intent) {
+      (ActionId::SafePushWholeStack, Intent::Land(land)) => land.mode != PatronusPushMode::DryRun && is_stack(&land.subject, root),
+      (ActionId::DryRunWholeStack, Intent::Land(land)) => land.mode == PatronusPushMode::DryRun && is_stack(&land.subject, root),
+      (ActionId::SafePushMainLine, Intent::Land(land)) => land.mode != PatronusPushMode::DryRun && main_line.is_some_and(|leaf| is_branch(&land.subject, leaf)),
+      (ActionId::RequestReview, Intent::RequestReview { subject, .. }) => is_stack(subject, root),
+      (ActionId::CreateStackPullRequest, Intent::CreatePullRequest(create)) => is_stack(&create.subject, root),
+      _ => false,
+    },
+    Of::Robot { id: robot } => match (id, intent) {
+      (ActionId::RestartRobot | ActionId::PushAndRestartRobot, Intent::RestartRobot { robot_id }) | (ActionId::CancelRobot, Intent::CancelRobot { robot_id }) => robot_id == robot,
+      _ => false,
+    },
+    Of::Start { op } => matches!(intent, Intent::ForgetStart { op: forgotten } if id == ActionId::ForgetStart && forgotten == op),
+  }
+}
+
+/// Whether `rewrite` is what the rewrite `id` of the branch `name` runs: the item names the branch and nothing else (a
+/// move, an amend, an added issue reference name what the item doesn't: their starts are operations of their own)
+fn is_own_rewrite(id: ActionId, name: &str, unparks: &str, rewrite: &RewriteIntent) -> bool {
+  match (id, rewrite) {
+    (ActionId::Rename, RewriteIntent::Rename { branch_name, .. })
+    | (ActionId::StackOn, RewriteIntent::Restack { branch_name, .. })
+    | (ActionId::Unstack, RewriteIntent::Unstack { branch_name, .. })
+    | (ActionId::Ungroup, RewriteIntent::Ungroup { branch_name, .. })
+    | (ActionId::Unapply, RewriteIntent::Unapply { branch_name, .. })
+    | (ActionId::PickRemoteCommits, RewriteIntent::PickRemote { branch_name, .. })
+    | (
+      ActionId::SquashFixups,
+      RewriteIntent::SquashFixups {
+        scope: AutosquashScope::Branch(branch_name),
+        ..
+      },
+    ) => branch_name == name,
+    (ActionId::Park, RewriteIntent::Park { branches, .. }) => matches!(branches.as_slice(), [line] if line.branch_name == name),
+    (ActionId::Unpark, RewriteIntent::Unpark { branch_names, .. }) => matches!(branch_names.as_slice(), [only] if only == unparks),
+    _ => false,
+  }
+}
+
+fn is_branch(subject: &Subject, name: &str) -> bool {
+  matches!(subject, Subject::Branch { name: it } if it == name)
+}
+
+fn is_stack(subject: &Subject, root: &str) -> bool {
+  matches!(subject, Subject::WholeStack { root: it } if it == root)
 }

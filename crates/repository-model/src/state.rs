@@ -85,6 +85,7 @@ impl View {
     // the actions of the subjects as they are, a sync included (a reason): over the steps just derived, and the pushes
     // and the starts as the view keeps them through a sync
     let sources = ActionSources {
+      prefix: &self.prefix,
       steps: &steps,
       pushes: pushes_now.as_ref().unwrap_or(&last.pushes),
       lands: lands_now.as_ref().unwrap_or(&last.lands),

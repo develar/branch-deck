@@ -382,8 +382,17 @@ export type ActionBlocker =
 { code: "pending"; fact: StepFact } | 
 /**  Patronus didn't tell why the robot failed: a restart and a prompt would act as if it hadn't failed for approvals */
 { code: "problemsFailed"; message: string } | 
-/**  A sync rebuilds the branch (a rewrite: any sync) */
+/**
+ *  A sync rebuilds the branch, whose push waits for its build; of Push with Children, the remote statuses a running
+ *  sync computes are to come. No rewrite waits for a sync: the session admits it at once, named on the table its window
+ *  showed
+ */
 { code: "syncing" } | 
+/**
+ *  The operation `op` holds what it needs (a ref it pushes, a robot, a field of a pull request): of this process, it
+ *  would wait for it in the queue of the session; of another process, the registry refuses it as `busy`
+ */
+{ code: "busy"; op: OperationId } | 
 /**  The last sync didn't build the branch: `problem` the reason of its stack problem, where the sync says it */
 { code: "syncFailed"; problem: string | null } | { code: "noCommits" } | 
 /**  The remote branch has every commit of the branch */
@@ -637,8 +646,20 @@ export type AutosquashScope = { type: "all" } |
 /**  Only this fixup commit, into its target */
 { type: "fixup"; value: string };
 
-/**  Whether an action can run now: disabled with the reason, never hidden for it (UX Writing, "Actions") */
-export type Availability = { kind: "enabled" } | { kind: "disabled"; reason: ActionBlocker };
+/**
+ *  Whether an action can run now: disabled with the reason, never hidden for it (UX Writing, "Actions"), or what an
+ *  operation of the session does to it
+ */
+export type Availability = { kind: "enabled" } | { kind: "disabled"; reason: ActionBlocker } | 
+/**  Its intent runs in this process as the operation `op`: a start of it joins it (a spinner in place of its icon) */
+{ kind: "running"; op: OperationId } | 
+/**  Its intent waits in the queue of the session as the operation `op`, behind `behind`: a start of it joins it */
+{ kind: "queued"; op: OperationId; behind: OperationId } | 
+/**
+ *  It can start, and its start waits in the queue of the session behind `op`, the newest operation of this process that
+ *  holds HEAD (a rewrite, the check and the move of Update Project): a rewrite behind a rewrite
+ */
+{ kind: "waits"; op: OperationId };
 
 /**  The first move of the other side after the user answered a request with a comment: the turn is the user's again */
 export type BackToYou = {

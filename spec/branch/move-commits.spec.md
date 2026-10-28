@@ -135,7 +135,7 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../crates/test-server/src/channel_commands_test.rs (`a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_lock`, `stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
   [@test] ../../src/lib/rewrite-run.test.ts (`shows whom a rewrite of the engine waits for and stops the wait by its operation`)
-  [@test] ../../src/stores/operations.test.ts (`says whom the operation behind a record waits for, or which rewrite it waits behind, and its own state again once it runs`)
+  [@test] ../../src/lib/rewrite-run.test.ts (`says behind which rewrite of this window it waits in the queue of the session`)
   [@test] ../../src/presenters/lock-wait.test.ts (`offers Stop Waiting of an operation of the session only while it waits for a holder, and stops it by its id`, `says that an action stopped while it waited for the repository lock changed nothing`)
 - A commit already in the target branch must not be rewritten; the result lists it as `Unchanged`.
 - All commits must be rewritten in one history rewrite that keeps the trees, the metadata and the working tree: a
@@ -231,9 +231,10 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
   [@test] ../../src/stores/commit-move.test.ts (`drops anywhere but on the one list a drag comes from`)
 - The unassigned commits card must accept the commits and branches that have a way back, and move them back.
-- A target must wait as the menu of the same action does, and say why while the pointer is over it: a drag of whole
-  branches while a sync runs or one of them failed to sync, as Move to… of a branch; a drag of commit rows moves during
-  a sync, as Move to… of a commit. A target takes a drop while a rewrite of the repository runs: its move waits for
+- A target must refuse as the menu of the same action does, and say why while the pointer is over it: a drag of whole
+  branches one of which failed to sync, as Move to… of a branch. A target takes a drop while a sync runs (C14): its move
+  goes to the session at once, named on the table the drag started on. A target takes a drop while a rewrite of the
+  repository runs: its move waits for
   that rewrite in the queue of the session ([Running Operations](../../docs/design/operations.md)), its row saying
   behind which ("Waits for Moving 1 commit to docs…"), and then moves the commits as the rewrite left them, by the ids
   it gave them; it runs beside the sync of the one before, whose syncs fold into two runs at most, and two drags into
@@ -243,7 +244,7 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it`, `should move two drags into different branches, the first waiting for the repository lock, both in place`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_move_queued_behind_a_move_names_its_commit_through_the_new_id_the_first_answered`, `a_move_queued_behind_a_move_of_another_commit_finds_its_commit_by_its_key_after_the_sync`)
   [@test] ../../crates/operations/src/registry_test.rs (`the_caller_of_a_waiting_operation_hears_behind_which_it_waits_and_where_it_starts`)
-  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag a branch while a sync runs, say why the targets wait for it, and take the drop once it ended`)
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should take the drop of a branch while a sync runs: its move goes to the session at once`)
   [@test] ../../src/lib/branch-drop.test.ts (`moves dragged commits onto a branch, leaves a drag of branches that land to the Parked card from its rows, and waits as Move to… does`)
 - While commits or branches are dragged, the drag bar must show over the bottom of the window, in view wherever the
   page is scrolled and out of the flow of the content, which gets room at its end so that every row scrolls out from
@@ -270,7 +271,7 @@ Renaming and ungrouping a branch are moves of all its commits.
     stacks it there instead of moving its commits; the unstack zone of the drag bar makes a stacked branch a root
     ([Stack Parents](stack-parents.spec.md#app)).
   - After the drop the row is scrolled into view where it went (the Parked card, the table).
-  [@test] ../../src/lib/branch-drop.test.ts (`parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and waits for the sync`)
+  [@test] ../../src/lib/branch-drop.test.ts (`parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and never waits for a sync`)
   [@test] ../../src/lib/branch-drop.test.ts (`unparks the dragged branches with a line of their own, the ones parked with them along, never one alone, and leaves those that land`)
   [@test] ../../src/lib/branch-drop.test.ts (`stacks one dragged branch on another, never on itself, its parent or a branch stacked on it`)
   [@test] ../../src/lib/branch-drop.test.ts (`unstacks one dragged branch that is stacked, and shows no zone for a root`)

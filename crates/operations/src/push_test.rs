@@ -209,7 +209,7 @@ impl RewriteHost for Services {
 }
 
 /// The push of `name` alone over the remote head the row showed (`expect_remote`)
-fn alone(name: &str, expect_remote: Option<String>) -> Push {
+pub(crate) fn alone(name: &str, expect_remote: Option<String>) -> Push {
   Push {
     subject: Subject::branch(name),
     scope: PushScope::Alone,
@@ -226,7 +226,7 @@ impl Fixture {
   }
 
   /// `push` run on its plan now, `accepted` among its confirmations, off Space
-  async fn execute(&self, push: &Push, accepted: Vec<Confirmation>) -> Result<Outcome, ApiError> {
+  pub(crate) async fn execute(&self, push: &Push, accepted: Vec<Confirmation>) -> Result<Outcome, ApiError> {
     self.execute_on(push, accepted, &OFFLINE, Arc::new(NoEvents)).await
   }
 

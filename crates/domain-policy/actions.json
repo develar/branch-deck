@@ -83,7 +83,7 @@
       }
     ],
     [
-      "rename",
+      "push",
       {
         "code": "syncing"
       }
@@ -287,6 +287,13 @@
         "number": 101,
         "base": "release/253",
         "target": "master"
+      }
+    ],
+    [
+      "cancel-robot",
+      {
+        "code": "busy",
+        "op": "01JBUSY0000000000000000000"
       }
     ]
   ]

@@ -1,11 +1,13 @@
 //! The actions of a subject and whether each can run now, as Rust decides them for every surface of the app
 //! (spec/branch/branch-row.spec.md, "Branch menu"; docs/design/rust-domain-authority.md, s8-policy): `domain_policy::actions`
-//! answers an `ActionState` for each action a subject offers, by a stable id; the page presents each by its id (its
-//! label, key, icon and what it runs, `src/presenters/actions.ts`) and words a blocker. What runs (an operation of the
-//! view, a rewrite of the page, a push) the page lays over them.
+//! answers an `ActionState` for each action a subject offers, by a stable id, with the operations of the session laid
+//! over it (`with_operations`: its own intent runs or waits, a rewrite queues behind the one that holds HEAD, a remote
+//! action waits for the operation that holds what it needs); the page presents each by its id (its label, key, icon and
+//! what it runs, `src/presenters/actions.ts`) and words a blocker and an operation.
 
 use crate::landing::Landed;
 use crate::next_step::{StepBlocker, StepFact};
+use crate::operation::OperationId;
 use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use crate::session::StackBranchAlong;
@@ -137,13 +139,30 @@ pub struct ActionState {
   pub availability: Availability,
 }
 
-/// Whether an action can run now: disabled with the reason, never hidden for it (UX Writing, "Actions")
+/// Whether an action can run now: disabled with the reason, never hidden for it (UX Writing, "Actions"), or what an
+/// operation of the session does to it
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Availability {
   Enabled,
-  Disabled { reason: ActionBlocker },
+  Disabled {
+    reason: ActionBlocker,
+  },
+  /// Its intent runs in this process as the operation `op`: a start of it joins it (a spinner in place of its icon)
+  Running {
+    op: OperationId,
+  },
+  /// Its intent waits in the queue of the session as the operation `op`, behind `behind`: a start of it joins it
+  Queued {
+    op: OperationId,
+    behind: OperationId,
+  },
+  /// It can start, and its start waits in the queue of the session behind `op`, the newest operation of this process that
+  /// holds HEAD (a rewrite, the check and the move of Update Project): a rewrite behind a rewrite
+  Waits {
+    op: OperationId,
+  },
 }
 
 /// Why an action can't run now, as a code with the facts its words need
@@ -168,8 +187,15 @@ pub enum ActionBlocker {
   ProblemsFailed {
     message: String,
   },
-  /// A sync rebuilds the branch (a rewrite: any sync)
+  /// A sync rebuilds the branch, whose push waits for its build; of Push with Children, the remote statuses a running
+  /// sync computes are to come. No rewrite waits for a sync: the session admits it at once, named on the table its window
+  /// showed
   Syncing,
+  /// The operation `op` holds what it needs (a ref it pushes, a robot, a field of a pull request): of this process, it
+  /// would wait for it in the queue of the session; of another process, the registry refuses it as `busy`
+  Busy {
+    op: OperationId,
+  },
   /// The last sync didn't build the branch: `problem` the reason of its stack problem, where the sync says it
   SyncFailed {
     problem: Option<String>,
