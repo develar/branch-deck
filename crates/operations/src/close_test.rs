@@ -1,12 +1,13 @@
-use crate::close::{close_landed_plan, close_plan, close_request, landed_comment};
+use crate::close::{close_landed_plan, close_plan, close_request, close_told_plan, landed_comment};
 use domain_types::fixtures::{pull_request, robot, stack_robot};
-use domain_types::landing::{LandedPullRequest, PlannedEffect};
+use domain_types::landing::{LandedPullRequest, LandedWith, LandingKey, PlannedEffect};
 use domain_types::operation::{Intent, OperationStep, PullRequestField, Resource};
 use domain_types::patronus::{PatronusPullRequestLink, PatronusPushMode, PatronusRobotStatus};
 use domain_types::pull_request::PullRequestState;
 use domain_types::reason::Reason;
 use domain_types::session::PullRequestsView;
 use pretty_assertions::assert_eq;
+use repository_model::landed_closes::ToldLanding;
 
 /// The listing of the session: the pull request #5 of auth, #6 of login and #12 of the whole air stack
 fn listed() -> PullRequestsView {
@@ -81,7 +82,12 @@ fn the_closes_of_a_merged_robot_close_what_its_landing_closes_with_a_comment_of_
   let comment = "Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch.";
   assert_eq!(landed_comment(&oauth, "user"), comment);
   let plan = close_landed_plan(&oauth, &closes, &listed, "user").unwrap();
-  assert_eq!(plan.intent, Intent::CloseLandedPullRequests { robot_id: "r1".to_owned() });
+  assert_eq!(
+    plan.intent,
+    Intent::CloseLandedPullRequests {
+      landing: LandingKey::Robot { robot_id: "r1".to_owned() }
+    }
+  );
   assert_eq!(plan.effects, [close("auth", 5, comment), close("login", 6, comment)]);
   let numbers: Vec<Resource> = close_request(&plan.intent, Some(&plan)).resources;
   assert_eq!(numbers.len(), 2);
@@ -100,4 +106,85 @@ fn the_closes_of_a_merged_robot_close_what_its_landing_closes_with_a_comment_of_
     ..oauth
   };
   assert_eq!(close_landed_plan(&dry_run, &closes, &listed, "user"), None);
+}
+
+fn landed(branch: &str, number: u32) -> LandedPullRequest {
+  LandedPullRequest {
+    branch: branch.to_owned(),
+    number,
+  }
+}
+
+/// The closes of a landing without a robot close what the session told of it, each with the comment that names what
+/// landed it: of a push the commit it pushed and the branch or the whole stack, the branch's own pull request apart; of
+/// the fetched baseline its name; of a merged pull request its number
+#[test]
+fn the_closes_of_a_landing_without_a_robot_name_what_landed_each_branch() {
+  let listed = listed();
+  let pushed = ToldLanding {
+    with: LandedWith::Push {
+      subject: "login".to_owned(),
+      tip: "0123456789abcdef".to_owned(),
+      upstream: "origin/master".to_owned(),
+    },
+    closes: vec![landed("auth", 5), landed("login", 6)],
+  };
+  let plan = close_told_plan("landing-1", &pushed, &listed, "user");
+  assert_eq!(
+    plan.intent,
+    Intent::CloseLandedPullRequests {
+      landing: LandingKey::Told { id: "landing-1".to_owned() }
+    }
+  );
+  assert_eq!(
+    plan.effects,
+    [
+      close("auth", 5, "Landed in master as 0123456 with the push of user/virtual/login, which is built on this branch."),
+      close("login", 6, "Landed in master as 0123456 with the push of user/virtual/login."),
+    ]
+  );
+  assert_eq!(close_request(&plan.intent, Some(&plan)).resources.len(), 2);
+
+  let stack = ToldLanding {
+    with: LandedWith::Push {
+      subject: "stack:air".to_owned(),
+      tip: "fedcba9876543210".to_owned(),
+      upstream: "origin/master".to_owned(),
+    },
+    closes: vec![landed("auth", 5)],
+  };
+  assert_eq!(
+    close_told_plan("landing-2", &stack, &listed, "user").effects,
+    [close(
+      "auth",
+      5,
+      "Landed in master as fedcba9 with the push of the whole air stack (user/stack/air), which holds this branch."
+    )]
+  );
+  let fetched = ToldLanding {
+    with: LandedWith::Baseline {
+      upstream: "origin/master".to_owned(),
+    },
+    closes: vec![landed("auth", 5)],
+  };
+  assert_eq!(
+    close_told_plan("landing-3", &fetched, &listed, "user").effects,
+    [close("auth", 5, "Landed in master: origin/master has every commit of this branch.")]
+  );
+  let merged = ToldLanding {
+    with: LandedWith::PullRequest {
+      number: 7,
+      subject: "login".to_owned(),
+      target: "master".to_owned(),
+    },
+    closes: vec![landed("auth", 5)],
+  };
+  assert_eq!(
+    close_told_plan("landing-4", &merged, &listed, "user").effects,
+    [close(
+      "auth",
+      5,
+      "Landed in master with #7, the pull request of user/virtual/login, which is built on this branch."
+    )]
+  );
 }

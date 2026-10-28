@@ -3,8 +3,8 @@
 //! and the app each name it in their own words, and each refusal carries the fix the user can run (`LandingFix`). And a
 //! start of a robot as the contract's `Land` intent names it, with what `domain_policy::land::decide` answers of it
 //! (`LandDecision`: blockers, confirmations, waits and effects), one decision of `bd safe-push` and of the app. What
-//! landed a subject (`Landed`, `domain_policy::landed::landed_state`) and the pull requests a merge closes
-//! (`LandedPullRequest`).
+//! landed a subject (`Landed`, `domain_policy::landed::landed_state`), the pull requests a landing closes
+//! (`LandedPullRequest`) and what landed them (`LandingKey`, `LandedWith`).
 
 use crate::error::ApiError;
 use crate::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot};
@@ -540,14 +540,40 @@ pub struct BaselinePush {
   pub upstream: String,
 }
 
-/// An open pull request of a branch a merged Safe Push landed whole besides its own: the app closes it
-/// (`domain_policy::landed::pull_requests_to_close`), `bd robot` lists it
+/// An open pull request that holds nothing more than what landed: of a branch a merged Safe Push landed whole besides
+/// its own, of a branch a push into the target landed, of a branch the fetched baseline or a merged pull request has.
+/// The app closes it (`domain_policy::landed::pull_requests_to_close`), `bd robot` and `bd land` list it
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct LandedPullRequest {
   pub branch: String,
   pub number: u32,
+}
+
+/// The landing whose open pull requests a close of landed pull requests closes (`Intent::CloseLandedPullRequests`)
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "by", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum LandingKey {
+  /// The merged robot `robot_id`: the pull requests the merge closes, as its news names them
+  Robot { robot_id: String },
+  /// A landing without a robot the session told (`NewsEvent::Landed`, `id` as it named it): a push of this session into
+  /// the target, the fetched baseline, a merged pull request
+  Told { id: String },
+}
+
+/// What landed the branches of a landing without a robot, which the comment of each close names
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LandedWith {
+  /// A push of this session put the copy of `subject` (a branch, `stack:<root>`) into `upstream` (`origin/master`) as
+  /// `tip`
+  Push { subject: String, tip: String, upstream: String },
+  /// The fetched baseline `upstream` has every commit of the branches
+  Baseline { upstream: String },
+  /// GitHub merged pull request `number` of `subject` (a branch, `stack:<root>`) into `target`, with the commits the
+  /// branches have
+  PullRequest { number: u32, subject: String, target: String },
 }
 
 #[cfg(test)]

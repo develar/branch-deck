@@ -1743,7 +1743,9 @@ of the route asks (a rule a maintainer may bypass, the required status checks, a
 it with the code of its reason until `--bypass-rules`. Both flags are the user's word, never the agent's. Below write
 access it is `no_write_access`, a rule no push passes `baseline_refused`, a server that refused it `baseline_refused`
 with what the server said, a target that moved `baseline_moved` (exit 3; master is fetched, `bd update` comes next).
-It never updates: a push that landed prints `landed: true` and `next: "bd update"`.
+It never updates: a push that landed prints `landed: true` and `next: "bd update"`, and `closes`: the open pull requests
+of what it landed that show an older version of a branch, which the app closes with a comment (`bd` closes none; one
+whose head the push put into master GitHub merges by itself). Name them to the user.
 
 ### `bd request-review <branch> [--reviewer LOGIN]… [--push] [--check]`
 

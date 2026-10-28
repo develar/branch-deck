@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewRequest } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
-import { availablePullRequests } from "../helpers/pull-request-helpers"
+import { availablePullRequests, gitHubWrites, pullRequest, repoPath } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, waitForStepFacts } from "../helpers/safe-push-helpers"
@@ -155,6 +155,46 @@ test.describe("Push to master", () => {
     await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
     await expect(findBranchRow(page, "auth")).toHaveCount(0)
     await expect(findBranchRow(page, "docs")).toBeVisible()
+  })
+
+  test("should close the pull requests of what a push of a stacked piece landed that show an older version of a branch, its own too", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // auth and login are on the remote as their pull requests show them, an older version of each: a push of the copy
+    // of login puts neither head into master, so GitHub merges neither pull request by itself
+    const repo = await setupRepo("stacked_branches", { pullRequests: availablePullRequests(), landing: { setting: "push" } })
+    await syncAndWaitForBranches()
+    // the remote branches are an earlier build of the same commits, which the sync rebuilt since
+    const auth = await repo.pushInTerminal(virtualBranch("auth"), { earlierBuild: true })
+    const login = await repo.pushInTerminal(virtualBranch("login"), { earlierBuild: true })
+    await repo.setPullRequests(availablePullRequests(pullRequest("auth", 4, { headRefOid: auth }), pullRequest("login", 5, { headRefOid: login })))
+    await repo.closeSessions()
+    await page.reload()
+    await syncAndWaitForBranches()
+    await waitForStepFacts(findBranchRow(page, "login").getByTestId("next-step-slot"))
+    const copy = await repo.revision(virtualBranch("login"))
+    await pushStep(page, "login").click()
+    const popover = safePushPopover(page)
+    await expect(popover).toHaveAttribute("data-decision", "confirm")
+    await expect(popoverStart(page)).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
+    // the session told what the push landed before its update dropped the branches: each close with its comment
+    const landed = `Landed in master as ${copy.slice(0, 7)} with the push of user-name/virtual/login`
+    await expect
+      .poll(async () => gitHubWrites(await repo.getGitHubLog()))
+      .toEqual([
+        ["POST", repoPath("issues", 4, "comments"), { body: `${landed}, which is built on this branch.` }],
+        ["PATCH", repoPath("pulls", 4), { state: "closed" }],
+        ["POST", repoPath("issues", 5, "comments"), { body: `${landed}.` }],
+        ["PATCH", repoPath("pulls", 5), { state: "closed" }],
+      ])
+    // the update dropped the originals that landed: their rows are gone, oauth is built on master now
+    await expect(findBranchRow(page, "login")).toHaveCount(0)
+    await expect(findBranchRow(page, "auth")).toHaveCount(0)
+    await expect(findBranchRow(page, "oauth")).toBeVisible()
   })
 
   test("should say that master moved, push nothing, and offer the push of the copy rebuilt on it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

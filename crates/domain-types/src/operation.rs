@@ -6,7 +6,7 @@
 
 use crate::RemoteStatusUpdate;
 use crate::error::{ApiError, HolderTool, LockHolderInfo, OperationKind};
-use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, PlannedEffect, StartRoute, Subject};
+use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, LandingKey, PlannedEffect, StartRoute, Subject};
 use crate::patronus::{PatronusPushMode, PatronusRobot};
 use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedReviewers};
 use crate::reason::Reason;
@@ -55,9 +55,10 @@ pub enum Intent {
   RequestReview { subject: Subject, reviewers: Vec<String>, push_first: bool },
   /// The pull request `number` is closed with `comment`
   ClosePullRequest { number: u32, comment: String },
-  /// The open pull requests of the branches a merged robot landed whole besides its own are closed
+  /// The open pull requests that hold nothing more than what `landing` landed are closed: of the branches a merged
+  /// robot landed whole besides its own, of a push into the target, of the fetched baseline, of a merged pull request
   /// (`domain_policy::landed::pull_requests_to_close`)
-  CloseLandedPullRequests { robot_id: String },
+  CloseLandedPullRequests { landing: LandingKey },
   /// A review of the pull request `number` of someone else on the commit the user reviewed, and the Safe Push of it
   /// after an approval (`then_land`: a `/patronus merge` comment, only while GitHub still shows that commit); no
   /// verdict: the Safe Push alone, the user approved the commit before

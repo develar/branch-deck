@@ -164,7 +164,12 @@ function effectSaid(record: EffectRecord, entry: JournalEntry, github: GitHubRep
         },
       ]
     case "closePullRequest": {
-      if (entry.intent.kind !== "closePullRequest") {
+      const { intent } = entry
+      if (intent.kind === "closeLandedPullRequests" && intent.landing.by === "told") {
+        // a landing without a robot has no toast of its own: its comment says what landed it
+        return [{ kind: "review", title: `Closed pull request #${effect.number}`, description: effect.comment.replace(/\.$/, ""), details: linked(effect.number) }]
+      }
+      if (intent.kind !== "closePullRequest") {
         // the closes of a merged robot are states of its merge
         return []
       }
@@ -331,7 +336,7 @@ function failureTitle(intent: Intent, subject: string): string {
     case "closePullRequest":
       return `Cannot close pull request #${intent.number}`
     case "closeLandedPullRequests":
-      return "Cannot close the pull requests of the merged robot"
+      return intent.landing.by === "robot" ? "Cannot close the pull requests of the merged robot" : "Cannot close the pull requests that landed"
     case "submitReview":
       return `Cannot review pull request #${intent.number}`
     case "setIssueState":

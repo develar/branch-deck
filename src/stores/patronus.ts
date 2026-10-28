@@ -20,8 +20,9 @@ import type {
   StackLanding,
   TableChanges,
 } from "@/lib/bindings"
-import { getErrorDetails, notifyError } from "@/lib/errors"
+import { getErrorDetails } from "@/lib/errors"
 import type { VcsRequest } from "@/lib/git/vcs-request"
+import { closeLanded } from "@/lib/landed-closes"
 import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
@@ -31,7 +32,6 @@ import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import type { RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
-import { failedEffects, runFailure, runIntent } from "@/lib/run-intent"
 import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
 import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
@@ -789,7 +789,7 @@ export function announceMerge(key: string, robot: PatronusRobot, closes: readonl
   const [repositoryPath] = key.split("\n") as [string, string]
   const landed = patronusStore.getState().repositories[key]?.view?.landedByRobot[robot.id] ?? []
   if (closes.length > 0) {
-    void closeLanded(repositoryPath, robot.id)
+    void closeLanded(repositoryPath, { by: "robot", robotId: robot.id }, "Cannot close the pull requests the Safe Push landed")
   }
   // the stacks of the table are of the shown repository: only a merge there tells a pull request of a whole stack that no longer matches it
   const closed = [describeLandedCloses(robot, closes), currentKey() === key ? rememberLandedRoot(robot) : null].filter((part): part is string => part !== null)
@@ -800,22 +800,6 @@ export function announceMerge(key: string, robot: PatronusRobot, closes: readonl
   const notification = { title, body: description }
   const landedBranches = landed.map(branch => branch.branch)
   announce("patronusMerges", notification, () => showMergeToast(repositoryPath, robot, title, description, landedBranches))
-}
-
-/**
- * Closes the pull requests the merged robot `robotId` landed with it, in the session of `repositoryPath`, the robot's
- * repository (`CloseLandedPullRequests`: which, and the comment of each, are Rust's); each close that failed is an error
- * toast "Cannot close pull request #5". A session that lists the robot no longer closes nothing
- */
-async function closeLanded(repositoryPath: string, robotId: string): Promise<void> {
-  const run = await runIntent(repositoryPath, { kind: "closeLandedPullRequests", robotId })
-  if (run.kind === "ran") {
-    for (const { effect, error } of failedEffects(run.outcome)) {
-      notifyError(effect.kind === "closePullRequest" ? `Cannot close pull request #${effect.number}` : "Cannot close the pull requests the Safe Push landed", error)
-    }
-  } else if (run.kind !== "noPlan") {
-    notifyError("Cannot close the pull requests the Safe Push landed", runFailure(run, ""))
-  }
 }
 
 /**

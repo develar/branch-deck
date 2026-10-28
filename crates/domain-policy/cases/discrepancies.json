@@ -135,8 +135,11 @@
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#merged", "docs/design/landing.md#every-pull-request-goes-into-master"],
     "discrepancy": "D7",
     "today": {
-      "app": ["crates/operations/src/close.rs#pub fn close_landed_plan(", "crates/repository-model/src/facts.rs#pull_requests_to_close(robot, landed, |branch| {"],
-      "bd": ["crates/bd-remote/src/robot_command.rs#let closes = pull_requests_to_close(robot, landed, |branch| {"],
+      "app": [
+        "crates/operations/src/close.rs#pub fn close_landed_plan(",
+        "crates/repository-model/src/facts.rs#pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {"
+      ],
+      "bd": ["crates/bd-remote/src/robot_command.rs#let closes = pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {"],
       "why": "the rule is one; only the app closes, bd lists (owner decision 4: docs/design/landing.md keeps the close the app's)"
     },
     "closed": "s9-engine-remote"

@@ -60,6 +60,7 @@
 
 use crate::branch_table::{BranchTable, RemoteFacts, remote_fact};
 use crate::derive::landed_subject;
+use crate::landed_closes::{LandedCloses, push_closes};
 use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
 use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
@@ -67,7 +68,7 @@ use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_request_facts::ReviewRequestsFact;
 use crate::table::TableState;
 use domain_policy::holds::is_active;
-use domain_policy::landed::{Of, pull_requests_to_close};
+use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::news::{self, robot_finished};
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
@@ -81,7 +82,7 @@ use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use domain_types::repository_view::PatronusView;
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::Version;
-use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView};
+use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView, SyncState};
 use domain_types::sign_in::AuthStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::hash_map::DefaultHasher;
@@ -386,6 +387,8 @@ pub struct FactStore {
   pub auth: FactRecord<AuthStatus>,
   /// What the pushes of the session into the target left: the copies they landed, the last refusal of the server
   pub baseline_pushes: BaselinePushes,
+  /// The landings without a robot told with the pull requests they close, and the pull requests every landing told
+  pub landed_closes: LandedCloses,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
   /// The remote tip of each branch whose commits of others were told (`tell_remote_commits`)
@@ -415,6 +418,7 @@ impl FactStore {
       review_requests: ReviewRequestsFact::default(),
       auth: FactRecord::loading(),
       baseline_pushes: BaselinePushes::default(),
+      landed_closes: LandedCloses::default(),
       news: Vec::new(),
       last_news: 0,
       told_remote_tips: HashMap::new(),
@@ -555,7 +559,48 @@ impl FactStore {
       })
       .collect();
     for event in told {
+      if let NewsEvent::RobotMerged { closes, .. } = &event {
+        self.landed_closes.told_by_robot(closes);
+      }
       self.tell(event);
+    }
+  }
+
+  /// A push of this session into the target landed `landed` (`Sessions::tell_baseline_push`): told with the open pull
+  /// requests it closes (`landed_closes::push_closes`, over the table as `state` has it before the update drops the
+  /// branches), none a landing told before; the fetch after it judges nothing of it again (`judged_by_push`)
+  pub fn tell_push(&mut self, state: &TableState, landed: &[(String, BaselinePush)]) {
+    self.landed_closes.judged_by_push(landed, self.pull_requests.view());
+    let Some(table) = self.table_facts(state) else {
+      return;
+    };
+    let Some((with, closes)) = push_closes(&table, self.pull_requests.view(), landed) else {
+      return;
+    };
+    if let Some(event) = self.landed_closes.tell(with, closes) {
+      self.tell(event);
+    }
+  }
+
+  /// The landings by content `state` shows that were not judged yet, told with the open pull requests they close
+  /// (`LandedCloses::content_closes`): the fetched baseline, a pull request GitHub merged; over the table a sync leaves,
+  /// nothing while one runs
+  pub fn tell_landings(&mut self, state: &TableState) {
+    if matches!(state.sync, SyncState::Running { .. }) {
+      return;
+    }
+    let unjudged = self
+      .table
+      .value()
+      .is_some_and(|table| self.landed_closes.has_unjudged(state, table, self.pull_requests.view()));
+    let Some(table) = unjudged.then(|| self.table_facts(state)).flatten() else {
+      return;
+    };
+    let landings = self.landed_closes.content_closes(state, &table, self.pull_requests.view());
+    for (with, closes) in landings {
+      if let Some(event) = self.landed_closes.tell(with, closes) {
+        self.tell(event);
+      }
     }
   }
 
@@ -573,7 +618,7 @@ impl FactStore {
     let landed = part.view.landed_by_robot.get(robot_id).map_or(&[][..], Vec::as_slice);
     let pull_requests = Some(self.pull_requests.view());
     let (table, remote) = (&table.table, &table.remote);
-    pull_requests_to_close(robot, landed, |branch| {
+    pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {
       table.branch(branch).map(|found| landed_subject(table, remote, Of::Branch(&found.name), pull_requests))
     })
   }

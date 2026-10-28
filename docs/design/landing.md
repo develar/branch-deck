@@ -307,6 +307,18 @@ The whole stack is an object of its own in the app, beside its branches, named "
   below its commit, by content (below): the merge toast waits for that answer (the view the session derives after the
   answer that merged it), so the closing and the rows agree, and a branch with commits added after the landed ones keeps
   its pull request, which still shows work that did not land.
+- **Closing what landed without a robot.** The same rule closes the pull requests of what a push or a merge landed
+  (`Landing::Push`, `Landing::Content`). A push into the target closes those of what it landed that show an older
+  version of a branch, its own too, and leaves one whose head the push put into master to GitHub, which marks it merged
+  (GitHub does so when the head of a pull request is in its base: the copy of a piece has the copies below it in its
+  history, a stack branch copies them anew); the fetched baseline and a pull request GitHub merged close every open
+  pull request of what they have. The session tells such a landing once as news (`NewsEvent::Landed`,
+  `repository_model::landed_closes`): a push as it ends, before its update drops the rows, and the fetch after it
+  judges nothing of it again; it keeps what landed them, so the close the page asks (`LandingKey::Told`) words its
+  comment after the rows are gone ("Landed in master as 4a64f53 with the push of user/virtual/login, which is built on
+  this branch."), and Activity says each. `bd land` lists them as `closes` and closes none.
+  - *Rationale:* closing a pull request GitHub is about to mark merged would turn its merge into a close; a head left
+    out of the push is never merged by GitHub, and its pull request shows only work that landed.
 - **Landed rows until the update.** The merge toast is gone in seconds, and the update that archives the branches may
   come hours later. Until then the rows of the branches a merged robot landed say who landed them ("Landed with
   oauth", "Landed with the whole air stack"; the branch it ran on keeps "Merged"), and offer no Safe Push, no Dry Run,

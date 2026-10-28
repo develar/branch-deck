@@ -169,12 +169,21 @@ describe("presentActivity", () => {
   it("says the close the user asked and a review, not the closes of a merged robot", () => {
     const close: EffectRecord = { effect: { kind: "closePullRequest", branch: "air", number: 12, comment: "Closed in Branch Deck: auth landed." }, status: DONE }
     const closed = operation("op1", { kind: "closePullRequest", number: 12, comment: "Closed in Branch Deck: auth landed." }, [close], { endedAt: 102 })
-    const merged = operation("op2", { kind: "closeLandedPullRequests", robotId: "r1" }, [close], { endedAt: 103 })
+    const merged = operation("op2", { kind: "closeLandedPullRequests", landing: { by: "robot", robotId: "r1" } }, [close], { endedAt: 103 })
     const review: EffectRecord = { effect: { kind: "submitReview", number: 7, verdict: "approve", commit: "h" }, status: DONE }
     const reviewed = operation("op3", { kind: "submitReview", number: 7, verdict: "approve", commit: "h", body: null, thenLand: false }, [review], { endedAt: 101 })
     expect(said([reviewed, closed, merged]).map(it => [it.title, it.description, it.details])).toEqual([
       ["Closed pull request #12", "auth landed", { type: "pullRequest", url: "https://github.com/acme/app/pull/12" }],
       ["Approved #7", undefined, { type: "pullRequest", url: "https://github.com/acme/app/pull/7" }],
+    ])
+  })
+
+  it("says each close of a landing without a robot by its comment, which no toast says", () => {
+    const comment = "Landed in master as 0123456 with the push of user/virtual/login, which is built on this branch."
+    const close: EffectRecord = { effect: { kind: "closePullRequest", branch: "auth", number: 5, comment }, status: DONE }
+    const landed = operation("op1", { kind: "closeLandedPullRequests", landing: { by: "told", id: "landing-1" } }, [close], { endedAt: 102 })
+    expect(said([landed]).map(it => [it.title, it.description, it.details])).toEqual([
+      ["Closed pull request #5", comment.slice(0, -1), { type: "pullRequest", url: "https://github.com/acme/app/pull/5" }],
     ])
   })
 

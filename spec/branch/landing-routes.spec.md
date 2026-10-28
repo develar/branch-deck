@@ -38,8 +38,10 @@ targets:
   - ../../crates/operations/src/land_session.rs
   - ../../crates/operations/src/engine.rs
   - ../../crates/operations/src/witness.rs
+  - ../../crates/operations/src/close.rs
   - ../../crates/repository-model/src/derive.rs
   - ../../crates/repository-model/src/facts.rs
+  - ../../crates/repository-model/src/landed_closes.rs
   - ../../crates/repository-model/src/session.rs
   - ../../crates/bd-remote/src/land_command.rs
   - ../../crates/bd-remote/src/status.rs
@@ -60,13 +62,14 @@ targets:
   - ../../src/components/branch/WholeStackSlot.tsx
   - ../../src/components/branch/BranchPreviewActions.tsx
   - ../../src/lib/push-to-baseline.ts
+  - ../../src/lib/landed-closes.ts
   - ../../src/lib/branch-review-window.ts
   - ../../src/stores/update-project.ts
 ---
 
 # Landing Routes
 
-Status: Draft (implemented: the route, its facts and its gates, Push to master with its step, its actions, its page and `bd land`, the route in Settings → Landing; the merge of a pull request is not)
+Status: Draft (implemented: the route, its facts and its gates, Push to master with its step, its actions, its page and `bd land`, the closes of what landed by content, the route in Settings → Landing; the merge of a pull request is not)
 Date: 2026-10-28
 
 ## Summary
@@ -244,6 +247,38 @@ target, read before anything is pushed.
   route over what its grouping read of git, GitHub not asked: the gate of a push into a repository on GitHub waits.
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`, `bd_status_decides_the_steps_by_the_route_of_the_repository`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_land_check_by_a_push`, `a_land_by_a_push`)
+
+### Closing what landed
+
+- Whatever landed a branch, the open pull requests that hold nothing the branch lacks (the head is the branch's tip, or
+  its remote branch has no commit the branch lacks) must close, by one rule (`domain_policy::landed::
+  pull_requests_to_close`, `Landing`): of a merged robot as before ([Patronus](patronus.spec.md#merged)); of a push into
+  the target every branch it landed, its own too, whose pull request shows an older version of it (a head the push
+  left out), while one whose head is its branch's tip in the history of the copy is GitHub's, which merges it once its
+  head is in the target (a piece, the last branch of a straight chain; a stack branch copies the branches anew, so of
+  a stack that forks every branch's closes); of the fetched baseline and of a pull request GitHub merged with the
+  commits of its branch (that branch with what it is built on, of a whole stack every branch) every open pull request of
+  what it has.
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`a_push_closes_the_pull_requests_whose_head_it_left_out_and_leaves_those_in_the_history_of_its_copy_to_github`, `the_fetched_baseline_closes_every_open_pull_request_of_what_it_has_that_holds_nothing_more`, `names_the_pull_request_github_merged_with_the_commits_of_the_branch`)
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`closes_the_pull_requests_of_the_branches_a_merged_robot_landed_whole_not_of_its_own_branch`)
+- The session must tell each landing without a robot once as news (`NewsEvent::Landed`, with the pull requests it
+  closes) and keep what landed them for the plan of the close: a push into the target as it ends, over the table before
+  its update drops the branches, the branches it landed then judged by it (the fetch after it shows them in the
+  baseline); the fetched baseline once per branch and tip, a merged pull request once per head; a pull request is told
+  once by any landing, a robot's merge too (`repository_model::landed_closes`).
+  [@test] ../../crates/repository-model/src/landed_closes_test.rs (`a_push_tells_the_pull_requests_it_landed_that_show_an_older_version_and_the_fetch_after_it_tells_nothing_again`, `the_fetched_baseline_and_a_merged_pull_request_tell_the_open_pull_requests_of_what_they_have_once`)
+- The page must ask the close of the news at once (`CloseLandedPullRequests` with `LandingKey::Told`, no timer of its
+  own), and each close must carry the comment Rust words: "Landed in master as 4a64f53 with the push of
+  user/virtual/login, which is built on this branch." (an ancestor), "… with the push of user/virtual/login." (its own),
+  "… with the push of the whole air stack (user/stack/air), which holds this branch.", "Landed in master: origin/master
+  has every commit of this branch.", "Landed in master with #7, the pull request of user/virtual/login, which is built on
+  this branch.". A close that fails is "Cannot close pull request #5"; Activity says each close by its comment.
+  [@test] ../../crates/operations/src/close_test.rs (`the_closes_of_a_landing_without_a_robot_name_what_landed_each_branch`)
+  [@test] ../../src/lib/landed-closes.test.ts (`asks the session to close what each landing without a robot landed, and toasts each close that failed`)
+  [@test] ../../src/presenters/activity.test.ts (`says each close of a landing without a robot by its comment, which no toast says`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should close the pull requests of what a push of a stacked piece landed that show an older version of a branch, its own too`)
+- `bd land` must list the pull requests its push closes as `closes`, by the same rule, and close none: the app's session
+  closes them ([Agent CLI](../cli/agent-cli.spec.md#bd-land)).
 
 ### The page
 

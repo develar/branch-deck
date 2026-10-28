@@ -19,7 +19,7 @@ use bd_core::services::{BdServices, github_service, patronus_service};
 use bd_core::stack_summary::whole_stack;
 use domain_policy::facts::Repository;
 use domain_policy::holds::is_active;
-use domain_policy::landed::{Of, pull_requests_to_close};
+use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::robot_match::RobotIndex;
 use domain_policy::stack::{WholeStack, build_ancestors};
 use domain_types::branch_names::to_final_branch_name;
@@ -105,7 +105,7 @@ pub struct RobotOutput {
   pub closes: Option<Vec<ClosedPullRequest>>,
 }
 
-/// An open pull request a merged Safe Push landed (`closes`)
+/// An open pull request a landing landed all of (`closes`): of a merged Safe Push, of a push into the target
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ClosedPullRequest {
   pub branch: String,
@@ -487,7 +487,7 @@ fn closes(
   facts.know_robots(robots);
   let table = facts.session.facts().table.value()?;
   let landed = facts.session.view().landed_by_robot.get(&robot.id).map_or(&[][..], Vec::as_slice);
-  let closes = pull_requests_to_close(robot, landed, |branch| {
+  let closes = pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {
     table
       .branch(branch)
       .map(|found| landed_subject(table, &table.remote, Of::Branch(&found.name), Some(&pull_requests)))

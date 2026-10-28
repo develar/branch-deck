@@ -596,6 +596,12 @@ pub enum NewsEvent {
     robot_id: String,
     closes: Vec<LandedPullRequest>,
   },
+  /// A landing without a robot landed branches whose open pull requests hold nothing more (`closes`,
+  /// `domain_policy::landed::pull_requests_to_close`), which the app closes (`CloseLandedPullRequests` of
+  /// `LandingKey::Told` with `landing`): a push of this session into the target, told as it ended; the fetched
+  /// baseline that has every commit of branches of the table; a pull request GitHub merged with the commits of its
+  /// branch. Each pull request is told once
+  Landed { landing: String, closes: Vec<LandedPullRequest> },
   /// A robot known running or canceling failed, told once why is known: for missing code-owner approvals
   /// (`needsReview`), or not; null when the session doesn't read its problems (a robot of no branch of the table) or
   /// Patronus didn't give them

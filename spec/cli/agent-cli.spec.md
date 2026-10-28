@@ -1421,7 +1421,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`, `a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 - `bd land` must never update: a push that landed prints `landed: true` and `next: "bd update"`, which brings the
-  branch onto the target and drops the commits that landed. The agent skill says that the push route lands without a
+  branch onto the target and drops the commits that landed. It lists the open pull requests its push closes as
+  `closes` (`{branch, number}`: of what it landed, those that show an older version of a branch, by the rule of the app,
+  `domain_policy::landed::pull_requests_to_close`) and closes none: the app's session closes them with their comments
+  ([Landing Routes](../branch/landing-routes.spec.md#closing-what-landed)). The agent skill says that the push route lands without a
   robot and without CI and needs the user's approval like any push.
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_agent_help_is_a_short_core_with_every_guard`)

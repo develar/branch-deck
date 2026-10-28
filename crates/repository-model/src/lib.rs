@@ -24,6 +24,8 @@
 //!   the rules over them (`repository`)
 //! - `derive`: what the view derives of the table by the rules of `domain-policy`: the input of the rules
 //!   (`repository`), the structure of each branch with its section (`place`)
+//! - `landed_closes`: the open pull requests a landing without a robot closes (a push of the session into the target,
+//!   the fetched baseline, a merged pull request), told once as news and kept for the plan of their close
 //! - `moved_remote`: the remote branches someone else pushed to: which ones a listing of the pull requests asks to fetch
 //!   (`MovedFetches`, one fetch per head they show) and the host's fetch of them (`fetch_asked`)
 //! - `one_shot`: the session of one command (`OneShot`, `bd`'s): the table of its own sync and the facts it reads for
@@ -70,6 +72,7 @@ pub mod action_view;
 pub mod branch_table;
 pub mod derive;
 pub mod facts;
+pub mod landed_closes;
 pub mod moved_remote;
 pub mod one_shot;
 pub mod patch;

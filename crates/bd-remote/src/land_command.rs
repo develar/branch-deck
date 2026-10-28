@@ -13,6 +13,7 @@
 
 use crate::landed::landed_branches;
 use crate::push_command::{github_repository, unknown_or_unapplied};
+use crate::robot_command::ClosedPullRequest;
 use crate::safe_push_command::{
   CheckRead, Refusal, SafePushArgs, SafePushOutput, Start, check_next_step, compared_table, safe_push, subject_facts, table_error, whole_stack_of_branch,
 };
@@ -30,6 +31,7 @@ use bd_core::stack_summary::{WholeStackSummary, stack_branch_of, whole_stack_sum
 use bd_core::sync_command::{SyncOutput, lock, sync_locked};
 use domain_policy::land::{table_blocker, unaccepted};
 use domain_policy::land_direct::update_after;
+use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route};
 use domain_policy::stack::WholeStack;
 use domain_types::error::ErrorCode;
@@ -37,11 +39,14 @@ use domain_types::landing::{Confirmation, Land, LandFact, LandingRefusal, Planne
 use domain_types::landing_route::{LandingRemote, LandingRoute, RouteGate};
 use domain_types::operation::{EffectStatus, Plan};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode};
+use domain_types::pull_request::PullRequestAvailability;
 use domain_types::reason::Reason;
+use domain_types::session::PullRequestsView;
 use operations::land::LandHost;
 use operations::land_execute::{Accepted, Steps, execute, refusal_code};
 use operations::needs::FactNeed;
-use repository_model::derive::landing_route_of;
+use repository_model::branch_table::BranchTable;
+use repository_model::derive::{landed_subject, landing_route_of};
 use repository_model::facts::Needs;
 use repository_model::one_shot::OneShot;
 use repository_model::refusal_words::start_refusal_text;
@@ -115,6 +120,12 @@ pub struct LandOutput {
   pub refusals: Vec<Refusal>,
   /// The push landed the commit into the target; `false` with `--check`
   pub landed: bool,
+  /// The open pull requests of what the push landed that show an older version of a branch (a head the push left out),
+  /// the pushed branch's own too: the app closes them with a comment, `bd` closes none
+  /// (`domain_policy::landed::pull_requests_to_close`); one whose head the push put into the target is GitHub's to
+  /// merge. Name them to the user
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub closes: Vec<ClosedPullRequest>,
   /// What to run next: `bd update` after a push that landed, which brings the branch onto the target and drops the
   /// commits that landed
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -211,6 +222,7 @@ fn land_by_robot(context: &RepoContext, args: &LandArgs, environment: &Environme
     next_step: None,
     refusals: Vec::new(),
     landed: false,
+    closes: Vec::new(),
     next: None,
     decided: Decided {
       plan: output.plan.clone(),
@@ -322,6 +334,7 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
     next_step: None,
     refusals: Vec::new(),
     landed: false,
+    closes: Vec::new(),
     next: None,
     safe_push: None,
     decided: Decided {
@@ -393,9 +406,32 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
     }
   }
   output.landed = update_after(&started.outcome.effects).is_some();
+  if output.landed {
+    output.closes = landed_closes(&table, facts.session.facts().pull_requests.view(), &plan.lands, matches!(start, Start::Branch(_)));
+  }
   // the update is the user's command: it moves the checked out branch and its files
   output.next = output.landed.then_some(update);
   Ok(output)
+}
+
+/// The open pull requests of `lands`, what a push landed, as the app's session tells them (`Landing::Push`): over
+/// `table` and the listing as they were before the push; `chain` for a push of a virtual branch (a piece, the last branch
+/// of a straight chain), whose history has the virtual branches it is built on. None while GitHub lists none
+fn landed_closes(table: &BranchTable, pull_requests: &PullRequestsView, lands: &[String], chain: bool) -> Vec<ClosedPullRequest> {
+  if !matches!(pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) {
+    return Vec::new();
+  }
+  pull_requests_to_close(&Landing::Push { branches: lands, chain }, |name| {
+    table
+      .branch(name)
+      .map(|found| landed_subject(table, &table.remote, Of::Branch(&found.name), Some(pull_requests)))
+  })
+  .into_iter()
+  .map(|close| ClosedPullRequest {
+    branch: close.branch,
+    number: close.number,
+  })
+  .collect()
 }
 
 /// What lands, and from which branch: the branch; of the whole stack, a stack that forks from its stack branch, a

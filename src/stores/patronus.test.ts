@@ -157,8 +157,8 @@ vi.mock("@/stores/pull-requests", () => ({
 vi.mock("@/lib/run-intent", async importOriginal => ({
   ...(await importOriginal<typeof import("@/lib/run-intent")>()),
   // the closes of a merged robot: Rust plans them in the session of the robot's repository, with their comments
-  runIntent: async (repositoryPath: string, intent: { kind: string; robotId?: string }) => {
-    notices.closed.push(`${repositoryPath} ${intent.kind} ${intent.robotId}`)
+  runIntent: async (repositoryPath: string, intent: { kind: string; landing: { by: string; robotId?: string } }) => {
+    notices.closed.push(`${repositoryPath} ${intent.kind} ${intent.landing.robotId}`)
     const effects = notices.closeFailures.map(number => ({
       effect: { kind: "closePullRequest", branch: "auth", number, comment: "c" },
       status: { kind: "failed", error: { code: "networkError", message: "GitHub is down" } },

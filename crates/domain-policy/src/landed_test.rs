@@ -1,5 +1,5 @@
 use crate::facts::{RemoteBranch, Robots};
-use crate::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state, pull_requests_to_close};
+use crate::landed::{LandedFacts, LandedSubject, Landing, Of, landed_reason, landed_state, merged_pull_request, pull_requests_to_close};
 use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot, whole_stack_robot_of};
 use domain_types::landed::LandedBranch;
 use domain_types::landing::{BaselinePush, Landed, LandedBy, LandedPullRequest};
@@ -317,7 +317,10 @@ fn closes_the_pull_requests_of_the_branches_a_merged_robot_landed_whole_not_of_i
   ];
   let landed = [landed_branch("auth", false, &[]), landed_branch("login", false, &[]), landed_branch("oauth", true, &[])];
   let subject = |name: &str| table_branch(name, &pull_requests, remote("login-old", false, 0));
-  assert_eq!(pull_requests_to_close(&robot, &landed, subject), vec![closes("auth", 5), closes("login", 6)]);
+  assert_eq!(
+    pull_requests_to_close(&Landing::Robot { robot: &robot, landed: &landed }, subject),
+    vec![closes("auth", 5), closes("login", 6)]
+  );
 }
 
 /// A pull request with a commit the branch lacks, one of a branch with work left after what landed, and one of a branch
@@ -328,12 +331,24 @@ fn leaves_a_pull_request_with_a_commit_the_branch_lacks_one_of_a_branch_with_wor
   let pull_requests = [("auth", open_at("auth", 5, "auth-tip")), ("login", open_at("login", 6, "login-other"))];
   let behind = |name: &str| table_branch(name, &pull_requests, remote("login-other", false, 1));
   assert_eq!(
-    pull_requests_to_close(&robot, &[landed_branch("auth", false, &[]), landed_branch("login", false, &[])], behind),
+    pull_requests_to_close(
+      &Landing::Robot {
+        robot: &robot,
+        landed: &[landed_branch("auth", false, &[]), landed_branch("login", false, &[])],
+      },
+      behind
+    ),
     vec![closes("auth", 5)]
   );
   let at_tip = |name: &str| table_branch(name, &pull_requests, remote("login-other", false, 0));
   assert_eq!(
-    pull_requests_to_close(&robot, &[landed_branch("auth", false, &["auth-2"]), landed_branch("gone", false, &[])], at_tip),
+    pull_requests_to_close(
+      &Landing::Robot {
+        robot: &robot,
+        landed: &[landed_branch("auth", false, &["auth-2"]), landed_branch("gone", false, &[])],
+      },
+      at_tip
+    ),
     Vec::new()
   );
 }
@@ -348,9 +363,79 @@ fn leaves_the_pull_request_the_robot_started_from_to_patronus() {
   let pull_requests = [("auth", open_at("auth", 5, "auth-tip")), ("login", open_at("login", 7, "login-tip"))];
   let subject = |name: &str| table_branch(name, &pull_requests, remote("login-tip", true, 0));
   assert_eq!(
-    pull_requests_to_close(&whole, &[landed_branch("auth", false, &[]), landed_branch("login", false, &[])], subject),
+    pull_requests_to_close(
+      &Landing::Robot {
+        robot: &whole,
+        landed: &[landed_branch("auth", false, &[]), landed_branch("login", false, &[])],
+      },
+      subject
+    ),
     vec![closes("auth", 5)]
   );
+}
+
+fn names(names: &[&str]) -> Vec<String> {
+  names.iter().map(|name| (*name).to_owned()).collect()
+}
+
+/// A push of the copy of a piece closes the pull requests of what it landed that show an older version of a branch (a
+/// head the push left out: login pushed before an amend), its own branch's too; one whose head is its branch's tip is in
+/// the target now, in the history of the copy, which GitHub merges by itself; a pull request with a commit the branch
+/// lacks stays open
+#[test]
+fn a_push_closes_the_pull_requests_whose_head_it_left_out_and_leaves_those_in_the_history_of_its_copy_to_github() {
+  let pull_requests = [
+    ("auth", open_at("auth", 5, "auth-tip")),
+    ("login", open_at("login", 6, "login-old")),
+    ("oauth", open_at("oauth", 7, "oauth-old")),
+  ];
+  let subject = |name: &str| {
+    let found = table_branch(name, &pull_requests, remote("login-old", false, 0))?;
+    Some(match name {
+      "oauth" => LandedSubject {
+        remote: Some(remote("oauth-old", false, 0)),
+        ..found
+      },
+      _ => found,
+    })
+  };
+  let lands = names(&["auth", "login", "oauth"]);
+  assert_eq!(
+    pull_requests_to_close(&Landing::Push { branches: &lands, chain: true }, subject),
+    vec![closes("login", 6), closes("oauth", 7)]
+  );
+  // a stack branch copies every branch anew: no head of a branch is in the target
+  assert_eq!(
+    pull_requests_to_close(&Landing::Push { branches: &lands, chain: false }, subject),
+    vec![closes("auth", 5), closes("login", 6), closes("oauth", 7)]
+  );
+  let behind = |name: &str| table_branch(name, &pull_requests, remote("login-old", false, 1));
+  assert_eq!(pull_requests_to_close(&Landing::Push { branches: &lands, chain: true }, behind), Vec::new());
+}
+
+/// What the fetched baseline or a merged pull request has closes every open pull request of it that holds nothing more,
+/// its head the branch's tip too: a merged or a closed one is GitHub's
+#[test]
+fn the_fetched_baseline_closes_every_open_pull_request_of_what_it_has_that_holds_nothing_more() {
+  let pull_requests = [
+    ("auth", open_at("auth", 5, "auth-tip")),
+    ("login", with_state(PullRequestState::Merged, open_at("login", 6, "login-tip"))),
+    ("oauth", open_at("oauth", 7, "oauth-other")),
+  ];
+  let subject = |name: &str| table_branch(name, &pull_requests, remote("login-tip", true, 0));
+  let landed = names(&["auth", "login", "oauth", "gone"]);
+  assert_eq!(pull_requests_to_close(&Landing::Content { branches: &landed }, subject), vec![closes("auth", 5)]);
+}
+
+/// The pull request GitHub merged with the commits of the branch, not one with other commits, not an open one
+#[test]
+fn names_the_pull_request_github_merged_with_the_commits_of_the_branch() {
+  let merged = with_state(PullRequestState::Merged, open_at("auth", 5, "auth-tip"));
+  assert_eq!(merged_pull_request(&branch("auth", Some(&merged))), Some(5));
+  let other = with_state(PullRequestState::Merged, open_at("auth", 5, "auth-other"));
+  assert_eq!(merged_pull_request(&branch("auth", Some(&other))), None);
+  let open = open_at("auth", 5, "auth-tip");
+  assert_eq!(merged_pull_request(&branch("auth", Some(&open))), None);
 }
 
 /// A push of this session into the target landed the copy of the subject at the tip it is at, before any fetch shows

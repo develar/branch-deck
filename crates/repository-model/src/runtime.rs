@@ -398,6 +398,8 @@ impl Actor {
         let _ = reply.send(self.view.version());
       }
       Message::BaselinePushed { landed, refused, reply } => {
+        // the closes of what it landed, over the table before its update drops the branches
+        self.facts.tell_push(&self.state, &landed);
         let pushes = &mut self.facts.baseline_pushes;
         // a push that went answers the refusal before it: the server took this one
         if refused.is_some() || !landed.is_empty() {
@@ -804,6 +806,8 @@ impl Actor {
     self.facts.demand_details(&self.told_demand.robot_details);
     // Reviews and the review windows the windows show
     self.facts.review_requests.demand(&self.told_demand);
+    // the landings by content the table and the listing show now, with the pull requests they close
+    self.facts.tell_landings(&self.state);
     let Some(patch) = self.view.diff(&self.state, &self.facts) else {
       self.tell_digest();
       return;
