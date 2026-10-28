@@ -256,7 +256,6 @@ fn open_part(part: &Path) -> io::Result<std::fs::File> {
   }
   let mut options = std::fs::OpenOptions::new();
   options.write(true).create_new(true);
-  #[cfg(unix)]
   {
     use std::os::unix::fs::OpenOptionsExt as _;
     options.custom_flags(libc::O_NOFOLLOW);
@@ -283,15 +282,14 @@ impl<W: Write> Write for Capped<W> {
   }
 }
 
-/// Marks a file executable for its owner, the group and others to read and run. Windows has no executable bit
+/// Marks a file executable for its owner, the group and others to read and run
 fn mark_executable(path: &Path, executable: bool) -> io::Result<()> {
-  #[cfg(unix)]
+  use std::os::unix::fs::PermissionsExt as _;
   if executable {
-    use std::os::unix::fs::PermissionsExt as _;
-    return std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755));
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+  } else {
+    Ok(())
   }
-  let _ = (path, executable);
-  Ok(())
 }
 
 fn part_path(target: &Path) -> PathBuf {

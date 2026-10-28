@@ -12,7 +12,7 @@
 use crate::commit_list::is_on_local_baseline;
 use crate::notes::mapping_lines;
 use crate::revs::{checked_out_head, short_id};
-use crate::rewrite_guard::{RewriteTarget, ensure_no_operation_in_progress, merge_refusal};
+use crate::rewrite_guard::{HeadMoved, RewriteTarget, ensure_no_operation_in_progress, merge_refusal};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
@@ -197,11 +197,24 @@ impl History {
 
   /// The guards of a rewrite of the commits from `oldest_position` up to HEAD: no rebase, merge, cherry-pick or revert
   /// in progress, HEAD on a branch, and no merge commit among them (from the parents read, no process). The target's
-  /// `head` is HEAD as it is now; the caller refuses a rewrite whose history ends elsewhere
+  /// `head` is HEAD as it is now. A HEAD that another process moved after this history was read is `HeadMoved`, as a
+  /// moved HEAD is everywhere else: a regroup computes once more under the repository lock (`regroup_accepted`)
   #[instrument(skip(self, git_executor))]
   pub fn check_rewrite(&self, git_executor: &GitCommandExecutor, repo_path: &str, oldest_position: usize) -> Result<RewriteTarget> {
     ensure_no_operation_in_progress(git_executor, repo_path)?;
     let (branch, head) = checked_out_head(git_executor, repo_path)?;
+    if let Some(read) = self.head()
+      && read != head
+    {
+      return Err(
+        HeadMoved {
+          branch,
+          expected: read.to_string(),
+          actual: head,
+        }
+        .into(),
+      );
+    }
     self.check_no_merges(oldest_position)?;
     Ok(RewriteTarget { branch, head })
   }

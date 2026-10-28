@@ -21,7 +21,6 @@ fn a_host_file_reads_back_as_it_was_written() {
   assert_eq!(config.read_host("studio").unwrap(), host());
   let text = std::fs::read_to_string(config.host_path("studio")).unwrap();
   assert!(text.contains("\"addresses\": [\n    \"192.168.1.24:7742\"\n  ]"), "{text}");
-  #[cfg(unix)]
   {
     use std::os::unix::fs::PermissionsExt;
     let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;

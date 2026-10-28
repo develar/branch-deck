@@ -31,7 +31,9 @@ impl WrappedGit {
   /// The body of an arm that runs a `fast-import` (its stream on stdin, ending with `done`) with `other` in the middle:
   /// after git parsed every command but the `done` (a `progress` line it prints once there), before it moves the refs,
   /// as another writer that moves a ref between the `from <ref>^0` of the stream and its update. The exit code and the
-  /// output (the marks a `get-mark` asked) are git's
+  /// output (the marks a `get-mark` asked) are git's. Unix only: the native git of Windows cannot read the fifo of the
+  /// shell of Git for Windows ("Unable to hash (NULL)"), so a test of it would pass there without the other writer
+  #[cfg(unix)]
   pub fn during_fast_import(other: &str) -> String {
     format!(
       "cat > '{{dir}}/stream'; sed '$d' '{{dir}}/stream' > '{{dir}}/body'; rm -f '{{dir}}/in' '{{dir}}/out'; mkfifo '{{dir}}/in'; \

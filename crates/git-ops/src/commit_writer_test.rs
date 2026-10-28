@@ -1,4 +1,6 @@
-use crate::commit_writer::{NewCommit, NewParent, NotesOfWritten, StoreCommit, complete_line, write_commits_with_notes, write_store_commits};
+#[cfg(unix)]
+use crate::commit_writer::NotesOfWritten;
+use crate::commit_writer::{NewCommit, NewParent, StoreCommit, complete_line, write_commits_with_notes, write_store_commits};
 use crate::ref_transaction::RefTransaction;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -69,6 +71,7 @@ fn a_temporary_ref_is_stale_after_its_age_or_without_a_time() {
 /// A rewrite that carries mapping notes to its new commits loses the notes ref to another writer in the middle of its
 /// `fast-import` (a sync that writes its notes): the write goes once more from the tip the other writer left, so the
 /// rewrite does not fail, and both notes are kept
+#[cfg(unix)]
 #[test]
 fn a_write_of_commits_that_loses_the_notes_ref_to_another_writer_goes_once_more_and_keeps_both_notes() {
   let repo = TestRepo::new();

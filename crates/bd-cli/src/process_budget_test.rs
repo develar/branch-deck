@@ -33,6 +33,7 @@ use bd_rewrite::squash_command::{SquashArgs, squash};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+#[cfg(unix)]
 use lease_pool::host_slots::{HostSlotsParams, LendAnswer, LendRequest, ShrinkOutcome, SlotCheckout, checkout, fill, give_back, give_back_run, lend, shrink, snapshot_run};
 use lease_pool::lease::{GetStep, Pool, canonical_path};
 use pretty_assertions::assert_eq;
@@ -707,7 +708,10 @@ fn a_lease_return_that_starts_the_maintenance() {
 /// the host slots, then gets the slot as `bd lease get` does; a lend runs no git; the checkout of a run reads the config
 /// and HEAD and moves by the diff with one `reset`, no `status`; a give-back reads the config and one `status`, and only
 /// a dirty slot adds `reset` and `clean`; a shrink reads the config, one `status` and HEAD, which is at the leased commit
-/// again, then returns the slot as `bd lease return` does (with its `show-ref` of the slot's resolve session)
+/// again, then returns the slot as `bd lease return` does (with its `show-ref` of the slot's resolve session). The agent
+/// lends on macOS and Linux only; on Windows, where git has no file mode and no symlinks, a scan stages a copy of the
+/// index instead, another budget
+#[cfg(unix)]
 #[test]
 fn the_host_slots_lend_give_back_and_shrink() {
   let repo = repo_with_branches();

@@ -20,15 +20,17 @@ fn a_version_parses_releases_candidates_and_the_apple_git() {
   }
 }
 
+/// The `PATH` lists of this platform: `:` apart on a host, `;` on Windows
 #[test]
 fn the_bin_of_homebrew_comes_before_usr_bin() {
   let bin = Path::new("/opt/homebrew/bin");
-  let first = |path: &str| with_first(OsStr::new(path), bin).to_string_lossy().into_owned();
-  assert_eq!(first("/usr/bin:/bin"), "/opt/homebrew/bin:/usr/bin:/bin");
-  assert_eq!(first("/a:/usr/bin:/opt/homebrew/bin"), "/a:/opt/homebrew/bin:/usr/bin");
-  assert_eq!(first("/opt/homebrew/bin:/usr/bin"), "/opt/homebrew/bin:/usr/bin");
-  assert_eq!(first("/a"), "/a:/opt/homebrew/bin");
-  assert_eq!(first(""), "/opt/homebrew/bin");
+  let list = |dirs: &[&str]| std::env::join_paths(dirs).unwrap().to_string_lossy().into_owned();
+  let first = |dirs: &[&str]| with_first(OsStr::new(&list(dirs)), bin).to_string_lossy().into_owned();
+  assert_eq!(first(&["/usr/bin", "/bin"]), list(&["/opt/homebrew/bin", "/usr/bin", "/bin"]));
+  assert_eq!(first(&["/a", "/usr/bin", "/opt/homebrew/bin"]), list(&["/a", "/opt/homebrew/bin", "/usr/bin"]));
+  assert_eq!(first(&["/opt/homebrew/bin", "/usr/bin"]), list(&["/opt/homebrew/bin", "/usr/bin"]));
+  assert_eq!(first(&["/a"]), list(&["/a", "/opt/homebrew/bin"]));
+  assert_eq!(first(&[]), "/opt/homebrew/bin");
 }
 
 /// Ready at the floor; below it an install when Homebrew has no git, an upgrade when it has one, a refusal with the hint

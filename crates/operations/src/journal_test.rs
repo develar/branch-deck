@@ -397,6 +397,7 @@ fn unheard() -> LateListener {
 }
 
 /// What Activity shows of each journal of `log`: whether it is available, and the ids of its entries
+#[cfg(unix)]
 fn shown(log: &domain_types::activity::ActivityLog) -> Vec<(bool, Vec<String>)> {
   log
     .journals

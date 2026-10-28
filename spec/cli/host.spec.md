@@ -55,6 +55,7 @@ This spec is a draft of the port. A requirement names the test that will cover i
 ## Non-goals
 
 - Linux and Windows hosts under launchd. The agent runs on Linux only by hand (`bd-host serve`), without `upgrade`.
+- Windows: bd-host, its client and its agent run on macOS and Linux only. The Windows app does not bundle it.
 - A choice of the slot by the distance between trees, and a spare count of slots on the client Mac.
 
 ## Requirements

@@ -196,9 +196,6 @@ pub fn prepare_reword(
   }
 
   let target = history.check_rewrite(git_executor, repo_path, oldest_index)?;
-  if history.head() != Some(target.head.as_str()) {
-    return Err(anyhow!("Branch {} changed while rewording, sync and try again", target.branch));
-  }
 
   // oldest first
   let to_recreate: Vec<&str> = history.commits()[..=oldest_index].iter().rev().map(|commit| commit.id.as_str()).collect();

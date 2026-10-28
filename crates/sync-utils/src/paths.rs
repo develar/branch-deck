@@ -1,5 +1,5 @@
-//! Paths as the user's shell takes them: `bd` prints the copies of a resolve session, the slots of the lease pool and
-//! the files of a pick, and Windows wants backslashes and, for a long path, the verbatim form.
+//! Paths as the user's shell and git take them: `bd` prints the copies of a resolve session, the slots of the lease pool
+//! and the files of a pick, and Windows wants backslashes and, for a long path, the verbatim form, which git refuses.
 
 use std::path::Path;
 
@@ -26,4 +26,20 @@ pub fn windows_display(text: &str) -> String {
     Some(_) => plain,
     None => format!(r"\\?\{plain}"),
   }
+}
+
+/// `path` as git takes it in an argument or a variable (`GIT_INDEX_FILE`): on Windows without the `\\?\` that
+/// `canonicalize` puts before a drive path, which git refuses ("Invalid argument" for its lock file); a share and every
+/// path on macOS and Linux stay as they are
+pub fn without_verbatim(path: &Path) -> &Path {
+  if cfg!(windows) {
+    let drive = path
+      .to_str()
+      .and_then(|text| text.strip_prefix(r"\\?\"))
+      .filter(|rest| rest.as_bytes().get(1) == Some(&b':'));
+    if let Some(drive) = drive {
+      return Path::new(drive);
+    }
+  }
+  path
 }

@@ -259,7 +259,7 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   assert_eq!(hello.status.code(), Some(0), "{}", text(&hello.stderr));
   let hello: Value = serde_json::from_slice(&hello.stdout).expect("JSON");
   assert_eq!(hello["same_build"], Value::Bool(true), "{hello}");
-  assert_eq!(hello["agent"]["features"], json!(["upgrade"]));
+  assert_eq!(hello["agent"]["features"], features_of_this_platform());
   let refused = world.bd_host(&["hello", "nowhere", "--json"]);
   assert_eq!(refused.status.code(), Some(255));
   let refused: Value = serde_json::from_slice(&refused.stdout).expect("JSON");
@@ -305,6 +305,11 @@ fn schema_and_version_answer_one_json_object() {
   assert_eq!(schema["protocol"]["port"], json!(7742));
   let version = world.bd_host(&["version", "--json"]);
   let version: Value = serde_json::from_slice(&version.stdout).expect("JSON");
-  assert_eq!((version["schema"].clone(), version["features"].clone()), (json!(1), json!(["upgrade"])));
+  assert_eq!((version["schema"].clone(), version["features"].clone()), (json!(1), features_of_this_platform()));
   assert_eq!(world.bd_host(&["run", ALIAS]).status.code(), Some(2), "a run without a command");
+}
+
+/// The features an agent of this build answers: the upgrade only on macOS, where launchd starts the new binary
+fn features_of_this_platform() -> Value {
+  if cfg!(target_os = "macos") { json!(["upgrade"]) } else { json!([]) }
 }

@@ -199,8 +199,9 @@ pub(crate) mod kqueue {
   use std::path::Path;
   use std::time::Duration;
 
+  /// Never made: `open` always fails
   #[derive(Debug)]
-  pub(crate) enum Queue {}
+  pub(crate) struct Queue(std::convert::Infallible);
 
   impl Queue {
     pub(crate) fn open(_paths: &[&Path]) -> io::Result<Self> {
@@ -208,7 +209,7 @@ pub(crate) mod kqueue {
     }
 
     pub(crate) const fn wait(&self, _timeout: Duration) -> io::Result<()> {
-      match *self {}
+      match self.0 {}
     }
   }
 }

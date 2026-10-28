@@ -73,9 +73,10 @@ exec /bin/sh -c "$script"
 "#;
 
 /// The niceness of this test process, as `ps` shows it
-fn own_niceness() -> u8 {
+fn own_niceness() -> i8 {
   let output = Command::new("ps").args(["-o", "nice=", "-p", &std::process::id().to_string()]).output().expect("ps");
-  String::from_utf8_lossy(&output.stdout).trim().parse().expect("a niceness of 0 to 19")
+  let text = String::from_utf8_lossy(&output.stdout);
+  text.trim().parse().unwrap_or_else(|error| panic!("ps answers {text:?} as the niceness: {error}"))
 }
 
 /// A run gets, in this order: the environment of the agent, the login environment, the git of the host, the variables
@@ -87,8 +88,9 @@ fn a_run_gets_the_login_environment_a_raised_open_files_limit_and_its_niceness()
   let shell = world.home.path().join("login-shell");
   write_script(&shell, LOGIN_SHELL);
   let agent = world.serve_with(&[("BD_HOST_TEST_SHELL", shell.to_str().expect("a text path")), ("FROM_PROFILE", "agent")]);
-  // a process cannot lower its own niceness, and a test can start niced, such as under a build server at nice 10
-  let nice = (own_niceness() + 3).min(19);
+  // a process cannot lower its own niceness, and a test can start niced, such as under a build server at nice 10, or
+  // below 0, as a CI runner can start it
+  let nice = u8::try_from(own_niceness().clamp(0, 16) + 3).expect("3 to 19");
   let script = r#"echo "$FROM_PROFILE $FROM_CONFIG $BD_HOST_RUN"; echo "$PATH" | cut -d: -f1-2; ulimit -n; ps -o nice= -p $$; git --version"#;
   agent.start(RunSpec {
     nice: Some(nice),

@@ -9,7 +9,6 @@ fn a_run_record_names_what_a_fetch_takes_and_old_records_go() {
   let base = tempfile::tempdir().unwrap();
   let files = RunFiles::new(&base.path().join(".git/branch-deck/host/runs")).unwrap();
   assert!(files.dir().is_dir(), "{}", files.dir().display());
-  #[cfg(unix)]
   {
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(files.dir()).unwrap().permissions().mode() & 0o777, 0o700);
@@ -26,7 +25,6 @@ fn a_run_record_names_what_a_fetch_takes_and_old_records_go() {
   files.write("1-1", &record).unwrap();
   assert_eq!(files.read("1-1").unwrap(), Some(record));
   assert_eq!(files.patch("1-1"), files.dir().join("1-1.patch"));
-  #[cfg(unix)]
   {
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(files.dir().join("1-1.json")).unwrap().permissions().mode() & 0o777, 0o600);

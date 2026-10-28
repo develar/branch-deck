@@ -74,11 +74,12 @@ fn squash_folds_the_commits_into_the_oldest_keeps_the_message_and_the_copies_aft
   assert_eq!(output["rebuilt_branches"], json!(["lenses", "ui"]));
 
   // docs has only commits after the squashed ones: they keep their mapping notes, so its copy stays as it was; lenses
-  // and ui are built anew (ui with the same files)
+  // and ui are built anew, ui with the same files (`rebuilt_branches` above). Its tip proves nothing: the replay dates
+  // its commits now, on a fast machine in the second the fixture made them, and a copy of the same trees with the same
+  // dates is the same commit
   let after = synced_tips(&repo);
   assert_eq!(after["docs"], before["docs"]);
   assert_ne!(after["lenses"], before["lenses"]);
-  assert_ne!(after["ui"], before["ui"]);
   let tree_of = |tips: &Value| git(&repo, &["rev-parse", &format!("{}^{{tree}}", tips["ui"].as_str().unwrap())]);
   assert_eq!(tree_of(&after), tree_of(&before));
 

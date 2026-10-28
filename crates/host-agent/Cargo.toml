@@ -12,6 +12,7 @@ publish = false
 name = "host-agent-test"
 path = "src/bin/host_agent_test.rs"
 test = false
+bench = false
 doc = false
 
 # Only on Unix: the agent runs under launchd on macOS and by hand on Linux, never on Windows

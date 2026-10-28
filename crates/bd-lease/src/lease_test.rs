@@ -1369,7 +1369,9 @@ fn a_failed_get_rolls_the_lease_back() {
 }
 
 /// A git killed in a slot leaves its `index.lock`, which no process owns: the move of the next get waits for it, removes
-/// it, and moves the slot by the diff
+/// it, and moves the slot by the diff. Windows has no process scan to tell that no process owns it, so the lock stays
+/// there (`index_lock_test.rs`, `a_lock_that_no_process_owns_is_removed_and_the_step_runs_again`)
+#[cfg(unix)]
 #[test_log::test]
 fn a_get_removes_the_index_lock_a_killed_git_left_in_the_slot() {
   let fixture = Fixture::new();

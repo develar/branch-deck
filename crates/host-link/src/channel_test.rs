@@ -295,7 +295,9 @@ fn a_frame_over_its_limit_or_of_an_unknown_kind_is_a_protocol_error() {
   }
 }
 
-/// A read that waits for a silent agent ends at once when another thread closes the channel.
+/// A read that waits for a silent agent ends at once when another thread closes the channel. On macOS and Linux, the
+/// platforms of the client: on Windows `shutdown` does not wake a `recv` that blocks in another thread
+#[cfg(unix)]
 #[test]
 fn a_closer_ends_a_waiting_read_from_another_thread() {
   let client = Identity::generate().expect("the client identity");

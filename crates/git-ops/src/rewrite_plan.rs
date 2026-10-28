@@ -16,7 +16,7 @@ use crate::notes::{mapped_source, notes_ref};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_onto;
 use crate::revs::{resolve_tree_id, short_id};
-use crate::rewrite_guard::{IndexUpdate, RewriteTarget};
+use crate::rewrite_guard::{HeadMoved, IndexUpdate, RewriteTarget};
 use anyhow::anyhow;
 use domain_types::BranchError;
 use domain_types::error::ErrorCode;
@@ -178,13 +178,11 @@ fn delete_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, written:
 }
 
 /// The guards of a rewrite of the commits of `history` from `oldest_position` up to HEAD (`History::check_rewrite`),
-/// and HEAD still the tip the history was read from
+/// and HEAD still the tip the history was read from: another one is `HeadMoved`, kept for a downcast
 pub(crate) fn check_target(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, oldest_position: usize) -> Result<RewriteTarget, CopyCommitError> {
-  let target = history.check_rewrite(git_executor, repo_path, oldest_position).map_err(|e| refusal(format!("{e:#}")))?;
-  if history.head() != Some(target.head.as_str()) {
-    return Err(CopyCommitError::Other(anyhow!("Branch {} changed meanwhile, sync and try again", target.branch)));
-  }
-  Ok(target)
+  history
+    .check_rewrite(git_executor, repo_path, oldest_position)
+    .map_err(|e| if e.is::<HeadMoved>() { CopyCommitError::Other(e) } else { refusal(format!("{e:#}")) })
 }
 
 /// What a rewrite does with one commit; commits without a step are kept and replayed

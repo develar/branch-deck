@@ -22,13 +22,13 @@ fn locked_by(command: &str, since: u64) -> anyhow::Error {
   RepositoryLocked {
     path: PathBuf::from("/repo/.git/branch-deck.lock"),
     waited: Duration::from_secs(10),
-    holder: Some(LockHolder {
+    holder: Some(Box::new(LockHolder {
       command: command.to_string(),
       pid: 4242,
       process_started: None,
       since,
       subject: None,
-    }),
+    })),
   }
   .into()
 }

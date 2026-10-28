@@ -71,7 +71,8 @@
 //! - `worktree_snapshot`: the tree of the files of a worktree as `git add --all` stages them, in a copy of its index,
 //!   and the patch between two trees into a file (the scans of a host slot, the commit of a working tree)
 //! - `host_client`: the git of a client of a remote run: the commit it ships, the commits the host may have, the thin
-//!   pack into a private file, and the apply of the changes of the command to the working tree
+//!   pack into a private file, and the apply of the changes of the command to the working tree; of Unix only, as its
+//!   one caller, host-client
 //! - `host_objects`: the commits a host has, the pack of a client into its object store, the refs that keep the
 //!   commits of the runs (`refs/branch-deck/host/`), the blob text and the tree ids of a commit (`bd-host`)
 
@@ -89,6 +90,7 @@ pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
 pub mod history;
+#[cfg(unix)]
 pub mod host_client;
 pub mod host_objects;
 pub mod index_lock;
@@ -148,7 +150,7 @@ mod copy_commit_test;
 #[cfg(test)]
 mod git_command_test;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod host_client_test;
 
 #[cfg(test)]

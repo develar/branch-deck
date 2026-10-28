@@ -142,7 +142,6 @@ fn staged_record() -> RunRecord {
 
 /// A local link in a parent directory would take a write or the removal of an output outside the checkout, so the
 /// fetch refuses the file. The directory that the link names stays as it was
-#[cfg(unix)]
 #[test]
 fn a_link_in_a_parent_directory_takes_no_file_and_removes_nothing() {
   let outside = tempfile::tempdir().unwrap();
@@ -163,7 +162,6 @@ fn a_link_in_a_parent_directory_takes_no_file_and_removes_nothing() {
 }
 
 /// A part that a link names would write through the link. The fetch removes the link, and the file it names stays
-#[cfg(unix)]
 #[test]
 fn a_planted_part_link_is_removed_and_its_target_stays() {
   let outside = tempfile::tempdir().unwrap();

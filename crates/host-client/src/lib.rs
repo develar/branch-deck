@@ -18,6 +18,10 @@
 //!
 //! Each failure is a `host_link::refusal::Refusal` with a code of the table of the spec. The exit of a run follows how
 //! far it came (`RunFailure`); the exit of another request is `request_exit`.
+//!
+//! Only on Unix, as the agent: the app bundles bd-host on macOS only, and a `Closer` ends a blocked read only where
+//! `shutdown` wakes it (spec/cli/host.spec.md, "Non-goals")
+#![cfg(unix)]
 
 mod base;
 pub mod config;

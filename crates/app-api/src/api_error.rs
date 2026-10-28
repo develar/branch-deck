@@ -316,7 +316,7 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
   let locked = |holder: Option<LockHolder>| RepositoryLocked {
     path: PathBuf::from("/repo/.git/branch-deck.lock"),
     waited: Duration::from_secs(10),
-    holder,
+    holder: holder.map(Box::new),
   };
   vec![
     ("internal", anyhow!("git cat-file exited with 128").context("Cannot read the commits ahead of the baseline")),

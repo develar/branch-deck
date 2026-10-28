@@ -1,7 +1,9 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, hold_the_lock, subcommand};
-use bd_cli::fixture_test::{PREFIX, TestChild, assert_error, assert_refused_during, environment, git, print_child_answer, run_in, run_json, start_cherry_pick, write};
+use bd_cli::fixture_test::{LockSpanGit, subcommand};
+use bd_cli::fixture_test::{
+  PREFIX, TestChild, assert_error, assert_refused_during, environment, git, hold_the_lock, print_child_answer, run_in, run_json, start_cherry_pick, write,
+};
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;

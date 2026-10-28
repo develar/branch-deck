@@ -47,8 +47,10 @@ const LOCK_FILE_NAME: &str = "branch-deck.lock";
 pub struct RepositoryLocked {
   pub path: PathBuf,
   pub waited: Duration,
-  /// Who holds it, as the holder wrote it next to the lock (`LockHolder`); `None` when unknown
-  pub holder: Option<LockHolder>,
+  /// Who holds it, as the holder wrote it next to the lock (`LockHolder`); `None` when unknown. Boxed: the errors that
+  /// carry this one (`RegroupError`, `ParkError`, …) stay under clippy's `result_large_err` on Windows too, whose paths
+  /// are larger
+  pub holder: Option<Box<LockHolder>>,
 }
 
 /// The wait for a live holder (`lock_repository_while_held`) ended without the lock: the user canceled it
@@ -460,7 +462,7 @@ pub fn lock_file(path: PathBuf, timeout: Duration, on_wait: &dyn Fn()) -> Result
         std::thread::sleep(POLL_INTERVAL.min(timeout));
       }
       Err(TryLockError::WouldBlock) => {
-        let holder = LockHolder::read(&path);
+        let holder = LockHolder::read(&path).map(Box::new);
         return Err(anyhow::Error::new(RepositoryLocked {
           path,
           waited: started.elapsed(),
@@ -507,7 +509,7 @@ pub fn lock_as_another_process_for(path: PathBuf, command: &str, subject: Option
       Ok(locked(file, &path, &holder, None))
     }
     Err(TryLockError::WouldBlock) => {
-      let holder = LockHolder::read(&path);
+      let holder = LockHolder::read(&path).map(Box::new);
       Err(anyhow::Error::new(RepositoryLocked {
         path,
         waited: Duration::ZERO,

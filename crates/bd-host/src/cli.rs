@@ -115,7 +115,6 @@ enum Command {
     #[command(subcommand)]
     command: SkillCommand,
   },
-  #[cfg(unix)]
   #[command(flatten)]
   Agent(host_agent::command::AgentCommand),
 }
@@ -266,7 +265,6 @@ where
   };
   match cli.command {
     Command::Run(args) => run_command(&args, &out),
-    #[cfg(unix)]
     Command::Agent(command) => match host_agent::command::execute(command, VERSION, &mut std::io::stdout()) {
       Ok(()) => 0,
       Err(refusal) => {
@@ -389,7 +387,6 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
   let line_out = |line: &str| out.line(line);
   match command {
     Command::Run(_) => unreachable!("run_command takes a run"),
-    #[cfg(unix)]
     Command::Agent(_) => unreachable!("host_agent::command takes an agent command"),
     Command::Follow { alias, run } => {
       install_interrupt("Ctrl+C ends this process, and the run goes on on the host");
@@ -558,7 +555,6 @@ struct SlotsOutput<'a> {
   repositories: &'a [RepositorySlots],
 }
 
-#[cfg(unix)]
 fn slot_lines(repository: &RepositorySlots, out: &Out) -> Result<(), Refusal> {
   let table = host_agent::table::parse(&repository.table)?;
   for line in host_agent::table::lines(&repository.repo, &table) {
@@ -567,15 +563,7 @@ fn slot_lines(repository: &RepositorySlots, out: &Out) -> Result<(), Refusal> {
   Ok(())
 }
 
-/// Windows has no pool of host slots: the table goes out as the agent sent it
-#[cfg(not(unix))]
-fn slot_lines(repository: &RepositorySlots, out: &Out) -> Result<(), Refusal> {
-  out.json(repository);
-  Ok(())
-}
-
 /// `bd-host slots --local`: the table of a repository of this machine, its shrink and its sizes, in this process
-#[cfg(unix)]
 fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
   use host_agent::table::{Local, lines, sizes};
   let dir = args.dir.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -610,11 +598,6 @@ fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
   }
   sizes.iter().flatten().for_each(|size| out.line(&size.line()));
   Ok(0)
-}
-
-#[cfg(not(unix))]
-fn local_slots(_args: &SlotsArgs, _out: &Out) -> Result<u8, Refusal> {
-  Err(Refusal::new(Code::Usage, "slots --local needs a host of Unix, where the pool of the host slots lives"))
 }
 
 /// `bd-host setup`
@@ -652,7 +635,6 @@ fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
 }
 
 /// `setup --agent`, on the host itself
-#[cfg(unix)]
 fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   use host_agent::home::Home;
   use host_agent::setup::{LISTEN_WAIT, Setup, setup_agent};
@@ -676,11 +658,6 @@ fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   setup_agent(&home, &setup, &mut stdout)?;
   out.line(String::from_utf8_lossy(&stdout).trim_end());
   Ok(0)
-}
-
-#[cfg(not(unix))]
-fn agent_setup(_args: &SetupArgs, _out: &Out) -> Result<u8, Refusal> {
-  Err(Refusal::new(Code::Usage, "the agent of bd-host runs only on macOS and Linux"))
 }
 
 /// The answer of `bd-host upgrade`

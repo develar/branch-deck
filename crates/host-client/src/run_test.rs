@@ -648,14 +648,18 @@ fn apply_brings_the_changes_back_all_or_nothing() {
   let root = std::fs::canonicalize(setup.repo.path()).unwrap();
   let patch = root.join(format!(".git/branch-deck/host/runs/{}.patch", run_of(&outcome)));
   assert_eq!(std::fs::read_to_string(&patch).unwrap(), PATCH);
-  assert!(
-    said.lines().contains(&format!(
-      "bd-host: applied the changes of the command to 1 files of this working tree; `git apply -R {}` undoes them",
-      patch.display()
-    )),
-    "{:#?}",
-    said.lines()
-  );
+  // the line names the patch as git names the git directory: on Windows with `/` and `\` both
+  let named = said
+    .lines()
+    .iter()
+    .find_map(|line| {
+      line
+        .strip_prefix("bd-host: applied the changes of the command to 1 files of this working tree; `git apply -R ")?
+        .strip_suffix("` undoes them")
+        .map(str::to_owned)
+    })
+    .unwrap_or_else(|| panic!("no line of the apply: {:#?}", said.lines()));
+  assert_eq!(std::fs::canonicalize(named).unwrap(), patch);
 
   // The working tree has `a formatted` now, so the same patch no longer applies
   let failure = run_in(&setup, &|_| {}, &calm, &[], APPLY).unwrap_err();

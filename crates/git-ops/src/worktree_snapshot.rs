@@ -338,7 +338,9 @@ fn write_commit(git: &GitCommandExecutor, repo: &str, head: &Head, base_tree: &s
 /// the commit as `write_commit` writes it. A worktree without an index starts from the tree of HEAD (`read-tree`)
 fn commit_from_index_copy(git: &GitCommandExecutor, worktree: &str, git_dir: &Path, head: &Head, entries: &[StatusEntry], text: CommitText<'_>) -> Result<WrittenTree> {
   let copy = IndexCopy::of(git_dir, &git_dir.join("index"))?;
-  let index_env = copy.path.to_str().ok_or_else(|| anyhow!("The index copy is no UTF-8 path: {}", copy.path.display()))?;
+  // a git dir that `canonicalize` gave (`lease_slot::linked_worktree`) is verbatim on Windows, which git refuses
+  let index_path = sync_utils::paths::without_verbatim(&copy.path);
+  let index_env = index_path.to_str().ok_or_else(|| anyhow!("The index copy is no UTF-8 path: {}", copy.path.display()))?;
   let in_copy = [("GIT_INDEX_FILE", index_env)];
   if !copy.copied {
     git.cmd(&["read-tree", &head.commit], worktree).env(&in_copy).output()?;

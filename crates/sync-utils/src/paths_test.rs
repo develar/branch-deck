@@ -1,5 +1,6 @@
-use crate::paths::windows_display;
+use crate::paths::{windows_display, without_verbatim};
 use pretty_assertions::assert_eq;
+use std::path::Path;
 
 #[test]
 fn a_windows_path_has_backslashes_and_the_verbatim_form_only_from_260_characters() {
@@ -18,4 +19,17 @@ fn a_windows_path_has_backslashes_and_the_verbatim_form_only_from_260_characters
   let long_share = format!(r"\\?\UNC\server\share\{name}");
   assert_eq!(windows_display(&format!("//server/share/{name}")), long_share);
   assert_eq!(windows_display(&long_share), long_share);
+}
+
+#[test]
+fn git_gets_a_drive_path_without_the_verbatim_prefix_on_windows() {
+  let verbatim = Path::new(r"\\?\C:\Users\me\repo\.git\branch-deck-index-1\index");
+  if cfg!(windows) {
+    assert_eq!(without_verbatim(verbatim), Path::new(r"C:\Users\me\repo\.git\branch-deck-index-1\index"));
+  } else {
+    assert_eq!(without_verbatim(verbatim), verbatim);
+  }
+  let share = Path::new(r"\\?\UNC\server\share\index");
+  assert_eq!(without_verbatim(share), share);
+  assert_eq!(without_verbatim(Path::new("/repo/.git/index")), Path::new("/repo/.git/index"));
 }

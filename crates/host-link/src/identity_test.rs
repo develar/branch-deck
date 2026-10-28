@@ -1,4 +1,6 @@
-use super::{CERT_FILE, Fingerprint, Identity, KEY_FILE};
+#[cfg(unix)]
+use super::{CERT_FILE, KEY_FILE};
+use super::{Fingerprint, Identity};
 use pretty_assertions::assert_eq;
 use std::fs;
 use std::thread;
