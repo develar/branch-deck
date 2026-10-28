@@ -24,7 +24,11 @@
 //!   `PATCH_INTERVAL` (wall time, `Instant`: it only bounds the delay of the delivery), and at once at the start of a
 //!   run, when the build ended (`UnappliedBranchesFound`: the branches and the stack branches are built, so the tips are
 //!   known before the detection and the update check end, which come as patches of their own), at its end and after an
-//!   `apply`. The waiters of a run resolve after its last patch.
+//!   `apply`. The waiters of a run resolve after its last patch. The end of a run whose commit starts a derivation of
+//!   the Patronus view waits for that view (`HeldEnd`), one `PATCH_INTERVAL` at most: the table, the view of its robots
+//!   and what the rules decide over both (the pushes, the starts, the next steps, the actions) go in one patch, not in
+//!   one each, and the waiters of the run resolve after it. Meanwhile every other change waits for that patch too, and
+//!   an answer names its version (`Actor::version`); only a new run or a closed session sends it before.
 //! - The end of a run: a success leaves the table its events made; a deferred sync (`operation_in_progress`,
 //!   `detached_head`, and `prefix_changed`: the git config the run read names the branches by another prefix than the
 //!   session's, so it builds nothing) restores the table and says nothing failed, its waiters get the code; the sync is
@@ -242,6 +246,7 @@ pub(crate) fn spawn_actor(
     told_readiness: ReadinessDigest::default(),
     flush_at: None,
     last_flush: None,
+    held: None,
     in_flight: None,
     moved: MovedFetches::default(),
     frames,
@@ -249,6 +254,14 @@ pub(crate) fn spawn_actor(
   };
   span.in_scope(|| runtime.spawn(actor.run(messages, frame).in_current_span()));
   mailbox
+}
+
+/// The end of a run whose commit started a derivation of the Patronus view (`Actor::finish_run`): its patch, with every
+/// change until then, and the waiters of the run wait for that view, one `PATCH_INTERVAL` after the commit at most
+/// (`Actor::flush_at`, wall time as the patches), so the commit and the view of its robots go in one patch
+struct HeldEnd {
+  /// What the end of the run decided, followed once its patch went out
+  decision: Decision<Waiter>,
 }
 
 /// When the actor saves the frame of its session (`warm_start`): at once after a commit of its table, at most every
@@ -323,6 +336,8 @@ struct Actor {
   /// When the pending patch goes out
   flush_at: Option<Instant>,
   last_flush: Option<Instant>,
+  /// The end of the last run waits for the view of its robots
+  held: Option<HeldEnd>,
   /// The check or the run in flight keeps the session alive
   in_flight: Option<Busy>,
   /// The last fetch of each remote branch whose pull request showed a head it lacked
@@ -341,7 +356,7 @@ impl Actor {
         Some(at) => tokio::select! {
           message = messages.recv() => message,
           () = tokio::time::sleep_until(at) => {
-            self.flush();
+            self.flush_due();
             continue;
           }
         },
@@ -353,9 +368,10 @@ impl Actor {
       self.handle(message);
       // a stream of events never starves the patch
       if self.flush_at.is_some_and(|at| at <= Instant::now()) {
-        self.flush();
+        self.flush_due();
       }
     }
+    self.end_held();
     // the registry went without closing the session (the end of the app): what changed is the frame of the next start
     if self.frames.dirty {
       self.save_frame();
@@ -490,6 +506,7 @@ impl Actor {
         if self.frames.dirty {
           self.save_frame();
         }
+        self.end_held();
       }
       Message::Demand { id, demand } => {
         if self.subscribers.iter().any(|(subscription, _)| *subscription == id) {
@@ -544,7 +561,7 @@ impl Actor {
         self.derive_patronus();
         self.flush();
         let _ = reply.send(Some(AppliedFacts {
-          version: self.view.version(),
+          version: self.version(),
           robots,
           rule_bases: self.rule_bases(),
           moved_remotes,
@@ -557,7 +574,7 @@ impl Actor {
           self.events.emit(&self.key, SessionEventKind::PullRequestWritten);
         }
         self.flush();
-        let _ = reply.send(self.view.version());
+        let _ = reply.send(self.version());
       }
       Message::WriteRobot { robot, reply } => {
         let seq = self.state.next_seq();
@@ -566,7 +583,7 @@ impl Actor {
         self.facts.tell_failures(&robots);
         self.derive_patronus();
         self.flush();
-        let _ = reply.send(self.view.version());
+        let _ = reply.send(self.version());
       }
       Message::BaselinePushed { landed, refused, reply } => {
         // the closes of what it landed, over the table before its update drops the branches
@@ -578,12 +595,12 @@ impl Actor {
         }
         pushes.landed.extend(landed);
         self.flush();
-        let _ = reply.send(self.view.version());
+        let _ = reply.send(self.version());
       }
       Message::WriteReview { number, verdict, commit, reply } => {
         self.facts.review_requests.submitted(number, verdict, commit);
         self.flush();
-        let _ = reply.send(self.view.version());
+        let _ = reply.send(self.version());
       }
       #[cfg(test)]
       Message::DemandOf(reply) => {
@@ -601,7 +618,7 @@ impl Actor {
         change(&mut self.state);
         self.derive_patronus();
         self.flush();
-        let _ = reply.send(self.view.version());
+        let _ = reply.send(self.version());
       }
       Message::PushEnded {
         subjects,
@@ -626,7 +643,7 @@ impl Actor {
         // the remote branches the push moved are what the view of the robots is of
         self.derive_patronus();
         self.flush();
-        let _ = reply.send(self.view.version());
+        let _ = reply.send(self.version());
       }
       Message::RemotesFetched { subjects, fetched, reply } => {
         let fetched = fetched.unwrap_or_default();
@@ -652,7 +669,7 @@ impl Actor {
         }
         self.derive_patronus();
         self.flush();
-        let _ = reply.send(self.view.version());
+        let _ = reply.send(self.version());
       }
       Message::PatronusDerived { seq, inputs, result } => {
         let observation = Observation {
@@ -667,6 +684,8 @@ impl Actor {
         self.derive_patronus();
         // a view of the robots as they are now tells the merges that waited for it
         self.facts.tell_merges(&self.state);
+        // the end of a run that waited for this view goes with it
+        self.end_held();
         self.flush();
       }
       Message::NeedsComputed { inputs, result } => {
@@ -736,7 +755,7 @@ impl Actor {
       self.told_readiness = readiness.clone();
       self.events.emit(&self.key, SessionEventKind::Readiness(readiness.clone()));
     }
-    let version = self.view.version();
+    let version = self.version();
     let demand = &self.told_demand;
     let of = [demand.watched_robots.clone(), demand.robot_details.clone()];
     if self.told_digest.as_ref().is_some_and(|(at, told_of, _)| *at == version && *told_of == of) {
@@ -819,6 +838,7 @@ impl Actor {
     };
     let decision = self.scheduler.run_finished(run, inputs, end, self.is_watched());
     self.in_flight = None;
+    let mut derives = false;
     let observation = Observation {
       seq: self.run_seq,
       inputs: 0,
@@ -843,6 +863,7 @@ impl Actor {
         self.facts.table_committed(&baseline);
         self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline });
         self.derive_patronus();
+        derives = self.facts.patronus.is_deriving();
         // the table of the next start
         self.frames.keeps = true;
         self.save_frame();
@@ -859,6 +880,12 @@ impl Actor {
         let _ = self.facts.table.answer(observation, Err(error.clone()));
         self.state.finish_sync(Err(error));
       }
+    }
+    if derives {
+      // the patch of the commit waits for the view of its robots, one interval at most
+      self.flush_at = Some(Instant::now() + PATCH_INTERVAL);
+      self.held = Some(HeldEnd { decision });
+      return;
     }
     self.flush();
     self.follow(decision);
@@ -917,7 +944,7 @@ impl Actor {
 
   /// Resolves the waiters of a decision, then takes its next step
   fn follow(&mut self, decision: Decision<Waiter>) {
-    let version = self.view.version();
+    let version = self.version();
     for (waiter, settled) in decision.resolve {
       waiter.settle(settled, version);
     }
@@ -948,6 +975,8 @@ impl Actor {
       return;
     };
     self.in_flight = Some(Busy::new(&self.life));
+    // the end of the run before goes in a patch of its own
+    self.end_held();
     self.run_seq = self.state.begin_sync();
     self.facts.table.started(self.life.now());
     self.flush();
@@ -971,8 +1000,40 @@ impl Actor {
     );
   }
 
-  /// Sends the patch of what changed since the last one to every subscriber; a subscriber that is gone is dropped
+  /// The version an answer names: of the last patch, or of the patch the end of a run waits to send (`HeldEnd`), which
+  /// carries every change until then
+  const fn version(&self) -> Version {
+    let version = self.view.version();
+    if self.held.is_some() { version.next() } else { version }
+  }
+
+  /// The pending patch is due: the end of a run that waits goes now, else what changed
+  fn flush_due(&mut self) {
+    if self.held.is_some() {
+      self.end_held();
+    } else {
+      self.flush();
+    }
+  }
+
+  /// The end of a run that waits for the view of its robots (`HeldEnd`) goes now: its patch, then its waiters
+  fn end_held(&mut self) {
+    let Some(held) = self.held.take() else {
+      return;
+    };
+    self.send_patch();
+    self.follow(held.decision);
+  }
+
+  /// The patch of what changed since the last one, unless the end of a run waits: then that patch takes it
   fn flush(&mut self) {
+    if self.held.is_none() {
+      self.send_patch();
+    }
+  }
+
+  /// Sends the patch of what changed since the last one to every subscriber; a subscriber that is gone is dropped
+  fn send_patch(&mut self) {
     self.flush_at = None;
     self.last_flush = Some(Instant::now());
     // the asks of the readiness of what the patch carries: a moved tip comes with its readiness `Stale`

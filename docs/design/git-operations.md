@@ -4136,7 +4136,12 @@ check](#sync-inputs-check)), then syncs with the mailbox as its reporter, so the
 those of a run that is not in flight are dropped; it takes no repository lock, as the app's sync never does. Each
 event changes the state at once, and the patch of what changed goes to the subscribers at most every 16 ms (wall
 time), at once when a run starts, when its build ended (`UnappliedBranchesFound`: the tips are known before the
-detection and the update check end, which come as patches of their own), when it ends and after an `apply`. The
+detection and the update check end, which come as patches of their own), when it ends and after an `apply`. The end
+of a run whose commit derives the Patronus view again (the table of its robots moved) waits for that view, one 16 ms
+interval at most (`HeldEnd` in `runtime.rs`): the table, the view of its robots and what the rules decide over both go
+in one patch, not in one each (on 141 rows the next steps, the starts and the actions of every subject twice), the
+tickets of the run resolve after it, and every answer meanwhile names the version of that patch; a view that takes
+longer comes in a patch of its own, and a run that starts sends the end of the one before first. The
 schedule (`SyncScheduler`, which replaced the chain of syncs each window ran itself): `Manual` and `AfterRewrite` always run, as one quiet follow-up while a run is in flight; `Focus` and
 `Open` run only when the inputs changed since the last run that ended (after a failed or deferred one, only `Focus`
 checks; `Open` runs), a focus during a run is one check after the chain, and a window that opens during a run is
@@ -4165,8 +4170,9 @@ out, `CommitIdentity`, which a rewrite pressed on the seeded table finds it agai
 beside them, `CachedBuild`: the virtual tips, the branches not built, the copy of each commit, the parked notes, the
 remote facts and what the baseline has whole, from which the seed rebuilds the table of the last sync, `BranchTable`,
 `Cached` in `FactStore::table`, so the next steps, the pushes and the actions of the rows show) and the facts of the remote
-services as the view has them (the robots, the Patronus view with its landing needs, the pull
-requests, the rules, the merge profiles of the table's baseline, the readiness, the review requests, the sign-ins);
+services as the view has them (the robots, the Patronus view with its landing needs, the landing needs of the last
+computation with the inputs they are of, `CachedNeeds`, so a first sync that leaves the tips of the frame computes them
+not again and no row waits for them anew, the pull requests, the rules, the merge profiles of the table's baseline, the readiness, the review requests, the sign-ins);
 the parts the rules decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need
 the user) are not kept but derived again from the frame by the binary that reads it, and the details of the robots go
 with the demand of a window. It lives in the object cache of the repository, store `session_frame`: one frame per
@@ -4465,8 +4471,9 @@ object, and the page matches and asks nothing (`applySessionFacts` in `src/store
 view of its own table, in its one-shot session (`OneShot::derive_patronus`, on its thread).
 
 The landing needs of each branch (`BranchPatronus.landingNeeds`, `{state: unknown} | {state: known, refusals}`) are a
-fact of the session with its inputs (`landing_inputs`: the baseline, the tips of the table and the commits merged
-Safe Pushes landed as the derived view names them, `landed_commits`). The host computes them
+fact of the session with its inputs (`landing_inputs`: the baseline, the tip of each branch of the table by name and
+the commits merged Safe Pushes landed as the derived view names them, `landed_commits`; a frame keeps the last answer
+with its inputs, which answer a seeded session whose table has the same tips). The host computes them
 (`SessionEnvironment::landing_needs`: `trial_check::landing_gate::landing_needs_of` through the object cache of the
 repository, the E2E server's without one, holding its repository so a deletion waits for it; one trial session for
 every branch, [Landing gate](#landing-gate)) on the blocking pool, one computation at a time, the newest inputs wanted

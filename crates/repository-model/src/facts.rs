@@ -70,7 +70,7 @@ use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_request_facts::ReviewRequestsFact;
 use crate::table::TableState;
-use crate::warm_start::CachedFacts;
+use crate::warm_start::{CachedFacts, CachedNeeds};
 use domain_policy::holds::is_active;
 use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::news::{self, robot_finished};
@@ -489,6 +489,7 @@ impl FactStore {
     let CachedFacts {
       robots,
       patronus,
+      landing_needs,
       pull_requests,
       rules,
       profiles,
@@ -498,7 +499,7 @@ impl FactStore {
     } = facts;
     Self {
       robots: RobotsFact::cached(robots),
-      patronus: PatronusFact::cached(patronus),
+      patronus: PatronusFact::cached(patronus, landing_needs),
       pull_requests: PullRequestsFact::cached(pull_requests),
       rules: rules.into_iter().filter_map(|(base, rules)| Some((base, FactRecord::cached(rules, 0)?))).collect(),
       profiles: FactRecord::cached(profiles, baseline_inputs(baseline)).unwrap_or_else(FactRecord::unknown),
@@ -531,6 +532,7 @@ impl FactStore {
     CachedFacts {
       robots: self.robots.view().clone(),
       patronus: self.patronus.part().clone(),
+      landing_needs: self.patronus.needs.frame(),
       pull_requests: self.pull_requests.view().clone(),
       rules: self.rules.iter().map(|(base, rules)| (base.clone(), rules.fact().clone())).collect(),
       profiles: if profiles.inputs == profiles.expected {
@@ -1187,8 +1189,10 @@ impl Default for PatronusFact {
 
 impl PatronusFact {
   /// The Patronus view of the frame of an earlier run (`warm_start`), with its landing needs when they were known:
-  /// `Cached` until a derivation of this process answers; none when the frame had no view
-  fn cached(part: PatronusPart) -> Self {
+  /// `Cached` until a derivation of this process answers; none when the frame had no view. The needs the frame kept with
+  /// their inputs (`CachedNeeds`) answer the same inputs as a computation of this process would: a first sync that
+  /// leaves the tips of the frame computes them not again, and its view keeps them, so no row waits for them anew
+  fn cached(part: PatronusPart, needs: Option<CachedNeeds>) -> Self {
     let PatronusPart { state, landing_needs, view } = part;
     let fact = Fact {
       value: Some(Arc::new(view.clone())),
@@ -1206,6 +1210,10 @@ impl PatronusFact {
     };
     Self {
       derived,
+      needs: LandingNeedsFact {
+        known: needs.map(|needs| (needs.inputs, Ok(Arc::new(needs.needs)))),
+        ..LandingNeedsFact::default()
+      },
       part: PatronusPart {
         state: FactState::Cached,
         landing_needs,
@@ -1308,6 +1316,17 @@ enum NeedsOf<'a> {
 static NO_NEEDS: Needs = Needs::new();
 
 impl LandingNeedsFact {
+  /// The needs a frame keeps: of the last computation, when it answered them
+  fn frame(&self) -> Option<CachedNeeds> {
+    match &self.known {
+      Some((inputs, Ok(needs))) => Some(CachedNeeds {
+        inputs: *inputs,
+        needs: Needs::clone(needs),
+      }),
+      _ => None,
+    }
+  }
+
   fn of(&self, inputs: u64, table: &BranchTable) -> NeedsOf<'_> {
     if table.branches.is_empty() {
       return NeedsOf::Known(&NO_NEEDS);
@@ -1439,16 +1458,15 @@ pub fn patronus_inputs(table: u32, remote: &RemoteFacts, robots: &[PatronusRobot
   hasher.finish()
 }
 
-/// What the landing needs of `table` are of, as one hash: the baseline, the tips of its branches and the commits merged
+/// What the landing needs of `table` are of, as one hash: the baseline, the tip of each branch by name (a table rebuilt
+/// from a frame lists its branches in the order of the view, `warm_start::CachedBuild::table`) and the commits merged
 /// Safe Pushes landed (`landed`)
 #[must_use]
 pub fn landing_inputs(table: &BranchTable, landed: &HashSet<String>) -> u64 {
   let mut hasher = DefaultHasher::new();
   table.baseline.hash(&mut hasher);
-  for branch in &table.branches {
-    branch.name.hash(&mut hasher);
-    table.tip_of(&branch.name).hash(&mut hasher);
-  }
+  let tips = table.branches.iter().map(|branch| (branch.name.as_str(), table.tip_of(&branch.name)));
+  tips.collect::<BTreeMap<_, _>>().hash(&mut hasher);
   landed.iter().collect::<BTreeSet<_>>().hash(&mut hasher);
   hasher.finish()
 }

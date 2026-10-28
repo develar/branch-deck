@@ -5,8 +5,9 @@
 //!   them (`CachedTable`: the header with the prefix, the order, the rows, the stack branches, the sections, of each
 //!   commit what its view leaves out but a rewrite finds it again by, `CommitIdentity`, and what that sync built of the
 //!   rows beside them, `CachedBuild`, which the next steps, the pushes and the actions read) and the facts of the remote
-//!   services as the view had them (`CachedFacts`: the robots, the Patronus view, the pull requests, the rules, the
-//!   merge profiles, the readiness, the review requests, the sign-ins). The parts the rules
+//!   services as the view had them (`CachedFacts`: the robots, the Patronus view, the landing needs with the inputs
+//!   they are of, the pull requests, the rules, the merge profiles, the readiness, the review requests, the sign-ins).
+//!   The parts the rules
 //!   decide (the pushes, the starts, what landed, the next steps, the actions, the robots that need the user) are not
 //!   kept: the session derives them again from the frame, by the rules of the binary that reads it, as from every
 //!   state. No running sync, no operation, no news: a frame is of no process.
@@ -21,7 +22,7 @@
 //!   (`Unavailable`, the value gone), so no value of an earlier run stands as an answer of this one.
 
 use crate::branch_table::{BranchTable, RemoteFacts};
-use crate::facts::FactStore;
+use crate::facts::{FactStore, Needs};
 use crate::session::SessionKey;
 use crate::table::{TableParts, TableState};
 use domain_types::GroupedBranchInfo;
@@ -39,7 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 1;
+pub const FRAME_SCHEMA: u32 = 2;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,6 +195,8 @@ impl CommitIdentity {
 pub struct CachedFacts {
   pub robots: RobotsView,
   pub patronus: PatronusPart,
+  /// The landing needs of the last computation that answered them, with what they are of
+  pub landing_needs: Option<CachedNeeds>,
   pub pull_requests: PullRequestsView,
   pub rules: BTreeMap<String, Fact<BranchRules>>,
   /// Of the target of the table's baseline: a value of another baseline is not kept
@@ -201,6 +204,15 @@ pub struct CachedFacts {
   pub readiness: BTreeMap<String, Fact<SubjectReadiness>>,
   pub review_requests: ReviewRequestsView,
   pub auth: Fact<AuthStatus>,
+}
+
+/// The landing needs a frame keeps (`PatronusFact`): by branch, with the inputs they were computed of
+/// (`facts::landing_inputs`, the hash of the binary that computed them: a binary that hashes otherwise computes them
+/// again)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CachedNeeds {
+  pub inputs: u64,
+  pub needs: Needs,
 }
 
 /// The frame of the session of `key` with `state` and `facts`: the table as its last sync committed it (while a sync

@@ -22,6 +22,15 @@
 // - resyncScriptMs / resyncTaskMs: the same of a sync that changes nothing (the Patronus view comes in the patches of
 //   the session: the page asks no view of the robots), once no step waits for a fact (`waitForStepFacts`).
 //
+// The warm start (docs/design/rendering-performance.md, "Loading"): the app starts again on the frame its sessions
+// saved, the robots and the landing needs the first page read included (`reloadWarm`), its first sync held until the
+// rows of the frame are in the page:
+// - warmFirstRowsMs: from the reload until every row of the frame is in the page;
+// - warmFirstSyncScriptMs / warmFirstSyncTaskMs: the script time and the task time of that first sync once released,
+//   until its rows are no longer cached and no step waits for a fact;
+// - warmStartInvokes: the commands the page invoked before its first row, its protocol aside (`firstRowsAsks`): the
+//   subscription alone, whose channel carries the rest (B7).
+//
 // PERF_PROFILE=1 adds one more first sync under the CPU profiler of CDP (Chromium; sampled every 100 µs), after the
 // measured runs, which it would slow: tests/results/perf/first-sync-<project>.cpuprofile, for the Performance panel of
 // DevTools or a summary by function (the build has no source maps: map its positions with a `vp build --sourcemap` of
@@ -44,8 +53,9 @@ import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { findBranchRow } from "../e2e/helpers/branch-helpers"
+import { reloadWarm } from "../e2e/helpers/common-setup"
 import type { IpcStats } from "../e2e/helpers/ipc-helpers"
-import { INTENT_DWELL_PAST_MS, resetIpc, settledIpc, withoutAppTimers } from "../e2e/helpers/ipc-helpers"
+import { INTENT_DWELL_PAST_MS, firstRowsAsks, recordIpcAtFirstRows, resetIpc, settledIpc, withoutAppTimers } from "../e2e/helpers/ipc-helpers"
 import { availableRobots, robot } from "../e2e/helpers/patronus-helpers"
 import { hoverStatusChip } from "../e2e/helpers/review-status-helpers"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
@@ -104,7 +114,7 @@ function median(values: number[]): number {
   return Math.round(sorted[Math.floor(sorted.length / 2)]! * 100) / 100
 }
 
-const results: Record<string, Metrics | SyncMetrics | IpcMetrics> = {}
+const results: Record<string, Metrics | SyncMetrics | IpcMetrics | WarmMetrics> = {}
 
 interface SyncMetrics {
   firstSyncScriptMs: number
@@ -122,10 +132,18 @@ interface IpcMetrics {
   popoverIpc: number
 }
 
+interface WarmMetrics {
+  warmFirstRowsMs: number
+  warmFirstSyncScriptMs: number
+  warmFirstSyncTaskMs: number
+  warmStartInvokes: number
+}
+
 /** The runs of each benchmark, a test each */
 const rowRuns: Metrics[] = []
 const syncRuns: SyncMetrics[] = []
 const ipcRuns: IpcMetrics[] = []
+const warmRuns: WarmMetrics[] = []
 
 /** The commands of all names but those of the app's own timers, which fire wherever a run is (as the e2e of B6 counts) */
 function invokeCount(stats: IpcStats): number {
@@ -185,6 +203,14 @@ test.describe("Branch table performance", () => {
         resyncTaskMs: median(syncRuns.map(run => run.resyncTaskMs)),
       }
     }
+    if (warmRuns.length > 0) {
+      results["warm start"] = {
+        warmFirstRowsMs: median(warmRuns.map(run => run.warmFirstRowsMs)),
+        warmFirstSyncScriptMs: median(warmRuns.map(run => run.warmFirstSyncScriptMs)),
+        warmFirstSyncTaskMs: median(warmRuns.map(run => run.warmFirstSyncTaskMs)),
+        warmStartInvokes: median(warmRuns.map(run => run.warmStartInvokes)),
+      }
+    }
     if (ipcRuns.length > 0) {
       results["ipc"] = {
         firstSyncPatches: median(ipcRuns.map(run => run.firstSyncPatches)),
@@ -234,6 +260,43 @@ test.describe("Branch table performance", () => {
       await waitForStepFacts(page)
       const resync = await timeMainThread(cdp, () => runAndWaitForSync(page, () => page.getByTestId("sync-button").click()))
       syncRuns.push({ firstSyncScriptMs: first.script, firstSyncTaskMs: first.task, resyncScriptMs: resync.script, resyncTaskMs: resync.task })
+    })
+  }
+
+  for (let run = 1; run <= RUNS; run++) {
+    test(`the warm start of 141 rows with robots running on ten of them, run ${run}`, async ({ page, setupRepo, browserName }) => {
+      test.skip(browserName !== "chromium", "the CDP metrics are Chromium's")
+      await page.setViewportSize({ width: 1516, height: 900 })
+      // the first page: the frame of a sync without a page, the robots and the landing needs read by its first sync
+      const repo = await setupRepo("branch_table_large", { warmStart: true, patronus: availableRobots(...ROBOTS), waitForSync: false })
+      await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
+      await expect(page.locator("[data-cached]")).toHaveCount(0)
+      await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
+      await waitForStepFacts(page)
+
+      // the next start, on the frame the session saved as it closed, its first sync held
+      await recordIpcAtFirstRows(page)
+      await repo.holdRemoteAnswers({ hold: ["sync"] })
+      const start = Date.now()
+      await reloadWarm(page, repo)
+      await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
+      const warmFirstRowsMs = Date.now() - start
+      await expect(page.locator("[data-cached=true]")).toBeVisible()
+      await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send("Performance.enable")
+      const sync = await timeMainThread(cdp, async () => {
+        await repo.holdRemoteAnswers({ release: ["sync"] })
+        await expect(page.locator("[data-cached]")).toHaveCount(0)
+        await waitForStepFacts(page)
+      })
+      const asks = await firstRowsAsks(page)
+      warmRuns.push({
+        warmFirstRowsMs,
+        warmFirstSyncScriptMs: sync.script,
+        warmFirstSyncTaskMs: sync.task,
+        warmStartInvokes: Object.values(withoutAppTimers(asks?.invokes ?? {})).reduce((sum, count) => sum + count, 0),
+      })
     })
   }
 

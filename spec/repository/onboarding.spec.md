@@ -202,7 +202,11 @@ alert with the reason and the next step, never a raw Git error.
   from it to the view of the session, or nothing; the rows come with that one command and its channel. Until the first
   sync commits, the rows are of the frame (`RepositoryView.cached`): a push and every other action of the remote waits
   for it ("Waits for the first sync"), a rewrite pressed then (Unstack) says it waits ("Unstacking oauth after the
-  sync") and runs on the table the sync committed, and a focus during that sync is one check after it. A frame of
+  sync") and runs on the table the sync committed, and a focus during that sync is one check after it. The frame
+  keeps the landing needs with the tips they are of: a first sync that leaves those tips computes them not again, and
+  no step of a row waits for them anew ("Checking what … needs to land"); the next steps, the starts and the actions of
+  the rows change once, when that sync commits (the view of the robots it derives goes in the same patch when it
+  comes within 16 ms). A frame of
   another prefix or schema, a project without one, or a model of another project (a reload after a switch) start as
   before, without rows until the first sync.
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`shows the rows of the frame before the first sync, asking only for the subscription, and the first sync's table after it`)
@@ -210,6 +214,7 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`runs an unstack pressed on the rows of the frame once the first sync committed, waiting for it until then`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`checks a focus during the first sync once after it, with no second run`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs_with_no_window`, `a_seeded_session_shows_the_steps_and_the_actions_of_its_rows_a_push_waiting_for_the_first_sync`, `a_frame_of_another_prefix_or_schema_seeds_nothing`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_warm_first_sync_that_leaves_the_tips_of_the_frame_changes_every_subject_in_one_patch_at_most`, `the_end_of_a_sync_goes_with_the_view_of_its_robots_in_one_patch`, `the_end_of_a_sync_waits_for_the_view_of_its_robots_one_interval_at_most`)
   [@test] ../../src-tauri/src/warm_start_test.rs (`the_common_dir_is_found_by_the_files_of_the_main_and_of_a_linked_worktree`, `the_model_is_the_json_of_the_path_and_the_view_in_a_string_that_json_parse_reads`)
   [@test] ../../crates/app-settings/src/projects_test.rs (`the_selected_project_is_the_first_recent_one`)
   [@test] ../../src/model/store.test.ts (`shows the rows of the seed before anything answers, and catches up by the patch from it, the patches before the answer after it`, `keeps the seed when the session sent nothing since, and leaves a model of another project`)

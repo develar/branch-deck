@@ -86,6 +86,17 @@ struct ScriptedHost {
   /// The frames the sessions saved, in order, and a notice of each
   saves: Mutex<Vec<CachedSession>>,
   saved: Notify,
+  /// The derivations of the Patronus view and the computations of the landing needs that ran
+  derivations: Mutex<u32>,
+  needs_computed: Mutex<u32>,
+  /// While set, a derivation of the Patronus view says that it started and waits for the release
+  view_gate: Mutex<Option<ViewGate>>,
+}
+
+/// What holds the derivations of the Patronus view of a `ScriptedHost` (`ScriptedHost::hold_views`)
+struct ViewGate {
+  started: tokio::sync::mpsc::UnboundedSender<()>,
+  release: std::sync::mpsc::Receiver<()>,
 }
 
 impl ScriptedHost {
@@ -106,14 +117,31 @@ impl ScriptedHost {
 
   /// A run that leaves `table`
   fn push_table(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>, table: BranchTable) {
+    self.push_table_gated(events, result, table, None);
+  }
+
+  /// A run that leaves `table` once `gate` (if any) is notified
+  fn push_table_gated(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>, table: BranchTable, gate: Option<Arc<Notify>>) {
     let pace = Duration::ZERO;
     self.scripts.lock().unwrap().push_back(Script {
       events,
       pace,
       result,
-      gate: None,
+      gate,
       table,
     });
+  }
+
+  /// From now on, each derivation of the Patronus view says that it started and waits for a release
+  fn hold_views(&self) -> (tokio::sync::mpsc::UnboundedReceiver<()>, std::sync::mpsc::Sender<()>) {
+    let (started, starts) = tokio::sync::mpsc::unbounded_channel();
+    let (releases, release) = std::sync::mpsc::channel();
+    *self.view_gate.lock().unwrap() = Some(ViewGate { started, release });
+    (starts, releases)
+  }
+
+  fn derivations(&self) -> u32 {
+    *self.derivations.lock().unwrap()
   }
 
   /// A run whose events stream over time: `pace` after each
@@ -189,10 +217,16 @@ impl SessionHost for ScriptedHost {
 
   /// By the hashes only: the scripted tables are of no repository
   fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+    *self.derivations.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+    if let Some(gate) = self.view_gate.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+      let _ = gate.started.send(());
+      let _ = gate.release.recv();
+    }
     Ok(derive_patronus(&GitCommandExecutor::new(), &key.worktree, of, memo))
   }
 
   fn landing_needs(&self, _key: &SessionKey, _landed: &HashSet<String>) -> Result<Needs, ApiError> {
+    *self.needs_computed.lock().unwrap_or_else(PoisonError::into_inner) += 1;
     Ok(Needs::new())
   }
 
@@ -1807,4 +1841,141 @@ async fn the_frame_is_saved_when_the_table_commits_after_the_facts_and_when_the_
   list_robots(&sessions, &key, vec![robot("r3", Some("auth"), PatronusRobotStatus::Running, 30)]).await;
   assert_eq!(sessions.sweep(), std::slice::from_ref(&key));
   assert_eq!(robot_ids(&host.saved(4).await[3]), ["r3"], "the change that waited goes with the session");
+}
+
+/// The branches of `three_built`
+const THREE: [&str; 3] = ["one", "two", "three"];
+
+/// The events of a sync that builds `one`, `two` and `three` with a commit each
+fn three_built() -> Vec<SyncEvent> {
+  let mut events = vec![grouping(THREE.iter().map(|name| grouped(name, &[&format!("{name}-1")])).collect())];
+  for name in THREE {
+    events.push(synced(name, &format!("{name}-1"), CommitSyncStatus::Created));
+    events.push(branch_status(name, BranchSyncStatus::Created));
+  }
+  events.push(SyncEvent::UnappliedBranchesFound { branches: Vec::new() });
+  events
+}
+
+/// The table a sync of `three_built` leaves: each branch built at its copy, listed in another order than its rows (the
+/// table of a sync has the order of the grouping, a table rebuilt from a frame the order of the view)
+fn three_table() -> BranchTable {
+  BranchTable {
+    prefix: "test".to_owned(),
+    baseline: "origin/master".to_owned(),
+    branches: THREE.iter().rev().map(|name| grouped(name, &[&format!("{name}-1")])).collect(),
+    tips: THREE.iter().map(|name| (format!("test/virtual/{name}"), format!("copy-{name}-1"))).collect(),
+    ..BranchTable::default()
+  }
+}
+
+/// A robot of `one`
+fn robots_of_one() -> Vec<PatronusRobot> {
+  vec![robot("r1", Some("one"), PatronusRobotStatus::Running, 10)]
+}
+
+/// Sessions on `host` whose two next runs leave `three_table`, a window on the session of `/repo`, synced once with the
+/// view of a robot of `one` derived
+async fn three_with_robots(host: &Arc<ScriptedHost>) -> (Sessions, SessionKey, Window) {
+  for _ in 0..2 {
+    host.push_table(three_built(), Ok(report(false, &[])), three_table());
+  }
+  let (sessions, _clock) = scripted(host);
+  let key = key("/repo");
+  let window = Window::default();
+  sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  robots_derived(&sessions, &key, robots_of_one()).await;
+  window.take();
+  (sessions, key, window)
+}
+
+/// The end of a sync whose commit derives the Patronus view again waits for that view: the table, the view of its
+/// robots and what the rules decide over both go in one patch, and the waiters of the run resolve after it, so no
+/// window sees the view go stale and fresh again in patches of their own
+#[tokio::test(start_paused = true)]
+async fn the_end_of_a_sync_goes_with_the_view_of_its_robots_in_one_patch() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, key, window) = three_with_robots(&host).await;
+  let derived = host.derivations();
+  let answer = sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  assert_eq!(host.derivations(), derived + 1, "the commit derived the view again");
+  let patches = window.take();
+  let end = patches.last().unwrap();
+  assert_eq!(end.changes.sync, Some(SyncState::Idle));
+  assert_eq!(answer.version, end.next, "the waiters of the run resolve with the patch of its end");
+  assert!(patches.iter().all(|patch| patch.changes.patronus.is_none()), "the view never went stale: {patches:?}");
+  assert_eq!(snapshot(&sessions, &key).await.patronus.state, FactState::Fresh);
+}
+
+/// The end of a sync waits for the view of its robots one interval at most: a view that takes longer comes in a patch
+/// of its own after the end, which goes with the view `Stale` and resolves the waiters of the run
+#[tokio::test(start_paused = true)]
+async fn the_end_of_a_sync_waits_for_the_view_of_its_robots_one_interval_at_most() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, key, window) = three_with_robots(&host).await;
+  let (mut started, release) = host.hold_views();
+  let ticket = sessions.sync(&key, SyncReason::Manual);
+  // the commit's derivation runs, held by the host: the time moves by the interval only
+  started.recv().await.unwrap();
+  tokio::time::advance(PATCH_INTERVAL).await;
+  let answer = ticket.wait().await.unwrap();
+  let end = window.take().pop().unwrap();
+  assert_eq!((end.changes.sync, answer.version), (Some(SyncState::Idle), end.next));
+  let stale = end.changes.patronus.and_then(|patronus| patronus.state);
+  assert_eq!(stale, Some(FactState::Stale { reason: None }), "the view is derived anew");
+
+  release.send(()).unwrap();
+  patronus_when(&sessions, &key, |part| part.state == FactState::Fresh).await;
+  let late = window.take();
+  assert_eq!(late.len(), 1, "{late:?}");
+  assert_eq!(late[0].changes.patronus.as_ref().and_then(|patronus| patronus.state.clone()), Some(FactState::Fresh));
+}
+
+/// Whether `patch` carries the next step, the starts or the actions of every branch of `three_built`
+fn carries_every_subject(patch: &ViewPatch) -> bool {
+  let changes = &patch.changes;
+  THREE
+    .iter()
+    .all(|name| changes.next_steps.contains_key(*name) || changes.lands.contains_key(*name) || changes.actions.contains_key(*name))
+}
+
+/// A session seeded from the frame of a run that knew the robots and the landing needs (the frame keeps the needs with
+/// the inputs they are of): the view of the robots Patronus answers keeps those needs, and a first sync that leaves the
+/// tips of the frame computes none; the next steps, the starts and the actions of every subject change in one patch
+/// after its commit at most, the end of that sync (its rows no longer cached), never once more for the view or the needs
+#[tokio::test(start_paused = true)]
+async fn a_warm_first_sync_that_leaves_the_tips_of_the_frame_changes_every_subject_in_one_patch_at_most() {
+  let before = Arc::new(ScriptedHost::default());
+  let (sessions, key, _window) = three_with_robots(&before).await;
+  patronus_when(&sessions, &key, |part| part.landing_needs == FactState::Fresh).await;
+  let of = key.clone();
+  let frame = sessions.read(&key, move |state, facts| frame_of(&of, state, facts)).await.unwrap();
+  assert!(frame.facts.landing_needs.is_some(), "the frame keeps the needs");
+
+  // the next start: the session seeded from the frame syncs as it opens, until Patronus answered the same robots
+  let host = Arc::new(ScriptedHost::with_frame(Some(frame)));
+  let gate = Arc::new(Notify::new());
+  host.push_table_gated(three_built(), Ok(report(false, &[])), three_table(), Some(Arc::clone(&gate)));
+  host.set_inputs(1);
+  let (sessions, _clock) = scripted(&host);
+  let window = Window::default();
+  let (_, seeded) = sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  assert!(seeded.cached);
+  robots_derived(&sessions, &key, robots_of_one()).await;
+  let ticket = sessions.sync(&key, SyncReason::Open);
+  gate.notify_one();
+  ticket.wait().await.unwrap();
+  let synced = patronus_when(&sessions, &key, |part| part.state == FactState::Fresh && part.landing_needs == FactState::Fresh).await;
+  assert_eq!(synced.view.branches["one"].landing_needs, LandingNeeds::Known { refusals: Vec::new() });
+
+  let patches = window.take();
+  let commit = patches.iter().position(|patch| patch.changes.sync == Some(SyncState::Idle)).unwrap();
+  let wide: Vec<u32> = patches[commit..].iter().filter(|patch| carries_every_subject(patch)).map(|patch| patch.next.seq).collect();
+  assert!(wide.len() <= 1, "the patches of every subject after the commit: {wide:?}");
+  assert!(
+    patches[..commit].iter().all(|patch| !carries_every_subject(patch)),
+    "the view over the frame changed every subject"
+  );
+  assert_eq!(*host.needs_computed.lock().unwrap(), 0, "the needs of the frame answer its tips");
 }
