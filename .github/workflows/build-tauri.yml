@@ -90,7 +90,8 @@ jobs:
       matrix:
         include:
           - platform: "macos-latest"
-            args: "--target aarch64-apple-darwin"
+            # bundles bd-host, the binary of the remote runs (scripts/build-bd-host.mjs)
+            args: "--target aarch64-apple-darwin --config src-tauri/tauri.macos-bd-host.conf.json"
           - platform: "ubuntu-24.04"
             args: ""
           - platform: "windows-latest"

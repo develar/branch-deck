@@ -9,8 +9,9 @@ cd "$PROJECT_ROOT"
 # rustup's cargo must win over Homebrew's: the workspace manifest needs the pinned nightly
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# --no-sign skips code signing and updater signing (no TAURI_SIGNING_PRIVATE_KEY needed), as in test.yml
-pnpm tauri build --bundles app --no-sign
+# --no-sign skips code signing and updater signing (no TAURI_SIGNING_PRIVATE_KEY needed), as in test.yml; the config
+# bundles bd-host (scripts/build-bd-host.mjs)
+pnpm tauri build --bundles app --no-sign --config src-tauri/tauri.macos-bd-host.conf.json
 
 APP="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}/release/bundle/macos/BranchDeck.app"
 osascript -e 'quit app "BranchDeck"' 2>/dev/null || true

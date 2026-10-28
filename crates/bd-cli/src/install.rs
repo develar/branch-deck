@@ -1,6 +1,8 @@
 //! `bd install`: lets coding agents find bd. It puts a `bd` command into `~/.local/bin` (macOS, Linux: a symlink to the
 //! app binary, which runs the CLI under that name) and a skill into the user skill directories of the agents, which says
-//! when to use bd and to start with `bd help agent`. The app's Help menu runs the same install.
+//! when to use bd and to start with `bd help agent`. On macOS it also links `~/.local/bin/bd-host` to the `bd-host` that
+//! the app bundle carries (`BranchDeck.app/Contents/MacOS/bd-host`, docs/design/host-runs.md). The app's Help menu runs
+//! the same install.
 
 use crate::agent_help::skill_text;
 use bd_core::bd_command::{BdCommand, app_binary, bd_command, display, io_error};
@@ -21,6 +23,9 @@ pub const SKILL_DIRS: [&str; 2] = [".claude/skills", ".agents/skills"];
 /// The name of the skill: its directory and its `name`
 pub const SKILL_NAME: &str = "branch-deck";
 const SKILL_FILE_NAME: &str = "SKILL.md";
+/// The binary of the remote runs that the app bundle carries beside the app binary on macOS
+#[cfg(target_os = "macos")]
+const BD_HOST: &str = "bd-host";
 
 #[derive(Debug, Default, clap::Args)]
 pub struct InstallArgs {
@@ -40,6 +45,10 @@ pub struct InstallOutput {
   /// The skill files written, or removed with --uninstall
   pub skills: Vec<String>,
   pub uninstalled: bool,
+  /// The `bd-host` command in `~/.local/bin` (macOS): the symlink to the `bd-host` of the app bundle, or a binary there
+  /// that stays, such as the one that `bd-host upgrade` wrote; `null` when the app carries none. With --uninstall, the
+  /// symlink that went
+  pub bd_host: Option<String>,
   /// How agents work in a repository without its own value, by the global git config (`bd workspace`, Settings →
   /// Agents); omitted with --uninstall
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,18 +74,21 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
       }
     }
     let bd = uninstall_command(home, &target)?;
+    let bd_host = uninstall_bd_host(home, &target)?;
     return Ok(InstallOutput {
       schema: SchemaVersion,
       on_path: false,
       bd: display(&bd),
       skills: removed,
       uninstalled: true,
+      bd_host: bd_host.as_deref().map(display),
       agents: None,
     });
   }
 
   refuse_temporary_location(&target)?;
   let bd = install_command(home, &target)?;
+  let bd_host = install_bd_host(home, &target)?;
   let text = skill_text(
     &BdCommand {
       program: bd.clone(),
@@ -95,6 +107,7 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     bd: display(&bd),
     skills: skill_files.iter().map(|file| display(file)).collect(),
     uninstalled: false,
+    bd_host: bd_host.as_deref().map(display),
     agents: Some(agent_defaults(counted_git(environment).ok().as_ref())),
   })
 }
@@ -181,6 +194,56 @@ fn uninstall_command(home: &Path, target: &Path) -> Result<PathBuf, CliError> {
 #[expect(clippy::unnecessary_wraps, reason = "the signature of the unix variant, which can fail")]
 fn uninstall_command(_home: &Path, target: &Path) -> Result<PathBuf, CliError> {
   Ok(target.to_path_buf())
+}
+
+/// The `bd-host` symlink in `~/.local/bin` to the `bd-host` beside the app binary `target`, which the app bundle carries
+/// on macOS. A symlink there is replaced. A binary there stays: `bd-host upgrade` or `bd-host setup` wrote it, and the
+/// `LaunchAgent` of a host runs it. Answers the command, or `None` when the app carries no `bd-host`
+#[cfg(target_os = "macos")]
+fn install_bd_host(home: &Path, target: &Path) -> Result<Option<PathBuf>, CliError> {
+  let binary = target.with_file_name(BD_HOST);
+  if !binary.is_file() {
+    return Ok(None);
+  }
+  let dir = home.join(LINK_DIR);
+  let link = dir.join(BD_HOST);
+  if links_to(&link, &binary) {
+    return Ok(Some(link));
+  }
+  match std::fs::symlink_metadata(&link) {
+    Ok(metadata) if metadata.file_type().is_symlink() => fs_retry::remove_file(&link).map_err(|e| io_error(&link, &e))?,
+    Ok(_) => return Ok(Some(link)),
+    Err(_) => std::fs::create_dir_all(&dir).map_err(|e| io_error(&dir, &e))?,
+  }
+  std::os::unix::fs::symlink(&binary, &link).map_err(|e| io_error(&link, &e))?;
+  Ok(Some(link))
+}
+
+/// Only the app bundle of macOS carries `bd-host`
+#[cfg(not(target_os = "macos"))]
+#[expect(clippy::unnecessary_wraps, reason = "the signature of the macOS variant, which can fail")]
+const fn install_bd_host(_home: &Path, _target: &Path) -> Result<Option<PathBuf>, CliError> {
+  Ok(None)
+}
+
+/// Remove the `bd-host` symlink if it is ours: it points at the `bd-host` beside `target`, or at a `bd-host` that is
+/// gone. A binary there stays. Answers the removed symlink
+#[cfg(target_os = "macos")]
+fn uninstall_bd_host(home: &Path, target: &Path) -> Result<Option<PathBuf>, CliError> {
+  let link = home.join(LINK_DIR).join(BD_HOST);
+  let ours = links_to(&link, &target.with_file_name(BD_HOST))
+    || std::fs::read_link(&link).is_ok_and(|points_to| !points_to.exists() && points_to.file_name().is_some_and(|name| name == BD_HOST));
+  if !ours {
+    return Ok(None);
+  }
+  fs_retry::remove_file(&link).map_err(|e| io_error(&link, &e))?;
+  Ok(Some(link))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[expect(clippy::unnecessary_wraps, reason = "the signature of the macOS variant, which can fail")]
+const fn uninstall_bd_host(_home: &Path, _target: &Path) -> Result<Option<PathBuf>, CliError> {
+  Ok(None)
 }
 
 /// Whether the first `bd` on `PATH` is `bd`

@@ -20,6 +20,8 @@ targets:
   - ../../crates/git-ops/src/host_objects.rs
   - ../../crates/git-ops/src/worktree_snapshot.rs
   - ../../.branchdeck.toml
+  - ../../src-tauri/tauri.macos-bd-host.conf.json
+  - ../../scripts/build-bd-host.mjs
 ---
 
 # bd-host
@@ -96,6 +98,19 @@ This spec is a draft of the port. A requirement names the test that will cover i
   [@test] ../../crates/host-link/src/channel_test.rs (`a_relayed_connection_carries_the_handshake_and_the_frames`, `a_remembered_refusal_of_an_address_takes_the_relay_at_once`)
   [@test] ../../crates/host-link/src/relay_test.rs (`the_relay_carries_bytes_both_ways_and_ends_with_the_peer`, `local_network_privacy_is_a_cause_only_of_host_unreachable_on_a_local_address_that_the_relay_cannot_pass`)
   [@test] ../../crates/host-link/src/disclaim_test.rs (`a_disclaimed_child_gets_its_arguments_and_its_pipes`, `a_command_that_changes_the_environment_is_refused`)
+
+### The bundle
+
+- `bd-host` must be a binary of its own: neither `bd` nor the app binary links a crate of the remote runs, so the app
+  binary does not grow (the architecture test, `crates/bd-cli/src/architecture_test.rs`).
+- On macOS the release build of the app must carry it as `BranchDeck.app/Contents/MacOS/bd-host`: the Tauri config
+  `src-tauri/tauri.macos-bd-host.conf.json` names it as `externalBin`, and its build command
+  (`scripts/build-bd-host.mjs`) builds it for the target triple of the build. CI and `pnpm install-app` pass that
+  config with `--config`. It is not `tauri.macos.conf.json`, because Tauri merges that file into every macOS build,
+  `cargo build` of the app too, and that build then needs the binary first. The Windows build keeps its own config
+  for `bd.exe`.
+- `bd install` links `~/.local/bin/bd-host` to that binary ([Agent CLI](agent-cli.spec.md), "`bd install`").
+  [@test] ../../crates/bd-cli/src/install_test.rs (`install_links_the_bd_host_of_the_app_bundle_and_keeps_a_binary_there`)
 
 ### The files
 

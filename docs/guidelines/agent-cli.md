@@ -48,7 +48,9 @@ as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches
 plugin is created. On Windows the app binary is a GUI-subsystem program without a console, so the installer puts a
 console `bd.exe` next to `branch-deck.exe`: the `bd` binary of `crates/bd-cli`, which `scripts/build-bd.mjs` builds
 for the Tauri `externalBin` of `src-tauri/tauri.windows-bd.conf.json` (passed with `--config` by the Windows CI jobs
-only, so other builds don't need the file). The code is in `crates/bd-cli` (the `Cli`, the dispatch, `bd schema`, the help texts) and the crates it
+only, so other builds don't need the file). The macOS release build carries `bd-host` the same way
+(`scripts/build-bd-host.mjs`, `src-tauri/tauri.macos-bd-host.conf.json`), and `bd install` links
+`~/.local/bin/bd-host` to it. The code is in `crates/bd-cli` (the `Cli`, the dispatch, `bd schema`, the help texts) and the crates it
 builds on: `bd-core`, `bd-lease`, `bd-update`, `bd-rewrite` and `bd-remote`, and the library `commit-clustering`; the requirements are in the
 [Agent CLI spec](../../spec/cli/agent-cli.spec.md).
 

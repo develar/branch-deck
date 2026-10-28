@@ -10,6 +10,7 @@ targets:
   - ../../src-tauri/src/main.rs
   - ../../crates/bd-cli/src/main.rs
   - ../../scripts/build-bd.mjs
+  - ../../scripts/external-bin.mjs
   - ../../src-tauri/tauri.windows-bd.conf.json
   - ../../crates/bd-cli/src/lib.rs
   - ../../crates/bd-core/src/context.rs
@@ -1524,6 +1525,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd install` and Help → Install Agent CLI… must put a `bd` command where an agent finds it: on macOS and Linux a
   symlink in `~/.local/bin` to the app binary, replacing a symlink there and refusing anything else
   (`install_refused`); on Windows `bd.exe` next to the app.
+- On macOS it must also link `~/.local/bin/bd-host` to the `bd-host` that the app bundle carries beside the app binary
+  ([bd-host](host.spec.md), "The bundle"), replacing a symlink there. A binary there stays, because `bd-host upgrade`
+  wrote it and the `LaunchAgent` of a host runs it. `bd_host` names the command, `null` when the app carries none.
+  `--uninstall` removes only that symlink, or one to a `bd-host` that is gone.
+  [@test] ../../crates/bd-cli/src/install_test.rs (`install_links_the_bd_host_of_the_app_bundle_and_keeps_a_binary_there`)
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
   bd (first of all before the first edit or commit in a Git repository, for `bd workspace`
   ([bd workspace](workspace.spec.md)); then grouping into branches and pull requests, stacked when they build on each

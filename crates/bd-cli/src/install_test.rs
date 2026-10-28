@@ -68,6 +68,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
       "on_path": true,
       "skills": skill_files(&home),
       "uninstalled": false,
+      "bd_host": null,
       "agents": { "lease": true, "subject_branch": false }
     })
   );
@@ -135,6 +136,37 @@ fn a_file_in_the_way_is_refused() {
   environment.path = Some("/usr/bin".into());
   let (exit_code, output) = run_json(&environment, &["install"]);
   assert_eq!((exit_code, &output["on_path"]), (0, &json!(false)), "{output}");
+}
+
+/// On macOS the install links `~/.local/bin/bd-host` to the `bd-host` of the app bundle, keeps a binary there that an
+/// upgrade wrote, and the uninstall removes only its own symlink
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn install_links_the_bd_host_of_the_app_bundle_and_keeps_a_binary_there() {
+  let (home, app) = home_with_app();
+  let home = std::fs::canonicalize(home.path()).unwrap();
+  let link = home.join(".local/bin/bd-host");
+  let (exit_code, output) = run_install(&home, &app, &["install"]);
+  assert_eq!((exit_code, &output["bd_host"]), (0, &json!(null)), "an app without bd-host: {output}");
+  assert!(std::fs::symlink_metadata(&link).is_err(), "no symlink without a bd-host of the app");
+
+  let bd_host = app.with_file_name("bd-host");
+  std::fs::write(&bd_host, "bd-host").unwrap();
+  let (exit_code, output) = run_install(&home, &app, &["install"]);
+  assert_eq!((exit_code, &output["bd_host"]), (0, &json!(link.to_str().unwrap())), "{output}");
+  assert_eq!(std::fs::read_link(&link).unwrap(), bd_host);
+
+  let (exit_code, output) = run_install(&home, &app, &["install", "--uninstall"]);
+  assert_eq!((exit_code, &output["bd_host"]), (0, &json!(link.to_str().unwrap())), "{output}");
+  assert!(std::fs::symlink_metadata(&link).is_err(), "the symlink is removed");
+
+  // the binary of an upgrade stays, through the install and the uninstall
+  std::fs::write(&link, "upgraded").unwrap();
+  let (exit_code, output) = run_install(&home, &app, &["install"]);
+  assert_eq!((exit_code, &output["bd_host"]), (0, &json!(link.to_str().unwrap())), "{output}");
+  let (exit_code, output) = run_install(&home, &app, &["install", "--uninstall"]);
+  assert_eq!((exit_code, &output["bd_host"]), (0, &json!(null)), "{output}");
+  assert_eq!(std::fs::read_to_string(&link).unwrap(), "upgraded");
 }
 
 /// The command of the app's prompts: the installed link when it is this app's, else the app binary with `cli`, which

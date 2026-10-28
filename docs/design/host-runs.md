@@ -26,7 +26,9 @@ one host during the migration, and both lend from the same lend table.
 
 `bd-host` is a binary of its own. Neither `bd` nor the app links it, so the app binary does not grow. On macOS the app
 bundle carries it as a file (`BranchDeck.app/Contents/MacOS/bd-host`), and `bd install` links
-`~/.local/bin/bd-host`. The contract of the CLI, the refusal codes and the report of a run are in
+`~/.local/bin/bd-host`. The release build gets it through its own Tauri config, `tauri.macos-bd-host.conf.json`, as
+the Windows build gets `bd.exe`: Tauri merges `tauri.macos.conf.json` into every macOS build, and a plain `cargo build`
+of the app would then need the binary first. The contract of the CLI, the refusal codes and the report of a run are in
 [bd-host](../../spec/cli/host.spec.md).
 
 ## Design
