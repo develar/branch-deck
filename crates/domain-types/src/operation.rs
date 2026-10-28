@@ -12,6 +12,7 @@ use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedR
 use crate::reason::Reason;
 use crate::rewrite::{RewriteIntent, RewriteResult, UndoToken};
 use crate::session::Version;
+use crate::update_project::UpdateProjectResult;
 use crate::youtrack::YouTrackStateChange;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -74,6 +75,15 @@ pub enum Intent {
   ForgetStart { op: OperationId },
   /// A rewrite of the checked out branch or of the refs of Branch Deck by its core (`operations::rewrite`)
   Rewrite(Box<RewriteIntent>),
+  /// Only the remote branch of the baseline is fetched into its tracking ref (the Fetch of a merge toast); the branch,
+  /// the index and the working tree stay as they are (`operations::update`)
+  FetchBaseline,
+  /// The checked out branch is brought onto the baseline, keeping unrelated local changes (Update Project, ⌘T): the
+  /// fetch first when `fetch` (the `FetchBaseline` of the session, joined when one runs), then the check and the move
+  /// (`operations::update`); without it onto the tracking ref as the last fetch left it (Retry Without Fetch)
+  UpdateProject { fetch: bool },
+  /// The report of the commits that landed with an update is cleared (the user has seen it)
+  DismissLanded,
 }
 
 impl Intent {
@@ -95,6 +105,9 @@ impl Intent {
       Self::SetIssueState { .. } => OperationKind::SetIssueState,
       Self::ForgetStart { .. } => OperationKind::ForgetStart,
       Self::Rewrite(_) => OperationKind::Rewrite,
+      Self::FetchBaseline => OperationKind::FetchBaseline,
+      Self::UpdateProject { .. } => OperationKind::UpdateProject,
+      Self::DismissLanded => OperationKind::DismissLanded,
     }
   }
 
@@ -236,6 +249,10 @@ pub enum OperationStep {
   Checking,
   /// Rewrites the checked out branch or the refs of Branch Deck (a rewrite, its undo)
   Rewriting,
+  /// Fetches the remote branch of the baseline (`FetchBaseline`, the fetch of an update)
+  Fetching,
+  /// Moves the checked out branch onto the baseline, the files following (Update Project after its check)
+  Updating,
   /// Moves the pull request of its subject into the base its rule names
   Retargeting,
   /// Cancels the robot its start replaces
@@ -435,6 +452,24 @@ pub enum OperationResult {
   Push(Box<PushResult>),
   /// A rewrite or its undo: what its core answered, by its kind
   Rewrite(Box<RewriteResult>),
+  /// A fetch of the baseline: the baseline it fetched and when (`Intent::FetchBaseline`, and the fetch of an update)
+  Fetch(Box<FetchedBaseline>),
+  /// An update of the checked out branch onto the baseline: its check, what it changed and what landed
+  Update(Box<UpdateProjectResult>),
+}
+
+/// What a fetch of the baseline answered
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FetchedBaseline {
+  /// The fetched baseline as it is shown, e.g. `origin/master`
+  pub upstream: String,
+  /// When the fetch ended (Unix seconds)
+  pub fetched_at: u32,
+  /// How much it received, as git prints it ("5.79 MiB"); none when git reported no amount (nothing new, or the result
+  /// of another fetch of the same tracking ref it waited for)
+  pub transferred: Option<String>,
 }
 
 /// What a push answered (`Intent::Push`): the toast of the push and its Activity entry name it
@@ -584,8 +619,15 @@ pub struct OperationStats {
 pub enum OperationEvent {
   /// It went on to `step`
   Step { op: OperationId, step: OperationStep },
-  /// Its push sent `percent` of what it sends; `line` is what git said last
-  Progress { op: OperationId, percent: u32, line: String },
+  /// Its push or its fetch sent or received `percent` of what it transfers; `line` is what git said last, `transferred`
+  /// and `speed` the amount and the rate as git prints them ("5.79 MiB", "32.57 MiB/s") while it receives
+  Progress {
+    op: OperationId,
+    percent: u32,
+    line: String,
+    transferred: Option<String>,
+    speed: Option<String>,
+  },
   /// It ended, or the operation it joined did
   Done { outcome: Box<Outcome> },
 }

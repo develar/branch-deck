@@ -461,6 +461,13 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    (`a_rewrite_costs_its_core_and_one_read_of_its_witness` in `crates/operations/src/process_budget_test.rs`); the undo
    reads no witness.
 
+Update Project, the Fetch of a merge toast and Dismiss Landed are operations of the engine too
+(`operations::update`, "Update project" below): the fetch the intent `FetchBaseline`, holding the tracking ref of the
+baseline; the update the intent `UpdateProject { fetch }`, holding nothing while its fetch (that `FetchBaseline`) runs,
+then HEAD (`RunningGuard::hold`, `Resource::Head`), its wait for the lock its step `WaitingForLock`; its outcome the
+effects `Fetch`, `Update` and `Sync` with what the core answered (`OperationResult::Update`) and the undo of an
+applied update (`UndoKind::Update`, the token `bd undo` takes, which `Rewrite(Undo)` runs with the core's short lock).
+
 #### Reword, move, add issue reference
 
 Only messages change, so every tree stays the same and the index and the working tree are already correct. The app's
@@ -643,7 +650,7 @@ restack, an undo of a regroup, park and unpark, the squash undo, the unapply and
 Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWait` of its caller:
 
 - **`bd`**: `LockWait::Bounded(lock_timeout)`, 10 s by default (`BRANCH_DECK_LOCK_TIMEOUT`), then `locked`, exit 3.
-- **The app**: `LockWait::WhileHeld(&WaitTicket)`, `lock_repository_while_held`: after its own operations before it in
+- **The app**: `LockWait::WhileHeld(&StepWaiter)`, `lock_repository_while_held`: after its own operations before it in
   the line, it waits, without a bound, while the holder record names a live process, an agent's `bd pick --follow`;
   only a lock no record names a live holder of (a holder that writes none) refuses after `DEFAULT_LOCK_TIMEOUT`
   ("Another Branch Deck operation holds …; retry when it is done"). An operation of the engine (a rewrite, a push, a
@@ -652,14 +659,13 @@ Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWa
   long it has held the lock), told again when the holder changes and as the time grows, so every window words it
   (`presentLockWait` of `src/presenters/lock-wait.ts`), and its Stop Waiting is `cancel_operation`
   (`Registry::cancel`): the wait sees the flag on its next poll and returns `LockWaitCanceled` before the rewrite read
-  or wrote anything, and the operation answers the code `canceled`. Update Project, not an operation of the engine yet,
-  takes its progress channel: the command registers its wait by the id of that channel in the host's `LockWaits`
-  (`crates/history-rewrite/src/lock_wait.rs`, `src-tauri/src/lock_wait.rs`), tells the page whom it waits for
-  (`UpdateProgress.waitingFor`, null once the wait ended), and `cancel_lock_wait` of the channel's id ends the wait;
-  the command answers `canceled` (`canceled_code`) only when its own wait ended so (`WaitTicket::ended_by_cancel`),
-  never for a Stop Waiting that came after the lock was taken. The page says "Canceled squashing 2 commits before it
-  started" (an info toast, no error) and changes nothing. The E2E server keeps the same registry and streams the
-  messages of the channel as SSE events before the answer (`crates/test-server/src/channel_commands.rs`).
+  or wrote anything, and the operation answers the code `canceled` (`StepWaiter::ended_by_cancel` of
+  `operations::rewrite`: only when its own wait ended so, never for a Stop Waiting that came after the lock was taken).
+  Update Project is such an operation (`operations::update`): its wait after its check is its step `WaitingForLock`,
+  its stopped wait the failed `Update` effect of its outcome, `canceled`, nothing changed but the fetch. The page says
+  "Canceled squashing 2 commits before it started" (an info toast, no error) and changes nothing. The E2E server runs
+  the same engine and streams the events of an operation as SSE events before the answer
+  (`crates/test-server/src/channel_commands.rs`).
 
 `bd push` and `bd safe-push` (their sync, then the witness and the freeze of
 their push; the network push after it; with `--check` only the sync),
@@ -921,8 +927,8 @@ final steps, runs inside every sync, so the header can say whether the update wo
 |---|---|---|
 | 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD` | error: an operation in progress, a detached HEAD |
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
-| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` and for the app (`UpdateProjectParams.fetch: false`: it fetched with `fetch_baseline` first, the same fetch); under the fetch lock, none when another fetch of the tracking ref ran meanwhile ("Fetch lock" below) | error (`FetchFailed`), nothing changed |
-| 2b. Lock | after step 6: `$GIT_COMMON_DIR/branch-deck.lock`, held to the end of step 10; the wait is the step `waiting` | `locked` after 10 s, nothing changed |
+| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` and for the app (`UpdateProjectParams.fetch: false`: its operation fetched first as the `FetchBaseline` of its session, the same fetch); under the fetch lock, none when another fetch of the tracking ref ran meanwhile ("Fetch lock" below) | error (`FetchFailed`), nothing changed |
+| 2b. Lock | after step 6: `$GIT_COMMON_DIR/branch-deck.lock`, held to the end of step 10; the wait is the step `WaitingForLock` of the app's operation (`bd`: the phase `waiting`) | `locked` after 10 s (the app: only a holder no record names), nothing changed |
 | 2c. Pending files | under the lock: `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below), and steps 3 to 8 run again | `finish_pending`: the branch moved since, nothing changed |
 | 2d. Witness | under the lock (`recheck_update`): step 0 and `rev-parse HEAD^{commit} U^{commit}` again; another branch, H or U: steps 3 to 8 once more, under the lock | as steps 0 and 3 |
 | 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U`; exit 1: no common history, any other exit (a history git can't read) an error with git's message |
@@ -939,13 +945,19 @@ Details:
 - **Lock.** The fetch and the check (steps 3 to 6: the replay, the resolution by words, the landed candidates) run
   before the repository lock, on the HEAD and the upstream one `rev-parse` read (`check_update_before_lock`), so
   neither a slow network nor a long replay blocks another writer: a regroup, a push or an agent's `bd` goes on
-  meanwhile. The app runs the fetch as a command of its own (`fetch_baseline`), outside the slot of its rewrites, then
-  `update_project` without a fetch, so a regroup of the page runs during the fetch (a forced update is excluded by the
-  fork point of the reflog, step 4, as for `--no-fetch`). Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
+  meanwhile. In the app Update Project is an operation of the engine (`Intent::UpdateProject`, `operations::update`):
+  its fetch is the `FetchBaseline` of the session, an operation of its own that a Fetch of a merge toast joins and that
+  joins one, while the update holds nothing, so a regroup of the page runs during the fetch; then it holds HEAD
+  (`RunningGuard::hold`: after the rewrites of the process before it, before the ones after it) and runs the core
+  without a fetch (a forced update is excluded by the fork point of the reflog, step 4, as for `--no-fetch`). The
+  operation ends once it asked the sync after its fetch and its move; an applied update answers once that sync ended.
+  Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
   move (9, 10), so the app's Update Project, `bd update` and every rewrite of the app or of bd never interleave with
   the move. A writer that moved the branch or the upstream during the check makes the update check once more, under
   the lock, so an update never applies a check made before another writer moved the branch; the progress says the
-  check again (`Checking`), no longer the wait. A check that moves
+  check again (`Checking`), no longer the wait (`the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move`
+  of `update_project_test.rs` pins what runs under the lock: `rev-parse`, `symbolic-ref`, `update-index`, `read-tree`,
+  `update-ref`). A check that moves
   nothing (up to date, blocked, or a conflict that starts no session: the app's) is the answer without the lock,
   unless the mark of an interrupted update (`pending_update`) asks for its files to follow under it. What the update
   did and landed is read after the release on the ids the move froze (`MovedUpdate::report`: the notes of the commits
@@ -961,10 +973,11 @@ Details:
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
   and nothing for a ref that did not move. The fetch runs through `execute_remote_command_with_progress` (Key
   Decision 8).
-- **Fetch without update.** The Fetch of a merged robot's toast (`crates/sync-core/src/baseline_fetch.rs`) is step 2
-  alone, then a sync: the check inside it compares HEAD with the fetched tracking ref. A forced update needs no
+- **Fetch without update.** The Fetch of a merged robot's toast (`Intent::FetchBaseline`, the core
+  `crates/sync-core/src/baseline_fetch.rs`) is step 2 alone, holding the tracking ref (`Resource::Ref`), then the sync
+  its operation asks: the check inside it compares HEAD with the fetched tracking ref. A forced update needs no
   record: the next check excludes the old tip by the fork point of the tracking ref's reflog.
-- **Fetch lock.** Every fetch of the baseline (`fetch_baseline`: the app's Update Project and Fetch, `bd update`)
+- **Fetch lock.** Every fetch of the baseline (`baseline::fetch_baseline`: the app's Update Project and Fetch, `bd update`)
   holds `$GIT_COMMON_DIR/branch-deck/fetch.lock` for its whole fetch (`crates/sync-core/src/fetch_lock.rs`, its one
   taker; `registry_scan_test.rs` fails on the name anywhere else), its holder record (`fetch.lock.holder`, as the
   repository lock's: command, pid, start time, since) naming the tracking ref it writes (`LockHolder::subject`). A

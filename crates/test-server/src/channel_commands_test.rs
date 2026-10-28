@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 /// Parks `test-branch` through the engine on the channel `channel` while the server holds the lock of the repository:
 /// its messages
 async fn park_while_locked(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, path: &str, channel: u32) -> Messages {
-  post(client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": true })).await;
+  post(client, addr, &format!("/repositories/{id}/locks/repository"), json!({ "held": true })).await;
   let witness = json!({"head": head(path), "storeTips": {"issueGroups": null, "stackParents": null, "parked": null}});
   let park = json!({"kind": "rewrite", "rewrite": "park", "branches": [{"branchName": "test-branch", "note": "later"}], "witness": witness});
   let execute = json!({"repositoryPath": path, "intent": park, "fingerprint": ""});
@@ -46,7 +46,7 @@ async fn a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_
   let waiting = waiting_for_the_holder(&mut messages).await;
   assert_eq!(waiting["step"]["holder"]["pid"], json!(std::process::id()), "{waiting}");
 
-  post(&client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": false })).await;
+  post(&client, addr, &format!("/repositories/{id}/locks/repository"), json!({ "held": false })).await;
   let result = answer(&mut messages).await;
   assert_eq!(result["status"], "ok", "{result}");
 }
@@ -70,5 +70,5 @@ async fn stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed() {
     .unwrap();
   assert!(!parked.status.success());
   assert_eq!(post_as(&client, addr, Named::Nothing, "/invoke/cancel_operation", json!({ "op": op })).await, json!(false));
-  post(&client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": false })).await;
+  post(&client, addr, &format!("/repositories/{id}/locks/repository"), json!({ "held": false })).await;
 }

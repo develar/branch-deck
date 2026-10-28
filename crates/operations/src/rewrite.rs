@@ -60,6 +60,7 @@ use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
 use trial_check::conflict_fix::{ApplyConflictFixParams, apply_conflict_fix_core};
 use update_core::pick::{PickRemoteCommitsParams, UndoPickRemoteCommitsParams, pick_remote_commits_core, undo_pick_remote_commits_core};
+use update_core::update_project::{UpdateUndoToken, undo_update_core};
 
 /// What the rewrites of a host run with besides the services of its reads (`ServiceHost`: the git, the object cache):
 /// the diffs a pick reads, and a core's failure as the commands of the host answer it
@@ -438,36 +439,55 @@ async fn run_core(guard: &RunningGuard, key: &SessionKey, hosts: Hosts<'_>, rewr
     cache,
     file_diffs: hosts.rewrites.file_diffs(),
   };
-  let waiter = Arc::new(StepWaiter {
-    stepper: guard.stepper(),
-    canceled: guard.canceled(),
-    ended_by_cancel: AtomicBool::new(false),
-  });
+  let waiter = Arc::new(StepWaiter::new(guard, OperationStep::Rewriting));
   let (resolved, core_waiter) = (rewrite.clone(), Arc::clone(&waiter));
   let ran = blocking(move || Ok(core.run(&resolved, &*core_waiter))).await?;
   match ran {
     Ok(ran) => Ok(ran),
     // nothing was read or written: whatever the core answered after the wait
-    Err(_) if waiter.ended_by_cancel.load(Ordering::SeqCst) => Err(ApiError::new(ErrorCode::Canceled, "The wait for the repository lock was stopped; nothing changed")),
+    Err(_) if waiter.ended_by_cancel() => Err(wait_stopped()),
     Err(Failure::Rewrite(error)) => Err(hosts.rewrites.rewrite_error(error)),
     Err(Failure::Undo(error)) => Err(hosts.rewrites.undo_error(error)),
   }
 }
 
-/// The wait of a rewrite for the repository lock, told as the step of its operation: `WaitingForLock` with its holder,
-/// then `Rewriting` once it ended; stopped by `Registry::cancel` of the operation
-struct StepWaiter {
+/// The wait of a rewrite or an update for the repository lock, told as the step of its operation: `WaitingForLock`
+/// with its holder, then the step it goes on at once it ended (`then`); stopped by `Registry::cancel` of the operation
+pub(crate) struct StepWaiter {
   stepper: Stepper,
   canceled: Arc<AtomicBool>,
   /// The wait ended because the user stopped it (a stop after the lock was taken ends nothing)
   ended_by_cancel: AtomicBool,
+  then: OperationStep,
+}
+
+impl StepWaiter {
+  /// The waiter of the operation of `guard`, which goes on at `then` after its wait
+  pub(crate) fn new(guard: &RunningGuard, then: OperationStep) -> Self {
+    Self {
+      stepper: guard.stepper(),
+      canceled: guard.canceled(),
+      ended_by_cancel: AtomicBool::new(false),
+      then,
+    }
+  }
+
+  /// Whether the wait ended because the user stopped it: nothing was read or written after it
+  pub(crate) fn ended_by_cancel(&self) -> bool {
+    self.ended_by_cancel.load(Ordering::SeqCst)
+  }
+}
+
+/// The error of an operation whose wait for the repository lock the user stopped: nothing changed
+pub(crate) fn wait_stopped() -> ApiError {
+  ApiError::new(ErrorCode::Canceled, "The wait for the repository lock was stopped; nothing changed")
 }
 
 impl LockWaiter for StepWaiter {
   fn holder(&self, holder: Option<&LockHolder>) {
     self.stepper.step(match holder {
       Some(holder) => OperationStep::WaitingForLock { holder: Some(holder.info()) },
-      None => OperationStep::Rewriting,
+      None => self.then.clone(),
     });
   }
 
@@ -493,10 +513,10 @@ struct Core {
 }
 
 /// `work` on the blocking pool, in the span of the operation
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, ApiError> + Send + 'static) -> Result<T, ApiError> {
+pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, ApiError> + Send + 'static) -> Result<T, ApiError> {
   match tokio::task::spawn_blocking(in_current_span(work)).await {
     Ok(answer) => answer,
-    Err(error) => Err(ApiError::internal(format!("The rewrite stopped: {error}"))),
+    Err(error) => Err(ApiError::internal(format!("The operation stopped: {error}"))),
   }
 }
 
@@ -712,6 +732,8 @@ impl Core {
         undo_pick_remote_commits_core(git, &params, DEFAULT_LOCK_TIMEOUT)?;
         false
       }
+      // its short lock, as `bd undo` takes it
+      UndoKind::Update => undo_update_core(git, path, &UpdateUndoToken::parse(text).ok_or_else(not_a_token)?, DEFAULT_LOCK_TIMEOUT)?.already_undone,
     };
     Ok(Ran::of(RewriteResult::Undone { already_undone }, token.kind, None))
   }

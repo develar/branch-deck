@@ -222,6 +222,8 @@ pub enum UndoKind {
   Reapply,
   /// Pick Remote Commits (`pick:…`)
   Pick,
+  /// Update Project (`update:<previous>..<new>`): the branch and the files back, as `bd undo` does
+  Update,
 }
 
 /// What the core of a rewrite answered (`OperationResult::Rewrite`), by its kind

@@ -137,6 +137,9 @@ fn asked(intent: &Intent) -> (String, &'static str) {
       rewrite.subject().map_or_else(|| "the rewrite".to_string(), |subject| format!("the rewrite of {subject}")),
       "sync, then ask it again",
     ),
+    Intent::FetchBaseline => ("the fetch of the baseline".to_string(), "fetch again"),
+    Intent::UpdateProject { .. } => ("the update of the project".to_string(), "update again"),
+    Intent::DismissLanded => ("the dismissal of the landed commits".to_string(), "dismiss them again"),
   }
 }
 

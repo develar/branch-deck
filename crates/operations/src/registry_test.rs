@@ -13,6 +13,7 @@ use repository_model::session::{OneClock, RunReporter, SessionHost, SessionKey, 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
 use sync_core::sync_inputs::SyncInputs;
+use sync_core::transfer_progress::TransferProgress;
 use sync_utils::clock::TestClock;
 
 /// A host whose sessions never sync: no window asks one here; a sync asked all the same fails, and wakes `runs`
@@ -48,7 +49,7 @@ impl SessionHost for IdleHost {
 
 /// What a caller heard
 #[derive(Default)]
-struct Heard(Mutex<Vec<OperationEvent>>);
+pub(crate) struct Heard(Mutex<Vec<OperationEvent>>);
 
 impl EventSink for Heard {
   fn send(&self, event: OperationEvent) {
@@ -57,7 +58,7 @@ impl EventSink for Heard {
 }
 
 impl Heard {
-  fn take(&self) -> Vec<OperationEvent> {
+  pub(crate) fn take(&self) -> Vec<OperationEvent> {
     std::mem::take(&mut self.0.lock().unwrap_or_else(PoisonError::into_inner))
   }
 }
@@ -207,7 +208,12 @@ async fn an_admitted_operation_is_in_the_view_until_it_ends() {
   assert_eq!(operation.moves, land("auth", PatronusPushMode::RebaseAutosquash).moves);
 
   guard.step(OperationStep::Pushing);
-  guard.progress(40, "Writing objects: 40%".to_string());
+  guard.progress(&TransferProgress {
+    percent: 40,
+    transferred: Some("1.20 MiB".to_string()),
+    speed: None,
+    line: "Writing objects: 40%".to_string(),
+  });
   assert_eq!(step_of(&fixture.operations().await, &id), Some(OperationStep::Pushing));
   // its outcome with what it cost from its admission on
   let finished = guard.finish(Ok(outcome(&id))).await.unwrap();
@@ -230,6 +236,8 @@ async fn an_admitted_operation_is_in_the_view_until_it_ends() {
         op: id.clone(),
         percent: 40,
         line: "Writing objects: 40%".to_string(),
+        transferred: Some("1.20 MiB".to_string()),
+        speed: None,
       },
       OperationEvent::Done { outcome: Box::new(finished) },
     ]

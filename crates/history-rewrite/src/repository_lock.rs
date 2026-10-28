@@ -327,7 +327,8 @@ impl Teller {
 }
 
 /// The app's side of a wait for a live holder of the lock (`LockWait::WhileHeld`): it hears whom the wait is for and
-/// ends it when the user stops waiting (`lock_wait::WaitTicket`, Stop Waiting on the surface of the operation)
+/// ends it when the user stops waiting (`operations::rewrite::StepWaiter`, the step `WaitingForLock` of an operation of
+/// the engine, whose Stop Waiting is `cancel_operation`)
 pub trait LockWaiter: Sync {
   /// The holder the wait is for, when it changes and about once a second: another process, or this one while an
   /// operation of it before this one in its line holds the lock; `None` once the wait ended, with the lock or without
@@ -483,11 +484,18 @@ fn try_lock_file(path: &Path) -> Result<Option<RepositoryLock>> {
 /// process wait for it as they wait for another process, name it by its record, and refuse after their bound. For the
 /// tests and the E2E server, whose app runs in the process that holds it; a held lock refuses it at once
 pub fn lock_as_another_process(path: PathBuf, command: &str) -> Result<RepositoryLock> {
+  lock_as_another_process_for(path, command, None)
+}
+
+/// `lock_as_another_process`, its record naming `subject`, what the holder works on (`lock_file_while_held_for`): the
+/// tracking ref the fetch of an agent writes (`sync_core::fetch_lock::hold_fetch_as_another_process`)
+pub fn lock_as_another_process_for(path: PathBuf, command: &str, subject: Option<&str>) -> Result<RepositoryLock> {
   let file = open_lock_file(&path)?;
   match file.try_lock() {
     Ok(()) => {
       let holder = LockHolder {
         command: command.to_string(),
+        subject: subject.map(str::to_owned),
         ..LockHolder::of_this_process()
       };
       Ok(locked(file, &path, &holder, None))

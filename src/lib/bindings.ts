@@ -17,11 +17,6 @@ export const commands = {
 	/**  Clear Log: the journal of the repository of the recent project and the entries of the page of it are forgotten */
 	clearActivity: (params: ClearActivityParams) => typedError<null, ApiError>(__TAURI_INVOKE("clear_activity", { params })),
 	/**
-	 *  Stops the wait of the command whose channel has the id `channel` for another holder of the repository lock: the
-	 *  command answers `canceled`, nothing changed. A wait that ended already (the lock taken) goes on
-	 */
-	cancelLockWait: (channel: number) => __TAURI_INVOKE<boolean>("cancel_lock_wait", { channel }),
-	/**
 	 *  The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
 	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 	 */
@@ -281,20 +276,6 @@ export const commands = {
 	getStackIndependence: (params: StackIndependenceParams) => typedError<StackIndependence, ApiError>(__TAURI_INVOKE("get_stack_independence", { params })),
 	/**  The `fixup!`, `squash!` and `amend!` commits ahead of the baseline, grouped by the commit each one is squashed into */
 	getAutosquashPlan: (params: GetAutosquashPlanParams) => typedError<AutosquashPlan, ApiError>(__TAURI_INVOKE("get_autosquash_plan", { params })),
-	/**
-	 *  Fetches the baseline and brings the current branch onto it, keeping unrelated local changes; a conflict or a block
-	 *  is a result with nothing changed. `progress` receives the step the update is at, how far the fetch is, and whom
-	 *  the update waits for while another holder has the repository lock (as long as it lives); `cancel_lock_wait` of the
-	 *  channel's id ends that wait, with nothing changed.
-	 */
-	updateProject: (params: UpdateProjectParams, progress: Channel<UpdateProgress>) => typedError<UpdateProjectResult, ApiError>(__TAURI_INVOKE("update_project", { params, progress })),
-	/**
-	 *  Fetches only the baseline's remote branch, without updating the checked out branch; `progress` receives how far the
-	 *  fetch is
-	 */
-	fetchBaseline: (params: FetchBaselineParams, progress: Channel<TransferProgress>) => typedError<FetchBaselineResult, ApiError>(__TAURI_INVOKE("fetch_baseline", { params, progress })),
-	/**  Clears the report of the commits that landed with an update; the next update starts a new one */
-	dismissLanded: (repositoryPath: string) => typedError<null, ApiError>(__TAURI_INVOKE("dismiss_landed", { repositoryPath })),
 	/**
 	 *  Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
 	 *  logged-out `claude` and its failures are outcomes
@@ -2202,17 +2183,6 @@ export type FastestHours = {
 	slowest_median: number,
 };
 
-export type FetchBaselineParams = {
-	repositoryPath: string,
-};
-
-export type FetchBaselineResult = {
-	/**  The fetched baseline as it is shown, e.g. `origin/master` */
-	upstream: string,
-	/**  When the fetch ended (Unix seconds) */
-	fetchedAt: number,
-};
-
 export type FetchReviewHeadParams = {
 	repositoryPath: string,
 	number: number,
@@ -2221,6 +2191,19 @@ export type FetchReviewHeadParams = {
 	baseRefName: string,
 	baseRefOid: string,
 	isCrossRepository: boolean,
+};
+
+/**  What a fetch of the baseline answered */
+export type FetchedBaseline = {
+	/**  The fetched baseline as it is shown, e.g. `origin/master` */
+	upstream: string,
+	/**  When the fetch ended (Unix seconds) */
+	fetchedAt: number,
+	/**
+	 *  How much it received, as git prints it ("5.79 MiB"); none when git reported no amount (nothing new, or the result
+	 *  of another fetch of the same tracking ref it waited for)
+	 */
+	transferred: string | null,
 };
 
 /**
@@ -2660,11 +2643,11 @@ export type Intent =
 	kind: "push",
 } & Push | 
 /**  A restart of a robot of the user, with the push before it when the branch moved past its commit */
-({ kind: "restartRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "restartRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  A cancel of a running robot of the user */
-({ kind: "cancelRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "cancelRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The open pull request `number` goes into the base its rule names (`domain_policy::pull_request::base_of`) */
-({ kind: "retarget"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "retarget"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The pull request of a subject is opened, after the push it needs */
 {
 	kind: "createPullRequest",
@@ -2674,34 +2657,47 @@ export type Intent =
  *  Request Review… preselects (`domain_policy::review::candidates`); `push_first`: the work its branch has for the
  *  remote is pushed first, so the reviewers see it (D5), else such work refuses it (`Reason::NeedsPush`)
  */
-({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; robotId?: never; state?: never; thenLand?: never; verdict?: never } | 
+({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; robotId?: never; state?: never; thenLand?: never; verdict?: never } | 
 /**  The pull request `number` is closed with `comment` */
-({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; commit?: never; expected?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; commit?: never; expected?: never; fetch?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The open pull requests of the branches a merged robot landed whole besides its own are closed
  *  (`domain_policy::landed::pull_requests_to_close`)
  */
-({ kind: "closeLandedPullRequests"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "closeLandedPullRequests"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  A review of the pull request `number` of someone else on the commit the user reviewed, and the Safe Push of it
  *  after an approval (`then_land`: a `/patronus merge` comment, only while GitHub still shows that commit); no
  *  verdict: the Safe Push alone, the user approved the commit before
  */
-({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never } | 
+({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; fetch?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never } | 
 /**
  *  The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
  *  is in `expected`); without `expected`, only an open issue changes
  */
-({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; comment?: never; commit?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; comment?: never; commit?: never; fetch?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The start `op`, whose answer was lost (`OperationStep::StartUnknown`), leaves the operations registry: what it held
  *  is free, and a start of its subject can be sent again; Patronus may still run the robot it sent
  */
-({ kind: "forgetStart"; op: OperationId }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "forgetStart"; op: OperationId }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  A rewrite of the checked out branch or of the refs of Branch Deck by its core (`operations::rewrite`) */
 {
 	kind: "rewrite",
-} & RewriteIntent;
+} & RewriteIntent | 
+/**
+ *  Only the remote branch of the baseline is fetched into its tracking ref (the Fetch of a merge toast); the branch,
+ *  the index and the working tree stay as they are (`operations::update`)
+ */
+({ kind: "fetchBaseline" }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**
+ *  The checked out branch is brought onto the baseline, keeping unrelated local changes (Update Project, ⌘T): the
+ *  fetch first when `fetch` (the `FetchBaseline` of the session, joined when one runs), then the check and the move
+ *  (`operations::update`); without it onto the tracking ref as the last fetch left it (Retry Without Fetch)
+ */
+({ kind: "updateProject"; fetch: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**  The report of the commits that landed with an update is cleared (the user has seen it) */
+({ kind: "dismissLanded" }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
 
 export type IssueNavigationConfig = {
 	links: IssueNavigationLink[],
@@ -3485,8 +3481,11 @@ export type OpenSubWindowParams = {
 export type OperationEvent = 
 /**  It went on to `step` */
 { kind: "step"; op: OperationId; step: OperationStep } | 
-/**  Its push sent `percent` of what it sends; `line` is what git said last */
-{ kind: "progress"; op: OperationId; percent: number; line: string } | 
+/**
+ *  Its push or its fetch sent or received `percent` of what it transfers; `line` is what git said last, `transferred`
+ *  and `speed` the amount and the rate as git prints them ("5.79 MiB", "32.57 MiB/s") while it receives
+ */
+{ kind: "progress"; op: OperationId; percent: number; line: string; transferred: string | null; speed: string | null } | 
 /**  It ended, or the operation it joined did */
 { kind: "done"; outcome: Outcome };
 
@@ -3515,7 +3514,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -3552,7 +3551,15 @@ export type OperationResult =
 /**  A rewrite or its undo: what its core answered, by its kind */
 {
 	kind: "rewrite",
-} & RewriteResult;
+} & RewriteResult | 
+/**  A fetch of the baseline: the baseline it fetched and when (`Intent::FetchBaseline`, and the fetch of an update) */
+{
+	kind: "fetch",
+} & FetchedBaseline | 
+/**  An update of the checked out branch onto the baseline: its check, what it changed and what landed */
+{
+	kind: "update",
+} & UpdateProjectResult;
 
 /**  What an operation cost */
 export type OperationStats = {
@@ -3581,6 +3588,10 @@ export type OperationStep =
 { kind: "checking" } | 
 /**  Rewrites the checked out branch or the refs of Branch Deck (a rewrite, its undo) */
 { kind: "rewriting" } | 
+/**  Fetches the remote branch of the baseline (`FetchBaseline`, the fetch of an update) */
+{ kind: "fetching" } | 
+/**  Moves the checked out branch onto the baseline, the files following (Update Project after its check) */
+{ kind: "updating" } | 
 /**  Moves the pull request of its subject into the base its rule names */
 { kind: "retargeting" } | 
 /**  Cancels the robot its start replaces */
@@ -4089,7 +4100,19 @@ export type PlannedEffect =
  */
 { kind: "rewrite"; commits: string[]; branches: string[] } | 
 /**  The sync that shows what the operation changed (`SyncReason::AfterRewrite`): the operation ends once it is asked */
-{ kind: "sync" };
+{ kind: "sync" } | 
+/**
+ *  The remote branch of the baseline `upstream` (`origin/master`) is fetched into its tracking ref
+ *  (`Intent::FetchBaseline`, the fetch of `Intent::UpdateProject`)
+ */
+{ kind: "fetch"; upstream: string } | 
+/**
+ *  The checked out branch is checked against the fetched baseline and, when the check is clean, moved onto it, the
+ *  files following (`Intent::UpdateProject`); a conflict or a block moves nothing
+ */
+{ kind: "update" } | 
+/**  The report of what landed with an update is cleared (`Intent::DismissLanded`) */
+{ kind: "dismissLanded" };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -6419,7 +6442,9 @@ export type UndoKind =
 /**  A reapply (`reapply:…`) */
 "reapply" | 
 /**  Pick Remote Commits (`pick:…`) */
-"pick";
+"pick" | 
+/**  Update Project (`update:<previous>..<new>`): the branch and the files back, as `bd undo` does */
+"update";
 
 /**
  *  How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `bd undo` takes,
@@ -6500,32 +6525,10 @@ export type UpdateKind =
 /**  The local commits are replayed onto the upstream */
 "rebase";
 
-/**  The step an update is at */
-export type UpdatePhase = "fetching" | 
-/**  Another operation holds the repository lock (`bd`, a regroup); sent only when the update has to wait for it */
-"waiting" | "checking" | "updating";
-
-/**  What an update reports while it runs */
-export type UpdateProgress = {
-	phase: UpdatePhase,
-	/**  How far the fetch is; `None` until git reports a stage, and in the other phases */
-	fetch: TransferProgress | null,
-	/**
-	 *  While the app's update waits for another holder of the repository lock (`Waiting`), whom it waits for: "Waiting
-	 *  for `bd pick` (pid 4242, for 12 s)", told again about once a second
-	 */
-	waitingFor?: string | null,
-};
-
-export type UpdateProjectParams = {
-	repositoryPath: string,
-	/**
-	 *  Fetch the baseline first; false updates onto the tracking ref as the last fetch left it. The app fetches with
-	 *  `fetch_baseline` first, so the network never holds the slot of its rewrites, then updates without a fetch
-	 */
-	fetch: boolean,
-};
-
+/**
+ *  What an update answered (`Intent::UpdateProject`): the check against the fetched upstream, what it changed and the
+ *  local commits it dropped because the upstream has them
+ */
 export type UpdateProjectResult = {
 	/**  The check against the fetched upstream; on a conflict or a block nothing was changed */
 	check: UpdateCheck,

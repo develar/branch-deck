@@ -1,4 +1,3 @@
-use crate::channel_commands::{answer_with_progress, canceled_code, progress_channel, register_wait};
 use crate::remote_host::PAGE_CLOCK_START;
 use app_api::api_error::{IntoApiError, patronus_error};
 use axum::{
@@ -24,7 +23,6 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
-use history_rewrite::repository_lock::LockWait;
 use object_cache::cache::ObjectCache;
 use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
@@ -383,85 +381,6 @@ pub async fn get_autosquash_plan(
     history_rewrite::autosquash::get_autosquash_plan_core(&git_executor, &params.repository_path)
   })
   .await
-}
-
-/// The progress goes to the channel of the page as the app sends it (`channel_commands`), the wait for a live holder of
-/// the repository lock too; the fetch reads the upstream from a directory of the template, so the update works offline
-pub async fn update_project(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<update_core::update_project::UpdateProjectParams>,
-) -> Result<Response, Rejection> {
-  use update_core::update_project::{UpdatePhase, UpdateProgress, update_project_core};
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  let lock_waits = state.lock_waits.clone();
-  let channel = progress_channel(&headers);
-  Ok(
-    answer_with_progress(channel, move |progress| async move {
-      let tell = progress.clone();
-      let ticket = register_wait(&lock_waits, channel, move |holder| {
-        if let Some(holder) = holder {
-          tell.send(&UpdateProgress {
-            phase: UpdatePhase::Waiting,
-            fetch: None,
-            waiting_for: Some(history_rewrite::lock_wait::waiting_for(holder)),
-          });
-        }
-      });
-      let step_ticket = Arc::clone(&ticket);
-      let updated = run_command("update the project", move || {
-        update_project_core(
-          &git_executor,
-          &params,
-          &|update_progress| progress.send(&update_progress),
-          LockWait::WhileHeld(&*step_ticket),
-        )
-      })
-      .await;
-      canceled_code(updated, &ticket)
-    })
-    .await,
-  )
-}
-
-#[derive(Deserialize)]
-pub struct DismissLandedRequest {
-  #[serde(rename = "repositoryPath")]
-  repository_path: String,
-}
-
-/// Clears the report of what landed
-pub async fn dismiss_landed(State(state): State<Arc<AppState>>, Json(request): Json<DismissLandedRequest>) -> CommandResult<()> {
-  ensure_repository_exists(&state, &request.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("dismiss the landed commits", move || {
-    sync_core::landed::dismiss_landed(&git_executor, &request.repository_path)
-  })
-  .await
-}
-
-/// The progress channel is not mocked
-pub async fn fetch_baseline(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::baseline_fetch::FetchBaselineParams>,
-) -> CommandResult<sync_core::baseline_fetch::FetchBaselineResult> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("fetch the baseline", move || {
-    sync_core::baseline_fetch::fetch_baseline_core(&git_executor, &params, &mut |_| {})
-  })
-  .await
-}
-
-#[derive(Deserialize)]
-pub struct CancelLockWaitRequest {
-  channel: u32,
-}
-
-/// `cancel_lock_wait` of the app: stops the wait of the command whose channel the page mock named
-pub async fn cancel_lock_wait(State(state): State<Arc<AppState>>, Json(request): Json<CancelLockWaitRequest>) -> Json<bool> {
-  Json(state.lock_waits.cancel(request.channel))
 }
 
 /// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known

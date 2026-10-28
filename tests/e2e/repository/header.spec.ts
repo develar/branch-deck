@@ -7,7 +7,7 @@ import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_H
 import { availableRobots } from "../helpers/patronus-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
-import { holdCommand, holdWithProgress } from "../helpers/wait-helpers"
+import { holdCommand, holdIntent } from "../helpers/wait-helpers"
 
 // The `behind_upstream` template: the header has every control, the Update button (a clean update) and the outgoing
 // indicator (feature-auth is not pushed).
@@ -29,9 +29,9 @@ test.describe("Header", () => {
   })
 
   test("should keep its controls apart while an update runs", async ({ page }) => {
-    const update = await holdWithProgress(page, "fetch_baseline")
+    const update = await holdIntent(page, "updateProject")
     await page.getByTestId("update-project-button").click()
-    await update.send({ percent: 99, transferred: null, speed: null, line: "Receiving objects:  99% (99/100)" })
+    await update.send({ kind: "progress", op: "held", percent: 99, transferred: null, speed: null, line: "Receiving objects:  99% (99/100)" })
     await expect(page.getByTestId("update-project-button")).toHaveText(/^Updating \d+%$/)
     await expectHeaderControlsOnOneLine(page, HEADER_CONTROLS)
     update.release()

@@ -60,7 +60,7 @@ pub(crate) enum Named<'a> {
   /// The repository `id`: for a command whose params name none (a sign-in of the requesting repository) or name a path
   /// that is no repository of the server
   Id(&'a str),
-  /// None: a command of the app (`cancel_lock_wait`), which nothing waits for
+  /// None: a command of the app (`cancel_operation`), which nothing waits for
   Nothing,
 }
 

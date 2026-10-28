@@ -425,6 +425,14 @@ pub enum PlannedEffect {
   Rewrite { commits: Vec<String>, branches: Vec<String> },
   /// The sync that shows what the operation changed (`SyncReason::AfterRewrite`): the operation ends once it is asked
   Sync,
+  /// The remote branch of the baseline `upstream` (`origin/master`) is fetched into its tracking ref
+  /// (`Intent::FetchBaseline`, the fetch of `Intent::UpdateProject`)
+  Fetch { upstream: String },
+  /// The checked out branch is checked against the fetched baseline and, when the check is clean, moved onto it, the
+  /// files following (`Intent::UpdateProject`); a conflict or a block moves nothing
+  Update,
+  /// The report of what landed with an update is cleared (`Intent::DismissLanded`)
+  DismissLanded,
 }
 
 impl PlannedEffect {

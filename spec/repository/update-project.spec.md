@@ -17,7 +17,7 @@ targets:
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/git-executor/src/worktree_safety_test.rs
-  - ../../src-tauri/src/commands/update_project.rs
+  - ../../crates/operations/src/update.rs
   - ../../src-tauri/src/menu.rs
   - ../../src/components/repository/UpdateProjectButton.tsx
   - ../../src/components/repository/UpdateBlockedDialog.tsx
@@ -46,7 +46,7 @@ targets:
 # Update Project
 
 Status: Implemented
-Date: 2026-10-15
+Date: 2026-10-28
 
 ## Summary
 
@@ -184,6 +184,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   (the app's own holder as "Branch Deck (pid 7) …"; "Another Branch Deck operation holds the repository" without a
   record; never the lock file path), worded by the page from the code and its data, and keeps the time of the fetch.
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`, `an_update_that_moves_nothing_answers_without_waiting_for_the_lock`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move`)
   [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_names_the_holder_of_a_lock_with_how_long_it_has_held_it`)
   [@test] ../../src/lib/errors.test.ts (`names the holder of a held repository lock and how long it has held it, as the lock record says it`, `says another operation holds the repository when the holder left no record, never the lock file`)
   [@test] ../../src/lib/errors.test.ts (`toasts a held repository lock with its holder, without the holder the other operation, and a plain Error with its message`)
@@ -191,9 +192,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`, `the_check_of_an_update_runs_before_the_lock`, `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`, `a_file_edited_during_the_replay_of_an_update_blocks_it`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - An update refused after its fetch by an error that the same request may pass (`retry: same`, a held lock) offers
-  "Retry Without Fetch" on its toast: the check and the apply against the baseline that fetch got (`update_project`
-  with `fetch: false`, no second `fetch_baseline`), as an update joined by a second start, and only while the main
-  window shows the repository. The retry refused by the same holder updates that toast in place (an error toast is
+  "Retry Without Fetch" on its toast: the check and the apply against the baseline that fetch got (the intent
+  `updateProject` with `fetch: false`, no second fetch), which a second retry joins, and only while the main window
+  shows the repository. The retry refused by the same holder updates that toast in place (an error toast is
   one per title and backend message, which says no time). An error to read again
   (`retry: after_reread`, the branch moved) offers no retry: a new Update reads it again.
   [@test] ../../src/stores/update-project.test.ts (`offers Retry Without Fetch for a held lock after the fetch, which checks and applies without a second fetch; a moved branch gets none`, `retries without a fetch only the repository the main window shows`)
@@ -261,6 +262,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   once the files followed. With the mark left by a killed process, the next update or undo, the app's included, must
   let the files follow first, or change nothing with `finish_pending` when the branch moved since.
   [@test] ../../crates/bd-update/src/update_test.rs (`an_update_killed_before_its_files_followed_is_finished_by_the_next_update`, `an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo`, `an_interrupted_update_of_a_branch_that_moved_since_is_reported`)
+- The outcome of the app's update carries the same token (`Outcome.undo`, `UndoKind::Update`), whose undo the engine
+  runs with the core's short lock (`Rewrite(Undo)`).
+  [@test] ../../crates/operations/src/update_test.rs (`an_update_fetches_checks_and_moves_then_asks_its_sync_with_its_undo`)
 - An undo of an undone update is no error and changes nothing (`already_undone`).
   [@test] ../../crates/update-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
 - Only the last update of the branch can be undone: the last reflog entry must be that update, so a token can't move
@@ -340,9 +344,13 @@ The header shows whether an update would apply cleanly, from a check that every 
 - While another process holds the repository lock (an agent's `bd pick --follow`, `bd`) or the app's own push, the
   update must wait after its fetch and its check as long as the holder lives, never refused after 10 s: its tooltip
   step says whom for ("Waiting for `bd pick` (pid 4242, for 12 s)…"), and Stop Waiting beside the Update button ends
-  the wait with nothing changed but the fetch ("Canceled the update before it started"). Only a holder no record
-  names refuses it after 10 s; `bd update` waits 10 s, then `locked`.
+  the wait with nothing changed but the fetch ("Canceled the update before it started"): `cancel_operation` of its
+  operation, whose update is the failed effect of its outcome, `canceled`. Only a holder no record names refuses it
+  after 10 s; `bd update` waits 10 s, then `locked`.
   [@test] ../../src/lib/update-state.test.ts (`names whom an update waits for while another holder has the repository lock, with Stop Waiting, until its next step`)
+  [@test] ../../src/stores/update-project.test.ts (`names whom it waits for while another holder has the repository lock, and Stop Waiting cancels its operation`)
+  [@test] ../../crates/operations/src/update_test.rs (`stop_waiting_ends_the_wait_of_an_update_for_the_lock_with_nothing_moved`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should say whom an update waits for after its check, whose Stop Waiting changes nothing but the fetch`)
 - A bar of 2 px along the bottom edge of the button shows the progress, a sibling of the button (`progressbar`,
   `aria-valuenow`, `aria-valuetext` with the step, "Checking the update onto origin/master… 62%"); while the run is on,
   the name of the button is "Update Project: updating", without the percent. Once the run ends the button works again
@@ -367,7 +375,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/stores/update-project.test.ts (`lists every step of an update from its start, also when the last check found the branch up to date`)
   [@test] ../../src/lib/update-progress.test.ts (`takes the commits of its own sync, capped until the sync ends`)
   [@test] ../../src/lib/update-progress.test.ts (`learns what the steps took, without the wait for the lock and the sync, which learns from every sync`)
-  [@test] ../../src/stores/update-project.test.ts (`changes the step only when the phase changes, and records what the steps took in the state of the repository once the update ends`)
+  [@test] ../../src/stores/update-project.test.ts (`changes the step only when the operation does, and records what the steps took in the state of the repository once the update ends`)
+  [@test] ../../src/lib/update-progress.test.ts (`places a wait after the steps done: behind a rewrite before the check, for the lock before the apply`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
 - While the update runs, its tooltip lists its steps instead of the state of the last check and "fetch and update":
   those done ("Fetched origin/master · 5.79 MiB", "Checked the update onto origin/master"), the running one ("Fetching
@@ -376,37 +385,45 @@ The header shows whether an update would apply cleanly, from a check that every 
   or bd to finish…", "Checking the update onto origin/master…", "Updating to origin/master…", "Syncing branches…") and
   those left, muted ("Check the update", "Update to origin/master", "Sync branches"). Every step is listed from the
   start of the run, the update of the files and the sync too, so one look shows the whole run: a check that finds
-  nothing to apply ends the run before them. A wait that ended is no step of its own.
+  nothing to apply ends the run before them. A wait that ended is no step of its own, and a step that ran again (the
+  check under the lock after a wait) is listed once.
   [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
   [@test] ../../crates/sync-core/src/fetch_lock_test.rs (`a_fetch_beside_another_fetch_of_its_tracking_ref_takes_its_result`)
-  [@test] ../../src/lib/update-state.test.ts (`lists the steps done, the running one and those left, without a wait that ended`)
+  [@test] ../../src/lib/update-state.test.ts (`lists the steps done, the running one and those left, without a wait that ended, a step that ran again once`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
-- The backend tells the wait for the lock as a step of its own (`waiting`), once, when another operation holds the
-  lock as the update asks for it, after the check (`checking`), which runs before the lock. When the branch or the
-  upstream moved meanwhile, the check once more under the lock is `checking` again, so the step no longer names
-  another operation. A progress message after the command answered changes nothing: the steps after it are the
-  frontend's.
+- The session tells the steps of the operation of the update on the channel of its `execute`: `fetching` with the
+  progress of the fetch, `queued` behind a rewrite that holds HEAD when its fetch ended, `checking` (before the lock),
+  `waitingForLock` with the holder when another holds the lock as the update asks for it, `updating`; the run shows a
+  wait as its step `waiting`, after the steps done. When the branch or the upstream moved meanwhile, the check once
+  more under the lock is `checking` again, so the step no longer names another holder. A step after the outcome
+  changes nothing: the steps after it are the frontend's.
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`, `the_check_again_after_the_wait_for_the_lock_is_the_check_step`)
-  [@test] ../../src/stores/update-project.test.ts (`ignores a progress message that arrives after the command answered`)
+  [@test] ../../crates/operations/src/update_test.rs (`an_update_fetches_checks_and_moves_then_asks_its_sync_with_its_undo`)
+  [@test] ../../src/stores/update-project.test.ts (`shows the steps of its operation: the fetch with git's progress, the wait behind a rewrite, then the check`)
+  [@test] ../../src/stores/update-project.test.ts (`ignores a step that arrives after its outcome`)
 - The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
   switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a
-  repository, and none is dropped: a second Update (⌘T, a toast) joins the running update, Update during the Fetch of
-  a toast goes on from that fetch with the check and the apply (no second fetch), and a Fetch during an update joins
-  it; another repository can update meanwhile. An update in a repository that is no longer selected doesn't sync the
-  selected one.
+  repository, and none is dropped: the session joins a second Update (⌘T, a toast) into the running update, the fetch
+  of an Update during the Fetch of a toast into that fetch, which the update goes on from with the check and the apply
+  (no second fetch), and a Fetch during the fetch of an update into it; another repository can update meanwhile. The
+  sync after an update is the one of its own session, never the selected repository's; the outcome of an operation is
+  told once, also to a start that joined it.
   [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
-  [@test] ../../src/stores/update-project.test.ts (`syncs only the selected repository: another one selected during the update is not synced for it`)
-  [@test] ../../src/stores/update-project.test.ts (`runs one at a time in a repository: a second start joins it, and an update during a Fetch goes on from that fetch`)
-- The fetch of an update holds nothing of the page: it runs before the update's operation, so a move, a park, an
-  Unstack, a reword or an Undo during the fetch runs at once. Only the check, the apply and the sync of the update are
-  a rewrite of the repository ([Running Operations](../../docs/design/operations.md)): while a regroup, a squash or
-  another rewrite runs, Update stays enabled with the busy state it would wait for on hover ("Unstacking oauth…"); a
-  start fetches, then its check waits for that rewrite and its sync (the step "waiting"), never refused. A rewrite
-  started while the check and the apply run goes to the session of the repository at once (the rewrites are the
-  engine's), and the repository lock orders it with the apply: its step says whom it waits for.
-  [@test] ../../src/stores/update-project.test.ts (`fetches outside the slot of the rewrites, which run meanwhile, then waits for a running rewrite for its check and apply, which the rewrites see running`)
+  [@test] ../../src/stores/update-project.test.ts (`runs one run at a time in a repository: a second start joins it, and an update during a Fetch goes on from that fetch with its check`)
+  [@test] ../../crates/operations/src/update_test.rs (`a_second_update_joins_the_update_and_a_fetch_joins_its_fetch`, `an_update_during_a_fetch_goes_on_from_that_fetch`)
+  [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should go on from the Fetch of the toast with an update pressed during it: the update checks and moves on that fetch`)
+- The fetch of an update holds no HEAD: a move, a park, an Unstack, a reword or an Undo during the fetch runs at once.
+  The check and the move of the update hold HEAD ([Running Operations](../../docs/design/operations.md#update-project)):
+  while a regroup, a squash or another rewrite holds it, Update stays enabled with the busy state it would wait for on
+  hover ("Unstacking oauth…"); a start fetches, then its check waits for that rewrite in the queue of the session (the
+  step "waiting"), never refused, and runs on what it left. A rewrite started while the check and the move run waits
+  behind them in that queue, and runs on what the update left.
+  [@test] ../../crates/operations/src/update_test.rs (`a_rewrite_during_the_fetch_of_an_update_runs_at_once_and_the_update_moves_what_it_left`, `an_update_waits_behind_a_rewrite_and_a_rewrite_after_it_behind_the_update`)
+  [@test] ../../crates/operations/src/update_test.rs (`a_rewrite_during_the_check_of_an_update_waits_behind_it_and_runs_on_what_it_left`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should let a rewrite run during the fetch of an update, which checks and applies after it`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run an update pressed during a rewrite after it, waiting for it in the queue of the session`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run a rewrite pressed during the check of an update after it, on what the update left`)
 - Once git reports a stage of the fetch, its percent of the whole fetch moves the progress of the update, and the
   tooltip shows the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas
@@ -433,14 +450,15 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/stores/update-project.test.ts (`takes the place of the toasts of the merges of its repository it brought in: what landed, or up to date`)
   [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should turn the toast of a merge into what the update landed, in place, when the update starts from the header`)
 - A sync follows every update whose fetch finished, without expanding or scrolling: applied, up to date, conflicting,
-  blocked, or failed after the fetch. The fetch moved the baseline, so integration, the remote status and what landed
+  blocked, or failed after the fetch; the session asks it after the move, and the operation ends with that request.
+  The fetch moved the baseline, so integration, the remote status and what landed
   are built against it although the branch itself didn't change. The sync of an applied update is the last step of
   its progress: the Update button stays busy until that sync run ends (a ⌘R meanwhile asks for a follow-up that is
   Sync's only), and Sync shows its spinner as for any sync. Up to date, refused or failed, the update ends with its
   result, and its sync shows on Sync alone. The toast and the dialog come with the result, never after the sync: they
   say what happened, the sync only rebuilds the rows.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
-  [@test] ../../src/stores/update-project.test.ts (`syncs after every update, also an update that was up to date, conflicted or was blocked`)
+  [@test] ../../crates/operations/src/update_test.rs (`stop_waiting_ends_the_wait_of_an_update_for_the_lock_with_nothing_moved`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - The footer of the landing overview must show the same state in one line, with the state icon of the button, named
   as incoming and with the fetch time, "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to
@@ -600,7 +618,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   loaded machine, so an update that changes tens of thousands of files costs seconds once.
 - The usual time of a step is a guess from the last runs: a fetch that is much slower than usual moves slowly past its
   63 %, and the first update of a repository shares the bar by defaults. The test server forwards no progress either:
-  the e2e tests send the progress messages to the page themselves (`holdWithProgress`).
+  the e2e tests send the events of a held update to the page themselves (`holdIntent`).
 
 ## References
 

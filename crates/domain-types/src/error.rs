@@ -526,6 +526,9 @@ pub enum OperationKind {
   SetIssueState,
   ForgetStart,
   Rewrite,
+  FetchBaseline,
+  UpdateProject,
+  DismissLanded,
 }
 
 /// Which program holds the lock, or runs an operation

@@ -1,7 +1,8 @@
 import { useMemo } from "react"
+import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { LandedBranch, LandedCommit } from "@/lib/bindings"
+import type { LandedBranch, LandedCommit, OperationEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
@@ -62,7 +63,9 @@ export function addLandedUpdate(repositoryPath: string, found: readonly LandedBr
 export async function dismissLanded(repositoryPath: string): Promise<void> {
   clearNewlyArchived()
   landedStore.setState(state => (state.repositoryPath === repositoryPath ? { landed: empty, seenAt: null } : state))
-  const result = await invokeCommand(() => commands.dismissLanded(repositoryPath))
+  // an operation of the session (`Intent::DismissLanded`), which writes the report under its lock for every window and `bd`
+  const intent = { kind: "dismissLanded" } as const
+  const result = await invokeCommand(() => commands.execute({ repositoryPath, intent, fingerprint: "", accepted: [] }, new Channel<OperationEvent>()))
   if (result.status !== "ok") {
     notifyError("Cannot dismiss the landed commits", result.error)
   }

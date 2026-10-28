@@ -158,12 +158,12 @@ export async function runAndWaitForAnswer(page: Page, command: string, action: (
 }
 
 /**
- * Presses Update Project with `press` (its button, the menu item, the palette) and waits for the answer of the update,
- * which comes after the fetch of the baseline and brings its toast and the state of the button; the sync of a clean
- * update follows it (`runAndWaitForSync` around this for an assertion on the rebuilt rows)
+ * Presses Update Project with `press` (its button, the menu item, the palette) and waits for the answer of the update
+ * (`execute` of the intent `updateProject`), which comes after the fetch of the baseline and brings its toast and the
+ * state of the button; an applied update answers once the sync the session asked after it ended
  */
 export async function runAndWaitForUpdate(page: Page, press: () => Promise<unknown>): Promise<void> {
-  await runAndWaitForAnswer(page, "update_project", press)
+  await runAndWaitForAnswer(page, "execute", press)
 }
 
 /** Waits until the page listens to `event`: one fired before a lazy page registered its listener is lost */

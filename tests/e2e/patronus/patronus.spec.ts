@@ -23,6 +23,7 @@ import {
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
+import { recordCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
 // before, and the merged one took an hour: the usual time of a Safe Push
@@ -392,12 +393,8 @@ test.describe("Patronus merge", () => {
   test("should tell when a running Safe Push merged, and update the project on request", async ({ page, repo }) => {
     await repo.setPatronus(availableRobots({ ...RUNNING, status: "success", finishTime: 1704142800 }, FAILED, MERGED, DRY_RUN, OUTDATED))
     // Update Project fetches the baseline itself: one click picks the merge up
-    const updates: string[] = []
-    page.on("request", request => {
-      if (request.url().endsWith("/invoke/update_project")) {
-        updates.push(request.url())
-      }
-    })
+    const executions = await recordCommand(page, "execute")
+    const updates = () => executions.filter(call => (call.intent as { kind: string }).kind === "updateProject")
     // a focus polls the running robot at once
     await emitTauriEvent(page, "tauri://focus")
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "JIRA-456 merged into master" })
@@ -412,7 +409,8 @@ test.describe("Patronus merge", () => {
     await toast.getByRole("button", { name: "Open in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual(["https://patronus.labs.jb.gg/robot/running-robot"])
     await toast.getByRole("button", { name: "Update Project" }).click()
-    await expect.poll(() => updates.length).toBe(1)
+    await expect.poll(() => updates().length).toBe(1)
+    expect(updates()[0]).toMatchObject({ intent: { kind: "updateProject", fetch: true } })
     await expect(toast).toHaveCount(0)
   })
 })

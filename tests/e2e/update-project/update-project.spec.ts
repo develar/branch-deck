@@ -1,12 +1,13 @@
 // @spec spec/repository/update-project.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
-import { findBranchRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
 import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
-import { animationsEnded, holdCommand, holdCommandCalls, holdWithProgress, recordCommand, recordRewrites, routeCommandError } from "../helpers/wait-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { animationsEnded, holdIntent, recordCommand, recordRewrites, routeCommandError } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
 // at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-02) and
@@ -26,6 +27,33 @@ async function expectTooltip(page: Page, text: string | RegExp): Promise<void> {
   await updateButton(page).hover()
   await expect(page.getByTestId("update-project-tooltip")).toContainText(text)
   await page.mouse.move(0, 0)
+}
+
+/** Presses Update and waits until the update waits (behind a rewrite, or for the repository lock): its steps, hovered */
+async function updateWaiting(page: Page): Promise<Locator> {
+  await updateButton(page).click()
+  await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "waiting")
+  await page.mouse.move(0, 0)
+  await updateButton(page).hover()
+  return page.getByTestId("update-steps")
+}
+
+/** Drops feature-auth onto the park zone, which waits in the session: the hover of the "⋯" of its busy row */
+async function parkWaiting(page: Page): Promise<Locator> {
+  await startDrag(page, findBranchRow(page, "feature-auth"))
+  await dropAt(page, page.getByTestId("drag-target-bar").getByTestId("park-drop-zone"))
+  const more = getMoreButton(findBranchRow(page, "feature-auth"))
+  await expect(more).toHaveAttribute("aria-busy", "true")
+  await more.hover()
+  return page.getByRole("tooltip")
+}
+
+/** The agent releases the repository lock: the update and the park waiting in the session both run, none refused */
+async function expectUpdatedAndParked(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  await runAndWaitForUpdate(page, () => repo.holdRepositoryLock(false))
+  await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+  await expect(page.locator("[data-slot=toast]", { hasText: "Parked feature-auth" })).toBeVisible()
+  await expect(page.getByText(/^Cannot /)).toHaveCount(0)
 }
 
 test.describe("Update Project", () => {
@@ -71,11 +99,10 @@ test.describe("Update Project", () => {
   })
 
   test("should show one progress from the click to the end of its sync, its steps in the tooltip", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("behind_upstream")
+    const repo = await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    // the update stays in its fetch, then in its check, until released: the test reports its steps as the backend does
-    const fetch = await holdWithProgress(page, "fetch_baseline")
-    const update = await holdWithProgress(page, "update_project")
+    // the update stays in the page until released: the test reports the steps of its operation as the session does
+    const update = await holdIntent(page, "updateProject")
     const button = updateButton(page)
     const progress = page.getByTestId("update-progress")
     await button.click()
@@ -92,37 +119,39 @@ test.describe("Update Project", () => {
     await expect(page.getByTestId("update-project-tooltip")).not.toContainText("fetch and update")
 
     // git's percent moves the bar on
-    await fetch.send({ percent: 20, transferred: "1.20 MiB", speed: null, line: "Receiving objects:  20% (2/10)" })
+    await update.send({ kind: "progress", op: "held", percent: 20, transferred: "1.20 MiB", speed: null, line: "Receiving objects:  20% (2/10)" })
     await expect(steps.first()).toHaveText("Receiving objects:  20% (2/10)")
     // the button grew to its running width when the run started: measured once its transition ended, which under load
     // can still run its last frames
     await animationsEnded(button)
     const width = (await button.boundingBox())!.width
     const atTwenty = Number(await progress.getAttribute("aria-valuenow"))
-    await fetch.send({ percent: 90, transferred: "5.79 MiB", speed: null, line: "Receiving objects:  90% (9/10)" })
+    await update.send({ kind: "progress", op: "held", percent: 90, transferred: "5.79 MiB", speed: null, line: "Receiving objects:  90% (9/10)" })
     await expect.poll(async () => Number(await progress.getAttribute("aria-valuenow"))).toBeGreaterThan(atTwenty)
     // the Dock shows the update, the user may wait for it in another app
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toMatchObject({ progressBar: { status: "normal" } })
 
-    // the fetch ends; the check runs before the repository lock
-    fetch.release()
-    await update.send({ phase: "checking", fetch: null })
+    // the fetch ends; the check runs before the repository lock, which another holder has: the wait is told, not hidden
+    // in the check
+    await update.send({ kind: "step", op: "held", step: { kind: "checking" } })
     await expect(steps.nth(1)).toHaveText("Checking the update onto origin/master…")
-    // another operation holds the repository: the wait for the move is told, not hidden in the check
-    await update.send({ phase: "waiting", fetch: null })
+    const holder = { tool: "bd", command: "bd pick --follow", pid: 4242, held_for: 3 }
+    await update.send({ kind: "step", op: "held", step: { kind: "waitingForLock", holder } })
     await expect(progress).toHaveAttribute("data-step", "waiting")
     await expect(steps).toHaveText([
       "Fetched origin/master · 5.79 MiB",
       "Checked the update onto origin/master",
-      "Waiting for Branch Deck or bd to finish…",
+      "Waiting for `bd pick --follow` (pid 4242, for 3 s)…",
       "Update to origin/master",
       "Sync branches",
     ])
+    await expect(page.getByTestId("stop-waiting")).toBeVisible()
     // one word for the whole run: the button keeps its width from step to step
     await expect.poll(async () => (await button.boundingBox())!.width).toBe(width)
 
-    // the sync of the applied update is its last step: the toast says what happened at once, the bar goes on
-    const releaseSync = await holdCommand(page, "sync")
+    // the sync of the applied update is its last step, held in the session: the toast says what happened at once, the
+    // bar goes on
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
     update.release()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     await expect(progress).toHaveAttribute("data-step", "sync")
@@ -132,7 +161,7 @@ test.describe("Update Project", () => {
     await button.hover()
     await expect(steps.last()).toHaveText("Syncing branches…")
 
-    releaseSync()
+    await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect(button).toHaveText("Update")
     await expect(progress).toHaveCount(0)
     // no robot runs: the Dock has no progress again
@@ -140,58 +169,104 @@ test.describe("Update Project", () => {
   })
 
   test("should let a rewrite run during the fetch of an update, which checks and applies after it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("behind_upstream")
+    const repo = await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    const fetch = await holdCommandCalls(page, "fetch_baseline")
-    const updates = await recordCommand(page, "update_project")
+    // an agent's `bd update` fetches the baseline: the fetch of the update waits for it in the session
+    await repo.holdFetchLock(true)
+    const executions = await recordCommand(page, "execute")
     const parks = await recordRewrites(page, "park")
     await updateButton(page).click()
-    await expect.poll(() => fetch.calls.length).toBe(1)
     await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "fetch")
+    await expect(page.getByTestId("update-state-line-button")).toHaveCount(0)
 
-    // the fetch holds no slot of the rewrites: a park during it runs at once, its toast before the update ends
+    // the fetch holds no HEAD: a park during it runs at once, its toast before the update ends
     await startDrag(page, findBranchRow(page, "feature-auth"))
     await runAndWaitForSync(page, () => dropAt(page, page.getByTestId("drag-target-bar").getByTestId("park-drop-zone")))
     expect(parks).toHaveLength(1)
     await expect(page.locator("[data-slot=toast]", { hasText: "Parked feature-auth" })).toBeVisible()
     await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot park/ })).toHaveCount(0)
-    expect(updates).toHaveLength(0)
+    await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "fetch")
 
-    // the update checks and applies once its fetch ended, without a fetch of its own
-    fetch.release()
+    // the update checks and applies once its fetch went, on what the park left
+    await runAndWaitForUpdate(page, () => repo.holdFetchLock(false))
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
-    expect(updates).toHaveLength(1)
-    expect(updates[0]).toMatchObject({ fetch: false })
-    expect(fetch.calls).toHaveLength(1)
+    expect(executions.map(call => (call.intent as { kind: string }).kind)).toEqual(["updateProject", "rewrite"])
+  })
+
+  test("should run an update pressed during a rewrite after it, waiting for it in the queue of the session", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    // an agent holds the repository lock: the park waits for it in the session, holding HEAD
+    await repo.holdRepositoryLock(true)
+    await expect(await parkWaiting(page)).toHaveText(/^Waiting for `bd pick --follow`/)
+
+    // ⌘T: the update fetches, then waits for the park in the queue of the session, never refused
+    await expect((await updateWaiting(page)).getByRole("listitem")).toHaveText([
+      "Fetched origin/master",
+      "Waiting for Branch Deck or bd to finish…",
+      "Check the update",
+      "Update to origin/master",
+      "Sync branches",
+    ])
+
+    // the holder is done: the park runs, then the update on what it left
+    await expectUpdatedAndParked(page, repo)
+  })
+
+  test("should run a rewrite pressed during the check of an update after it, on what the update left", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    // an agent holds the repository lock: the update waits for it after its check, holding HEAD
+    await repo.holdRepositoryLock(true)
+    await expect(await updateWaiting(page)).toContainText(/Waiting for `bd pick --follow`/)
+
+    // a park meanwhile waits behind the update in the queue of the session, never refused
+    await expect(await parkWaiting(page)).toHaveText("Waits for Updating the project…")
+    await expectUpdatedAndParked(page, repo)
+  })
+
+  test("should say whom an update waits for after its check, whose Stop Waiting changes nothing but the fetch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const head = await repo.revision("HEAD")
+    await repo.holdRepositoryLock(true)
+    await expect(await updateWaiting(page)).toContainText(/Waiting for `bd pick --follow` \(pid \d+, for \d+ s\)…/)
+
+    const cancels = await recordCommand(page, "cancel_operation")
+    await runAndWaitForUpdate(page, () => page.getByTestId("stop-waiting").click())
+    expect(cancels).toHaveLength(1)
+    await expect(page.getByText("Canceled the update before it started")).toBeVisible()
+    await expect(page.getByText("Nothing changed; the fetch stays")).toBeVisible()
+    await expect(page.getByText(/^Cannot update/)).toHaveCount(0)
+    expect(await repo.revision("HEAD")).toBe(head)
+    await repo.holdRepositoryLock(false)
   })
 
   test("should end the progress at the result when there is nothing to apply, its sync on Sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("behind_upstream")
+    const repo = await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     await runAndWaitForUpdate(page, () => updateButton(page).click())
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     await expect(updateButton(page)).toHaveText("Update")
 
     // up to date now: the tooltip still lists every step, the check decides what runs
-    const fetch = await holdCommandCalls(page, "fetch_baseline")
-    const update = await holdWithProgress(page, "update_project")
+    const update = await holdIntent(page, "updateProject")
     await updateButton(page).click()
     await page.mouse.move(0, 0)
     await updateButton(page).hover()
     const steps = page.getByTestId("update-steps").getByRole("listitem")
     await expect(steps).toHaveText(["Fetching origin/master…", "Check the update", "Update to origin/master", "Sync branches"])
-    fetch.release()
-    await update.send({ phase: "checking", fetch: null })
+    await update.send({ kind: "step", op: "held", step: { kind: "checking" } })
     await expect(steps).toHaveText(["Fetched origin/master", "Checking the update onto origin/master…", "Update to origin/master", "Sync branches"])
 
-    // the update ends with its check, the sync that follows it is Sync's
-    const releaseSync = await holdCommand(page, "sync")
+    // the update ends with its check, the sync the session asks after its fetch is Sync's
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
     update.release()
     await expect(page.getByText("master is already up to date with origin/master")).toBeVisible()
     await expect(updateButton(page)).toHaveText("Update")
     await expect(updateButton(page)).not.toHaveAttribute("aria-busy")
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
-    releaseSync()
+    await repo.holdRemoteAnswers({ release: ["sync"] })
   })
 
   test("should show the update state in the footer of the landing overview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -211,10 +286,10 @@ test.describe("Update Project", () => {
   test("should name the holder of the repository lock and retry the update without a fetch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    // `bd push auth` holds the repository for the whole wait of the update, after its fetch; then it is done
+    // `bd push auth` held the repository for the whole wait of the update
     await routeCommandError(
       page,
-      "update_project",
+      "execute",
       {
         code: "locked",
         message: "`bd push auth` (pid 4242) is changing this repository; try again when it is done",
@@ -223,26 +298,26 @@ test.describe("Update Project", () => {
       },
       { times: 1 },
     )
-    const fetches = await recordCommand(page, "fetch_baseline")
-    const updates = await recordCommand(page, "update_project")
+    const executions = await recordCommand(page, "execute")
 
     await runAndWaitForUpdate(page, () => updateButton(page).click())
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot update the project" })
     await expect(toast).toContainText("`bd push auth` (pid 4242) has held the repository for 40 s")
     await expect(toast).not.toContainText("branch-deck.lock")
-    expect(fetches).toHaveLength(1)
 
-    await toast.getByRole("button", { name: "Retry Without Fetch" }).click()
+    await runAndWaitForUpdate(page, () => toast.getByRole("button", { name: "Retry Without Fetch" }).click())
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
-    // the update checks and applies against the fetch it already did
-    expect(updates.map(call => call.fetch)).toEqual([false, false])
-    expect(fetches).toHaveLength(1)
+    // the update checks and applies against the baseline the last fetch got
+    expect(executions.map(call => call.intent)).toEqual([
+      { kind: "updateProject", fetch: true },
+      { kind: "updateProject", fetch: false },
+    ])
   })
 
   test("should offer no retry when the branch moved under the update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await routeCommandError(page, "update_project", { code: "head_moved", message: "master moved during the update: nothing was changed", retry: "after_reread" })
+    await routeCommandError(page, "execute", { code: "head_moved", message: "master moved during the update: nothing was changed", retry: "after_reread" })
 
     await runAndWaitForUpdate(page, () => updateButton(page).click())
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot update the project" })

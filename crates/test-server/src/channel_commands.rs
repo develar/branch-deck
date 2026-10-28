@@ -1,23 +1,16 @@
 //! The commands with a channel of the page, as the app runs them: the page mock names the channel of a command
 //! (`X-Progress-Channel`, its key in `window.__progressChannels`) and reads the answer as SSE events, each message of
 //! the channel `{"progress": …}` while the command runs, then its answer `{"result": …}` (`{ status, data }` or
-//! `{ status, error }`, as `run_command` answers). Update Project waits for a live holder of the repository lock as the
-//! app does (`LockWait::WhileHeld`), telling the page whom for on its progress, until `cancel_lock_wait` of its
-//! channel. Without the header (a direct call of a test), the answer alone.
+//! `{ status, error }`, as `run_command` answers). Without the header (a direct call of a test), the answer alone.
 
 use crate::tauri_command_bridge::{CommandResult, Rejection};
 use axum::Json;
 use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use domain_types::error::{ApiError, ErrorCode};
-use history_rewrite::lock_wait::{LockWaits, WaitTicket};
-use history_rewrite::repository_lock::LockHolder;
 use serde::Serialize;
 use std::convert::Infallible;
 use std::future::Future;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -30,9 +23,6 @@ pub const PROGRESS_CHANNEL_HEADER: &str = "X-Progress-Channel";
 pub fn progress_channel(headers: &HeaderMap) -> Option<u32> {
   headers.get(PROGRESS_CHANNEL_HEADER)?.to_str().ok()?.parse().ok()
 }
-
-/// The ids of the waits of direct calls, which no page can stop: above the ids the mock gives its channels
-static DIRECT_WAITS: AtomicU32 = AtomicU32::new(1 << 30);
 
 /// What a command sends to its channel in the page
 #[derive(Clone)]
@@ -82,23 +72,4 @@ where
   Sse::new(stream)
     .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive"))
     .into_response()
-}
-
-/// The wait of the command on `channel` in the registry of the server, telling `tell`; a direct call gets an id no
-/// page names
-pub fn register_wait(lock_waits: &LockWaits, channel: Option<u32>, tell: impl Fn(Option<&LockHolder>) + Send + Sync + 'static) -> Arc<WaitTicket> {
-  let id = channel.unwrap_or_else(|| DIRECT_WAITS.fetch_add(1, Ordering::Relaxed));
-  Arc::new(lock_waits.register(id, tell))
-}
-
-/// `result` of a command whose wait `ticket` is: an error after the page stopped the wait is `canceled`, as the app's
-/// `canceled_code` answers it
-pub fn canceled_code<T>(result: CommandResult<T>, ticket: &WaitTicket) -> CommandResult<T> {
-  result.map_err(|rejection| match rejection {
-    Rejection::Error(error) if ticket.ended_by_cancel() && error.code != ErrorCode::Canceled => Rejection::Error(ApiError {
-      operation_id: error.operation_id,
-      ..ApiError::new(ErrorCode::Canceled, error.message)
-    }),
-    rejection => rejection,
-  })
 }

@@ -18,9 +18,6 @@ pub struct AppState {
   /// The git prefix of each repository, which the commands of the sync family resolve the prefix with, as the app keeps
   /// it (`resolve_branch_prefix`)
   pub branch_prefixes: app_settings::branch_prefixes::BranchPrefixes,
-  /// The waits of the rewrites, the pushes and the updates for a holder of the repository lock, by the channel of the
-  /// page each reports on (`channel_commands`): `cancel_lock_wait` stops one
-  pub lock_waits: history_rewrite::lock_wait::LockWaits,
   /// The sessions of the repositories (`session_routes`), as the app hosts them; their facts are read by the scheduler
   /// of the facts over the fakes (`TestFactSources`)
   pub sessions: std::sync::Arc<repository_model::session::Sessions>,
@@ -92,8 +89,11 @@ pub struct TestRepository {
   pub available_update: RwLock<Option<String>>,
   /// The fakes of the `teamcity` and `youtrack` CLIs and of `brew` (`cli_tools_fixtures`)
   pub cli_tools: std::sync::Arc<crate::cli_tools_fixtures::CliToolsHost>,
-  /// The repository lock the server holds for a test (`hold_repository_lock`), as another process (`bd pick`) would
+  /// The repository lock the server holds for a test (`hold_lock`), as another process (`bd pick`) would
   pub held_lock: std::sync::Mutex<Option<history_rewrite::repository_lock::RepositoryLock>>,
+  /// The fetch lock the server holds for a test (`hold_lock`), as an agent's `bd update` that fetches the baseline
+  /// would: a fetch of the page waits for it
+  pub fetch_held: std::sync::Mutex<Option<history_rewrite::repository_lock::RepositoryLock>>,
   /// The operation an agent's `bd` runs in the repository for a test (`set_foreign_operation`)
   pub foreign_operation: std::sync::Arc<std::sync::Mutex<Option<crate::remote_fixtures::ForeignOperation>>>,
   /// What the next sync of the repository's session reports differently (`sync_overrides`), until a run takes it (never,

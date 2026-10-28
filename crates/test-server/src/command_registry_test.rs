@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 88;
+const COMMAND_COUNT: usize = 84;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -56,17 +56,13 @@ const MUTATING: &[&str] = &[
   "save_youtrack_token",
   "sign_out_of_youtrack",
   // git: the fetches, the sync and the rewrites (a push is an intent, `execute`)
-  "cancel_lock_wait",
   "fetch_review_head",
   "cancel_review_fetch",
   "cancel_symbol_search",
   "prune_review_refs",
-  "fetch_baseline",
   "sync",
   "set_window_focus",
-  "update_project",
   "cancel_conflict_fix",
-  "dismiss_landed",
   // the app
   "record_activity",
   "clear_activity",
@@ -252,7 +248,6 @@ fn every_page_handler_of_a_command_is_page_mocked_or_wraps_its_route() {
   assert_eq!(
     wrappers,
     [
-      "cancel_lock_wait",
       "clear_activity",
       "execute",
       "get_file_diffs",

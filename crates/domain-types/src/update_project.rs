@@ -6,10 +6,11 @@
 //! `git_ops::update_branch`. The `///` comments themselves stay as they are: specta writes them into `bindings.ts`.
 
 use crate::conflict::ResolvedFileSummary;
+use crate::landed::LandedBranch;
 use serde::{Deserialize, Serialize};
 
 /// How the branch reaches the upstream
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum UpdateKind {
@@ -20,7 +21,7 @@ pub enum UpdateKind {
 }
 
 /// A commit of a conflicting update: a local one that would be replayed, or an upstream one
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCommit {
@@ -39,7 +40,7 @@ pub struct UpdateCommit {
 
 /// The first local commit whose replay onto the upstream conflicts: the merge of its change onto the upstream with the
 /// local commits before it
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FirstConflict {
@@ -55,7 +56,7 @@ pub struct FirstConflict {
 }
 
 /// Whether the branch can be updated, relative to the last fetch of the upstream
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum UpdateState {
@@ -81,7 +82,7 @@ pub enum UpdateState {
 }
 
 /// The result of checking the branch against its upstream
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCheck {
@@ -98,12 +99,13 @@ pub struct UpdateCheck {
   pub fetched_at: Option<u32>,
   /// The local commits whose conflict of git the replay resolved by words (`branchdeck.resolveByWords`), oldest first;
   /// empty when the replay applies as it is or conflicts
+  #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub resolved_by_words: Vec<UpdateResolvedCommit>,
 }
 
 /// What an applied update did
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct AppliedUpdate {
@@ -113,6 +115,20 @@ pub struct AppliedUpdate {
   pub replayed: u32,
   /// Local commits whose changes are already upstream: `git replay` drops a commit that becomes empty
   pub dropped_already_upstream: u32,
+}
+
+/// What an update answered (`Intent::UpdateProject`): the check against the fetched upstream, what it changed and the
+/// local commits it dropped because the upstream has them
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProjectResult {
+  /// The check against the fetched upstream; on a conflict or a block nothing was changed
+  pub check: UpdateCheck,
+  /// What the update changed; `None` when up to date, conflicting or blocked
+  pub applied: Option<AppliedUpdate>,
+  /// The local commits this update dropped because the upstream has them, by branch
+  pub landed: Vec<LandedBranch>,
 }
 
 /// A local commit whose conflict of git an update resolved by words

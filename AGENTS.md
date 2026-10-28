@@ -408,9 +408,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
   (`bd`: `LockWait::Bounded`, then `locked`; the app's rewrites, pushes and Update Project: `LockWait::WhileHeld`, as
-  long as the holder record names a live process: an operation of the engine, every rewrite of `operations::rewrite`
-  and a push, says whom for in its step `WaitingForLock { holder }`, stopped by `cancel_operation`; Update Project on
-  its progress channel, stopped by `cancel_lock_wait` of it, `lock_wait.rs`), because
+  long as the holder record names a live process: an operation of the engine, every rewrite of `operations::rewrite`,
+  Update Project of `operations::update` and a push, says whom for in its step `WaitingForLock { holder }`, stopped by
+  `cancel_operation`), because
   the app and `bd` processes rewrite the same branch. Before the file lock, the operations of one process wait for
   each other in its line (a fair queue per lock file, `repository_lock.rs`, without a bound), so `locked` names only
   another process; `try_lock_repository` waits for nobody, `lock_as_another_process` is for tests and the E2E server. A sync never waits for it:
@@ -633,7 +633,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | AI branch naming (`claude -p --model haiku`, after consent) | `branch/branch-name-suggestions` | `src/components/ai/` |
 | Squash and fixups (`bd fold`) | `commit/squash`, `commit/fixups` | `crates/history-rewrite/src/squash.rs`, `crates/history-rewrite/src/autosquash.rs` |
 | Message of a commit (`bd reword`; the app's edit of a message) | `cli/agent-cli`, `commit/commit-row` | `crates/history-rewrite/src/reword.rs`, `crates/history-rewrite/src/fixup_targets.rs`, `crates/bd-rewrite/src/reword_command.rs`, `crates/operations/src/rewrite.rs`, `src/hooks/useRewordCommit.ts` |
-| Update Project (`bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/update-core/src/update_project.rs`, `crates/update-core/src/resolve_session.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `update-progress.ts` |
+| Update Project (the intents `UpdateProject`, `FetchBaseline`, `DismissLanded`; `bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/operations/src/update.rs`, `crates/update-core/src/update_project.rs`, `crates/update-core/src/resolve_session.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `src/stores/update-project.ts`, `update-progress.ts` |
 | Pick between worktrees (`bd pick --from <worktree> --follow`); the commits someone else pushed to a remote virtual branch (`bd pick --remote`, Pick Remote Commits) | `cli/pick`, `repository/outgoing` | `crates/update-core/src/pick.rs`, `crates/git-ops/src/pick.rs`, `crates/sync-core/src/moved_remote.rs`, `crates/repository-model/src/moved_remote.rs`, `src/lib/git/pick-remote.ts` |
 | Agent workspace (`bd workspace`): a lease and the `(branch)` subject by `branchdeck.agentLease` and `branchdeck.agentSubjectBranch`, Settings → Agents | `cli/workspace`, `repository/settings`, `repository/onboarding` | `crates/lease-pool/src/agent_workspace.rs`, `crates/bd-lease/src/workspace_command.rs`, `src/components/settings/AgentsPage.tsx` |
 | Command-line tools: the `teamcity` and `youtrack` CLIs in Settings → Tools, installed and updated through Homebrew, winget or scoop, with their agent skills; the Setup dot on Settings (updates, expiring sign-ins) | `repository/cli-tools`, `repository/setup-attention`, `repository/settings` | `crates/cli-tools/`, `crates/sync-utils/src/known_tools.rs`, `src-tauri/src/commands/cli_tools.rs`, `src/components/settings/ToolsPage.tsx` |

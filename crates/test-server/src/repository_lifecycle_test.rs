@@ -144,7 +144,7 @@ async fn deleting_a_repository_releases_the_lock_its_test_held_before_the_direct
   let logged = capture_warnings();
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
-  post(&client, addr, &format!("/repositories/{id}/repository-lock"), json!({ "held": true })).await;
+  post(&client, addr, &format!("/repositories/{id}/locks/repository"), json!({ "held": true })).await;
   assert!(std::path::Path::new(&path).join(".git/branch-deck.lock.holder").exists(), "the holder record of the lock");
 
   delete_repository(&client, addr, &id, &path).await;

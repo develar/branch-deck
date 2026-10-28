@@ -323,18 +323,24 @@ export async function sendProgress(page: Page, channel: string, messages: readon
 }
 
 /**
- * Holds `command` in the page until `release`: `send` reports progress on its channel meanwhile, then the test server
- * runs it. Every call is held the same way.
+ * Holds each `execute` of the intent of `kind` (`"updateProject"`, `"fetchBaseline"`) in the page mock until `release`,
+ * recording its intent; `send` reports events of its operation on its channel meanwhile (`OperationEvent`: a `step`, a
+ * `progress` of its fetch), as the session tells them, then the test server runs it. The other intents go on
  */
-export async function holdWithProgress(page: Page, command: string): Promise<{ send: (...messages: unknown[]) => Promise<void>; release: () => void }> {
+export async function holdIntent(page: Page, kind: string): Promise<{ calls: Record<string, unknown>[]; send: (...events: unknown[]) => Promise<void>; release: () => void }> {
+  const calls: Record<string, unknown>[] = []
   let release!: () => void
   const held = new Promise<void>(resolve => (release = resolve))
   let channelOf!: (channel: string) => void
   const channel = new Promise<string>(resolve => (channelOf = resolve))
-  await page.route(`**/invoke/${command}`, async route => {
-    channelOf(route.request().headers()["x-progress-channel"]!)
-    await held
-    await route.continue()
+  await page.route("**/invoke/execute", async route => {
+    const intent = ((route.request().postDataJSON() as Record<string, unknown>).intent ?? {}) as Record<string, unknown>
+    if (intent.kind === kind) {
+      calls.push(intent)
+      channelOf(route.request().headers()["x-progress-channel"]!)
+      await held
+    }
+    await route.fallback()
   })
-  return { send: async (...messages) => sendProgress(page, await channel, messages), release }
+  return { calls, send: async (...events) => sendProgress(page, await channel, events), release }
 }

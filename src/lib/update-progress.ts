@@ -9,7 +9,10 @@ import type { TransferProgress } from "@/lib/bindings"
  * so the bar never jumps nor goes back.
  */
 
-/** A step of an update, in order; `waiting` only while another operation holds the repository */
+/**
+ * A step of an update, in order; `waiting` only while another operation holds what it needs: a rewrite of the session
+ * that holds HEAD after its fetch, or another holder of the repository lock after its check
+ */
 export type UpdateStep = "fetch" | "check" | "waiting" | "apply" | "sync"
 
 /** A step with a share of the bar: the wait for the lock has no usual time, the bar stands still meanwhile */
@@ -70,9 +73,9 @@ export interface UpdateRun {
   /** How far the fetch is; null before git reports a stage and after the fetch */
   readonly fetch: TransferProgress | null
   /**
-   * While the step is `waiting` for another holder of the repository lock, whom for, as the backend says it ("Waiting
-   * for `bd pick` (pid 4242, for 12 s)"), with its Stop Waiting; null while it waits for a rewrite of the page, or for
-   * nobody
+   * While the step is `waiting` for another holder of the repository lock, whom for, as the step of its operation says
+   * it ("Waiting for `bd pick` (pid 4242, for 12 s)"), with its Stop Waiting (`cancel_operation`); null while it waits
+   * behind a rewrite of the session, or for nobody
    */
   readonly lockWait: { readonly waitingFor: string; readonly stop: () => void } | null
 }
@@ -92,11 +95,13 @@ export function startRun(kind: UpdateRun["kind"], plan: readonly TimedStep[], ti
   }
 }
 
-/** The steps of the plan after `step`: those still to run */
-export function stepsAfter(plan: readonly TimedStep[], step: UpdateStep): TimedStep[] {
-  // the wait for the lock sits between the check, which runs before the lock, and the apply
-  const position = step === "waiting" ? ORDER.indexOf("check") : ORDER.indexOf(step)
-  return plan.filter(it => ORDER.indexOf(it) > position)
+/** The steps of the plan of `run` after its step: those still to run */
+export function stepsAfter(run: Pick<UpdateRun, "plan" | "step" | "done">): TimedStep[] {
+  // a wait sits after the steps done: behind a rewrite between the fetch and the check, for the lock between the check,
+  // which runs before the lock, and the apply
+  const order = (step: UpdateStep) => (ORDER as readonly UpdateStep[]).indexOf(step)
+  const position = run.step === "waiting" ? Math.max(-1, ...run.done.map(it => order(it.step))) : order(run.step)
+  return run.plan.filter(it => order(it) > position)
 }
 
 /** How far the step is, 0 to `STEP_CEILING`: the larger of git's (or the sync's) progress and the time's */
@@ -126,7 +131,7 @@ export function overallProgress(run: UpdateRun, now: number, syncFraction: numbe
     return run.base
   }
   const current = run.usual[run.step]
-  const rest = stepsAfter(run.plan, run.step).reduce((sum, step) => sum + run.usual[step], 0)
+  const rest = stepsAfter(run).reduce((sum, step) => sum + run.usual[step], 0)
   return run.base + ((1 - run.base) * current * stepFraction(run, now, realFraction(run, syncFraction))) / (current + rest)
 }
 

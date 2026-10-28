@@ -165,13 +165,13 @@ Mock implementation:
   proxies every command it does not handle to the server, and one without a route answers 405, which fails the test.
   `command_registry_test.rs` (test-server) reads the three as text: every command has a route or a `PAGE_MOCKED`
   entry with its reason (a page handler for the windows and the window menu), never both; a stale entry, or a route
-  or a handler without its command, fails; the thirteen
-  handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel; `cancel_lock_wait` names the channel
-  of its wait by the key the mock gave it; `set_setting`, `get_settings_changes`, `sub_window_loaded` and
+  or a handler without its command, fails; the fifteen
+  handlers over a route (`get_file_diffs` and `get_file_merges` adapt a channel; `set_setting`, `get_settings_changes`, `sub_window_loaded` and
   `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
-  `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
-  and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (117) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`,
+  `sign_out_of_youtrack`, `record_activity`, `clear_activity` and `execute` emit the event the backend emits after
+  them, `emitAfter`, `activity-changed` of the journal) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
+  bytes). The number of commands (84) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
@@ -717,8 +717,10 @@ branch at the commit it was pushed up to.
   hovers once the exits of the menus ended (`animationsEnded`) and waits for the submenu. A chain of commands gets a
   wait per step: at a load of 150-220 on 18 cores each of them takes 2-5 s, and a 5 s assertion after the press that
   starts the chain failed. Update Project is a fetch, then the update, then its sync: `runAndWaitForUpdate` waits for
-  the answer of `update_project` (`nextAnswer`, the page's next answer of a command, with the test's timeout), then the
-  toast and the button are an assertion's; a start of a robot, the end of `execute` (`runAndWaitForAnswer`,
+  the answer of its `execute` (`nextAnswer`, the page's next answer of a command, with the test's timeout), then the
+  toast and the button are an assertion's; the steps of a held update are the test's (`holdIntent` holds the `execute`
+  of an intent in the page and sends events of its operation on its channel), a fetch held in the backend is the fetch
+  lock an agent's `bd update` holds (`holdFetchLock`); a start of a robot, the end of `execute` (`runAndWaitForAnswer`,
   `nextAnswer(page, command, count)` for two starts side by side: the request finished, the last event of its stream,
   so an `execute` that waits for the lock before the call counts too); a restart of a robot that
   runs on an older commit, the answers of its cancel, its push and its restart in turn (`runAndWaitForRestart` of
@@ -728,7 +730,7 @@ branch at the commit it was pushed up to.
   approvals): "Checking…" names the fact it waits for (`data-waits-for` of the slot), and `waitForStepFacts`
   (`safe-push-helpers.ts`) gives each fact an assertion's time of its own before the step is asserted. The steps
   measured in the traces of the failed waits (2026-10-24):
-  `fetch_baseline` 2-4 s, the landing gate 2-3.5 s (the gate of a whole stack in `execute`: the test server has no
+  the fetch of an update 2-4 s, the landing gate 2-3.5 s (the gate of a whole stack in `execute`: the test server has no
   object cache), the landing needs 2-5 s (then the page's `wait_landing_needs`, the session's since s7-4), the readiness 1-5 s
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,

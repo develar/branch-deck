@@ -12,7 +12,7 @@ targets:
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/git-ops/src/update_branch.rs
   - ../../crates/bd-core/src/sync_command.rs
-  - ../../src-tauri/src/commands/update_project.rs
+  - ../../crates/operations/src/update.rs
   - ../../src/lib/landed.ts
   - ../../src/lib/landing-toast.ts
   - ../../src/lib/event-toast.ts
@@ -139,8 +139,10 @@ by the next sync the same way.
   [@test] ../../crates/update-core/src/landed_test.rs (`reword_squash_or_amend_between_syncs_is_not_landed`)
 - The sync sends the landing (`BaselineStatus.landing`) and the undismissed report (`BaselineStatus.landed`).
   [@test] ../../crates/update-core/src/landed_test.rs (`sync_sends_the_landing_and_the_report`)
-- Dismiss clears the report for every window and `bd`; a report is kept at most 7 days. A new report for a known branch
-  adds its new commits and takes the new count of the ones that stay.
+- Dismiss clears the report for every window and `bd`, an operation of the session (`Intent::DismissLanded`, under the
+  lock of the report); a report is kept at most 7 days. A new report for a known branch adds its new commits and takes
+  the new count of the ones that stay.
+  [@test] ../../crates/operations/src/update_test.rs (`dismiss_landed_clears_the_report_of_what_an_update_landed`)
   [@test] ../../src/lib/landed.test.ts (`adds new commits to a known branch and takes its new count of local commits`)
 - `bd sync` prints the landing as `update.landing` and the report as `landed`, with short ids.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`reports_the_commits_the_baseline_already_has`)

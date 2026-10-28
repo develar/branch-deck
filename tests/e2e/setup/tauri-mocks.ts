@@ -167,8 +167,8 @@ export const tauriMockScript = () => {
     }
   }
 
-  // the server keeps the waits of every page by these keys (`cancel_lock_wait`): the pages of tests that run at once must
-  // not share one, so each page counts from a random start
+  // the keys of the channels of a page: the pages of tests that run at once never share one, so each page counts from a
+  // random start
   let nextProgressChannel = Math.floor(Math.random() * 2 ** 29)
 
   /**
@@ -185,13 +185,6 @@ export const tauriMockScript = () => {
     return id
   }
 
-  /** The key of the kept channel whose Tauri id is `tauriId` (`Channel.id`, which Stop Waiting names); null when none */
-  function progressChannelKey(tauriId: unknown): number | null {
-    const channels: Record<string, any> = (window as any).__progressChannels ?? {}
-    const entry = Object.entries(channels).find(([, channel]) => channel.id === tauriId)
-    return entry === undefined ? null : Number(entry[0])
-  }
-
   /**
    * Proxy command to test server
    */
@@ -201,8 +194,8 @@ export const tauriMockScript = () => {
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload
-    // a progress channel (`execute`, `update_project`, the `wait` of a rewrite, the `patches` of `subscribe_view`,
-    // the `events` of an operation of `execute`)
+    // a progress channel (the `wait` of a rewrite, the `patches` of `subscribe_view`, the `events` of an operation of
+    // `execute`)
     // stays in the page: the server sends its messages as SSE events before the answer (`channel_commands.rs`), a test
     // route by its key (`window.__progressChannels`, `sendProgress` of wait-helpers.ts)
     const channel = payload?.progress ?? payload?.wait ?? payload?.patches ?? payload?.events
@@ -599,10 +592,6 @@ export const tauriMockScript = () => {
       await navigator.clipboard.writeText(payload?.text ?? "")
       return null
     },
-
-    // Stop Waiting names the wait by the Tauri id of its command's channel (`Channel.id`): the server knows the channel by
-    // the key the mock gave it
-    cancel_lock_wait: async (cmd: string, payload: any) => proxyToTestServer(cmd, { channel: progressChannelKey(payload?.channel) ?? 4294967295 }),
 
     // the diffs of the files stream through the channel `events` (`FileDiffEvent`); the server answers them as SSE
     get_file_diffs: async (cmd: string, payload: any) => handleStreamingCommand(cmd, { ...payload, progress: payload.events }),

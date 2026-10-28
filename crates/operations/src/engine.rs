@@ -7,8 +7,9 @@
 //! and an error leaves with the id. `prepare` asks the family of an intent for its plan,
 //! and `execute` runs it on the plan its caller accepted: a start (`execute_land`, `land_execute::execute`), a restart
 //! and a cancel of a robot (`robot`), a retarget of a pull request, the creation of one and a review request
-//! (`pull_request`), the closes (`close`), a review (`review`), the state of an issue (`issue`) and a push (`push`: of a
-//! branch alone, of a stack, up to a commit, of an unapplied branch, of the stack branch of a whole stack). A start
+//! (`pull_request`), the closes (`close`), a review (`review`), the state of an issue (`issue`), a push (`push`: of a
+//! branch alone, of a stack, up to a commit, of an unapplied branch, of the stack branch of a whole stack), a rewrite
+//! (`rewrite`) and the fetch of the baseline, Update Project and the dismissal of what landed (`update`). A start
 //! reserves what its plan lands (`Resource::Lands`), the refs
 //! it pushes and the robot it cancels: a second start of the same subject joins it, one that lands a part of it waits for
 //! it and is decided again. An operation that waited in the queue runs on the plan the ones it waited for left, while
@@ -21,7 +22,7 @@ use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
 use crate::witness::check;
-use crate::{close, forget, issue, land, pull_request, push, review, robot};
+use crate::{close, forget, issue, land, pull_request, push, review, robot, update};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::ApiError;
 use domain_types::landing::{Land, PlannedEffect, Subject};
@@ -101,6 +102,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
     Intent::ForgetStart { .. } => forget::forget_plan(&intent).map(Some),
     Intent::Rewrite(rewrite) => Ok(prepare_rewrite(sessions, key, *rewrite).await),
+    intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => Ok(update::prepare_update(sessions, key, intent).await),
   }
 }
 
@@ -128,6 +130,9 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     intent @ Intent::ForgetStart { .. } => forget::execute_forget(registry, key, intent, accepted, events).await,
     // the run of a rewrite is a large future: on the heap
     Intent::Rewrite(rewrite) => Box::pin(execute_rewrite(registry, key, *rewrite, hosts, events)).await,
+    Intent::FetchBaseline => Box::pin(update::execute_fetch(registry, key, hosts, events)).await,
+    Intent::UpdateProject { fetch } => Box::pin(update::execute_update(registry, key, fetch, hosts, events)).await,
+    Intent::DismissLanded => update::execute_dismiss(registry, key, hosts, events).await,
   }
 }
 
@@ -147,7 +152,7 @@ pub(crate) fn steps_of(guard: &RunningGuard) -> Steps {
   let progress = guard.stepper();
   Steps::new(
     Arc::new(move |step| stepper.step(step)),
-    Arc::new(move |tick: &TransferProgress| progress.progress(u32::from(tick.percent), tick.line.clone())),
+    Arc::new(move |tick: &TransferProgress| progress.progress(tick)),
     guard.canceled(),
   )
   .with_record(guard.record())
@@ -219,6 +224,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     intent @ Intent::SetIssueState { key, .. } => issue::issue_request(intent, key),
     intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),
     Intent::Rewrite(rewrite) => rewrite_request(prefix, rewrite),
+    intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => update::update_request(intent, update::planned_upstream(plan)),
   }
 }
 

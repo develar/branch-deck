@@ -184,14 +184,16 @@ export function stopWaitingUpdateItem(run: UpdateRun | undefined): MenuItem | nu
 }
 
 /**
- * The steps of the run for its tooltip: those done (a wait that ended is no step of its own), the running one, and
- * those left, every one from the start of the run: a check that finds nothing to apply ends the run instead
+ * The steps of the run for its tooltip: those done (a wait that ended is no step of its own, and a step that ran again,
+ * the check under the lock after a wait, once), the running one, and those left, every one from the start of the run:
+ * a check that finds nothing to apply ends the run instead
  */
 export function runStepLines(run: UpdateRun, upstream: string): RunStepLine[] {
+  const done = new Map(run.done.filter(it => it.step !== "waiting" && it.step !== run.step).map(it => [it.step, it]))
   return [
-    ...run.done.filter(it => it.step !== "waiting").map(it => ({ step: it.step, state: "done" as const, text: doneSentence(it.step, it.detail, upstream) })),
+    ...[...done.values()].map(it => ({ step: it.step, state: "done" as const, text: doneSentence(it.step, it.detail, upstream) })),
     { step: run.step, state: "running", text: runningStepSentence(run, upstream) },
-    ...stepsAfter(run.plan, run.step).map(step => ({ step, state: "next" as const, text: nextSentence(step, upstream) })),
+    ...stepsAfter(run).map(step => ({ step, state: "next" as const, text: nextSentence(step, upstream) })),
   ]
 }
 

@@ -610,9 +610,9 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
 /// `update_and_resolve` and its output: an update, or the round of the resolve session its conflict started
 fn update_or_resolve(context: &RepoContext, options: UpdateOptions<'_>, dir: Option<&std::path::Path>) -> Result<UpdateOutput, CliError> {
   match update_and_resolve(&context.git, &context.repository, options, dir).map_err(core_error)? {
-    BdUpdate::Update(result) => {
+    BdUpdate::Update { result, dropped } => {
       let applied = result.applied.as_ref().map(|applied| (applied.new_head.as_str(), applied.replayed));
-      output(context, &result.check, applied, (result.landed, &result.dropped), false)
+      output(context, &result.check, applied, (result.landed, &dropped), false)
     }
     BdUpdate::Session(outcome) => session_output(context, *outcome, false, &context.bd),
   }

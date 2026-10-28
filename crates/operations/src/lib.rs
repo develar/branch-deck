@@ -59,6 +59,9 @@
 //!   robot landed with it (D7), each with its comment, one GitHub refuses stopping none of the others
 //! - `review`: the review of a pull request of someone else and its Safe Push: the `/patronus merge` comment while
 //!   GitHub shows the approved commit, its robot looked for a while after the reply
+//! - `update`: the fetch of the baseline (`Intent::FetchBaseline`), Update Project (`Intent::UpdateProject`: its fetch the
+//!   `FetchBaseline` of the session, then HEAD held for the check and the move of `update_core::update_project`, then
+//!   the sync) and the dismissal of what landed with an update
 //! - `witness`: what a plan was prepared on (`Witness`, its `Fingerprint`): the tips of the refs it moves and leases
 //!   from one `for-each-ref`, the pull requests and the robots it reads, and the check before the first effect
 //!   (`plan_changed`)
@@ -84,6 +87,7 @@ pub mod review;
 pub mod rewrite;
 pub mod robot;
 pub mod robot_start;
+pub mod update;
 pub mod witness;
 
 #[cfg(test)]

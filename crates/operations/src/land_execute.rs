@@ -768,8 +768,11 @@ impl<'a> Run<'a> {
           | PlannedEffect::SetIssueState { .. }
           | PlannedEffect::ForgetStart { .. }
           | PlannedEffect::Rewrite { .. }
-          | PlannedEffect::Sync => self.fail(ApiError::internal(
-            "A start closes and reviews no pull request, sets the state of no issue, forgets no start and rewrites nothing",
+          | PlannedEffect::Sync
+          | PlannedEffect::Fetch { .. }
+          | PlannedEffect::Update
+          | PlannedEffect::DismissLanded => self.fail(ApiError::internal(
+            "A start closes and reviews no pull request, sets the state of no issue, forgets no start and rewrites, fetches or updates nothing",
           )),
         }
       };

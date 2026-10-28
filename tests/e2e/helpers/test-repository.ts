@@ -204,14 +204,7 @@ export class TestRepositoryBuilder {
    * the core of Update Project, called by no page, so only the next sync of the page learns what it landed
    */
   async updateOutsideTheApp(): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/invoke/update_project`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repositoryPath: this.path, fetch: false }),
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to update the repository: ${response.status} ${await response.text()}`)
-    }
+    await this.setFixture("update-outside", {})
   }
 
   /** Rewrites the message of a commit behind the app's back (as `git rebase -i` would); returns the new commit id. */
@@ -555,7 +548,15 @@ export class TestRepositoryBuilder {
    * --follow` of an agent): its holder record names the test server, `test-server`, alive while it runs
    */
   async holdRepositoryLock(held: boolean): Promise<void> {
-    await this.setFixture("repository-lock", { held })
+    await this.setFixture("locks/repository", { held })
+  }
+
+  /**
+   * Takes the fetch lock of the repository (`held`) or releases it, as an agent's `bd update` that fetches the baseline
+   * holds it: the fetch of an update or a Fetch of the page waits for it in the backend, then fetches itself
+   */
+  async holdFetchLock(held: boolean): Promise<void> {
+    await this.setFixture("locks/fetch", { held })
   }
 
   /**

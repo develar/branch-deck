@@ -48,7 +48,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { nextAnswer, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdWithProgress, recordCommand, recordRewrites } from "../helpers/wait-helpers"
+import { holdIntent, recordCommand, recordRewrites } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 /** Whom a push waits for while another process holds the repository lock: here the test server */
@@ -375,7 +375,7 @@ test.describe("Patronus actions", () => {
       timestamp: 1704139200,
       files: { "db/pool.js": "// the pool of Alice\n" },
     })
-    const update = await holdWithProgress(page, "update_project")
+    const update = await holdIntent(page, "updateProject")
 
     // the start fetches the target and replays what lands onto it before its first effect
     await runAndWaitForAnswer(page, "execute", () => safePushFromMenu(page, "JIRA-456"))

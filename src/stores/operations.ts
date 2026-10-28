@@ -8,8 +8,8 @@ import { getSelectedProject } from "@/stores/repository"
 /**
  * What an action does to the repository: a rewrite moves HEAD or a ref of Branch Deck (a regroup, a squash, a delete),
  * which the session of the repository admits and queues behind the rewrites before it (`runRewriteIntent`), the record
- * here only showing it, and Update Project waits for (`whenRewritesDone`); a remote action talks to a server (a pull
- * request, a robot)
+ * here only showing it, and a push waits for (`whenRewritesDone`); a remote action talks to a server (a pull request, a
+ * robot)
  */
 export type OperationKind = "rewrite" | "remote"
 
@@ -153,8 +153,7 @@ export function formatOperationBlocker(operation: Operation): string {
 
 /**
  * Resolves once no rewrite of the repository runs or waits, the sync that shows its result included
- * (`runRewriteIntent`): a push started meanwhile pushes the branches as the rewrite leaves them, an update updates
- * them. Never rejects.
+ * (`runRewriteIntent`): a push started meanwhile pushes the branches as the rewrite leaves them. Never rejects.
  */
 export async function whenRewritesDone(repositoryPath: string): Promise<void> {
   while (true) {

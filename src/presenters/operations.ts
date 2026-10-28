@@ -22,6 +22,9 @@ const KIND_WORDS: Record<OperationKind, string> = {
   set_issue_state: "change of the state of an issue",
   forget_start: "forget of a start",
   rewrite: "rewrite",
+  fetch_baseline: "fetch of the baseline",
+  update_project: "update of the project",
+  dismiss_landed: "dismissal of the landed commits",
 }
 
 /** Who runs it: `bd`, or another Branch Deck */
@@ -79,7 +82,18 @@ function runningWords(intent: Intent): readonly [label: string, phrase: string] 
       const { label, phrase } = presentRewrite(intent)
       return [label, phrase]
     }
+    case "fetchBaseline":
+      return ["Fetching the baseline", "a fetch of the baseline"]
+    case "updateProject":
+      return ["Updating the project", "an update of the project"]
+    case "dismissLanded":
+      return ["Dismissing the landed commits", "the dismissal of the landed commits"]
   }
+}
+
+/** The busy state of an operation of the session as a surface says it: "Unstacking oauth", "Updating the project" */
+export function presentRunningLabel(operation: RunningOperation): string {
+  return runningWords(operation.intent)[0]
 }
 
 /** An operation of another process as its row says it (`presentOtherProcess`) */

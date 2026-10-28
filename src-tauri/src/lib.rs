@@ -1,7 +1,6 @@
 pub mod auto_update;
 pub mod commands;
 pub mod legacy_model_cache;
-pub mod lock_wait;
 pub mod menu;
 pub mod operation;
 pub mod presentation;
@@ -42,7 +41,6 @@ use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branc
 use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
 use commands::commit_files::{get_commit_files, get_commits_files};
 use commands::conflict_fix::{cancel_conflict_fix, find_conflict_fix};
-use commands::fetch_baseline::fetch_baseline;
 use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::operations::{cancel_operation, execute, prepare};
@@ -57,7 +55,6 @@ use commands::squash_fixups::get_autosquash_plan;
 use commands::stack_operations::{get_stack_independence, preview_move};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
 use commands::uncommitted_changes::get_uncommitted_changes;
-use commands::update_project::{dismiss_landed, update_project};
 use commands::window_management::{
   BuiltPage, SubWindowState, epoch_millis, open_script, open_sub_window, show_when_settled, sub_window_drawn, sub_window_loaded, sub_window_ready,
 };
@@ -66,7 +63,6 @@ use commands::youtrack::{
   YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, sign_out_of_youtrack, start_youtrack_cli_sign_in,
   start_youtrack_sign_in, wait_youtrack_cli_sign_in, wait_youtrack_sign_in,
 };
-use lock_wait::cancel_lock_wait;
 use sync_utils::span::in_current_span;
 use tauri_specta::{Builder, collect_commands};
 
@@ -93,7 +89,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       read_activity,
       record_activity,
       clear_activity,
-      cancel_lock_wait,
       get_new_pull_request,
       get_new_stack_pull_request,
       search_github_users,
@@ -153,9 +148,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       cancel_conflict_fix,
       get_stack_independence,
       get_autosquash_plan,
-      update_project,
-      fetch_baseline,
-      dismiss_landed,
       suggest_branch_names,
       get_archived_branch_commits,
       get_unapplied_branch_commits,
@@ -281,7 +273,6 @@ pub fn run() {
       ts_builder.mount_events(app);
 
       app.manage(GitCommandExecutor::new());
-      app.manage(history_rewrite::lock_wait::LockWaits::default());
       app.manage(RepositoryStateCache::new());
       app.manage(SessionsState::new(app.handle(), app.state::<GitCommandExecutor>().inner().clone()));
       app.manage(app_settings::branch_prefixes::BranchPrefixes::default());

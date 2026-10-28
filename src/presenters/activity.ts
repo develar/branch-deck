@@ -7,7 +7,7 @@
 // whichever repository the main window showed when the toast came. An operation of an agent (its worktree a slot of the
 // lease pool) says so (`agent`): Activity shows it behind its Agents chip. An entry the page recorded (`PageEntry`) is as
 // the page worded it.
-import type { ActivityLog, EffectRecord, Intent, JournalEntry, PageEntry, RemoteStatusUpdate } from "@/lib/bindings"
+import type { ActivityLog, ApiError, EffectRecord, Intent, JournalEntry, PageEntry, RemoteStatusUpdate } from "@/lib/bindings"
 import { formatCreatedToast } from "@/lib/create-pull-request"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
 import type { GitHubRepository } from "@/lib/pull-request"
@@ -36,7 +36,7 @@ export function presentActivity(log: ActivityLog, github: GitHubRepository | nul
   for (const journal of log.journals) {
     for (const entry of journal.entries) {
       projectsOf.set(entry.id, journal.repositories)
-      const said = presentOperation(entry, github, told.has(entry.id))
+      const said = presentOperation(entry, github, told.has(entry.id) || toldElsewhere(entry, told))
       const agent = entry.leaseSlot ? { agent: { worktree: entry.worktree } } : {}
       for (const repositoryPath of journal.repositories) {
         said.forEach((it, at) => entries.push({ ...it, id: `${entry.id}/${at}`, repositoryPath, time: entry.endedAt * 1000, operationId: entry.id, ...agent }))
@@ -263,16 +263,31 @@ function landSaid(entry: JournalEntry, told: boolean): Said[] {
 }
 
 /** Why the operation did not get to what it was for: its error, or the first effect that failed (a retarget's is told on the way) */
-function failureOf(entry: JournalEntry): string | null {
+function failureErrorOf(entry: JournalEntry): ApiError | null {
   if (entry.error !== null) {
-    return entry.error.code === "canceled" ? null : entry.error.message
+    return entry.error
   }
   for (const { effect, status } of entry.effects) {
     if (status.kind === "failed" && effect.kind !== "retarget" && !(effect.kind === "push" && status.error.code === "lease_rejected")) {
-      return status.error.message
+      return status.error
     }
   }
   return null
+}
+
+/** The words of `failureErrorOf`; none for a stopped wait, which changed nothing */
+function failureOf(entry: JournalEntry): string | null {
+  const error = failureErrorOf(entry)
+  return error === null || error.code === "canceled" ? null : error.message
+}
+
+/**
+ * Whether the page told the failure of the operation under the id of the operation it came from (the fetch of an update
+ * runs as an operation of its own, whose error the update's toast tells)
+ */
+function toldElsewhere(entry: JournalEntry, told: ReadonlySet<string>): boolean {
+  const id = failureErrorOf(entry)?.operation_id
+  return id != null && told.has(id)
 }
 
 /** "Cannot push auth", "Cannot restart the robot": what a failed operation was for */
@@ -304,5 +319,11 @@ function failureTitle(intent: Intent, subject: string): string {
       return `Cannot start the ${formatPushMode(intent.mode)} of ${subject}`
     case "rewrite":
       return presentRewrite(intent).failure
+    case "fetchBaseline":
+      return "Cannot fetch the baseline"
+    case "updateProject":
+      return "Cannot update the project"
+    case "dismissLanded":
+      return "Cannot dismiss the landed commits"
   }
 }

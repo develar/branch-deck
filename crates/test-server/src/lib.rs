@@ -181,7 +181,6 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       test_root_dir,
       templates,
       branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
-      lock_waits: history_rewrite::lock_wait::LockWaits::default(),
       registry,
       sessions,
       session_clocks,
@@ -210,7 +209,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/commit", post(commit_on_head))
-    .route("/repositories/{id}/repository-lock", post(hold_repository_lock))
+    .route("/repositories/{id}/update-outside", post(update_outside_the_app))
+    .route("/repositories/{id}/locks/{lock}", post(hold_lock))
     .route("/repositories/{id}/foreign-operation", post(remote_fixtures::set_foreign_operation))
     .route("/repositories/{id}/stamp", post(remote_fixtures::touch_repository_stamp))
     .route("/repositories/{id}/agent-operation", post(remote_fixtures::journal_agent_operation))
@@ -295,10 +295,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/find_conflict_fix", post(tauri_command_bridge::find_conflict_fix))
     .route("/invoke/cancel_conflict_fix", post(tauri_command_bridge::cancel_conflict_fix))
     .route("/invoke/get_autosquash_plan", post(tauri_command_bridge::get_autosquash_plan))
-    .route("/invoke/update_project", post(tauri_command_bridge::update_project))
-    .route("/invoke/dismiss_landed", post(tauri_command_bridge::dismiss_landed))
-    .route("/invoke/fetch_baseline", post(tauri_command_bridge::fetch_baseline))
-    .route("/invoke/cancel_lock_wait", post(tauri_command_bridge::cancel_lock_wait))
     .route("/invoke/get_github_auth_status", post(tauri_command_bridge::get_github_auth_status))
     .route("/invoke/start_github_sign_in", post(tauri_command_bridge::start_github_sign_in))
     .route("/invoke/wait_github_sign_in", post(tauri_command_bridge::wait_github_sign_in))
@@ -737,6 +733,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, se
     available_update: std::sync::RwLock::default(),
     cli_tools: Arc::new(cli_tools_fixtures::CliToolsHost::new(&state.app_data_of(id))),
     held_lock: std::sync::Mutex::default(),
+    fetch_held: std::sync::Mutex::default(),
     foreign_operation: Arc::default(),
     sync_overrides: std::sync::Mutex::default(),
   };
@@ -815,31 +812,73 @@ pub async fn commit_on_head(
   }
 }
 
-/// `POST /repositories/{id}/repository-lock`: whether the server holds the repository lock
+/// Updates the checked out branch onto the fetched baseline behind the app's back, as `bd update` beside the app does:
+/// the core of Update Project without a fetch, in no session, so only the next sync of the page learns what it landed
+pub async fn update_outside_the_app(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
+  let path = state.repositories.get(&id).map(|repo| repo.path.clone()).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let git = state.git_executor.clone();
+  let params = update_core::update_project::UpdateProjectParams {
+    repository_path: path,
+    fetch: false,
+  };
+  let update = move || update_core::update_project::update_project_core(&git, &params, &|_| {}, history_rewrite::repository_lock::LockWait::default());
+  let updated = tokio::task::spawn_blocking(in_current_span(update)).await;
+  match updated {
+    Ok(Ok(_)) => Ok(StatusCode::OK),
+    Ok(Err(e)) => {
+      tracing::error!("Failed to update outside the app: {e:#}");
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+    Err(e) => {
+      tracing::error!("The update outside the app stopped: {e}");
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+  }
+}
+
+/// `POST /repositories/{id}/locks/{lock}`: whether the server holds the lock
 #[derive(Deserialize)]
 pub struct RepositoryLockRequest {
   held: bool,
 }
 
-/// Takes the repository lock of the repository (`$GIT_COMMON_DIR/branch-deck.lock`, with its holder record) or releases
-/// it, as another process holds it (`bd pick --follow` of an agent, `lock_repository_as_another_process`: outside the
-/// line of the server's process, in which the app's operations wait for each other): its record names `bd pick
-/// --follow` and the server's pid, alive while it runs
-pub async fn hold_repository_lock(
-  axum::extract::Path(id): axum::extract::Path<String>,
+/// A lock the server holds for a test as another process holds it, by its name in the route
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub enum HeldLock {
+  /// `$GIT_COMMON_DIR/branch-deck.lock` with its holder record, as an agent's `bd pick --follow` holds it
+  /// (`lock_repository_as_another_process`: outside the line of the server's process, in which the app's operations
+  /// wait for each other): its record names `bd pick --follow` and the server's pid, alive while it runs
+  Repository,
+  /// The fetch lock of the baseline, its record naming `bd update` and the tracking ref of `origin/master`, as an agent's
+  /// `bd update` that fetches the baseline holds it (`sync_core::fetch_lock::hold_fetch_as_another_process`): the fetch
+  /// of an update or of a Fetch of the page waits for it, then fetches itself, the ref unmoved
+  Fetch,
+}
+
+/// Takes the lock `lock` of the repository or releases it (a lock held before is released either way)
+pub async fn hold_lock(
+  axum::extract::Path((id, lock)): axum::extract::Path<(String, HeldLock)>,
   State(state): State<Arc<AppState>>,
   Json(request): Json<RepositoryLockRequest>,
 ) -> Result<StatusCode, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-  let mut held = repo.held_lock.lock().expect("held lock");
-  *held = None;
+  let common_dir = std::path::Path::new(&repo.path).join(".git");
+  let slot = match lock {
+    HeldLock::Repository => &repo.held_lock,
+    HeldLock::Fetch => &repo.fetch_held,
+  };
+  let mut slot = slot.lock().expect("held lock");
+  *slot = None;
   if request.held {
-    let common_dir = std::path::Path::new(&repo.path).join(".git");
-    let lock = history_rewrite::repository_lock::lock_repository_as_another_process(&common_dir, "bd pick --follow").map_err(|e| {
-      tracing::error!("Cannot take the repository lock: {e:#}");
+    let taken = match lock {
+      HeldLock::Repository => history_rewrite::repository_lock::lock_repository_as_another_process(&common_dir, "bd pick --follow"),
+      HeldLock::Fetch => sync_core::fetch_lock::hold_fetch_as_another_process(&common_dir, "refs/remotes/origin/master", "bd update"),
+    };
+    *slot = Some(taken.map_err(|e| {
+      tracing::error!("Cannot take the lock: {e:#}");
       StatusCode::CONFLICT
-    })?;
-    *held = Some(lock);
+    })?);
   }
   Ok(StatusCode::OK)
 }
@@ -923,9 +962,10 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
 /// runs, `TestSessionEnvironment::landing_needs`), then deletes its files (`fs_retry`: on Windows a process whose
 /// current directory is in them, or a scanner with a file open, blocks the removal until it lets go)
 async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository) {
-  // the lock first (`hold_repository_lock`), its holder record with it: a rewrite of the page that waits for it, as
+  // the lock first (`hold_lock`), its holder record with it: a rewrite of the page that waits for it, as
   // long as its holder (this server) lives, runs and ends instead of keeping the deletion waiting
   drop(repo.held_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
+  drop(repo.fetch_held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
   // the process of the agent's operation ends with its record
   let operation = repo.foreign_operation.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
   if let Some(operation) = operation {

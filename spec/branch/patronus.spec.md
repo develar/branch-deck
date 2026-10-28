@@ -117,7 +117,7 @@ targets:
   - ../../src/hooks/useReviewStatusRefresh.ts
   - ../../src/stores/update-project.ts
   - ../../crates/sync-core/src/baseline_fetch.rs
-  - ../../src-tauri/src/commands/fetch_baseline.rs
+  - ../../crates/operations/src/update.rs
   - ../../src/lib/robot-run.ts
   - ../../src/lib/run-intent.ts
   - ../../src/presenters/actions.ts
@@ -1096,11 +1096,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/stores/patronus.test.ts (`tells a merge in the background by an OS notification, and in a toast on focus`)
   [@test] ../../src/lib/os-notification.test.ts (`sends no OS notification of a kind Settings turned off; the toast waits for the focus all the same`)
 - Fetch (of a repository not shown) fetches only the baseline's remote branch, as Update Project does, without updating the branch, the index or
-  the files (`fetch_baseline`). Meanwhile the Update button of the robot's repository shows the fetch ("Fetching 45%"),
-  never the button of another repository selected meanwhile; then a sync of the robot's repository, if it is still the
-  selected one, checks the update against the fetched baseline, without expanding or scrolling. A failed fetch is an
-  error toast.
+  the files (the intent `fetchBaseline`, an operation of the session of the robot's repository). Meanwhile the Update
+  button of the robot's repository shows the fetch ("Fetching 45%"), never the button of another repository selected
+  meanwhile; then the sync its session asks checks the update against the fetched baseline, without expanding or
+  scrolling. A failed fetch is an error toast.
   [@test] ../../src/stores/update-project.test.ts (`belongs to its repository: switching repositories never shows the other repository's phase`)
+  [@test] ../../crates/operations/src/update_test.rs (`an_update_during_a_fetch_goes_on_from_that_fetch`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`fetch_moves_only_the_tracking_ref_of_the_baseline`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`local_baseline_has_nothing_to_fetch`)
 - Branch Deck never updates by itself: the update stays a click.

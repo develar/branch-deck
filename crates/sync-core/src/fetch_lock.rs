@@ -14,7 +14,7 @@ use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{git_common_dir, is_ancestor, resolve_commit};
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, RepositoryLock, lock_file_while_held_for};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, RepositoryLock, lock_as_another_process_for, lock_file_while_held_for};
 use std::path::Path;
 use tracing::{debug, warn};
 
@@ -71,6 +71,19 @@ pub(crate) fn take_fetch_turn(git_executor: &GitCommandExecutor, repo_path: &str
       Ok(FetchTurn::Own(lock))
     }
   }
+}
+
+/// The fetch lock of the repository at `git_common_dir` as another process holds it while it fetches `tracking_ref` (an
+/// agent's `bd update`, `lock_as_another_process_for`), its record naming `command`: a fetch of this process waits for
+/// it, then takes its result when the ref moved, else fetches itself. For the tests and the E2E server, which hold a fetch
+/// of the app this way
+///
+/// # Errors
+/// A lock held already, a directory that can't be made
+pub fn hold_fetch_as_another_process(git_common_dir: &Path, tracking_ref: &str, command: &str) -> Result<RepositoryLock> {
+  let dir = git_common_dir.join("branch-deck");
+  std::fs::create_dir_all(&dir).with_context(|| format!("Cannot create {}", dir.display()))?;
+  lock_as_another_process_for(dir.join(FETCH_LOCK), command, Some(tracking_ref))
 }
 
 /// The progress of a fetch that waits for `holder`: the line names it, the percent is 0 (the run of the page goes on by

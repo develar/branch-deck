@@ -1,9 +1,8 @@
 use crate::update_project::{
-  FetchFailed, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, undo_update_core, update_project_core,
-  update_project_with,
+  FetchFailed, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateUndoToken, undo_update_core, update_project_core, update_project_with,
 };
 use domain_types::SyncEvent;
-use domain_types::update_project::{FirstConflict, UpdateCommit, UpdateKind, UpdateState};
+use domain_types::update_project::{FirstConflict, UpdateCommit, UpdateKind, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::UndoBlocked;
@@ -1218,4 +1217,53 @@ fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_bac
   let undone = undo_update_core(repo.git_executor(), &lane.path, &token, Duration::from_secs(10)).unwrap();
   assert_eq!((undone.branch.as_str(), undone.already_undone), ("HEAD", false));
   assert_eq!(lane_git(&["rev-parse", "HEAD"]), own);
+}
+
+/// The app's update after its fetch (`update_project_core` without a fetch, as the engine runs it) under a git that logs
+/// each command with the state of the repository lock when it started (its holder record exists while it is held): the
+/// replay and the merges of the check run before the lock, under it only the witness, the local changes and the move
+/// (C11 of docs/design/rust-domain-authority.md), and the report of what the update did after it
+#[cfg(unix)]
+#[test]
+fn the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move() {
+  let Setup { upstream, clone } = fetched_rebase();
+  let directory = tempfile::tempdir().unwrap();
+  let (script, log) = (directory.path().join("git"), directory.path().join("log"));
+  let holder = clone.path().join(".git").join("branch-deck.lock.holder");
+  let text = format!(
+    "#!/bin/sh\nstate=free\n[ -f '{}' ] && state=locked\necho \"$state $*\" >> '{}'\nexec git \"$@\"\n",
+    holder.display(),
+    log.display()
+  );
+  fs::write(&script, text).unwrap();
+  fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+  let real = git_executor::git_info::GitInfo::discover().unwrap();
+  let logged = GitCommandExecutor::with_info(git_executor::git_info::GitInfo {
+    version: real.version,
+    path: script.to_str().unwrap().to_owned(),
+  });
+  let params = UpdateProjectParams {
+    repository_path: path(&clone).to_string(),
+    fetch: false,
+  };
+  let result = update_project_core(&logged, &params, &|_| {}, LockWait::default()).unwrap();
+  assert!(result.applied.is_some(), "{result:?}");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+
+  let commands: Vec<(bool, String)> = fs::read_to_string(&log)
+    .unwrap()
+    .lines()
+    .filter_map(|line| line.split_once(' ').map(|(state, args)| (state == "locked", args.to_owned())))
+    .collect();
+  let subcommand = |args: &str| args.split(' ').find(|word| !word.starts_with('-') && !word.contains('=')).unwrap_or_default().to_owned();
+  let first_locked = commands.iter().position(|(locked, _)| *locked).expect("a command under the lock");
+  let last_locked = commands.iter().rposition(|(locked, _)| *locked).unwrap();
+  let mut before = commands[..first_locked].iter().map(|(_, args)| subcommand(args));
+  let after = &commands[last_locked + 1..];
+  let mut under: Vec<String> = commands[first_locked..=last_locked].iter().map(|(_, args)| subcommand(args)).collect();
+  under.sort_unstable();
+  under.dedup();
+  assert!(before.any(|subcommand| subcommand == "replay"), "the check before the lock: {commands:#?}");
+  assert_eq!(under, ["read-tree", "rev-parse", "symbolic-ref", "update-index", "update-ref"], "{commands:#?}");
+  assert!(!after.is_empty(), "the report after the lock: {commands:#?}");
 }

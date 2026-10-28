@@ -91,7 +91,7 @@ pub mod commit_owners;
 pub mod config_snapshot;
 pub mod conflict_chain;
 pub mod delete_archived_branch;
-mod fetch_lock;
+pub mod fetch_lock;
 pub mod git_setup;
 pub mod github_repository;
 pub mod grouping;

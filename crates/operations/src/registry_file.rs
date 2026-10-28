@@ -646,6 +646,9 @@ const fn kind_words(kind: OperationKind) -> &'static str {
     OperationKind::SetIssueState => "change of the state of an issue",
     OperationKind::ForgetStart => "forget of a start",
     OperationKind::Rewrite => "rewrite",
+    OperationKind::FetchBaseline => "fetch of the baseline",
+    OperationKind::UpdateProject => "update of the project",
+    OperationKind::DismissLanded => "dismissal of the landed commits",
   }
 }
 

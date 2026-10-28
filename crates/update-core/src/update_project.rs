@@ -6,7 +6,7 @@ use crate::resolve_copies::{Materialize, prepare_dir};
 use crate::resolve_session::{DroppedCommit, SessionOutcome, ViewDetail, own_session, start_resolve, view_session, with_empty_drops, with_subjects};
 use anyhow::{Result, anyhow, bail};
 use domain_types::landed::LandedBranch;
-use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
+use domain_types::update_project::{UpdateCheck, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::LandedDrop;
 use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
@@ -17,7 +17,6 @@ use git_ops::update_branch::{
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{LockWait, lock_repository};
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::{BaselineUpstream, fetch_baseline, last_fetch_time, read_check_inputs};
@@ -27,20 +26,18 @@ use sync_core::transfer_progress::TransferProgress;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument, warn};
 
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
+/// An update of the app's (`operations::update`)
+#[derive(Debug, Clone)]
 pub struct UpdateProjectParams {
   pub repository_path: String,
-  /// Fetch the baseline first; false updates onto the tracking ref as the last fetch left it. The app fetches with
-  /// `fetch_baseline` first, so the network never holds the slot of its rewrites, then updates without a fetch
+  /// Fetch the baseline first; false updates onto the tracking ref as the last fetch left it. The app fetches in the
+  /// operation of the session (`Intent::FetchBaseline`) first, so the network never holds HEAD, then updates without
+  /// a fetch
   pub fetch: bool,
 }
 
 /// The step an update is at
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdatePhase {
   Fetching,
   /// Another operation holds the repository lock (`bd`, a regroup); sent only when the update has to wait for it
@@ -50,45 +47,17 @@ pub enum UpdatePhase {
 }
 
 /// What an update reports while it runs
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateProgress {
   pub phase: UpdatePhase,
   /// How far the fetch is; `None` until git reports a stage, and in the other phases
   pub fetch: Option<TransferProgress>,
-  /// While the app's update waits for another holder of the repository lock (`Waiting`), whom it waits for: "Waiting
-  /// for `bd pick` (pid 4242, for 12 s)", told again about once a second
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub waiting_for: Option<String>,
 }
 
 impl From<UpdatePhase> for UpdateProgress {
   fn from(phase: UpdatePhase) -> Self {
-    Self {
-      phase,
-      fetch: None,
-      waiting_for: None,
-    }
+    Self { phase, fetch: None }
   }
-}
-
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateProjectResult {
-  /// The check against the fetched upstream; on a conflict or a block nothing was changed
-  pub check: UpdateCheck,
-  /// What the update changed; `None` when up to date, conflicting or blocked
-  pub applied: Option<AppliedUpdate>,
-  /// The local commits this update dropped because the upstream has them, by branch
-  pub landed: Vec<LandedBranch>,
-  /// Every local commit the update dropped, with its subject and its proof: those the replay left out because the
-  /// upstream proves it has them, and those the replay dropped as empty (`landed`). `bd` lists them, the app shows
-  /// `landed`
-  #[serde(skip)]
-  pub dropped: Vec<DroppedCommit>,
 }
 
 /// How an update runs
@@ -147,15 +116,17 @@ pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, o
   // the guards, the lock, the pending moves and the index of the dry run take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
   match update_project_impl(git_executor, repo_path, options, on_progress, Resolve::No)? {
-    BdUpdate::Update(result) => Ok(*result),
+    BdUpdate::Update { result, .. } => Ok(*result),
     BdUpdate::Session(_) => Err(anyhow!("an update without a resolve session started one")),
   }
 }
 
-/// What `bd update` did: an update as the app's, or a step of a resolve session
+/// What `bd update` did: an update as the app's, with every local commit it dropped and its subject and proof (those the
+/// replay left out because the upstream proves it has them, and those the replay dropped as empty, `landed`), or a
+/// step of a resolve session
 #[derive(Debug)]
 pub enum BdUpdate {
-  Update(Box<UpdateProjectResult>),
+  Update { result: Box<UpdateProjectResult>, dropped: Vec<DroppedCommit> },
   Session(Box<SessionOutcome>),
 }
 
@@ -207,7 +178,6 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       on_progress(UpdateProgress {
         phase: UpdatePhase::Fetching,
         fetch: Some(fetch),
-        waiting_for: None,
       });
     };
     let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_fetch_progress).map_err(|e| {
@@ -237,12 +207,14 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     let mut check = prepared.plan.check;
     check.fetched_at = fetched_at;
     info!(state = ?check.state, "update not applied, checked without the lock");
-    return Ok(BdUpdate::Update(Box::new(UpdateProjectResult {
-      check,
-      applied: None,
-      landed: Vec::new(),
+    return Ok(BdUpdate::Update {
+      result: Box::new(UpdateProjectResult {
+        check,
+        applied: None,
+        landed: Vec::new(),
+      }),
       dropped: Vec::new(),
-    })));
+    });
   }
   let lock = options.lock_wait.lock_with(git_executor, repo_path, &|| on_progress(UpdatePhase::Waiting.into()))?;
   // an update or undo that a crash stopped before its files followed: they follow first
@@ -286,17 +258,20 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     };
     record_landed_update(git_executor, repo_path, &report, &grouping)
   });
-  let dropped = if applied.is_some() {
+  // what `bd` lists of the drops: the app shows `landed`
+  let dropped = if applied.is_some() && matches!(resolve, Resolve::Yes { .. }) {
     with_empty_drops(with_subjects(git_executor, repo_path, plan.landed_drops()), &landed)
   } else {
     Vec::new()
   };
-  Ok(BdUpdate::Update(Box::new(UpdateProjectResult {
-    check: plan.check,
-    applied,
-    landed,
+  Ok(BdUpdate::Update {
+    result: Box::new(UpdateProjectResult {
+      check: plan.check,
+      applied,
+      landed,
+    }),
     dropped,
-  })))
+  })
 }
 
 /// The local branch `branch` as the upstream of an update onto it (`UpdateOptions::onto`); no remote, never fetched

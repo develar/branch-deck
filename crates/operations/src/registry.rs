@@ -44,6 +44,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use sync_core::transfer_progress::TransferProgress;
 use sync_utils::operation_tally::OperationTally;
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
@@ -522,6 +523,44 @@ fn decide(
   if queued { Decision::Queued } else { Decision::Run }
 }
 
+/// The admission again of `id`, which needs `resources` besides what it holds (`RunningGuard::hold`), on the actor of
+/// the session: over the other operations but those that wait behind it, at the end of the line; it waits behind the
+/// newest that holds one of them, or goes on at its step, its caller told either way
+fn requeue(
+  state: &mut TableState,
+  channels: &Mutex<HashMap<OperationId, Channel>>,
+  id: &OperationId,
+  resources: Vec<Resource>,
+  (step, wake): (OperationStep, oneshot::Sender<()>),
+) -> Decision {
+  let Some(mut operation) = state.operations().iter().find(|operation| operation.id == *id).cloned() else {
+    return Decision::Closed;
+  };
+  operation.resources.extend(resources);
+  let behind_it = OperationStep::Queued { behind: id.clone() };
+  let others: Vec<RunningOperation> = state.operations().iter().filter(|other| other.id != *id && other.step != behind_it).cloned().collect();
+  let behind = match admit(&others, &operation.intent, &operation.resources) {
+    Admission::Queue { op } => Some(op),
+    Admission::Run | Admission::Join { .. } => None,
+  };
+  let mut channels = lock(channels);
+  let Some(channel) = channels.get_mut(id) else {
+    return Decision::Closed;
+  };
+  let queued = behind.is_some();
+  operation.step = match behind {
+    Some(op) => {
+      let queued_step = OperationStep::Queued { behind: op };
+      channel.waiting = Some((wake, step));
+      queued_step
+    }
+    None => step,
+  };
+  told(channel, id, &operation.step);
+  state.apply_operation(OperationPatch::Requeued(operation));
+  if queued { Decision::Queued } else { Decision::Run }
+}
+
 /// The end of `id` with `answer`, on the actor of the session: it leaves the session, the ones that waited are admitted
 /// again in the order they came (each over the ones before it), each caller told its new step, and the requests that
 /// joined it get its answer
@@ -619,9 +658,31 @@ impl RunningGuard {
     self.stepper().step(step);
   }
 
-  /// Its push sent `percent` of what it sends, `line` what git said last: only the caller hears it
-  pub fn progress(&self, percent: u32, line: String) {
-    self.stepper().progress(percent, line);
+  /// The operation needs `resources` besides what it holds from now on (the check and the move of Update Project need
+  /// HEAD after its fetch, which held nothing of it): it is admitted again as a new operation is, at the end of the
+  /// line, so it waits behind the newest operation of this process that holds one of them (its step `Queued`, its
+  /// caller told), and the ones admitted after it wait for it; then it goes on at `step`. It never waits for one that
+  /// waits for it
+  ///
+  /// # Errors
+  /// `internal` when the session closed meanwhile
+  pub async fn hold(&self, resources: Vec<Resource>, step: OperationStep) -> Result<(), ApiError> {
+    let (wake, woken) = oneshot::channel();
+    let (channels, id) = (Arc::clone(&self.channels), self.id.clone());
+    let decision = self
+      .sessions
+      .apply_with(&self.key, move |state| requeue(state, &channels, &id, resources, (step, wake)))
+      .await;
+    match decision.unwrap_or(Decision::Closed) {
+      Decision::Run => Ok(()),
+      Decision::Queued => woken.await.map_err(|_closed| closed()),
+      Decision::Join { .. } | Decision::Closed => Err(closed()),
+    }
+  }
+
+  /// How far its push or its fetch is, as git said it last: only the caller hears it
+  pub fn progress(&self, tick: &TransferProgress) {
+    self.stepper().progress(tick);
   }
 
   /// What tells the step and the progress of the operation from a blocking step of it, on another thread
@@ -747,12 +808,14 @@ impl Stepper {
     drop(self.sessions.apply(&self.key, move |state| state.apply_operation(OperationPatch::Step { id, step })));
   }
 
-  /// Its push sent `percent` of what it sends, `line` what git said last: only the caller hears it
-  pub fn progress(&self, percent: u32, line: String) {
+  /// How far its push or its fetch is, as git said it last: only the caller hears it
+  pub fn progress(&self, tick: &TransferProgress) {
     self.events.send(OperationEvent::Progress {
       op: self.id.clone(),
-      percent,
-      line,
+      percent: u32::from(tick.percent),
+      line: tick.line.clone(),
+      transferred: tick.transferred.clone(),
+      speed: tick.speed.clone(),
     });
   }
 }

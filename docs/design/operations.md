@@ -1,7 +1,7 @@
 # Running Operations
 
 **Status:** Implemented  
-**Updated:** 2026-10-27  
+**Updated:** 2026-10-28  
 **Tags:** [frontend, actions, ux, concurrency]
 
 ## Problem
@@ -39,8 +39,9 @@ One registry of the operations that run (`src/stores/operations.ts`), and one wa
 Every rewrite of the page is a rewrite of the engine (Move, Rename, Stack On, Unstack, Park, Unpark, Reword, Squash,
 Squash Fixups, Amend, Add Issue Reference, Apply Fix, Unapply, Reapply, Pick Remote Commits, the deletes of an archived
 and an unapplied branch, and their Undo), admitted by the session in Rust: its record here only shows it, the session
-joins and queues it ([Rewrites](#rewrites)); the page queues no rewrite. Update Project, the one rewrite the page still
-runs itself, waits for the rewrite records before its check (`whenRewritesDone`).
+joins and queues it ([Rewrites](#rewrites)); the page queues no rewrite. Update Project, the Fetch of a merge toast and
+Dismiss Landed are operations of the session too ([Update Project](#update-project)): the page keeps only the run it
+shows of each.
 
 ## Design
 
@@ -85,8 +86,9 @@ move: the moves of a row are those of the operations of the session ([Moves](#mo
    amend and an added issue reference name the commits on the table the window showed (`TableWitness`), and the
    session resolves them on HEAD as the rewrite before it left it (by the new ids that rewrite reported, else by the
    commit key after its sync); a commit that is gone changes the plan (`plan_changed`). A branch goes by its name. A
-   push waits for the rewrites of its repository, their syncs included (`whenRewritesDone`): it sends what they leave;
-   Update Project waits for them before its check the same way.
+   push waits for the rewrites of its repository, their syncs included (`whenRewritesDone`): it sends what they leave.
+   The check and the move of Update Project wait behind them in the queue of the session, and the rewrites after it
+   behind them ([Update Project](#update-project)).
 3. **A remote action waits for a remote action of its subject or of a branch it works on**, and on the page is
    refused meanwhile. The restart and the cancel of one robot wait for each other in Rust instead (the registry of the
    session queues the cancel behind the restart and decides it again once the restart ended), as a retarget waits
@@ -154,9 +156,9 @@ operation: the rewrite answers the code `canceled`, nothing changed, and says so
 dialog keeps its message). A push and a Safe Push start, operations of the session too, say it in their step in the
 view (`OperationStep.waitingForLock` with the holder its record names, so every window says it): the hover of the push
 button (`useBranchPushProgress`, `lockWaitProgress`) and the step of the Safe Push (`LandRun.waitingFor`), each with
-its Stop Waiting (`stopWaitingPushItem`, `stopStartItem`: `cancel_operation` of the operation). Update Project, not an
-operation of the engine yet, keeps it in its run (`UpdateRun.lockWait`, Stop Waiting beside the Update button: the
-command `cancel_lock_wait` of its progress channel).
+its Stop Waiting (`stopWaitingPushItem`, `stopStartItem`: `cancel_operation` of the operation). Update Project says it
+in the run of its window (`UpdateRun.lockWait`, from the step `waitingForLock` its channel tells), with Stop Waiting
+beside the Update button: `cancel_operation` of its operation, nothing changed but the fetch.
 
 ### Rewrites
 
@@ -210,12 +212,30 @@ caller as the view shows it.
 The next step reads the operation on its row (`NextStepFacts.busy`): the slot's own action runs (`running`), the
 others wait with its busy state.
 
-- **Update Project** (`runUpdateProject`, `UPDATE_OPERATION`): its fetch (`fetch_baseline`) runs outside the registry,
-  so the rewrites of the page run during the network; then its check, apply and sync (`update_project` without a fetch)
-  are a rewrite of the repository, which waits for a running regroup in the queue (its step `waiting`) and the regroups
-  for it. A second ⌘T joins the running update, ⌘T during the Fetch of a toast goes on from that fetch without its
-  own, and a Fetch during an update joins it. Its steps and percent stay in its own store (`update-progress.ts`), which
-  ticks too often for the registry's subscribers.
+
+### Update Project
+
+Update Project (⌘T, `runUpdateProject`), the Fetch of a merge toast (`runFetchBaseline`) and Dismiss Landed
+(`dismissLanded`) are operations of the session (`execute` of the intents `updateProject`, `fetchBaseline` and
+`dismissLanded`, `operations::update`; [Git Operations](git-operations.md), "Update project"):
+
+- **The fetch** is the operation `FetchBaseline`, holding the tracking ref of the baseline: a Fetch of any window
+  during the fetch of an update joins it, and the fetch of an update during a Fetch joins that one, so one transfer
+  serves both; the fetch lock joins a fetch of another process (an agent's `bd update`).
+- **The update** holds nothing while its fetch runs, so a park, an Unstack or an Undo during the network runs at once;
+  then it holds HEAD (`Resource::Head`, `RunningGuard::hold`): it waits behind the rewrites of the process before it
+  (its step `queued`, the run's `waiting`), and a rewrite pressed during its check or its move waits behind it, never
+  refused. A second ⌘T joins it. Its check runs before the repository lock, its wait for another holder is its step
+  `waitingForLock`, stopped by `cancel_operation`.
+- **The end**: the operation asks the sync after its fetch and its move, then ends; the toast comes with its outcome
+  (the `done` event), and an applied update answers once that sync ended, which is the last step of its run. A failure
+  after the fetch is the failed `update` effect of the outcome: a toast, with "Retry Without Fetch" for an error the
+  same request may pass (`retry: same`), the intent with `fetch: false`.
+- **The page** keeps the run it shows of each repository (`src/stores/update-project.ts`): its steps and the percent of
+  its fetch from the channel of its `execute` (`update-progress.ts`; they tick too often for the view), one run per
+  repository, an update pressed during the Fetch of a toast going on from that fetch with its check, and the outcome
+  of an operation told once, also to a start that joined it. The hover of the idle Update button names the rewrite that
+  holds HEAD as the view shows it (`useHeadWait`), which the check of an update would wait for.
 
 ### Moves
 
@@ -306,9 +326,10 @@ operation.
    lets all of them say the same.
 2. **Decision**: a second start of the same action joins the first instead of being refused.
    **Rationale**: a double click is no mistake to report; the caller of the second start gets the first one's result.
-3. **Decision**: a rewrite of the engine (`Rewrite`, `operations::rewrite`) ends once it asked the sync that shows
-   it, and its `execute` answers once that sync ended, so the toast of its window comes then; its record on the page
-   lasts until that answer.
+3. **Decision**: a rewrite of the engine (`Rewrite`, `operations::rewrite`) and Update Project (`operations::update`)
+   end once they asked the sync that shows what they changed, and their `execute` answers once that sync ended (a
+   rewrite's toast comes then, an update's with its outcome); the record of a rewrite on the page, and the run of an
+   update, last until that answer.
    **Rationale**: the row shows the state before the rewrite until the sync; offering the action again then is what
    ran it three times. In Rust a second click joins the running rewrite, and a rewrite after it names its commits on
    what the first left (its `TableWitness`, the new ids the first reported, the commit keys), so it needs no wait for

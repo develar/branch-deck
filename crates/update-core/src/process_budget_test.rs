@@ -60,8 +60,8 @@ fn an_update() {
   assert_processes(&git, &with_fetch(UPDATE));
 }
 
-/// Update Project of the app after its `fetch_baseline`: the same update without the fetch, the network outside the
-/// slot of the page's rewrites
+/// Update Project of the app after its fetch (the `FetchBaseline` of its operation, `operations::update`): the same
+/// update without the fetch, the network before it holds HEAD
 #[test]
 fn an_update_after_its_fetch() {
   let fixture = setup();

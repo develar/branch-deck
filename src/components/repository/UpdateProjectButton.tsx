@@ -28,11 +28,10 @@ import {
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useLanding } from "@/stores/landed"
-import { useOperationWait } from "@/stores/operations"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 import type { RunningUpdate } from "@/stores/update-project"
-import { runUpdateProject, UPDATE_OPERATION, useShownUpdate } from "@/stores/update-project"
+import { runUpdateProject, useHeadWait, useShownUpdate } from "@/stores/update-project"
 
 /**
  * The state of the check as of the last fetch (`fetchTime`). A check that failed (e.g. a rebase in progress) says why:
@@ -183,8 +182,8 @@ export function UpdateProjectButton() {
 
 function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: BaselineStatus }) {
   const running = activeRun(shown)
-  // a regroup or a squash runs: the update's apply, a rewrite too, waits for it in the queue ("Unstacking oauth…")
-  const waitsFor = useOperationWait(UPDATE_OPERATION)
+  // a regroup or a squash holds HEAD: the check and the move of an update wait for it in the queue ("Unstacking oauth…")
+  const waitsFor = useHeadWait()
   const fetchTime = useFetchTime(status)
   const description = describeStatus(status, fetchTime)
   const landing = useLanding()

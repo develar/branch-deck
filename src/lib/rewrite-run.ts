@@ -16,6 +16,7 @@ import { executeRewrite } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
 import { getSessionWitness } from "@/model/store"
 import { actionOfLabel, canceledBeforeStart, presentLockWait } from "@/presenters/lock-wait"
+import { presentRunningLabel } from "@/presenters/operations"
 import { presentRewrite } from "@/presenters/rewrite"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { OperationSpec } from "@/stores/operations"
@@ -52,14 +53,14 @@ export function witnessed<R extends RewriteIntent = RewriteIntent>(repositoryPat
 /** The busy state of the operation a step names, by its id: the rewrites this window started */
 const labels = new Map<OperationId, string>()
 
-/** The busy state of the operation `op` a rewrite waits behind: one of this window, else as the view names a rewrite */
+/** The busy state of the operation `op` a rewrite waits behind: one of this window, else as the view names it (a rewrite, an update) */
 function labelOf(op: OperationId): string {
   const own = labels.get(op)
   if (own !== undefined) {
     return own
   }
-  const intent = branchSyncStore.getState().operations[op]?.intent
-  return intent?.kind === "rewrite" ? presentRewrite(intent).label : "another rewrite"
+  const operation = branchSyncStore.getState().operations[op]
+  return operation === undefined ? "another rewrite" : presentRunningLabel(operation)
 }
 
 /**

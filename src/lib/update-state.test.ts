@@ -133,7 +133,7 @@ describe("the labels of a running update", () => {
     expect(stopWaitingUpdateItem(undefined)).toBeNull()
   })
 
-  it("lists the steps done, the running one and those left, without a wait that ended", () => {
+  it("lists the steps done, the running one and those left, without a wait that ended, a step that ran again once", () => {
     const received = { ...fetching, fetch: receiving }
     const waiting = advanceRun(received, "waiting", 1000, "2.61 MiB")
     const checking = advanceRun(waiting, "check", 2000)
@@ -149,6 +149,10 @@ describe("the labels of a running update", () => {
       "next Update to origin/master",
       "next Sync branches",
     ])
+    // the check once more under the lock after a wait for another holder, then the move: each step once
+    const again = advanceRun(advanceRun(checking, "waiting", 3000), "check", 4000)
+    expect(runStepLines(again, "origin/master").map(it => `${it.state} ${it.step}`)).toEqual(["done fetch", "running check", "next apply", "next sync"])
+    expect(runStepLines(advanceRun(again, "apply", 5000), "origin/master").map(it => `${it.state} ${it.step}`)).toEqual(["done fetch", "done check", "running apply", "next sync"])
   })
 
   it("says the step in the footer, the amount and the rate while the fetch receives", () => {

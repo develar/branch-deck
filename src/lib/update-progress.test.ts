@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { TransferProgress } from "@/lib/bindings"
 import type { UpdateRun } from "@/lib/update-progress"
-import { STEP_CEILING, addTiming, advanceRun, finishRun, learnTimings, overallProgress, startRun, usualDuration } from "@/lib/update-progress"
+import { STEP_CEILING, addTiming, advanceRun, finishRun, learnTimings, overallProgress, startRun, stepsAfter, usualDuration } from "@/lib/update-progress"
 
 const FULL = ["fetch", "check", "apply", "sync"] as const
 
@@ -72,6 +72,13 @@ describe("the progress of an update", () => {
     const waiting = advanceRun(run(), "waiting", 2000)
     const atWait = overallProgress(waiting, 2000)
     expect(overallProgress(waiting, 8000)).toBe(atWait)
+  })
+
+  it("places a wait after the steps done: behind a rewrite before the check, for the lock before the apply", () => {
+    const behindARewrite = advanceRun(run(), "waiting", 1000)
+    expect(stepsAfter(behindARewrite)).toEqual(["check", "apply", "sync"])
+    const forTheLock = advanceRun(advanceRun(run(), "check", 1000), "waiting", 2000)
+    expect(stepsAfter(forTheLock)).toEqual(["apply", "sync"])
   })
 
   it("takes the commits of its own sync, capped until the sync ends", () => {

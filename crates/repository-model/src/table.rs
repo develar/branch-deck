@@ -112,6 +112,9 @@ pub enum OperationPatch {
   Moves { id: OperationId, moves: Vec<RunningMove> },
   /// A request of the same intent joined an operation
   Joined(OperationId),
+  /// An operation needs more than it held, and was admitted again as a new one is: it comes after the others, with what
+  /// it holds now and its step (`Queued` behind the one it waits for, or the step it goes on at)
+  Requeued(RunningOperation),
   /// An operation ended, or stopped waiting
   Ended(OperationId),
   /// The operations of other processes in the session as the operations registry of the repository has them now, in
@@ -509,6 +512,10 @@ impl TableState {
         }
       }
       OperationPatch::Ended(id) => self.operations.retain(|operation| operation.id != id),
+      OperationPatch::Requeued(operation) => {
+        self.operations.retain(|held| held.id != operation.id);
+        self.operations.push(operation);
+      }
       OperationPatch::Foreign(foreign) => {
         self.operations.retain(|operation| operation.origin == Origin::ThisProcess);
         // a start of this process whose answer was lost is in the file before its run ended here: its run shows it until

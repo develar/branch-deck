@@ -1,22 +1,29 @@
+// Update Project (⌘T) and the Fetch of a merge toast are operations of the session of their repository
+// (`operations::update`, the intents `updateProject` and `fetchBaseline`; docs/design/operations.md, "Update Project"):
+// the session joins a second start, a Fetch during the fetch of an update joins that fetch, and an update during a
+// Fetch goes on from it without a second transfer; the update holds HEAD only for its check and its move, so a rewrite
+// runs during its fetch, and one clicked during its check waits behind it. Rust decides all of it and asks the sync
+// after the fetch and the move; this store keeps the run each window shows of its repository, its steps as the channel
+// of its `execute` tells them, and words its outcome once.
 import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { TransferProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
+import type { ApiError, Intent, OperationEvent, OperationId, OperationStep, Outcome, UpdateCheck, UpdateProjectResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
-import { getErrorCode, notifyError } from "@/lib/errors"
+import { notifyError } from "@/lib/errors"
 import type { EventToastState } from "@/lib/event-toast"
 import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { appliedUpdateToast } from "@/lib/landed"
+import { executeIntent } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
-import type { FinishedStep, TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
+import type { TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
 import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-progress"
-import { canceledBeforeStart } from "@/presenters/lock-wait"
+import { nextRunNumber, whenSessionViewAt } from "@/model/store"
+import { canceledBeforeStart, presentLockWait } from "@/presenters/lock-wait"
+import { presentRunningLabel } from "@/presenters/operations"
 import { recordUpdate } from "@/stores/activity"
-import { requestSync, setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
+import { branchSyncStore, setBaselineUpdate } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
-import type { OperationKey } from "@/stores/operations"
-import { getOperationBlocker, getOperations, runOperation, whenRewritesDone } from "@/stores/operations"
 import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
 import { getRepositoryState, updateRepositoryState } from "@/stores/settings/repositoryState"
 
@@ -27,10 +34,12 @@ export const END_HOLD_MS = 300
 export interface RunningUpdate {
   /** The step it is at and its progress (`update-progress.ts`) */
   readonly run: UpdateRun
-  /** The sync run (`requestSync`) of the sync of an applied update; null before it starts */
+  /** The sync run (`nextRunNumber`) of the sync of an applied update; null before it starts */
   readonly syncRun: number | null
   /** When the run ended (ms): the bar shows 100 % for `END_HOLD_MS`; null while it runs */
   readonly endedAt: number | null
+  /** An update started during the Fetch of a toast: it goes on from that fetch, its run starts with its check once the fetch ended */
+  readonly thenUpdate?: boolean
 }
 
 export interface UpdateProjectState {
@@ -65,6 +74,17 @@ export function useShownUpdate(): RunningUpdate | undefined {
   return useStore(updateProjectStore, state => selectShownUpdate(state, repositoryPath))
 }
 
+/**
+ * The busy state of the operation of this app that holds HEAD as the view of the session shows it ("Unstacking oauth…"):
+ * an update started now waits for it in the queue of the session after its fetch; null while none does
+ */
+export function useHeadWait(): string | null {
+  return useStore(branchSyncStore, state => {
+    const holder = Object.values(state.operations).findLast(operation => operation.origin.kind === "thisProcess" && operation.resources.some(resource => resource.kind === "head"))
+    return holder === undefined ? null : `${presentRunningLabel(holder)}…`
+  })
+}
+
 export function useRefusedUpdate(): UpdateCheck | null {
   return useStore(updateProjectStore, state => state.refused)
 }
@@ -90,26 +110,37 @@ function timingsOf(repositoryPath: string) {
   return getRepositoryState(repositoryPath)?.updateTimings
 }
 
-/** Takes the one-at-a-time slot of the repository for an update or a fetch; false when one runs there already */
-function startRunning(repositoryPath: string, kind: UpdateRun["kind"], plan: readonly TimedStep[]): boolean {
-  if (selectRunningUpdate(updateProjectStore.getState(), repositoryPath) !== undefined) {
-    return false
-  }
-  setRunning(repositoryPath, { run: startRun(kind, plan, timingsOf(repositoryPath), Date.now()), syncRun: null, endedAt: null })
-  return true
+/**
+ * Every step of an update, listed from its start whatever the last check found: the files follow, and the sync rebuilds
+ * the rebased branches. A check that finds nothing to apply ends the run with its result, the steps after it never run.
+ */
+const UPDATE_PLAN: readonly TimedStep[] = ["fetch", "check", "apply", "sync"]
+
+/** The steps of an update without a fetch (Retry Without Fetch) */
+const APPLY_PLAN: readonly TimedStep[] = ["check", "apply", "sync"]
+
+/** What a step that ends did: the amount of the fetch, as git prints it */
+function finishedDetail(run: UpdateRun): string | null {
+  return run.step === "fetch" ? (run.fetch?.transferred ?? null) : null
 }
 
 /**
- * Ends the run of the repository and learns what its steps took (`done`); the bar shows the end for a moment, unless a
- * new run took the slot meanwhile
+ * Ends the run of `kind` of the repository and learns what its steps took, the one that `failed` excepted, which says
+ * nothing about its usual time; the bar shows the end for a moment, unless a new run took its place meanwhile. A run
+ * that became another (a Fetch that goes on as an update) goes on
  */
-function endRunning(repositoryPath: string, done: readonly FinishedStep[]): void {
+function endRunning(repositoryPath: string, kind: UpdateRun["kind"], failed: boolean): void {
   const running = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)
-  if (running === undefined) {
+  if (running?.run.kind !== kind) {
     return
   }
+  const done = failed ? running.run.done : finishRun(running.run, Date.now(), finishedDetail(running.run))
   if (done.length > 0) {
     updateRepositoryState(repositoryPath, state => ({ ...state, updateTimings: learnTimings(state.updateTimings, done) }))
+  }
+  if (running.thenUpdate === true && !failed) {
+    setRunning(repositoryPath, { run: startRun("update", APPLY_PLAN, timingsOf(repositoryPath), Date.now()), syncRun: null, endedAt: null })
+    return
   }
   const ended: RunningUpdate = { ...running, endedAt: Date.now() }
   setRunning(repositoryPath, ended)
@@ -120,173 +151,135 @@ function endRunning(repositoryPath: string, done: readonly FinishedStep[]): void
   }, END_HOLD_MS)
 }
 
-const PHASE_STEPS: Readonly<Record<UpdatePhase, UpdateStep>> = {
-  fetching: "fetch",
-  waiting: "waiting",
-  checking: "check",
-  updating: "apply",
-}
-
-/**
- * Every step of an update, listed from its start whatever the last check found: the files follow, and the sync rebuilds
- * the rebased branches. A check that finds nothing to apply ends the run with its result, the steps after it never run.
- */
-const UPDATE_PLAN: readonly TimedStep[] = ["fetch", "check", "apply", "sync"]
-
-/** The steps of an update that joined a Fetch running in its repository: the fetch is that one's */
-const APPLY_PLAN: readonly TimedStep[] = ["check", "apply", "sync"]
-
-/** What a step that ends did: the amount of the fetch, as git prints it */
-function finishedDetail(run: UpdateRun): string | null {
-  return run.step === "fetch" ? (run.fetch?.transferred ?? null) : null
-}
-
-/**
- * The run at the step of the message: a new step only when the phase changes, the fetch progress within the fetch, and
- * whom the wait is for while another holder has the repository lock, stopped through the update's channel
- */
-function applyProgress(run: UpdateRun, { phase, fetch, waitingFor }: UpdateProgress, channel: { readonly id: number }): UpdateRun {
-  const step = PHASE_STEPS[phase]
-  const next = step === run.step ? (step === "fetch" ? { ...run, fetch } : run) : advanceRun(run, step, Date.now(), finishedDetail(run))
-  if (step === "waiting" && waitingFor != null) {
-    // Stop Waiting: the command answers `canceled` and changed nothing; one whose wait ended already goes on
-    return { ...next, lockWait: { waitingFor, stop: () => void commands.cancelLockWait(channel.id).catch(() => {}) } }
+/** The step of the run an operation of the update is at; null for a step an update never takes */
+function updateStepOf(step: OperationStep): UpdateStep | null {
+  switch (step.kind) {
+    case "fetching":
+      return "fetch"
+    case "queued":
+    case "waitingForLock":
+      return "waiting"
+    case "checking":
+      return "check"
+    case "updating":
+      return "apply"
+    default:
+      return null
   }
-  return next
-}
-
-/** The operation of an update of the selected repository: a rewrite of it, as a regroup or a squash */
-export const UPDATE_OPERATION: OperationKey = { id: "update-project", subject: "repository", objects: [], kind: "rewrite" }
-
-/** The update of each repository, from its fetch to its sync: a second start joins it */
-const updates = new Map<string, Promise<void>>()
-
-/** The fetch of the baseline of each repository, of an update or of a Fetch: resolves to whether it fetched */
-const fetches = new Map<string, Promise<boolean>>()
-
-/**
- * Fetches the baseline, checks the update and applies it if it is clean (Update Project, ⌘T). A conflict or a block
- * opens the dialog that explains it; nothing changed then. A sync follows every update whose fetch finished: the sync
- * of an applied update is the last step of its progress, the others show on Sync (`syncFetched`). One update at a time
- * in a repository: a second start joins the running one, and a start during the Fetch of a toast goes on from that
- * fetch. The fetch runs first, outside the operations (`fetch_baseline`): the rewrites of the page run meanwhile. Only
- * the check and the apply are a rewrite of the repository (`runOperation`, `update_project` without a fetch): they
- * wait for the rewrites that run, their syncs included (`whenRewritesDone`), and a rewrite started meanwhile waits for
- * the repository lock they hold; its progress is the run of this store.
- */
-export function runUpdateProject(): Promise<void> {
-  const repositoryPath = getSelectedProject()?.path
-  return repositoryPath === undefined ? Promise.resolve() : startUpdate(repositoryPath, true)
 }
 
 /**
- * "Retry Without Fetch" of an update refused after its fetch by an error the same request may pass (`retry: same`, a
- * held repository lock): the check and the apply against the baseline that fetch got. Only while the main window shows
- * the repository, as Update Project: a click after a switch never moves the HEAD of another one
+ * The run of the repository at the step its operation `op` went on to: a new step only when it changes, and whom the
+ * wait is for while another holder has the repository lock, with its Stop Waiting (`cancel_operation`); the fetch
+ * finished once the update goes on from it, which the state of the repository keeps (the time of its last fetch)
  */
-export function retryUpdateWithoutFetch(repositoryPath: string): Promise<void> {
-  return isSelectedRepository(repositoryPath) ? startUpdate(repositoryPath, false) : Promise.resolve()
-}
-
-/** The update of the repository, with a fetch first or not; a second start joins the running one */
-function startUpdate(repositoryPath: string, fetch: boolean): Promise<void> {
-  const running = updates.get(repositoryPath)
-  if (running !== undefined) {
-    return running
-  }
-  const update = updateProjectOf(repositoryPath, fetch).finally(() => updates.delete(repositoryPath))
-  updates.set(repositoryPath, update)
-  return update
-}
-
-async function updateProjectOf(repositoryPath: string, fetch: boolean): Promise<void> {
-  // ⌘T during the Fetch of a toast: the update goes on from that fetch, which says itself why it failed
-  const joined = fetches.get(repositoryPath)
-  if (joined !== undefined && !(await joined)) {
+function stepRun(repositoryPath: string, op: OperationId, step: OperationStep): void {
+  const next = updateStepOf(step)
+  if (next === null) {
     return
   }
-  const fetchFirst = fetch && joined === undefined
-  if (!startRunning(repositoryPath, "update", fetchFirst ? UPDATE_PLAN : APPLY_PLAN)) {
-    return
-  }
-  // the steps that ended; the one that failed says nothing about its usual time
-  let done: readonly FinishedStep[] = []
-  try {
-    if (fetchFirst && !(await fetchOf(repositoryPath, "Cannot update the project"))) {
-      return
-    }
-    const spec = { ...UPDATE_OPERATION, label: "Updating the project", repositoryPath }
-    // a rewrite runs: the update waits for it and its sync, and says so
-    if (getOperationBlocker(getOperations(), spec) !== null) {
-      patchRunning(repositoryPath, running => ({ ...running, run: advanceRun(running.run, "waiting", Date.now(), finishedDetail(running.run)) }))
-      await whenRewritesDone(repositoryPath)
-    }
-    await runOperation(spec, async () => {
-      done = await applyUpdate(repositoryPath)
-    })
-  } finally {
-    endRunning(repositoryPath, done)
-  }
-}
-
-/**
- * Fetches the baseline of the repository (`fetch_baseline`), its progress in the run of the repository; resolves to
- * whether it fetched, after an error toast titled `failureTitle` if not. An update that starts meanwhile goes on from it
- */
-function fetchOf(repositoryPath: string, failureTitle: string): Promise<boolean> {
-  const progress = new Channel<TransferProgress>()
-  let closed = false
-  progress.onmessage = fetch => {
-    if (!closed) {
-      patchRunning(repositoryPath, running => ({ ...running, run: { ...running.run, fetch } }))
-    }
-  }
-  const fetch = invokeCommand(() => commands.fetchBaseline({ repositoryPath }, progress))
-    .then(result => {
-      closed = true
-      if (result.status !== "ok") {
-        notifyError(failureTitle, result.error)
-        return false
-      }
+  patchRunning(repositoryPath, running => {
+    const { run } = running
+    if (run.step === "fetch" && next !== "fetch") {
       updateRepositoryState(repositoryPath, state => ({ ...state, lastFetchTime: Date.now() }))
-      return true
-    })
-    .finally(() => fetches.delete(repositoryPath))
-  fetches.set(repositoryPath, fetch)
-  return fetch
+    }
+    const moved = next === run.step ? run : advanceRun(run, next, Date.now(), finishedDetail(run))
+    if (step.kind !== "waitingForLock") {
+      return { ...running, run: moved }
+    }
+    const stop = () => void commands.cancelOperation({ op }).catch(() => {})
+    return { ...running, run: { ...moved, lockWait: { waitingFor: presentLockWait(step.holder), stop } } }
+  })
 }
 
 /**
- * Checks the update against the fetched baseline and applies it (`update_project` without a fetch), as the operation of
- * the update; resolves to the steps that ended
+ * The channel of an `execute` of `kind` in the repository: its steps and its fetch progress move the run of that kind (a
+ * Fetch that joined an update moves nothing), its outcome is told once; a message after the outcome changes nothing,
+ * the steps after it are the page's
  */
-async function applyUpdate(repositoryPath: string): Promise<readonly FinishedStep[]> {
-  const progress = new Channel<UpdateProgress>()
-  // a channel can deliver a message after its invoke resolved: the steps after it are the frontend's
-  let closed = false
-  progress.onmessage = message => {
-    if (!closed) {
-      patchRunning(repositoryPath, running => ({ ...running, run: applyProgress(running.run, message, progress) }))
-    }
-  }
-  const result = await invokeCommand(() => commands.updateProject({ repositoryPath, fetch: false }, progress))
-  closed = true
-  const run = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)?.run
-  const done = run?.done ?? []
-  if (result.status !== "ok") {
-    syncFetched(repositoryPath)
-    if (getErrorCode(result.error) === "canceled") {
-      showToast(canceledBeforeStart("the update", "Nothing changed; the fetch stays"))
+function runChannel(repositoryPath: string, kind: UpdateRun["kind"]): Channel<OperationEvent> {
+  const events = new Channel<OperationEvent>()
+  let ended = false
+  const own = () => !ended && selectRunningUpdate(updateProjectStore.getState(), repositoryPath)?.run.kind === kind
+  events.onmessage = event => {
+    if (event.kind === "done") {
+      ended = true
+      tellOutcome(repositoryPath, event.outcome)
+    } else if (!own()) {
+      return
+    } else if (event.kind === "step") {
+      stepRun(repositoryPath, event.op, event.step)
     } else {
-      // the fetch is done: a request that may pass as it is (a held lock) goes on from it, a moved branch is read again
-      const retry = result.error.retry === "same" ? { children: "Retry Without Fetch", onClick: () => void retryUpdateWithoutFetch(repositoryPath) } : undefined
-      notifyError("Cannot update the project", result.error, retry)
+      const fetched = { percent: event.percent, line: event.line, transferred: event.transferred, speed: event.speed }
+      patchRunning(repositoryPath, running => (running.run.step === "fetch" ? { ...running, run: { ...running.run, fetch: fetched } } : running))
     }
-    return done
   }
+  return events
+}
 
-  const { check, applied, landed } = result.data
-  recordUpdate(repositoryPath, result.data)
+/** The outcomes this window told, by operation: a start that joined another hears the same outcome; the newest kept */
+const told: OperationId[] = []
+
+/** Whether the outcome of `op` was told already; it is from now on */
+function toldBefore(op: OperationId): boolean {
+  if (told.includes(op)) {
+    return true
+  }
+  told.push(op)
+  told.splice(0, Math.max(0, told.length - 20))
+  return false
+}
+
+/** The error of the first effect of `outcome` that failed; null when none failed */
+function failureOf(outcome: Outcome): ApiError | null {
+  for (const { status } of outcome.effects) {
+    if (status.kind === "failed") {
+      return status.error
+    }
+  }
+  return null
+}
+
+/**
+ * Tells what an update or a Fetch of the repository did, once per operation: the failure of its fetch or of its update,
+ * or the result of the update; an applied update of the selected repository goes on with its sync, the last step of its
+ * run, the others end their run here
+ */
+function tellOutcome(repositoryPath: string, outcome: Outcome): void {
+  if (toldBefore(outcome.op)) {
+    return
+  }
+  const isUpdate = outcome.effects.some(record => record.effect.kind === "update")
+  const fetched = outcome.effects.some(record => record.effect.kind === "fetch" && record.status.kind === "done")
+  if (fetched) {
+    updateRepositoryState(repositoryPath, state => ({ ...state, lastFetchTime: Date.now() }))
+  }
+  const failure = failureOf(outcome)
+  if (failure !== null) {
+    tellFailure(repositoryPath, failure, isUpdate ? "update" : "fetch")
+    endRunning(repositoryPath, isUpdate ? "update" : "fetch", true)
+    return
+  }
+  if (!isUpdate || outcome.result.kind !== "update") {
+    endRunning(repositoryPath, "fetch", false)
+    return
+  }
+  const result: UpdateProjectResult = outcome.result
+  tellUpdate(repositoryPath, result)
+  // up to date, refused, or another repository selected meanwhile: the update ends here, its sync shows on Sync
+  if (result.applied === null || getSelectedProject()?.path !== repositoryPath) {
+    endRunning(repositoryPath, "update", false)
+    return
+  }
+  // the branches were rebased: their rows are rebuilt, the last step of the update
+  const syncRun = nextRunNumber()
+  patchRunning(repositoryPath, running => ({ ...running, run: advanceRun(running.run, "sync", Date.now()), syncRun }))
+}
+
+/** The result of an update: its toast, the state of the baseline it leaves, what landed, the dialog of a refusal */
+function tellUpdate(repositoryPath: string, result: UpdateProjectResult): void {
+  const { check, applied, landed } = result
+  recordUpdate(repositoryPath, result)
   switch (check.state.status) {
     case "upToDate":
       setBaselineUpdate(repositoryPath, check)
@@ -306,21 +299,22 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
       updateProjectStore.setState({ refused: check })
       break
   }
-  if (run === undefined) {
-    return done
+}
+
+/**
+ * A failure of an update or of a Fetch (`kind`): a stopped wait for the lock says so in an info toast, nothing changed
+ * but the fetch; an error of an update that the same request may pass (`retry: same`, a held lock) offers "Retry
+ * Without Fetch", the check and the move against the baseline the last fetch got; a moved branch is read again by a
+ * new Update
+ */
+function tellFailure(repositoryPath: string, error: ApiError, kind: UpdateRun["kind"]): void {
+  if (error.code === "canceled") {
+    showToast(canceledBeforeStart("the update", "Nothing changed; the fetch stays"))
+    return
   }
-  // up to date, refused, or another repository selected meanwhile: the update ends here, its sync shows on Sync
-  if (applied === null || getSelectedProject()?.path !== repositoryPath) {
-    syncFetched(repositoryPath)
-    return finishRun(run, Date.now())
-  }
-  // the branches were rebased: their rows are rebuilt, the last step of the update
-  const syncing = advanceRun(run, "sync", Date.now())
-  patchRunning(repositoryPath, running => ({ ...running, run: syncing }))
-  await requestSync(syncRun => {
-    patchRunning(repositoryPath, running => ({ ...running, syncRun }))
-  })
-  return syncing.done
+  const update = kind === "update"
+  const retry = update && error.retry === "same" ? { children: "Retry Without Fetch", onClick: () => void retryUpdateWithoutFetch(repositoryPath) } : undefined
+  notifyError(update ? "Cannot update the project" : "Cannot fetch the baseline", error, retry)
 }
 
 /**
@@ -333,14 +327,62 @@ function showUpdateToast(repositoryPath: string, state: EventToastState): void {
 }
 
 /**
- * After a fetch the branches are built again: the baseline moved (integration, remote status, what landed) also when the
- * update is up to date, conflicts or is refused. The table shows the selected repository: another one selected meanwhile
- * has nothing to sync for this fetch.
+ * The run of `kind` of the repository from now on: a new one when none runs; a start of an update during the Fetch of a
+ * toast goes on from that fetch, its run once the fetch ended (`thenUpdate`); any other start joins the run that runs,
+ * as its operation joins in the session. Whether the run is this start's: only its answer ends the run after a sync (a
+ * request that joined answers when the operation ended, before its sync)
  */
-function syncFetched(repositoryPath: string): void {
-  if (getSelectedProject()?.path === repositoryPath) {
-    void syncBranches("afterRewrite")
+function begin(repositoryPath: string, kind: UpdateRun["kind"], plan: readonly TimedStep[]): boolean {
+  const running = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)
+  if (running === undefined) {
+    setRunning(repositoryPath, { run: startRun(kind, plan, timingsOf(repositoryPath), Date.now()), syncRun: null, endedAt: null })
+    return true
   }
+  if (running.run.kind === "fetch" && kind === "update") {
+    setRunning(repositoryPath, { ...running, thenUpdate: true })
+    return true
+  }
+  return false
+}
+
+/** Runs `intent` of the family in the repository as a run of `kind` (`execute`), resolving once it answered */
+async function runIntentOf(repositoryPath: string, intent: Intent, kind: UpdateRun["kind"], plan: readonly TimedStep[]): Promise<void> {
+  const own = begin(repositoryPath, kind, plan)
+  const executed = await executeIntent({ repositoryPath, intent, fingerprint: "", accepted: [] }, runChannel(repositoryPath, kind))
+  if (executed.status === "error") {
+    // refused before its first effect: nothing was fetched or changed
+    tellFailure(repositoryPath, executed.error, kind)
+    endRunning(repositoryPath, kind, true)
+    return
+  }
+  // an outcome whose `done` the channel lost is told now, once
+  tellOutcome(repositoryPath, executed.data)
+  if (own) {
+    // an applied update answers once its sync ended: the run ends when the window shows what the sync rebuilt
+    await whenSessionViewAt(repositoryPath, executed.data.versionAfter)
+    endRunning(repositoryPath, kind, false)
+  }
+}
+
+/**
+ * Fetches the baseline, checks the update and applies it if it is clean (Update Project, ⌘T), in the session of the
+ * selected repository. A conflict or a block opens the dialog that explains it; nothing changed then. The session asks
+ * a sync after every update whose fetch finished: the sync of an applied update is the last step of its progress, the
+ * others show on Sync. A second start joins the running update, and a start during the Fetch of a toast goes on from
+ * that fetch
+ */
+export function runUpdateProject(): Promise<void> {
+  const repositoryPath = getSelectedProject()?.path
+  return repositoryPath === undefined ? Promise.resolve() : runIntentOf(repositoryPath, { kind: "updateProject", fetch: true }, "update", UPDATE_PLAN)
+}
+
+/**
+ * "Retry Without Fetch" of an update refused after its fetch by an error the same request may pass (`retry: same`, a
+ * held repository lock): the check and the apply against the baseline that fetch got. Only while the main window shows
+ * the repository, as Update Project: a click after a switch never moves the HEAD of another one
+ */
+export function retryUpdateWithoutFetch(repositoryPath: string): Promise<void> {
+  return isSelectedRepository(repositoryPath) ? runIntentOf(repositoryPath, { kind: "updateProject", fetch: false }, "update", APPLY_PLAN) : Promise.resolve()
 }
 
 /**
@@ -354,28 +396,10 @@ export function runUpdateProjectOf(repositoryPath: string): Promise<void> {
 
 /**
  * Fetches only the baseline of the repository, without updating (the Fetch of a merged robot's toast): the button shows
- * the fetch as for an update, then a sync of the selected repository, on Sync, checks the update against the fetched
- * baseline. A Fetch while the update or the fetch of the repository runs joins it; an update started meanwhile goes on
+ * the fetch as for an update, then the sync the session asks checks the update against the fetched baseline. A Fetch
+ * while the update or the fetch of the repository runs joins it in the session; an update started meanwhile goes on
  * from this fetch.
  */
 export function runFetchBaseline(repositoryPath: string): Promise<void> {
-  const update = updates.get(repositoryPath)
-  if (update !== undefined) {
-    return update
-  }
-  const running = fetches.get(repositoryPath)
-  if (running !== undefined) {
-    return running.then(() => {})
-  }
-  if (!startRunning(repositoryPath, "fetch", ["fetch"])) {
-    return Promise.resolve()
-  }
-  return fetchOf(repositoryPath, "Cannot fetch the baseline").then(fetched => {
-    const run = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)?.run
-    const done = !fetched || run === undefined ? [] : finishRun(run, Date.now(), finishedDetail(run))
-    endRunning(repositoryPath, done)
-    if (fetched) {
-      syncFetched(repositoryPath)
-    }
-  })
+  return runIntentOf(repositoryPath, { kind: "fetchBaseline" }, "fetch", ["fetch"])
 }
