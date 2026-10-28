@@ -462,8 +462,13 @@ facts](git-operations.md#session-facts)).
   `ClosePullRequest`, `CloseLandedPullRequests { robot }`, `SubmitReview { pull_request, verdict, then_land }`,
   `Rewrite(RewriteIntent)` (Move, Rename, Restack, Unstack, Park, Unpark, Unapply, Reapply, Squash, SquashFixups,
   Reword, Amend, MoveHunk, AddIssueReference, ApplyConflictFix, DeleteArchived, DeleteUnapplied, Undo{token}),
-  `UpdateProject`, `FetchBaseline`, `DismissLanded`, `SignIn(provider)`, `SignOut(provider)`, `SetIssueState`,
-  `SetRepositoryConfig`, `FetchReview { pull_request }` (fetch и prune refs review), `ForgetStart { op }`.
+  `UpdateProject`, `FetchBaseline`, `DismissLanded`, `SetIssueState`, `FetchReview { pull_request }` (fetch и prune
+  refs review), `ForgetStart { op }`. Intent — действие над репозиторием: его допускает реестр сессии по
+  `SessionKey`. То, у чего субъект не репозиторий, — не intent, а команда приложения в `APP_COMMANDS` со своим
+  единственным писателем, и ключ сессии для неё не выдумывается: запись настроек приложения (`set_setting`), запись
+  git config (`set_repository_config`: глобальный ключ пишется и без репозитория, а ключ префикса меняет сам
+  `SessionKey`), вход и выход аккаунтов GitHub и YouTrack (Settings открываются и без репозитория, а токен один на
+  приложение).
 - `Plan { intent, fingerprint, lands, effects, confirmations, blockers: Vec<Reason>, waits: Vec<FactWait>,
   alternatives, pull_request, approvals_skipped_by }` (у старта: PR, с которого он комментирует или который берёт
   `create_pull_request`, и почему approvals его не держат). `PlannedEffect`: `Fetch`, `Retarget`, `CancelRobot`,
@@ -2340,7 +2345,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
 
 ### s11-engine-rewrites
 
-- **Цель:** rewrites, Update Project, предпросмотр группировки, валидация имён и sign-in через движок; один реестр.
+- **Цель:** rewrites и Update Project через движок, предпросмотр группировки и валидация имён в Rust; один реестр;
+  вход аккаунтов и запись git config — по одной команде приложения на действие, не intent'ы.
 - **Зависит от:** s10-registry-journal (допуск rewrite между процессами и приёмка «приложение + `bd`» идут через
   файл реестра), s9-engine-remote (движок, `Intent`, `Outcome.undo`).
 - **Объём и файлы:** `Rewrite(…)` и `UpdateProject`, `FetchBaseline`, `DismissLanded` оборачивают существующие
@@ -2351,7 +2357,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   (`operationItem`, `pushOverlay`) уходят; ожидание lock rewrite и Update Project — их step `WaitingForLock{holder}`
   со Stop Waiting через `cancel_operation`; `preview_group` (R8), тело PR (R9), валидация
   имени (R10, debounce IPC; при заметной задержке — TS-проверка против оракула `src/test-support/branch-names.cases.json`,
-  который пишет Rust-тест); `SignIn`/`SignOut` с `Channel<SignInEvent>` (`crates/github/src/device_flow.rs` уже есть).
+  который пишет Rust-тест); вход и выход аккаунтов — команды приложения с `Channel<SignInEvent>` поверх ядер
+  `github::sign_in_session` и `youtrack::sign_in_session` (s0b), без intent'а (решение 2026-10-28 ниже).
   `operations.md`: решение 3 «a rewrite lasts until its sync ends» заменяется «операция кончается с запуском sync,
   который её обслуживает», «Conflicts» — rewrite во время sync допускается сразу (`whileSyncing` и «Wait for
   the sync to finish» уходят, C14), решение 4. AGENTS.md «Repository lock»: rewrite и Update Project берут lock после
@@ -2379,14 +2386,34 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `bd` в реестре нужна виду («bd: Moving…») и журналу, не отказу `Busy`. `TableWitness` читается из `TableHeader.head`
   и `TableHeader.store_tips` (у вида нет части `head`; sync заполняет их из `RepoFacts.head` и `read_store_head`).
   Семейство `Rewrite` содержит и `PickRemote`/`UndoPickRemote` (`pick_remote_commits`), `RestoreBranchHead` (undo
-  squash) и `Undo{token}` park с CAS. `SignIn`/`SignOut` идут через `execute` на том же `Channel<OperationEvent>` —
-  вариант `OperationEvent::SignIn(SignInEvent)` (код устройства, URL Hub, ожидание), не второй канал; статус auth —
-  факт `auth` сессии (семейство, оставленное s7). R9: `parseCommitBody` рисует тело коммита в строке
+  squash) и `Undo{token}` park с CAS. Статус auth — факт `auth` сессии (семейство, оставленное s7); как идёт сам
+  вход — решение 2026-10-28 ниже, оно заменяет здесь `SignIn`/`SignOut` через `execute`. R9: `parseCommitBody` рисует тело коммита в строке
   (`CommitMessage.tsx`), не в диалоге PR — чтение `commit_body_blocks(message)` с кэшем по id коммита на странице, тем
   же парсером, что `commit_body_markdown`. `preview_group`, `validate_branch_name`, `commit_body_blocks` — чтения, не
   `MUTATING`; `cancel_conflict_fix` и `cancel_symbol_search` остаются отменами чтений в `APP_COMMANDS`,
   `cancel_review_fetch` заменяет `cancel_operation`. Update Project переводится до удаления допуска страницы:
   `update-project.ts` стоит на `runOperation`.
+- **Решение 2026-10-28 (блокер шага s11-7, по коду ветки `00f2d8fb`):** реестр движка допускает операцию по
+  `SessionKey`, а `session_key()` отказывает пустому префиксу (`no_branch_prefix`). У записи git config сессии может
+  не быть: Settings → Repository пишет `branchdeck.branchPrefix` репозиторию, у которого префикса ещё нет; запись
+  префикса меняет сам ключ («a changed one is another session»); Diffs & Merge и Agents пишут глобальный config без
+  репозитория. Тем же классом был бы вход аккаунтов: Settings открываются в любом состоянии, и без репозитория тоже
+  (`settings.spec.md`), а токен GitHub и YouTrack один на приложение. Поэтому правило: intent — действие над
+  репозиторием; то, у чего субъект не репозиторий, — команда приложения в `APP_COMMANDS` со своим единственным
+  писателем, ключ сессии для неё не выдумывается, второе семейство движка «вне сессии» не заводится (допуска, журнала
+  и шагов вида у него не было бы).
+  - `set_repository_config` остаётся писателем настроек, как `set_setting`: сериализация на файл config (mutex на
+    файл и повтор `config.lock` с backoff, `sync_core::repository_config::run_config_write`), ответы несут `seq`
+    (s12), событие `repository_config_changed` как сегодня; в `APP_COMMANDS` с этой причиной.
+  - Вход и выход: последовательности страницы (`start_`/`wait_`/`cancel_` GitHub, YouTrack и YouTrack CLI,
+    `save_youtrack_token`, `sign_out_of_*`) сводятся к трём командам приложения на ядрах s0b: `sign_in(provider,
+    channel)` (у YouTrack `{ url, token: Option }`, токен — Save Token; второй вызов того же провайдера присоединяется
+    к идущему входу, а не начинает второй), `cancel_sign_in(provider)`, `sign_out(provider)`; события
+    `SignInEvent` (код устройства, URL Hub, ожидание, готово) идут в канал вызова. Никакого mutex через HTTP или
+    браузер.
+  - Статус auth читает один читатель хоста: окна репозитория видят его как факт `auth` сессии, которому хост после
+    входа или выхода велит перечитаться во всех сессиях; Settings без репозитория спрашивают тот же читатель чтением
+    `get_auth_status`. `github_auth_status` и `youtrack_auth_status` уходят.
 - **Удаляется:** допуск `src/stores/operations.ts` (остаются claims как `src/stores/indicators.ts`), `cancel_lock_wait`
   и `lockWaitChannel` (`src-tauri/src/lock_wait.rs`), `src/lib/rewrite.ts`,
   пара park/unpark в `useParkBranch.ts:70-90`; в `commit.ts`: `groupFor`, `parseSubject`, `findIssueKey`,
@@ -2396,11 +2423,12 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `squash_fixup_commits`, `unapply_branch`, `undo_unapply_branch`, `reapply_branch`, `undo_reapply_branch`,
   `amend_uncommitted_to_branch`, `add_issue_reference_to_commits`, `apply_conflict_fix`, `delete_archived_branch`,
   `delete_unapplied_branch`, `restore_branch_head`, `update_project`, `fetch_baseline`, `dismiss_landed`;
-  `set_repository_config` (→ `SetRepositoryConfig`), `prune_review_refs` и `fetch_review_head` (→ `FetchReview`);
-  sign-in GitHub и шесть команд YouTrack (`start_`, `wait_`, `cancel_youtrack_sign_in`, `sign_out_of_youtrack`,
-  `save_youtrack_token` → `SignIn`/`SignOut`; `get_youtrack_auth_status` → факт `auth`)). Команды приложения, а не
-  домена — `install_agent_cli`, `install_update`, `set_auto_sync_menu_checked`, окна и zoom — остаются и стоят в
-  явном списке `APP_COMMANDS` теста реестра. Уходят и гейты `isSyncing` и «Wait for the sync to finish» (`branch-drop.ts:38-70,
+  `prune_review_refs` и `fetch_review_head` (→ `FetchReview`); команды входа GitHub, YouTrack и YouTrack CLI
+  (`start_`, `wait_`, `cancel_*_sign_in`, `sign_out_of_*`, `save_youtrack_token` → `sign_in`, `cancel_sign_in`,
+  `sign_out` приложения; `github_auth_status` и `youtrack_auth_status` → факт `auth` и чтение `get_auth_status`)). Команды приложения, а не
+  домена — `install_agent_cli`, `install_update`, `set_auto_sync_menu_checked`, окна и zoom, а также писатели
+  настроек (`set_setting`, `set_repository_config`) и вход аккаунтов (`sign_in`, `cancel_sign_in`, `sign_out`) —
+  остаются и стоят в явном списке `APP_COMMANDS` теста реестра, каждая с причиной. Уходят и гейты `isSyncing` и «Wait for the sync to finish» (`branch-drop.ts:38-70,
   139`, `useBranchContextActions.ts:307,324,387-401`, `useRewordCommit.ts:69-76`); `UPDATE_OPERATION` с `kind:
   "rewrite"` на весь fetch (`update-project.ts:144-165`) и молчаливый выход `startRunning` (`:169`); пометка undone до
   результата (`activity.ts:154-163`) и закрытие toast до undo (`command.ts:33-38`); чтение выбранного проекта при
@@ -2431,7 +2459,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `e2e-testing.md` переписан. **Конкурентность:** `api_commands!` требует `SessionKey` у каждой команды сессии и
   intent'а по типу (команда не читает «выбранный» репозиторий); блокирующие вызовы (`object_cache`, `git_common_dir`,
   `github_repository`) — только внутри `run_blocking` (object cache уже проверяет scan-тест команд); записи
-  `SetRepositoryConfig` сериализуются на common dir в теле команды, ответы несут `seq`.
+  `set_repository_config` сериализуются на файл config в теле команды, ответы несут `seq`.
 - **Удаляется:** тела `src-tauri/src/commands/*`, ручные маршруты `test-server/src/lib.rs`, `tauri_command_bridge.rs`,
   локальные обработчики `tauri-mocks.ts` (~20), `PAGE_MOCKED` (остаётся явный типизированный список page-local плагинов).
 - **Проверки:** тест реестра (список, `bindings.ts` и диспетчер test-server — одно множество); `bindings.ts` без
