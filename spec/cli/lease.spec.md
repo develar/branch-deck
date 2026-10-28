@@ -16,6 +16,7 @@ targets:
   - ../../crates/lease-pool/src/host_refs.rs
   - ../../crates/lease-pool/src/host_git.rs
   - ../../crates/git-ops/src/host_objects.rs
+  - ../../crates/git-ops/src/worktree_snapshot.rs
   - ../../crates/bd-lease/src/host_command.rs
   - ../../crates/lease-pool/src/state_file.rs
   - ../../crates/lease-pool/src/lease_clean.rs
@@ -610,6 +611,29 @@ for; one that is no working tree is `not_a_repository` (exit 2).
   `update-ref`, and the give-back of a run that sent a pack one more `update-ref`.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_objects_have_ingest_and_show`)
 
+### Host runs
+
+The scans of the files of a run: on the host the slot before and after its command.
+
+- `bd lease host snapshot --run <id>` must answer the tree of the files of the slot lent to the run as `git add --all`
+  stages them (`tree`; the tracked and the untracked files that git does not ignore, a deletion, a mode, a link), with
+  `n`, `path`, `head` and `changed` (the count of the status entries). It builds the tree in a copy of the slot index,
+  in a private directory of the git dir of the slot, removed afterwards, so the slot index stays byte for byte: one
+  `status --porcelain=v1 -z --no-renames` in the untracked mode of the repository, its `core.fsmonitor` and
+  `core.untrackedCache` applying to the copy; one add of the paths it named, or of every path above 256 paths or when
+  a path went away meanwhile; one `write-tree`. A run without a slot is `no_lease`.
+  [@test] ../../crates/bd-lease/src/host_command_test.rs (`the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command`)
+  [@test] ../../crates/git-ops/src/worktree_snapshot_test.rs (`the_tree_of_a_worktree_is_what_add_all_stages_and_its_index_stays`, `a_clean_worktree_is_its_tree_and_many_paths_are_one_add_of_every_path`)
+- `bd lease host changes --run <id> --base <tree> --patch <file>` must answer the tree as `snapshot` does and, when it
+  differs from `--base`, stream `diff-tree -r -p --binary --full-index --no-renames <base> <tree>` into a new file
+  beside `<file>`, then rename it onto `<file>`, so a link at `<file>` is replaced, never followed (`changed: true`,
+  `patch`, `patch_bytes`). A tree equal to `--base` writes no file (`changed: false`). A base that is no full id is
+  `invalid_arguments`.
+  [@test] ../../crates/bd-lease/src/host_command_test.rs (`the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command`)
+  [@test] ../../crates/git-ops/src/worktree_snapshot_test.rs (`the_patch_between_two_trees_applies_and_replaces_a_link_at_its_path`)
+- A scan runs the config, HEAD, one `status` and one `write-tree`, and one `add` when something changed.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
+
 ### Error codes
 
 | Exit | Codes |
@@ -620,7 +644,7 @@ for; one that is no working tree is `not_a_repository` (exit 2).
 
 - The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`,
   and `lease_host_lend` … `lease_host_status`, `lease_host_have`, `lease_host_ingest`, `lease_host_show`,
-  `lease_host_git`).
+  `lease_host_git`, `lease_host_snapshot`, `lease_host_changes`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)

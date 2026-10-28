@@ -1904,6 +1904,14 @@ read a file, not the refs: a run ref without a lend or a ticket goes an hour aft
 moved goes after 14 days. yonderd kept every base ref forever. With `branchdeck.leaseMaintenance` the ingest starts the
 maintenance after the ref, as the give-back does.
 
+The scans of a run (`bd lease host snapshot` before the command, `changes` after it; `git_ops::worktree_snapshot`)
+build the tree of the slot in a copy of its index, so the slot index, which the give-back's `status` keeps warm, stays
+as it is. The copy keeps the fsmonitor token and the untracked cache, so the `status` of the copy asks the daemon what
+changed since. The `status` lists untracked files in the configured mode (`UntrackedFiles`): yonderd forced `normal`,
+and in idea-1, which configures `all`, a `status` with `normal` walked every directory in 41 s, with `all` it took 2 s.
+The add takes the paths the `status` named, up to 256; above that one `add --all`, as a pathspec add matches each path
+against each entry of the index. The patch of `changes` streams into its file: yonderd collected it in memory first.
+
 A shrink checks the slot out at the commit it was leased at. That commit is the base of `unlanded_commits`, so the
 snapshot commits of the runs never refuse the return, and the return needs no `--confirm-preserved`. A shrink also
 works without the agent: an abandoned state is free to it. A hand `bd lease return` of a host slot is refused as

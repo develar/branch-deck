@@ -68,6 +68,8 @@
 //!
 //! The lease pool:
 //! - `lease_slot`: the git of a slot of `bd lease`, the one other writer of a working tree: a slot is pool property
+//! - `worktree_snapshot`: the tree of the files of a worktree as `git add --all` stages them, in a copy of its index,
+//!   and the patch between two trees into a file (the scans of a host slot, the commit of a working tree)
 //! - `host_objects`: the commits a host has, the pack of a client into its object store, the refs that keep the
 //!   commits of the runs (`refs/branch-deck/host/`), the blob text and the tree ids of a commit (`bd lease host`)
 
@@ -116,6 +118,7 @@ pub mod update_branch;
 pub mod update_resolve;
 pub mod word_replay;
 pub mod word_resolve;
+pub mod worktree_snapshot;
 pub mod worktree_update;
 
 #[cfg(test)]
@@ -144,6 +147,9 @@ mod git_command_test;
 
 #[cfg(test)]
 mod host_objects_test;
+
+#[cfg(test)]
+mod worktree_snapshot_test;
 
 #[cfg(test)]
 mod history_test;

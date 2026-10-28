@@ -5,8 +5,8 @@ use bd_core::output::SchemaVersion;
 use bd_core::sync_command::SyncOutput;
 use bd_core::version::VersionOutput;
 use bd_lease::host_command::{
-  LeaseHostCheckoutOutput, LeaseHostFillOutput, LeaseHostGitOutput, LeaseHostGiveBackOutput, LeaseHostHaveOutput, LeaseHostIngestOutput, LeaseHostLendOutput, LeaseHostLimitOutput,
-  LeaseHostReclaimOutput, LeaseHostShowOutput, LeaseHostShrinkOutput, LeaseHostStatusOutput,
+  LeaseHostChangesOutput, LeaseHostCheckoutOutput, LeaseHostFillOutput, LeaseHostGitOutput, LeaseHostGiveBackOutput, LeaseHostHaveOutput, LeaseHostIngestOutput,
+  LeaseHostLendOutput, LeaseHostLimitOutput, LeaseHostReclaimOutput, LeaseHostShowOutput, LeaseHostShrinkOutput, LeaseHostSnapshotOutput, LeaseHostStatusOutput,
 };
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
 use bd_lease::workspace_command::WorkspaceOutput;
@@ -68,6 +68,8 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
       "lease_host_ingest",
       "lease_host_show",
       "lease_host_git",
+      "lease_host_snapshot",
+      "lease_host_changes",
     ],
   ),
   ("move-hunk", &["move_hunk"]),
@@ -187,6 +189,8 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("lease_host_ingest".to_string(), schema_for!(LeaseHostIngestOutput)),
     ("lease_host_show".to_string(), schema_for!(LeaseHostShowOutput)),
     ("lease_host_git".to_string(), schema_for!(LeaseHostGitOutput)),
+    ("lease_host_snapshot".to_string(), schema_for!(LeaseHostSnapshotOutput)),
+    ("lease_host_changes".to_string(), schema_for!(LeaseHostChangesOutput)),
     ("lease_pick".to_string(), schema_for!(LeasePickOutput)),
     ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),
     ("lease_status".to_string(), schema_for!(LeaseStatusOutput)),
