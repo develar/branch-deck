@@ -479,6 +479,12 @@ pub fn retire_yonderd(home: &Home, launchctl_program: &Path, out: &mut dyn Write
     deleted_refs += refs.len();
   }
   let mut removed = Vec::new();
+  // without its plist, launchd does not start yonderd again at the next login
+  let plist = home.dir().join(format!("Library/LaunchAgents/{}.plist", yonder::LAUNCHD_LABEL));
+  if plist.exists() {
+    fs_retry::remove_file(&plist).map_err(|error| Refusal::new(Code::AgentError, format!("cannot remove {}: {error}", plist.display())))?;
+    removed.push(plist.display().to_string());
+  }
   if cache.exists() {
     fs_retry::remove_dir_all(&cache).map_err(|error| Refusal::new(Code::AgentError, format!("cannot remove {}: {error}", cache.display())))?;
     removed.push(cache.display().to_string());

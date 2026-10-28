@@ -211,6 +211,9 @@ fn retire_yonderd_waits_for_its_runs_and_removes_its_refs_and_files() {
   private_dir(&run).expect("a run of yonderd");
   fs::write(cache.join("repos"), format!("{}\n", repo.path().display())).expect("the repository list");
   private_dir(&home.dir().join(identity::yonder::AGENT_DIR)).expect("the identity of yonderd");
+  let plist = home.dir().join(format!("Library/LaunchAgents/{}.plist", yonder::LAUNCHD_LABEL));
+  fs::create_dir_all(plist.parent().expect("the LaunchAgents directory")).expect("the LaunchAgents directory");
+  fs::write(&plist, "<plist/>").expect("the plist of yonderd");
 
   let lock = crate::files::open_private(&run.join("lock")).expect("the lock of the run");
   assert!(crate::files::try_flock(&lock).expect("the flock"));
@@ -234,7 +237,8 @@ fn retire_yonderd_waits_for_its_runs_and_removes_its_refs_and_files() {
   });
   let line: serde_json::Value = serde_json::from_slice(&out).expect("one JSON line");
   assert_eq!(line["deleted_refs"], 2);
-  assert_eq!(line["removed"], serde_json::json!([cache.display().to_string()]));
+  assert_eq!(line["removed"], serde_json::json!([plist.display().to_string(), cache.display().to_string()]));
+  assert!(!plist.exists(), "launchd does not start yonderd again at the next login");
   assert_eq!(line["kept"], serde_json::json!([home.dir().join(identity::yonder::AGENT_DIR).display().to_string()]));
   assert_eq!(repo.git(&["for-each-ref", "refs/yonder/"]).trim(), "");
   assert!(!cache.exists());

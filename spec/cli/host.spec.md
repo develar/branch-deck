@@ -358,7 +358,8 @@ bd-host setup --retire-yonderd
   [@test] ../../crates/host-agent/src/setup_test.rs (`import_yonder_takes_the_identities_the_hosts_and_the_allow_list`)
 - `bd-host setup --retire-yonderd` must boot out `com.jetbrains.yonderd` first, so no run of it starts later. Then
   it must wait until no yonderd run holds its run lock, delete the refs `refs/yonder/*` of each repository of
-  `~/.cache/yonderd/repos` through a ref transaction, and delete `~/.cache/yonderd`. It keeps `~/.config/yonderd`, the identity and the allow list of
+  `~/.cache/yonderd/repos` through a ref transaction, and delete `~/Library/LaunchAgents/com.jetbrains.yonderd.plist`
+  (or launchd starts yonderd again at the next login) and `~/.cache/yonderd`. It keeps `~/.config/yonderd`, the identity and the allow list of
   yonderd, and prints it as kept: the user deletes it. The user only runs it.
   [@test] ../../crates/host-agent/src/setup_test.rs (`retire_yonderd_waits_for_its_runs_and_removes_its_refs_and_files`)
 
