@@ -532,7 +532,7 @@ impl Client<'_> {
         };
         return Err((refusal, reached, steps));
       }
-      Ended::Unseen(refusal) => return Err((refusal, Reached::Started, Vec::new())),
+      Ended::Unseen(refusal) => return Err((unseen_after_start(refusal), Reached::Started, Vec::new())),
     };
     if !record.asks_for_files() {
       self.forget_or_say(host, run);
@@ -770,7 +770,7 @@ impl Client<'_> {
         Err(Broken::Link(refusal)) => {
           if state.last_reply.elapsed() >= self.timing.reconnect_for {
             return Ended::Unseen(Refusal::new(
-              refusal.code,
+              Code::TimedOut,
               format!(
                 "{}; no reply for {} s. The run can go on on the host: `bd-host follow {} {run}` follows it",
                 refusal.message,
@@ -940,6 +940,16 @@ const fn is_local(refusal: &Refusal) -> bool {
       refusal.code,
       Code::Untrusted | Code::Schema | Code::Config | Code::NoHost | Code::BadHostFile | Code::Interrupted
     )
+}
+
+/// A refusal of this client after the start, when it did not see the end of the run. The command can run on the host,
+/// so the exit must be 255: a caller never runs it a second time. Only a second Ctrl+C keeps its own code. A code whose
+/// exit is 75 at every point, such as `untrusted` from a new connection, becomes `link` with its name in the message
+fn unseen_after_start(refusal: Refusal) -> Refusal {
+  if refusal.code == Code::Interrupted || refusal.code.exit(Reached::Started) != Exit::NotRun {
+    return refusal;
+  }
+  Refusal::new(Code::Link, format!("{}: {}", refusal.code, refusal.message))
 }
 
 /// A request whose reply is `Done`

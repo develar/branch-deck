@@ -1,8 +1,9 @@
 use super::*;
-use crate::testkit::{ALIAS, FakeProcesses, Hello, Said, Setup, calm};
+use crate::testkit::{ALIAS, AgentStop, FakeProcesses, Hello, Said, Setup, calm};
 use host_link::channel::{Channel, Frame};
 use host_link::proto::{FileKind, is_run_id};
 use pretty_assertions::assert_eq;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::history::HistoryCommit;
@@ -541,6 +542,43 @@ fn a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255() {
 
 /// An agent that stops answering ends the run after the reconnect window with `timed_out` after the start (255), and
 /// the refusal names `bd-host follow`
+/// An agent that ends while the client follows its run refuses each new connection. The command can still run on the
+/// host, so after the reconnect window the run ends with `timed_out` and exit 255, never with the 75 of `unreachable`
+#[test]
+fn an_agent_that_ends_during_the_follow_times_out_with_255_and_not_75() {
+  let Commits { repo, head, .. } = two_commits();
+  let stopper: Arc<OnceLock<AgentStop>> = Arc::default();
+  let (setup, _) = agent_following(repo, known(vec![head]), {
+    let stopper = Arc::clone(&stopper);
+    move |_, channel| {
+      output(channel, Stream::Stderr, "building", 10);
+      stopper.get().expect("the stop of the agent").stop();
+    }
+  });
+  assert!(stopper.set(setup.agent.stopper()).is_ok());
+  let said = Said::default();
+  let say = |line: &str| said.push(line);
+  let failure = run_in(&setup, &say, &calm, &[], RunOptions::default()).unwrap_err();
+  assert_eq!((failure.refusal.code, failure.exit), (Code::TimedOut, Exit::Refused), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("`bd-host follow studio "), "{}", failure.refusal.message);
+  assert!(said.lines().iter().any(|line| line.contains("following the run")), "{:#?}", said.lines());
+  assert!(!kinds(&setup).contains(&"forget"), "a run whose end the client did not see stays on the host");
+}
+
+/// A refusal of the client after the start, such as `untrusted` from a new connection, exits 255 as `link` and keeps
+/// its code in the message. A second Ctrl+C keeps its own code
+#[test]
+fn a_refusal_of_the_client_after_the_start_never_exits_75() {
+  let untrusted = unseen_after_start(Refusal::new(Code::Untrusted, "another certificate"));
+  assert_eq!(
+    (untrusted.code, untrusted.code.exit(Reached::Started), untrusted.message.as_str()),
+    (Code::Link, Exit::Refused, "untrusted: another certificate")
+  );
+  let timed_out = unseen_after_start(Refusal::new(Code::TimedOut, "no reply"));
+  assert_eq!((timed_out.code, timed_out.message.as_str()), (Code::TimedOut, "no reply"));
+  assert_eq!(unseen_after_start(Refusal::new(Code::Interrupted, "a second Ctrl+C")).code, Code::Interrupted);
+}
+
 #[test]
 fn a_silent_agent_times_out_after_the_reconnect_window() {
   let Commits { repo, head, .. } = two_commits();

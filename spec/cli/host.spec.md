@@ -176,9 +176,14 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   `bd-host: phases: pack 3.1s, upload 2.0s, slot 0.1s, … total 10m13s` at the end.
   [@test] ../../crates/bd-host/tests/cli.rs (`stdout_holds_only_the_command_and_the_lines_of_bd_host_go_to_stderr`)
 - A follow that lost its connection must connect again with waits from 1 s up to 30 s and go on from the last offset
-  it showed. After 10 min without a reply it refuses with `timed_out` (exit 255) and names `bd-host follow`. A follow
-  that the agent answers with `unknown_run` after the start exits 255, never 75: whether the command ran is unknown.
-  [@test] ../../crates/host-client/src/run_test.rs (`a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255`)
+  it showed. After 10 min without a reply it refuses with `timed_out` (exit 255) and names `bd-host follow`, also when
+  each new connection was `unreachable`. A follow that the agent answers with `unknown_run` after the start exits 255,
+  never 75: whether the command ran is unknown.
+  [@test] ../../crates/host-client/src/run_test.rs (`a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255`, `an_agent_that_ends_during_the_follow_times_out_with_255_and_not_75`)
+- Any other refusal of the client after the start, before it saw the end of the run, must exit 255. A code whose
+  exit is always 75, such as `untrusted` from a new connection, becomes `link` and keeps its name in the message. Only
+  a second Ctrl+C keeps `interrupted` (exit 130).
+  [@test] ../../crates/host-client/src/run_test.rs (`a_refusal_of_the_client_after_the_start_never_exits_75`)
 
 ### The fetch, the outputs and the changes
 

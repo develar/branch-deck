@@ -169,10 +169,30 @@ impl FakeAgent {
   pub(crate) fn requests(&self) -> Vec<Request> {
     self.requests.lock().unwrap_or_else(PoisonError::into_inner).clone()
   }
+
+  /// The stop of the agent, for a script that ends the agent in the middle of a run
+  pub(crate) fn stopper(&self) -> AgentStop {
+    AgentStop {
+      stop: Arc::clone(&self.stop),
+      address: self.address,
+    }
+  }
 }
 
 impl Drop for FakeAgent {
   fn drop(&mut self) {
+    self.stopper().stop();
+  }
+}
+
+/// Ends the accept loop of a `FakeAgent` and closes its port, so each new connection is refused
+pub(crate) struct AgentStop {
+  stop: Arc<AtomicBool>,
+  address: SocketAddr,
+}
+
+impl AgentStop {
+  pub(crate) fn stop(&self) {
     self.stop.store(true, Ordering::SeqCst);
     // Wakes the accept loop, which then sees the stop
     let _ = TcpStream::connect_timeout(&self.address, Duration::from_secs(1));
