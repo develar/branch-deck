@@ -64,7 +64,8 @@ pub enum UntrackedFiles {
 }
 
 impl UntrackedFiles {
-  const fn arg(self) -> &'static str {
+  /// The option of a `status`
+  pub const fn arg(self) -> &'static str {
     match self {
       Self::Normal => "--untracked-files=normal",
       Self::All => "--untracked-files=all",

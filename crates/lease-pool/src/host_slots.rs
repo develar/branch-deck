@@ -23,7 +23,8 @@ use crate::state_file::StateFile;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{LeaseConfig, SlotMove, checkout_slot, discard_slot_changes, lease_config, linked_worktree, move_clean_slot, slot_changes, start_deferred_maintenance};
-use git_ops::revs::RepositoryDirs;
+use git_ops::revs::{RepositoryDirs, read_head};
+use git_ops::worktree_snapshot::{StatusOf, worktree_tree, write_tree_patch};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
@@ -690,6 +691,86 @@ pub fn checkout(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>,
     }
   };
   Ok(CheckedOut { n, path, moved })
+}
+
+/// The tree of the slot that the run `run` has (`snapshot_run`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotSnapshot {
+  pub n: u32,
+  pub path: String,
+  pub head: String,
+  pub tree: String,
+  /// The entries of its status: what differs from HEAD
+  pub changed: usize,
+}
+
+/// The tree of the files of the slot that the run `run` has, as `git add --all` stages them (`worktree_tree`): in a
+/// copy of the slot index, which stays as it is, with the slot's `core.fsmonitor`, `core.untrackedCache` and untracked
+/// mode. The scan before the command of a run: an ignored file of the last run can be untracked under the `.gitignore`
+/// of the new commit, and the removal of the outputs changes the tree. `NoSlot` when the run has none
+pub fn snapshot_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str) -> Result<SlotSnapshot> {
+  let (n, path) = live_lend(params, run)?;
+  let worktree = linked_worktree(Path::new(&path)).ok_or_else(|| anyhow::anyhow!("The host slot {path} is no linked worktree"))?;
+  let config = lease_config(git_executor, &path)?;
+  let Some((head, _)) = read_head(git_executor, &path)? else {
+    bail!("The host slot {path} has no commit");
+  };
+  let scanned = worktree_tree(
+    git_executor,
+    &path,
+    &worktree.git_dir,
+    &worktree.git_dir.join("index"),
+    &head,
+    config.untracked,
+    StatusOf::Copy,
+  )?;
+  Ok(SlotSnapshot {
+    n,
+    path,
+    head,
+    tree: scanned.tree,
+    changed: scanned.entries.len(),
+  })
+}
+
+/// What the command of a run changed in its slot (`changes_run`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotChanges {
+  pub n: u32,
+  pub path: String,
+  pub tree: String,
+  /// The size of the patch written; `None` when the tree is `base`, and then no file is written
+  pub patch_bytes: Option<u64>,
+}
+
+/// The tree of the slot of the run `run` after its command (`snapshot_run`), and the patch from `base` (the tree of the
+/// scan before) to it streamed into `patch` when the two differ (`write_tree_patch`)
+pub fn changes_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str, base: &str, patch: &Path) -> Result<SlotChanges> {
+  let snapshot = snapshot_run(git_executor, params, run)?;
+  let patch_bytes = if snapshot.tree == base {
+    None
+  } else {
+    Some(write_tree_patch(git_executor, &snapshot.path, base, &snapshot.tree, patch)?.bytes)
+  };
+  Ok(SlotChanges {
+    n: snapshot.n,
+    path: snapshot.path,
+    tree: snapshot.tree,
+    patch_bytes,
+  })
+}
+
+/// The number and the path of the slot lent to `run` by a live process; `NoSlot` else
+fn live_lend(params: &HostSlotsParams<'_>, run: &str) -> Result<(u32, String)> {
+  let table: HostSlots = params.table().read()?;
+  table
+    .slots
+    .iter()
+    .find_map(|slot| match &slot.state {
+      HostState::Lent(lent) if lent.run == run && is_running(lent.pid, lent.process_started) => Some((slot.n, slot.path.clone())),
+      _ => None,
+    })
+    .ok_or_else(|| HostSlotRefusal::NoSlot(run.to_string()).into())
 }
 
 fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, take: Take<'_>) -> Result<GaveBack> {

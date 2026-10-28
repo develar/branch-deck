@@ -18,8 +18,8 @@ use bd_core::output::{WithOperation, write_json};
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::host_command::{
-  LeaseHostArgs, LeaseHostCommand, lease_host_checkout, lease_host_fill, lease_host_git, lease_host_give_back, lease_host_have, lease_host_ingest, lease_host_lend,
-  lease_host_limit, lease_host_reclaim, lease_host_show, lease_host_shrink, lease_host_status,
+  LeaseHostArgs, LeaseHostCommand, lease_host_changes, lease_host_checkout, lease_host_fill, lease_host_git, lease_host_give_back, lease_host_have, lease_host_ingest,
+  lease_host_lend, lease_host_limit, lease_host_reclaim, lease_host_show, lease_host_shrink, lease_host_snapshot, lease_host_status,
 };
 use bd_lease::lease_command::{
   LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status, lease_tree_check,
@@ -567,6 +567,8 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       LeaseHostCommand::Ingest(args) => lease_host_ingest(&context, args).and_then(|output| printed(out, &output)),
       LeaseHostCommand::Show(args) => lease_host_show(&context, args).and_then(|output| printed(out, &output)),
       LeaseHostCommand::Git => lease_host_git(&context).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Snapshot(args) => lease_host_snapshot(&context, environment, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Changes(args) => lease_host_changes(&context, environment, args).and_then(|output| printed(out, &output)),
     }),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),

@@ -13,8 +13,8 @@ use git_ops::revs::is_object_id;
 use lease_pool::host_git::{floor_text, meets_floor};
 use lease_pool::host_refs::{HostRef, ingest, reclaim_refs};
 use lease_pool::host_slots::{
-  HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, checkout, describe_state, fill, give_back_run,
-  is_abandoned, lend, lend_waiting, live_runs, read_host_slots, reclaim, set_limit, shrink,
+  HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout, describe_state, fill, give_back_run,
+  is_abandoned, lend, lend_waiting, live_runs, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -57,6 +57,23 @@ pub enum LeaseHostCommand {
   Show(LeaseHostShowArgs),
   /// The git that bd and the runs use: its path, its version and whether it meets the floor of a host. Read only
   Git,
+  /// The tree of the slot of a run as `git add --all` stages it, in a copy of the slot index
+  Snapshot(LeaseHostRunArgs),
+  /// The tree of the slot of a run after its command, and the patch from --base to it in --patch when they differ
+  Changes(LeaseHostChangesArgs),
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeaseHostChangesArgs {
+  /// The id of the run
+  #[arg(long, value_name = "ID")]
+  pub run: String,
+  /// The tree of the slot before the command (`snapshot`), as a full id
+  #[arg(long, value_name = "TREE")]
+  pub base: String,
+  /// Where the patch goes: a new file is written beside it and renamed onto it
+  #[arg(long, value_name = "FILE")]
+  pub patch: std::path::PathBuf,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -377,6 +394,36 @@ pub struct LeaseHostShowOutput {
   pub blob: Option<Option<ShownBlobOutput>>,
   /// The paths of --ids, in their order
   pub ids: Vec<ShownIdOutput>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseHostSnapshotOutput {
+  pub schema: SchemaVersion,
+  pub n: u32,
+  pub path: String,
+  /// The commit the slot is at
+  pub head: String,
+  /// The tree of its files, as `git add --all` stages them
+  pub tree: String,
+  /// The entries of its status: the paths that differ from HEAD
+  pub changed: usize,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseHostChangesOutput {
+  pub schema: SchemaVersion,
+  pub n: u32,
+  pub path: String,
+  /// The tree of the slot now
+  pub tree: String,
+  /// The tree differs from --base: the patch is in `patch`
+  pub changed: bool,
+  /// With `changed`: the file of the patch, as --patch named it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub patch: Option<String>,
+  /// With `changed`: its size
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub patch_bytes: Option<u64>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -812,5 +859,36 @@ pub fn lease_host_git(context: &LeaseContext) -> Result<LeaseHostGitOutput, CliE
     version: info.version.clone(),
     floor: floor_text(),
     meets_floor: meets_floor(&info.version),
+  })
+}
+
+/// `bd lease host snapshot`
+pub fn lease_host_snapshot(context: &LeaseContext, environment: &Environment, args: &LeaseHostRunArgs) -> Result<LeaseHostSnapshotOutput, CliError> {
+  let snapshot = snapshot_run(&context.git, &params(context, environment), &args.run).map_err(lease_error)?;
+  Ok(LeaseHostSnapshotOutput {
+    schema: SchemaVersion,
+    n: snapshot.n,
+    path: snapshot.path,
+    head: snapshot.head,
+    tree: snapshot.tree,
+    changed: snapshot.changed,
+  })
+}
+
+/// `bd lease host changes`
+pub fn lease_host_changes(context: &LeaseContext, environment: &Environment, args: &LeaseHostChangesArgs) -> Result<LeaseHostChangesOutput, CliError> {
+  if !is_object_id(&args.base) {
+    return Err(CliError::new(ErrorCode::InvalidArguments, format!("--base must be a full tree id, not {:?}", args.base)));
+  }
+  let patch = environment.cwd.join(&args.patch);
+  let changes = changes_run(&context.git, &params(context, environment), &args.run, &args.base, &patch).map_err(lease_error)?;
+  Ok(LeaseHostChangesOutput {
+    schema: SchemaVersion,
+    n: changes.n,
+    path: changes.path,
+    tree: changes.tree,
+    changed: changes.patch_bytes.is_some(),
+    patch: changes.patch_bytes.map(|_| patch.to_string_lossy().into_owned()),
+    patch_bytes: changes.patch_bytes,
   })
 }

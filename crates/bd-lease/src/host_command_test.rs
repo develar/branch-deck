@@ -27,6 +27,15 @@ fn lend(fixture: &Fixture, run: &str, affinity: &str) -> Value {
   )
 }
 
+/// A fixture with one host slot, lent to `run-1`, and the path of the slot
+fn lent_slot() -> (Fixture, std::path::PathBuf) {
+  let fixture = host_fixture(1);
+  host(&fixture, "lease_host_fill", &["fill"]);
+  let lent = lend(&fixture, "run-1", "checkout-a");
+  let path = std::path::PathBuf::from(lent["slot"]["path"].as_str().unwrap());
+  (fixture, path)
+}
+
 /// fill, lend, give-back and status: the slot of a run, the queue behind it, the slot again for the run that waited
 #[test_log::test]
 fn a_run_lends_a_slot_waits_in_line_and_gives_it_back() {
@@ -114,10 +123,7 @@ fn the_refusals_of_the_table_have_their_codes() {
 /// that is not a full id `invalid_arguments`
 #[test_log::test]
 fn a_run_checks_out_its_commit_in_its_slot_by_the_diff() {
-  let fixture = host_fixture(1);
-  host(&fixture, "lease_host_fill", &["fill"]);
-  let lent = lend(&fixture, "run-1", "checkout-a");
-  let path = std::path::PathBuf::from(lent["slot"]["path"].as_str().unwrap());
+  let (fixture, path) = lent_slot();
   let checkout = |commit: &str| host(&fixture, "lease_host_checkout", &["checkout", "--run", "run-1", "--commit", commit]);
 
   let first = fixture.repo.create_commit("Add c", "c.txt", "c\n");
@@ -213,4 +219,55 @@ fn sleeping() -> std::process::Child {
     command
   };
   command.spawn().unwrap()
+}
+
+/// snapshot and changes: the tree of the slot of a run before its command is the tree of its commit, without a change of
+/// the slot index; after the command, the patch from that tree to the new one applies to the commit elsewhere, and a
+/// tree that did not change writes no patch; a run without a slot is `no_lease`, a short base `invalid_arguments`
+#[test_log::test]
+fn the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command() {
+  let (fixture, path) = lent_slot();
+  let commit = fixture.repo.create_commit("Add c", "c.txt", "c\n");
+  host(&fixture, "lease_host_checkout", &["checkout", "--run", "run-1", "--commit", &commit]);
+
+  let before = host(&fixture, "lease_host_snapshot", &["snapshot", "--run", "run-1"]);
+  let tree = bd_cli::fixture_test::git(&fixture.repo, &["rev-parse", &format!("{commit}^{{tree}}")]);
+  assert_eq!(
+    (&before["tree"], &before["head"], &before["changed"]),
+    (&json!(tree), &json!(commit), &json!(0)),
+    "{before}"
+  );
+
+  std::fs::write(path.join("c.txt"), "c\nchanged by the command\n").unwrap();
+  std::fs::write(path.join("made.txt"), "made\n").unwrap();
+  let dir = tempfile::tempdir().unwrap();
+  let patch = dir.path().join("run-1.patch");
+  let changes = host(
+    &fixture,
+    "lease_host_changes",
+    &["changes", "--run", "run-1", "--base", &tree, "--patch", patch.to_str().unwrap()],
+  );
+  assert_eq!((&changes["changed"], &changes["patch"]), (&json!(true), &json!(patch.to_str().unwrap())), "{changes}");
+  assert_eq!(changes["patch_bytes"], json!(std::fs::metadata(&patch).unwrap().len()));
+  let slot_status = crate::lease_test::slot_git(path.to_str().unwrap(), &["status", "--porcelain"]);
+  assert_eq!(slot_status, " M c.txt\n?? made.txt".trim(), "the slot index stays: {slot_status}");
+
+  let elsewhere = test_utils::git_test_utils::TestRepo::new_empty();
+  elsewhere.clone_from(fixture.repo.path()).unwrap();
+  elsewhere.git(&["apply", patch.to_str().unwrap()]);
+  assert_eq!(std::fs::read_to_string(elsewhere.path().join("made.txt")).unwrap(), "made\n");
+
+  let after = changes["tree"].as_str().unwrap();
+  let again = host(
+    &fixture,
+    "lease_host_changes",
+    &["changes", "--run", "run-1", "--base", after, "--patch", dir.path().join("none.patch").to_str().unwrap()],
+  );
+  assert_eq!((&again["changed"], again.get("patch")), (&json!(false), None), "{again}");
+  assert!(!dir.path().join("none.patch").exists());
+
+  let (exit_code, refused) = fixture.run(&["lease", "host", "snapshot", "--run", "run-2"]);
+  assert_error(&refused, exit_code, (2, "no_lease"));
+  let (exit_code, refused) = fixture.run(&["lease", "host", "changes", "--run", "run-1", "--base", &tree[..8], "--patch", "x.patch"]);
+  assert_error(&refused, exit_code, (2, "invalid_arguments"));
 }
