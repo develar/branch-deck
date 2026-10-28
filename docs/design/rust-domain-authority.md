@@ -2414,6 +2414,22 @@ rewrites между процессами через файл `s10`; `s12` ждё
   - Статус auth читает один читатель хоста: окна репозитория видят его как факт `auth` сессии, которому хост после
     входа или выхода велит перечитаться во всех сессиях; Settings без репозитория спрашивают тот же читатель чтением
     `get_auth_status`. `github_auth_status` и `youtrack_auth_status` уходят.
+- **Уточнения планировщика (2026-10-28, по коду ветки `9e7f1ba8`, шаги s11-8…s11-12):** статус auth — семейство
+  `FactFamily::Auth` (`FactsView.auth: Fact<AuthStatus>`, читатель `FactSources::auth`), правило `refresh`: при
+  открытии сессии, на фокусе по общему правилу списков и сразу после входа или выхода (`AfterWrite`: хост велит всем
+  открытым сессиям); окнам без сессии хост шлёт одно событие `auth-changed` вместо `github-auth-changed` и
+  `youtrack-auth-changed`, по нему они перечитывают `get_auth_status`. Вход — `remote_facts::sign_in` поверх ядер s0b:
+  на провайдера одно идущее будущее и `watch` последнего события, второй вызов ждёт то же будущее и получает текущее
+  событие; mutex состояния — только на регистрацию, никогда поперёк HTTP или браузера. Записи rewrites `bd` в файле
+  реестра — `Intent::Rewrite` для `group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `park`, `unpark`,
+  `unapply`, `reapply`, `check --fix`, `undo`; `UpdateProject` для `bd update`; `bd move-hunk` и `bd pick` получают
+  `RewriteIntent::MoveHunk` и `Intent::Pick` только как записи (вид «bd: Moving a hunk…», журнал), `execute`
+  приложения их не исполняет; `admit`/`run_admitted` переезжают из `bd-remote::safe_push_run` в `bd-core`. Ядра
+  rewrites: чтение и счёт на замороженных oids до lock; под lock — witness (HEAD снимка и tips store-refs одним
+  `rev-parse --verify`/`for-each-ref`), при сдвиге один re-prepare под lock (как Update Project), второй сдвиг —
+  `HeadMoved`; затем CAS-транзакция и move индекса. `bd` не берёт lock до ядра (`held_lock` только там, где пишет
+  больше под ним). Тест «lock span» каждого ядра — на общем шиме C11, вынесенном в `test_utils`. Lock на worktree не
+  делается: после этих шагов span каждого ядра — witness и запись; замер идёт в строку Прогресса.
 - **Удаляется:** допуск `src/stores/operations.ts` (остаются claims как `src/stores/indicators.ts`), `cancel_lock_wait`
   и `lockWaitChannel` (`src-tauri/src/lock_wait.rs`), `src/lib/rewrite.ts`,
   пара park/unpark в `useParkBranch.ts:70-90`; в `commit.ts`: `groupFor`, `parseSubject`, `findIssueKey`,
