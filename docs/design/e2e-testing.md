@@ -148,7 +148,7 @@ sequenceDiagram
    (`src-tauri/src/api.rs`), the server's routes (`invoke.rs`), the table of the page mock (`commands.json`)
    **Rationale**: Before, three lists named the commands (`collect_commands!` of the app, about 60 handwritten routes
    of the server's `lib.rs`, the handlers of the mock), and the server answered many commands with code of its own
-   (`tauri_command_bridge.rs`, 1059 lines): a command missing from one list answered 405, and a body of the server
+   (a bridge of 1059 lines): a command missing from one list answered 405, and a body of the server
    answered what the app did not. Now a command is declared in one place, and the bindings and the router are held to
    it (**Command registry** below)
 
