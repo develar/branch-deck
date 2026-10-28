@@ -1,5 +1,7 @@
-use super::{EnvValue, RepoConfig, Step, is_inner_path, parse_branchdeck, parse_yonder, resolve};
+use super::{ConfigError, EnvValue, ReadError, RepoConfig, Step, YONDER_FILE, is_inner_path, parse_branchdeck, parse_yonder, read_commit_config};
 use pretty_assertions::assert_eq;
+use std::cell::RefCell;
+use std::convert::Infallible;
 
 /// The example of spec/cli/host.spec.md, with one more step and one more output, and a table of another area
 const EXAMPLE: &str = r#"
@@ -75,6 +77,30 @@ fn the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses() {
     let message = parse_branchdeck(text).expect_err(text).to_string();
     assert!(message.starts_with(said), "{text}: {message}");
   }
+}
+
+/// The configuration of a commit with these two files, and the names of the files that the reader got
+fn read_files(branchdeck: Option<&str>, yonder: Option<&str>) -> (Result<RepoConfig, ConfigError>, Vec<String>) {
+  let asked = RefCell::new(Vec::new());
+  let config = read_commit_config(|file| {
+    asked.borrow_mut().push(file.to_owned());
+    Ok::<_, Infallible>(if file == YONDER_FILE { yonder } else { branchdeck }.map(str::to_owned))
+  })
+  .map_err(|error| match error {
+    ReadError::Config(error) => error,
+    ReadError::Read(never) => match never {},
+  });
+  (config, asked.into_inner())
+}
+
+fn resolve(branchdeck: Option<&str>, yonder: Option<&str>) -> Result<RepoConfig, ConfigError> {
+  read_files(branchdeck, yonder).0
+}
+
+#[test]
+fn a_commit_with_the_host_table_never_reads_its_yonder_toml() {
+  assert_eq!(read_files(Some(EXAMPLE), Some("not toml")).1, [".branchdeck.toml"]);
+  assert_eq!(read_files(Some("[lease]\n"), None).1, [".branchdeck.toml", ".yonder.toml"]);
 }
 
 #[test]

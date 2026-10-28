@@ -3,7 +3,7 @@
 //! parser: the agent for the prepare steps, the environment and the outputs that it stages, the client for the outputs
 //! that it takes back. Each end reads the file from the commit of the run, so a file beside the commit never counts. A
 //! commit whose `.branchdeck.toml` has no `[host]` table gets its `.yonder.toml`, which has the same keys at its top
-//! level, until the repositories moved (`resolve`). A commit without both has no prepare steps, no environment of its
+//! level, until the repositories moved (`read_commit_config`). A commit without both has no prepare steps, no environment of its
 //! own and no outputs.
 //!
 //! - `outputs`: the paths that come back after the run, for a client that asks for them.
@@ -105,14 +105,25 @@ struct RawConfig {
   prepare: Vec<Step>,
 }
 
-/// The configuration of a commit from the texts of its `.branchdeck.toml` and `.yonder.toml`, `None` for a file that
-/// the commit lacks: `[host]` of `.branchdeck.toml`, else `.yonder.toml`, else the default. A `.branchdeck.toml` with
-/// `[host]` wins, and its `.yonder.toml` stays unread
-pub fn resolve(branchdeck: Option<&str>, yonder: Option<&str>) -> Result<RepoConfig, ConfigError> {
-  if let Some(config) = branchdeck.map(parse_branchdeck).transpose()?.flatten() {
+/// Why the configuration of a commit is not there: the reader of a file of the commit failed, or a file does not parse
+#[derive(Debug)]
+pub enum ReadError<E> {
+  /// The reader of a file of the commit failed
+  Read(E),
+  /// A file of the commit does not parse
+  Config(ConfigError),
+}
+
+/// The configuration of a commit, for the agent and the client alike. `read` answers the text of a file of the commit,
+/// `None` when the commit lacks it: `[host]` of `.branchdeck.toml`, else `.yonder.toml`, else the default. A
+/// `.branchdeck.toml` with `[host]` wins, and `read` never gets `.yonder.toml` then
+pub fn read_commit_config<E>(mut read: impl FnMut(&str) -> Result<Option<String>, E>) -> Result<RepoConfig, ReadError<E>> {
+  let branchdeck = read(FILE).map_err(ReadError::Read)?;
+  if let Some(config) = branchdeck.as_deref().map(parse_branchdeck).transpose().map_err(ReadError::Config)?.flatten() {
     return Ok(config);
   }
-  yonder.map_or_else(|| Ok(RepoConfig::default()), parse_yonder)
+  let yonder = read(YONDER_FILE).map_err(ReadError::Read)?;
+  yonder.as_deref().map_or_else(|| Ok(RepoConfig::default()), parse_yonder).map_err(ReadError::Config)
 }
 
 /// `[host]` of the text of `.branchdeck.toml`, or `None` when it has no such table. The other tables are not read

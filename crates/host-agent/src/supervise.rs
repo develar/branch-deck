@@ -46,7 +46,7 @@ use crate::prepare::Prepared;
 use crate::repo::Repository;
 use crate::run::{EventLog, ExitRecord, MAX_EVENT_TEXT, RunDir, epoch_ms};
 use crate::{awake, login_env, prepare, run_env, run_git, slots, sys, tuning};
-use host_link::config::{FILE, RepoConfig, YONDER_FILE, parse_branchdeck, resolve};
+use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::proto::{Phase, RunSpec, Stream};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_git::with_first;
@@ -390,17 +390,16 @@ fn lend(context: &Context<'_>, wait: Option<Duration>, stop: &dyn Fn() -> bool) 
 /// `[host]` of `.branchdeck.toml` of `commit`, else its `.yonder.toml`, else the default. A file that does not parse
 /// refuses with `bad_config`
 fn read_config(repo: &Repository, commit: &str) -> Result<RepoConfig, Refusal> {
-  let blob = |file: &str| {
+  read_commit_config(|file| {
     repo
       .show(commit, Some(file), &[])
       .map(|shown| shown.blob.map(|blob| blob.text))
       .map_err(|refusal| Refusal::new(Code::BadConfig, format!("cannot read {file} of {commit}: {}", refusal.message)))
-  };
-  let bad_config = |error: host_link::config::ConfigError| Refusal::new(Code::BadConfig, error.to_string());
-  let branchdeck = blob(FILE)?;
-  let has_host = branchdeck.as_deref().map(parse_branchdeck).transpose().map_err(bad_config)?.flatten().is_some();
-  let yonder = if has_host { None } else { blob(YONDER_FILE)? };
-  resolve(branchdeck.as_deref(), yonder.as_deref()).map_err(bad_config)
+  })
+  .map_err(|error| match error {
+    ReadError::Read(refusal) => refusal,
+    ReadError::Config(error) => Refusal::new(Code::BadConfig, error.to_string()),
+  })
 }
 
 /// The prepare step of a run: the config of the commit, the environment, the prepare steps, and for a client that asks

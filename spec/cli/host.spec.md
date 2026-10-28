@@ -430,7 +430,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   commit whose `.branchdeck.toml` has no `[host]` table gets its `.yonder.toml`, until the repositories moved. An
   unknown key or a value of the wrong shape ends the run with `bad_config` before the command. The other tables of
   `.branchdeck.toml` are not the agent's.
-  [@test] ../../crates/host-link/src/config_test.rs (`the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses`, `a_commit_without_the_host_table_gets_its_yonder_toml`, `a_typo_or_a_bad_value_is_an_error_that_names_the_file`)
+  [@test] ../../crates/host-link/src/config_test.rs (`the_host_table_of_branchdeck_toml_parses_and_an_unknown_key_refuses`, `a_commit_without_the_host_table_gets_its_yonder_toml`, `a_commit_with_the_host_table_never_reads_its_yonder_toml`, `a_typo_or_a_bad_value_is_an_error_that_names_the_file`)
 
 ```toml
 [host]

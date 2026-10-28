@@ -8,7 +8,7 @@ use git_executor::git_command_executor::{GitCommandExecutor, StoppedCommand};
 use git_ops::host_client::{Scan, Shipper, apply_patch, commit_count, pack_commit_until, repository_name, snapshot};
 use git_ops::host_objects::show_commit;
 use git_ops::revs::{repository_dirs, with_repository_dirs};
-use host_link::config::{FILE, RepoConfig, YONDER_FILE, resolve};
+use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::refusal::{Code, Refusal};
 use std::path::{Path, PathBuf};
 
@@ -100,21 +100,15 @@ impl Checkout {
   /// `[host]` of `.branchdeck.toml` of `commit`, else its `.yonder.toml`, else the default, with the parser of the agent.
   /// A file that does not parse refuses with `bad_config`
   pub(crate) fn host_config(&self, commit: &str) -> Result<RepoConfig, Refusal> {
-    let blob = |path: &str| {
+    read_commit_config(|path| {
       show_commit(&self.git, &self.top_level, commit, Some(path), &[])
         .map(|shown| shown.blob.map(|blob| blob.text))
         .map_err(|error| git_failed(&format!("cannot read {path} of the commit {commit}"), &error))
-    };
-    let branchdeck = blob(FILE)?;
-    let has_host = branchdeck
-      .as_deref()
-      .map(host_link::config::parse_branchdeck)
-      .transpose()
-      .map_err(|error| Refusal::new(Code::BadConfig, format!("{error}, in the commit {commit}")))?
-      .flatten()
-      .is_some();
-    let yonder = if has_host { None } else { blob(YONDER_FILE)? };
-    resolve(branchdeck.as_deref(), yonder.as_deref()).map_err(|error| Refusal::new(Code::BadConfig, format!("{error}, in the commit {commit}")))
+    })
+    .map_err(|error| match error {
+      ReadError::Read(refusal) => refusal,
+      ReadError::Config(error) => Refusal::new(Code::BadConfig, format!("{error}, in the commit {commit}")),
+    })
   }
 
   /// The thin pack of `commit` against the commits of `have`, into a private file of `branch-deck/host/packs`. `stop`
