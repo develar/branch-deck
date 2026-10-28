@@ -296,7 +296,7 @@ pub async fn read_linked_pull_request(
 /// # Errors
 /// No GitHub repository, an input that names no pull request of it, a number it lacks (`no_pull_request`), a failure
 /// of GitHub, a host that keeps no links
-pub async fn link_pull_request<H: ServiceHost>(host: &H, sessions: &Sessions, key: &SessionKey, input: &str, now: u32) -> Result<(ReviewEntry, bool), ApiError> {
+pub async fn link_pull_request<H: ServiceHost + ?Sized>(host: &H, sessions: &Sessions, key: &SessionKey, input: &str, now: u32) -> Result<(ReviewEntry, bool), ApiError> {
   let github = host.github(key)?;
   let repository = repository_of(host, sessions, key).await?;
   let number = parse_pull_request_link(input, &repository)?;
@@ -315,7 +315,7 @@ pub async fn link_pull_request<H: ServiceHost>(host: &H, sessions: &Sessions, ke
 ///
 /// # Errors
 /// No GitHub repository
-pub async fn unlink_pull_request<H: ServiceHost>(host: &H, sessions: &Sessions, key: &SessionKey, number: u32) -> Result<(), ApiError> {
+pub async fn unlink_pull_request<H: ServiceHost + ?Sized>(host: &H, sessions: &Sessions, key: &SessionKey, number: u32) -> Result<(), ApiError> {
   let repository = repository_of(host, sessions, key).await?;
   host.forget_linked_pull_requests(key, &repository, &[number]);
   sessions.refresh(key, FactFamily::ReviewRequests, FactRefreshReason::Manual, None).await;
@@ -323,7 +323,7 @@ pub async fn unlink_pull_request<H: ServiceHost>(host: &H, sessions: &Sessions, 
 }
 
 /// The repository the session listed the review requests of, else the one the branches are mirrored to
-async fn repository_of<H: ServiceHost>(host: &H, sessions: &Sessions, key: &SessionKey) -> Result<GitHubRepository, ApiError> {
+async fn repository_of<H: ServiceHost + ?Sized>(host: &H, sessions: &Sessions, key: &SessionKey) -> Result<GitHubRepository, ApiError> {
   if let Some(listed) = sessions.read(key, |_, facts| facts.review_requests.github_repository()).await.flatten() {
     return Ok(listed);
   }

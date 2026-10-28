@@ -6,9 +6,9 @@
 //! without a session reads `get_auth_status` again on.
 
 use crate::commands::github::GitHubState;
-use crate::commands::session::SessionsState;
 use crate::commands::youtrack::YouTrackState;
 use app_api::api_error::api_error;
+use app_api::context::AppContext;
 use app_api::operation::operation;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::error::ApiError;
@@ -66,8 +66,8 @@ impl SignInHost for AppSignIns {
 /// `account` changed: every session reads its sign-ins again, after GitHub its pull requests and review requests too,
 /// and every window hears `auth-changed`
 pub fn tell_auth_changed(app: &AppHandle, account: Account) {
-  let sessions = app.state::<SessionsState>();
-  let sessions = sessions.sessions();
+  let ctx = app.state::<AppContext>();
+  let sessions = &ctx.sessions;
   sessions.refresh_all(FactFamily::Auth, FactRefreshReason::AfterWrite);
   if account == Account::GitHub {
     sessions.refresh_all(FactFamily::PullRequests, FactRefreshReason::Manual);

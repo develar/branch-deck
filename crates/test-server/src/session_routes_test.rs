@@ -1,6 +1,7 @@
-//! The session commands of the server as the page mock calls them: a subscription is an event stream that answers
-//! first and then carries the patches, each on the version before it, up to the version a sync answers; it ends with
-//! `unsubscribe_view`; a repository without a prefix is refused with the `ApiError` of the app, on the stream too
+//! The session commands of app-api on the server as the page mock calls them: a subscription is an event stream that
+//! answers first and then carries the patches, each on the version before it, up to the version a sync answers; it ends
+//! with `unsubscribe_view`; a repository without a prefix is refused by the frame with the `ApiError` of the app and the
+//! id of its operation, on the stream too
 
 use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, push_alone, rewrite, start_test_server, view_when};
 use pretty_assertions::assert_eq;
@@ -61,6 +62,8 @@ async fn a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app(
   let refused = messages.next().await;
   assert_eq!(refused["result"]["status"], "error", "{refused}");
   assert_eq!(refused["result"]["error"]["code"], "no_branch_prefix", "{refused}");
+  // the frame of a session command resolves the key inside the operation of the command
+  assert_eq!(refused["result"]["error"]["operation_id"].as_str().map(str::len), Some(26), "{refused}");
   assert_eq!(messages.next_or_end().await, None);
 
   for command in ["get_snapshot", "sync", "set_window_focus"] {

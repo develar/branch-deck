@@ -130,7 +130,12 @@ server's error names its operation too) and the handwritten `#[tauri::command]`s
   rejects the `%` of a field.
 - The body of an async command runs in `operation(async move { … }).await`, of a synchronous one (on the main thread) in
   `operation_now(|| { … })` (`crates/app-api/src/operation.rs`): the span `operation{operation_id}`, a child of the command's
-  span, so a line reads `close_pull_request{…}:operation{operation_id=…}: message`. A blocking step of the body, git or
+  span, so a line reads `close_pull_request{…}:operation{operation_id=…}: message`. A command of a session (the
+  `session` kind of the registry, `crates/app-api/src/registry.rs`) gets both from its frame: the span of the command
+  with its repository, then its operation, in which the frame resolves the key of the session before the body runs, so
+  a line reads `sync{repository_path=…}:operation{operation_id=…}: message` and a refusal of the key names the
+  operation too; its body opens neither
+  (`the_body_of_a_session_command_opens_no_span_and_no_operation_of_its_own`). A blocking step of the body, git or
   the file system, runs through `run_blocking` on the pool, inside the caller's span; a command whose body is that one
   step needs no `operation`: `run_blocking` alone is the operation then (a task-local tells it whether one is open).
   Opening the object cache is such a step: its first open runs `rev-parse --git-common-dir` and opens LMDB, so an async

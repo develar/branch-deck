@@ -259,19 +259,26 @@ Mock implementation:
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
 - **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
   `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` per repository that stands still, so no
-  session of a test goes away by itself until the test moves it, `repo.advanceBackendClock`): `get_snapshot`, `sync`, `set_window_focus`,
-  `set_demand` (what the window of a subscription shows, `src/model/demand.ts`), `refresh_facts` and
-  `unsubscribe_view` answer JSON; the scheduler of the facts runs on the same clocks and reads the fakes of each
+  session of a test goes away by itself until the test moves it, `repo.advanceBackendClock`), and runs the app's
+  commands of the sessions (`app_api::session`) through the routes of app-api (`invoke.rs`), in the `AppContext` of the
+  test repository: its sessions and registry are the server's, its services the fakes of the repository
+  (`TestServices`), its windows its own, named by the `X-Window-Label` header the mock sends with every command (the
+  label of its page, `__e2eWindowLabel`), as the app names the calling window by its webview. `get_snapshot`, `sync`,
+  `set_window_focus`, `set_demand` (what the window of a subscription shows, `src/model/demand.ts`), `refresh_facts`
+  and `unsubscribe_view` answer JSON; the scheduler of the facts runs on the same clocks and reads the fakes of each
   repository (`TestFactSources`, which counts every read of a family: the lists, polls and details of the robots in
   `listCalls`, `pollCalls` and `detailCalls` of `getPatronusLog`, the listings of the pull requests in `calls` of
   `getGitHubLog`, the review requests in `getReviewRequestCalls`, the readiness asked in `getReviewReadinessCalls`; a
   test of the cadence asserts these after it moved the clock, as the policy tests of `domain_policy::refresh` do);
   `subscribe_view` is a long-lived event stream of its channel (`X-Progress-Channel`, the `patches` of the command):
   `{ result }` with the subscription and its view first, then each `ViewPatch` as `{ progress }`, until
-  `unsubscribe_view` or the deletion of the repository, which closes its sessions first, so the stream ends and the
-  deletion does not wait for it. The mock answers the command at its `{ result }` and reads the stream on for the
-  channel (`OPEN_CHANNELS` of `tauri-mocks.ts`). A refusal (`no_branch_prefix`) is `{ result: { status: "error",
-  error } }` on the stream, the JSON of the app. A patch may reach the channel before the answer, in the app too: the
+  `unsubscribe_view` or the deletion of the repository, which closes its windows and its sessions first
+  (`AppContext::forget_windows`, as the app forgets a closed window), so the stream ends and the deletion does not
+  wait for it. A command of app-api with a channel (`[channel patches: ViewPatch, open]` of its entry) streams so
+  whenever the mock names its channel; the mock answers the command at its `{ result }` and reads the stream on for
+  the channel (`OPEN_CHANNELS` of `tauri-mocks.ts`). A refusal (`no_branch_prefix`, by the frame of a session command,
+  which resolves the key of the session before its body runs) is `{ result: { status: "error", error } }` on the
+  stream, the JSON of the app, with the id of its operation. A patch may reach the channel before the answer, in the app too: the
   page keeps it until it has the view, and applies a patch only on its `base`. The sync button carries the version of
   the view the page holds (`data-view-version`, `epoch:seq`) beside the count of the runs that ended
   (`data-sync-count`), for a test that waits for a patch; the review window of a branch, which subscribes on its own,
@@ -396,7 +403,8 @@ State isolation:
   in the cleanup was too short under load (`repository_lifecycle_test.rs`). The deletion waits only for the commands
   of a named repository, so a route test names it too: every command of one goes through `test_support::command`
   (`post`, `post_error` and `sync` call it), which names the repository at the `repositoryPath` of the params
-  (`Named::ByPath`) or the one a test gives (`Named::Id`), and a command of no repository says so (`Named::Nothing`);
+  (`Named::ByPath`) or the one a test gives (`Named::Id`: a command whose params name none, the cancel of an
+  operation; a command of app-api runs in the context of the repository a request names, so every one names one);
   `every_command_of_a_route_test_names_its_repository` refuses a request a test builds itself. Unnamed, a command ran
   across the deletion, and the fake GitHub's git of a released answer ran in the files the deletion removed. The
   removals go through `sync_utils::fs_retry`, which tries a sharing error again for about a second: on Windows a

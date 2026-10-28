@@ -110,7 +110,7 @@ branch built on it carries its commits, so it is parked with it.
   unpark (the rewrites `park` and `unpark` of the engine, `operations::rewrite`) as long as the holder lives, the
   row's "⋯" saying whom for with Stop Waiting (`cancel_operation`), which ends the wait with nothing changed.
   [@test] ../../crates/sync-core/src/parked_test.rs (`park_waits_for_the_repository_lock`)
-  [@test] ../../crates/test-server/src/channel_commands_test.rs (`a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_lock`, `stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed`)
+  [@test] ../../crates/test-server/src/invoke_test.rs (`a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_lock`, `stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed`)
 - An unpark must drop the line, also of a branch that groups no commit here; a branch that is not parked is
   `not_parked`.
   [@test] ../../crates/sync-core/src/parked_test.rs (`unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_they_are`)

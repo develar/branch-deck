@@ -82,7 +82,7 @@ targets:
   - ../../crates/repository-model/src/push_guard.rs
   - ../../crates/operations/src/push.rs
   - ../../crates/operations/src/land.rs
-  - ../../src-tauri/src/commands/operations.rs
+  - ../../crates/app-api/src/session/operations.rs
   - ../../crates/operations/src/robot.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/lib/branch-rules.ts

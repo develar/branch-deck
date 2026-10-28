@@ -57,11 +57,9 @@ pub(crate) async fn delete_repository(client: &reqwest::Client, addr: SocketAddr
 pub(crate) enum Named<'a> {
   /// The repository at the `repositoryPath` of the params, which must be one of the server
   ByPath,
-  /// The repository `id`: for a command whose params name none (a sign-in of the requesting repository) or name a path
-  /// that is no repository of the server
+  /// The repository `id`: for a command whose params name none (a sign-in of the requesting repository, the cancel of an
+  /// operation) or name a path that is no repository of the server
   Id(&'a str),
-  /// None: a command of the app (`cancel_operation`), which nothing waits for
-  Nothing,
 }
 
 /// The request of the command `name` (`/invoke/<name>`) with `params`, naming the repository as `named` says: the one
@@ -71,15 +69,11 @@ pub(crate) fn command(client: &reqwest::Client, addr: SocketAddr, named: Named<'
   let id = match named {
     Named::ByPath => {
       let path = params["repositoryPath"].as_str().unwrap_or_default();
-      Some(repository_id_of_path(path).unwrap_or_else(|| panic!("{name}: {path:?} is no repository of the server; Named::Id or Named::Nothing says what it runs for")))
+      repository_id_of_path(path).unwrap_or_else(|| panic!("{name}: {path:?} is no repository of the server; Named::Id says what it runs for"))
     }
-    Named::Id(id) => Some(id),
-    Named::Nothing => None,
+    Named::Id(id) => id,
   };
-  match id {
-    Some(id) => request.header(crate::REPOSITORY_ID_HEADER, id),
-    None => request,
-  }
+  request.header(crate::REPOSITORY_ID_HEADER, id)
 }
 
 /// The id of the repository of the server at `path`: its directory is named by it, and the path of a `NO_REPO`
@@ -232,7 +226,7 @@ impl std::io::Write for CapturedWriter {
   }
 }
 
-/// The JSON messages of an SSE answer (`channel_commands`), one by one
+/// The JSON messages of an SSE answer (`invoke::answer_with_progress`), one by one
 pub(crate) struct Messages {
   response: reqwest::Response,
   buffer: String,
@@ -241,7 +235,7 @@ pub(crate) struct Messages {
 impl Messages {
   /// The messages of `request` sent on the channel `channel` (`X-Progress-Channel`), which must answer an event stream
   pub(crate) async fn of_channel(request: reqwest::RequestBuilder, channel: u32) -> Self {
-    let response = request.header(crate::channel_commands::PROGRESS_CHANNEL_HEADER, channel.to_string()).send().await.unwrap();
+    let response = request.header(crate::invoke::PROGRESS_CHANNEL_HEADER, channel.to_string()).send().await.unwrap();
     assert_eq!(response.status(), 200);
     assert!(response.headers()["content-type"].to_str().unwrap().starts_with("text/event-stream"));
     Self { response, buffer: String::new() }

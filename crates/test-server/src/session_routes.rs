@@ -1,37 +1,31 @@
-//! The session commands of the app (`src-tauri/src/commands/session.rs`) on the sessions of this server: the same
-//! `Sessions` and `GitSessionHost`, on a `TestClock` that stands still, with the prefix resolved as the server's sync
-//! family resolves it. `subscribe_view` is a long-lived event stream of its channel (`channel_commands`): its answer
-//! `{"result": …}` first, then each patch as `{"progress": <ViewPatch>}` until `unsubscribe_view` or the deletion of the
-//! repository (`delete_repository` closes its sessions, so the stream ends and the deletion does not wait for it); a
-//! failure answers `{"result": {"status": "error", "error": <ApiError>}}` on the stream, the JSON of the app. The next run
-//! of a session takes the overrides a test set for its repository (`sync_overrides`). The clock of the sessions of a
-//! repository stands still until its test moves it (`POST /repositories/{id}/clock/advance`, `advance_clock`). The facts of the sessions are read by the scheduler of the
-//! facts, as the app reads them, over the fakes of each test repository (`TestFactSources`); a window asks one again with
-//! `refresh_facts`.
+//! The sessions of the app's commands (`app_api::session`) on this server: the same `Sessions` and `GitSessionHost`, on
+//! a `TestClock` that stands still, with the prefix resolved as the server's sync family resolves it
+//! (`TestSessionEnvironment`); the commands themselves are the app's, routed by `invoke.rs`. `subscribe_view` is a
+//! long-lived event stream of its channel: its answer `{"result": …}` first, then each patch as `{"progress":
+//! <ViewPatch>}` until `unsubscribe_view` or the deletion of the repository (`delete_repository` closes its windows and
+//! its sessions, so the stream ends and the deletion does not wait for it). The next run of a session takes the
+//! overrides a test set for its repository (`sync_overrides`). The clock of the sessions of a repository stands still
+//! until its test moves it (`POST /repositories/{id}/clock/advance`, `advance_clock`). The facts of the sessions are read
+//! by the scheduler of the facts, as the app reads them, over the fakes of each test repository (`TestFactSources`),
+//! and the effects of the engine go to the same fakes (`TestServices`).
 
-use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
-use crate::invoke::{CommandResult, Rejection, failed};
 use crate::remote_host::HeldAnswer;
 use crate::state::AppState;
 use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
-  branch_prefix_now, branch_prefix_of, github_of, held_or_failed, holding, keep_answered, patronus_new_api_of, rejected, remote_of, repository_by_path, requesting_repository,
-  review_requests_of, space_of,
+  branch_prefix_now, github_of, held_or_failed, holding, keep_answered, patronus_new_api_of, rejected, remote_of, repository_by_path, review_requests_of, space_of,
 };
-use app_api::api_error::{api_error, no_branch_prefix, patronus_error};
+use app_api::api_error::{api_error, patronus_error};
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::http::StatusCode;
 use domain_types::ProgressReporter;
 use domain_types::error::ApiError;
-use domain_types::operation::{CancelOperationParams, ExecuteParams, Plan, PrepareParams};
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
-use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
@@ -40,7 +34,7 @@ use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session, skip_in_session};
 use repository_model::runtime::{RunSetup, SessionEnvironment};
-use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
+use repository_model::session::SessionKey;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -303,8 +297,9 @@ impl FactSources for TestFactSources {
 
 /// The services of each test repository (`ServiceHost`): its fake Patronus and fake GitHub (`RemoteHost`), the Space
 /// repository its Patronus fixture names, the GitHub repository resolved with the repository's own global config, the
-/// new API of its settings, no object cache; a failed review is Patronus' error
-struct TestServices {
+/// new API of its settings, no object cache; a failed review is Patronus' error. The services of the context of every
+/// test repository (`AppState::context_of`), and of the rewrites of its engine
+pub struct TestServices {
   state: Weak<AppState>,
   git: GitCommandExecutor,
 }
@@ -352,6 +347,14 @@ impl operations::rewrite::RewriteHost for TestServices {
 /// repository, as the app's are its own (`RegistryFiles::settled_with`)
 pub fn settle_host(state: &Weak<AppState>, git: GitCommandExecutor) -> Arc<dyn ServiceHost> {
   Arc::new(TestServices { state: Weak::clone(state), git })
+}
+
+/// The services of the test repositories of `state`, as the app's (`AppContext::services` and `rewrites`)
+pub fn test_services(state: &Arc<AppState>) -> Arc<TestServices> {
+  Arc::new(TestServices {
+    state: Arc::downgrade(state),
+    git: state.git_executor.clone(),
+  })
 }
 
 impl TestServices {
@@ -460,171 +463,21 @@ fn stopped() -> ApiError {
   ApiError::internal("The test server stopped")
 }
 
-/// Adds a pull request to Reviews by its link, as the app's `link_pull_request`: the same core over the fake GitHub
-pub async fn link_pull_request(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<domain_types::review_request::LinkPullRequestParams>,
-) -> CommandResult<domain_types::review_request::LinkedPullRequestAnswer> {
-  let key = session_key(&state, &params.repository_path).await?;
-  let (entry, kept) = remote_facts::reviews::link_pull_request(&test_services(&state), &state.sessions, &key, &params.input, sync_utils::timestamp::unix_now()).await?;
-  Ok(Json(domain_types::review_request::LinkedPullRequestAnswer { entry, kept }))
-}
-
-/// Removes a link of Reviews, as the app's `unlink_pull_request`
-pub async fn unlink_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::review_request::UnlinkPullRequestParams>) -> CommandResult<()> {
-  let key = session_key(&state, &params.repository_path).await?;
-  Ok(Json(
-    remote_facts::reviews::unlink_pull_request(&test_services(&state), &state.sessions, &key, params.number).await?,
-  ))
-}
-
-/// The services of the test repositories of `state`, as the app's
-fn test_services(state: &Arc<AppState>) -> TestServices {
-  TestServices {
-    state: Arc::downgrade(state),
-    git: state.git_executor.clone(),
-  }
-}
-
-/// The patches of a session to the event stream of `subscribe_view`
-struct StreamSubscriber(Progress);
-
-impl Subscriber for StreamSubscriber {
-  fn send(&self, patch: &ViewPatch) -> Result<(), SubscriberGone> {
-    if self.0.try_send(patch) { Ok(()) } else { Err(SubscriberGone) }
-  }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionRequest {
-  repository_path: String,
-}
-
-/// The session key of the test repository at `repository_path`, as the app's `session_key`: refused without a prefix
-pub(crate) async fn session_key(state: &AppState, repository_path: &str) -> Result<SessionKey, Rejection> {
-  let prefix = branch_prefix_of(state, repository_path).await?;
-  if prefix.is_empty() {
-    return Err(failed("open the session", no_branch_prefix()));
-  }
-  Ok(SessionKey {
-    worktree: repository_path.to_owned(),
-    prefix,
-  })
-}
-
-/// The group a typed message or branch name puts a commit into, with the grouping of the session's table (`preview_group`
-/// of the app)
-pub async fn preview_group(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<domain_types::commit::PreviewGroupParams>,
-) -> CommandResult<Option<domain_types::commit::CommitGroup>> {
-  let key = session_key(&state, &params.repository_path).await?;
-  Ok(Json(state.sessions.preview_group(&key, &params.message).await))
-}
-
-pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Json<SessionRequest>) -> CommandResult<Option<RepositoryView>> {
-  let key = session_key(&state, &request.repository_path).await?;
-  Ok(Json(state.sessions.get_snapshot(&key).await))
-}
-
-/// The plan of an intent over the facts of the session, as the app's `prepare`: the same function of the engine
-pub async fn prepare(State(state): State<Arc<AppState>>, Json(params): Json<PrepareParams>) -> CommandResult<Option<Plan>> {
-  let key = session_key(&state, &params.repository_path).await?;
-  Ok(Json(operations::engine::prepare(&state.sessions, &key, params.intent).await?))
-}
-
-/// The events of an operation to the event stream of the call that runs it
-struct StreamEvents(Progress);
-
-impl operations::events::EventSink for StreamEvents {
-  fn send(&self, event: domain_types::operation::OperationEvent) {
-    self.0.send(&event);
-  }
-}
-
-/// Runs an intent on the plan the page showed, as the app's `execute`: the same engine (`operations::engine::execute`)
-/// over the services of the test repository (its fake Patronus and fake GitHub, `TestServices`); its steps, the
-/// progress of its push and its outcome go to the event stream of its channel as `{"progress": <OperationEvent>}`, the
-/// answer last
-pub async fn execute(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<ExecuteParams>) -> Response {
-  answer_with_progress(progress_channel(&headers), move |progress| async move {
-    let key = session_key(&state, &params.repository_path).await?;
-    let services = TestServices {
-      state: Arc::downgrade(&state),
-      git: state.git_executor.clone(),
-    };
-    let events: Arc<dyn operations::events::EventSink> = Arc::new(StreamEvents(progress));
-    let accepted = operations::land_execute::Accepted {
-      fingerprint: params.fingerprint,
-      confirmations: params.accepted,
-    };
-    let hosts = operations::engine::Hosts {
-      services: &services,
-      rewrites: &services,
-    };
-    let outcome = Box::pin(operations::engine::execute(&state.registry, &key, params.intent, accepted, hosts, events)).await;
-    Ok(Json(outcome.map_err(|error| failed("execute", error))?))
-  })
-  .await
-  .into_response()
-}
-
-/// Stops an operation of the server, as the app's `cancel_operation`
-pub async fn cancel_operation(State(state): State<Arc<AppState>>, Json(params): Json<CancelOperationParams>) -> Json<bool> {
-  Json(state.registry.cancel(&params.op))
-}
-
-/// The stream of a window's subscription: its answer, then the patches. A call without a channel (a test of this crate
-/// that calls the route directly) gets the answer, and the subscription ends with its first patch
-pub async fn subscribe_view(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<SessionRequest>) -> Response {
-  answer_with_progress(progress_channel(&headers), move |progress| async move {
-    let key = session_key(&state, &request.repository_path).await?;
-    // Activity reads the journal of the repository, which the settings of the page remember, as the app's do; before
-    // the subscription, whose patches follow its answer
-    if let Some(journal) = state.registry.journal_of(&key).await
-      && let Ok(repository) = requesting_repository(&state, &headers)
-      && let Err(error) = app_settings::journals::remember_journal(&repository.store, &request.repository_path, &journal.to_string_lossy())
-    {
-      tracing::warn!(%error, "cannot remember the journal of the repository");
-    }
-    // through the registry, as the app subscribes: the window watches the operations registry of the repository
-    let (id, view) = state
-      .registry
-      .subscribe(&key, Box::new(StreamSubscriber(progress)))
-      .await
-      .ok_or_else(|| failed("subscribe to the view", ApiError::internal("The session closed while the window subscribed")))?;
-    Ok(Json(ViewSubscription { id: id.0, view }))
-  })
-  .await
-  .into_response()
-}
-
-#[derive(Deserialize)]
-pub struct UnsubscribeRequest {
-  id: u32,
-}
-
-pub async fn unsubscribe_view(State(state): State<Arc<AppState>>, Json(request): Json<UnsubscribeRequest>) -> Json<()> {
-  state.sessions.unsubscribe(SubscriptionId(request.id));
-  Json(())
-}
-
-pub async fn set_demand(State(state): State<Arc<AppState>>, Json(params): Json<SetDemandParams>) -> Json<()> {
-  state.sessions.set_demand(SubscriptionId(params.subscription), &params.demand);
-  Json(())
-}
-
 #[derive(Deserialize)]
 pub struct ClockAdvanceRequest {
   ms: u64,
 }
 
-/// The app quits (`POST /repositories/{id}/sessions/close`): the sessions of the repository go with the subscriptions of
-/// their windows, so the window that opens it next (a reload) opens a new session, whose facts are asked anew as at a
-/// start of the app
+/// The app quits (`POST /repositories/{id}/sessions/close`): its windows close (`AppContext::forget_windows`) and the
+/// sessions of the repository go, so the window that opens it next (a reload) opens a new session, whose facts are
+/// asked anew as at a start of the app
 pub async fn close_sessions(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
-  let path = state.repositories.get(&id).map(|repository| repository.path.clone()).ok_or(StatusCode::NOT_FOUND)?;
+  let (path, context) = state
+    .repositories
+    .get(&id)
+    .map(|repository| (repository.path.clone(), Arc::clone(&repository.context)))
+    .ok_or(StatusCode::NOT_FOUND)?;
+  context.forget_windows();
   state.sessions.close_worktree(&path);
   Ok(StatusCode::OK)
 }
@@ -638,42 +491,4 @@ pub async fn advance_clock(Path(id): Path<String>, State(state): State<Arc<AppSt
   state.session_clocks.of_worktree(&path).advance(Duration::from_millis(request.ms));
   state.sessions.sweep();
   Ok(Json(()))
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WindowFocusRequest {
-  repository_path: String,
-  focused: bool,
-}
-
-pub async fn set_window_focus(State(state): State<Arc<AppState>>, Json(request): Json<WindowFocusRequest>) -> CommandResult<Option<SyncAnswer>> {
-  let key = session_key(&state, &request.repository_path).await?;
-  if request.focused {
-    // as the app: a gained focus reads the operations registry again, where no watch would tell
-    state.registry.reread(&key).await;
-  }
-  match state.sessions.set_window_focus(&key, request.focused) {
-    Some(ticket) => ticket.wait().await.map(|answer| Json(Some(answer))).map_err(|error| failed("sync on focus", error)),
-    None => Ok(Json(None)),
-  }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncRequest {
-  repository_path: String,
-  reason: SyncReason,
-}
-
-pub async fn sync(State(state): State<Arc<AppState>>, Json(request): Json<SyncRequest>) -> CommandResult<SyncAnswer> {
-  let key = session_key(&state, &request.repository_path).await?;
-  state.sessions.sync(&key, request.reason).wait().await.map(Json).map_err(|error| failed("sync", error))
-}
-
-/// Asks the session of the repository to read a fact again, as the app's `refresh_facts`: the version after the patch
-/// of that read, null when nothing was asked
-pub async fn refresh_facts(State(state): State<Arc<AppState>>, Json(params): Json<RefreshFactsParams>) -> CommandResult<Option<Version>> {
-  let key = session_key(&state, &params.repository_path).await?;
-  Ok(Json(state.sessions.refresh(&key, params.family, params.reason, params.subject).await))
 }

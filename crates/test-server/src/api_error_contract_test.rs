@@ -2,8 +2,7 @@
 //! command of the server (`run_command`), answers 200 with `{"status": "error", "error": <ApiError>}`, the error the JSON
 //! of `crates/app-api/fixtures/api_errors.json`, the same the app rejects with (`src-tauri/src/api_error_contract_test.rs`).
 
-use crate::channel_commands::answer_with_progress;
-use crate::invoke::failed;
+use crate::invoke::{answer_with_progress, failed};
 use crate::tauri_command_bridge::run_command;
 use app_api::api_error::{CONTRACT_JSON, contract_cases};
 use axum::http::StatusCode;
@@ -36,7 +35,7 @@ async fn a_panicked_command_of_the_server_fails_the_request() {
   assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
-/// A command with a channel (`channel_commands`) fails on its event stream with the same JSON:
+/// A command with a channel (`invoke.rs`) fails on its event stream with the same JSON:
 /// `{"result": {"status": "error", "error": <ApiError>}}`, as the page mock hands it to the bindings (`subscribe_view`)
 #[tokio::test]
 async fn a_command_with_a_channel_answers_the_api_error_json_of_the_contract_on_its_stream() {

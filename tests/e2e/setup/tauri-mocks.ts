@@ -196,15 +196,18 @@ export const tauriMockScript = () => {
     const actualPayload = payload?.params || payload
     // a progress channel (the `wait` of a rewrite, the `patches` of `subscribe_view`, the `events` of an operation of
     // `execute`)
-    // stays in the page: the server sends its messages as SSE events before the answer (`channel_commands.rs`), a test
+    // stays in the page: the server sends its messages as SSE events before the answer (`invoke.rs`), a test
     // route by its key (`window.__progressChannels`, `sendProgress` of wait-helpers.ts)
     const channel = payload?.progress ?? payload?.wait ?? payload?.patches ?? payload?.events
     const channelId = registerProgressChannel(channel)
 
+    // the window of the page, as the app names the calling window by its webview: the subscriptions and the review
+    // fetches of a window are its own (`Call` of app-api)
     const init = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-Window-Label": windowLabel,
         ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId), Accept: "text/event-stream, application/json" }),
       },
       body: JSON.stringify(actualPayload),
@@ -265,12 +268,12 @@ export const tauriMockScript = () => {
 
   /**
    * The commands whose channel stays open after their answer: the patches of a session come on the `patches` of
-   * `subscribe_view` until `unsubscribe_view` or the deletion of the test repository (`session_routes.rs`)
+   * `subscribe_view` until `unsubscribe_view` or the deletion of the test repository (`invoke.rs`)
    */
   const OPEN_CHANNELS = new Set(["subscribe_view"])
 
   /**
-   * The answer of a command with a channel, as SSE events (`channel_commands.rs`): each `{ progress }` goes to the
+   * The answer of a command with a channel, as SSE events (`invoke.rs`): each `{ progress }` goes to the
    * channel's `onmessage`, `{ result }` is its answer, as the bytes of the JSON answer. The answer of a command whose
    * channel stays open (`keepsOpen`) comes with its `{ result }`, and the stream is read on for the channel; that of
    * another command once its stream ended

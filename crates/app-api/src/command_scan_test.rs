@@ -2,10 +2,11 @@
 //! the bodies of the commands of the registry (`commands.rs` names the body of each entry) and the handwritten
 //! `#[tauri::command]`s of `src-tauri` that have no entry yet (its `api.rs`, the wrappers of the entries, aside). Every
 //! command has an `#[instrument]` span; a command that can fail (`Result<_, ApiError>`) runs its body as an operation
-//! (`operation`, `operation_now`, or the one blocking step `run_blocking`); the span records no argument that holds a
+//! (`operation`, `operation_now`, or the one blocking step `run_blocking`); a command of a session has both from the
+//! frame of its kind (`registry.rs`), so its body opens neither; the span records no argument that holds a
 //! collection, whose Debug text a line of the log would carry whole (`skip_all` and a field or two instead); and an
 //! async body opens the object cache, and a body of the registry reads the git directories and the GitHub repository
-//! (`RepositoryStateCache`), only in a blocking step.
+//! (`RepositoryStateCache`), only in a blocking step. The key of a session is built in one place, `context.rs`.
 
 use crate::commands::COMMANDS;
 use std::collections::{BTreeMap, HashSet};
@@ -25,6 +26,8 @@ struct Command {
   /// `pub async fn`: its body runs on a worker of the async runtime
   asynchronous: bool,
   body: String,
+  /// The kind of an entry of the registry (`json`, `session`, …); None for a handwritten command
+  kind: Option<String>,
 }
 
 fn rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
@@ -121,6 +124,7 @@ fn function_at(place: String, lines: &[&str], mut at: usize, instrument: Option<
     fallible: returns.starts_with("Result<") && returns.contains("ApiError>"),
     asynchronous: signature.contains("async fn "),
     body: lines[body_start..end].join("\n"),
+    kind: None,
   }
 }
 
@@ -161,7 +165,7 @@ fn registry_entries(text: &str) -> Vec<(String, String, String)> {
     let (Some(class), Some(kind), Some(rest)) = (words.next(), words.next(), words.next()) else {
       continue;
     };
-    if !matches!(class, "read") {
+    if !matches!(class, "read" | "engine" | "app") {
       continue;
     }
     let name = rest.split('(').next().expect("the name of the entry");
@@ -203,10 +207,11 @@ fn registry_bodies() -> Vec<Command> {
   entries
     .iter()
     .map(|(name, kind, body)| {
-      let command = registry_body(name, body);
+      let mut command = registry_body(name, body);
+      command.kind = Some(kind.clone());
       assert_eq!(
         command.fallible,
-        kind != "plain",
+        !matches!(kind.as_str(), "plain" | "now"),
         "{name}: a `{kind}` body answers {}a `Result<_, ApiError>`",
         if command.fallible { "" } else { "no " }
       );
@@ -374,10 +379,15 @@ fn a_body_is_one_blocking_step_only_without_work_outside_it() {
   assert!(!is_one_blocking_step("  service.restart().await.map_err(ApiError::internal)"));
 }
 
+/// Whether `command` is the body of a command of a session: the frame of its kind gives it the span and the operation
+fn framed(command: &Command) -> bool {
+  command.kind.as_deref() == Some("session")
+}
+
 #[test]
 fn every_command_has_a_span_and_a_fallible_one_runs_as_an_operation() {
   let mut report = Vec::new();
-  for command in commands() {
+  for command in commands().iter().filter(|command| !framed(command)) {
     if command.instrument.is_none() {
       report.push(format!("  {} ({}): no #[instrument] span", command.name, command.place));
     }
@@ -389,6 +399,43 @@ fn every_command_has_a_span_and_a_fallible_one_runs_as_an_operation() {
     }
   }
   assert!(report.is_empty(), "docs/design/async-patterns.md#operation-spans:\n{}", report.join("\n"));
+}
+
+/// The frame of a session command (`registry.rs`) opens the span of the command and its operation: a body of its own
+/// would open a second span of the same name, or a second operation whose id its error would leave with
+#[test]
+fn the_body_of_a_session_command_opens_no_span_and_no_operation_of_its_own() {
+  let mut report = Vec::new();
+  let bodies = registry_bodies();
+  for command in bodies.iter().filter(|command| framed(command)) {
+    if command.instrument.is_some() {
+      report.push(format!("  {} ({}): an #[instrument] span beside the one of its frame", command.name, command.place));
+    }
+    if command.body.contains("operation(") || command.body.contains("operation_now(") {
+      report.push(format!("  {} ({}): an operation inside the one of its frame", command.name, command.place));
+    }
+  }
+  assert!(bodies.iter().any(framed), "the scan found no command of a session");
+  assert!(report.is_empty(), "docs/design/async-patterns.md#operation-spans:\n{}", report.join("\n"));
+}
+
+/// The key of a session is built in one place (`AppContext::session_key`): the frame of a session command resolves it
+/// from the path of its `params`, and no body builds one of a path it read again
+#[test]
+fn the_key_of_a_session_is_built_only_by_the_context() {
+  let mut files = Vec::new();
+  rust_files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+  let mut builders = Vec::new();
+  for path in &files {
+    let text = fs::read_to_string(path).expect("readable source");
+    for (index, line) in text.lines().enumerate() {
+      if line.contains(concat!("SessionKey", " {")) {
+        builders.push(format!("{}:{}", relative(path), index + 1));
+      }
+    }
+  }
+  assert_eq!(builders.len(), 1, "a `SessionKey` is built outside `AppContext::session_key`: {builders:?}");
+  assert!(builders[0].starts_with("crates/app-api/src/context.rs:"), "{builders:?}");
 }
 
 #[test]

@@ -21,7 +21,6 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub mod activity_routes;
-pub mod channel_commands;
 pub mod cli_tools_fixtures;
 pub mod invoke;
 pub mod remote_fixtures;
@@ -77,9 +76,6 @@ mod squash_test;
 
 #[cfg(test)]
 mod test_support;
-
-#[cfg(test)]
-mod channel_commands_test;
 
 #[cfg(test)]
 mod session_routes_test;
@@ -278,19 +274,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/read_activity", post(activity_routes::read_activity))
     .route("/invoke/record_activity", post(activity_routes::record_activity))
     .route("/invoke/clear_activity", post(activity_routes::clear_activity))
-    .route("/invoke/get_snapshot", post(session_routes::get_snapshot))
-    .route("/invoke/prepare", post(session_routes::prepare))
-    .route("/invoke/execute", post(session_routes::execute))
-    .route("/invoke/cancel_operation", post(session_routes::cancel_operation))
-    .route("/invoke/subscribe_view", post(session_routes::subscribe_view))
-    .route("/invoke/unsubscribe_view", post(session_routes::unsubscribe_view))
-    .route("/invoke/set_window_focus", post(session_routes::set_window_focus))
-    .route("/invoke/set_demand", post(session_routes::set_demand))
-    .route("/invoke/refresh_facts", post(session_routes::refresh_facts))
-    .route("/invoke/link_pull_request", post(session_routes::link_pull_request))
-    .route("/invoke/unlink_pull_request", post(session_routes::unlink_pull_request))
-    .route("/invoke/sync", post(session_routes::sync))
-    .route("/invoke/preview_group", post(session_routes::preview_group))
     .route("/invoke/find_conflict_fix", post(tauri_command_bridge::find_conflict_fix))
     .route("/invoke/cancel_conflict_fix", post(tauri_command_bridge::cancel_conflict_fix))
     .route("/invoke/get_auth_status", post(tauri_command_bridge::get_auth_status))
@@ -352,9 +335,9 @@ pub const REPOSITORY_ID_HEADER: &str = "x-repository-id";
 /// The command runs in a task of its own that holds the lock: a test that ends closes its page, the browser aborts the
 /// requests, and the server drops their handlers, but the git work of a command (`spawn_blocking`) cannot be canceled
 /// and runs on. Most commands do all their work before they answer (a sync streams events it has already sent), so the
-/// handler is the whole command; a command that answers while it runs (`channel_commands`: SSE events of its channel,
-/// then its answer) holds the lock until its event stream ends, read to its end also when the page went away. A
-/// request for a deleted repository is a page that outlived its test.
+/// handler is the whole command; a command that answers while it runs (`invoke::answer_with_progress`: SSE events of
+/// its channel, then its answer) holds the lock until its event stream ends, read to its end also when the page went
+/// away. A request for a deleted repository is a page that outlived its test.
 async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
   let Some(id) = request.headers().get(REPOSITORY_ID_HEADER).and_then(|value| value.to_str().ok()).map(str::to_owned) else {
     return next.run(request).await;
@@ -678,7 +661,7 @@ fn set_fixture_value(store: &app_settings::service::SettingsService, key: &str, 
   })
 }
 
-fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, serde_json::Value)]) -> Result<(), StatusCode> {
+fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&str, serde_json::Value)]) -> Result<(), StatusCode> {
   let app_data = state.app_data_of(id);
   let store = app_settings::service::SettingsService::open(app_data.clone()).map_err(|e| {
     tracing::error!(error = %e, "cannot start the writer of the settings");
@@ -939,7 +922,9 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
     return Err(StatusCode::UNPROCESSABLE_ENTITY);
   };
   state.path_to_id.remove(&repo.path);
-  // a window's subscription streams until its session closes, and holds the repository while it does
+  // its windows close: their subscriptions end, their review fetches stop; a window's subscription streams until its
+  // session closes, and holds the repository while it does
+  repo.context.forget_windows();
   state.sessions.close_worktree(&repo.path);
   state.session_clocks.forget(&repo.path);
   // a sign-in the page left waiting on GitHub would hold the repository until its code expires

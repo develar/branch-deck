@@ -1,7 +1,7 @@
 //! The commands of the app, each declared once, here (the grammar of an entry: `registry.rs`). The doc comment of an
-//! entry is the one of its function in `src/lib/bindings.ts`; its body lives in a family module (`reads::…`). Every
-//! host is a callback of `for_each_command!`: `api_commands!` gives each command its `Command` and the list
-//! [`COMMANDS`], the app its `#[tauri::command]` wrappers (`src-tauri/src/api.rs`), the e2e server its routes
+//! entry is the one of its function in `src/lib/bindings.ts`; its body lives in a family module (`reads::…`,
+//! `session::…`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its `Command` and
+//! the list [`COMMANDS`], the app its `#[tauri::command]` wrappers (`src-tauri/src/api.rs`), the e2e server its routes
 //! (`crates/test-server/src/invoke.rs`). A type of an entry is named by its full path, which resolves in each host.
 
 /// Calls the macro `$callback` with every command of the app, in the grammar of `registry.rs`
@@ -70,6 +70,69 @@ macro_rules! for_each_command {
 
       /// The blocks of the body of `message`, the lines after its subject line (`sync_utils::commit_body::body_blocks`)
       read plain commit_body_blocks(params: domain_types::commit::CommitBodyParams) -> Vec<domain_types::commit_body::CommitBodyBlock> = $crate::reads::grammar::commit_body_blocks;
+
+      /// The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
+      /// null when the session is not open, so the window subscribes again
+      read session get_snapshot(params: $crate::session::view::SessionParams) -> Option<domain_types::session::RepositoryView> = $crate::session::view::get_snapshot;
+
+      /// Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer has the
+      /// view at the subscription, the channel every patch after it until `unsubscribe_view`, the window's close or its next
+      /// page load. While it lasts, the operations registry of the repository is watched (`Registry::subscribe`): the
+      /// operations of `bd` show in the view, and a stamp of `bd` syncs the session
+      read session subscribe_view(params: $crate::session::view::SessionParams) [channel patches: domain_types::session::ViewPatch, open] -> domain_types::session::ViewSubscription = $crate::session::view::subscribe_view;
+
+      /// Ends a subscription of the calling window; the last one of a session makes it idle
+      read now unsubscribe_view(params: $crate::session::view::UnsubscribeViewParams) = $crate::session::view::unsubscribe_view;
+
+      /// A window of the repository gained or lost focus; a gained one reads the operations registry of the repository again
+      /// and syncs when what a sync reads changed and Settings sync on focus, and answers when that ends. Null when nothing
+      /// was asked (focus lost, the setting off, the session not open)
+      app session set_window_focus(params: $crate::session::view::WindowFocusParams) -> Option<domain_types::session::SyncAnswer> = $crate::session::view::set_window_focus;
+
+      /// What the window of a subscription shows and needs of its session (`Demand`), in place of what it said before; the
+      /// page sends it when it changes, at most four times a second, and again for a new subscription
+      read now set_demand(params: domain_types::session::SetDemandParams) = $crate::session::view::set_demand;
+
+      /// Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
+      /// the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
+      /// `ApiError` (`operation_in_progress`, `detached_head`)
+      app session sync(params: $crate::session::view::SyncParams) -> domain_types::session::SyncAnswer = $crate::session::view::sync;
+
+      /// Asks the repository's session to read a fact again: the refresh button, or an action that needs it now (the robot a
+      /// `/patronus` comment started). Answers once that read applied, with the version of the view after its patch; null when
+      /// nothing was asked (the rules held it back, no session is open)
+      read session refresh_facts(params: domain_types::session::RefreshFactsParams) -> Option<domain_types::session::Version> = $crate::session::view::refresh_facts;
+
+      /// The group `message` would put its commit into, with the stacked branches, the issue groups and the stack parents
+      /// the table of the repository's session was grouped with (`Sessions::preview_group`): the "Move to…" form previews a
+      /// typed name as `(<name>)`, the message editor a typed subject. Null for an unassigned commit and before the session
+      /// is open
+      read session preview_group(params: domain_types::commit::PreviewGroupParams) -> Option<domain_types::commit::CommitGroup> = $crate::session::view::preview_group;
+
+      /// The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
+      /// does now (`operations::land::prepare`, the rule `bd safe-push` decides by), what the user accepts first, what refuses
+      /// it, the facts it waits for and the profiles it offers; the restart or the cancel of a robot, the retarget of a pull
+      /// request (`operations::engine::prepare`). A read: no lock, no effect. Null while the session is not open, before its
+      /// Patronus view, for a subject its table lacks, a robot it offers no restart of, a pull request it doesn't list
+      read session prepare(params: domain_types::operation::PrepareParams) -> Option<domain_types::operation::Plan> = $crate::session::operations::prepare;
+
+      /// Runs an intent on the plan the page showed (`fingerprint`, with the confirmations the user `accepted`): the plan is
+      /// prepared again and runs only on that fingerprint; its steps, the progress of its push and its outcome go to
+      /// `events` (`operations::engine::execute`). The review fetch of a window is stopped when the window closes
+      /// (`WindowFetches`)
+      engine session execute(params: domain_types::operation::ExecuteParams) [channel events: domain_types::operation::OperationEvent] -> domain_types::operation::Outcome = $crate::session::operations::execute;
+
+      /// Stops the operation `op` of this app: a wait for the repository lock ends as `canceled`, and no effect starts after
+      /// it; a push that sends goes to its end. False for an operation that ended
+      engine now cancel_operation(params: domain_types::operation::CancelOperationParams) -> bool = $crate::session::operations::cancel_operation;
+
+      /// Adds a pull request to Reviews by its link, `#number` or number (`remote_facts::reviews::link_pull_request`): GitHub
+      /// is asked for it, an open one is kept for the repository, and the session reads Reviews again with it. Answers the
+      /// pull request, which the page opens in the review window
+      app session link_pull_request(params: domain_types::review_request::LinkPullRequestParams) -> domain_types::review_request::LinkedPullRequestAnswer = $crate::session::reviews::link_pull_request;
+
+      /// Removes a pull request the user added by its link from Reviews, and the session reads Reviews again
+      app session unlink_pull_request(params: domain_types::review_request::UnlinkPullRequestParams) -> () = $crate::session::reviews::unlink_pull_request;
     }
   };
 }

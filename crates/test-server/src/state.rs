@@ -41,9 +41,12 @@ impl AppState {
 
   /// The app of the test repository `repository_id`, what its commands of app-api run with: the git of a test machine
   /// (the global config of the repository, `global_config_of`, and no system config), the settings of its page, its own
-  /// memory of the diffs, and the git prefixes and the repository state of the server
-  pub fn context_of(&self, repository_id: &str, settings: &std::sync::Arc<app_settings::service::SettingsService>) -> app_api::context::AppContext {
+  /// memory of the diffs and its own windows, the fakes of the repository as its services (`TestServices`), and the git
+  /// prefixes, the repository state, the sessions and the registry of the server. Its windows hear no event of the app
+  /// (`NoEvents`)
+  pub fn context_of(self: &std::sync::Arc<Self>, repository_id: &str, settings: &std::sync::Arc<app_settings::service::SettingsService>) -> app_api::context::AppContext {
     let global_config = self.global_config_of(repository_id);
+    let services = crate::session_routes::test_services(self);
     app_api::context::AppContext {
       git: self
         .git_executor
@@ -53,6 +56,12 @@ impl AppState {
       prefixes: self.branch_prefixes.clone(),
       repository_state: self.repository_state.clone(),
       file_diffs: file_diffs::service::FileDiffs::default(),
+      sessions: std::sync::Arc::clone(&self.sessions),
+      registry: self.registry.clone(),
+      windows: std::sync::Arc::default(),
+      services: std::sync::Arc::clone(&services) as std::sync::Arc<dyn remote_facts::service_sources::ServiceHost>,
+      rewrites: services,
+      events: std::sync::Arc::new(NoEvents),
     }
   }
 
@@ -62,6 +71,14 @@ impl AppState {
   pub fn app_data_of(&self, repository_id: &str) -> PathBuf {
     self.test_root_dir.path().join(format!("{repository_id}.app-data"))
   }
+}
+
+/// The windows of a test repository hear no event of the app from the server: the page mock tells them what it needs
+/// (`tests/e2e/setup/tauri-mocks.ts`)
+pub struct NoEvents;
+
+impl app_api::transport::AppEvents for NoEvents {
+  fn settings_changed(&self, _change: &domain_types::settings::SettingsChange) {}
 }
 
 pub struct TestRepository {

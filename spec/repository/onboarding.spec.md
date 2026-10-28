@@ -40,7 +40,8 @@ targets:
   - ../../crates/app-settings/src/resolve.rs
   - ../../crates/app-settings/src/branch_prefixes.rs
   - ../../crates/app-settings/src/service.rs
-  - ../../src-tauri/src/commands/session.rs
+  - ../../crates/app-api/src/session/view.rs
+  - ../../crates/app-api/src/context.rs
   - ../../src/stores/branch-sync.ts
   - ../../src-tauri/src/menu.rs
   - ../../src/pages/IndexPage.tsx

@@ -735,7 +735,7 @@ also reads the mark of an interrupted move of the worktree (`pending_mark`) and 
   its stopped wait the failed `Update` effect of its outcome, `canceled`, nothing changed but the fetch. The page says
   "Canceled squashing 2 commits before it started" (an info toast, no error) and changes nothing. The E2E server runs
   the same engine and streams the events of an operation as SSE events before the answer
-  (`crates/test-server/src/channel_commands.rs`).
+  (`crates/test-server/src/invoke.rs`).
 
 `bd push` and `bd safe-push` (their sync, then the witness and the freeze of
 their push; the network push after it; with `--check` only the sync),
@@ -2862,7 +2862,7 @@ its commits.
   (`GitCommand::progress` with a `ProgressStop`): git is killed when stderr is silent for 120 s (SSH has
   no `http.lowSpeedLimit`), or when the operation is stopped (`Registry::cancel`: `cancel_operation` of a newer
   request of the window, or the close of the window that started it, `WindowFetches` of
-  `src-tauri/src/commands/operations.rs`), within 20 ms. The error is then a `StoppedCommand` (`canceled`). A grandchild (ssh, a remote helper) that keeps stderr open does not keep the result waiting.
+  `crates/app-api/src/session/windows.rs`), within 20 ms. The error is then a `StoppedCommand` (`canceled`). A grandchild (ssh, a remote helper) that keeps stderr open does not keep the result waiting.
 - **Credentials.** A refused authentication when fetching from GitHub (git's C-locale words: `could not read
   Username`, `terminal prompts disabled`, `Permission denied (publickey)`) is `GitHubCredentials`, "GitHub asked for
   credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)". The card can show the request
@@ -2880,7 +2880,7 @@ its commits.
 
 Code: `crates/operations/src/review_fetch.rs`, `crates/sync-core/src/review_fetch.rs`,
 `crates/sync-core/src/remote_command.rs`, `crates/git-executor/src/git_command_executor.rs`,
-`crates/repository-model/src/runtime.rs` (the prune), `src-tauri/src/commands/operations.rs` (the close of a window).
+`crates/repository-model/src/runtime.rs` (the prune), `crates/app-api/src/session/operations.rs` (the close of a window).
 
 #### Trial sync (check)
 
@@ -3423,7 +3423,7 @@ of its own (C2).
 
 Code: `crates/operations/src/push.rs`, `crates/operations/src/pull_request.rs`, `crates/operations/src/land_execute.rs`,
 `crates/operations/src/land_session.rs`, `crates/operations/src/robot_start.rs`, `crates/sync-core/src/push.rs`,
-`src-tauri/src/commands/operations.rs`, `src/hooks/useSafePush.ts`, `src/lib/push-run.ts`, `src/presenters/outcome.ts`,
+`crates/app-api/src/session/operations.rs`, `src/hooks/useSafePush.ts`, `src/lib/push-run.ts`, `src/presenters/outcome.ts`,
 `src/presenters/push-button.ts`, `src/stores/safe-push.ts`.
 
 #### Agent push (`bd push`)
@@ -4141,9 +4141,10 @@ names another epoch than its view's and `get_snapshot` finds no view of the view
 checks, the timing of the patches (on a paused clock), the prefix check, two worktrees and the life;
 `sync_scheduler_test.rs` the schedule.
 
-The hosts: the app's commands (`src-tauri/src/commands/session.rs`) and the E2E server's routes (`session_routes.rs`)
-resolve the session key from the repository path with the prefix the commands resolve (`PrefixInputs`, refused as
-`no_branch_prefix` without one): `subscribe_view` opens the session and subscribes the calling window on a channel of
+The hosts: the commands of the sessions are app-api's (`crates/app-api/src/session/`), which the app and the E2E server
+both run; the frame of each (`session` of `registry.rs`) resolves the session key from the repository path with the
+prefix the commands resolve (`AppContext::session_key`, `PrefixInputs`, refused as `no_branch_prefix` without one)
+before its body runs: `subscribe_view` opens the session and subscribes the calling window on a channel of
 `ViewPatch`es, answering its id with the view at that moment (`ViewSubscription`), `get_snapshot` answers the view of
 an open session (null for one that is not: the window subscribes again), `unsubscribe_view` ends a subscription by id,
 `set_window_focus` tells the session that a window gained or lost the focus and, for a gained one while the host
@@ -4160,10 +4161,11 @@ the landing report a `RemoteStatusCollector` kept). The session keeps that table
 `Loading` until a run succeeded, `Stale` with the error of a later run that failed; a deferred run changes nothing) with the memo of the
 content walks of its views, and answers both with the remote branches as it knows them (`Sessions::table`, which the
 guards of the app's actions read). A Tauri channel of a page that went away never
-fails its send, so a window's subscriptions end with the window (`Destroyed`) and with each page load of it (a
-reload), and a subscription is kept for the page that asked for it (`WindowSubscriptions`): one that answers after that
-page went away ends at once; the app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the sessions of a test
-repository when it deletes it (`Sessions::close_worktree`, which drops the subscribers at once). The main window has
+fails its send, so a window's subscriptions end with the window (`Destroyed`, `AppContext::forget_window`) and with
+each page load of it (a reload, `forget_page`), and a subscription is kept for the page the call of its command saw
+before it awaited anything (`Call`, `WindowSubscriptions`): one that answers after that page went away ends at once; the
+app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the windows and the sessions of a
+test repository when it deletes it (`forget_windows`, `Sessions::close_worktree`, which drops the subscribers at once). The main window has
 no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; a switch of
 the repository or of its prefix is another subscription, and the session of a changed prefix syncs as an opened
 repository does, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix again, and the user's own Sync of a

@@ -258,13 +258,21 @@ fn the_app_registers_the_pinned_number_of_commands() {
 }
 
 /// The class of a command of app-api is the list it is in here, until the classes replace the lists (s12-app-api of
-/// docs/design/rust-domain-authority.md)
+/// docs/design/rust-domain-authority.md): a read in [`READS`], a write of the engine in [`ENGINE`], a command of the app
+/// in [`APP_COMMANDS`]
 #[test]
-fn every_read_of_app_api_is_a_read() {
+fn the_class_of_a_command_of_app_api_is_its_list() {
+  use app_api::registry::CommandClass;
   let reads: BTreeSet<&str> = READS.iter().copied().chain(RAW_ROUTES.iter().map(|(name, _)| *name)).collect();
+  let engine: BTreeSet<&str> = ENGINE.iter().copied().collect();
+  let app = names_of(APP_COMMANDS);
   for command in app_api::commands::COMMANDS {
-    assert_eq!(command.class, app_api::registry::CommandClass::Read, "{}", command.name);
-    assert!(reads.contains(command.name), "{} is a read of app-api: name it in READS", command.name);
+    let (list, listed) = match command.class {
+      CommandClass::Read => ("READS", reads.contains(command.name)),
+      CommandClass::Engine => ("ENGINE", engine.contains(command.name)),
+      CommandClass::App => ("APP_COMMANDS", app.contains(command.name)),
+    };
+    assert!(listed, "{} is of the class {:?} in app-api: name it in {list}", command.name, command.class);
   }
 }
 

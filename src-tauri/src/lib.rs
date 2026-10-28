@@ -4,6 +4,7 @@ pub mod commands;
 pub mod legacy_model_cache;
 pub mod menu;
 pub mod presentation;
+pub mod services;
 pub mod settings;
 pub mod title_bar;
 pub mod tracing_log;
@@ -44,14 +45,11 @@ use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_statu
 use commands::conflict_fix::{cancel_conflict_fix, find_conflict_fix};
 use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_file_diffs, get_file_merges};
 use commands::github::GitHubState;
-use commands::grouping::preview_group;
-use commands::operations::{WindowFetches, cancel_operation, execute, prepare};
 use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
 use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
 use commands::repository_browser::browse_repository;
 use commands::repository_config::set_repository_config;
-use commands::review_requests::{get_range_files, link_pull_request, unlink_pull_request};
-use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
+use commands::review_requests::get_range_files;
 use commands::settings::{get_settings_changes, set_setting};
 use commands::sign_in::{AppSignIns, SignInsState, cancel_sign_in, get_auth_status, sign_in, sign_out};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
@@ -65,6 +63,7 @@ use tauri_specta::{Builder, collect_commands};
 
 use app_api::context::AppContext;
 use app_api::repository_state::RepositoryStateCache;
+use app_api::transport::WindowId;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::sign_in_session::GitHubSignInSession;
 use menu::{configure_app_menu, handle_menu_event, set_auto_sync_menu_checked};
@@ -259,17 +258,19 @@ pub fn run() {
     // a page that loads again (a reload) starts without the subscriptions of the one before
     .on_page_load(|webview, payload| {
       if payload.event() == tauri::webview::PageLoadEvent::Started
-        && let Some(state) = webview.try_state::<SessionsState>()
+        && let Some(ctx) = webview.try_state::<AppContext>()
       {
-        state.forget_window(webview.label());
+        ctx.forget_page(&WindowId::new(webview.label()));
       }
     })
     .setup(move |app| {
       ts_builder.mount_events(app);
 
-      app.manage(GitCommandExecutor::new());
-      app.manage(RepositoryStateCache::new());
-      app.manage(SessionsState::new(app.handle(), app.state::<GitCommandExecutor>().inner().clone()));
+      let git = GitCommandExecutor::new();
+      let repository_state = RepositoryStateCache::new();
+      app.manage(git.clone());
+      app.manage(repository_state.clone());
+      let (sessions, registry) = services::start_sessions(app.handle(), &git, &repository_state);
       app.manage(app_settings::branch_prefixes::BranchPrefixes::default());
       app.manage(BranchReviewMemo::new());
       // one cache of the files of a range for the reviews' lists and their diffs (`get_range_files`, `get_file_diffs`)
@@ -277,7 +278,6 @@ pub fn run() {
       app.manage(file_diffs.range_files.clone());
       app.manage(file_diffs);
       app.manage(BranchNameSuggestionState::default());
-      app.manage(WindowFetches::default());
       app.manage(SymbolSearchState::default());
       app.manage(SubWindowState::default());
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
@@ -321,12 +321,19 @@ pub fn run() {
       let open = windows.next_open(epoch_millis());
       let init_script = format!("{settings_script} {} {}", open_script(&open), title_bar_script());
       // the state of the commands of app-api, which shares its parts with the handwritten commands
+      let services = Arc::new(services::AppServices::new(app.handle()));
       app.manage(AppContext {
-        git: app.state::<GitCommandExecutor>().inner().clone(),
+        git,
         settings: Arc::clone(&settings_service),
         prefixes: app.state::<app_settings::branch_prefixes::BranchPrefixes>().inner().clone(),
-        repository_state: app.state::<RepositoryStateCache>().inner().clone(),
+        repository_state,
         file_diffs: app.state::<file_diffs::service::FileDiffs>().inner().clone(),
+        sessions,
+        registry,
+        windows: Arc::default(),
+        services: Arc::clone(&services) as Arc<dyn remote_facts::service_sources::ServiceHost>,
+        rewrites: services,
+        events: Arc::new(api::TauriEvents(app.handle().clone())),
       });
       app.manage(settings_service);
 
@@ -372,12 +379,9 @@ pub fn run() {
         ..
       } = event
       {
-        for op in app_handle.state::<WindowFetches>().forget(&label) {
-          app_handle.state::<SessionsState>().registry().cancel(&op);
-        }
         app_handle.state::<SymbolSearchState>().0.forget(&label);
         app_handle.state::<SubWindowState>().forget(&label);
-        app_handle.state::<SessionsState>().forget_window(&label);
+        app_handle.state::<AppContext>().forget_window(&WindowId::new(label.as_str()));
         title_bar::forget_window(&label);
         if label == app_settings::windows::MAIN_WINDOW {
           close_sub_windows(app_handle);

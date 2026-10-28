@@ -21,8 +21,8 @@ targets:
   - ../../crates/github/src/fake_repository.rs
   - ../../crates/test-server/src/review_fixtures.rs
   - ../../crates/test-server/src/session_routes.rs
-  - ../../src-tauri/src/commands/review_requests.rs
-  - ../../src-tauri/src/commands/session.rs
+  - ../../crates/app-api/src/session/reviews.rs
+  - ../../crates/app-api/src/session/view.rs
   - ../../src/components/reviews/ReviewsView.tsx
   - ../../src/components/reviews/FilteredOnGitHub.tsx
   - ../../src/components/reviews/ReviewEntryRow.tsx

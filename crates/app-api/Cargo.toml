@@ -18,6 +18,10 @@ git-ops = { path = "../git-ops" }
 github = { path = "../github" }
 history-rewrite = { path = "../history-rewrite" }
 object-cache = { path = "../object-cache" }
+# the sessions of the repositories, the engine of their operations and the reads of the remote services they make
+operations = { path = "../operations" }
+remote-facts = { path = "../remote-facts" }
+repository-model = { path = "../repository-model" }
 sync-core = { path = "../sync-core" }
 sync-utils = { path = "../sync-utils" }
 trial-check = { path = "../trial-check" }

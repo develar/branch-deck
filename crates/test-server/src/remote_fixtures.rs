@@ -666,11 +666,15 @@ fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode, String)> {
   state.repositories.get(id).map(|repo| repo.path.clone()).ok_or_else(unknown_repository)
 }
 
-/// The key of the session of the repository at `path`, as the sessions of the server key it
+/// The key of the session of the repository at `path`, as the commands of its app key it (`AppContext::session_key`)
 async fn session_of(state: &AppState, path: &str) -> Result<SessionKey, (StatusCode, String)> {
-  crate::session_routes::session_key(state, path)
+  let context = crate::tauri_command_bridge::repository_by_path(state, path)
+    .map(|repository| Arc::clone(&repository.context))
+    .map_err(|_unknown| unknown_repository())?;
+  context
+    .session_key(path)
     .await
-    .map_err(|_rejected| (StatusCode::UNPROCESSABLE_ENTITY, "the repository has no branch prefix".to_string()))
+    .map_err(|_refused| (StatusCode::UNPROCESSABLE_ENTITY, "the repository has no branch prefix".to_string()))
 }
 
 /// `POST /repositories/{id}/foreign-operation`: the operation `intent` that `bd` of another process runs in the

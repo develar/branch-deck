@@ -5,8 +5,6 @@ pub mod cli_tools;
 pub mod conflict_fix;
 pub mod file_diffs;
 pub mod github;
-pub mod grouping;
-pub mod operations;
 pub mod patronus;
 #[cfg(test)]
 mod patronus_test;
@@ -14,9 +12,6 @@ pub mod pull_requests;
 pub mod repository_browser;
 pub mod repository_config;
 pub mod review_requests;
-pub mod session;
-#[cfg(test)]
-mod session_test;
 pub mod settings;
 pub mod sign_in;
 pub mod suggest_branch_names;

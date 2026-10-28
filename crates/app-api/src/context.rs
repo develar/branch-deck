@@ -1,15 +1,23 @@
 //! What a command of the app runs with: one [`AppContext`] per app, which the app builds once when it starts
 //! (`src-tauri/src/lib.rs`) and the e2e server once per test repository (`crates/test-server/src/lib.rs`, the app of
-//! one test). A command names the repository it reads in its arguments: the context has no "current" one.
+//! one test). A command names the repository it reads in its arguments: the context has no "current" one; the key of
+//! the session of a repository is built here alone (`session_key`), for the frame of a session command (`registry.rs`).
 
+use crate::api_error::no_branch_prefix;
 use crate::operation::run_blocking;
 use crate::repository_state::RepositoryStateCache;
+use crate::session::windows::Windows;
+use crate::transport::{AppEvents, Call, WindowId};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::settings::{AppSettings, GitBranchPrefix, ResolvedBranchPrefix};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
+use operations::registry::Registry;
+use operations::rewrite::RewriteHost;
+use remote_facts::service_sources::ServiceHost;
+use repository_model::session::{SessionKey, Sessions};
 use std::sync::Arc;
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 
@@ -25,12 +33,69 @@ pub struct AppContext {
   pub repository_state: RepositoryStateCache,
   /// The diffs and the blobs of the views, shared by every window
   pub file_diffs: FileDiffs,
+  /// The sessions of the repositories the windows show (`repository_model::session`), which own their tables and read
+  /// their facts; the e2e server shares one between its test repositories
+  pub sessions: Arc<Sessions>,
+  /// The operations of the remote that run or wait in the sessions (`operations::registry`)
+  pub registry: Registry,
+  /// What each window holds open in the sessions: its subscriptions, its review fetches
+  pub windows: Arc<Windows>,
+  /// What the reads of the sessions and the effects of the engine reach the remote services with: the app's services,
+  /// the fakes of a test repository
+  pub services: Arc<dyn ServiceHost>,
+  /// What the rewrites of the engine answer a failure with and read the diffs of
+  pub rewrites: Arc<dyn RewriteHost>,
+  /// What the app tells its windows
+  pub events: Arc<dyn AppEvents>,
 }
 
 impl AppContext {
   /// What a command of a repository resolves the prefix of its branches with, the settings as they are now
   pub fn prefix_inputs(&self) -> PrefixInputs {
     PrefixInputs::new(&self.git, &self.settings, &self.prefixes)
+  }
+
+  /// The key of the session of `repository_path`: the path as the window names it and the prefix the commands resolve
+  /// (`PrefixInputs`, in a blocking step); refused without a prefix (`no_branch_prefix`)
+  ///
+  /// # Errors
+  /// The repository is not accessible, or has no prefix
+  pub async fn session_key(&self, repository_path: &str) -> Result<SessionKey, ApiError> {
+    let prefix = self.prefix_inputs().resolve(repository_path).await?;
+    if prefix.is_empty() {
+      return Err(no_branch_prefix());
+    }
+    Ok(SessionKey {
+      worktree: repository_path.to_owned(),
+      prefix,
+    })
+  }
+
+  /// The call of a command of the window `label`, before the command awaits anything (`Windows::call`)
+  pub fn call(&self, label: &str) -> Call {
+    self.windows.call(label)
+  }
+
+  /// The page of `window` went away (it loads again): its subscriptions end
+  pub fn forget_page(&self, window: &WindowId) {
+    for subscription in self.windows.forget_page(window) {
+      self.sessions.unsubscribe(subscription);
+    }
+  }
+
+  /// `window` closed: its subscriptions end and its review fetches stop
+  pub fn forget_window(&self, window: &WindowId) {
+    for op in self.windows.forget_fetches(window) {
+      self.registry.cancel(&op);
+    }
+    self.forget_page(window);
+  }
+
+  /// Every window closed: the app of a test repository of the e2e server went away
+  pub fn forget_windows(&self) {
+    for window in self.windows.open() {
+      self.forget_window(&window);
+    }
   }
 }
 

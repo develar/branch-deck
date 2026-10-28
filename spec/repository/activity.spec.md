@@ -11,7 +11,7 @@ targets:
   - ../../crates/app-settings/src/file.rs
   - ../../crates/domain-types/src/activity.rs
   - ../../src-tauri/src/commands/activity.rs
-  - ../../src-tauri/src/commands/session.rs
+  - ../../crates/app-api/src/session/view.rs
   - ../../crates/test-server/src/activity_routes.rs
   - ../../src/components/repository/ActivityButton.tsx
   - ../../src/components/repository/ActivityLog.tsx
@@ -186,6 +186,8 @@ tells the present, its line of the last day opens Activity at its Robots.
   [@test] ../../src/lib/errors.test.ts (`passes the operation an ApiError names to the backend log line, as operation_id`)
   [@test] ../../crates/app-api/src/command_scan_test.rs (`every_command_has_a_span_and_a_fallible_one_runs_as_an_operation`)
   [@test] ../../crates/app-api/src/command_scan_test.rs (`a_body_is_one_operation_only_without_work_outside_it`)
+  [@test] ../../crates/app-api/src/command_scan_test.rs (`the_body_of_a_session_command_opens_no_span_and_no_operation_of_its_own`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app`)
   [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`every_closure_or_future_handed_to_another_thread_carries_the_span_of_its_caller`)
   [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`the_scan_reads_the_argument_of_a_spawn_past_strings_nested_calls_and_line_breaks`)
   [@test] ../../src-tauri/src/tracing_log_test.rs (`the_async_lines_of_a_command_and_its_blocking_step_name_one_operation`)
