@@ -274,7 +274,8 @@ Safe Push it allows.
   "Refresh" (when GitHub was asked on its hover: "Checked 2 minutes ago"), "Open All on GitHub" (the search of the
   repository, while requests wait), "Show All Reviews" (⌘2, [Reviews](reviews.spec.md)) and "Notification Settings…".
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`, `should say 50 of 63 when GitHub has more than it returns, expanded or not, and keep the count in the collapsed header`, `should show the island for a returned pull request alone`)
-- A row, 36 px: the unread dot, the title (`font-medium`, the issue key it starts with muted and regular), the meta
+- A row, 36 px: the unread dot, the title (`font-medium`, the issue key it starts with muted and regular, where Rust
+  split the title, `titleLead`), the meta
   "#101 · carol · 2 files · +12 −3", which gives way before the title: the title is cut only once the meta has no room
   left (muted line
   counts, as in every row; "#830 · agent-bot · requested by dave · …" when someone else than the author asked, as for a pull request a

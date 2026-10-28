@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button"
 import { ConflictingFilesSection } from "@/components/conflict/ConflictingFilesSection"
 import { SectionPanel } from "@/components/shared/NestedPanel"
 import type { MergeConflictInfo } from "@/lib/bindings"
-import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { openSubWindow } from "@/lib/window-management"
 import { fixStepsFor } from "@/stores/conflict-fix"
@@ -59,7 +58,7 @@ export function ConflictingFileListCard({ conflictInfo, branchName, onto, isInWi
         <ConflictingFilesSection
           files={conflicts}
           source={{ kind: "cherryPick", parent: conflictInfo.originalParent.hash, target: conflictInfo.targetBranch.hash, commit: conflictInfo.commit.hash }}
-          labels={{ left: onto ?? "the baseline", right: `“${parseSubject(getSubjectLine(conflictInfo.commit.message)).rest}”` }}
+          labels={{ left: onto ?? "the baseline", right: `“${conflictInfo.commit.subjectParts.rest}”` }}
         />
       </div>
     </SectionPanel>

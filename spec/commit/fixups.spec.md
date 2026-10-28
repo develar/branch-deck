@@ -12,6 +12,7 @@ targets:
   - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/autosquash.ts
   - ../../src/lib/commit.ts
+  - ../../crates/sync-utils/src/commit_subject.rs
   - ../../src/hooks/useSquashFixups.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useCommitMoveList.ts
@@ -53,7 +54,7 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   the same subject; a prefixed commit stays the target of a fixup that names it.
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`strips_every_marker_and_takes_the_kind_from_the_first`, `needs_the_space_after_the_marker`, `a_subject_without_a_marker_is_never_a_fixup`)
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`test_autosquash_commits_edge_cases`)
-  [@test] ../../src/lib/commit.test.ts (`groupFor`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key`)
 - The target is the oldest older commit of the range that matches, in this order:
   1. the exact subject;
   2. a unique hash prefix of at least 4 hex digits;
@@ -129,7 +130,7 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 ## Testing / Local Run
 
 - `pnpm test:backend`: `autosquash_test.rs`, `commit_grouper_test.rs`.
-- `pnpm test:unit`: `src/lib/autosquash.test.ts`, `src/lib/commit.test.ts`.
+- `pnpm test:unit`: `src/lib/autosquash.test.ts`.
 - `pnpm e2e`: `tests/e2e/squash-fixups` uses the `fixups` template.
 
 ## Open Questions / Risks

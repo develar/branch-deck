@@ -1,6 +1,7 @@
 pub mod atomic_file;
 pub mod child_process;
 pub mod clock;
+pub mod commit_body;
 pub mod commit_subject;
 pub mod fs_retry;
 pub mod git_bool;

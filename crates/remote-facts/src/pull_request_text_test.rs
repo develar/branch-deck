@@ -138,15 +138,13 @@ fn a_branch_of_several_keys_names_each_key_and_is_titled_by_its_summary() {
 
 #[test]
 fn each_commit_is_an_item_with_its_body_reflowed() {
-  // hard-wrapped: the lines of a paragraph and of a list item are joined
-  let wrapped = "The job state decides first. For the newest job whose state names no
+  // hard-wrapped: the lines of a paragraph and of a list item are joined; a heading, a table, a quote, a rule and the
+  // lines after a hard break keep their lines; a list goes with `-` or its numbers, code into a fence
+  let body = "The job state decides first. For the newest job whose state names no
 finished job, it decides at once:
 - the saved --settings names an existing file, or the planned resume has no flags: one bare
-  `--bg --resume <id>`. The session keeps its options;";
-  let joined = "The job state decides first. For the newest job whose state names no finished job, it decides at once:
-- the saved --settings names an existing file, or the planned resume has no flags: one bare `--bg --resume <id>`. The session keeps its options;";
-  // each of these lines stays as it is
-  let kept = "- else: `claude rm` first.
+  `--bg --resume <id>`. The session keeps its options;
+* else: `claude rm` first.
 1) a list of another marker
 2) continued
 ## A heading
@@ -162,21 +160,50 @@ after it.
     indented code
     stays as it is
 
+~~~
+fenced code
+  stays too
+~~~
+The end.";
+  let markdown = "The job state decides first. For the newest job whose state names no finished job, it decides at once:
+
+- the saved --settings names an existing file, or the planned resume has no flags: one bare `--bg --resume <id>`. The session keeps its options;
+- else: `claude rm` first.
+
+1. a list of another marker
+2. continued
+
+## A heading
+
+| a | table |
+| - | ----- |
+> a quote
+> of two lines
+
+---
+
+A line with a hard break
+after it, and another
+after it.
+
+```
+indented code
+stays as it is
+```
+
 ```
 fenced code
   stays too
 ```
+
 The end.";
   let mut commits: Vec<String> = (1..=9).map(|n| format!("Commit {n}")).collect();
-  commits.push(format!("Commit 10\n\n{wrapped}\n{kept}"));
+  commits.push(format!("Commit 10\n\n{body}"));
   let messages: Vec<&str> = commits.iter().map(String::as_str).collect();
   let (_, text) = text_of(&input("work", &messages), &[]);
   let tenth = text.split_once("10. ").unwrap().1;
   // the item of 10 indents its body by 4, the width of its marker
-  let indented: Vec<String> = format!("{joined}\n{kept}")
-    .lines()
-    .map(|line| if line.is_empty() { String::new() } else { format!("    {line}") })
-    .collect();
+  let indented: Vec<String> = markdown.lines().map(|line| if line.is_empty() { String::new() } else { format!("    {line}") }).collect();
   assert_eq!(tenth, format!("**Commit 10**\n{}", indented.join("\n")));
 }
 

@@ -1,3 +1,4 @@
+use crate::commit::IssueLead;
 use crate::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, Reviewer, ReviewerState};
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +10,11 @@ use serde::{Deserialize, Serialize};
 pub struct ReviewRequest {
   pub number: u32,
   pub title: String,
+  /// `title` split at the issue key it starts with, which a row mutes (`sync_utils::issue_pattern::issue_lead`); set
+  /// where the session takes the request in (`review_request_facts`), absent for none
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub title_lead: Option<IssueLead>,
   pub url: String,
   /// The description as plain text; empty without one
   pub body_text: String,

@@ -388,12 +388,13 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   the key the title carries when the subject starts with it, the body under it indented by the width of the marker
   (`10.` by 4). `fixup!`, `squash!` and `amend!` commits have no item.
   [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`an_issue_branch_keeps_its_key_and_takes_the_issue_summary`, `trailers_and_autosquash_commits_are_left_out`)
-- A commit body reads on GitHub as in the commit, where a newline is a line break: the lines of a paragraph are
-  joined; a list item (`-`, `*`, `+`, `1.`, `1)`), a heading, a quote, a table row and a rule start a line of their
-  own, the lines indented under a list item join it, a line after a hard break (two spaces, `\`) stays its own, fenced
-  and indented code stay as they are. The trailers (a last paragraph of `Token-Name: value` lines, `(cherry picked
-  from commit …)`) are left out, a one-word `Note:` is prose. Outside code spans, a word GitHub would read as a mention
-  (`@Nullable`) or as an HTML tag (`<T>`, `List<String>`) goes into a code span.
+- A commit body reads on GitHub as the commit preview shows it: the blocks of the one grammar of a commit body
+  (`sync_utils::commit_body`, [Commit Row](../commit/commit-row.spec.md#message-body)) written as Markdown, where a
+  newline is a line break. A paragraph is a line per line it reads as (its hard-wrapped lines joined; a line after a
+  hard break, a quote line and a table row each their own; a heading and a rule a paragraph of their own), a list `-`
+  or the numbers from its first, its wrapped and indented lines joined, code (fenced or indented) in a fence, the
+  blocks apart by a blank line. The trailers are left out, a one-word `Note:` alone is prose. Outside code spans, a
+  word GitHub would read as a mention (`@Nullable`) or as an HTML tag (`<T>`, `List<String>`) goes into a code span.
   [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`each_commit_is_an_item_with_its_body_reflowed`, `trailers_and_autosquash_commits_are_left_out`, `mentions_and_angle_brackets_stay_literal`)
 - A stacked branch's pull request holds the commits of the branches it is built on: its title and items come from its
   own commits, and a last section says "Built on auth, then login: their commits are in this pull request too." with

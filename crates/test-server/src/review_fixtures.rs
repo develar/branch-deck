@@ -334,6 +334,7 @@ fn review_request_pull(request: &ReviewRequest) -> FakePull {
     pull_request: PullRequest {
       number: request.number,
       title: request.title.clone(),
+      title_lead: None,
       url: request.url.clone(),
       state: PullRequestState::Open,
       is_draft: false,

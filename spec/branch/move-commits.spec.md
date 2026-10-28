@@ -4,6 +4,9 @@ description: Requirements for moving commits and whole branches into one branch 
 style: plain-1
 targets:
   - ../../crates/history-rewrite/src/move_commits.rs
+  - ../../crates/domain-types/src/branch_names.rs
+  - ../../src/hooks/useBranchNameValidation.ts
+  - ../../src/presenters/branch-name.ts
   - ../../crates/history-rewrite/src/move_plan.rs
   - ../../crates/operations/src/rewrite.rs
   - ../../crates/history-rewrite/src/regroup.rs
@@ -144,6 +147,15 @@ Renaming and ungrouping a branch are moves of all its commits.
 - The rewrite must keep the author and the committer of every recreated commit: name, email, date and timezone.
   [@test] ../../crates/sync-core/src/reword_test.rs (`reword_preserves_committer`)
 - The target name must be a name the grouper keeps as is: letters, numbers, `-`, `_`, `.` and `/`, not at the ends.
+- The "Move to…" form and the rename ask Rust what a typed name is (`validate_branch_name`, `check_branch_name`: empty,
+  valid, too short, invalid characters, a `/` where only a branch name goes, a name the grouper would rename) once the
+  typing pauses, keep the answer of each name, and word it (`src/presenters/branch-name.ts`); Enter right after typing
+  waits for the answer of the name as typed. A Rust test writes the oracle `src/test-support/branch-names.cases.json`
+  (`UPDATE_BRANCH_NAME_CASES=1`) the words are checked against.
+  [@test] ../../crates/domain-types/src/branch_names_test.rs (`a_typed_name_is_what_the_grouping_keeps_as_it_is`)
+  [@test] ../../crates/domain-policy/src/branch_name_cases_test.rs (`the_branch_name_cases_are_what_the_check_answers`)
+  [@test] ../../src/presenters/branch-name.test.ts (`words every answer of the oracle Rust writes as the field says it`, `marks only a valid name valid, and every name with words invalid`)
+  [@test] ../../tests/e2e/inline-branch-creator/inline-branch-creator.spec.ts (`should validate branch name format`)
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`sets_replaces_and_removes_the_prefix`, `keeps_the_autosquash_marker`, `validates_the_branch_name`, `moves_unassigned_commits_to_a_new_branch`, `moves_to_another_branch_and_back_to_the_issue`, `skips_commits_already_in_the_target_branch`, `keeps_the_body_and_the_metadata`, `keeps_the_checked_out_branch`, `refuses_an_invalid_target_or_an_unknown_commit`, `moves_many_commits_in_one_rewrite`)
 - A split prefix branch must keep the issue key of its commits.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`splits_commits_out_of_an_issue_branch`)
@@ -349,7 +361,8 @@ Renaming and ungrouping a branch are moves of all its commits.
 ## Testing / Local Run
 
 - `pnpm test:backend`: `move_commits_test.rs`, `reword_test.rs`, `sync_test.rs`.
-- `pnpm test:unit`: the grouping rule (`src/lib/commit.test.ts`) and the issue families (`src/stores/branch-sync.test.ts`).
+- `pnpm test:unit`: the words of a typed name (`src/presenters/branch-name.test.ts`, against the oracle Rust writes) and
+  the issue families (`src/stores/branch-sync.test.ts`); the grouping rule is `commit_grouper_test.rs`.
 - `pnpm e2e`: `tests/e2e/move-commits` uses the `issue_split` and `issue_combine` templates.
 
 ## Open Questions / Risks

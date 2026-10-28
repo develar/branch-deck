@@ -1,6 +1,6 @@
 use crate::table::{RemoteSubject, TableState};
 use domain_policy::push;
-use domain_types::commit::Commit;
+use domain_types::commit::{Commit, SubjectParts};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::branches_grouped;
 use domain_types::session::{BranchStatus, CommitSync, SyncState, SyncStep};
@@ -27,6 +27,7 @@ pub(crate) fn commit(id: &str) -> Commit {
     mapped_commit_id: None,
     mapped_source: None,
     mapped_resolution: None,
+    subject_parts: SubjectParts::default(),
   }
 }
 

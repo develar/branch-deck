@@ -262,6 +262,20 @@ export const commands = {
 	 */
 	previewMove: (params: MovePreviewParams) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("preview_move", { params })),
 	/**
+	 *  The group `message` would put its commit into, with the stacked branches, the issue groups and the stack parents
+	 *  the table of the repository's session was grouped with (`Sessions::preview_group`): the "Move to…" form previews a
+	 *  typed name as `(<name>)`, the message editor a typed subject. Null for an unassigned commit and before the session
+	 *  is open
+	 */
+	previewGroup: (params: PreviewGroupParams) => typedError<CommitGroup | null, ApiError>(__TAURI_INVOKE("preview_group", { params })),
+	/**
+	 *  What a typed branch name is and the name the branch gets (`domain_types::branch_names::check_branch_name`); the page
+	 *  words the state
+	 */
+	validateBranchName: (params: ValidateBranchNameParams) => __TAURI_INVOKE<BranchNameCheck>("validate_branch_name", { params }),
+	/**  The blocks of the body of `message`, the lines after its subject line (`sync_utils::commit_body::body_blocks`) */
+	commitBodyBlocks: (params: CommitBodyParams) => __TAURI_INVOKE<CommitBodyBlock[]>("commit_body_blocks", { params }),
+	/**
 	 *  The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
 	 *  cache only, no repository lock), of the branches named with the prefix Rust resolves for the repository
 	 *  (`PrefixInputs`). One search at a time: a new one cancels the one before.
@@ -740,6 +754,13 @@ export type BranchHead = {
 	summary: string,
 	/**  The title of the branch's description (`bd describe`); `None` without one */
 	descriptionTitle?: string | null,
+	/**
+	 *  `description_title` split at the issue key it starts with, which a row that shows the key leaves out
+	 *  (`sync_utils::issue_pattern::issue_lead`)
+	 */
+	descriptionLead?: IssueLead | null,
+	/**  The issue key the name starts with (`IJPL-1` of `IJPL-1` and of `IJPL-1-cache`), which the row shows in the name */
+	nameIssueKey?: string | null,
 	allCommitsHaveIssueReferences: boolean,
 	/**  Most frequent author email in this branch's commits */
 	myEmail?: string | null,
@@ -781,6 +802,37 @@ export type BranchLanding = {
 	 */
 	push: Reason | null,
 };
+
+/**  The check of a typed branch name: what it is, and the name the branch gets (`sanitized`) */
+export type BranchNameCheck = {
+	state: BranchNameState,
+	/**  The name trimmed, its runs of whitespace turned into `-` */
+	sanitized: string,
+};
+
+/**  What a typed branch name may be */
+export type BranchNameRules = {
+	/**  Stacked branches are on: a `/` separates a parent from its branch */
+	stacks?: boolean,
+	/**  Only a branch name, not `parent/branch` (with stacked branches on: a rename) */
+	leafOnly?: boolean,
+};
+
+/**  What a typed branch name is; the page words each (`src/presenters/branch-name.ts`) */
+export type BranchNameState = 
+/**  Nothing typed yet */
+"empty" | "valid" | 
+/**  Under two characters */
+"tooShort" | 
+/**  A character other than a letter, a digit, `-`, `_`, `.`, `/` or a space, or a leading `.` */
+"invalidChars" | 
+/**  A `/` in a name that names only a branch (`BranchNameRules::leaf_only`) */
+"leafOnly" | 
+/**
+ *  The grouping would rename it (`sanitize_branch_name`: `-`, `.` or `/` at an end, `--`), or it has `..` or `//`,
+ *  so the virtual branch would not get this name
+ */
+"invalidRef";
 
 /**  What a request for branch names ended with; a failure of git or of `claude` is an outcome, not an error */
 export type BranchNameSuggestionOutcome = 
@@ -1171,6 +1223,42 @@ export type Commit = {
 	author: string,
 	authorTime: number,
 	committerTime: number,
+	/**
+	 *  `subject` as the grouping reads it (`sync_utils::commit_subject::subject_parts`), for the page that shows and words
+	 *  it; the commit list writes it with `subject`
+	 */
+	subjectParts: SubjectParts,
+};
+
+/**  A block of a commit body */
+export type CommitBodyBlock = 
+/**
+ *  Prose, a line per line it reads as: hard-wrapped lines joined by a space; a line after a hard break (two spaces,
+ *  `\`), a quote line and a table row each a line of their own, a heading and a rule a paragraph of their own
+ */
+{ type: "paragraph"; lines: string[] } | 
+/**
+ *  A bullet (`-`, `*`, `+`, `•`) or numbered (`1.`, `1)`) list: the items without their markers, their wrapped and
+ *  indented lines joined, nested items flattened
+ */
+{ type: "list"; ordered: boolean; 
+/**  The number of the first item of an ordered list */
+start: number; items: string[] } | 
+/**
+ *  Code or other text whose line breaks and spacing matter (fenced, or indented by four spaces or a tab), verbatim
+ *  without the common indent and the fences
+ */
+{ type: "preformatted"; text: string } | 
+/**
+ *  The `Token: value` lines that end the message (`Co-Authored-By:`, `Signed-off-by:`, `Fixes:`…), an indented line
+ *  joined to its trailer
+ */
+{ type: "trailers"; lines: string[] };
+
+/**  The parameters of `commit_body_blocks` */
+export type CommitBodyParams = {
+	/**  The whole message: its body is the lines after the subject line */
+	message: string,
 };
 
 /**  A changed file of a commit */
@@ -1202,6 +1290,25 @@ export type CommitFiles = {
 	files: CommitFile[],
 	additions: number,
 	deletions: number,
+};
+
+/**
+ *  The branch a commit message groups into (`history_rewrite::commit_grouper::group_of`), as the forms that type a
+ *  message or a branch name preview it (`preview_group`)
+ */
+export type CommitGroup = {
+	/**  The branch; with stacked branches the leaf of `(parent/leaf)` */
+	branch: string,
+	origin: GroupOrigin,
+	/**
+	 *  With stacked branches: the parent the prefix declares, else the stack parent of the branch; `None` for none and
+	 *  without stacked branches
+	 */
+	parent: string | null,
+	/**  With stacked branches and a parent: where it comes from */
+	parentSource: ParentSource | null,
+	/**  With stacked branches: the prefix has an empty level (`(a//b)`), so the branch reports an error */
+	invalid: boolean,
 };
 
 /**
@@ -1313,6 +1420,8 @@ export type ConflictCommit = {
 	author: string,
 	authorTime: number,
 	committerTime: number,
+	/**  The parts of the subject the page shows (`Commit::subject_parts`) */
+	subjectParts: SubjectParts,
 };
 
 /**  A conflicting file of a cherry-pick, as a conflict is reported: what the view lists before it reads the contents */
@@ -2620,6 +2729,15 @@ export type GitSetup = {
 	suggested_branch_prefix: string,
 };
 
+/**  What groups a commit into its branch */
+export type GroupOrigin = 
+/**  An explicit `(branch)` subject prefix */
+"prefix" | 
+/**  The issue group of the subject's issue key (`refs/branch-deck/issue-groups`) */
+"issueGroup" | 
+/**  The issue key of the subject */
+"issue";
+
 /**  Why a push of a branch won't land */
 export type HoldKind = 
 /**  A merged Safe Push landed all of it: nothing a push sends lands */
@@ -2719,6 +2837,17 @@ export type Intent =
 ({ kind: "updateProject"; fetch: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The report of the commits that landed with an update is cleared (the user has seen it) */
 ({ kind: "dismissLanded" }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
+
+/**
+ *  A title split at the issue key it starts with (`IJPL-1: Fix`, `[IJPL-1] Fix`, `IJPL-1 - Fix`), for a row that shows
+ *  the key apart (`sync_utils::issue_pattern::issue_lead`)
+ */
+export type IssueLead = {
+	/**  The issue key */
+	key: string,
+	/**  What follows the key and its separator (`:`, `,`, `-`, `–`, `—`); empty for a title that is only the key */
+	text: string,
+};
 
 export type IssueNavigationConfig = {
 	links: IssueNavigationLink[],
@@ -3226,6 +3355,8 @@ export type MissingCommit = {
 	filesTouched: string[],
 	/**  The branch the commit is in, `None` for an unassigned commit; set by the sync, which knows the grouping */
 	branch: string | null,
+	/**  The parts of `subject` the page shows (`sync_utils::commit_subject::subject_parts`) */
+	subjectParts: SubjectParts,
 };
 
 /**  A group whose approval is missing; its files are those of the group of the same name in the requirement */
@@ -3645,6 +3776,8 @@ export type Origin =
 export type OrphanFixup = {
 	commitId: string,
 	subject: string,
+	/**  The parts of `subject` the page shows: its markers apart from the rest */
+	subjectParts?: SubjectParts,
 	/**  The virtual branch the fixup itself is grouped into; `None` if it is unassigned */
 	branch: string | null,
 };
@@ -4139,6 +4272,8 @@ export type PlannedEffect =
 export type PlannedFixup = {
 	commitId: string,
 	subject: string,
+	/**  The parts of `subject` the page shows (`Commit::subject_parts`) */
+	subjectParts: SubjectParts,
 	kind: FixupKind,
 };
 
@@ -4146,6 +4281,8 @@ export type PlannedFixup = {
 export type PlannedGroup = {
 	target: string,
 	targetSubject: string,
+	/**  The parts of `target_subject` the page shows (`Commit::subject_parts`) */
+	targetParts: SubjectParts,
 	/**  The virtual branch the target is grouped into; `None` for an unassigned target */
 	branch: string | null,
 	folded: PlannedFixup[],
@@ -4175,6 +4312,13 @@ export type PrepareParams = {
 	intent: Intent,
 };
 
+/**  The parameters of `preview_group` */
+export type PreviewGroupParams = {
+	repositoryPath: string,
+	/**  The message typed (its subject as git reads it decides), or `(<name>)` for a typed branch name */
+	message: string,
+};
+
 /**  The merge profile a start asks for */
 export type ProfileChoice = 
 /**  The profile of the last robot of the subject while the target offers it for the mode, else the default checks */
@@ -4194,6 +4338,11 @@ export type PruneReviewRefsParams = {
 export type PullRequest = {
 	number: number,
 	title: string,
+	/**
+	 *  `title` split at the issue key it starts with, which a row mutes (`sync_utils::issue_pattern::issue_lead`); set
+	 *  where the session takes the pull request in (`pull_request_facts`), absent for none
+	 */
+	titleLead?: IssueLead | null,
 	url: string,
 	/**  Merged also for a pull request Patronus merged: it closes it with the label `merged` */
 	state: PullRequestState,
@@ -4971,6 +5120,11 @@ export type ReviewReadinessBranch = {
 export type ReviewRequest = {
 	number: number,
 	title: string,
+	/**
+	 *  `title` split at the issue key it starts with, which a row mutes (`sync_utils::issue_pattern::issue_lead`); set
+	 *  where the session takes the request in (`review_request_facts`), absent for none
+	 */
+	titleLead?: IssueLead | null,
 	url: string,
 	/**  The description as plain text; empty without one */
 	bodyText: string,
@@ -6117,6 +6271,31 @@ export type Subject =
 { kind: "wholeStack"; root: string };
 
 /**
+ *  A commit subject split by the grammar of the grouping (`sync_utils::commit_subject`), so the page shows its parts
+ *  (every field written: the object cache keeps it in `postcard`, which knows no skipped field)
+ *  without a grammar of its own: `fixup! (auth) IJPL-1: Add login` is the markers `fixup! `, the prefix `auth`, the rest
+ *  `IJPL-1: Add login` with its issue key, and what a row shows of it led by that key
+ */
+export type SubjectParts = {
+	/**  The leading autosquash markers with the whitespace after them (`fixup! `, `fixup! squash! `); empty for none */
+	autosquash: string,
+	/**  The text of the `(prefix)` after the markers, unsanitized, without the parentheses */
+	prefix: string | null,
+	/**  The subject after the markers and the prefix */
+	rest: string,
+	/**
+	 *  The issue key of the rest (`find_issue_number`: after an optional `[category]` and `type(scope):`), which groups a
+	 *  subject without a prefix
+	 */
+	issueKey: string | null,
+	/**
+	 *  What a row shows of the subject (the subject of its virtual commit without the markers: the rest, or for a prefix
+	 *  the rest with the key of the prefix, `subject_after_prefix`) split at the issue key it starts with
+	 */
+	lead: IssueLead | null,
+};
+
+/**
  *  The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the
  *  reviews of the pull request of the start (`ask.branch_name` is the subject)
  */
@@ -6610,6 +6789,12 @@ export type UsageTarget = {
 	text: string,
 	/**  Where the name starts in `text`, in UTF-16 */
 	textColumn: number,
+};
+
+/**  The parameters of `validate_branch_name` */
+export type ValidateBranchNameParams = {
+	name: string,
+	rules?: BranchNameRules,
 };
 
 export type ValidateRepositoryPathParams = {

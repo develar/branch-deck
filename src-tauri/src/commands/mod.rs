@@ -8,6 +8,7 @@ pub mod commit_files;
 pub mod conflict_fix;
 pub mod file_diffs;
 pub mod github;
+pub mod grouping;
 pub mod operations;
 pub mod patronus;
 #[cfg(test)]

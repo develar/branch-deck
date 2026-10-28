@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# the types the grammar of a commit answers (`commit_subject::subject_parts`, `commit_body`)
+domain-types = { path = "../domain-types" }
 # the random bits of an operation id (`operation_id`)
 getrandom.workspace = true
 # the host of a process (`process_scan::host_name`), which the operations registry of a repository records

@@ -1,31 +1,15 @@
-use crate::commit_grouper::{CommitGrouper, GroupedCommits, branch_name_of, stack_branch_name_of};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, branch_name_of, group_of, stack_branch_name_of};
 use crate::stack::{STACKS_CONFIG_KEY, StackForest, stacks_enabled};
-use domain_types::commit::Commit;
-use domain_types::stack::{DeclaredParent, ParentState, StackProblem};
+use crate::store_lines::StoreLines;
+use domain_types::commit::{Commit, GroupOrigin};
+use domain_types::stack::{DeclaredParent, ParentSource, ParentState, StackProblem};
 use indexmap::IndexMap;
 use sync_utils::commit_subject::stripped_subject;
 use test_log::test;
 
-/// Helper function to create a test commit with minimal required fields
+/// A test commit with this subject as its whole message (`test_commit::commit`)
 fn create_test_commit(id: &str, subject: &str) -> Commit {
-  Commit {
-    id: id.to_string(),
-    subject: subject.to_string(),
-    stripped_subject: subject.to_string(),
-    message: subject.to_string(),
-    author_name: "Test Author".to_string(),
-    author_email: "test@example.com".to_string(),
-    author_timestamp: 1234567890,
-    committer_timestamp: 1234567890,
-    author_timezone: String::new(),
-    committer_timezone: String::new(),
-    parent_id: None,
-    tree_id: "tree123".to_string(),
-    note: None,
-    mapped_commit_id: None,
-    mapped_source: None,
-    mapped_resolution: None,
-  }
+  crate::test_commit::commit(id, subject)
 }
 
 #[test]
@@ -724,4 +708,87 @@ fn a_tie_of_authors_takes_the_one_seen_first() {
     let GroupedCommits { branch_emails, .. } = grouper.finish();
     assert_eq!(branch_emails["feature"].as_deref(), Some("zed@example.com"));
   }
+}
+
+/// The inputs of the preview: stacked branches, issue groups and stack parents as the table header has them
+fn inputs(stacks: bool, issue_groups: &[(&str, &str)], stack_parents: &[(&str, &str)]) -> GroupingInputs {
+  let lines = |pairs: &[(&str, &str)]| StoreLines {
+    entries: pairs.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect(),
+    ..StoreLines::default()
+  };
+  GroupingInputs {
+    stacks,
+    issue_groups: lines(issue_groups),
+    stack_parents: lines(stack_parents),
+    ..GroupingInputs::default()
+  }
+}
+
+/// A group as (branch, origin, parent, parent source, invalid)
+type GroupParts = (String, GroupOrigin, Option<String>, Option<ParentSource>, bool);
+
+/// The group of `subject` as its parts
+fn group(subject: &str, inputs: &GroupingInputs) -> Option<GroupParts> {
+  group_of(subject, inputs).map(|group| (group.branch, group.origin, group.parent, group.parent_source, group.invalid))
+}
+
+#[test]
+fn the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key() {
+  let flat = inputs(false, &[("ABC-1", "parser"), ("ABC-2", "parser")], &[]);
+  let named = |subject: &str| group(subject, &flat).map(|(branch, origin, ..)| (branch, origin));
+  for (subject, branch) in [
+    ("(mockito 5.19) Update", "mockito-5.19"),
+    ("(---test---) Update", "test"),
+    ("(feature-auth)", "feature-auth"),
+    ("fixup! squash!  (feat) Fix", "feat"),
+    ("((nested)) m", "(nested"),
+    ("(lexer) ABC-1 Add tokens", "lexer"),
+    ("(auth/login) Add form", "auth/login"),
+  ] {
+    assert_eq!(named(subject), Some((branch.to_string(), GroupOrigin::Prefix)), "{subject}");
+  }
+  for (subject, branch, origin) in [
+    ("ABC-1 Add grammar", "parser", GroupOrigin::IssueGroup),
+    ("fix(api): ABC-2 Fix grammar", "parser", GroupOrigin::IssueGroup),
+    ("fixup! ABC-1 Add grammar", "parser", GroupOrigin::IssueGroup),
+    ("[tag] XYZ-999: Fix", "XYZ-999", GroupOrigin::Issue),
+    ("[cat] feat(api): JKL-012 Add", "JKL-012", GroupOrigin::Issue),
+  ] {
+    assert_eq!(named(subject), Some((branch.to_string(), origin)), "{subject}");
+  }
+  for subject in [
+    "Add login",
+    "feat(auth): add login",
+    "Fix bug (critical)",
+    "Fix JIRA-456",
+    "abc-123 Fix",
+    "ABC-12x Fix",
+    "feat!: ABC-1 Fix",
+    "fixup!(feat) Fix",
+    "()",
+    "() ABC-1 Fix",
+  ] {
+    assert_eq!(named(subject), None, "{subject}");
+  }
+}
+
+#[test]
+fn the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_stack_parent() {
+  let stacked = inputs(true, &[("ABC-2", "parser")], &[("login", "auth"), ("ABC-1", "login"), ("parser", "auth")]);
+  let of = |subject: &str| group(subject, &stacked);
+  let declared = |branch: &str, parent: &str| Some((branch.to_string(), GroupOrigin::Prefix, Some(parent.to_string()), Some(ParentSource::Prefix), false));
+  let stored = |branch: &str, origin, parent: &str| Some((branch.to_string(), origin, Some(parent.to_string()), Some(ParentSource::Store), false));
+  assert_eq!(of("(auth/login/oauth) Add OAuth"), declared("oauth", "login"));
+  assert_eq!(of("( my auth / log in ) Add form"), declared("log-in", "my-auth"));
+  assert_eq!(of("fixup! (docs/login) Add form"), declared("login", "docs"));
+  assert_eq!(of("(login) Add form"), stored("login", GroupOrigin::Prefix, "auth"));
+  assert_eq!(of("(auth/) Add auth"), Some(("auth".to_string(), GroupOrigin::Prefix, None, None, false)));
+  assert_eq!(of("ABC-1 Fix login"), stored("ABC-1", GroupOrigin::Issue, "login"));
+  assert_eq!(of("ABC-2 Parse"), stored("parser", GroupOrigin::IssueGroup, "auth"));
+  // an empty level groups into the last one, which reports the problem; no branch name groups nowhere
+  assert_eq!(of("(a//b) Odd"), Some(("b".to_string(), GroupOrigin::Prefix, None, None, true)));
+  assert_eq!(of("(/) Nothing"), None);
+  // without stacked branches the stack parents decide nothing
+  let flat = inputs(false, &[], &[("login", "auth")]);
+  assert_eq!(group("(login) Add form", &flat), Some(("login".to_string(), GroupOrigin::Prefix, None, None, false)));
 }

@@ -147,6 +147,7 @@ async fn maps_the_review_requests_of_the_search() {
     ReviewRequest {
       number: 840,
       title: "Load the registry under a lock".to_string(),
+      title_lead: None,
       url: "https://github.com/acme/monorepo/pull/840".to_string(),
       body_text: "Fixes a race.\nSecond line".to_string(),
       author: Some("alice".to_string()),

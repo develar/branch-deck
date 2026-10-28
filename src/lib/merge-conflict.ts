@@ -1,13 +1,13 @@
-import type { MissingCommit } from "@/lib/bindings"
-import { formatCommitCount, getSubjectLine, parseSubject } from "@/lib/commit"
+import type { MissingCommit, SubjectParts } from "@/lib/bindings"
+import { formatCommitCount } from "@/lib/commit"
 
 /**
  * The title of a merge conflict wherever the conflict is shown (the expanded row, the sub-windows, the preview):
- * "“Add login form” does not apply cleanly onto master". The grouping prefix of the subject is left out.
+ * "“Add login form” does not apply cleanly onto master". The grouping prefix of the subject (Rust split it off,
+ * `subjectParts`) is left out, an autosquash marker kept.
  */
-export function formatConflictTitle(message: string, onto: string | null | undefined): string {
-  const { autosquash, rest } = parseSubject(getSubjectLine(message))
-  return `“${autosquash}${rest}” does not apply cleanly onto ${onto || "the baseline"}`
+export function formatConflictTitle(subject: SubjectParts, onto: string | null | undefined): string {
+  return `“${subject.autosquash}${subject.rest}” does not apply cleanly onto ${onto || "the baseline"}`
 }
 
 /** A branch that has missing commits of a conflict, with their ids */

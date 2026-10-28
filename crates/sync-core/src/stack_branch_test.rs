@@ -1,5 +1,5 @@
 use crate::stack_branch::{BuildResult, StackBranchPlan, StackBranchSync, StackBuild, StackFinish, build_stack_branch, finish_stack_branches, plan_stack_branches};
-use domain_types::commit::Commit;
+use domain_types::commit::{Commit, SubjectParts};
 use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackMemberBlock};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
@@ -30,6 +30,7 @@ fn commit(index: usize, subject: &str, email: &str) -> Commit {
     mapped_commit_id: None,
     mapped_source: None,
     mapped_resolution: None,
+    subject_parts: SubjectParts::default(),
   }
 }
 

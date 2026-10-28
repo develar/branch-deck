@@ -3,11 +3,13 @@
 use domain_types::commit::Commit;
 use domain_types::rewrite::RegroupPlan;
 use std::collections::BTreeMap;
+use sync_utils::commit_subject::subject_parts;
 
 /// A commit as the commit list reads it, with fixed metadata; the subject is the first line of `message`
 pub fn commit(id: &str, message: &str) -> Commit {
   let subject = message.split('\n').next().unwrap().to_string();
   Commit {
+    subject_parts: subject_parts(&subject),
     id: id.to_string(),
     stripped_subject: subject.clone(),
     message: message.to_string(),

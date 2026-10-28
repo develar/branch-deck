@@ -30,7 +30,6 @@ targets:
   - ../../crates/commit-clustering/src/clustering.rs
   - ../../crates/domain-types/src/error.rs
   - ../../src-tauri/src/commands/stack_operations.rs
-  - ../../src/lib/commit.ts
   - ../../src/lib/stack.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/hooks/useCommitMoveList.ts
@@ -90,7 +89,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 - The group of a commit must be its prefix (the leaf with stacked branches on), else the issue group of its issue key,
   else its issue key, else none. A fixup with the key of its target follows it into the group.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`the_rule_is_prefix_then_issue_group_then_issue_key`)
-  [@test] ../../src/lib/commit.test.ts (`groupFor with issue groups`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key`)
 - The sync, `bd status`, `bd commits`, `bd check`, `bd suggest`, the regroup, the fixup plan and the landed commits
   must group with the same map. A branch that an issue group fills, without a prefix commit, must have the origin
   `IssueGroup`. The key of a commit is read as the grouper reads it, so an issue branch with a `fixup! KEY` commit stays
@@ -169,7 +168,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 
 - `pnpm test:backend`: `crates/sync-core/src/issue_groups_test.rs`, `crates/bd-remote/src/status_test.rs`,
   `crates/bd-rewrite/src/suggest_test.rs`.
-- `pnpm test:unit`: `src/lib/commit.test.ts`, `src/hooks/useCommitMoveList.test.ts`.
+- `pnpm test:unit`: `src/hooks/useCommitMoveList.test.ts`.
 - `pnpm e2e`: `tests/e2e/issue-groups/issue-groups.spec.ts`, on the `issue_groups` template;
   `tests/e2e/move-commits/combine-branches.spec.ts`, on the `issue_combine` template.
 

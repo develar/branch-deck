@@ -12,6 +12,7 @@ use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use sync_core::github_repository::GitHubRepository;
+use sync_utils::issue_pattern::issue_lead;
 use sync_utils::list_cut::kept;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};
@@ -393,6 +394,7 @@ fn to_pull_request(gh: GhPullRequest) -> Option<PullRequest> {
   let requests = Nodes::into_nodes(gh.review_requests).into_iter().filter_map(|node| node.requested_reviewer).collect();
   Some(PullRequest {
     number: gh.number?,
+    title_lead: issue_lead(&gh.title),
     title: gh.title,
     url: gh.url,
     state,

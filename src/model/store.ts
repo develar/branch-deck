@@ -45,7 +45,6 @@ import type {
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
-import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { getErrorCode } from "@/lib/errors"
 import { sameStringRecord, withoutKeys } from "@/lib/record"
 import { toRemoteStatus } from "@/lib/remote-status"
@@ -621,6 +620,8 @@ function branchOf(shown: Branch | undefined, view: BranchView, change: BranchCha
     latestCommitTime: head.latestCommitTime,
     summary: head.summary,
     descriptionTitle: head.descriptionTitle ?? null,
+    descriptionLead: head.descriptionLead ?? null,
+    nameIssueKey: head.nameIssueKey ?? null,
     remoteStatus: keepRemote ? shown.remoteStatus : view.remote.status === null ? null : toRemoteStatus(view.remote.status),
     allCommitsHaveIssueReferences: head.allCommitsHaveIssueReferences,
     myEmail: head.myEmail ?? null,
@@ -1041,7 +1042,7 @@ export function nextRunNumber(): number {
 }
 
 function isFixupCommit(commit: Commit): boolean {
-  return parseSubject(getSubjectLine(commit.message)).autosquash !== ""
+  return commit.subjectParts.autosquash !== ""
 }
 
 let autosquashPlanRequest = 0

@@ -13,6 +13,7 @@ import type {
   Commit,
   CommitSyncStatus,
   DroppedCommit,
+  IssueLead,
   LandDecisions,
   Landed,
   NextStepView,
@@ -113,6 +114,10 @@ export interface Branch {
   readonly summary: string
   /** The title of the branch's description (`bd describe`), shown as written instead of the summary; null without one */
   readonly descriptionTitle: string | null
+  /** The title split at the issue key it starts with, which a row that shows the key leaves out; null for none */
+  readonly descriptionLead: IssueLead | null
+  /** The issue key the name starts with, which the name shows; null for none */
+  readonly nameIssueKey: string | null
   /** null = not yet loaded */
   readonly remoteStatus: RemoteStatus | null
   readonly allCommitsHaveIssueReferences: boolean

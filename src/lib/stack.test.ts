@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
+import type { CommitGroup } from "@/lib/bindings"
 import type { StackBranchInfo } from "@/lib/stack"
 import {
   baselineOnRemote,
@@ -18,22 +19,32 @@ const table: Record<string, StackBranchInfo> = {
   docs: { declaredParent: null, commitCount: 1 },
 }
 
-function change(before: string, after: string, stacks = true) {
-  return describePrefixChange(before, after, "Saving", stacks, "master", name => table[name])
+/** A group as Rust previews it (`preview_group`): of a prefix, its parent declared by the prefix */
+function prefix(branch: string, parent: string | null = null, invalid = false): CommitGroup {
+  return { branch, origin: "prefix", parent, parentSource: parent === null ? null : "Prefix", invalid }
+}
+
+/** A group whose parent is its line in the stack parents */
+function stored(branch: string, parent: string): CommitGroup {
+  return { branch, origin: "prefix", parent, parentSource: "Store", invalid: false }
+}
+
+function change(from: CommitGroup | null, to: CommitGroup | null, stacks = true, stackParents: Readonly<Record<string, string>> = {}) {
+  return describePrefixChange(from, to, "Saving", stacks, "master", name => table[name], stackParents)
 }
 
 describe("describePrefixChange", () => {
   it("is quiet while the commit stays where it is", () => {
-    expect(change("(auth/login) Add form", "(auth/login) Add the form")).toEqual({ text: "The first line is the subject", warning: false })
+    expect(change(prefix("login", "auth"), prefix("login", "auth"))).toEqual({ text: "The first line is the subject", warning: false })
   })
 
   it("names the new branch and its parent", () => {
-    expect(change("(docs) Document", "(auth/login) Document").text).toBe("Saving moves the commit to the branch login on auth")
-    expect(change("(docs) Document", "Document").text).toBe("Saving moves the commit to the unassigned commits")
+    expect(change(prefix("docs"), prefix("login", "auth")).text).toBe("Saving moves the commit to the branch login on auth")
+    expect(change(prefix("docs"), null).text).toBe("Saving moves the commit to the unassigned commits")
   })
 
   it("warns about a parent the other commits of the branch don't declare", () => {
-    expect(change("(auth/login) Add form", "(docs/login) Add form")).toEqual({
+    expect(change(prefix("login", "auth"), prefix("login", "docs"))).toEqual({
       text: "The other commits of login declare auth: its parents would conflict",
       warning: true,
       refused: "Saving is refused: the other commits of login declare auth, its parents would conflict",
@@ -41,7 +52,7 @@ describe("describePrefixChange", () => {
   })
 
   it("warns about an empty level of the prefix, which a reword refuses", () => {
-    expect(change("(docs) Document", "(auth//docs) Document")).toEqual({
+    expect(change(prefix("docs"), prefix("docs", null, true))).toEqual({
       text: "The prefix has an empty level: docs will report an error",
       warning: true,
       refused: "Saving is refused: the prefix has an empty level",
@@ -49,28 +60,28 @@ describe("describePrefixChange", () => {
   })
 
   it("says a single-commit branch is restacked or unstacked", () => {
-    expect(change("(docs) Document", "(auth/docs) Document").text).toBe("Saving stacks docs on auth")
-    expect(change("(auth/docs) Document", "(docs) Document", true).text).toBe("Saving unstacks docs")
+    expect(change(prefix("docs"), prefix("docs", "auth")).text).toBe("Saving stacks docs on auth")
+    expect(change(prefix("docs", "auth"), prefix("docs")).text).toBe("Saving unstacks docs")
   })
 
   it("warns about a parent without commits", () => {
-    expect(change("(docs) Document", "(api/docs) Document")).toEqual({ text: "api has no commits: docs is built on master until it has", warning: true })
+    expect(change(prefix("docs"), prefix("docs", "api"))).toEqual({ text: "api has no commits: docs is built on master until it has", warning: true })
   })
 
   it("warns about a parent level that differs from the stored parent", () => {
-    const stored = (before: string, after: string) => describePrefixChange(before, after, "Saving", true, "master", name => table[name], {}, { login: "auth" })
-    expect(stored("(login) Add form", "(docs/login) Add form")).toEqual({
+    const parents = { login: "auth" }
+    expect(change(stored("login", "auth"), prefix("login", "docs"), true, parents)).toEqual({
       text: "login is stacked on auth in the stack parents: the prefix would conflict with it",
       warning: true,
     })
     // dropping a parent level that the stack parents repeat keeps the branch where it is
-    expect(stored("(auth/login) Add form", "(login) Add form")).toEqual({ text: "The first line is the subject", warning: false })
-    expect(stored("(login) Add form", "(auth/login) Add form").warning).toBe(false)
+    expect(change(prefix("login", "auth"), stored("login", "auth"), true, parents)).toEqual({ text: "The first line is the subject", warning: false })
+    expect(change(stored("login", "auth"), prefix("login", "auth"), true, parents).warning).toBe(false)
   })
 
   it("compares the whole prefix without stacked branches", () => {
-    expect(change("(docs) Document", "(auth/login) Document", false).text).toBe("Saving moves the commit to the branch auth/login")
-    expect(change("(auth/login) Add form", "(auth/login) Add the form", false).warning).toBe(false)
+    expect(change(prefix("docs"), prefix("auth/login"), false).text).toBe("Saving moves the commit to the branch auth/login")
+    expect(change(prefix("auth/login"), prefix("auth/login"), false).warning).toBe(false)
   })
 })
 

@@ -6,7 +6,7 @@
 //! `trial-check` and `update-core` build them, `bd` prints them and the page reads them.
 
 use crate::BranchError;
-use crate::commit::CommitInfo;
+use crate::commit::{CommitInfo, SubjectParts};
 use crate::session::StoreTips;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -545,6 +545,9 @@ pub struct SquashCommitsResult {
 pub struct OrphanFixup {
   pub commit_id: String,
   pub subject: String,
+  /// The parts of `subject` the page shows: its markers apart from the rest
+  #[serde(default)]
+  pub subject_parts: SubjectParts,
   /// The virtual branch the fixup itself is grouped into; `None` if it is unassigned
   pub branch: Option<String>,
 }

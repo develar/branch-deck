@@ -7,6 +7,7 @@
 //! branches it is built on, whose commits the pull request holds too. No git: the callers read the commits.
 
 use crate::stack_pull_request::{MAX_BODY_CHARS, cut_chars, cut_title, push_fitting_sections};
+use domain_types::commit_body::CommitBodyBlock;
 use domain_types::issue_navigation::IssueNavigationConfig;
 use domain_types::youtrack::YouTrackIssueAnswer;
 use git_ops::branch_description::Description;
@@ -15,6 +16,7 @@ use std::fmt::Write as _;
 use std::time::Duration;
 use sync_core::issue_navigation::issue_link;
 use sync_core::sync::branch_summary;
+use sync_utils::commit_body::body_blocks;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::debug;
 use youtrack::service::YouTrackService;
@@ -265,148 +267,38 @@ fn ancestors_section(ancestors: &[AncestorText]) -> Option<String> {
   }
 }
 
-/// A line of the output and whether it is code, which stays as it is
-struct OutputLine {
-  text: String,
-  code: bool,
-}
-
-/// The body of a commit as Markdown that GitHub shows as the commit reads: the lines of a paragraph joined, a line of
-/// its own where Markdown starts a block (a list item, a heading, a quote, a table row, a rule) or after a hard
-/// break, fenced and indented code as it is, the trailers (`Co-Authored-By:`…) left out, a mention or a `<T>` in code
-/// spans
+/// The body of a commit as Markdown that GitHub shows as the commit reads, from the blocks of the commit preview
+/// (`sync_utils::commit_body::body_blocks`): a line per line of a paragraph (GitHub shows a newline of a pull request as
+/// a line break), a list with `-` or the numbers from its first, code fenced, the blocks apart by a blank line; the
+/// trailers (`Co-Authored-By:`…) left out, a mention or a `<T>` in code spans
 fn commit_body_markdown(body: &str) -> String {
-  let mut lines: Vec<OutputLine> = Vec::new();
-  // the last line is text that the next plain line continues
-  let mut joinable = false;
-  let mut fence: Option<&str> = None;
-  for line in without_trailers(body) {
-    let trimmed = line.trim_start();
-    if let Some(marker) = fence {
-      if trimmed.starts_with(marker) {
-        fence = None;
+  let blocks: Vec<String> = body_blocks(body)
+    .into_iter()
+    .filter_map(|block| match block {
+      CommitBodyBlock::Paragraph { lines } => Some(lines.iter().map(|line| literal_markdown(line)).collect::<Vec<_>>().join("\n")),
+      CommitBodyBlock::List { ordered, start, items } => Some(
+        items
+          .iter()
+          .zip(start..)
+          .map(|(item, number)| {
+            if ordered {
+              format!("{number}. {}", literal_markdown(item))
+            } else {
+              format!("- {}", literal_markdown(item))
+            }
+          })
+          .collect::<Vec<_>>()
+          .join("\n"),
+      ),
+      CommitBodyBlock::Preformatted { text } => {
+        // a fence the code itself has no line of
+        let fence = if text.lines().any(|line| line.trim_start().starts_with("```")) { "~~~" } else { "```" };
+        Some(format!("{fence}\n{text}\n{fence}"))
       }
-      lines.push(OutputLine {
-        text: line.to_string(),
-        code: true,
-      });
-      continue;
-    }
-    if let Some(marker) = ["```", "~~~"].into_iter().find(|marker| trimmed.starts_with(marker)) {
-      fence = Some(marker);
-      joinable = false;
-      lines.push(OutputLine {
-        text: line.to_string(),
-        code: true,
-      });
-      continue;
-    }
-    if trimmed.is_empty() {
-      joinable = false;
-      lines.push(OutputLine { text: String::new(), code: false });
-      continue;
-    }
-    // indented code starts after a blank line; within a paragraph or an item, the indent continues it
-    if line.len() - trimmed.len() >= 4 && !joinable {
-      lines.push(OutputLine {
-        text: line.to_string(),
-        code: true,
-      });
-      continue;
-    }
-    if let Some(list_item) = block_start(trimmed) {
-      joinable = list_item;
-      lines.push(OutputLine {
-        text: line.to_string(),
-        code: false,
-      });
-      continue;
-    }
-    if joinable
-      && let Some(last) = lines.last_mut()
-      && !(last.text.ends_with("  ") || last.text.ends_with('\\'))
-    {
-      last.text.push(' ');
-      last.text.push_str(trimmed);
-      continue;
-    }
-    joinable = true;
-    lines.push(OutputLine {
-      text: line.to_string(),
-      code: false,
-    });
-  }
-  while lines.last().is_some_and(|line| line.text.trim().is_empty()) {
-    lines.pop();
-  }
-  lines
-    .iter()
-    .map(|line| {
-      if line.code {
-        Cow::Borrowed(line.text.as_str())
-      } else {
-        Cow::Owned(literal_markdown(&line.text))
-      }
+      CommitBodyBlock::Trailers { .. } => None,
     })
-    .collect::<Vec<_>>()
-    .join("\n")
-}
-
-/// Whether a line starts a Markdown block: Some(true) for a list item, whose next plain line continues it, Some(false)
-/// for a heading, a quote, a table row or a rule
-fn block_start(trimmed: &str) -> Option<bool> {
-  if ["- ", "* ", "+ "].iter().any(|marker| trimmed.starts_with(marker)) && !is_rule(trimmed) {
-    return Some(true);
-  }
-  let digits = trimmed.len() - trimmed.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-  if digits > 0 && (trimmed[digits..].starts_with(". ") || trimmed[digits..].starts_with(") ")) {
-    return Some(true);
-  }
-  let heading = trimmed.trim_start_matches('#');
-  let is_heading = heading.len() < trimmed.len() && trimmed.len() - heading.len() <= 6 && (heading.is_empty() || heading.starts_with(' '));
-  (is_heading || trimmed.starts_with('>') || trimmed.starts_with('|') || is_rule(trimmed)).then_some(false)
-}
-
-/// `---`, `***`, `___`, also with spaces between
-fn is_rule(trimmed: &str) -> bool {
-  ['-', '*', '_'].iter().any(|&mark| {
-    let marks = trimmed.chars().filter(|&c| c == mark).count();
-    marks >= 3 && trimmed.chars().all(|c| c == mark || c == ' ')
-  })
-}
-
-/// The lines of `body` without its trailers: the last paragraph when every line of it is a `Token-Name: value` trailer
-/// or a `(cherry picked from commit …)` line
-fn without_trailers(body: &str) -> Vec<&str> {
-  let mut lines: Vec<&str> = body.lines().collect();
-  while lines.last().is_some_and(|line| line.trim().is_empty()) {
-    lines.pop();
-  }
-  let start = lines.iter().rposition(|line| line.trim().is_empty()).map_or(0, |blank| blank + 1);
-  let paragraph = &lines[start..];
-  if !paragraph.is_empty() && paragraph.iter().all(|line| is_trailer(line)) {
-    lines.truncate(start);
-    while lines.last().is_some_and(|line| line.trim().is_empty()) {
-      lines.pop();
-    }
-  }
-  lines
-}
-
-/// `Co-Authored-By: …`, `Signed-off-by: …`, `GitOrigin-RevId: …`: a token of words joined by `-`, at least two, as
-/// git and the tools that write trailers name them; a one-word "Note: …" is prose
-fn is_trailer(line: &str) -> bool {
-  if line.starts_with("(cherry picked from commit ") {
-    return true;
-  }
-  let Some((token, value)) = line.split_once(": ") else {
-    return false;
-  };
-  let words: Vec<&str> = token.split('-').collect();
-  words.len() >= 2
-    && words.iter().all(|word| !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric()))
-    && token.starts_with(|c: char| c.is_ascii_alphabetic())
-    && !value.trim().is_empty()
+    .collect();
+  blocks.join("\n\n")
 }
 
 /// `text` with each word that GitHub would read as a mention (`@Nullable`) or as an HTML tag (`<T>`, `List<String>`) in a

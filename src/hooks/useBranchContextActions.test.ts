@@ -9,9 +9,9 @@ import { getBranchContextMenuItems, getBranchReviewItems } from "@/hooks/useBran
 import type { ActionId, ActionState, BranchPush, ChildrenPush } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem } from "@/lib/menu"
-import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { CREATE, forcePush, PUSH, placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, placed, testBranch, testRemoteStatus, testTip } from "@/stores/test-branch"
 import { disabled, enabled, LANDING_BRANCH, setActions, withActions } from "@/test-support/actions"
 import { pendingStep, setNextSteps, testStep } from "@/test-support/next-step"
 
@@ -21,7 +21,7 @@ const unpushed = testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhe
 
 /** A synced branch of one commit that the menu can change */
 function synced(name: string, parent: string | null, remoteStatus: RemoteStatus, overrides: Partial<Branch> = {}): Branch {
-  const tip: SyncedCommit = { originalHash: `${name}-original`, hash: `${name}-tip`, strippedSubject: name, message: name, author: "Ann", authorTime: 0, committerTime: 0 }
+  const tip = testTip(name)
   return testBranch(name, parent, { commits: [tip], remoteStatus, ...overrides })
 }
 

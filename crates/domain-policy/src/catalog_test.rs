@@ -1,4 +1,4 @@
-//! A catalog the page's formatters are tested on (`reasons.json`, `actions.json`): written by a test with its variable
+//! A catalog the page's formatters are tested on (`reasons.json`, `actions.json`, the branch name cases): written by a test with its variable
 //! set, compared by value otherwise, so a stale catalog fails
 
 use serde::Serialize;

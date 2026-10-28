@@ -6,9 +6,9 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { useRowSelection } from "@/hooks/useRowSelection"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import { squashFixupInto } from "@/hooks/useSquashFixups"
-import { getDisplaySubject, getFixupTarget } from "@/lib/autosquash"
+import { getFixupTarget } from "@/lib/autosquash"
 import type { Commit } from "@/lib/bindings"
-import { findIssueKey, getCommitHash, getSubjectLine, parseSubject } from "@/lib/commit"
+import { getCommitHash } from "@/lib/commit"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { pushUpTo } from "@/lib/push-run"
@@ -66,9 +66,9 @@ export function getRemovePrefixLabel(commits: readonly Commit[], issueGroups: Re
   const branches = new Set<string | null>()
   let isGrouped = false
   for (const commit of commits) {
-    // the key of the subject itself: a stripped `(ABC-1) X` names the key of its prefix, which goes with the prefix
-    const { prefix, rest } = parseSubject(getSubjectLine(commit.message))
-    const key = findIssueKey(rest)
+    // the key of the subject itself, as Rust split it: a stripped `(ABC-1) X` names the key of its prefix, which goes
+    // with the prefix
+    const { prefix, issueKey: key } = commit.subjectParts
     if (prefix !== null) {
       branches.add(key === null ? null : (issueGroups[key] ?? key))
     } else if (key !== null && issueGroups[key] !== undefined) {
@@ -92,7 +92,7 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
   if (target == null) {
     return []
   }
-  const subject = getDisplaySubject(target.targetSubject)
+  const subject = target.targetParts.rest
   const label = subject.length > MAX_MENU_SUBJECT ? `${subject.slice(0, MAX_MENU_SUBJECT - 1)}…` : subject
   return [{ id: "squash-into", label: `Squash into “${label}”`, icon: CombineIcon, onSelect: () => void squashFixupInto(commit.originalHash) }]
 }

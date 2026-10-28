@@ -1,7 +1,9 @@
 //! The names of the branches Branch Deck manages under the user's prefix (`{prefix}/virtual/<name>`,
-//! `{prefix}/stack/<root>`, `BranchKind`), the prefix itself, and a group name made valid for a ref.
+//! `{prefix}/stack/<root>`, `BranchKind`), the prefix itself, a group name made valid for a ref, and the check of a
+//! name the user types for a branch (`check_branch_name`).
 
 use anyhow::ensure;
+use serde::{Deserialize, Serialize};
 
 /// Namespace of a Branch Deck managed branch under the user's branch prefix
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +104,78 @@ pub fn sanitize_branch_name(name: &str) -> String {
     result.pop();
   }
   result
+}
+
+/// What a typed branch name may be
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BranchNameRules {
+  /// Stacked branches are on: a `/` separates a parent from its branch
+  #[serde(default)]
+  pub stacks: bool,
+  /// Only a branch name, not `parent/branch` (with stacked branches on: a rename)
+  #[serde(default)]
+  pub leaf_only: bool,
+}
+
+/// What a typed branch name is; the page words each (`src/presenters/branch-name.ts`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum BranchNameState {
+  /// Nothing typed yet
+  Empty,
+  Valid,
+  /// Under two characters
+  TooShort,
+  /// A character other than a letter, a digit, `-`, `_`, `.`, `/` or a space, or a leading `.`
+  InvalidChars,
+  /// A `/` in a name that names only a branch (`BranchNameRules::leaf_only`)
+  LeafOnly,
+  /// The grouping would rename it (`sanitize_branch_name`: `-`, `.` or `/` at an end, `--`), or it has `..` or `//`,
+  /// so the virtual branch would not get this name
+  InvalidRef,
+}
+
+/// The check of a typed branch name: what it is, and the name the branch gets (`sanitized`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BranchNameCheck {
+  pub state: BranchNameState,
+  /// The name trimmed, its runs of whitespace turned into `-`
+  pub sanitized: String,
+}
+
+/// The parameters of `validate_branch_name`
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateBranchNameParams {
+  pub name: String,
+  #[serde(default)]
+  pub rules: BranchNameRules,
+}
+
+/// Checks a branch name the user types (the "Move to…" form, a rename): spaces may be typed, they become `-`; the rest
+/// must be a name the grouping keeps as it is, so the branch gets exactly that name
+pub fn check_branch_name(name: &str, rules: BranchNameRules) -> BranchNameCheck {
+  let sanitized = name.split_whitespace().collect::<Vec<_>>().join("-");
+  let state = if name.is_empty() {
+    BranchNameState::Empty
+  } else if rules.stacks && rules.leaf_only && name.contains('/') {
+    BranchNameState::LeafOnly
+  } else if sanitized.chars().count() < 2 {
+    BranchNameState::TooShort
+  } else if !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' ' | '/')) || name.trim().starts_with('.') {
+    BranchNameState::InvalidChars
+  } else if sanitize_branch_name(&sanitized) != sanitized || sanitized.contains("//") || sanitized.contains("..") {
+    BranchNameState::InvalidRef
+  } else {
+    BranchNameState::Valid
+  };
+  BranchNameCheck { state, sanitized }
 }
 
 #[cfg(test)]

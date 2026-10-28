@@ -132,6 +132,7 @@ fn bob_pull(repository: &FakeGitHubRepository) {
       pull_request: domain_types::pull_request::PullRequest {
         number: 7,
         title: "Add auth".to_string(),
+        title_lead: None,
         url: "https://github.com/acme/monorepo/pull/7".to_string(),
         state: domain_types::pull_request::PullRequestState::Open,
         is_draft: false,

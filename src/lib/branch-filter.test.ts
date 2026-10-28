@@ -4,9 +4,19 @@ import type { BranchFilter } from "@/lib/branch-filter"
 import { chipCount, collectChipMatches, filterBranches, formatNoMatch, isFilterActive, keepShown, matchesBranchText, movesByUrgency, NO_FILTER } from "@/lib/branch-filter"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { testSubject } from "@/test-support/subject-parts"
 
 function commit(name: string, subject: string): SyncedCommit {
-  return { originalHash: `${name}-original`, hash: `${name}-tip`, strippedSubject: subject, message: subject, author: "Ann", authorTime: 0, committerTime: 0 }
+  return {
+    originalHash: `${name}-original`,
+    hash: `${name}-tip`,
+    strippedSubject: subject,
+    subjectParts: testSubject(subject),
+    message: subject,
+    author: "Ann",
+    authorTime: 0,
+    committerTime: 0,
+  }
 }
 
 /** A branch at the commit `${name}-tip` with one commit of `subject`, not pushed */

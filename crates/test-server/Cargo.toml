@@ -57,6 +57,8 @@ dashmap.workspace = true
 
 [dev-dependencies]
 reqwest.workspace = true
+# the builders of the fixtures (`domain_types::fixtures`)
+domain-types = { path = "../domain-types", features = ["fixtures"] }
 pretty_assertions = { workspace = true }
 # the cases of the adapters' contract test (`api_error_contract_test.rs`)
 app-api = { path = "../app-api", features = ["fixtures"] }

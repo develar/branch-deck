@@ -26,14 +26,14 @@ export function getCommitSubject(commit: CommitUnion): string {
   return commit.message
 }
 
-/** Body of a multi-line message: everything after the subject line, without the blank lines that follow it. */
-export function getCommitMessageBody(message: string): string {
-  const lines = message.split("\n")
-  let bodyStartIndex = 1
-  while (bodyStartIndex < lines.length && lines[bodyStartIndex]?.trim() === "") {
-    bodyStartIndex++
-  }
-  return lines.slice(bodyStartIndex).join("\n").trim()
+/**
+ * What a row shows of the subject: `getCommitSubject` without the autosquash markers, which Rust split off
+ * (`subjectParts.autosquash`) and a row shows apart
+ */
+export function getShownSubject(commit: CommitUnion): string {
+  const autosquash = commit.subjectParts.autosquash
+  const subject = getCommitSubject(commit)
+  return autosquash !== "" && subject.startsWith(autosquash) ? subject.slice(autosquash.length) : subject
 }
 
 /** Whether the message has a body beyond its subject line. */
@@ -47,7 +47,7 @@ const SUBJECT_PREFIX = /^([a-z][a-z0-9-]*(?:\([^)]+\)| [a-z][\w./-]*)?!?:)\s+(\S
 const GROUPING_PREFIX = /^\(([^()\s]+)\)\s+(\S.*)$/
 
 /** A subject with its prefix split off; `prefix` is null if there is none */
-export interface SubjectParts {
+export interface SplitSubject {
   prefix: string | null
   text: string
 }
@@ -56,7 +56,7 @@ export interface SubjectParts {
  * Splits a prefix off the subject: a grouping prefix (`(feature-auth) …`, returned without the parentheses) or a
  * conventional-commit prefix (with its colon). `prefix` is null if there is none.
  */
-export function splitSubjectPrefix(subject: string): SubjectParts {
+export function splitSubjectPrefix(subject: string): SplitSubject {
   const match = GROUPING_PREFIX.exec(subject) ?? SUBJECT_PREFIX.exec(subject)
   return match == null ? { prefix: null, text: subject } : { prefix: match[1]!, text: match[2]! }
 }
@@ -77,142 +77,9 @@ export function getCommitFileCount(commit: CommitUnion): number | undefined {
   return undefined
 }
 
-/** The branch a commit message groups into, mirroring the backend `CommitGrouper`. */
-export interface CommitGroup {
-  /** The branch; with stacked branches the leaf of `(parent/leaf)` */
-  branch: string
-  /** An explicit `(branch)` subject prefix, else the issue group of the subject's issue key, else that key */
-  origin: "prefix" | "issueGroup" | "issue"
-  /** With stacked branches: the parent the prefix declares, else the stack parent of the branch, null for none; absent
-   * without stacked branches */
-  parent?: string | null
-  /** With stacked branches and a parent: where it comes from, the prefix or the stack parents */
-  parentSource?: "prefix" | "store"
-  /** With stacked branches: the prefix has an empty level (`(a//b)`) */
-  invalid?: boolean
-}
-
-// git's autosquash markers need the space: `fixup!X` is an ordinary subject
-const AUTOSQUASH_MARKERS = ["fixup! ", "squash! ", "amend! "]
-
-/** The subject after its leading autosquash markers, each with the whitespace after it (`fixup! squash! X` → `X`) */
-function stripAutosquashMarkers(subject: string): string {
-  let rest = subject
-  for (;;) {
-    const marker = AUTOSQUASH_MARKERS.find(it => rest.startsWith(it))
-    if (marker === undefined) {
-      return rest
-    }
-    rest = rest.slice(marker.length).trimStart()
-  }
-}
-
-/**
- * Splits a subject like the backend `parse_subject`: the git autosquash markers, then a non-empty `(prefix)` at the
- * very start (unsanitized), then the rest.
- */
-export function parseSubject(subject: string): { autosquash: string; prefix: string | null; rest: string } {
-  const body = stripAutosquashMarkers(subject)
-  const autosquash = subject.slice(0, subject.length - body.length)
-  const closeParen = body.startsWith("(") ? body.indexOf(")") : -1
-  if (closeParen > 1) {
-    return { autosquash, prefix: body.slice(1, closeParen), rest: body.slice(closeParen + 1).trimStart() }
-  }
-  return { autosquash, prefix: null, rest: body }
-}
-
 /** The first line of a message */
 export function getSubjectLine(message: string): string {
   return message.trimStart().split("\n", 1)[0]!
-}
-
-// as `find_issue_range`: an optional `[category]`, an optional `type(scope):`, then `ABC-123` at a word boundary
-const ISSUE_KEY = /^(?:\[[^\]\n]*\]\s*)?(?:[a-z]+(?:\([^)\n]*\))?:\s*)?([A-Z]+-\d+)(?![A-Za-z0-9])/
-
-/** The issue key a subject starts with (`ABC-123` in `[ui] fix(api): ABC-123 …`), or null. */
-export function findIssueKey(subject: string): string | null {
-  return ISSUE_KEY.exec(subject)?.[1] ?? null
-}
-
-/**
- * `text` without the issue key `key` it starts with ("IJPL-1 Fix", "IJPL-1: Fix", "[IJPL-1] Fix") and the separator after
- * it, for a row that shows the key already; `text` itself when it starts with another key or none
- */
-export function stripLeadingIssueKey(text: string, key: string): string {
-  // a key is `[A-Z]+-\d+`: nothing in it to escape
-  const match = new RegExp(`^(?:\\[${key}\\]|${key}(?![A-Za-z0-9]))\\s*([:,–—-]?)\\s*`).exec(text)
-  if (match === null) {
-    return text
-  }
-  const rest = text.slice(match[0].length)
-  // "TEST-1 and PROD-9: …" names both: the key is a part of the sentence
-  return match[1] === "" && /^(?:and|or|&)\s/.test(rest) ? text : rest
-}
-
-/** A valid Git ref name part, as the backend `sanitize_branch_name`: `mockito 5.19` becomes `mockito-5.19`. */
-export function sanitizeBranchName(name: string): string {
-  return name
-    .replace(/^\.+|\.+$/g, "")
-    .replace(/^\/+|\/+$/g, "")
-    .replace(/[ ~^:?*[\]\\]/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-|-$/g, "")
-}
-
-/**
- * The levels of a stack prefix as the backend `stack_path` reads them: sanitized, the empty ones at the ends dropped.
- * `invalid` for an empty level in the middle; `levels` is empty for a prefix without any branch name (`(/)`).
- */
-function stackLevels(prefix: string): { levels: string[]; invalid: boolean } {
-  const levels = prefix.split("/").map(level => sanitizeBranchName(level.trim()))
-  const first = levels.findIndex(level => level !== "")
-  if (first === -1) {
-    return { levels: [], invalid: true }
-  }
-  const last = levels.findLastIndex(level => level !== "")
-  const path = levels.slice(first, last + 1)
-  return path.includes("") ? { levels: [path.at(-1)!], invalid: true } : { levels: path, invalid: false }
-}
-
-/**
- * The branch the message groups into, or null: the commit is unassigned. Only the subject line counts. With `stacks`,
- * `(auth/login)` groups into `login` with the parent `auth`, and a branch whose prefix names no parent takes its stack
- * parent from `stackParents` (child -> parent). `issueGroups` (issue key -> branch name) puts a subject without a
- * prefix into the issue group of its key. Both maps come from the `branchesGrouped` event.
- */
-export function groupFor(
-  message: string,
-  stacks = false,
-  issueGroups: Readonly<Record<string, string>> = {},
-  stackParents: Readonly<Record<string, string>> = {},
-): CommitGroup | null {
-  const { prefix, rest } = parseSubject(getSubjectLine(message))
-  const stored = (group: CommitGroup): CommitGroup => {
-    const parent = stackParents[group.branch]
-    return parent === undefined ? { ...group, parent: null } : { ...group, parent, parentSource: "store" }
-  }
-  if (prefix !== null && stacks) {
-    const { levels, invalid } = stackLevels(prefix)
-    if (levels.length === 0) {
-      return null
-    }
-    const group: CommitGroup = { branch: levels.at(-1)!, origin: "prefix" }
-    if (invalid) {
-      return { ...group, parent: null, invalid }
-    }
-    const declared = levels.at(-2)
-    return declared === undefined ? stored(group) : { ...group, parent: declared, parentSource: "prefix" }
-  }
-  if (prefix !== null) {
-    return { branch: sanitizeBranchName(prefix.trim()), origin: "prefix" }
-  }
-  const issueKey = findIssueKey(rest)
-  if (issueKey === null) {
-    return null
-  }
-  const issueGroup = issueGroups[issueKey]
-  const group: CommitGroup = issueGroup === undefined ? { branch: issueKey, origin: "issue" } : { branch: issueGroup, origin: "issueGroup" }
-  return stacks ? stored(group) : group
 }
 
 /** A commit of a list as a review shows it: its id (the original hash), subject, message, author and times */

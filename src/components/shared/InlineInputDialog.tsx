@@ -23,7 +23,11 @@ export interface InlineInputDialogProps {
   submitVariant?: "default" | "destructive"
   canSubmit?: boolean
   loading?: boolean
-  onSubmit: () => void
+  /**
+   * Called on a submit while `canSubmit`; a form whose check answers later returns whether it submitted, and the
+   * validation message shows when it refused
+   */
+  onSubmit: (() => void) | (() => Promise<boolean>)
   onCancel: () => void
 
   value: string
@@ -94,7 +98,14 @@ export function InlineInputDialog({
       setHasInteracted(true)
       return
     }
-    onSubmit()
+    const submitted = onSubmit()
+    if (submitted instanceof Promise) {
+      void submitted.then(done => {
+        if (!done) {
+          setHasInteracted(true)
+        }
+      })
+    }
   }
 
   return (

@@ -40,7 +40,6 @@ targets:
   - ../../src/components/branch/StackChildrenNote.tsx
   - ../../src/components/branch/InlineRenameBranchInput.tsx
   - ../../crates/operations/src/rewrite.rs
-  - ../../src/lib/commit.ts
   - ../../src/lib/stack.ts
   - ../../src/components/commit/PrefixChangeHint.tsx
   - ../../src/components/shared/InlineBranchTarget.tsx
@@ -503,8 +502,9 @@ menu stacks, unstacks and renames branches.
 
 ### Messages
 
-- `groupFor` must read a prefix as the backend does: the leaf, its parent and an empty level.
-  [@test] ../../src/lib/commit.test.ts (`reads %j as the backend stack_path does`, `keeps a slash in a flat name without stacked branches`)
+- The grouping preview of a typed message or branch name (`preview_group`) must read a prefix as the grouping does:
+  the leaf, its parent and an empty level; without stacked branches a `/` is a part of the name.
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_stack_parent`, `the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key`)
 - The commit message editor must say when an edit restacks the branch, and warn when it would make the branch's
   parents conflict, also with its stack parent, or name a parent without commits, likely a typo: "api has no commits:
   docs is built on master until it has".

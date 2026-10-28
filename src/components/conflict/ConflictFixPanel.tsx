@@ -9,7 +9,6 @@ import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { FixComponent, MergeConflictInfo } from "@/lib/bindings"
-import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { branchesOfFix, componentFixing, describeFixGrouping, describeFixResult, describeFixStep } from "@/lib/conflict-fix"
 import { buildConflictPrompt } from "@/lib/conflict-fix-prompt"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
@@ -161,7 +160,7 @@ function CopyConflictPrompt({ conflict, branchName, builtOn, owners }: ConflictF
       buildConflictPrompt({
         repositoryPath: project?.path ?? "",
         branch: branchName,
-        commit: { hash: conflict.commit.hash, subject: parseSubject(getSubjectLine(conflict.commit.message)).rest },
+        commit: { hash: conflict.commit.hash, subject: conflict.commit.subjectParts.rest },
         builtOn: builtOn ?? "the baseline",
         files: conflict.conflictingFiles.map(file => file.file),
         explanation: formatMissingCommitsTitle(owners),

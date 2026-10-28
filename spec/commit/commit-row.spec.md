@@ -29,6 +29,15 @@ targets:
   - ../../src/components/commit/LinkedText.tsx
   - ../../src/lib/commit.ts
   - ../../src/lib/commit-message.ts
+  - ../../src/hooks/useCommitBodyBlocks.ts
+  - ../../src/hooks/usePreviewGroup.ts
+  - ../../src/hooks/useDebouncedRead.ts
+  - ../../src-tauri/src/commands/grouping.rs
+  - ../../crates/sync-utils/src/commit_body.rs
+  - ../../crates/sync-utils/src/commit_subject.rs
+  - ../../crates/sync-utils/src/issue_pattern.rs
+  - ../../crates/domain-types/src/commit_body.rs
+  - ../../crates/history-rewrite/src/commit_grouper.rs
   - ../../src/lib/inline-code.ts
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
@@ -108,8 +117,12 @@ The commit hash popover shows the same header and body.
 - In the commits of a branch, a subject that starts with the issue key of the branch must leave it out, with the
   separator after it, as the title of the branch does: the branch row (its name, or its issue chip) or the issue row above
   it shows the key, as a link. A subject that is the key alone keeps it; other lists (unassigned, landed, the previews)
-  show the subject as written.
+  show the subject as written. Rust splits the subject (`subjectParts` of a commit: its autosquash markers, its
+  `(prefix)`, the rest with its issue key, and what the row shows split at the key it starts with, `issue_lead`); the
+  page has no grammar of its own.
   [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`leaves out the issue key the row shows already, in the title and in the commits`)
+  [@test] ../../crates/sync-utils/src/commit_subject.rs (`the_parts_of_a_subject_are_its_markers_its_prefix_its_rest_and_the_key_a_row_shows_it_led_by`)
+  [@test] ../../crates/sync-utils/src/issue_pattern.rs (`a_title_led_by_an_issue_key_splits_at_it_and_its_separator`)
 - A synced commit must not show a "Created" status text.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
   [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in commit messages`, `should render issue links in unassigned commits`, `should show plain text for commits without issue references`)
@@ -185,15 +198,17 @@ The commit hash popover shows the same header and body.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should save the edited message and stay on the reworded commit`)
 - Escape must cancel the edit and keep the preview open. A click outside must keep the edit.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should cancel the edit with Escape and keep the preview open`)
-- A changed grouping must show a warning that names the new branch, or the unassigned commits. The grouping follows
-  the backend rule: an explicit prefix, else the issue key of the subject. With
+- A changed grouping must show a warning that names the new branch, or the unassigned commits. Rust groups the
+  message as it was and as typed (`preview_group`: the subject as git reads it, by `CommitGrouper`'s rule with the
+  stacked branches, issue groups and stack parents of the last grouping; the typed one once the typing pauses, again
+  after a sync): an explicit prefix, else the issue group of the subject's key, else the key. With
   [stacked branches](../branch/stacked-branches.spec.md) on, it also names the parent and warns about a restack and a
   stack problem; a stack problem the save would introduce (parents that conflict, an empty level) is said to be
   refused.
   [@test] ../../src/lib/stack.test.ts (`warns about a parent the other commits of the branch don't declare`, `warns about an empty level of the prefix, which a reword refuses`)
 - A save that moves the commit to another list must close the preview.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should warn that a changed grouping prefix moves the commit, and move it`)
-  [@test] ../../src/lib/commit.test.ts (`returns the explicit prefix of the subject`, `skips the blank lines before the subject`, `groups %j into the prefix branch %j`, `groups %j into the issue branch %j`, `returns null for %j`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key`, `the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_stack_parent`)
 - The edit and the save must stay enabled while a sync runs: the reword goes to the session at once, named on the
   table the preview shows, and waits there (C14).
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep the edit enabled while a sync runs: the save goes to the session at once`)
@@ -261,29 +276,36 @@ The commit hash popover shows the same header and body.
 
 ### Message body
 
+The body is parsed in Rust (`commit_body_blocks`, `sync_utils::commit_body`), the grammar the body of a pull request is
+written from ([Pull Requests](../branch/pull-requests.spec.md)); the page asks once per message and keeps the answer
+for a message shown again.
+
 - The body must start at the first line after the subject that is not blank.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
-  [@test] ../../src/lib/commit.test.ts (`is true for a message with lines after the subject`, `is false for a message that equals the subject`, `is false for a one-line message that differs from a stripped subject`, `is false for an empty message`, `skips the blank lines after the subject`, `returns an empty body for a one-line message`)
-- The body must join hard-wrapped lines into one paragraph.
-- A blank line must start a new block.
-- Lines that start with `- `, `* `, `• `, `1. ` or `1) ` must form a list without these markers.
-- A change between bullets and numbers must start a new list.
-- An ordered list must keep the number of its first item.
-- A continuation line must stay in its list item.
+  [@test] ../../src/lib/commit.test.ts (`is true for a message with lines after the subject`, `is false for a message that equals the subject`, `is false for a one-line message that differs from a stripped subject`, `is false for an empty message`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_body_of_a_message_is_after_its_subject_line`)
+- The body must join hard-wrapped lines into one paragraph; a blank line must start a new block. A line after a hard
+  break (two spaces or `\` at the end), a quote line and a table row must stay a line of their own; a heading and a
+  rule a paragraph of their own.
+- Lines that start with `- `, `* `, `+ `, `• `, `1. ` or `1) ` must form a list without these markers (a rule is no
+  item). A change between bullets and numbers must start a new list. An ordered list must keep the number of its first
+  item. A continuation line, wrapped, indented or not, must stay in its list item until a heading, a quote, a table row
+  or a rule.
 - Lines indented by four spaces or a tab must stay verbatim, without the common indent.
-- A fenced block must stay verbatim, blank lines included, without the fences.
-- A fenced block without a closing fence must run to the end of the body.
-- A last block of git trailers must show as a separate trailer block.
-- A block of trailers that is not the last block must stay prose.
+- A fenced block (```` ``` ```` or `~~~`) must stay verbatim, blank lines included, without the fences; one without a
+  closing fence must run to the end of the body.
+- A last block of git trailers (`Token: value` lines, an indented line continuing one, `(cherry picked from commit …)`)
+  must show as a separate trailer block when one of its lines is a token of words joined by `-` or the cherry-pick
+  note; a block of one-word tokens alone (`Note: …`) and a block that is not the last stay prose.
 - The body must treat CRLF line endings as LF.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
-  [@test] ../../src/lib/commit-message.test.ts (`joins hard-wrapped lines into one paragraph`, `starts a new block after a blank line`, `turns lines with -, * and • markers into one bullet list without the markers`, `turns lines with 1. markers into an ordered list`, `keeps the number of the first item of an ordered list with 1) markers`, `starts a new list when bullets change to numbers`, `keeps a continuation line in its list item`, `keeps lines indented by four spaces verbatim, without the common indent`, `keeps lines indented by a tab verbatim, without the tab`, `keeps a fenced block verbatim with its blank lines and without the fences`, `runs an unclosed fence to the end of the body`, `turns a last block of git trailers into a trailers block`, `joins an indented trailer continuation line to its trailer`, `accepts a cherry-pick note as a trailer`, `keeps a trailer-shaped block that is not the last block as a paragraph`, `keeps a last block as a paragraph when one of its lines is not a trailer`, `treats CRLF line endings like LF`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_line`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_table_row_its_own_and_a_heading_and_a_rule_a_paragraph`, `reads_lists_without_their_markers_each_kind_its_own`, `keeps_code_verbatim_without_the_common_indent_and_the_fences`, `reads_a_last_block_of_trailers_with_one_that_only_a_trailer_names`, `keeps_as_prose_a_trailer_shaped_block_that_is_not_the_last_one_has_prose_or_only_one_word_tokens`)
 - A paragraph that is only `Label:` must become a section label above the next blocks.
 - A paragraph that starts with a short `Label: ` must become a section label above its remaining text.
 - A `Label:` paragraph without a following content block must stay a paragraph.
 - The trailers must form the last section, without a label.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
-  [@test] ../../src/lib/commit-message.test.ts (`turns a paragraph that is only Label: into the label of the next blocks`, `turns a short run-in Label: into a label above the rest of the paragraph`, `keeps a run-in label longer than 20 characters as prose`, `keeps a Label: paragraph without a following block as a paragraph`, `keeps a Label: paragraph followed only by trailers as a paragraph`, `puts the trailers into the last, unlabelled section`, `adds unlabelled blocks to the current section`)
+  [@test] ../../src/lib/commit-message.test.ts (`turns a paragraph that is only Label: into the label of the next blocks`, `turns a short run-in Label: into a label above the rest of the paragraph`, `keeps a run-in label longer than 20 characters as prose`, `keeps a Label: paragraph without a following block as a paragraph`, `keeps a Label: paragraph followed only by trailers as a paragraph`, `puts the trailers into the last, unlabelled section`, `keeps the lines of a run-in paragraph after its label`, `adds unlabelled blocks to the current section`)
 - Issue keys in the body must become links.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
 
@@ -529,7 +551,8 @@ The commit hash popover shows the same header and body.
 
 ## Testing / Local Run
 
-- `pnpm test:unit` runs the unit tests of the parser, the code detection and the subject prefix in `src/lib`.
+- `cargo nextest run -p sync-utils -p history-rewrite` runs the tests of the body parser, the subject parts and the
+  grouping preview; `pnpm test:unit` those of the sections, the code detection and the subject prefix in `src/lib`.
 - `pnpm e2e` runs the E2E tests. The tests in `tests/e2e/commit-message` cover the commit preview and its body.
 
 ## Open Questions / Risks

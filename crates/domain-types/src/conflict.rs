@@ -1,7 +1,7 @@
 //! The merge conflicts of a sync and the conflict view (`git-ops`: `merge_conflict`, `conflict_analysis`), and the
 //! conflicts of git a copy resolved by words
 
-use crate::commit::Commit;
+use crate::commit::{Commit, SubjectParts};
 use serde::{Deserialize, Serialize};
 
 /// A copy whose cherry-pick conflicted in git and resolved by words (`word_resolve`): what its mapping note records and
@@ -69,6 +69,7 @@ impl MergeConflictInfo {
       author: String::new(),
       author_time: 0,
       committer_time: 0,
+      subject_parts: SubjectParts::default(),
     };
     Self {
       commit: commit_of(commit),
@@ -90,6 +91,8 @@ pub struct ConflictCommit {
   pub author: String,
   pub author_time: u32,
   pub committer_time: u32,
+  /// The parts of the subject the page shows (`Commit::subject_parts`)
+  pub subject_parts: SubjectParts,
 }
 
 impl From<&Commit> for ConflictCommit {
@@ -100,6 +103,7 @@ impl From<&Commit> for ConflictCommit {
       author: commit.author_name.clone(),
       author_time: commit.author_timestamp,
       committer_time: commit.committer_timestamp,
+      subject_parts: commit.subject_parts.clone(),
     }
   }
 }
@@ -120,6 +124,8 @@ pub struct MissingCommit {
   pub files_touched: Vec<String>,
   /// The branch the commit is in, `None` for an unassigned commit; set by the sync, which knows the grouping
   pub branch: Option<String>,
+  /// The parts of `subject` the page shows (`sync_utils::commit_subject::subject_parts`)
+  pub subject_parts: SubjectParts,
 }
 
 /// Analysis results for a merge conflict, including missing commits and divergence information.

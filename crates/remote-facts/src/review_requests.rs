@@ -9,6 +9,7 @@ use domain_types::review_request::{AnsweredRequest, BackToYou, ReviewRequest, Re
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
 use sync_core::github_repository::GitHubRepository;
+use sync_utils::issue_pattern::issue_lead;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::instrument;
 
@@ -228,9 +229,11 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
   let updated_at = parse_time(node.updated_at.as_deref());
   let review = submitted_review(&node);
   let default_branch = node.base_repository.and_then(|repository| repository.default_branch_ref).and_then(|branch| branch.name);
+  let title = node.title.unwrap_or_default();
   ReviewRequest {
     number,
-    title: node.title.unwrap_or_default(),
+    title_lead: issue_lead(&title),
+    title,
     url: node.url.unwrap_or_default(),
     body_text: node.body_text.unwrap_or_default(),
     author: node.author.and_then(|author| author.login),

@@ -3,7 +3,7 @@ import { PencilIcon } from "lucide-react"
 import { InlineInputDialog } from "@/components/shared/InlineInputDialog"
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
 import { renameBranch } from "@/hooks/useStackActions"
-import { getStackDescendants, useBranch, useStacksEnabled } from "@/stores/branch-sync"
+import { getBranch, getStackDescendants, useBranch, useStacksEnabled } from "@/stores/branch-sync"
 import { closeInline, inlineSurface, withRowProgress } from "@/stores/inline-row-action"
 
 /**
@@ -18,9 +18,10 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
   const isIssueGroup = branch?.origin === "IssueGroup"
   const [name, setName] = useState(isIssueBranch ? "" : branchName)
   const stacks = useStacksEnabled()
-  const { sanitizedBranchName, validationState, isValid } = useBranchNameValidation(name, { stacks, leafOnly: true })
+  const { sanitizedBranchName, validationState, isValid, pending, settled } = useBranchNameValidation(name, { stacks, leafOnly: true })
   const followers = stacks ? getStackDescendants(branchName) : []
-  const isUnchanged = sanitizedBranchName === branchName
+  // the answer of an earlier name says nothing of the name as typed now
+  const isUnchanged = !pending && sanitizedBranchName === branchName
   const existing = useBranch(sanitizedBranchName) !== undefined && !isUnchanged
 
   let helpText = isIssueBranch ? `Names the branch without a rewrite; the next commits of ${branchName} go there too` : undefined
@@ -40,20 +41,27 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
       validationMessage={validationState.message}
       validationColor={validationState.color ?? "primary"}
       validationTextClassName={validationState.textClass}
-      canSubmit={isValid && !isUnchanged}
+      canSubmit={(isValid || pending) && !isUnchanged}
       title={isIssueBranch ? `Name the branch ${branchName}` : `Rename ${branchName}`}
       submitText={existing ? "Move" : isIssueBranch ? "Name" : "Rename"}
       dataTestId="inline-rename-input"
       leadingIcon={<PencilIcon className="size-4 text-muted-foreground" />}
       helpText={helpText}
-      onSubmit={() => {
-        const target = sanitizedBranchName
+      onSubmit={async () => {
+        // Enter right after typing waits for Rust's check of the name as typed
+        const checked = await settled()
+        const target = checked.sanitizedBranchName
+        if (!checked.isValid || target === branchName) {
+          return false
+        }
+        const merges = getBranch(target) !== undefined
         let label = isIssueBranch ? `Naming the branch ${target}` : `Renaming ${branchName} to ${target}`
-        if (existing) {
+        if (merges) {
           label = `Moving the commits of ${branchName} to ${target}`
         }
         // a failure keeps the form with the typed name
         void withRowProgress(branchName, () => renameBranch(branchName, target, { label, surface: inlineSurface(branchName) }), { keepFormOnFailure: true })
+        return true
       }}
       onCancel={closeInline}
     />

@@ -90,6 +90,8 @@ mod actions_test;
 #[cfg(test)]
 mod attention_test;
 #[cfg(test)]
+mod branch_name_cases_test;
+#[cfg(test)]
 mod catalog_test;
 #[cfg(test)]
 mod holds_test;

@@ -5,7 +5,7 @@ import { undoRegroup } from "@/hooks/useStackActions"
 import type { Commit, ConflictFix, FixComponent, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
-import { getCommitSubject, getSubjectLine, parseSubject } from "@/lib/commit"
+import { getShownSubject } from "@/lib/commit"
 import { componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
 import type { SubjectOf } from "@/lib/conflict-fix"
 import { getErrorDetails } from "@/lib/errors"
@@ -88,7 +88,7 @@ export function useConflictFix(enabled: boolean): ConflictFixState {
 function subjectsOf(branches: Readonly<Record<string, Branch>>, unassigned: readonly Commit[]): SubjectOf {
   const subjects = new Map<string, string>()
   for (const commit of [...Object.values(branches).flatMap(branch => branch.commits), ...unassigned]) {
-    subjects.set(commit.originalHash, parseSubject(getSubjectLine(getCommitSubject(commit))).rest)
+    subjects.set(commit.originalHash, getShownSubject(commit))
   }
   return id => subjects.get(id)
 }

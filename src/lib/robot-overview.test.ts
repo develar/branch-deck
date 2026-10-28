@@ -4,8 +4,8 @@ import { getRobotTiming } from "@/lib/robot-eta"
 import type { RobotOverviewEntry, RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS, collectRobotOverview, countConflicts, getDockProgress, orderLandingRobots } from "@/lib/robot-overview"
 import { testRobot, robotsById } from "@/lib/test-robot"
-import type { Branch, StackBranch, SyncedCommit } from "@/stores/branch-sync"
-import { testBranch } from "@/stores/test-branch"
+import type { Branch, StackBranch } from "@/stores/branch-sync"
+import { testBranch, testTip } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@/lib/errors", () => ({ notifyError: () => {} }))
@@ -16,7 +16,7 @@ const NOW_SECONDS = NOW / 1000
 
 /** A branch at the commit `${name}-tip` */
 function branchAtTip(name: string, patch: Partial<Branch> = {}): Branch {
-  const tip: SyncedCommit = { originalHash: `${name}-original`, hash: `${name}-tip`, strippedSubject: name, message: name, author: "Ann", authorTime: 0, committerTime: 0 }
+  const tip = testTip(name)
   return testBranch(name, null, { commits: [tip], ...patch })
 }
 

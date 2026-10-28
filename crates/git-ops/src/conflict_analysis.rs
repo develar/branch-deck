@@ -9,6 +9,7 @@ use anyhow::{Result, anyhow};
 use domain_types::conflict::{DivergenceSummary, MissingCommit};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
+use sync_utils::commit_subject::subject_parts;
 use tracing::{debug, instrument};
 
 /// `\x01` starts a commit, NUL ends a field; `%B` is the last one, so a message may hold anything but NUL
@@ -77,6 +78,7 @@ fn parse_missing_commits(output: &str, conflicting: &HashSet<&str>) -> Vec<Missi
       author: author.to_string(),
       files_touched,
       branch: None,
+      subject_parts: subject_parts(subject),
     };
     commits.push(commit);
   }

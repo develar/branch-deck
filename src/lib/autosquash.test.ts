@@ -2,21 +2,24 @@
 import { describe, expect, it } from "vite-plus/test"
 import { describeFixupTarget, formatSquashFixupsLabel, getFixupTarget, getListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
+import { testSubject } from "@/test-support/subject-parts"
 
 const login: PlannedGroup = {
   target: "t1",
   targetSubject: "(auth) Add login",
+  targetParts: testSubject("Add login", { prefix: "auth" }),
   branch: "auth",
   folded: [
-    { commitId: "f1", subject: "fixup! (auth) Add login", kind: "Fixup" },
-    { commitId: "f2", subject: "squash! Add login", kind: "Squash" },
+    { commitId: "f1", subject: "fixup! (auth) Add login", subjectParts: testSubject("Add login", { autosquash: "fixup! ", prefix: "auth" }), kind: "Fixup" },
+    { commitId: "f2", subject: "squash! Add login", subjectParts: testSubject("Add login", { autosquash: "squash! " }), kind: "Squash" },
   ],
 }
 const build: PlannedGroup = {
   target: "t2",
   targetSubject: "Add build script",
+  targetParts: testSubject("Add build script"),
   branch: null,
-  folded: [{ commitId: "f3", subject: "fixup! Add build script", kind: "Fixup" }],
+  folded: [{ commitId: "f3", subject: "fixup! Add build script", subjectParts: testSubject("Add build script", { autosquash: "fixup! " }), kind: "Fixup" }],
 }
 const plan: AutosquashPlan = {
   head: "head",

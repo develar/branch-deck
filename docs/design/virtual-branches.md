@@ -100,7 +100,8 @@ groups:
 
 So `(lexer) ABC-123: Add lexer` belongs to `lexer`, and its pushed message is `ABC-123: Add lexer`. A prefix branch
 whose commits all carry one issue key belongs to that issue (`issue_key` of `GroupedBranchInfo`): the branch table
-nests it under the issue. `groupFor` in `src/lib/commit.ts` mirrors the rule for the editor's warning.
+nests it under the issue. The editor's warning asks the same rule (`group_of`, `preview_group` over the grouping
+inputs of the session's table); the page has no copy of it.
 
 A move makes the smallest change that puts the commits where they go (the rewrite `Move` of the engine,
 `move_commits_to_branch_core`, `crates/history-rewrite/src/move_plan.rs`). A branch is what ships together, and the user decides it per issue: the whole of
@@ -122,8 +123,8 @@ a branch name without `/`. A line that is not valid is a reported problem and is
 groups: the sync, `group_commits_ahead_of_baseline`, the regroup and the check, the fixup plan, the landed commits and
 the update check. `read_grouping_inputs` (`snapshot.rs`) reads them in one phase. The rule order is prefix, issue group, issue key, unassigned. A branch
 that the map fills, without a prefix commit, has the origin `IssueGroup`; a single-key group nests under its issue in
-the branch table. The `branchesGrouped` event carries the map, so `groupFor` in `src/lib/commit.ts` and "Move Back to …"
-see it too.
+the branch table. The `branchesGrouped` event carries the map into the table header, so the grouping preview
+(`preview_group`) and "Move Back to …" see it too.
 
 Only a regroup writes the map: a plan's `issue_groups` and `ungroup_issues`, and a rename, which renames the entries
 of the old name. It writes under the repository lock and in the ref transaction that moves HEAD, with
@@ -169,8 +170,8 @@ from the note. The sync sends the result as `GroupedBranchInfo.stack` and schedu
 part of a flat name, as before. See [Stacked Branches](../../spec/branch/stacked-branches.spec.md).
 
 In the UI, `branchTableRowsIn` (`src/stores/branch-sync.ts`) turns the stacks into a tree of typed rows with a depth;
-issue families come from the stack roots. `groupFor` (`src/lib/commit.ts`) mirrors `stack_path` for the commit editor
-and Move to…, with the stack parents of the `branchesGrouped` event. The branch menu restacks and renames through the
+issue families come from the stack roots. The commit editor and Move to… ask `preview_group` (`group_of`: `stack_path`
+with the stack parents of the session's last grouping). The branch menu restacks and renames through the
 rewrites `Rename`, `Restack` and `Unstack` of the engine (`execute`, `crates/operations/src/rewrite.rs`, over the regroup
 cores `rename_branch_core` and `restack_branch_core`), which write the stack parents and rewrite only the prefixes that
 need it, in one ref transaction.

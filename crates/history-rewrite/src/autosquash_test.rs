@@ -8,6 +8,7 @@ use domain_types::commit::Commit;
 use domain_types::rewrite::{AutosquashScope, OrphanFixup, SquashFixupsResult};
 use git_ops::rewrite_guard::HeadMoved;
 use pretty_assertions::assert_eq;
+use sync_utils::commit_subject::subject_parts;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -61,16 +62,19 @@ fn matches_the_exact_subject_and_keeps_the_details() {
         PlannedGroup {
           target: "c0".to_string(),
           target_subject: "(auth) Add login".to_string(),
+          target_parts: subject_parts("(auth) Add login"),
           branch: Some("auth".to_string()),
           folded: vec![
             PlannedFixup {
               commit_id: "c2".to_string(),
               subject: "fixup! (auth) Add login".to_string(),
+              subject_parts: subject_parts("fixup! (auth) Add login"),
               kind: FixupKind::Fixup,
             },
             PlannedFixup {
               commit_id: "c4".to_string(),
               subject: "amend! (auth) Add login".to_string(),
+              subject_parts: subject_parts("amend! (auth) Add login"),
               kind: FixupKind::Amend,
             },
           ],
@@ -78,10 +82,12 @@ fn matches_the_exact_subject_and_keeps_the_details() {
         PlannedGroup {
           target: "c1".to_string(),
           target_subject: "(docs) Document".to_string(),
+          target_parts: subject_parts("(docs) Document"),
           branch: Some("docs".to_string()),
           folded: vec![PlannedFixup {
             commit_id: "c3".to_string(),
             subject: "squash! (docs) Document".to_string(),
+            subject_parts: subject_parts("squash! (docs) Document"),
             kind: FixupKind::Squash,
           }],
         },
@@ -169,6 +175,7 @@ fn orphans_a_fixup_without_an_older_target() {
     [OrphanFixup {
       commit_id: "c1".to_string(),
       subject: "fixup! (auth) Add a".to_string(),
+      subject_parts: subject_parts("fixup! (auth) Add a"),
       branch: Some("auth".to_string()),
     }]
   );

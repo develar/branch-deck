@@ -35,7 +35,7 @@ export function MergeConflictViewer({ conflict, branchName, onto }: MergeConflic
     <div className="flex flex-col gap-4">
       <NestedPanel className="gap-4 bd-padding-card">
         {/* the commit row above already shows the commit, so only the title is said here */}
-        <ConflictCommitContext title={formatConflictTitle(conflict.commit.message, target)} />
+        <ConflictCommitContext title={formatConflictTitle(conflict.commit.subjectParts, target)} />
         <ConflictExplanation owners={owners} branchName={branchName} builtOn={builtOn} revealable />
         {/* a fix regroups the commits of the sync; an amend conflict is with the amended commit */}
         {onto === undefined && branchName !== undefined ? (

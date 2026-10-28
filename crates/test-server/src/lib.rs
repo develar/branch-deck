@@ -291,6 +291,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/unlink_pull_request", post(session_routes::unlink_pull_request))
     .route("/invoke/sync", post(session_routes::sync))
     .route("/invoke/preview_move", post(tauri_command_bridge::preview_move))
+    .route("/invoke/preview_group", post(session_routes::preview_group))
+    .route("/invoke/validate_branch_name", post(session_routes::validate_branch_name))
+    .route("/invoke/commit_body_blocks", post(session_routes::commit_body_blocks))
     .route("/invoke/get_stack_independence", post(tauri_command_bridge::get_stack_independence))
     .route("/invoke/find_conflict_fix", post(tauri_command_bridge::find_conflict_fix))
     .route("/invoke/cancel_conflict_fix", post(tauri_command_bridge::cancel_conflict_fix))
@@ -910,6 +913,7 @@ pub async fn set_review_requests(
   Json(fixture): Json<state::ReviewRequestsFixture>,
 ) -> Result<StatusCode, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let fixture = fixture.with_title_leads();
   // GitHub has the pull requests the user is asked to review: the reviews and the comments go there
   if let domain_types::pull_request::PullRequestAvailability::Available { owner, name } = &fixture.result.availability {
     let (pulls, nodes) = review_fixtures::fixture_pulls(&fixture);

@@ -1,5 +1,7 @@
 //! Shared utilities for detecting issue number patterns in commit messages
 
+use domain_types::commit::IssueLead;
+
 use memchr::memchr;
 
 /// Skip [category] prefix if present, returns new position or None if newline encountered
@@ -163,6 +165,34 @@ pub fn find_issue_number(text: &str) -> Option<&str> {
 /// More efficient than `find_issue_number` when you only need existence check
 pub fn has_issue_reference(text: &str) -> bool {
   find_issue_range(text).is_some()
+}
+
+/// `text` split at the issue key it starts with (`IJPL-1: Fix`, `[IJPL-1] Fix`, `IJPL-1 - Fix`), for a row that shows the
+/// key apart: the key and what follows it and its separator (`:`, `,`, `-`, `–`, `—`), empty for a text that is only the
+/// key. None without a leading key and when the key is a part of the sentence (`TEST-1 and PROD-9: …`)
+pub fn issue_lead(text: &str) -> Option<IssueLead> {
+  let bracketed = text.starts_with('[');
+  let start = usize::from(bracketed);
+  let (_, end) = extract_issue_at(text.as_bytes(), start)?;
+  let key = &text[start..end];
+  let mut rest = &text[end..];
+  if bracketed {
+    rest = rest.strip_prefix(']')?;
+  }
+  rest = rest.trim_start();
+  let separator = rest.chars().next().filter(|c| matches!(c, ':' | ',' | '-' | '–' | '—'));
+  if let Some(separator) = separator {
+    rest = rest[separator.len_utf8()..].trim_start();
+  } else if ["and", "or", "&"]
+    .iter()
+    .any(|word| rest.strip_prefix(word).is_some_and(|after| after.starts_with(char::is_whitespace)))
+  {
+    return None;
+  }
+  Some(IssueLead {
+    key: key.to_owned(),
+    text: rest.to_owned(),
+  })
 }
 
 /// A conventional commit prefix: `type(scope)!: rest`, or `type scope: rest` as in `setup vm:` or `docs ai:`
@@ -413,5 +443,31 @@ mod tests {
     assert_eq!(keys(""), Vec::<&str>::new());
     // the subject parser is unchanged: only a key at the start counts there
     assert_eq!(find_issue_number("Fix ABC-123"), None);
+  }
+
+  #[test]
+  fn a_title_led_by_an_issue_key_splits_at_it_and_its_separator() {
+    let lead = |text: &str| issue_lead(text).map(|lead| (lead.key, lead.text));
+    for (text, rest) in [
+      ("IJPL-1 Fix the cache", "Fix the cache"),
+      ("IJPL-1: Fix the cache", "Fix the cache"),
+      ("IJPL-1 - Fix the cache", "Fix the cache"),
+      ("IJPL-1 – Fix the cache", "Fix the cache"),
+      ("[IJPL-1] Fix the cache", "Fix the cache"),
+      ("IJPL-1, IJPL-2: Fix the cache", "IJPL-2: Fix the cache"),
+      ("IJPL-1", ""),
+    ] {
+      assert_eq!(lead(text), Some(("IJPL-1".to_string(), rest.to_string())), "{text}");
+    }
+    // a key in the middle, a longer id, a key of the sentence
+    for text in [
+      "Fix IJPL-1 in the cache",
+      "IJPL-12x Fix",
+      "TEST-1 and PROD-9: Database optimization",
+      "[IJPL-1 Fix",
+      "ijpl-1 Fix",
+    ] {
+      assert_eq!(lead(text), None, "{text}");
+    }
   }
 }

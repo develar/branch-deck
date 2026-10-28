@@ -1,96 +1,49 @@
-import { sanitizeBranchName as sanitizeGitBranchName } from "@/lib/commit"
+import { useDebouncedRead } from "@/hooks/useDebouncedRead"
+import type { BranchNameCheck, BranchNameRules } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
+import { presentBranchNameState } from "@/presenters/branch-name"
+import type { BranchNameValidationState } from "@/presenters/branch-name"
 
-export interface BranchNameValidationState {
-  /** `"error"` if the input should be shown as invalid (`aria-invalid`) */
-  color?: "error"
-  message: string
-  textClass: string
-  isValid: boolean
-}
-
-export interface BranchNameValidation {
-  /** Trimmed name with whitespace runs converted to hyphens */
+/** A typed name as Rust checked it, worded */
+export interface CheckedBranchName {
+  /** The name the branch gets: trimmed, its runs of whitespace turned into `-` */
   sanitizedBranchName: string
   validationState: BranchNameValidationState
   isValid: boolean
 }
 
-const neutralState: BranchNameValidationState = { color: undefined, message: "", textClass: "", isValid: false }
-const validState: BranchNameValidationState = { color: undefined, message: "", textClass: "", isValid: true }
-const tooShortState: BranchNameValidationState = { color: "error", message: "Branch name must be at least 2 characters", textClass: "text-destructive", isValid: false }
-const invalidCharsState: BranchNameValidationState = {
-  color: "error",
-  message: "Use letters, numbers, -, _, ., / (cannot start with .)",
-  textClass: "text-destructive",
-  isValid: false,
-}
-const invalidStackCharsState: BranchNameValidationState = {
-  color: "error",
-  message: "Use letters, numbers, -, _, . and / between a parent and its branch (cannot start with .)",
-  textClass: "text-destructive",
-  isValid: false,
-}
-const leafOnlyState: BranchNameValidationState = {
-  color: "error",
-  message: "A branch name has no /: use Stack On… to change its parent",
-  textClass: "text-destructive",
-  isValid: false,
-}
-const invalidRefState: BranchNameValidationState = {
-  color: "error",
-  message: "Not a valid branch name: no -, . or / at the ends, no -- , .. or //",
-  textClass: "text-destructive",
-  isValid: false,
+export interface BranchNameValidation extends CheckedBranchName {
+  /** Rust has not answered for the name as it is typed now: the answer of an earlier name shows meanwhile */
+  pending: boolean
+  /** The check of the name as typed now, asked at once when Rust has not answered yet: a submit waits for it */
+  settled: () => Promise<CheckedBranchName>
 }
 
-export function sanitizeBranchName(branchName: string): string {
-  return branchName.trim().replace(/\s+/g, "-")
-}
+const NOTHING_TYPED: CheckedBranchName = { sanitizedBranchName: "", validationState: presentBranchNameState("empty"), isValid: false }
 
-export interface BranchNameRules {
-  /** Stacked branches are on: a `/` separates a parent from its branch */
-  stacks?: boolean
-  /** Only a branch name, not `parent/branch` (with stacks on) */
-  leafOnly?: boolean
-}
-
-export function validateBranchName(branchName: string, rules: BranchNameRules = {}): BranchNameValidationState {
-  if (!branchName) {
-    return neutralState
+function checked(check: BranchNameCheck | undefined, rules: BranchNameRules): CheckedBranchName {
+  if (check === undefined) {
+    return NOTHING_TYPED
   }
-  if (rules.stacks === true && rules.leafOnly === true && branchName.includes("/")) {
-    return leafOnlyState
-  }
-
-  if (sanitizeBranchName(branchName).length < 2) {
-    return tooShortState
-  }
-
-  // spaces are allowed in the input - they are converted to hyphens; dots and slashes are allowed by git branch name rules
-  if (!/^[a-zA-Z0-9-_. /]+$/.test(branchName)) {
-    return rules.stacks === true ? invalidStackCharsState : invalidCharsState
-  }
-
-  // git rule: cannot start with a dot
-  if (branchName.trim().startsWith(".")) {
-    return rules.stacks === true ? invalidStackCharsState : invalidCharsState
-  }
-
-  // the grouper would rename it (`sanitizeGitBranchName`), and the virtual branch would not get this name
-  const name = sanitizeBranchName(branchName)
-  if (sanitizeGitBranchName(name) !== name || name.includes("//") || name.includes("..")) {
-    return invalidRefState
-  }
-
-  return validState
+  const validationState = presentBranchNameState(check.state, rules)
+  return { sanitizedBranchName: check.sanitized, validationState, isValid: validationState.isValid }
 }
 
-/** Validates a user-entered branch name. Pure and cheap, so it is recomputed on every render. */
+/**
+ * Checks a user-entered branch name in Rust (`validate_branch_name`), once the typing pauses; the answer of each name is
+ * kept, so typing back shows it at once
+ */
 export function useBranchNameValidation(branchName: string, rules: BranchNameRules = {}): BranchNameValidation {
-  const validationState = validateBranchName(branchName, rules)
+  const stacks = rules.stacks === true
+  const leafOnly = rules.leafOnly === true
+  const ask = (name: string) => commands.validateBranchName({ name, rules: { stacks, leafOnly } })
+  const read = useDebouncedRead(branchName === "" ? null : branchName, ask, `${stacks}\n${leafOnly}`)
+  const shown = branchName === "" ? NOTHING_TYPED : checked(read.answer, rules)
   return {
-    sanitizedBranchName: sanitizeBranchName(branchName),
-    validationState,
-    isValid: validationState.isValid,
+    ...shown,
+    // a name the answer is not for yet is no name to submit
+    isValid: shown.isValid && !read.pending,
+    pending: read.pending,
+    settled: async () => (branchName === "" ? NOTHING_TYPED : checked(await read.settled(), rules)),
   }
 }

@@ -6,14 +6,19 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { formatFixupCount } from "@/lib/autosquash"
-import { getBranchSummary, getShownIssueKey, getSimpleBranchName } from "@/lib/branch"
-import type { SubjectParts } from "@/lib/commit"
+import type { IssueLead } from "@/lib/bindings"
+import { getBranchSummary, getSimpleBranchName } from "@/lib/branch"
+import type { SplitSubject } from "@/lib/commit"
 
 export interface BranchNameCellProps {
   name: string
   summary?: string
   /** The title of the branch's description, shown as written instead of the summary */
   descriptionTitle?: string | null
+  /** The title split at the issue key it starts with (Rust's `descriptionLead`): a row that shows the key leaves it out */
+  descriptionLead?: IssueLead | null
+  /** The issue key the name starts with (Rust's `nameIssueKey`), which the name shows */
+  nameIssueKey?: string | null
   /** Why a parked branch stays local, its note, shown instead of the summary, issue keys as links */
   parkedNote?: string | null
   expanded: boolean
@@ -35,6 +40,8 @@ export function BranchNameCell({
   name,
   summary = "",
   descriptionTitle = null,
+  descriptionLead = null,
+  nameIssueKey = null,
   parkedNote = null,
   expanded,
   canExpand = true,
@@ -46,7 +53,8 @@ export function BranchNameCell({
   onToggleExpanded,
 }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
-  const shownSummary = parkedNote !== null && parkedNote !== "" ? { prefix: null, text: parkedNote } : getBranchSummary(summary, descriptionTitle, getShownIssueKey(name, issueKey))
+  const shownSummary =
+    parkedNote !== null && parkedNote !== "" ? { prefix: null, text: parkedNote } : getBranchSummary(summary, descriptionTitle, issueKey ?? nameIssueKey, descriptionLead)
   const content = (
     <div className="flex min-w-0 items-center gap-2">
       {lanes}
@@ -108,7 +116,7 @@ export function BranchIssueBadge({ issueKey }: { issueKey: string }) {
 }
 
 /** The summary of a branch (`getBranchSummary`) with its issue links; a prefix is dimmed as in the commit rows. */
-export function BranchSummary({ summary: { prefix, text }, className }: { summary: SubjectParts; className?: string }) {
+export function BranchSummary({ summary: { prefix, text }, className }: { summary: SplitSubject; className?: string }) {
   return (
     <span className={cn("truncate text-xs text-muted-foreground", className)} data-testid="branch-summary">
       {prefix != null && <span className="font-mono">{`${prefix} `}</span>}

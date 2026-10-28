@@ -3,7 +3,8 @@ import type { ParkedState } from "@/lib/parked"
 import { layoutStack } from "@/lib/stack-lanes"
 import type { BranchStructure, TableRows } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE, rowsOf } from "@/model/structure"
-import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
+import { testSubject } from "@/test-support/subject-parts"
 
 /**
  * The actions of a push as Rust decides them of a remote status (`domain_policy::push::action`): a test of the page
@@ -42,6 +43,20 @@ export function testRemoteStatus(overrides: Partial<RemoteStatus> = {}): RemoteS
 }
 
 /** A synced branch of one commit for tests, stacked on `parent` (null: a root); `overrides` replace any field */
+/** The synced tip of the branch `name`: `${name}-original`, copied as `${name}-tip`, its subject the name */
+export function testTip(name: string): SyncedCommit {
+  return {
+    originalHash: `${name}-original`,
+    hash: `${name}-tip`,
+    strippedSubject: name,
+    subjectParts: testSubject(name),
+    message: name,
+    author: "Ann",
+    authorTime: 0,
+    committerTime: 0,
+  }
+}
+
 export function testBranch(name: string, parent: string | null, overrides: Partial<Branch> = {}): Branch {
   return {
     name,
@@ -55,6 +70,8 @@ export function testBranch(name: string, parent: string | null, overrides: Parti
     latestCommitTime: 0,
     summary: "",
     descriptionTitle: null,
+    descriptionLead: null,
+    nameIssueKey: null,
     remoteStatus: null,
     allCommitsHaveIssueReferences: false,
     myEmail: null,

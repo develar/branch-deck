@@ -20,6 +20,7 @@ use serde::Deserialize;
 use std::time::Duration;
 use sync_core::github_repository::GitHubRepository;
 use sync_core::issue_navigation::load_issue_navigation_config;
+use sync_utils::issue_pattern::issue_lead;
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::instrument;
@@ -434,6 +435,7 @@ fn to_pull_request(gh: GhCreatedPullRequest, requested: Vec<String>) -> PullRequ
   };
   PullRequest {
     number: gh.number,
+    title_lead: issue_lead(&gh.title),
     title: gh.title,
     url: gh.html_url,
     state: PullRequestState::Open,

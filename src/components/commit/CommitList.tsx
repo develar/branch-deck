@@ -21,7 +21,7 @@ import type { RowSelection } from "@/hooks/useRowSelection"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
 import { reviewBranchCommit } from "@/lib/branch-review-window"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey, toReviewCommit } from "@/lib/commit"
+import { getCommitFileCount, getCommitHash, getCommitSubject, getShownSubject, hasCommitMessageBody, toReviewCommit } from "@/lib/commit"
 import { openCommitReviewWindow } from "@/lib/commit-review-window"
 import type { MenuItemGroups } from "@/lib/menu"
 import { resolvedNotice } from "@/lib/resolved-by-words"
@@ -461,12 +461,13 @@ function CommitCellContent({
   const error = variant === "status" && "error" in commit ? commit.error : undefined
   const resolved = variant === "status" && "resolved" in commit ? commit.resolved : undefined
   const [showResolved, setShowResolved] = useState(false)
-  // a fixup shows its markers apart, with where it goes
-  const autosquash = parseSubject(getSubjectLine(commit.message)).autosquash
+  // a fixup shows its markers apart, with where it goes; Rust split the subject (`subjectParts`)
+  const parts = commit.subjectParts
+  const autosquash = parts.autosquash
   const fullSubject = getCommitSubject(commit)
-  const shownSubject = autosquash === "" ? fullSubject : fullSubject.slice(parseSubject(fullSubject).autosquash.length)
-  // a subject that is only the key keeps it
-  const subject = (omitIssueKey === null ? "" : stripLeadingIssueKey(shownSubject, omitIssueKey)) || shownSubject
+  const shownSubject = getShownSubject(commit)
+  // the issue key the row shows already goes; a subject that is only the key keeps it
+  const subject = (omitIssueKey !== null && parts.lead?.key === omitIssueKey ? parts.lead.text : "") || shownSubject
   const hasBody = hasCommitMessageBody(fullSubject, commit.message)
 
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined

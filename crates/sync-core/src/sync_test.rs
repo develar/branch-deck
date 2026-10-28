@@ -32,22 +32,10 @@ fn repo_with_initial_commit() -> TestRepo {
 /// A commit for `prepare_branches_for_ui`, which reads only the subjects and timestamps
 fn create_test_commit(hash: &str, subject: &str, stripped_subject: &str, timestamp: u32) -> Commit {
   Commit {
-    id: hash.to_string(),
-    subject: subject.to_string(),
     stripped_subject: stripped_subject.to_string(),
-    message: subject.to_string(),
-    author_name: "Test Author".to_string(),
-    author_email: "test@example.com".to_string(),
     author_timestamp: timestamp,
     committer_timestamp: timestamp,
-    author_timezone: String::new(),
-    committer_timezone: String::new(),
-    parent_id: None,
-    tree_id: "tree123".to_string(),
-    note: None,
-    mapped_commit_id: None,
-    mapped_source: None,
-    mapped_resolution: None,
+    ..history_rewrite::test_commit::commit(hash, subject)
   }
 }
 

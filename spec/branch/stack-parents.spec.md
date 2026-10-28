@@ -26,7 +26,6 @@ targets:
   - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/commit-clustering/src/clustering.rs
   - ../../crates/domain-types/src/error.rs
-  - ../../src/lib/commit.ts
   - ../../src/lib/stack.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/hooks/useStackActions.ts
@@ -123,9 +122,9 @@ only the stack parents ref.
   this chain reaches are placed; the others are idle.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_without_commits_is_passed`)
 - The sync, `bd status`, `bd commits`, `bd check`, `bd suggest`, the regroup, the fixup plan, the landed commits, the
-  update check and `groupFor` in the app must read the same map.
+  update check and the grouping preview of the app (`preview_group`) must read the same map.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_sync_reads_the_map_and_never_writes_a_line_it_can_not_prove_dead`)
-  [@test] ../../src/lib/commit.test.ts (`groupFor with stored parents`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_stack_parent`)
 
 ### Cleanup
 
@@ -258,7 +257,8 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
   dropped on the unstack zone of the drag bar ([Move Commits](move-commits.spec.md#drag-and-drop)); the chip refuses the branch's
   parent and a branch stacked on it, as the menu does not offer them.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a dragged branch dropped on the Stack on chip of a row, refuse a cycle there, and unstack it on the unstack zone`)
-- `groupFor` and `src/lib/stack.ts` must read the map from the `branchesGrouped` event. The commit editor must warn
+- The grouping preview (`preview_group`, the map of the session's last grouping) and `src/lib/stack.ts` (the map of
+  the table header) must read the same map. The commit editor must warn
   when an edited prefix declares a parent that differs from the stored one, and say nothing when it drops a parent
   level that the map repeats.
   [@test] ../../src/lib/stack.test.ts (`warns about a parent level that differs from the stored parent`)
@@ -271,7 +271,7 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
   `crates/trial-check/src/check_test.rs`, `crates/bd-remote/src/safe_push_test.rs`,
   `crates/sync-core/src/move_commits_test.rs`, `crates/bd-remote/src/status_test.rs`, `crates/bd-rewrite/src/suggest_test.rs`,
   `crates/bd-rewrite/src/rewrite_test.rs`.
-- `pnpm test:unit`: `src/lib/commit.test.ts`, `src/lib/stack.test.ts`.
+- `pnpm test:unit`: `src/lib/stack.test.ts`; the grouping preview: `crates/history-rewrite/src/commit_grouper_test.rs`.
 - `pnpm e2e`: `tests/e2e/stacked-branches/stacked-branches.spec.ts` on the `stacked_issues` template.
 
 ## Risks

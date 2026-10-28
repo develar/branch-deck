@@ -18,6 +18,7 @@ import { branchSyncStore } from "@/stores/branch-sync"
 import type { BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { placed, testBranch } from "@/stores/test-branch"
 import { disabled, enabled } from "@/test-support/actions"
+import { testSubject } from "@/test-support/subject-parts"
 import type { BranchReviewWindowData } from "@/types/sub-window"
 
 function segment(name: string, base: string, head: string): BranchReviewSegment {
@@ -128,6 +129,7 @@ describe("settledReviewTable", () => {
     originalHash: `${name}-original`,
     ...(hash !== undefined && { hash }),
     strippedSubject: `Change ${name}`,
+    subjectParts: testSubject(`Change ${name}`),
     message: `(${name}) Change ${name}`,
     author: "Test User",
     authorTime: 1,

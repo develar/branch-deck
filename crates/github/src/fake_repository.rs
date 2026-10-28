@@ -283,6 +283,7 @@ impl FakeGitHubRepository {
       pull_request: PullRequest {
         number,
         title: body["title"].as_str().unwrap_or_default().to_string(),
+        title_lead: None,
         url: format!("https://github.com/{}/{}/pull/{number}", state.owner, state.name),
         state: PullRequestState::Open,
         is_draft: body["draft"].as_bool().unwrap_or(false),

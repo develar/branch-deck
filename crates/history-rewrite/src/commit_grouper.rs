@@ -5,8 +5,8 @@
 use crate::stack::{StackDeclarations, StackForest};
 use crate::store_lines::StoreLines;
 use domain_types::branch_names::sanitize_branch_name;
-use domain_types::commit::Commit;
-use domain_types::stack::{leaf_of, stack_path};
+use domain_types::commit::{Commit, CommitGroup, GroupOrigin};
+use domain_types::stack::{ParentSource, leaf_of, stack_path};
 use indexmap::IndexMap;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sync_utils::commit_subject::{ParsedSubject, parse_subject, subject_after_prefix};
@@ -113,6 +113,56 @@ fn branch_of(parsed: &ParsedSubject<'_>, issue_groups: &BTreeMap<String, String>
   match parsed.prefix {
     Some(prefix) => Some(sanitize_branch_name(prefix.trim())),
     None => find_issue_number(parsed.rest).map(|key| issue_groups.get(key).map_or(key, String::as_str).to_owned()),
+  }
+}
+
+/// The group of a commit with this subject, as `CommitGrouper::add_commit` puts it, with where its parent comes from: the
+/// preview of a typed message or branch name (`preview_group`). With stacked branches, `(auth/login)` is `login` on
+/// `auth`, a branch whose prefix names no parent takes its stack parent, and an empty level (`(a//b)`) groups into its
+/// last level, `invalid`; `None` for an unassigned commit and for `(/)`
+pub fn group_of(subject: &str, inputs: &GroupingInputs) -> Option<CommitGroup> {
+  let parsed = parse_subject(subject);
+  let group = |branch: String, origin: GroupOrigin| CommitGroup {
+    branch,
+    origin,
+    parent: None,
+    parent_source: None,
+    invalid: false,
+  };
+  let stored = |mut group: CommitGroup| {
+    if let Some(parent) = inputs.stack_parents.entries.get(&group.branch) {
+      group.parent = Some(parent.clone());
+      group.parent_source = Some(ParentSource::Store);
+    }
+    group
+  };
+  match parsed.prefix {
+    Some(prefix) if inputs.stacks => match stack_path(prefix) {
+      Ok(mut path) => {
+        let leaf = path.pop()?;
+        match path.pop() {
+          Some(parent) => Some(CommitGroup {
+            parent: Some(parent),
+            parent_source: Some(ParentSource::Prefix),
+            ..group(leaf, GroupOrigin::Prefix)
+          }),
+          None => Some(stored(group(leaf, GroupOrigin::Prefix))),
+        }
+      }
+      Err(error) => error.leaf.map(|leaf| CommitGroup {
+        invalid: true,
+        ..group(leaf, GroupOrigin::Prefix)
+      }),
+    },
+    Some(prefix) => Some(group(sanitize_branch_name(prefix.trim()), GroupOrigin::Prefix)),
+    None => {
+      let key = find_issue_number(parsed.rest)?;
+      let found = match inputs.issue_groups.entries.get(key) {
+        Some(name) => group(name.clone(), GroupOrigin::IssueGroup),
+        None => group(key.to_owned(), GroupOrigin::Issue),
+      };
+      Some(if inputs.stacks { stored(found) } else { found })
+    }
   }
 }
 

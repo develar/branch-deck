@@ -179,9 +179,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   a subject does: a pull request title starts with its key, and "IJPL-1  IJPL-1 Fix…" spends the width the rest of the
   title needs. A key in the middle, another key and a key that is a part of the sentence ("TEST-1 and PROD-9: …") stay;
   a title that is the key alone shows nothing. The branch preview, which has the room, and the search keep the title as
-  written (`getBranchSummary`, `getShownIssueKey`).
-  [@test] ../../src/lib/branch.test.ts (`leaves out the issue key the row shows already, which a title starts with`, `is the chip of the row, else the key the name starts with`)
-  [@test] ../../src/lib/commit.test.ts (`drops the key the row shows from %j`, `keeps a key in the middle, another key, a longer key and a key that is a part of the sentence`)
+  written (`getBranchSummary`). Rust splits the title at the key it starts with (`descriptionLead` of the branch head,
+  `issue_lead`) and names the key the name starts with (`nameIssueKey`); the page compares keys, no grammar of its own.
+  [@test] ../../src/lib/branch.test.ts (`leaves out the issue key the row shows already, at which Rust split the title`)
+  [@test] ../../crates/sync-utils/src/issue_pattern.rs (`a_title_led_by_an_issue_key_splits_at_it_and_its_separator`)
   [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`leaves out the issue key the row shows already, in the title and in the commits`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`test_branches_grouped_carries_the_description_titles`)
 - A branch without commits and without an error must have no folder button.

@@ -5965,6 +5965,7 @@ dependencies = [
 name = "sync-utils"
 version = "0.1.0"
 dependencies = [
+ "domain-types",
  "gethostname",
  "getrandom 0.4.3",
  "jiff",

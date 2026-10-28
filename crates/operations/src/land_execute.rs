@@ -1241,7 +1241,7 @@ impl Run<'_> {
     match create_pull_request(&github, &repository, &params).await {
       Ok(created) => {
         let write = PullRequestWrite::Created {
-          pull_request: created.pull_request.clone(),
+          pull_request: Box::new(created.pull_request.clone()),
         };
         self.version = self.host.write_pull_request(write).await.or(self.version);
         self.created = Some(created);

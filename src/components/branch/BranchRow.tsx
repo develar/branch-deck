@@ -249,6 +249,8 @@ export const BranchRow = memo(function BranchRow({
           }
           summary={branch.summary}
           descriptionTitle={branch.descriptionTitle}
+          descriptionLead={branch.descriptionLead}
+          nameIssueKey={branch.nameIssueKey}
           parkedNote={parked?.with === null ? parked.note : null}
           expanded={expanded}
           canExpand={branch.commitCount > 0 || branch.hasError}

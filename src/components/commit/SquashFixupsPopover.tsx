@@ -6,12 +6,11 @@ import { Spinner } from "@/components/ui/spinner"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { squashFixups, squashFixupsSurface } from "@/hooks/useSquashFixups"
-import { formatFixupCount, getAutosquashScope, getDisplaySubject, getFixupMarker, getListFixups } from "@/lib/autosquash"
+import { formatFixupCount, getAutosquashScope, getFixupMarker, getListFixups, getOrphanSubject } from "@/lib/autosquash"
 import type { ListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
-import { parseSubject } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
 import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
@@ -85,12 +84,15 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
         <div className="flex flex-col gap-1" data-testid="squash-fixups-orphans">
           <span className="text-xs text-warning">Won't be squashed: no target in this range</span>
           <ul className="flex flex-col gap-0.5">
-            {fixups.orphans.map(orphan => (
-              <li key={orphan.commitId} className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="shrink-0 font-mono">{parseSubject(orphan.subject).autosquash.trim()}</span>
-                <LinkedText text={getDisplaySubject(orphan.subject)} className="truncate" />
-              </li>
-            ))}
+            {fixups.orphans.map(orphan => {
+              const { marker, text } = getOrphanSubject(orphan)
+              return (
+                <li key={orphan.commitId} className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="shrink-0 font-mono">{marker}</span>
+                  <LinkedText text={text} className="truncate" />
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}
@@ -113,12 +115,12 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
 function FixupGroup({ group }: { group: PlannedGroup }) {
   return (
     <li className="flex min-w-0 flex-col gap-0.5">
-      <LinkedText text={getDisplaySubject(group.targetSubject)} className="truncate text-sm font-medium" />
+      <LinkedText text={group.targetParts.rest} className="truncate text-sm font-medium" />
       {group.folded.map(fixup => (
         <span key={fixup.commitId} className="flex min-w-0 items-center gap-1.5 pl-1 text-xs text-muted-foreground">
           <CornerDownRightIcon className="size-3 shrink-0" />
           <span className="shrink-0 font-mono">{getFixupMarker(fixup.kind)}</span>
-          <LinkedText text={getDisplaySubject(fixup.subject)} className="truncate" />
+          <LinkedText text={fixup.subjectParts.rest} className="truncate" />
         </span>
       ))}
     </li>

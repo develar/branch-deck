@@ -459,6 +459,26 @@ pub(crate) async fn session_key(state: &AppState, repository_path: &str) -> Resu
   })
 }
 
+/// The group a typed message or branch name puts a commit into, with the grouping of the session's table (`preview_group`
+/// of the app)
+pub async fn preview_group(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<domain_types::commit::PreviewGroupParams>,
+) -> CommandResult<Option<domain_types::commit::CommitGroup>> {
+  let key = session_key(&state, &params.repository_path).await?;
+  Ok(Json(state.sessions.preview_group(&key, &params.message).await))
+}
+
+/// The check of a typed branch name (`validate_branch_name` of the app)
+pub async fn validate_branch_name(Json(params): Json<domain_types::branch_names::ValidateBranchNameParams>) -> Json<domain_types::branch_names::BranchNameCheck> {
+  Json(domain_types::branch_names::check_branch_name(&params.name, params.rules))
+}
+
+/// The blocks of a commit body (`commit_body_blocks` of the app)
+pub async fn commit_body_blocks(Json(params): Json<domain_types::commit::CommitBodyParams>) -> Json<Vec<domain_types::commit_body::CommitBodyBlock>> {
+  Json(sync_utils::commit_body::body_blocks(sync_utils::commit_body::message_body(&params.message)))
+}
+
 pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Json<SessionRequest>) -> CommandResult<Option<RepositoryView>> {
   let key = session_key(&state, &request.repository_path).await?;
   Ok(Json(state.sessions.get_snapshot(&key).await))

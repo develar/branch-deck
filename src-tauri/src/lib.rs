@@ -43,6 +43,7 @@ use commands::commit_files::{get_commit_files, get_commits_files};
 use commands::conflict_fix::{cancel_conflict_fix, find_conflict_fix};
 use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
+use commands::grouping::{commit_body_blocks, preview_group, validate_branch_name};
 use commands::operations::{cancel_operation, execute, prepare};
 use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
 use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
@@ -144,6 +145,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
       set_setting,
       get_settings_changes,
       preview_move,
+      preview_group,
+      validate_branch_name,
+      commit_body_blocks,
       find_conflict_fix,
       cancel_conflict_fix,
       get_stack_independence,

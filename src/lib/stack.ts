@@ -1,6 +1,5 @@
-import type { ParentState, StackFix, StackProblemView } from "@/lib/bindings"
+import type { CommitGroup, ParentState, StackFix, StackProblemView } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
-import { groupFor } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -56,24 +55,22 @@ export interface PrefixChange {
 }
 
 /**
- * What saving `after` instead of `before` does to the commit's place: same branch, another branch, another parent.
- * With `stacks`, it also warns about a parent that has no commits (the branch is built on `baseline` then, the baseline
- * as the remote names it, likely a typo), about a parent level that differs from the stack parent of the branch, and
- * about a parent that differs from the one the other commits of the branch declare. `branchOf` looks a branch up in the
- * branch table; `issueGroups` and `stackParents` are the maps of the last grouping.
+ * What saving a message that groups into `to` instead of one that groups into `from` does to the commit's place (both
+ * as Rust groups them, `preview_group`; null: unassigned): same branch, another branch, another parent. With `stacks`,
+ * it also warns about a parent that has no commits (the branch is built on `baseline` then, the baseline as the remote
+ * names it, likely a typo), about a parent level that differs from the stack parent of the branch, and about a parent
+ * that differs from the one the other commits of the branch declare. `branchOf` looks a branch up in the branch table;
+ * `stackParents` is the map of the last grouping.
  */
 export function describePrefixChange(
-  before: string,
-  after: string,
+  from: CommitGroup | null,
+  to: CommitGroup | null,
   action: string,
   stacks: boolean,
   baseline: string,
   branchOf: (name: string) => StackBranchInfo | undefined,
-  issueGroups: Readonly<Record<string, string>> = {},
   stackParents: Readonly<Record<string, string>> = {},
 ): PrefixChange {
-  const from = groupFor(before, stacks, issueGroups, stackParents)
-  const to = groupFor(after, stacks, issueGroups, stackParents)
   if (to?.invalid === true) {
     return { text: `The prefix has an empty level: ${to.branch} will report an error`, warning: true, refused: `${action} is refused: the prefix has an empty level` }
   }
@@ -87,7 +84,7 @@ export function describePrefixChange(
   }
 
   const stored = stackParents[to.branch]
-  if (stacks && to.parentSource === "prefix" && stored !== undefined && stored !== parent) {
+  if (stacks && to.parentSource === "Prefix" && stored !== undefined && stored !== parent) {
     return { text: `${to.branch} is stacked on ${stored} in the stack parents: the prefix would conflict with it`, warning: true }
   }
   const target = branchOf(to.branch)

@@ -24,12 +24,15 @@ use crate::runtime::{Message, spawn_actor};
 use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
+use domain_types::commit::CommitGroup;
 use domain_types::error::ApiError;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewPatch};
-use std::collections::{HashMap, HashSet};
+use history_rewrite::commit_grouper::{GroupingInputs, group_of};
+use history_rewrite::store_lines::StoreLines;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -38,6 +41,7 @@ use std::time::Duration;
 use sync_core::sync::SyncReport;
 use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::Clock;
+use sync_utils::commit_subject::subject_of;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
@@ -417,6 +421,31 @@ impl Sessions {
   /// The view of an open session at the version of its last patch; `None` for a session that is not open
   pub async fn get_snapshot(&self, key: &SessionKey) -> Option<RepositoryView> {
     self.ask(key, Message::Snapshot).await
+  }
+
+  /// The group `message` would put its commit into (`history_rewrite::commit_grouper::group_of` of its subject as git
+  /// reads it) with the stacked branches, the issue groups and the stack parents the table of the open session of `key`
+  /// was grouped with: the preview of a typed message or branch name; `None` for a commit it leaves unassigned and for a
+  /// session that is not open
+  pub async fn preview_group(&self, key: &SessionKey, message: &str) -> Option<CommitGroup> {
+    let subject = subject_of(message);
+    self
+      .read(key, move |state, _| {
+        let header = state.header();
+        let lines = |entries: &BTreeMap<String, String>| StoreLines {
+          entries: entries.clone(),
+          ..StoreLines::default()
+        };
+        let inputs = GroupingInputs {
+          stacks: header.stacks_enabled,
+          issue_groups: lines(&header.issue_groups),
+          stack_parents: lines(&header.stack_parents),
+          ..GroupingInputs::default()
+        };
+        group_of(&subject, &inputs)
+      })
+      .await
+      .flatten()
   }
 
   /// The table of the last successful sync of an open session, with the memo of the content walks of its views and the

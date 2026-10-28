@@ -161,7 +161,14 @@ fn a_created_pull_request_stays_until_the_search_lists_it() {
   let mut fact = PullRequestsFact::default();
   fact.answer(at(1, 10), listing(&[]));
   let created = pull_request("auth", 9);
-  assert!(fact.write(Seq(2), Duration::from_secs(10), "user", PullRequestWrite::Created { pull_request: created.clone() }));
+  assert!(fact.write(
+    Seq(2),
+    Duration::from_secs(10),
+    "user",
+    PullRequestWrite::Created {
+      pull_request: Box::new(created.clone())
+    }
+  ));
   fact.answer(at(3, 20), listing(&[]));
   assert_eq!(names(&fact.view().pull_requests), vec![("auth", 9)]);
   let mut closed = pull_request("auth", 5);
@@ -174,7 +181,7 @@ fn a_created_pull_request_stays_until_the_search_lists_it() {
 
   let mut stack = pull_request("air", 12);
   stack.head_ref_name = "user/stack/air".to_owned();
-  fact.write(Seq(7), Duration::from_secs(60), "user", PullRequestWrite::Created { pull_request: stack });
+  fact.write(Seq(7), Duration::from_secs(60), "user", PullRequestWrite::Created { pull_request: Box::new(stack) });
   assert_eq!(names(&fact.view().stack_pull_requests), vec![("air", 12)]);
   fact.answer(at(8, 60 + CREATED_KEEP.as_secs() + 1), listing(&[]));
   assert_eq!(names(&fact.view().stack_pull_requests), vec![]);

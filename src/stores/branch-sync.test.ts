@@ -5,6 +5,7 @@ import type { Commit, RunningOperation } from "@/lib/bindings"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, isBranchPushing, isStackPushing, resolveCommits, subscribeToEntry, subscribeToField, wholeStackRootIn } from "@/stores/branch-sync"
 import { placed, testBranch } from "@/stores/test-branch"
+import { testSubject } from "@/test-support/subject-parts"
 
 const { repository } = vi.hoisted(() => ({
   /** The repository the window shows */
@@ -127,7 +128,7 @@ describe("the commits a rewrite that waited in the queue acts on", () => {
   })
 
   function commitOf(originalHash: string, strippedSubject: string, authorTime: number, committerTime: number): Commit {
-    return { originalHash, strippedSubject, message: strippedSubject, author: "Ann", authorTime, committerTime }
+    return { originalHash, strippedSubject, subjectParts: testSubject(strippedSubject), message: strippedSubject, author: "Ann", authorTime, committerTime }
   }
 
   function showCommits(commits: Commit[]): void {

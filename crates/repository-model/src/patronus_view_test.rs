@@ -2,7 +2,7 @@ use crate::branch_table::branch_table_test::placed;
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use crate::facts::PatronusOf;
 use crate::patronus_view::{ContentMemo, match_robots, patronus_view};
-use domain_types::commit::Commit;
+use domain_types::commit::{Commit, SubjectParts};
 use domain_types::fixtures::{carried, robot_of};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::reason::Reason;
@@ -31,6 +31,7 @@ fn commit(id: &str, copy: &str) -> Commit {
     mapped_commit_id: Some(copy.to_string()),
     mapped_source: None,
     mapped_resolution: None,
+    subject_parts: SubjectParts::default(),
   }
 }
 

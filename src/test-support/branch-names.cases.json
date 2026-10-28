@@ -1,0 +1,182 @@
+[
+  {
+    "name": "",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "empty",
+    "sanitized": ""
+  },
+  {
+    "name": "feature-auth",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "valid",
+    "sanitized": "feature-auth"
+  },
+  {
+    "name": "  feature   auth  ",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "valid",
+    "sanitized": "feature-auth"
+  },
+  {
+    "name": "a",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "tooShort",
+    "sanitized": "a"
+  },
+  {
+    "name": " a ",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "tooShort",
+    "sanitized": "a"
+  },
+  {
+    "name": "invalid@branch#name",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "invalidChars",
+    "sanitized": "invalid@branch#name"
+  },
+  {
+    "name": "invalid@branch",
+    "rules": {
+      "stacks": true,
+      "leafOnly": false
+    },
+    "state": "invalidChars",
+    "sanitized": "invalid@branch"
+  },
+  {
+    "name": ".hidden",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "invalidChars",
+    "sanitized": ".hidden"
+  },
+  {
+    "name": "auth/login",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "valid",
+    "sanitized": "auth/login"
+  },
+  {
+    "name": "auth/login",
+    "rules": {
+      "stacks": true,
+      "leafOnly": false
+    },
+    "state": "valid",
+    "sanitized": "auth/login"
+  },
+  {
+    "name": "auth/login",
+    "rules": {
+      "stacks": true,
+      "leafOnly": true
+    },
+    "state": "leafOnly",
+    "sanitized": "auth/login"
+  },
+  {
+    "name": "login",
+    "rules": {
+      "stacks": true,
+      "leafOnly": true
+    },
+    "state": "valid",
+    "sanitized": "login"
+  },
+  {
+    "name": "feature-",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "invalidRef",
+    "sanitized": "feature-"
+  },
+  {
+    "name": "-feature",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "invalidRef",
+    "sanitized": "-feature"
+  },
+  {
+    "name": "feature--auth",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "invalidRef",
+    "sanitized": "feature--auth"
+  },
+  {
+    "name": "feature..auth",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "invalidRef",
+    "sanitized": "feature..auth"
+  },
+  {
+    "name": "auth//login",
+    "rules": {
+      "stacks": true,
+      "leafOnly": false
+    },
+    "state": "invalidRef",
+    "sanitized": "auth//login"
+  },
+  {
+    "name": "auth/",
+    "rules": {
+      "stacks": true,
+      "leafOnly": false
+    },
+    "state": "invalidRef",
+    "sanitized": "auth/"
+  },
+  {
+    "name": "v1.2",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "valid",
+    "sanitized": "v1.2"
+  },
+  {
+    "name": "snake_case",
+    "rules": {
+      "stacks": false,
+      "leafOnly": false
+    },
+    "state": "valid",
+    "sanitized": "snake_case"
+  }
+]

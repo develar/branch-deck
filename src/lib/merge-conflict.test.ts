@@ -2,23 +2,26 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { MissingCommit } from "@/lib/bindings"
 import { formatConflictTitle, formatMissingCommitsReason, formatMissingCommitsTitle, getMissingCommitOwners } from "@/lib/merge-conflict"
+import { testSubject } from "@/test-support/subject-parts"
 
 describe("formatConflictTitle", () => {
   it("names the subject without its grouping prefix and the branch it is copied onto", () => {
-    expect(formatConflictTitle("(bug-fix) Implement secure password hashing\n\nBody", "master")).toBe("“Implement secure password hashing” does not apply cleanly onto master")
+    expect(formatConflictTitle(testSubject("Implement secure password hashing", { prefix: "bug-fix" }), "master")).toBe(
+      "“Implement secure password hashing” does not apply cleanly onto master",
+    )
   })
 
   it("keeps an autosquash marker of the subject", () => {
-    expect(formatConflictTitle("fixup! (auth) Add login", "auth")).toBe("“fixup! Add login” does not apply cleanly onto auth")
+    expect(formatConflictTitle(testSubject("Add login", { autosquash: "fixup! ", prefix: "auth" }), "auth")).toBe("“fixup! Add login” does not apply cleanly onto auth")
   })
 
   it('says "the baseline" before the first sync names it', () => {
-    expect(formatConflictTitle("Add login", null)).toBe("“Add login” does not apply cleanly onto the baseline")
+    expect(formatConflictTitle(testSubject("Add login"), null)).toBe("“Add login” does not apply cleanly onto the baseline")
   })
 })
 
 function missing(hash: string, branch: string | null): MissingCommit {
-  return { hash, subject: hash, message: hash, authorTime: 0, committerTime: 0, author: "", filesTouched: [], branch }
+  return { hash, subject: hash, message: hash, authorTime: 0, committerTime: 0, author: "", filesTouched: [], branch, subjectParts: testSubject(hash) }
 }
 
 describe("getMissingCommitOwners", () => {

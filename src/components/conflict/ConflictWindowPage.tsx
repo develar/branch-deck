@@ -7,11 +7,14 @@ import { ConflictResolutionHint, HintList } from "@/components/conflict/Conflict
 import { Callout } from "@/components/shared/Callout"
 import { WindowPage } from "@/components/shared/WindowPage"
 import { WindowTitle } from "@/components/shared/WindowTitleBar"
+import type { SubjectParts } from "@/lib/bindings"
 import { formatConflictTitle } from "@/lib/merge-conflict"
 
 export interface ConflictWindowCommit {
   hash: string
   message: string
+  /** The subject as Rust split it: the title names it without its prefix */
+  subjectParts: SubjectParts
   authorTime: number
   committerTime: number
 }
@@ -54,7 +57,7 @@ export function ConflictWindowPage({ title, "data-testid": testId, commit, branc
           <Card className="gap-0 py-0">
             <div className="flex flex-col gap-4 bd-padding-card">
               <ConflictCommitContext
-                title={formatConflictTitle(commit.message, onto)}
+                title={formatConflictTitle(commit.subjectParts, onto)}
                 meta={{
                   hash: commit.hash,
                   authorTime: commit.authorTime,

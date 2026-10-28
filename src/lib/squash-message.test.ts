@@ -1,37 +1,56 @@
 // @spec spec/commit/squash.spec.md
 import { describe, expect, it } from "vite-plus/test"
+import type { SubjectParts } from "@/lib/bindings"
 import { buildSquashMessage, countPushedCommits } from "@/lib/squash-message"
+import type { SquashedMessage } from "@/lib/squash-message"
 import type { RemoteStatus, SyncedCommit } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
+import { testSubject } from "@/test-support/subject-parts"
 
 describe("buildSquashMessage", () => {
+  // a message with its subject as Rust splits it (`subject_parts`)
+  const squashed = (message: string, parts: Partial<SubjectParts> = {}): SquashedMessage => ({ message, subjectParts: testSubject("", parts) })
+
   it("keeps the oldest message and appends the others as paragraphs without their prefix", () => {
-    expect(buildSquashMessage(["(auth) Add login\n\nThe login form", "(auth) Add logout", "(auth) Remember the user\n\nIn a cookie\n"])).toBe(
-      "(auth) Add login\n\nThe login form\n\nAdd logout\n\nRemember the user\n\nIn a cookie",
-    )
+    const commits = [
+      squashed("(auth) Add login\n\nThe login form", { prefix: "auth", rest: "Add login" }),
+      squashed("(auth) Add logout", { prefix: "auth", rest: "Add logout" }),
+      squashed("(auth) Remember the user\n\nIn a cookie\n", { prefix: "auth", rest: "Remember the user" }),
+    ]
+    expect(buildSquashMessage(commits)).toBe("(auth) Add login\n\nThe login form\n\nAdd logout\n\nRemember the user\n\nIn a cookie")
   })
 
   it("removes the autosquash marker and leaves out a message already included", () => {
-    expect(buildSquashMessage(["(auth) Add login", "fixup! (auth) Add login", "squash! Add login\n\nAlso validate", "amend! Validate"])).toBe(
-      "(auth) Add login\n\nAdd login\n\nAlso validate\n\nValidate",
-    )
-    expect(buildSquashMessage(["Add login", "fixup! Add login", "Add login  "])).toBe("Add login")
+    const commits = [
+      squashed("(auth) Add login", { prefix: "auth", rest: "Add login" }),
+      squashed("fixup! (auth) Add login", { autosquash: "fixup! ", prefix: "auth", rest: "Add login" }),
+      squashed("squash! Add login\n\nAlso validate", { autosquash: "squash! ", rest: "Add login" }),
+      squashed("amend! Validate", { autosquash: "amend! ", rest: "Validate" }),
+    ]
+    expect(buildSquashMessage(commits)).toBe("(auth) Add login\n\nAdd login\n\nAlso validate\n\nValidate")
+    expect(buildSquashMessage([squashed("Add login"), squashed("fixup! Add login", { autosquash: "fixup! " }), squashed("Add login  ")])).toBe("Add login")
   })
 
   it("cleans up trailing whitespace and blank lines", () => {
-    expect(buildSquashMessage(["\nAdd a  \n\n", "\n\nAdd b\n"])).toBe("Add a\n\nAdd b")
+    expect(buildSquashMessage([squashed("Add a  \n\n"), squashed("Add b\n")])).toBe("Add a\n\nAdd b")
   })
 
   it("keeps the issue key of a newer subject grouped by its prefix", () => {
-    expect(buildSquashMessage(["ABC-1: Add parser", "(lexer) ABC-1: Add lexer"])).toBe("ABC-1: Add parser\n\nABC-1: Add lexer")
+    const commits = [squashed("ABC-1: Add parser", { issueKey: "ABC-1" }), squashed("(lexer) ABC-1: Add lexer", { prefix: "lexer", issueKey: "ABC-1" })]
+    expect(buildSquashMessage(commits)).toBe("ABC-1: Add parser\n\nABC-1: Add lexer")
   })
 
   it("removes the issue key a newer subject is grouped by", () => {
-    expect(buildSquashMessage(["ABC-123: Add parser", "ABC-123: Add tokens\n\nFor the lexer", "ABC-123 Fix the parser", "fixup! ABC-123: Add parser"])).toBe(
-      "ABC-123: Add parser\n\nAdd tokens\n\nFor the lexer\n\nFix the parser",
-    )
+    const key = { issueKey: "ABC-123" }
+    const commits = [
+      squashed("ABC-123: Add parser", key),
+      squashed("ABC-123: Add tokens\n\nFor the lexer", key),
+      squashed("ABC-123 Fix the parser", key),
+      squashed("fixup! ABC-123: Add parser", { autosquash: "fixup! ", ...key }),
+    ]
+    expect(buildSquashMessage(commits)).toBe("ABC-123: Add parser\n\nAdd tokens\n\nFor the lexer\n\nFix the parser")
     // a key after a `[category]` or a `type:` stays
-    expect(buildSquashMessage(["ABC-1: Add a", "fix: ABC-1 Add b"])).toBe("ABC-1: Add a\n\nfix: ABC-1 Add b")
+    expect(buildSquashMessage([squashed("ABC-1: Add a", { issueKey: "ABC-1" }), squashed("fix: ABC-1 Add b", { issueKey: "ABC-1" })])).toBe("ABC-1: Add a\n\nfix: ABC-1 Add b")
   })
 })
 
@@ -40,6 +59,7 @@ describe("countPushedCommits", () => {
     originalHash: `original-${hash}`,
     hash,
     strippedSubject: "",
+    subjectParts: testSubject(""),
     message: "",
     author: "",
     authorTime: 0,

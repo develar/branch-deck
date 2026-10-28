@@ -186,6 +186,7 @@ fn commit(id: &str) -> Commit {
     mapped_commit_id: None,
     mapped_source: None,
     mapped_resolution: None,
+    subject_parts: domain_types::commit::SubjectParts::default(),
   }
 }
 

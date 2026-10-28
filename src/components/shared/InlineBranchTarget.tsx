@@ -11,10 +11,11 @@ import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useMovePreview } from "@/hooks/useMovePreview"
+import { usePreviewGroup } from "@/hooks/usePreviewGroup"
 import type { Commit, MoveCommitsResult } from "@/lib/bindings"
-import { formatCommitCount, groupFor } from "@/lib/commit"
+import { formatCommitCount } from "@/lib/commit"
 import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
-import { useBranchSync, useMoveTargets, useStackParents, useStacksEnabled } from "@/stores/branch-sync"
+import { useBranchSync, useMoveTargets, useStacksEnabled } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
 import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
 import { useSelectedProjectPath } from "@/stores/repository"
@@ -51,19 +52,19 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
 
   const [branchName, setBranchName] = useState("")
   const stacks = useStacksEnabled()
-  const stackParents = useStackParents()
-  const { sanitizedBranchName, validationState, isValid } = useBranchNameValidation(branchName, { stacks })
+  const { sanitizedBranchName, validationState, isValid, pending, settled } = useBranchNameValidation(branchName, { stacks })
   // with stacked branches the name may carry a parent: `auth/login` is the branch `login`; a bare name takes its
-  // stack parent
-  const target = stacks ? groupFor(`(${sanitizedBranchName})`, true, {}, stackParents) : null
+  // stack parent, as Rust groups the prefix `(<name>)`
+  const target = usePreviewGroup(stacks && sanitizedBranchName !== "" ? `(${sanitizedBranchName})` : null).answer ?? null
   const leaf = target?.branch ?? sanitizedBranchName
   const parent = target?.parent ?? null
   const branches = useBranchSync(state => state.branches)
   const existingBranch = branches[leaf]
   const existing = existingBranch !== undefined
-  const isSource = leaf === sourceBranch
+  // the answer of an earlier name says nothing of the name as typed now
+  const isSource = !pending && leaf === sourceBranch
   const preview = useMovePreview(commits, sanitizedBranchName, isValid && !isSource && sanitizedBranchName !== "")
-  const isAlreadyThere = preview.result !== null && countMoved(preview.result) === 0
+  const isAlreadyThere = !pending && preview.result !== null && countMoved(preview.result) === 0
 
   const dialogRef = useRef<InlineInputDialogHandle>(null)
   const hasAutoPopulatedRef = useRef(false)
@@ -96,12 +97,18 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
     setBranchName(name)
   }
 
-  const submit = async () => {
-    const success = await moveCommits(commits, sanitizedBranchName, { surface: MOVE_TARGET_SURFACE })
+  // Enter right after typing waits for Rust's check of the name as typed
+  const submit = async (): Promise<boolean> => {
+    const name = await settled()
+    if (!name.isValid) {
+      return false
+    }
+    const success = await moveCommits(commits, name.sanitizedBranchName, { surface: MOVE_TARGET_SURFACE })
     if (success) {
       setBranchName("")
       onSuccess()
     }
+    return true
   }
 
   const cancel = () => {
@@ -152,7 +159,7 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
         value={branchName}
         onValueChange={setBranchName}
         placeholder={`Branch for ${commitCount}: an existing or a new name`}
-        canSubmit={isValid && !isRefused && !isMoving}
+        canSubmit={(isValid || pending) && !isRefused && !isMoving}
         validationMessage={validationMessage}
         validationColor={isRefused ? "error" : (validationState.color ?? "primary")}
         validationTextClassName={isRefused ? "text-destructive" : validationState.textClass}
@@ -200,7 +207,7 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
             <BranchNameSuggestions repositoryPath={repositoryPath} commits={commits} isActive={isActive} selectedName={sanitizedBranchName} onSelect={choose} />
           </>
         }
-        onSubmit={() => void submit()}
+        onSubmit={submit}
         onCancel={cancel}
       />
     </div>

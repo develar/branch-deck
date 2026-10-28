@@ -919,6 +919,15 @@ pub struct BranchHead {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub description_title: Option<String>,
+  /// `description_title` split at the issue key it starts with, which a row that shows the key leaves out
+  /// (`sync_utils::issue_pattern::issue_lead`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub description_lead: Option<crate::commit::IssueLead>,
+  /// The issue key the name starts with (`IJPL-1` of `IJPL-1` and of `IJPL-1-cache`), which the row shows in the name
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub name_issue_key: Option<String>,
   pub all_commits_have_issue_references: bool,
   /// Most frequent author email in this branch's commits
   #[serde(skip_serializing_if = "Option::is_none")]

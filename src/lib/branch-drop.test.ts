@@ -4,12 +4,12 @@ import type { ActionId, StackProblemView } from "@/lib/bindings"
 import type { BranchDropFacts } from "@/lib/branch-drop"
 import { moveDrop, parkDrop, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
 import type { ParkedState } from "@/lib/parked"
-import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { testBranch } from "@/stores/test-branch"
+import type { Branch } from "@/stores/branch-sync"
+import { testBranch, testTip } from "@/stores/test-branch"
 
 /** A branch of one commit, stacked on `parent` */
 function branchOf(name: string, parent: string | null): Branch {
-  const tip: SyncedCommit = { originalHash: `${name}-original`, hash: `${name}-tip`, strippedSubject: name, message: name, author: "Ann", authorTime: 0, committerTime: 0 }
+  const tip = testTip(name)
   return testBranch(name, parent, { commits: [tip] })
 }
 

@@ -41,6 +41,7 @@ pub fn pull_request(branch: &str, number: u32) -> PullRequest {
   PullRequest {
     number,
     title: format!("Pull request of {branch}"),
+    title_lead: None,
     url: format!("https://github.com/acme/monorepo/pull/{number}"),
     state: PullRequestState::Open,
     is_draft: false,
@@ -61,6 +62,7 @@ pub fn review_request(number: u32, requested_at: u32) -> ReviewRequest {
   ReviewRequest {
     number,
     title: format!("Change {number}"),
+    title_lead: None,
     url: format!("https://github.com/acme/monorepo/pull/{number}"),
     body_text: String::new(),
     author: Some("alice".to_string()),

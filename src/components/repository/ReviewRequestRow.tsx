@@ -12,11 +12,10 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { useLandingNode } from "@/hooks/useLandingNode"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
-import type { ActionState, ReviewRequest } from "@/lib/bindings"
+import type { ActionState, IssueLead, ReviewRequest } from "@/lib/bindings"
 import { reviewBlockerOf } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
-import { findIssueKey, stripLeadingIssueKey } from "@/lib/commit"
 import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItemGroups } from "@/lib/menu"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
@@ -162,7 +161,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
         {/* the mark keeps its place on a row without one: the titles line up */}
         <span className="flex size-4 shrink-0 items-center justify-center">{lead ?? <UnreadDot unread={unread} />}</span>
         <span className="min-w-0 truncate font-medium" data-testid="review-request-title">
-          <PullRequestTitle title={request.title} />
+          <PullRequestTitle title={request.title} lead={request.titleLead} />
         </span>
         {hint === "" ? (
           metaLine
@@ -227,16 +226,17 @@ function UnreadDot({ unread }: { unread: boolean }) {
   return <span aria-hidden data-testid={unread ? "review-request-unread" : undefined} className={cn("size-1.5 rounded-full", unread && "bg-primary")} />
 }
 
-/** The title with the issue key it starts with muted, as a branch row has its key: the words are what the eye reads */
-function PullRequestTitle({ title }: { title: string }) {
-  const key = findIssueKey(title)
-  const rest = key === null ? title : stripLeadingIssueKey(title, key)
-  if (key === null || rest === title) {
+/**
+ * The title with the issue key it starts with muted (Rust split it there, `titleLead`), as a branch row has its key:
+ * the words are what the eye reads
+ */
+function PullRequestTitle({ title, lead }: { title: string; lead: IssueLead | null | undefined }) {
+  if (lead == null || lead.text === "") {
     return title
   }
   return (
     <>
-      <span className="font-normal text-muted-foreground">{key}</span> {rest}
+      <span className="font-normal text-muted-foreground">{lead.key}</span> {lead.text}
     </>
   )
 }
@@ -343,7 +343,7 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
           <BranchNodeMark branch={branchName} />
         </span>
         <span className="min-w-0 truncate font-medium" data-testid="returned-pull-request-title">
-          <PullRequestTitle title={pullRequest.title} />
+          <PullRequestTitle title={pullRequest.title} lead={pullRequest.titleLead} />
         </span>
         <span className="hidden min-w-0 shrink-[1000] truncate text-xs text-muted-foreground sm:inline" data-testid="returned-pull-request-meta">
           {formatReturnedMeta(pullRequest)}

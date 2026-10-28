@@ -6,7 +6,7 @@
 
 use anyhow::{Result, anyhow};
 use domain_types::branch_names::to_final_branch_name;
-use domain_types::commit::Commit;
+use domain_types::commit::{Commit, SubjectParts};
 use domain_types::rewrite::PickRemoteCommitsResult;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -530,6 +530,7 @@ fn copy_commit(commit: &PickedCommit) -> Commit {
     mapped_commit_id: None,
     mapped_source: None,
     mapped_resolution: None,
+    subject_parts: SubjectParts::default(),
   }
 }
 

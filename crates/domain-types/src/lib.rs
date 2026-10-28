@@ -61,6 +61,7 @@ pub mod branch_names;
 pub mod calendar;
 pub mod cli_tools;
 pub mod commit;
+pub mod commit_body;
 pub mod conflict;
 pub mod error;
 #[cfg(feature = "fixtures")]

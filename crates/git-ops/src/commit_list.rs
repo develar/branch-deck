@@ -7,6 +7,7 @@ use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::ops::ControlFlow;
+use sync_utils::commit_subject::subject_parts;
 use tracing::{debug, instrument};
 
 /// Collects the commits ahead of `baseline_branch` into a Vec (prefer `get_commit_list_with_handler` for large ranges)
@@ -205,7 +206,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
   Ok(Commit {
     id,
     subject: subject.clone(),
-    stripped_subject: subject, // Will be updated by commit grouper if needed
+    stripped_subject: subject.clone(), // Will be updated by commit grouper if needed
     message,
     author_name: author_name_field.to_string(),
     author_email: author_email_field.to_string(),
@@ -219,6 +220,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
     mapped_commit_id,
     mapped_source,
     mapped_resolution,
+    subject_parts: subject_parts(&subject),
   })
 }
 

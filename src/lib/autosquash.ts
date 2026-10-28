@@ -1,5 +1,4 @@
 import type { AutosquashPlan, AutosquashScope, FixupKind, OrphanFixup, PlannedGroup } from "@/lib/bindings"
-import { parseSubject } from "@/lib/commit"
 
 /** The fixups of one list: a branch, or the unassigned commits (null) */
 export interface ListFixups {
@@ -66,9 +65,10 @@ export function formatFixupCount(count: number): string {
   return count === 1 ? "1 fixup" : `${count} fixups`
 }
 
-/** The subject as shown for a target: without its autosquash markers and `(prefix)` */
-export function getDisplaySubject(subject: string): string {
-  return parseSubject(subject).rest
+/** The subject of a fixup as shown in a list of fixups: Rust split off its markers and `(prefix)` (`subjectParts`) */
+export function getOrphanSubject(orphan: OrphanFixup): { marker: string; text: string } {
+  const parts = orphan.subjectParts
+  return { marker: (parts?.autosquash ?? "").trim(), text: parts?.rest ?? orphan.subject }
 }
 
 /** The marker of a fixup kind, as in the subject */
@@ -88,5 +88,5 @@ export function describeFixupTarget(target: FixupTarget | undefined): string | n
   if (target === undefined) {
     return null
   }
-  return target === null ? "No target in this range" : `Squashes into “${getDisplaySubject(target.targetSubject)}”`
+  return target === null ? "No target in this range" : `Squashes into “${target.targetParts.rest}”`
 }

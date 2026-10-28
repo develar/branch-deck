@@ -47,10 +47,10 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
   const open = commits !== null
   // the last commits stay while the closing animation runs; new commits start with a new message
   const [shownCommits, setShownCommits] = useState(commits)
-  const [draft, setDraft] = useState(() => (commits === null ? "" : buildSquashMessage(oldestFirst(commits).map(commit => commit.message))))
+  const [draft, setDraft] = useState(() => (commits === null ? "" : buildSquashMessage(oldestFirst(commits))))
   if (commits !== null && commits !== shownCommits) {
     setShownCommits(commits)
-    setDraft(buildSquashMessage(oldestFirst(commits).map(commit => commit.message)))
+    setDraft(buildSquashMessage(oldestFirst(commits)))
   }
   // as the message reads; the target is the oldest
   const shown = shownCommits === null ? [] : oldestFirst(shownCommits)

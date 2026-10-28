@@ -1,7 +1,11 @@
 use crate::branch_names::{
-  BranchKind, baseline_on_remote, is_valid_branch_prefix, normalize_branch_prefix, qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name,
-  to_stack_branch_name,
+  BranchKind, BranchNameCheck, BranchNameRules, BranchNameState, baseline_on_remote, check_branch_name, is_valid_branch_prefix, normalize_branch_prefix, qualified_branch_name,
+  sanitize_branch_name, strip_branch_namespace, to_final_branch_name, to_stack_branch_name,
 };
+
+const FLAT: BranchNameRules = BranchNameRules { stacks: false, leaf_only: false };
+const STACKS: BranchNameRules = BranchNameRules { stacks: true, leaf_only: false };
+const LEAF: BranchNameRules = BranchNameRules { stacks: true, leaf_only: true };
 
 #[test]
 fn test_to_final_branch_name_valid_inputs() {
@@ -150,4 +154,25 @@ fn a_baseline_names_its_branch_on_the_remote() {
   assert_eq!(baseline_on_remote("origin/master"), "master");
   assert_eq!(baseline_on_remote("upstream/release/2026"), "release/2026");
   assert_eq!(baseline_on_remote("master"), "master");
+}
+
+#[test]
+fn a_typed_name_is_what_the_grouping_keeps_as_it_is() {
+  let state = |name: &str, rules: BranchNameRules| check_branch_name(name, rules).state;
+  assert_eq!(state("", FLAT), BranchNameState::Empty);
+  assert_eq!(
+    check_branch_name("  feature   auth  ", FLAT),
+    BranchNameCheck {
+      state: BranchNameState::Valid,
+      sanitized: "feature-auth".to_string()
+    }
+  );
+  assert_eq!(state(" a ", FLAT), BranchNameState::TooShort);
+  assert_eq!(state("invalid@branch#name", FLAT), BranchNameState::InvalidChars);
+  assert_eq!(state(".hidden", FLAT), BranchNameState::InvalidChars);
+  assert_eq!(state("auth/login", STACKS), BranchNameState::Valid);
+  assert_eq!(state("auth/login", LEAF), BranchNameState::LeafOnly);
+  assert_eq!(state("feature-", FLAT), BranchNameState::InvalidRef);
+  assert_eq!(state("feature..auth", FLAT), BranchNameState::InvalidRef);
+  assert_eq!(state("auth//login", STACKS), BranchNameState::InvalidRef);
 }

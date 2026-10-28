@@ -9,7 +9,7 @@ use object_cache::word_resolution::WordResolutionResult;
 
 /// The version of a remembered `MergeConflictInfo`: bump it when the type or how `build_merge_conflict_info` computes it
 /// change, so no view of the old analysis is read
-pub const CONFLICT_INFO_VERSION: u32 = 5;
+pub const CONFLICT_INFO_VERSION: u32 = 6;
 
 /// The version of a remembered chain of copies of a conflicting branch (`sync_core::conflict_chain`): bump it when how a
 /// commit is copied changes (`copy_commit`: its tree, message, author, committer or date), so no copy of the old way is

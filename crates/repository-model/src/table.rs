@@ -44,6 +44,7 @@ use domain_types::stack::StackBranchUpdate;
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use sync_core::push::PUSH_REMOTE;
+use sync_utils::issue_pattern::{find_issue_number, issue_lead};
 
 /// The parts of the table that a failed sync restores
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -671,12 +672,19 @@ fn index_commits(branches: &BTreeMap<String, BranchView>) -> HashMap<String, Has
     .collect()
 }
 
+/// The issue key the last level of a branch name starts with (`find_issue_number`)
+fn name_issue_key(name: &str) -> Option<String> {
+  find_issue_number(name.rsplit('/').next().unwrap_or(name)).map(str::to_owned)
+}
+
 fn head_of(info: &GroupedBranchInfo) -> BranchHead {
   BranchHead {
     name: info.name.clone(),
     latest_commit_time: info.latest_commit_time,
     summary: info.summary.clone(),
     description_title: info.description_title.clone(),
+    description_lead: info.description_title.as_deref().and_then(issue_lead),
+    name_issue_key: name_issue_key(&info.name),
     all_commits_have_issue_references: info.all_commits_have_issue_references,
     my_email: info.my_email.clone(),
     origin: info.origin,

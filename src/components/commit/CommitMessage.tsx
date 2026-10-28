@@ -1,12 +1,13 @@
+import { Fragment } from "react"
 import type { MouseEvent } from "react"
 import { cn } from "cn"
 import { RectangleEllipsisIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
-import { getCommitMessageBody } from "@/lib/commit"
-import { groupCommitBodySections, parseCommitBody } from "@/lib/commit-message"
-import type { CommitBodyBlock } from "@/lib/commit-message"
+import { useCommitBodyBlocks } from "@/hooks/useCommitBodyBlocks"
+import type { CommitBodyBlock } from "@/lib/bindings"
+import { groupCommitBodySections } from "@/lib/commit-message"
 
 /** Icon button that opens the full commit message in the commit preview; does not change the row selection. */
 export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
@@ -45,8 +46,8 @@ const bodySizeClasses: Record<CommitMessageBodySize, { text: string; preformatte
 }
 
 /**
- * Body of a commit message (the message without its subject line), shown in the commit preview and the hash popover;
- * rows don't render or parse their bodies.
+ * Body of a commit message (the message without its subject line, as Rust parses it: `commit_body_blocks`), shown in the
+ * commit preview and the hash popover; rows don't render or parse their bodies.
  *
  * A lead-in label ("Why:", "What changed:") is a small heading above its blocks. Code tokens are set in the monospace font.
  * The text is selectable, and a click in it does not change the row selection.
@@ -55,7 +56,8 @@ const bodySizeClasses: Record<CommitMessageBodySize, { text: string; preformatte
  * block is one step below the text. Both keep a line at `max-w-prose` (65ch, about 80 characters).
  */
 export function CommitMessageBody({ message, size = "compact" }: { message: string; size?: CommitMessageBodySize }) {
-  const sections = groupCommitBodySections(parseCommitBody(getCommitMessageBody(message)))
+  const blocks = useCommitBodyBlocks(message)
+  const sections = blocks === undefined ? [] : groupCommitBodySections(blocks)
   return (
     <div
       data-testid="commit-message-body"
@@ -85,9 +87,15 @@ export function CommitMessageBody({ message, size = "compact" }: { message: stri
 function CommitBodyBlockView({ block, size }: { block: CommitBodyBlock; size: CommitMessageBodySize }) {
   switch (block.type) {
     case "paragraph":
+      // a line of its own (after a hard break, a quote line, a table row) breaks the paragraph there
       return (
         <p>
-          <LinkedText text={block.text} detectCode />
+          {block.lines.map((line, index) => (
+            <Fragment key={index}>
+              {index > 0 && <br />}
+              <LinkedText text={line} detectCode />
+            </Fragment>
+          ))}
         </p>
       )
     case "list": {

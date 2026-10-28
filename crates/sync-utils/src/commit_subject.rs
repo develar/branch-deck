@@ -3,7 +3,8 @@
 //! grouping that reads it is `history_rewrite::commit_grouper`, the identity of a commit across a rebase
 //! `git_ops::landed_pairing::CommitKey`.
 
-use crate::issue_pattern::{find_issue_number, has_issue_reference, issue_key_position};
+use crate::issue_pattern::{find_issue_number, has_issue_reference, issue_key_position, issue_lead};
+use domain_types::commit::SubjectParts;
 use std::borrow::Cow;
 
 /// Git's autosquash markers; each needs the space, `fixup!X` is an ordinary subject (`git help rebase`, `--autosquash`)
@@ -59,6 +60,20 @@ fn strip_autosquash_markers(subject: &str) -> &str {
   rest
 }
 
+/// The parts of `subject` the page shows and words (`SubjectParts`): the markers, the prefix, the rest with its issue key,
+/// and what a row shows (the subject of the virtual commit without the markers) split at the key it starts with
+pub fn subject_parts(subject: &str) -> SubjectParts {
+  let parsed = parse_subject(subject);
+  let shown = parsed.prefix.map_or(Cow::Borrowed(parsed.rest), |prefix| subject_after_prefix(prefix, parsed.rest));
+  SubjectParts {
+    autosquash: parsed.autosquash.to_owned(),
+    prefix: parsed.prefix.map(str::to_owned),
+    rest: parsed.rest.to_owned(),
+    issue_key: find_issue_number(parsed.rest).map(str::to_owned),
+    lead: issue_lead(&shown),
+  }
+}
+
 /// The subject of the commit's virtual branch commit: an explicit prefix (and the autosquash marker before it) is
 /// stripped (`subject_after_prefix`), an issue-based or unassigned subject stays as is
 pub fn stripped_subject(subject: &str) -> Cow<'_, str> {
@@ -100,4 +115,36 @@ pub fn subject_of(message: &str) -> String {
     .map(str::trim)
     .collect::<Vec<_>>()
     .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use domain_types::commit::IssueLead;
+  use pretty_assertions::assert_eq;
+
+  #[test]
+  fn the_parts_of_a_subject_are_its_markers_its_prefix_its_rest_and_the_key_a_row_shows_it_led_by() {
+    assert_eq!(
+      subject_parts("fixup! (auth) IJPL-1: Add login"),
+      SubjectParts {
+        autosquash: "fixup! ".to_string(),
+        prefix: Some("auth".to_string()),
+        rest: "IJPL-1: Add login".to_string(),
+        issue_key: Some("IJPL-1".to_string()),
+        lead: Some(IssueLead {
+          key: "IJPL-1".to_string(),
+          text: "Add login".to_string(),
+        }),
+      }
+    );
+    // the key of a prefix that names an issue leads what the row shows, the subject of the virtual commit
+    let parts = subject_parts("(IJPL-1) Fix x");
+    assert_eq!((parts.issue_key, parts.lead.map(|lead| lead.text)), (None, Some("Fix x".to_string())));
+    let plain = subject_parts("[ui] fix(api): ABC-123 Fix");
+    assert_eq!(
+      (plain.autosquash.as_str(), plain.prefix, plain.issue_key.as_deref(), plain.lead),
+      ("", None, Some("ABC-123"), None)
+    );
+  }
 }

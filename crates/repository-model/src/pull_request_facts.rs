@@ -48,7 +48,7 @@ pub enum PullRequestWrite {
     requested: Vec<String>,
   },
   Created {
-    pull_request: PullRequest,
+    pull_request: Box<PullRequest>,
   },
 }
 
@@ -192,8 +192,8 @@ impl PullRequestsFact {
     let name = subject.name().to_owned();
     match write {
       PullRequestWrite::Created { pull_request } => {
-        self.created.insert(subject.clone(), (pull_request.clone(), at + CREATED_KEEP));
-        map.insert(name, pull_request);
+        self.created.insert(subject.clone(), ((*pull_request).clone(), at + CREATED_KEEP));
+        map.insert(name, *pull_request);
       }
       PullRequestWrite::Retargeted { base, .. } => {
         if let Some(pull_request) = map.get_mut(&name) {

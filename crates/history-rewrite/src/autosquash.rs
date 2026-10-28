@@ -6,7 +6,7 @@ use crate::commit_grouper::GroupingInputs;
 use crate::repository_lock::RewriteOptions;
 use crate::snapshot::{CommitsAhead, read_grouping_inputs};
 use anyhow::{Result, anyhow, bail};
-use domain_types::commit::Commit;
+use domain_types::commit::{Commit, SubjectParts};
 use domain_types::rewrite::{AutosquashScope, OrphanFixup, SquashFixupsResult, SquashedTarget};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::autosquash_targets::{FixupTarget, fixup_targets};
@@ -46,6 +46,8 @@ impl FixupKind {
 pub struct PlannedFixup {
   pub commit_id: String,
   pub subject: String,
+  /// The parts of `subject` the page shows (`Commit::subject_parts`)
+  pub subject_parts: SubjectParts,
   pub kind: FixupKind,
 }
 
@@ -56,6 +58,8 @@ pub struct PlannedFixup {
 pub struct PlannedGroup {
   pub target: String,
   pub target_subject: String,
+  /// The parts of `target_subject` the page shows (`Commit::subject_parts`)
+  pub target_parts: SubjectParts,
   /// The virtual branch the target is grouped into; `None` for an unassigned target
   pub branch: Option<String>,
   pub folded: Vec<PlannedFixup>,
@@ -89,18 +93,21 @@ pub fn plan_autosquash(head: String, commits: &[Commit], grouping: &GroupingInpu
       FixupTarget::Orphan => orphans.push(OrphanFixup {
         commit_id: commit.id.clone(),
         subject: commit.subject.clone(),
+        subject_parts: commit.subject_parts.clone(),
         branch: branch_of(&commit.subject),
       }),
       FixupTarget::Fixup(target) => {
         let group = groups.entry(target).or_insert_with(|| PlannedGroup {
           target: commits[target].id.clone(),
           target_subject: commits[target].subject.clone(),
+          target_parts: commits[target].subject_parts.clone(),
           branch: branch_of(&commits[target].subject),
           folded: Vec::new(),
         });
         group.folded.push(PlannedFixup {
           commit_id: commit.id.clone(),
           subject: commit.subject.clone(),
+          subject_parts: commit.subject_parts.clone(),
           kind: FixupKind::of(&commit.subject).expect("a fixup has a marker"),
         });
       }

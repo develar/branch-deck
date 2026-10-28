@@ -13,21 +13,15 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use test_utils::git_test_utils::git_command;
 
+/// The pull request of the fixtures (`domain_types::fixtures::pull_request`) under the prefix of the templates, a review
+/// required, on no commit GitHub names
 fn pull_request(branch: &str, number: u32) -> PullRequest {
   PullRequest {
-    number,
-    title: format!("Pull request of {branch}"),
-    url: format!("https://github.com/acme/monorepo/pull/{number}"),
-    state: PullRequestState::Open,
-    is_draft: false,
     review_decision: Some(ReviewDecision::ReviewRequired),
     head_ref_name: format!("user-name/virtual/{branch}"),
-    base_ref_name: "master".to_string(),
     head_ref_oid: String::new(),
-    checks: None,
-    updated_at: 1_704_139_200,
-    reviewers: Vec::new(),
     author: Some("user-name".to_string()),
+    ..domain_types::fixtures::pull_request(branch, number)
   }
 }
 
