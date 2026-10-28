@@ -21,7 +21,7 @@ targets:
   - ../../crates/app-api/src/events.rs
   - ../../src-tauri/src/lib.rs
   - ../../crates/bd-core/src/context.rs
-  - ../../crates/test-server/src/tauri_command_bridge.rs
+  - ../../crates/test-server/src/session_routes.rs
   - ../../crates/test-server/src/host.rs
   - ../../crates/test-server/src/remote_host.rs
   - ../../src/stores/auth.ts

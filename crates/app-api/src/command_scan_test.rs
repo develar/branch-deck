@@ -166,6 +166,8 @@ fn registry_entries(text: &str) -> Vec<(String, String, String)> {
     let (Some(class), Some(kind), Some(rest)) = (words.next(), words.next(), words.next()) else {
       continue;
     };
+    // `app` with its reason: `app(SettingsWriter)`
+    let class = class.split_once('(').map_or(class, |(class, _)| class);
     if !matches!(class, "read" | "engine" | "app") {
       continue;
     }

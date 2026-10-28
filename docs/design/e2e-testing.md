@@ -12,7 +12,14 @@ The challenge: How to provide complete test isolation while accurately simulatin
 
 ## Solution Overview
 
-A custom test server (port 3030, or `E2E_PORT`) provides isolated Git repositories from templates for each test. Tauri commands are mocked to route through this server, which maintains separate state per test via repository IDs. Templates are pre-created for fast test startup, and the mock layer accurately simulates Tauri's Result type system. The remote services (Patronus, GitHub, YouTrack) are fakes of each test repository behind the app's real services, so a remote command runs the app's Rust path and a test asserts what the fake got ([Remote services](#remote-services)).
+A custom test server (port 3030, or `E2E_PORT`) provides isolated Git repositories from templates for each test, and
+hosts the app's own commands: every command is declared once, in the registry of `crates/app-api`
+(`for_each_command!`), which gives the app its Tauri commands and the server its routes, `/invoke/<name>`, each
+running the app's body in the context of the test repository the request names. The page mock forwards every command
+to its route and answers only the plugins of Tauri itself; the events of the app come from Rust over an event stream
+of the server, as the app sends them to its windows. Templates are pre-created for fast test startup. The remote
+services (Patronus, GitHub, YouTrack) are fakes of each test repository behind the app's real services, so a remote
+command runs the app's Rust path and a test asserts what the fake got ([Remote services](#remote-services)).
 
 ## Design
 
@@ -20,50 +27,39 @@ A custom test server (port 3030, or `E2E_PORT`) provides isolated Git repositori
 
 ```mermaid
 flowchart TB
-    subgraph "Test Infrastructure"
-        A[Playwright Test]
-        B[Test Repository Builder]
+    subgraph "Playwright"
+        A[Test]
+        B[Fixtures: setupRepo, fixture and log helpers]
     end
-    
-    subgraph "Mock Layer"
-        C[Tauri internals mock]
-        D[Command Router]
+
+    subgraph "Page"
+        C[Tauri internals mock: PAGE_PLUGINS, commands.json]
     end
-    
+
     subgraph "Test Server :3030"
-        E[Repository Manager]
-        F[Template System]
-        G[State Isolation]
-        H[Command Handlers]
-        L[Remote Host: the real services on fake Patronus, GitHub, YouTrack]
-        S[Sessions: the syncs of a repository, its patches as SSE]
-        EV[Events: the events of the app to each page of a repository, as SSE]
+        R[Repositories: templates, ids, AppContext per repository]
+        I[invoke.rs: one route per entry of the registry]
+        AP[app-api: the app's bodies of the commands]
+        S[Sessions: syncs, facts, the engine]
+        L[Remote host: the real services on fake Patronus, GitHub, YouTrack; the remote of a repository]
+        EV[Events: the events of the app to each page, as SSE]
+        D[Desktop: windows, menus, dialog, updater, agent CLI]
     end
-    
-    subgraph "Test Resources"
-        I[Git Repos]
-        J[Store State]
-        K[Command Fixtures]
-    end
-    
+
     A --> B
-    B --> C
-    C --> D
-    D -->|Repository ID| E
-    E --> F
-    F --> I
-    E --> G
-    G --> J
-    G --> K
-    D --> H
-    H --> I
-    H --> L
-    D -->|subscribe_view, sync, set_window_focus| S
-    S --> I
-    H --> EV
-    EV -->|settings_changed, activity-changed, auth-changed| C
+    B -->|POST /repositories| R
+    B -->|fixtures, logs, clocks| L
+    B -->|windows, dialog-pick, update| D
+    A -->|page with ?repoId| C
+    C -->|POST /invoke/name, X-Repository-Id, X-Window-Label| I
+    I --> AP
+    AP --> S
+    AP --> L
+    AP --> D
+    S --> L
+    AP -->|AppEvents| EV
+    EV -->|GET /repositories/id/events| C
     C -->|emit, emit_to of a page| EV
-    B -->|fixtures, logs| L
 ```
 
 ### Test Isolation Flow
@@ -89,8 +85,9 @@ sequenceDiagram
 
 ### Key Decisions
 
-1. **Decision**: Test server instead of real Tauri backend
-   **Rationale**: Complete control over responses, faster than full app startup
+1. **Decision**: A test server that hosts the app's commands instead of the Tauri app
+   **Rationale**: The bodies are the app's (`crates/app-api`), so a test runs the app's Rust path behind fakes it
+   controls; faster than an app start, and one server serves the pages of many parallel tests
 
 2. **Decision**: Template system for repositories
    **Rationale**: Fast test startup, consistent initial state, no git init overhead
@@ -144,6 +141,17 @@ sequenceDiagram
    and closes them under the lock of the open environments. A cache shared by the repositories of a run would hit
    across the tests of one template and make a test's path depend on the tests before it
 
+9. **Decision**: One registry of the commands for both hosts. The grammar is `api_commands!` of
+   `crates/app-api/src/registry.rs`, the entries are `for_each_command!` of `commands.rs` (the docs of the bindings,
+   the class, the kind, the arguments, the channel, the output, the body), and every host is a callback of it: the
+   app's `#[tauri::command]` wrappers, `collect_commands!` of the typed ones and `generate_handler!` of the raw ones
+   (`src-tauri/src/api.rs`), the server's routes (`invoke.rs`), the table of the page mock (`commands.json`)
+   **Rationale**: Before, three lists named the commands (`collect_commands!` of the app, about 60 handwritten routes
+   of the server's `lib.rs`, the handlers of the mock), and the server answered many commands with code of its own
+   (`tauri_command_bridge.rs`, 1059 lines): a command missing from one list answered 405, and a body of the server
+   answered what the app did not. Now a command is declared in one place, and the bindings and the router are held to
+   it (**Command registry** below)
+
 ### Implementation Notes
 
 Template system:
@@ -194,16 +202,25 @@ Mock implementation:
   statistics (`get_robot_stats`, `events`) and the lines of an action of Settings → Tools (`run_cli_tool_action`,
   `progress`).
   [@test] ../../crates/app-api/src/commands_json_test.rs (`the_commands_json_of_the_page_mock_is_the_registry`, `a_channel_of_the_table_names_the_argument_of_the_page_and_whether_it_stays_open`)
-- **Command registry**: three lists name the commands: `collect_commands!` of `src-tauri/src/lib.rs`, the
-  `/invoke/<name>` routes of `invoke.rs` (one per entry of `app_api::commands::COMMANDS`; `crates/test-server/src/lib.rs`
-  has none of its own), and what the page answers itself, `PAGE_PLUGINS` of `tauri-mocks.ts`: the plugins of Tauri
-  (`plugin:event`, `plugin:window`, the clipboard, the opener…), never a command of the app. The mock proxies every
-  command to the server, and one without a route answers 405, which fails the test. `command_registry_test.rs`
-  (test-server) reads the three as text: every command has a route, a route without its command fails, `PAGE_PLUGINS`
-  holds only plugins, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw bytes); the
-  number of commands (75) is pinned. No page handler emits an event: the events come from Rust (**Events of the app**).
-  What the app does on the desktop runs on the server as the app runs it, its host the desktop of the test repository
-  (`Desktop` of app-api; `TestDesktop`, `TestUpdater` and `TestAgentCli` of `host.rs` and `updater.rs`): the windows
+- **Command registry**: one list names the commands, the registry of app-api (`app_api::commands::COMMANDS`, 76: 75
+  typed and the raw `get_blob_syntax`, pinned in `crates/app-api/src/registry_test.rs`), and every host is made of it:
+  the app registers its generated wrappers (`typed_commands`, which the bindings `src/lib/bindings.ts` are exported
+  from in the order of the registry, and `raw_handler`), the server routes `/invoke/<name>` of each entry
+  (`invoke::command_routes`; no other source of the server routes a command), and the page answers only what is no
+  command, `PAGE_PLUGINS` of `tauri-mocks.ts`: the plugins of Tauri (`plugin:event`, `plugin:window`, the clipboard,
+  the opener…). The mock proxies every command to the server, and one without a route answers 405, which fails the
+  test. `command_registry_test.rs` (test-server) holds the three to one set: the functions of `export const commands`
+  of the bindings are the typed entries, in their order; the router answers `POST /invoke/<name>` of every entry with
+  its error (a request that names no test repository runs nothing), never 404 or 405; no source of the server but
+  `invoke.rs` names a route of a command; `PAGE_PLUGINS` holds only plugins. The class of an entry says what the
+  command writes, the ratchet below reads it: `read`, `engine` (`execute`, `cancel_operation`, pinned in
+  `registry_test.rs`) or `app(<reason>)`, a write no session admits with its reason (`AppReason`: a ticket of the
+  session, the cancel of a read, the page's journal, a settings writer, the app itself, the tools, an account). No
+  page handler emits an event: the events come from Rust (**Events of the app**).
+  [@test] ../../crates/test-server/src/command_registry_test.rs (`the_registry_and_the_bindings_are_one_set`, `the_server_routes_every_command_of_the_registry`, `no_source_of_the_server_routes_a_command_beside_the_registry`, `the_page_mock_answers_only_the_plugins_of_tauri`)
+  [@test] ../../crates/app-api/src/registry_test.rs (`every_command_is_registered_once`, `the_writes_of_the_engine_are_its_intents_and_their_cancel`)
+- **Desktop**: what the app does on the desktop runs on the server as the app runs it, its host the desktop of the
+  test repository (`Desktop` of app-api; `TestDesktop`, `TestUpdater` and `TestAgentCli` of `host.rs` and `updater.rs`): the windows
   (**Sub-windows**) and the window menu, recorded (`GET /repositories/{id}/windows`: `opens`, `menus`;
   `getOpenedSubWindows`, `getWindowMenus`); Auto-sync on Focus of the native menu, a request a test reads; the folder
   dialog (`browse_repository`), which picks the folder of `POST /repositories/{id}/dialog-pick` (`{ path }`, null
@@ -241,9 +258,9 @@ Mock implementation:
   the command run on the server: a rewrite binds
   `const response = await route.fetch()` and passes that binding as the `response` of its `fulfill`; a `fulfill` of
   any other value, also one named `response`, is an answer, and a fetch bound any other way fails the scan). A write
-  (`MUTATING`: `execute` and `cancel_operation` of the engine, `ENGINE`, and the commands of the app, `APP_COMMANDS`
-  with their reasons: the sign-ins, the settings writers, the journal of the page, the tools, the app) has no page
-  answer: the test server runs it behind the fake of its service and the test asserts the fake's log
+  (an entry of the registry whose class is not `read`: `execute` and `cancel_operation` of the engine, and the
+  commands of the app with their reasons: the sign-ins, the settings writers, the journal of the page, the tools, the
+  app) has no page answer: the test server runs it behind the fake of its service and the test asserts the fake's log
   ([Remote services](#remote-services)); a push goes to the remote of the repository, and the test asserts what that
   remote has and took ([The remote of a repository](#the-remote-of-a-repository)); its failure stays
   `routeCommandError`, the one page answer that is no route count. The page answers of the read commands are pinned per
@@ -272,9 +289,10 @@ Mock implementation:
   `ALLOWLIST` with a reason, and an entry that matches nothing fails.
 - **Command errors**: a command that fails answers with 200 and `{ status: "error", error: <ApiError> }`: the
   `ApiError` of `domain-types` (`{ code, message, details, retry, operation_id }`) that the app's command rejects
-  with, made by the same `app_api::api_error::api_error` from the core's error (`Rejection` in
-  `invoke.rs`, a type of the server only because axum's `IntoResponse` can't be implemented for
-  `ApiError` there; logged at debug: it is the expected answer of an error-path test). The mock rejects with the whole
+  with, made by the same `app_api::api_error::api_error` from the core's error (`Rejection` in `invoke.rs`, a type of
+  the server only because axum's `IntoResponse` can't be implemented for `ApiError` there; logged at debug: it is the
+  expected answer of an error-path test). A command runs as a task of its own (`invoke::caught`), so one that panicked
+  is no answer: 500, or `{ "result": { "panicked": true } }` on the stream of its channel. The mock rejects with the whole
   error, marked `name: "ApiError"`; the bindings return it as `{ status: "error", error }` (an `Error` instance they
   would throw), and the page branches on `code`, never on `message` (`pnpm lint:arch`). A test fails a command with
   `routeCommandError(page, command, { code, message, details?, retry? }, { times? })`, the code the real command would
@@ -295,8 +313,8 @@ Mock implementation:
   `channelBytes` (the SSE events of `get_file_diffs` and `get_file_merges`, and the patches of `subscribe_view` for
   as long as its channel stays open), and `pending`, the commands whose answer has not been read
   (`subscribe_view` until its answer, not its last patch); `reset()` zeroes the counts, not `pending`. It counts at the fetch of `/invoke/<cmd>`,
-  so an answer of a `routeCommand` counts too; the commands the page answers itself (the store, event, window and log
-  plugins, the sub-window handlers) do not. `pnpm perf:table` reads it
+  so an answer of a `routeCommand` counts too; what the page answers itself (the plugins of Tauri: the store, the
+  events, the window, the log) does not. `pnpm perf:table` reads it
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view)), and so do the tests that pin the IPC
   of a step (`resetIpc`, `settledInvokes` of ipc-helpers.ts, and `withoutAppTimers`, which leaves out the commands of
   the app's own timers, `set_setting` and `check_for_updates`, as they fire wherever a step is): the hover of a row
@@ -352,8 +370,8 @@ Mock implementation:
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_revision_of_the_repository_answers_its_commit`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_rebase_in_progress_defers_the_sync_until_it_is_gone`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old_one`)
-- **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
-  functions; Patronus and GitHub are asked through the app's own services behind fakes
+- **Commands**: the server runs no command of its own: each is the app's body (app-api), its git work on the blocking
+  pool (`run_blocking`, as in the app); Patronus and GitHub are asked through the app's own services behind fakes
   ([Remote services](#remote-services)); an answer that claude would give (`TestHost::suggest_branch_names`, after
   the delay of the fixture), and the review requests, come from a fixture of the repository, or from a route of the
   test
@@ -458,7 +476,8 @@ State isolation:
   of a named repository, so a route test names it too: every command of one goes through `test_support::command`
   (`post`, `post_error` and `sync` call it), which names the repository at the `repositoryPath` of the params
   (`Named::ByPath`) or the one a test gives (`Named::Id`: a command whose params name none, the cancel of an
-  operation; a command of app-api runs in the context of the repository a request names, so every one names one);
+  operation; a command of app-api runs in the context of the repository a request names, so every one names one;
+  only the route probe of the registry test names none, `command_of_no_repository`, and runs nothing);
   `every_command_of_a_route_test_names_its_repository` refuses a request a test builds itself. Unnamed, a command ran
   across the deletion, and the fake GitHub's git of a released answer ran in the files the deletion removed. The
   removals go through `sync_utils::fs_retry`, which tries a sharing error again for about a second: on Windows a
@@ -513,6 +532,36 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   waits until no commit list (`table`, the `ol` of the branch preview) is `aria-busy`: a list is busy while the file
   counts of its meta lines are read ([Commit Files](../../spec/commit/commit-files.spec.md)).
 - **Update**: `pnpm e2e-up` rewrites snapshots. Review the diff, a changed snapshot can hide a regression.
+
+### The routes of the server
+
+What a test and its page reach on the server (`create_app` of `crates/test-server/src/lib.rs`). The commands are the
+registry's; everything else is a fixture a test sets, a log it reads, or the event stream of a page. The helpers are
+the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless named otherwise; `…` is
+`/repositories/{id}`.
+
+| Route | What it does | Helper |
+|---|---|---|
+| `POST /invoke/<name>` | a command of the registry in the context of the repository of `X-Repository-Id`, for the window of `X-Window-Label`; SSE with `X-Progress-Channel` (`invoke.rs`) | the page mock |
+| `POST /repositories`, `GET`/`DELETE …` | a repository of a template, its path, its deletion after its commands | `setupRepo`, `init`, `cleanup` |
+| `GET`/`POST …/events` | the event stream of a page (`?window=`), an event a page emits (`host.rs`) | the page mock |
+| `GET …/windows`, `POST …/windows/built`, `POST …/dialog-pick` | what the desktop opened and its menus, the build of a page a test opens, the folder of the dialog | `getOpenedSubWindows`, `getWindowMenus`, `registerWindowBuild` (sub-window-helpers.ts), `setDialogPick` |
+| `GET /store/{repo}`, `GET`/`POST`/`DELETE /store/{repo}/{key}` | the settings of the repository's app, through their writer | `setupRepo` (`initialStoreValues`, `syncedAgoMs`; common-setup.ts) |
+| `POST …/reword`, `…/commit`, `…/update-outside`, `GET …/revision` | git of the test behind the app's back | `reword`, `commit`, `updateOutsideTheApp`, `revision` |
+| `POST …/sync-overrides`, `…/rebase-in-progress`, `…/branch-prefix` | what the next run of its session takes (`sync_overrides.rs`) | `setSyncOverrides`, `setRebaseInProgress`, `setBranchPrefixInTerminal` |
+| `POST …/locks/{lock}` | the repository lock or the fetch lock, held as another process holds it | `holdRepositoryLock`, `holdFetchLock` |
+| `POST …/foreign-operation`, `…/agent-operation`, `…/journal-gone`, `…/stamp` | the operations registry, the journal and the stamp of another process | `setForeignOperation`, `journalAgentOperation`, `loseJournalDisk`, `touchStamp` |
+| `POST`/`GET …/patronus`, `POST …/patronus-details`, `…/patronus-history`, `…/patronus-progress`, `…/patronus-profiles`, `…/patronus-start-refusal`, `…/patronus-replies` | the fake Patronus and its log | `setPatronus`, `setPatronusDetails`, `setPatronusHistory`, `setPatronusProgress`, `setPatronusProfiles`, `refusePatronusStarts`, `setPatronusReplies`, `getPatronusLog` |
+| `POST`/`GET …/review-answers` | the code-owner pre-check and its calls | `setReviewAnswers`, `getReviewReadinessCalls`, `getReviewChecks` |
+| `POST`/`GET …/pull-requests`, `…/github-sign-in`, `POST …/github-answer` | the fake GitHub, its sign-in, a scripted answer; its log | `setPullRequests`, `setGitHubSignIn`, `answerGitHub`, `getGitHubLog`, `getGitHubSignIn` |
+| `POST`/`GET …/review-requests` | the review requests and the rest of Reviews, and their reads | `setReviewRequests`, `getReviewRequestCalls`, `getReviewsCalls` |
+| `POST`/`GET …/youtrack` | the fake YouTrack and its log | `setYouTrack`, `getYouTrack` |
+| `POST`/`GET …/branch-name-suggestions` | the answer claude would give, and its calls | `setBranchNameSuggestions`, `getBranchNameSuggestionCalls` |
+| `GET …/remote`, `POST …/remote/push`, `…/remote/commit`, `…/remote/fetch`, `…/remote/refusal`, `POST`/`GET …/landing` | the remote of the repository and its route into master ([The remote of a repository](#the-remote-of-a-repository)) | `getRemoteBranches`, `getRemotePushes`, `pushInTerminal`, `commitOnRemote`, `fetchInTerminal`, `refuseRemotePushes`, `setLanding`, `getLanding` |
+| `POST`/`GET …/remote-gates` | answers of the fakes held or failed, and those that arrived | `holdRemoteAnswers`, `getArrivedAnswers` |
+| `POST …/update`, `POST`/`GET …/cli-tools` | the update of the updater; the CLIs of Settings → Tools and what they were asked | `setAvailableUpdate`, `setCliTools`, `getCliToolsLog` |
+| `POST …/sessions/close`, `…/clock/advance` | the app quits; the clock of the sessions moves | `closeSessions`, `advanceBackendClock` |
+| `GET /health` | the checkout the server serves | global setup |
 
 ### Remote services
 
@@ -854,6 +903,9 @@ Optimizations:
 ## References
 
 - Implementation: `crates/test-server/`, `tests/e2e/`
+- The commands: their registry `crates/app-api/src/commands.rs` (the grammar `registry.rs`), the routes of the server
+  `crates/test-server/src/invoke.rs`, the wrappers of the app `src-tauri/src/api.rs`, the table of the page mock
+  `crates/app-api/commands.json`; the routes of the server for the tests: [The routes of the server](#the-routes-of-the-server)
 - Test helpers: `tests/e2e/helpers/`
 - Mock layer and snapshot formatter: `tests/e2e/setup/tauri-mocks.ts` (injected with `page.addInitScript`, with the
   table of the commands of app-api, `crates/app-api/commands.json`)

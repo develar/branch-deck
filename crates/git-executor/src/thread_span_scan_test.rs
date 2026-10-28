@@ -11,7 +11,7 @@ use crate::source_scan_test::{Exemption, Source, check};
 /// The heads of a spawn call
 const SPAWNS: [&str; 2] = ["spawn_blocking(", "spawn("];
 
-const EXEMPT: [Exemption; 8] = [
+const EXEMPT: [Exemption; 7] = [
   Exemption {
     path: "crates/git-executor/src/git_command_executor.rs",
     hits: 5,
@@ -41,11 +41,6 @@ const EXEMPT: [Exemption; 8] = [
     path: "crates/test-server/src/test_support.rs",
     hits: 1,
     reason: "the mock server started for a test",
-  },
-  Exemption {
-    path: "crates/test-server/src/tauri_command_bridge.rs",
-    hits: 1,
-    reason: "the mock server runs a command outside an operation",
   },
   Exemption {
     path: "crates/github/src/fake_github.rs",

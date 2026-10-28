@@ -2,10 +2,11 @@
 //! entry is the one of its function in `src/lib/bindings.ts`; its body lives in a family module (`reads::…`,
 //! `session::…`, `remote::…`, `app::…`). Every command of the app is an entry here: the app has no command of its own
 //! (`command_scan_test.rs`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its
-//! `Command` and the list [`COMMANDS`], the app its `#[tauri::command]` wrappers (`src-tauri/src/api.rs`), the e2e
-//! server its routes (`crates/test-server/src/invoke.rs`), and the page mock of the e2e server its table,
-//! `crates/app-api/commands.json` (written from `COMMANDS` by `commands_json_test.rs`). A type of an entry is named by
-//! its full path, which resolves in each host.
+//! `Command` and the list [`COMMANDS`], the app its `#[tauri::command]` wrappers and their registration, which the
+//! bindings are exported from in the order of this list (`src-tauri/src/api.rs`), the e2e server its routes
+//! (`crates/test-server/src/invoke.rs`), and the page mock of the e2e server its table, `crates/app-api/commands.json`
+//! (written from `COMMANDS` by `commands_json_test.rs`). A type of an entry is named by its full path, which resolves
+//! in each host.
 
 /// Calls the macro `$callback` with every command of the app, in the grammar of `registry.rs`
 #[macro_export]
@@ -63,8 +64,8 @@ macro_rules! for_each_command {
       read json get_blob_texts(params: file_diffs::model::GetBlobTextsParams) -> Vec<file_diffs::model::BlobText> = $crate::reads::blobs::get_blob_texts;
 
       /// The tree-sitter highlighting of the lines a view asks for of one blob (`file_diffs::syntax`): raw bytes, which the
-      /// typed bindings cannot say, so it has its own handler (`raw_invoke_handler` in `lib.rs`) and its own call in the view
-      /// (`src/lib/diff/highlight/backend-syntax.ts`). From the blobs the diffs read, else one `cat-file --batch`
+      /// typed bindings cannot say, so it has its own handler (`raw_handler` of `src-tauri/src/api.rs`) and its own call in
+      /// the view (`src/lib/diff/highlight/backend-syntax.ts`). From the blobs the diffs read, else one `cat-file --batch`
       read raw get_blob_syntax(params: file_diffs::model::GetBlobSyntaxParams) -> Vec<u8> = $crate::reads::blobs::get_blob_syntax;
 
       /// The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
@@ -90,7 +91,7 @@ macro_rules! for_each_command {
       read window find_usages(params: file_diffs::model::FindDeclarationParams) -> file_diffs::model::FoundUsages = $crate::reads::symbols::find_usages;
 
       /// Kills the symbol search of the calling window in flight, if any (Escape or Cancel while it searches)
-      app window cancel_symbol_search() -> () = $crate::reads::symbols::cancel_symbol_search;
+      app(CanceledRead) window cancel_symbol_search() -> () = $crate::reads::symbols::cancel_symbol_search;
 
       /// The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
       /// cache only, no repository lock), of the branches named with the prefix Rust resolves for the repository
@@ -98,7 +99,7 @@ macro_rules! for_each_command {
       read json find_conflict_fix(params: trial_check::conflict_fix::FindConflictFixParams) -> trial_check::conflict_fix::ConflictFix = $crate::reads::conflict_fix::find_conflict_fix;
 
       /// Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts.
-      app now cancel_conflict_fix() = $crate::reads::conflict_fix::cancel_conflict_fix;
+      app(CanceledRead) now cancel_conflict_fix() = $crate::reads::conflict_fix::cancel_conflict_fix;
 
       /// What a typed branch name is and the name the branch gets (`domain_types::branch_names::check_branch_name`); the page
       /// words the state
@@ -123,7 +124,7 @@ macro_rules! for_each_command {
       /// A window of the repository gained or lost focus; a gained one reads the operations registry of the repository again
       /// and syncs when what a sync reads changed and Settings sync on focus, and answers when that ends. Null when nothing
       /// was asked (focus lost, the setting off, the session not open)
-      app session set_window_focus(params: $crate::session::view::WindowFocusParams) -> Option<domain_types::session::SyncAnswer> = $crate::session::view::set_window_focus;
+      app(SessionTickets) session set_window_focus(params: $crate::session::view::WindowFocusParams) -> Option<domain_types::session::SyncAnswer> = $crate::session::view::set_window_focus;
 
       /// What the window of a subscription shows and needs of its session (`Demand`), in place of what it said before; the
       /// page sends it when it changes, at most four times a second, and again for a new subscription
@@ -132,7 +133,7 @@ macro_rules! for_each_command {
       /// Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
       /// the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
       /// `ApiError` (`operation_in_progress`, `detached_head`)
-      app session sync(params: $crate::session::view::SyncParams) -> domain_types::session::SyncAnswer = $crate::session::view::sync;
+      app(SessionTickets) session sync(params: $crate::session::view::SyncParams) -> domain_types::session::SyncAnswer = $crate::session::view::sync;
 
       /// Asks the repository's session to read a fact again: the refresh button, or an action that needs it now (the robot a
       /// `/patronus` comment started). Answers once that read applied, with the version of the view after its patch; null when
@@ -165,10 +166,10 @@ macro_rules! for_each_command {
       /// Adds a pull request to Reviews by its link, `#number` or number (`remote_facts::reviews::link_pull_request`): GitHub
       /// is asked for it, an open one is kept for the repository, and the session reads Reviews again with it. Answers the
       /// pull request, which the page opens in the review window
-      app session link_pull_request(params: domain_types::review_request::LinkPullRequestParams) -> domain_types::review_request::LinkedPullRequestAnswer = $crate::session::reviews::link_pull_request;
+      app(SettingsWriter) session link_pull_request(params: domain_types::review_request::LinkPullRequestParams) -> domain_types::review_request::LinkedPullRequestAnswer = $crate::session::reviews::link_pull_request;
 
       /// Removes a pull request the user added by its link from Reviews, and the session reads Reviews again
-      app session unlink_pull_request(params: domain_types::review_request::UnlinkPullRequestParams) -> () = $crate::session::reviews::unlink_pull_request;
+      app(SettingsWriter) session unlink_pull_request(params: domain_types::review_request::UnlinkPullRequestParams) -> () = $crate::session::reviews::unlink_pull_request;
 
       /// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
       /// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
@@ -217,14 +218,14 @@ macro_rules! for_each_command {
 
       /// Signs in by `request`, or joins the sign-in of its provider that runs: its events on `events`, `done` last; a cancel
       /// ends it with the code `canceled`
-      app json sign_in(request: domain_types::sign_in::SignIn) [channel events: domain_types::sign_in::SignInEvent] -> domain_types::sign_in::SignInDone = $crate::app::sign_in::sign_in;
+      app(Accounts) json sign_in(request: domain_types::sign_in::SignIn) [channel events: domain_types::sign_in::SignInEvent] -> domain_types::sign_in::SignInDone = $crate::app::sign_in::sign_in;
 
       /// Ends the sign-in of `provider` that runs, if any: its calls answer `canceled`
-      app json cancel_sign_in(provider: domain_types::sign_in::SignInProvider) -> () = $crate::app::sign_in::cancel_sign_in;
+      app(Accounts) json cancel_sign_in(provider: domain_types::sign_in::SignInProvider) -> () = $crate::app::sign_in::cancel_sign_in;
 
       /// Removes the token of the app's own sign-in to `account`, after a sign-in of it that runs ended as canceled. GitHub
       /// and the Hub keep the authorization until it is revoked there
-      app json sign_out(account: domain_types::sign_in::Account) -> () = $crate::app::sign_in::sign_out;
+      app(Accounts) json sign_out(account: domain_types::sign_in::Account) -> () = $crate::app::sign_in::sign_out;
 
       /// The log of Activity: the journals of the repositories of the recent projects, each once and each waited for within
       /// `ACTIVITY_READ_TIMEOUT` (one that is not read by then shows what it answered last, and tells every window
@@ -232,15 +233,15 @@ macro_rules! for_each_command {
       read json read_activity() -> domain_types::activity::ActivityLog = $crate::app::activity::read_activity;
 
       /// Records what the page told of a repository in the journal of the page, and answers its entry
-      app json record_activity(params: domain_types::activity::PageActivity) -> domain_types::activity::PageEntry = $crate::app::activity::record_activity;
+      app(PageJournal) json record_activity(params: domain_types::activity::PageActivity) -> domain_types::activity::PageEntry = $crate::app::activity::record_activity;
 
       /// Clear Log: the journal of the repository of the recent project and the entries of the page of it are forgotten
-      app json clear_activity(params: domain_types::activity::ClearActivityParams) -> () = $crate::app::activity::clear_activity;
+      app(PageJournal) json clear_activity(params: domain_types::activity::ClearActivityParams) -> () = $crate::app::activity::clear_activity;
 
       /// Applies the change of the calling window to the settings and sends it to every window (`settings_changed`, with the
       /// window's label as its origin); answers the change, whose version the window has applied then. The file follows
       /// within the debounce of the writer. A value of a field Rust reads that is invalid is refused and changes nothing
-      app window set_setting(params: $crate::app::settings::SetSettingParams) -> domain_types::settings::SettingsChange = $crate::app::settings::set_setting;
+      app(SettingsWriter) window set_setting(params: $crate::app::settings::SetSettingParams) -> domain_types::settings::SettingsChange = $crate::app::settings::set_setting;
 
       /// The changes the calling window gets that came after `since`, the version of the snapshot its page started from: a
       /// change made while the page loaded reached no listener. The main window's page asks once it listens (its init script
@@ -250,7 +251,7 @@ macro_rules! for_each_command {
       /// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
       /// read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands
       /// (`BranchPrefixes`); a global one forgets the prefix of every other repository, which may take it
-      app json set_repository_config(params: $crate::app::repository_config::SetRepositoryConfigParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::set_repository_config;
+      app(SettingsWriter) json set_repository_config(params: $crate::app::repository_config::SetRepositoryConfigParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::set_repository_config;
 
       /// Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
       /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
@@ -283,20 +284,20 @@ macro_rules! for_each_command {
       /// Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
       /// for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
       /// Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
-      app main set_auto_sync_menu_checked(checked: bool) -> () = $crate::app::desktop::set_auto_sync_menu_checked;
+      app(TheApp) main set_auto_sync_menu_checked(checked: bool) -> () = $crate::app::desktop::set_auto_sync_menu_checked;
 
       /// Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
       /// (`init_title_bar`). The value goes through the writer of the settings, which saves it now, before the restart: the
       /// new process reads the file.
-      app main restart_app(system_title_bar: bool) -> () = $crate::app::desktop::restart_app;
+      app(TheApp) main restart_app(system_title_bar: bool) -> () = $crate::app::desktop::restart_app;
 
       read json check_for_updates() -> domain_types::update::UpdateInfo = $crate::app::desktop::check_for_updates;
 
       read json get_update_status() -> domain_types::update::UpdateInfo = $crate::app::desktop::get_update_status;
 
-      app json install_update() -> () = $crate::app::desktop::install_update;
+      app(TheApp) json install_update() -> () = $crate::app::desktop::install_update;
 
-      app json install_agent_cli() -> $crate::app::agent_cli::AgentCliInstall = $crate::app::agent_cli::install_agent_cli;
+      app(TheApp) json install_agent_cli() -> $crate::app::agent_cli::AgentCliInstall = $crate::app::agent_cli::install_agent_cli;
 
       /// The bd command of the prompts the app copies. Writes nothing and needs no install, so the bd of a prompt is always
       /// the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
@@ -312,10 +313,10 @@ macro_rules! for_each_command {
       /// Runs the action of a row (install, with the agent skill when `with_skill`; update; the skill; the sign-in of
       /// `teamcity` to `server`), each line of its output to `progress`; a second action of the same tool while one runs is
       /// refused
-      app json run_cli_tool_action(params: $crate::app::cli_tools::RunCliToolActionParams) [channel progress: $crate::app::cli_tools::CliToolProgress] -> $crate::app::cli_tools::CliToolActionDone = $crate::app::cli_tools::run_cli_tool_action;
+      app(Tools) json run_cli_tool_action(params: $crate::app::cli_tools::RunCliToolActionParams) [channel progress: $crate::app::cli_tools::CliToolProgress] -> $crate::app::cli_tools::CliToolActionDone = $crate::app::cli_tools::run_cli_tool_action;
 
       /// Ends the action of `tool` that runs, with its whole process group
-      app now cancel_cli_tool_action(tool: domain_types::cli_tools::CliTool) = $crate::app::cli_tools::cancel_cli_tool_action;
+      app(Tools) now cancel_cli_tool_action(tool: domain_types::cli_tools::CliTool) = $crate::app::cli_tools::cancel_cli_tool_action;
 
       /// What waits for the user (the Setup dot): the downloaded update of the app, the tools' updates and expiring sign-ins
       /// from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides

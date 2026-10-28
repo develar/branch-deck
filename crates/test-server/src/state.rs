@@ -1,7 +1,9 @@
 use dashmap::DashMap;
 use domain_types::branch_name_suggestion::BranchNameSuggestionOutcome;
+use domain_types::error::ApiError;
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::review_request::ReviewRequestsResult;
+use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -91,6 +93,42 @@ impl AppState {
   /// Deleted with the repository
   pub fn app_data_of(&self, repository_id: &str) -> PathBuf {
     self.test_root_dir.path().join(format!("{repository_id}.app-data"))
+  }
+
+  /// The test repository at `path`, the one a command of its session names; the app's error for a path that no test
+  /// repository has
+  pub fn repository(&self, path: &str) -> Result<dashmap::mapref::one::Ref<'_, String, TestRepository>, ApiError> {
+    self
+      .path_to_id
+      .get(path)
+      .and_then(|id| self.repositories.get(id.value()))
+      .ok_or_else(|| ApiError::internal(format!("Repository not accessible: {path}")))
+  }
+
+  /// The prefix of the test repository at `path` by its local config read now, with the settings of its page, kept for
+  /// the commands after it (`BranchPrefixes::refresh`): what the run of its session checks its key against, as the app's
+  /// run resolves it from the config it reads; blocking
+  pub fn branch_prefix_now(&self, path: &str) -> anyhow::Result<String> {
+    let settings = self.repository(path).map_err(|unknown| anyhow::anyhow!(unknown.message))?.store.app();
+    let local = read_local_branch_prefix(&self.git_executor, path)?;
+    Ok(self.branch_prefixes.refresh(&settings, path, local).prefix)
+  }
+}
+
+/// `branchdeck.branchPrefix` of the repository's local config (the git read of `resolve_branch_prefix`)
+pub fn read_local_branch_prefix(git_executor: &GitCommandExecutor, repo_path: &str) -> anyhow::Result<GitBranchPrefix> {
+  let (output, exit_code) = git_executor.execute_command_with_status(&["config", "--local", "branchdeck.branchPrefix"], repo_path)?;
+  match exit_code {
+    0 => Ok(GitBranchPrefix {
+      prefix: output.trim().to_string(),
+      repository_scoped: true,
+    }),
+    1 => Ok(GitBranchPrefix::default()),
+    128 => Err(anyhow::anyhow!("Repository not accessible: {repo_path}")),
+    code => {
+      tracing::warn!(code, repo_path, "Unexpected exit code reading local branch prefix");
+      Ok(GitBranchPrefix::default())
+    }
   }
 }
 

@@ -211,7 +211,7 @@ pub async fn set_patronus(Path(id): Path<String>, State(state): State<Arc<AppSta
     if let Some(github) = &github_repository {
       write_github_repository(&git, &path, Some(github))?;
     }
-    let prefix = crate::tauri_command_bridge::read_local_branch_prefix(&git, &path)?.prefix;
+    let prefix = crate::state::read_local_branch_prefix(&git, &path)?.prefix;
     robots_of.iter().map(|robot| fixture_robot(robot, &prefix)).collect()
   }))
   .await
@@ -359,12 +359,10 @@ pub fn fixture_history_robot(robot: &HistoryRobotFixture, branch_prefix: &str) -
 pub async fn set_patronus_history(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<PatronusHistoryFixture>) -> FixtureResult {
   let (host, path) = host_of(&state, &id)?;
   let git = state.git_executor.clone();
-  let prefix = tokio::task::spawn_blocking(in_current_span(move || {
-    crate::tauri_command_bridge::read_local_branch_prefix(&git, &path).map(|prefix| prefix.prefix)
-  }))
-  .await
-  .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-  .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
+  let prefix = tokio::task::spawn_blocking(in_current_span(move || crate::state::read_local_branch_prefix(&git, &path).map(|prefix| prefix.prefix)))
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
   let listed = fixture
     .robots
     .iter()
@@ -540,7 +538,7 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
   let (git, repository, result) = (state.git_executor.clone(), answers.repository.clone(), fixture.result.clone());
   let pulls = tokio::task::spawn_blocking(in_current_span(move || -> anyhow::Result<Vec<FakePull>> {
     write_github_repository(&git, &path, repository.as_ref())?;
-    let prefix = crate::tauri_command_bridge::read_local_branch_prefix(&git, &path)?.prefix;
+    let prefix = crate::state::read_local_branch_prefix(&git, &path)?.prefix;
     match &repository {
       Some(repository) => fixture_pulls(&result, &repository.owner, &prefix),
       None if result.pull_requests.is_empty() && result.stack_pull_requests.is_empty() => Ok(Vec::new()),
@@ -668,7 +666,8 @@ fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode, String)> {
 
 /// The key of the session of the repository at `path`, as the commands of its app key it (`AppContext::session_key`)
 async fn session_of(state: &AppState, path: &str) -> Result<SessionKey, (StatusCode, String)> {
-  let context = crate::tauri_command_bridge::repository_by_path(state, path)
+  let context = state
+    .repository(path)
     .map(|repository| Arc::clone(&repository.context))
     .map_err(|_unknown| unknown_repository())?;
   context

@@ -28,21 +28,12 @@ mod tracing_log_test;
 #[cfg(test)]
 mod zoom_test;
 
-// clippy lints a glob import only outside a test build
-#[cfg_attr(
-  not(test),
-  expect(
-    clippy::wildcard_imports,
-    reason = "the wrappers of app-api, one per entry of its `for_each_command!`: the names are the registry's"
-  )
-)]
-use api::generated::*;
 use app_api::app::windows::{BuiltPage, SubWindowState, epoch_millis, open_script, settings_script, show_when_settled};
 use app_api::transport::Desktop;
 use auto_update::{AppUpdater, UpdateState};
 use services::{AppSignIns, GitHubState, PatronusState, SignInsState, YouTrackState};
 use sync_utils::span::in_current_span;
-use tauri_specta::{Builder, collect_commands};
+use tauri_specta::Builder;
 
 use app_api::context::AppContext;
 use app_api::repository_state::RepositoryStateCache;
@@ -67,83 +58,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
   // aliases only add noise (and type `Channel<T>` arguments with the wrong phase)
   Builder::<tauri::Wry>::new()
     .disable_serde_phases()
-    .commands(collect_commands![
-      read_activity,
-      record_activity,
-      clear_activity,
-      get_new_pull_request,
-      get_new_stack_pull_request,
-      search_github_users,
-      get_auth_status,
-      sign_in,
-      cancel_sign_in,
-      sign_out,
-      get_youtrack_issue,
-      link_pull_request,
-      unlink_pull_request,
-      get_range_files,
-      get_branch_review,
-      get_file_owners,
-      prefetch_branch_review,
-      get_robot_stats,
-      prepare,
-      execute,
-      cancel_operation,
-      get_robot_failure,
-      get_robot_commit_map,
-      get_snapshot,
-      subscribe_view,
-      unsubscribe_view,
-      set_window_focus,
-      set_demand,
-      refresh_facts,
-      sync,
-      resolve_branch_prefix,
-      check_git_setup,
-      get_repository_config,
-      set_repository_config,
-      browse_repository,
-      validate_repository_path,
-      check_for_updates,
-      get_update_status,
-      install_update,
-      open_sub_window,
-      sub_window_loaded,
-      sub_window_drawn,
-      sub_window_ready,
-      show_window_menu,
-      restart_app,
-      set_setting,
-      get_settings_changes,
-      preview_move,
-      preview_group,
-      validate_branch_name,
-      commit_body_blocks,
-      find_conflict_fix,
-      cancel_conflict_fix,
-      get_stack_independence,
-      get_autosquash_plan,
-      suggest_branch_names,
-      get_archived_branch_commits,
-      get_unapplied_branch_commits,
-      get_uncommitted_changes,
-      get_commit_files,
-      get_commits_files,
-      get_file_diffs,
-      get_file_merges,
-      get_blob_texts,
-      find_declaration,
-      find_usages,
-      cancel_symbol_search,
-      set_auto_sync_menu_checked,
-      install_agent_cli,
-      agent_cli_command,
-      agent_cli_status,
-      cli_tools_status,
-      run_cli_tool_action,
-      cancel_cli_tool_action,
-      get_setup_items,
-    ])
+    // every typed command of the registry of app-api (`for_each_command!`), in its order
+    .commands(api::typed_commands())
     // the fields of `appSettings` Rust reads, with their defaults: the page takes both from here, so the two never
     // disagree on a default (`src/stores/settings/appSettings.ts`)
     .typ::<domain_types::settings::AppSettings>()
@@ -225,13 +141,13 @@ pub fn run() {
   #[cfg(feature = "auto-update")]
   let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
-  // the commands of the typed bindings, and the one whose answer is raw bytes (`get_blob_syntax`), which they cannot say
+  // the commands of the typed bindings, and those whose answer is raw bytes (`get_blob_syntax`), which they cannot say
   let typed_handler = ts_builder.invoke_handler();
-  let raw_invoke_handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![get_blob_syntax];
+  let raw_handler = api::raw_handler();
   builder
     .invoke_handler(move |invoke| {
-      if invoke.message.command() == "get_blob_syntax" {
-        raw_invoke_handler(invoke)
+      if api::RAW_COMMANDS.contains(&invoke.message.command()) {
+        raw_handler(invoke)
       } else {
         typed_handler(invoke)
       }

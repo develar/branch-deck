@@ -1,160 +1,22 @@
-//! The three registries of the Tauri commands, held together: the commands of the app (`collect_commands!` in
-//! `src-tauri/src/lib.rs`), the routes of this server (`/invoke/<name>` in `lib.rs`, and one of `invoke.rs` for every
-//! command of the registry of app-api, `app_api::commands::COMMANDS`) and what the page mock answers itself
-//! (`PAGE_PLUGINS` in `tests/e2e/setup/tauri-mocks.ts`). The mock proxies every command to this server, and a command
-//! without a route answers 405, which fails the test ("Unimplemented Tauri command"). So every command has a route, and
-//! the page answers only the plugins of Tauri (the window, the events, the clipboard), never a command of the app.
-//! A fourth source, the E2E tests (`tests/e2e/**/*.ts`), is held by a ratchet: a test answers a command in the page
-//! only where [`ROUTED_IN_PAGE`] pins it, never a write of [`MUTATING`] (a push included: it goes to the remote of the
-//! repository, `remote_git_fixtures`). An answer counts where it is given: a helper that answers
-//! (`routeReviewRequirement`, a spec's own function) counts once per call, not once per definition. Every command is
-//! a read ([`READS`]) or a write, and a write is the engine's ([`ENGINE`]) or a command of the app ([`APP_COMMANDS`],
-//! with the reason no session admits it): the exit criterion of s11 of docs/design/rust-domain-authority.md. The
-//! sources are read as text, as the git scan tests read theirs (`source_scan_test.rs` of git-executor).
+//! The registry of the commands (`app_api::commands::COMMANDS`, each declared once in `for_each_command!`) and what the
+//! e2e tests know of it, one set: the commands of the bindings of the page (`export const commands` of
+//! `src/lib/bindings.ts`, which the app exports from the registry), the routes of this server (`/invoke/<name>`, which
+//! `invoke.rs` makes of the registry: no other source of the server routes a command) and what the page mock answers
+//! itself (`PAGE_PLUGINS` in `tests/e2e/setup/tauri-mocks.ts`: the plugins of Tauri, never a command). The mock proxies
+//! every command to this server, and a command without a route answers 405, which fails the test ("Unimplemented Tauri
+//! command"). A fourth source, the E2E tests (`tests/e2e/**/*.ts`), is held by a ratchet: a test answers a command in
+//! the page only where [`ROUTED_IN_PAGE`] pins it, a read, never a write (a command whose class is not `read`: the
+//! engine's or a command of the app; a push included: it goes to the remote of the repository, `remote_git_fixtures`).
+//! The failure of a write stays a page answer (`routeCommandError`), as does a hold that lets the call go on to the
+//! server (`holdCommand`, `recordCommand`). An answer counts where it is given: a helper that answers
+//! (`routeReviewRequirement`, a spec's own function) counts once per call, not once per definition. The sources are
+//! read as text, as the git scan tests read theirs (`source_scan_test.rs` of git-executor).
 
+use crate::test_support::{command_of_no_repository, start_test_server};
+use app_api::commands::COMMANDS;
+use app_api::registry::{CommandClass, CommandKind};
 use std::collections::BTreeSet;
 use std::path::Path;
-
-/// The number of commands of `collect_commands!`: a new command gets a route and raises this number; it also proves
-/// the parse found the whole macro
-const COMMAND_COUNT: usize = 75;
-
-/// The routes that name no command of `collect_commands!`, each with its reason
-const RAW_ROUTES: &[(&str, &str)] = &[(
-  "get_blob_syntax",
-  "its answer is raw bytes, which the typed bindings cannot say: the app registers it with `generate_handler!` beside the typed commands",
-)];
-
-/// The commands that write: to a remote service (Patronus, GitHub, YouTrack), to the repository or to the app. No E2E
-/// test answers one in the page (`routeCommand`, or a `page.route` of `/invoke/<name>` that fulfills): the test server
-/// runs it on the real core, behind the fakes of the remote services, and the test asserts what the fake got (its
-/// log, `getPatronusLog`, `getGitHubLog`, `getYouTrack`). The failure of a write stays a page answer
-/// (`routeCommandError`), as does a hold that lets the call go on to the server (`holdCommand`, `recordCommand`).
-/// Each is either of the engine ([`ENGINE`]) or a command of the app ([`APP_COMMANDS`])
-const MUTATING: &[&str] = &[
-  "execute",
-  "cancel_operation",
-  "sync",
-  "set_window_focus",
-  "cancel_symbol_search",
-  "cancel_conflict_fix",
-  "record_activity",
-  "clear_activity",
-  "set_setting",
-  "set_repository_config",
-  "link_pull_request",
-  "unlink_pull_request",
-  "set_auto_sync_menu_checked",
-  "install_agent_cli",
-  "install_update",
-  "restart_app",
-  "run_cli_tool_action",
-  "cancel_cli_tool_action",
-  "sign_in",
-  "cancel_sign_in",
-  "sign_out",
-];
-
-/// The commands that write nothing: reads of the repository, the remote services and the app, the subscription of a
-/// window to its session and what it reads there (its demand, a fact asked again), and the windows. Every command of
-/// `collect_commands!` is here or in [`MUTATING`], never in both: a new command says which it is
-const READS: &[&str] = &[
-  // the session of a window: its view, its demand, the facts it asks again, the plan of an intent before `execute`
-  "get_snapshot",
-  "subscribe_view",
-  "unsubscribe_view",
-  "set_demand",
-  "refresh_facts",
-  "prepare",
-  // the repository and its commits
-  "resolve_branch_prefix",
-  "check_git_setup",
-  "get_repository_config",
-  "validate_repository_path",
-  "preview_move",
-  "preview_group",
-  "validate_branch_name",
-  "commit_body_blocks",
-  "find_conflict_fix",
-  "get_stack_independence",
-  "get_autosquash_plan",
-  "suggest_branch_names",
-  "get_archived_branch_commits",
-  "get_unapplied_branch_commits",
-  "get_uncommitted_changes",
-  "get_commit_files",
-  "get_commits_files",
-  "get_file_diffs",
-  "get_file_merges",
-  "get_blob_texts",
-  "find_declaration",
-  "find_usages",
-  "get_range_files",
-  "get_branch_review",
-  "get_file_owners",
-  "prefetch_branch_review",
-  // the remote services and the accounts
-  "get_new_pull_request",
-  "get_new_stack_pull_request",
-  "search_github_users",
-  "get_auth_status",
-  "get_youtrack_issue",
-  "get_robot_stats",
-  "get_robot_failure",
-  "get_robot_commit_map",
-  // the app: its journal, its settings, its update, its CLIs
-  "read_activity",
-  "get_settings_changes",
-  "check_for_updates",
-  "get_update_status",
-  "agent_cli_command",
-  "agent_cli_status",
-  "cli_tools_status",
-  "get_setup_items",
-  // the windows
-  "browse_repository",
-  "open_sub_window",
-  "sub_window_loaded",
-  "sub_window_drawn",
-  "sub_window_ready",
-  "show_window_menu",
-];
-
-/// The writes of the engine: every operation of a repository is an intent of its session, admitted by the registry
-/// over the resources it names (the pushes, the starts, the rewrites, Update Project, the review fetch; `operations`)
-const ENGINE: &[&str] = &["execute", "cancel_operation"];
-
-const SESSION_TICKETS: &str = "the session's own tickets: a sync and a focus ask the session to read, never admitted as an operation";
-const CANCELED_READ: &str = "the cancel of a read: it ends the read of this window, which wrote nothing";
-const PAGE_JOURNAL: &str = "the page's journal of the app data directory, one writer (`operations::journal`) under its lock";
-const SETTINGS_WRITER: &str = "a settings writer of no repository's session, serialized per file (docs/design/rust-domain-authority.md, \"Решение 2026-10-28\")";
-const THE_APP: &str = "the app itself: its menu, its CLI, its update and its restart";
-const TOOLS: &str = "the CLIs of Settings → Tools, one action of a tool at a time (`cli_tools`)";
-const ACCOUNTS: &str = "an account of the app, one sign-in of a provider at a time (`remote_facts::sign_in`): no repository is its subject";
-
-/// The writes that are commands of the app, not intents: what has no repository as its subject, each with its one
-/// writer (docs/design/rust-domain-authority.md, "Решение 2026-10-28"); the reason says which
-const APP_COMMANDS: &[(&str, &str)] = &[
-  ("sync", SESSION_TICKETS),
-  ("set_window_focus", SESSION_TICKETS),
-  ("cancel_symbol_search", CANCELED_READ),
-  ("cancel_conflict_fix", CANCELED_READ),
-  ("record_activity", PAGE_JOURNAL),
-  ("clear_activity", PAGE_JOURNAL),
-  ("set_setting", SETTINGS_WRITER),
-  ("set_repository_config", SETTINGS_WRITER),
-  ("link_pull_request", SETTINGS_WRITER),
-  ("unlink_pull_request", SETTINGS_WRITER),
-  ("set_auto_sync_menu_checked", THE_APP),
-  ("install_agent_cli", THE_APP),
-  ("install_update", THE_APP),
-  ("restart_app", THE_APP),
-  ("run_cli_tool_action", TOOLS),
-  ("cancel_cli_tool_action", TOOLS),
-  ("sign_in", ACCOUNTS),
-  ("cancel_sign_in", ACCOUNTS),
-  ("sign_out", ACCOUNTS),
-];
 
 /// The read commands that E2E tests still answer in the page, with the number of answers in `tests/e2e` (a call of a
 /// helper that answers counts as its answers): a state that neither the fixtures of the fakes nor the templates make
@@ -167,25 +29,38 @@ fn read_workspace_file(path: &str) -> String {
   std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("Cannot read {}: {e}", file.display()))
 }
 
-/// The names inside `collect_commands![...]`, in their order
-fn app_commands() -> Vec<String> {
-  let text = read_workspace_file("src-tauri/src/lib.rs");
-  let start = text.find("collect_commands![").expect("collect_commands! in src-tauri/src/lib.rs") + "collect_commands![".len();
-  let end = start + text[start..].find(']').expect("the end of collect_commands!");
-  let names: Vec<String> = text[start..end].split(',').map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned).collect();
-  for name in &names {
-    assert!(is_identifier(name), "collect_commands! holds `{name}`, which is no command name: the parse needs an update");
-  }
-  names
+/// Whether the command `name` writes: its class in the registry is not `read`. No E2E test answers one in the page
+/// (`routeCommand`, or a `page.route` of `/invoke/<name>` that fulfills): the test server runs it on the real core,
+/// behind the fakes of the remote services, and the test asserts what the fake got (its log, `getPatronusLog`,
+/// `getGitHubLog`, `getYouTrack`)
+fn writes(name: &str) -> bool {
+  COMMANDS.iter().any(|command| command.name == name && command.class != CommandClass::Read)
 }
 
-/// The command names of the `/invoke/<name>` routes of this server: the one of every command of app-api
-/// (`invoke::command_routes`), and any handwritten one of `lib.rs` (none: a route there would answer a command beside
-/// the registry, which `every_route_names_a_command` refuses twice)
-fn server_routes() -> Vec<String> {
-  let text = read_workspace_file("crates/test-server/src/lib.rs");
-  let handwritten = text.split("\"/invoke/").skip(1).map(|rest| rest.split(['"', '/']).next().expect("a route name").to_owned());
-  handwritten.chain(app_api::commands::COMMANDS.iter().map(|command| command.name.to_owned())).collect()
+/// The names the functions of `export const commands` in the bindings invoke (`__TAURI_INVOKE("<name>"`, or
+/// `__TAURI_INVOKE<void>("<name>"`), one per function, in their order
+fn binding_commands_of(text: &str) -> Vec<String> {
+  let start = text.find("export const commands = {").expect("`export const commands` in src/lib/bindings.ts");
+  let end = start + text[start..].find("\n}").expect("the end of `export const commands`");
+  let body = &text[start..end];
+  let functions = body
+    .lines()
+    .filter(|line| line.starts_with('\t') && !line.starts_with("\t\t") && line.contains(": ("))
+    .count();
+  let names: Vec<String> = body
+    .split("__TAURI_INVOKE")
+    .skip(1)
+    .map(|call| {
+      let quoted = &call[call.find("(\"").expect("the name of an invoke") + 2..];
+      quoted[..quoted.find('"').expect("the end of the name")].to_owned()
+    })
+    .collect();
+  assert_eq!(
+    names.len(),
+    functions,
+    "a function of `export const commands` invokes no command or two: the parse needs an update"
+  );
+  names
 }
 
 /// The keys of `PAGE_PLUGINS` in the page mock, the plugin prefixes it answers (`plugin:event`)
@@ -229,69 +104,73 @@ fn is_identifier(name: &str) -> bool {
   !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-fn names_of(entries: &[(&str, &str)]) -> BTreeSet<String> {
-  entries.iter().map(|(name, _)| (*name).to_owned()).collect()
-}
-
+/// The registry, the bindings and the app are one set: every typed command of the registry is a function of the
+/// bindings, in the order of the registry (the app exports them from it, `typed_commands` of `src-tauri/src/api.rs`,
+/// and `bindings_test.rs` of the app holds the file to its export), and a raw one none (its bytes have their own call
+/// in the page)
 #[test]
-fn the_app_registers_the_pinned_number_of_commands() {
-  let commands = app_commands();
-  let unique: BTreeSet<&String> = commands.iter().collect();
-  assert_eq!(unique.len(), commands.len(), "collect_commands! names a command twice");
+fn the_registry_and_the_bindings_are_one_set() {
+  let bindings = binding_commands_of(&read_workspace_file("src/lib/bindings.ts"));
+  let typed: Vec<&str> = COMMANDS.iter().filter(|command| command.kind != CommandKind::Raw).map(|command| command.name).collect();
   assert_eq!(
-    commands.len(),
-    COMMAND_COUNT,
-    "collect_commands! has {} commands: declare the new one in the registry of app-api, which routes it here, then update COMMAND_COUNT",
-    commands.len()
+    bindings, typed,
+    "src/lib/bindings.ts is not the registry: UPDATE_BINDINGS=1 of the bindings test of the app writes it"
   );
 }
 
-/// The class of a command of app-api is the list it is in here, until the classes replace the lists (s12-app-api of
-/// docs/design/rust-domain-authority.md): a read in [`READS`], a write of the engine in [`ENGINE`], a command of the app
-/// in [`APP_COMMANDS`]
 #[test]
-fn the_class_of_a_command_of_app_api_is_its_list() {
-  use app_api::registry::CommandClass;
-  let reads: BTreeSet<&str> = READS.iter().copied().chain(RAW_ROUTES.iter().map(|(name, _)| *name)).collect();
-  let engine: BTreeSet<&str> = ENGINE.iter().copied().collect();
-  let app = names_of(APP_COMMANDS);
-  for command in app_api::commands::COMMANDS {
-    let (list, listed) = match command.class {
-      CommandClass::Read => ("READS", reads.contains(command.name)),
-      CommandClass::Engine => ("ENGINE", engine.contains(command.name)),
-      CommandClass::App => ("APP_COMMANDS", app.contains(command.name)),
-    };
-    assert!(listed, "{} is of the class {:?} in app-api: name it in {list}", command.name, command.class);
+fn the_bindings_parser_reads_each_invoke_and_refuses_a_function_without_one() {
+  let bindings = "export const commands = {\n/** docs */\n\tread: () => typedError<A, ApiError>(__TAURI_INVOKE(\"read\")),\n\tcancel: (tool: Tool) => __TAURI_INVOKE<void>(\"cancel\", { tool }),\n}\n";
+  assert_eq!(binding_commands_of(bindings), ["read", "cancel"]);
+
+  let without = "export const commands = {\n\tread: () => typedError<A, ApiError>(__TAURI_INVOKE(\"read\")),\n\tlocal: (a: A) => a,\n}\n";
+  let failure = std::panic::catch_unwind(|| binding_commands_of(without)).unwrap_err();
+  assert!(panic_message(failure.as_ref()).contains("invokes no command or two"), "{}", panic_message(failure.as_ref()));
+}
+
+/// The router of the server has the route of every command of the registry: a command that names no test repository
+/// answers its error (the context of a command is the repository its page names, so nothing runs), never the 404 or
+/// 405 of a path the server does not route
+#[tokio::test]
+async fn the_server_routes_every_command_of_the_registry() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  for command in COMMANDS {
+    let response = command_of_no_repository(&client, addr, command.name).send().await.unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK, "{}: no route of the test server", command.name);
+    let answer: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(answer["status"], "error", "{}: {answer}", command.name);
   }
 }
 
+/// The routes of the commands are the registry's (`invoke::command_routes`): no other source of the server names one,
+/// which would answer a command beside the registry
 #[test]
-fn every_command_is_routed() {
-  let routes: BTreeSet<String> = server_routes().into_iter().collect();
-  let unreached: Vec<String> = app_commands().into_iter().filter(|name| !routes.contains(name)).collect();
-  assert!(
-    unreached.is_empty(),
-    "these commands have no route of the test server, so an E2E test that calls them fails with 405: {unreached:?}; declare them in the registry of app-api"
-  );
-}
-
-#[test]
-fn every_route_names_a_command() {
-  let commands: BTreeSet<String> = app_commands().into_iter().collect();
-  let routes = server_routes();
-  let unique: BTreeSet<&String> = routes.iter().collect();
-  assert_eq!(unique.len(), routes.len(), "the test server routes a command twice");
-  let raw = names_of(RAW_ROUTES);
-  for name in &routes {
-    assert!(
-      commands.contains(name) || raw.contains(name),
-      "the route /invoke/{name} names no command of collect_commands!: remove it"
+fn no_source_of_the_server_routes_a_command_beside_the_registry() {
+  let sources = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+  let route = concat!("\"", "/invoke/");
+  let mut routed = Vec::new();
+  for entry in std::fs::read_dir(&sources).unwrap() {
+    let path = entry.unwrap().path();
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    // the routes themselves, and the tests with their helpers, which send commands
+    if name == "invoke.rs" || name == "test_support.rs" || name.ends_with("_test.rs") {
+      continue;
+    }
+    let text = std::fs::read_to_string(&path).unwrap();
+    routed.extend(
+      text
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains(route))
+        .map(|(number, line)| format!("{name}:{}: {}", number + 1, line.trim())),
     );
   }
-  for (name, _) in RAW_ROUTES {
-    assert!(!commands.contains(*name), "`{name}` is a typed command now: remove it from RAW_ROUTES");
-    assert!(unique.contains(&(*name).to_owned()), "RAW_ROUTES names `{name}`, which has no route: remove the entry");
-  }
+  assert_eq!(
+    routed,
+    [] as [String; 0],
+    "a route of a command outside invoke.rs: declare the command in the registry of app-api"
+  );
 }
 
 /// The page answers no command of the app: the server runs each, as the app does; the page mock answers only the
@@ -303,10 +182,10 @@ fn the_page_mock_answers_only_the_plugins_of_tauri() {
     plugins.iter().any(|key| key == "plugin:event"),
     "the parse of PAGE_PLUGINS found no `plugin:event`: {plugins:?}"
   );
-  let commands: BTreeSet<String> = app_commands().into_iter().collect();
+  let commands: BTreeSet<&str> = COMMANDS.iter().map(|command| command.name).collect();
   for key in &plugins {
     assert!(
-      key.starts_with("plugin:") && !commands.contains(key),
+      key.starts_with("plugin:") && !commands.contains(key.as_str()),
       "PAGE_PLUGINS of tauri-mocks.ts answers `{key}`, which is no plugin of Tauri: a command of the app runs on the test server"
     );
   }
@@ -959,7 +838,7 @@ fn page_answers() -> std::collections::BTreeMap<String, usize> {
 #[test]
 fn no_e2e_test_answers_a_write_in_the_page() {
   let answers = page_answers();
-  let written: Vec<(&String, &usize)> = answers.iter().filter(|(name, _)| MUTATING.contains(&name.as_str())).collect();
+  let written: Vec<(&String, &usize)> = answers.iter().filter(|(name, _)| writes(name)).collect();
   assert!(
     written.is_empty(),
     "E2E tests answer these writes in the page: {written:?}; let the test server run them behind the fake of their service and assert the fake's log (a failure is `routeCommandError`)"
@@ -969,65 +848,22 @@ fn no_e2e_test_answers_a_write_in_the_page() {
 #[test]
 fn the_page_answers_of_the_e2e_tests_are_pinned() {
   let pinned: std::collections::BTreeMap<String, usize> = ROUTED_IN_PAGE.iter().map(|(name, count)| ((*name).to_owned(), *count)).collect();
-  let answers: std::collections::BTreeMap<String, usize> = page_answers().into_iter().filter(|(name, _)| !MUTATING.contains(&name.as_str())).collect();
+  let answers: std::collections::BTreeMap<String, usize> = page_answers().into_iter().filter(|(name, _)| !writes(name)).collect();
   assert_eq!(
     answers, pinned,
     "the commands that E2E tests answer in the page (routeCommand, a fulfilling page.route of /invoke/): a new answer comes from a fixture of the fake instead; for a removed one, lower its number in ROUTED_IN_PAGE"
   );
 }
 
+/// The ratchet pins reads of the registry, each once
 #[test]
-fn the_ratchet_names_commands_of_the_app() {
-  let commands: BTreeSet<String> = app_commands().into_iter().collect();
-  let mutating: BTreeSet<&str> = MUTATING.iter().copied().collect();
-  assert_eq!(mutating.len(), MUTATING.len(), "MUTATING names a command twice");
-  for name in MUTATING.iter().chain(ROUTED_IN_PAGE.iter().map(|(name, _)| name)) {
-    assert!(commands.contains(*name), "the ratchet names `{name}`, which collect_commands! does not have");
-  }
-  for (name, _) in ROUTED_IN_PAGE {
-    assert!(!mutating.contains(name), "`{name}` writes: it cannot be pinned in ROUTED_IN_PAGE");
-  }
-}
-
-/// Every command of `collect_commands!` is a read or a write, never both, so a new one is classified where it lands
-#[test]
-fn every_command_is_a_read_or_a_write() {
-  let commands: BTreeSet<String> = app_commands().into_iter().collect();
-  let reads: BTreeSet<&str> = READS.iter().copied().collect();
-  assert_eq!(reads.len(), READS.len(), "READS names a command twice");
-  let both: Vec<&&str> = reads.iter().filter(|name| MUTATING.contains(name)).collect();
-  assert!(both.is_empty(), "both a read and a write: {both:?}");
-  let classified: BTreeSet<String> = READS.iter().chain(MUTATING).map(|name| (*name).to_owned()).collect();
-  assert_eq!(
-    commands, classified,
-    "every command of collect_commands! is in READS or in MUTATING (with ENGINE or APP_COMMANDS)"
-  );
-}
-
-/// The exit criterion of s11 (docs/design/rust-domain-authority.md): `collect_commands!` holds no write but the
-/// engine's and the commands of the app, each of those with its reason
-#[test]
-fn every_write_is_the_engines_or_a_command_of_the_app() {
-  let commands: BTreeSet<String> = app_commands().into_iter().collect();
-  let app: BTreeSet<&str> = APP_COMMANDS.iter().map(|(name, _)| *name).collect();
-  assert_eq!(app.len(), APP_COMMANDS.len(), "APP_COMMANDS names a command twice");
-  let engine: BTreeSet<&str> = ENGINE.iter().copied().collect();
-  assert!(
-    engine.is_disjoint(&app),
-    "a write is either the engine's or a command of the app: {:?}",
-    engine.intersection(&app).collect::<Vec<_>>()
-  );
-  let mutating: BTreeSet<&str> = MUTATING.iter().copied().collect();
-  let classified: BTreeSet<&str> = engine.union(&app).copied().collect();
-  assert_eq!(
-    mutating, classified,
-    "a write of collect_commands! is an intent of the engine (`execute`), or a command of the app in APP_COMMANDS with the reason no session admits it"
-  );
-  for (name, reason) in APP_COMMANDS {
-    assert!(!reason.trim().is_empty(), "`{name}` of APP_COMMANDS says no reason");
-  }
-  for name in engine.iter().chain(&app) {
-    assert!(commands.contains(*name), "`{name}` is no command of collect_commands!");
+fn the_ratchet_pins_reads_of_the_registry() {
+  let pinned: BTreeSet<&str> = ROUTED_IN_PAGE.iter().map(|(name, _)| *name).collect();
+  assert_eq!(pinned.len(), ROUTED_IN_PAGE.len(), "ROUTED_IN_PAGE names a command twice");
+  for name in pinned {
+    let command = COMMANDS.iter().find(|command| command.name == name);
+    assert!(command.is_some(), "the ratchet names `{name}`, which the registry does not have");
+    assert!(!writes(name), "`{name}` writes: it cannot be pinned in ROUTED_IN_PAGE");
   }
 }
 

@@ -4,10 +4,12 @@
 //! and a scripted answer of the fake GitHub for a failure no state of it gives (`/github-answer`).
 
 use crate::remote_fixtures::{FixtureResult, host_of, unknown_repository};
-use crate::state::ReviewRequestsFixture;
+use crate::remote_host::HeldAnswer;
+use crate::state::{AppState, ReviewRequestsFixture};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use domain_types::error::ApiError;
 use domain_types::patronus::{PatronusCommandReply, PatronusMergeRequest, PatronusReviewRequirement, PatronusReviewer, ReviewPathsSource, ReviewerApprovalState};
 use domain_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState};
 use domain_types::review_request::{LinkedAnswer, LinkedPullRequest, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
@@ -17,10 +19,12 @@ use github::fake_github::FakeAnswer;
 use github::fake_repository::FakePull;
 use patronus::client::PreMergeCheckResponse;
 use patronus::review::to_requirement;
+use repository_model::session::SessionKey;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use sync_utils::timestamp::format_utc_timestamp;
 
 /// What the Patronus pre-check answers for the branches of a test repository
@@ -125,7 +129,7 @@ fn answer_for(git: &git_executor::git_command_executor::GitCommandExecutor, repo
   // newest first: the tip of the branch asked about
   let tip = commits.first().and_then(|commit| commit["hash"].as_str()).unwrap_or_default();
   if !answers.is_empty() {
-    let prefix = crate::tauri_command_bridge::read_local_branch_prefix(git, repository_path)?.prefix;
+    let prefix = crate::state::read_local_branch_prefix(git, repository_path)?.prefix;
     for (key, answer) in answers {
       let branch = key
         .strip_prefix("stack:")
@@ -154,7 +158,7 @@ fn answer_for(git: &git_executor::git_command_executor::GitCommandExecutor, repo
 }
 
 /// Sets what the Patronus pre-check answers by branch from now on (`ReviewAnswersFixture`)
-pub async fn set_review_answers(Path(id): Path<String>, State(state): State<Arc<crate::state::AppState>>, Json(fixture): Json<ReviewAnswersFixture>) -> FixtureResult {
+pub async fn set_review_answers(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<ReviewAnswersFixture>) -> FixtureResult {
   let (host, _) = host_of(&state, &id)?;
   let wire = |answers: &HashMap<String, PatronusReviewRequirement>| {
     answers
@@ -180,7 +184,7 @@ pub async fn set_review_answers(Path(id): Path<String>, State(state): State<Arc<
 
 /// The readiness reads of the sessions (`calls`: the subjects and the recheck of each, `TestFactSources::readiness`), and the pre-checks
 /// that reached the fake Patronus (`checks`: the tip and the pull request of each), in order
-pub async fn get_review_answers(Path(id): Path<String>, State(state): State<Arc<crate::state::AppState>>) -> Result<Json<Value>, (StatusCode, String)> {
+pub async fn get_review_answers(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<Value>, (StatusCode, String)> {
   let calls = {
     let repo = state.repositories.get(&id).ok_or_else(unknown_repository)?;
     repo.review_readiness_calls.lock().expect("review readiness calls lock").clone()
@@ -205,7 +209,7 @@ pub struct PatronusRepliesFixture {
   pub replies: BTreeMap<u32, PatronusCommandReply>,
 }
 
-pub async fn set_patronus_replies(Path(id): Path<String>, State(state): State<Arc<crate::state::AppState>>, Json(fixture): Json<PatronusRepliesFixture>) -> FixtureResult {
+pub async fn set_patronus_replies(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<PatronusRepliesFixture>) -> FixtureResult {
   host_of(&state, &id)?.0.set_patronus_replies(fixture.replies);
   Ok(StatusCode::OK)
 }
@@ -221,7 +225,7 @@ pub struct GitHubAnswerFixture {
   pub body: Value,
 }
 
-pub async fn set_github_answer(Path(id): Path<String>, State(state): State<Arc<crate::state::AppState>>, Json(fixture): Json<GitHubAnswerFixture>) -> FixtureResult {
+pub async fn set_github_answer(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<GitHubAnswerFixture>) -> FixtureResult {
   host_of(&state, &id)?
     .0
     .github()
@@ -357,5 +361,90 @@ fn review_request_pull(request: &ReviewRequest) -> FakePull {
     comments: Vec::new(),
     assignees: Vec::new(),
     reviews: Vec::new(),
+  }
+}
+
+/// The review requests of the fixture set by `POST /repositories/{id}/review-requests`, as the session of a test
+/// repository reads them (`TestFactSources`): GitHub is never asked in E2E; counted
+pub(crate) async fn review_requests_of(state: &AppState, key: &SessionKey, reviews: bool) -> Result<ReviewRequestsResult, ApiError> {
+  let mut result = {
+    let repo = state.repository(&key.worktree)?;
+    let fixture = repo.review_requests.read().expect("review request fixture lock").clone();
+    let mut result = fixture.result.clone();
+    // the rest of Reviews only while the view shows, its links as the app keeps them; a link that went is forgotten
+    result.others = None;
+    if reviews && let domain_types::pull_request::PullRequestAvailability::Available { owner, name } = &result.availability {
+      let full_name = format!("{owner}/{name}");
+      let others = fixture_reviews(&fixture, &app_settings::linked_pull_requests::linked(&repo.store, &full_name));
+      let gone = domain_policy::reviews::gone_links(&others);
+      if !gone.is_empty() {
+        let _ = app_settings::linked_pull_requests::forget(&repo.store, &full_name, &gone);
+      }
+      result.others = Some(others);
+    }
+    result
+  };
+  // an empty head is the tip of the branch the request names, as GitHub would show it (the fetch reviews that commit);
+  // resolved before the call is counted, so a test that sees the count sees an answer that only has to be applied
+  resolve_review_heads(&key.worktree, &mut result);
+  let host = {
+    let repo = state.repository(&key.worktree)?;
+    repo.review_request_calls.fetch_add(1, Ordering::SeqCst);
+    if reviews {
+      repo.reviews_calls.fetch_add(1, Ordering::SeqCst);
+    }
+    repo.existing_remote()
+  };
+  // a test that holds the answer (`/remote-gates`) sees the page before it; no entry of the map is held meanwhile, so the
+  // deletion of the repository, which releases it, can remove the repository
+  if let Some(host) = host {
+    host.pass_held(HeldAnswer::ReviewRequests).await;
+  }
+  Ok(result)
+}
+
+/// The heads of the fixture's pull requests that are empty, as the tips of the branches they name (else `HEAD`), read
+/// from the refs of the repository without a git process: the answer of a listing stays as quick as the fixture
+fn resolve_review_heads(path: &str, result: &mut ReviewRequestsResult) {
+  let git_dir = std::path::Path::new(path).join(".git");
+  if !git_dir.is_dir() {
+    return;
+  }
+  let packed = std::fs::read_to_string(git_dir.join("packed-refs")).unwrap_or_default();
+  let tip = |reference: &str| -> Option<String> {
+    let loose = std::fs::read_to_string(git_dir.join(reference)).ok().map(|id| id.trim().to_owned());
+    loose.filter(|id| id.len() == 40).or_else(|| {
+      packed
+        .lines()
+        .find_map(|line| line.strip_suffix(reference).and_then(|id| id.strip_suffix(' ')).map(str::to_owned))
+    })
+  };
+  let head = std::fs::read_to_string(git_dir.join("HEAD"))
+    .ok()
+    .and_then(|head| head.trim().strip_prefix("ref: ").map(str::to_owned))
+    .and_then(|reference| tip(&reference))
+    .unwrap_or_default();
+  let mut resolve = |request: &mut ReviewRequest| {
+    if request.head_ref_oid.is_empty() {
+      request.head_ref_oid = tip(&format!("refs/heads/{}", request.head_ref_name)).unwrap_or_else(|| head.clone());
+    }
+  };
+  result.requests.iter_mut().for_each(&mut resolve);
+  result.answered.iter_mut().for_each(|answered| resolve(&mut answered.request));
+  if let Some(others) = &mut result.others {
+    let linked = others.linked.iter_mut().filter_map(|linked| match linked {
+      LinkedAnswer::Open { entry } => Some(entry.as_mut()),
+      _ => None,
+    });
+    for entry in others
+      .team
+      .entries
+      .iter_mut()
+      .chain(&mut others.reviewed.entries)
+      .chain(&mut others.authored.entries)
+      .chain(linked)
+    {
+      resolve(&mut entry.request);
+    }
   }
 }

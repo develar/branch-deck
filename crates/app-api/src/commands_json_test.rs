@@ -32,7 +32,7 @@ fn page_command(spec: &CommandSpec) -> PageCommand {
   let class = match spec.class {
     CommandClass::Read => "read",
     CommandClass::Engine => "engine",
-    CommandClass::App => "app",
+    CommandClass::App(_) => "app",
   };
   let transport = match (&spec.channel, spec.kind) {
     (Some(channel), _) => Transport::Channel {

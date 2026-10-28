@@ -25,6 +25,7 @@ use axum::response::{IntoResponse, Json, Response};
 use axum::routing::post;
 use domain_types::error::ApiError;
 use serde::Serialize;
+use std::any::Any;
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -42,8 +43,8 @@ pub const WINDOW_LABEL_HEADER: &str = "X-Window-Label";
 
 /// How a command fails: with its `ApiError`, answered the way Tauri rejects a command (`{ status: "error", error:
 /// <ApiError> }` with status 200, which the page mock hands to the bindings: the same JSON as the app,
-/// `api_error_contract_test.rs`), or with a failure of the server itself, a panicked command (500). A type of the
-/// server only because axum's `IntoResponse` can't be implemented for `ApiError` outside `domain-types`.
+/// `api_error_contract_test.rs`), or with a failure of the server itself, a panicked command (500, `caught`). A type of
+/// the server only because axum's `IntoResponse` can't be implemented for `ApiError` outside `domain-types`.
 pub enum Rejection {
   Error(ApiError),
   Panicked,
@@ -157,7 +158,7 @@ pub fn event_stream(receiver: mpsc::UnboundedReceiver<serde_json::Value>) -> Res
 
 /// The callback of `for_each_command!`: the route of each command by its kind
 macro_rules! invoke_routes {
-  ($($(#[doc = $doc:literal])* $class:ident $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
+  ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
     /// `router` with the route of every command of app-api
     pub fn command_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
       router $(.route(concat!("/invoke/", stringify!($name)), invoke_route!($kind $name)))*
@@ -178,12 +179,16 @@ macro_rules! invoke_route {
 app_api::for_each_command!(invoke_routes);
 
 /// A command that answers JSON: on the SSE stream of its channel when it has one and the page named it
-async fn json<C: Command<Output: Serialize + 'static, Channel: ChannelOf> + 'static>(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
+async fn json<C: Command<Args: 'static, Output: Serialize + 'static, Channel: ChannelOf + 'static> + 'static>(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+  body: Bytes,
+) -> Response {
   let channel = progress_channel(&headers).filter(|_| C::SPEC.channel.is_some());
   answer_with_progress(channel, move |progress| async move { run::<C>(&state, &headers, &body, progress).await.map(Json) }).await
 }
 
-async fn raw<C: Command<Output = Vec<u8>, Channel = ()>>(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
+async fn raw<C: Command<Args: 'static, Output = Vec<u8>, Channel = ()> + 'static>(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
   match run::<C>(&state, &headers, &body, Progress { sender: None }).await {
     Ok(bytes) => ([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response(),
     Err(rejection) => rejection.into_response(),
@@ -192,16 +197,44 @@ async fn raw<C: Command<Output = Vec<u8>, Channel = ()>>(State(state): State<Arc
 
 /// Runs `C` with the arguments of `body` in the context of the repository the request names, for the call of the
 /// window it names, its channel on `progress`
-async fn run<C: Command<Channel: ChannelOf>>(state: &AppState, headers: &HeaderMap, body: &[u8], progress: Progress) -> Result<C::Output, Rejection> {
+async fn run<C: Command<Args: 'static, Output: 'static, Channel: ChannelOf + 'static> + 'static>(
+  state: &AppState,
+  headers: &HeaderMap,
+  body: &[u8],
+  progress: Progress,
+) -> Result<C::Output, Rejection> {
   let context = requesting_context(state, headers)?;
   let call = context.call(requesting_window(headers));
   let args = arguments::<C>(body).map_err(|e| failed(C::SPEC.name, format!("Invalid arguments of {}: {e}", C::SPEC.name)))?;
-  // on the heap: the futures of the sessions and the engine are deep, and the router proves each handler `Send`
-  let answer: Pin<Box<dyn Future<Output = Result<C::Output, ApiError>> + Send + '_>> = Box::pin(C::call(&context, &call, args, C::Channel::of(progress)));
-  answer.await.map_err(|error| {
-    tracing::debug!("Cannot {}: {}", C::SPEC.name, error.message);
-    Rejection::Error(error)
-  })
+  let channel = C::Channel::of(progress);
+  let output = caught(erase(async move { C::call(&context, &call, args, channel).await })).await.inspect_err(|rejection| {
+    if let Rejection::Error(error) = rejection {
+      tracing::debug!("Cannot {}: {}", C::SPEC.name, error.message);
+    }
+  })?;
+  Ok(*output.downcast::<C::Output>().expect("a command answers its output"))
+}
+
+/// The answer of a command with its output erased, so every command runs in the same kind of task (`caught`)
+pub(crate) type ErasedAnswer = Pin<Box<dyn Future<Output = Result<Box<dyn Any + Send>, ApiError>> + Send>>;
+
+/// `answer` on the heap, its output erased: the futures of the sessions and the engine are deep, and the router proves
+/// each handler `Send`; one task type for every command keeps the server small (a task type per command took its test
+/// binary past the 16 MB of unwind tables the linker encodes compactly)
+pub(crate) fn erase<T: Send + 'static>(answer: impl Future<Output = Result<T, ApiError>> + Send + 'static) -> ErasedAnswer {
+  Box::pin(async move { answer.await.map(|output| Box::new(output) as Box<dyn Any + Send>) })
+}
+
+/// The answer of a command, run as a task of its own, as Tauri runs a command: its error, or `Panicked` for a command
+/// that panicked, which fails the request
+pub(crate) async fn caught(answer: ErasedAnswer) -> Result<Box<dyn Any + Send>, Rejection> {
+  match tokio::spawn(answer.in_current_span()).await {
+    Ok(answer) => answer.map_err(Rejection::Error),
+    Err(failure) => {
+      tracing::error!("A command panicked: {failure}");
+      Err(Rejection::Panicked)
+    }
+  }
 }
 
 /// The window of the page that sends a command (`X-Window-Label`): the main window for a request that names none (a

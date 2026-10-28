@@ -9,10 +9,9 @@
 //! (`POST /repositories/{id}/dialog-pick`) and restarts nothing; its agent CLI (`TestAgentCli`) installs nothing
 
 use crate::cli_tools_fixtures::CliToolsHost;
-use crate::invoke::{Rejection, event_stream, failed};
+use crate::invoke::event_stream;
 use crate::remote_host::{HeldAnswer, PAGE_CLOCK_START, RemoteHost};
 use crate::state::AppState;
-use crate::tauri_command_bridge::rejected;
 use crate::updater::NO_UPDATER_MESSAGE;
 use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus};
 use app_api::app::windows::{BuiltPage, OpenSubWindowParams, Shown, SubWindowOpen, show_when_settled};
@@ -81,7 +80,7 @@ impl AppHost for TestHost {
   fn before_auth_status(&self) -> Read<'_, Result<(), ApiError>> {
     Box::pin(async move {
       let remote = self.remote()?;
-      held_or_failed(&remote, HeldAnswer::AuthStatus, "read the sign-ins").await.map_err(rejected)
+      held_or_failed(&remote, HeldAnswer::AuthStatus, "read the sign-ins").await
     })
   }
 
@@ -143,7 +142,7 @@ impl AppHost for TestHost {
   fn before_tools_status(&self) -> Read<'_, Result<(), ApiError>> {
     Box::pin(async move {
       match self.existing_remote() {
-        Some(remote) => held_or_failed(&remote, HeldAnswer::CliTools, "read the tools").await.map_err(rejected),
+        Some(remote) => held_or_failed(&remote, HeldAnswer::CliTools, "read the tools").await,
         None => Ok(()),
       }
     })
@@ -162,10 +161,11 @@ impl AppHost for TestHost {
 
 /// Waits while a test holds `answer` (`/remote-gates`), then fails it while the test fails it: a read of a status the
 /// server gives itself
-pub(crate) async fn held_or_failed(host: &RemoteHost, answer: HeldAnswer, operation: &str) -> Result<(), Rejection> {
+pub(crate) async fn held_or_failed(host: &RemoteHost, answer: HeldAnswer, operation: &str) -> Result<(), ApiError> {
   host.pass_held(answer).await;
   if host.fails(answer) {
-    return Err(failed(operation, "the fixture fails this read"));
+    tracing::debug!("Cannot {operation}: the fixture fails this read");
+    return Err(ApiError::internal("the fixture fails this read"));
   }
   Ok(())
 }

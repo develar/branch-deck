@@ -1,43 +1,36 @@
-//! The registry of the commands (`commands.rs`) against what the app registers: every command once, their number
-//! pinned, each in the handlers of `src-tauri/src/lib.rs` (a typed one in `collect_commands!`, which the bindings are
-//! exported from, a raw one in `generate_handler!`), read as text as `command_registry_test.rs` of the e2e server
-//! reads them
+//! The registry of the commands (`commands.rs`): every command once, their number pinned, every write with its class.
+//! Each host registers what the registry lists, generated from the same `for_each_command!` (the app's wrappers and
+//! handlers, `src-tauri/src/api.rs`; the routes of the e2e server, `crates/test-server/src/invoke.rs`), and
+//! `command_registry_test.rs` of the e2e server holds the list, `src/lib/bindings.ts` and its router to one set
 
 use crate::commands::COMMANDS;
-use crate::registry::CommandKind;
+use crate::registry::CommandClass;
 use std::collections::BTreeSet;
-use std::path::Path;
 
-/// The number of commands of the registry, every command of the app since the windows and the desktop moved into it
-/// (s12-app-api of docs/design/rust-domain-authority.md): a new command raises it, and it proves the macro listed them all
-const REGISTERED: usize = 76;
-
-/// The names inside `<list>![...]` of `src-tauri/src/lib.rs`
-fn listed(list: &str) -> BTreeSet<String> {
-  let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/src/lib.rs");
-  let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("Cannot read {}: {e}", file.display()));
-  let open = format!("{list}![");
-  let start = text.find(&open).unwrap_or_else(|| panic!("{list}! in src-tauri/src/lib.rs")) + open.len();
-  let end = start + text[start..].find(']').expect("the end of the list");
-  text[start..end].split(',').map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned).collect()
-}
+/// The number of commands of the registry, every command of the app: a new command raises it, and it proves the macro
+/// listed them all
+const COMMAND_COUNT: usize = 76;
 
 #[test]
 fn every_command_is_registered_once() {
   let names: BTreeSet<&str> = COMMANDS.iter().map(|command| command.name).collect();
   assert_eq!(names.len(), COMMANDS.len(), "the registry names a command twice");
-  assert_eq!(COMMANDS.len(), REGISTERED, "a command was added to the registry or removed from it: update REGISTERED");
+  assert_eq!(
+    COMMANDS.len(),
+    COMMAND_COUNT,
+    "a command was added to the registry or removed from it: update COMMAND_COUNT"
+  );
 }
 
+/// The exit criterion of s11 (docs/design/rust-domain-authority.md), now the grammar's: a write is the engine's or a
+/// command of the app with the reason no session admits it (`app(<reason>)`, which the grammar requires), and the
+/// engine's writes are its two commands, the intents and their cancel
 #[test]
-fn the_app_registers_every_command_of_the_registry() {
-  let typed = listed("collect_commands");
-  let raw = listed("generate_handler");
-  for command in COMMANDS {
-    let (handlers, list) = match command.kind {
-      CommandKind::Raw => (&raw, "generate_handler!"),
-      CommandKind::Json | CommandKind::Plain | CommandKind::Window | CommandKind::Session | CommandKind::Now | CommandKind::Main => (&typed, "collect_commands!"),
-    };
-    assert!(handlers.contains(command.name), "{}: not in {list} of src-tauri/src/lib.rs", command.name);
-  }
+fn the_writes_of_the_engine_are_its_intents_and_their_cancel() {
+  let engine: Vec<&str> = COMMANDS
+    .iter()
+    .filter(|command| command.class == CommandClass::Engine)
+    .map(|command| command.name)
+    .collect();
+  assert_eq!(engine, ["execute", "cancel_operation"], "a write of a repository is an intent of `execute`");
 }

@@ -23,7 +23,7 @@ targets:
   - ../../crates/operations/src/issue.rs
   - ../../src/lib/issue-actions.ts
   - ../../src-tauri/src/lib.rs
-  - ../../crates/test-server/src/tauri_command_bridge.rs
+  - ../../crates/test-server/src/session_routes.rs
   - ../../crates/test-server/src/host.rs
   - ../../crates/test-server/src/youtrack_fixtures.rs
   - ../../src/lib/youtrack.ts

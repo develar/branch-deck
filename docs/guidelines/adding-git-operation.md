@@ -64,9 +64,12 @@ modules by area; the layers are the
   as `held_lock` only when bd writes more under it. No git of its own.
 - **The app**: a read is one entry of the registry of app-api (`for_each_command!` in `crates/app-api/src/commands.rs`,
   the grammar in `registry.rs`) with its body in a family module (`crates/app-api/src/reads/`), `async fn(&AppContext,
-  params)` that calls `run_blocking(move || <op>_core(..))`; the app's `#[tauri::command]` wrapper (`src-tauri/src/api.rs`)
-  and the E2E server's route (`crates/test-server/src/invoke.rs`) come from the entry, and its name goes into
-  `collect_commands!` of `src-tauri/src/lib.rs`. Every command is an entry: the app has no handwritten command
+  params)` that calls `run_blocking(move || <op>_core(..))`; nothing else is written: the app's `#[tauri::command]`
+  wrapper and its registration (`src-tauri/src/api.rs`), the E2E server's route (`crates/test-server/src/invoke.rs`)
+  and the entry of the page mock's table (`crates/app-api/commands.json`, `UPDATE_COMMANDS=1` of
+  `commands_json_test.rs`) come from the entry, and `COMMAND_COUNT` of `registry_test.rs` goes up by one. A write of a
+  repository is an intent of `execute`, never an entry of its own; a write no session admits is a command of the app
+  with its reason, `app(<AppReason>)`. Every command is an entry: the app has no handwritten command
   (`command_scan_test.rs` of app-api); what only the app can do (a window, a dialog, the updater) is a host trait of
   `crates/app-api/src/transport.rs`, which the app and the E2E server implement. `src/lib/bindings.ts` is regenerated
   (`UPDATE_BINDINGS=1` on `the_bindings_are_what_the_export_writes`, `bindings_test.rs`).

@@ -1,7 +1,7 @@
 use crate::remote_fixtures::fixture_pulls;
+use crate::review_fixtures::review_requests_of;
 use crate::session_routes::TestFactSources;
 use crate::session_routes_test::{subscribe, subscription};
-use crate::tauri_command_bridge::review_requests_of;
 use crate::test_support::{
   Messages, Named, command, create_repository, delete_repository, head, post, post_as, push_intent, start_test_server, start_test_server_with_state, sync,
 };

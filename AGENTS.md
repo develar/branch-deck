@@ -130,7 +130,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 |---|---|
 | Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p <crate>` or `-E 'test(/…/)'` while iterating); a new cross-crate edge fails the architecture test (`crates/bd-cli/src/architecture_test.rs`: the rules of [Crates](docs/design/rust-domain-authority.md#crates-и-направление-зависимостей) on `cargo metadata`, an allowlist that only shrinks) |
 | a git operation | also its test in `process_budget_test.rs` and the scan tests (`worktree_safety_test.rs`, `git_usage_scan_test.rs`) |
-| a Tauri command or a type it passes | `src/lib/bindings.ts`: `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` writes it, headless; without the variable the test fails on a stale one |
+| a command of app-api (`crates/app-api/src/commands.rs`) or a type it passes | `src/lib/bindings.ts`: `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` writes it, headless, the commands in the order of the registry; `crates/app-api/commands.json`, the table of the page mock: `UPDATE_COMMANDS=1 cargo nextest run -p app-api -E 'test(/commands_json/)'`; without the variables the tests fail on a stale file; a new command raises `COMMAND_COUNT` (`registry_test.rs`) and needs no route or wrapper of its own |
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code; an E2E spec or helper changed: also `pnpm lint:e2e-pins` (`command_registry_test.rs`: no page answer of a write, the pinned page answers only go down; `pnpm e2e` doesn't run it) |
 | code anywhere | `pnpm lint:cpd`: fix a clone with a helper, constant or fixture; `// jscpd:ignore-start` / `// jscpd:ignore-end` only for an intentional duplication, with the reason in the comment |
 | code anywhere | `pnpm lint:arch` (`scripts/lint-arch.mjs`): no branch on the words of an error, no `kind` of an error, a code in every `routeCommandError`, no polling timer in `src/stores` or `src/hooks` (`poll-timer`: a fact is the session's), no rule of the domain in the page (`rule-module`: a deleted rule module, an export of `src/lib` or `src/hooks` named `can…`, `needs…`, `allows…`, `…Blocker`, `…Decision`, `is…Blocked`; the rules are `domain-policy`'s, the page presents them); an exception is an `ALLOWLIST` entry with its reason |
@@ -149,6 +149,7 @@ See `package.json` for the full list of scripts.
 pnpm install              # Install dependencies
 pnpm run tauri dev        # The full app (frontend + backend)
 UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'  # Write src/lib/bindings.ts
+UPDATE_COMMANDS=1 cargo nextest run -p app-api -E 'test(/commands_json/)'  # Write crates/app-api/commands.json (the page mock's table)
 pnpm dev                  # Only the Vite frontend (port 1420)
 pnpm build                # The frontend into dist/ (E2E global setup runs it when its inputs changed)
 pnpm install-app          # Unsigned release build of the .app, copied to /Applications (macOS)
@@ -537,10 +538,10 @@ The checklist:
   (`repository_model::one_shot::OneShot`, its services `bd_core::services::BdServices`), never a reader of its own.
 - **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
   JSON object with `schema`, errors as `CliError` with an `ErrorCode`, and records a rewrite, an update, a pick and an
-  operation of the remote in the operations registry (`bd_core::operation_record`); a read of the app is a Tauri
-  command, `run_blocking` of the core, a write `execute` of its intent or a command of the app in `APP_COMMANDS`
-  (`command_registry_test.rs`, with its reason: what has no repository as its subject); the E2E server routes each to
-  the same core.
+  operation of the remote in the operations registry (`bd_core::operation_record`); a command of the app is one entry
+  of the registry of app-api (`crates/app-api/src/commands.rs`): a read `run_blocking` of the core, a write `execute`
+  of its intent or a command of the app, `app(<reason>)` (`AppReason`: what has no repository as its subject); the
+  app's Tauri wrapper and the E2E server's route come from the entry and run the same body.
 - **Reuse a helper** before writing a parser or a process: `ref_transaction`, `commit_writer`, `commit_chain`,
   `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `snapshot`, `repository_lock`
   and `regroup` in `history_rewrite`; `repo_facts`, `baseline` and `remote_command` in `sync_core`.
@@ -613,7 +614,7 @@ The checklist:
 - **Rust**: `snake_case` for variables, functions and modules; `tracing` for structured logging, `#[instrument]` to
   trace a function's entry, exit and arguments; proper `Result` types, not strings.
 - **Operations and spans** ([Operation spans](docs/design/async-patterns.md#operation-spans)): every command of the
-  app (a body of the registry of app-api, a handwritten Tauri command) has `#[instrument]`, with `skip_all` and a field
+  app (a body of the registry of app-api; the app has no other) has `#[instrument]`, with `skip_all` and a field
   or two when an argument holds a collection; a command that can fail runs its body as an operation (`operation`,
   `operation_now`, or its one blocking step `run_blocking`; `crates/app-api/src/operation.rs`), so its error names the
   `operation_id` of its log lines; the object cache, the git directories and the GitHub repository only in that step
@@ -800,9 +801,9 @@ src/
 ├── index.css        # Tailwind and the theme tokens
 └── main.tsx         # App entry (store handlers, router)
 src-tauri/src/
-├── api.rs           # The Tauri wrappers of the commands of app-api, generated from its registry (`for_each_command!`): the app has no command of its own
+├── api.rs           # The Tauri wrappers of the commands of app-api and their registration (`typed_commands`, `raw_handler`), generated from its registry (`for_each_command!`): the app has no command or list of its own
 ├── desktop.rs       # The windows, the folder dialog and the restart of the app (`WindowHost`, `DialogHost`, `RestartHost` of app-api)
-├── lib.rs           # Command registration (`specta_builder`, exported to bindings.ts by bindings_test.rs)
+├── lib.rs           # The app's setup; `specta_builder` (the commands of `api.rs`, exported to bindings.ts by bindings_test.rs)
 ├── services.rs      # What the app's sessions run with: their start, `AppEnvironment`, `AppServices` (over the `AppContext`)
 └── …                # title_bar.rs, menu.rs, zoom.rs, …
 crates/
@@ -818,7 +819,7 @@ crates/
 ├── operations/      # The engine of the operations of a repository: the in-process registry (the `operations` part of the view, admitted by `domain_policy::admission`), the registry of the repository between processes (`registry_file`, its watch `registry_watch`, the lost starts `reconcile` and `forget`), the journal of the operations that ended (`journal`), the frame every family runs in, the witness of a plan, the facts a plan needs and their reads (`needs`, `facts::fill`), every intent (`prepare`, `execute`, `cancel_operation`): the start (`land`, `land_execute`), the push (`push`), the robot (`robot`), the pull requests (`pull_request`, `close`, `review`), the issue (`issue`), the review fetch (`review_fetch`), the rewrites and their undo (`rewrite`), Update Project, Fetch and Dismiss Landed (`update`)
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the requests and answers of the rewrite cores (`rewrite`), the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── domain-policy/   # The pure rules of the domain, one file per rule ([Rule Index](#rule-index): `facts`, `robot_match`, `push`, `stack`, `parked`, `attention`, `holds`, `land`, `land_direct`, `landed`, `pull_request`, `review`, `readiness`, `landing_needs`, `landing_route`, `next_step`, `landing_node`, `actions`, `admission`, `news`, `refresh`, `reasons`), only domain-types: no git, no IO, no runtime; `cases/` holds the scenario table both sides answer, `reasons.json` and `actions.json` the catalogs the presenters word
-├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: the one list of the commands (`commands.rs`, `for_each_command!`, the grammar of `registry.rs`), their bodies by family (`reads/`, `session/`), `AppContext` (the key of a session, the windows), the operation frame (`operation`), the call and the channel of a command (`transport`), the repository state cache; `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
+├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: the one list of the commands (`commands.rs`, `for_each_command!`, the grammar of `registry.rs`), their bodies by family (`reads/`, `session/`, `remote/`, `app/`), the table of the page mock (`commands.json`), `AppContext` (the key of a session, the windows), the operation frame (`operation`), the call and the channel of a command (`transport`), the repository state cache; `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
 ├── app-settings/    # The settings of the app for the app and bd: the one writer of `settings.json` and `repository-state.json` (`SettingsService`: patches, versions, a debounced atomic save), the tolerant load, the keys of each window, the order of the branch prefixes with its source (`resolve_branch_prefix`, `BranchPrefixes`); no Tauri, no git
 ├── cli-tools/       # The teamcity and youtrack CLIs of Settings → Tools: status, install and update through Homebrew; no git, no service
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
@@ -841,7 +842,7 @@ crates/
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── youtrack/        # YouTrack REST client, the sign-in through its Hub (OAuth, PKCE, refresh token), issues and commands
-├── test-server/     # E2E mock server
+├── test-server/     # E2E mock server: a host of app-api (`invoke.rs`: one route `/invoke/<name>` per entry of the registry, SSE for a channel; `host.rs`: the desktop and the event streams of the pages), the fakes and the fixture routes of each test repository ([routes](docs/design/e2e-testing.md#the-routes-of-the-server))
 ├── test-utils/      # Test repositories, fixture git (`git_command`), the fixtures of the sync tests (`sync_fixtures`) and, with the feature `http`, `fake_server`: the loopback HTTP server of the fakes of patronus, github, youtrack and the test server
 └── …
 tests/

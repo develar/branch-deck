@@ -76,6 +76,12 @@ pub(crate) fn command(client: &reqwest::Client, addr: SocketAddr, named: Named<'
   request.header(crate::REPOSITORY_ID_HEADER, id)
 }
 
+/// The request of the command `name` that names no test repository: its route answers, and the command does not run,
+/// its context being the repository a request names (`command_registry_test.rs`: every command has its route)
+pub(crate) fn command_of_no_repository(client: &reqwest::Client, addr: SocketAddr, name: &str) -> reqwest::RequestBuilder {
+  client.post(format!("http://{addr}/invoke/{name}")).json(&Value::Null)
+}
+
 /// The id of the repository of the server at `path`: its directory is named by it, and the path of a `NO_REPO`
 /// repository is its id after `NO_REPO_` (`create_repository`)
 fn repository_id_of_path(path: &str) -> Option<&str> {

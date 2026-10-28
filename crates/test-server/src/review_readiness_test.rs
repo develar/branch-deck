@@ -2,7 +2,6 @@ use crate::review_fixtures::fixture_review_answer;
 use crate::session_routes::TestFactSources;
 use crate::session_routes_test::{subscribe, subscription};
 use crate::state::AppState;
-use crate::tauri_command_bridge::branch_prefix_now;
 use crate::test_support::{Named, create_repository, post, post_as, start_test_server, start_test_server_with_state, sync, view_when};
 use domain_types::patronus::PatronusReviewRequirement;
 use domain_types::patronus::ReviewReadinessBranch;
@@ -62,7 +61,7 @@ fn a_fixture_answer_reads_back_through_the_real_parser() {
 
 /// The readiness as the session of the repository at `path` reads it (`TestFactSources`), against `origin/master`
 async fn readiness(state: &Arc<AppState>, path: &str, asks: Value, recheck: bool) -> Value {
-  let prefix = branch_prefix_now(state, path).unwrap();
+  let prefix = state.branch_prefix_now(path).unwrap();
   let key = SessionKey {
     worktree: path.to_owned(),
     prefix,

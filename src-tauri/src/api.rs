@@ -1,7 +1,8 @@
 //! The commands of app-api as Tauri commands: one `#[tauri::command]` wrapper per entry of
 //! `app_api::for_each_command!` (`generated`), with the docs and the argument names of the entry, which the bindings
 //! show (`specta`), and the `AppContext` the app manages for the body; the call of a window is its `Webview`, the channel
-//! of a command its Tauri channel (`ChannelSink`). `lib.rs` registers them: the app has no command beside them.
+//! of a command its Tauri channel (`ChannelSink`). The same list registers them (`typed_commands`, which the bindings
+//! are exported from, and `raw_handler`), so the app has no command beside the registry and no list of its own.
 
 use app_api::transport::{AppEvents, EventSink, Sink, SinkGone, WindowId};
 use domain_types::error::ApiError;
@@ -52,13 +53,13 @@ impl AppEvents for TauriEvents {
 
 /// The callback of `for_each_command!`: a wrapper of each command
 macro_rules! tauri_commands {
-  ($($(#[doc = $doc:literal])* $class:ident $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
+  ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
     $(tauri_command!($(#[doc = $doc])* $kind $name($($arg: $type),*) [$($channel: $event)?] [$($output)?] = $body);)*
   };
 }
 
 /// The wrapper of one command by its kind: `json` async with its `Result`, `plain` on the main thread with its value,
-/// `raw` async with the bytes as a `tauri::ipc::Response`, which the typed bindings cannot say (`raw_invoke_handler`),
+/// `raw` async with the bytes as a `tauri::ipc::Response`, which the typed bindings cannot say (`raw_handler`),
 /// `now` on the main thread with the call of its webview, `main` the same with its `Result`; `session`, `window` and a
 /// `json` command with a channel
 /// async in the frame of app-api (`Command::call`) with the call of its webview and its channel. The arms of the kinds
@@ -148,3 +149,33 @@ macro_rules! tauri_command {
 pub mod generated {
   app_api::for_each_command!(tauri_commands);
 }
+
+/// The callback of `for_each_command!` that registers the wrappers of `generated`: the `raw` ones apart (`@split` takes
+/// the entries one by one), because the typed bindings cannot say their bytes
+macro_rules! tauri_handlers {
+  (@split [$($typed:ident)*] [$($raw:ident)*] raw $name:ident $($rest:ident)*) => {
+    tauri_handlers!(@split [$($typed)*] [$($raw)* $name] $($rest)*);
+  };
+  (@split [$($typed:ident)*] [$($raw:ident)*] $kind:ident $name:ident $($rest:ident)*) => {
+    tauri_handlers!(@split [$($typed)* $name] [$($raw)*] $($rest)*);
+  };
+  (@split [$($typed:ident)*] [$($raw:ident)*]) => {
+    /// The typed commands, which the bindings are exported from (`specta_builder`)
+    pub fn typed_commands() -> tauri_specta::Commands<tauri::Wry> {
+      tauri_specta::collect_commands![$(generated::$typed),*]
+    }
+
+    /// The names of the commands whose answer is raw bytes
+    pub const RAW_COMMANDS: &[&str] = &[$(stringify!($raw)),*];
+
+    /// The handler of the commands of [`RAW_COMMANDS`]
+    pub fn raw_handler() -> fn(tauri::ipc::Invoke<tauri::Wry>) -> bool {
+      tauri::generate_handler![$(generated::$raw),*]
+    }
+  };
+  ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
+    tauri_handlers!(@split [] [] $($kind $name)*);
+  };
+}
+
+app_api::for_each_command!(tauri_handlers);

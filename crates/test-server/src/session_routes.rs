@@ -11,13 +11,13 @@
 
 use crate::host::held_or_failed;
 use crate::remote_host::HeldAnswer;
+use crate::remote_host::RemoteHost;
+use crate::review_fixtures::review_requests_of;
 use crate::state::AppState;
 use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
-use crate::tauri_command_bridge::{
-  branch_prefix_now, github_of, holding, keep_answered, patronus_new_api_of, rejected, remote_of, repository_by_path, review_requests_of, space_of,
-};
 use app_api::api_error::{api_error, patronus_error};
+use app_api::operation::run_blocking;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -41,7 +41,7 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
-use sync_core::github_repository::GitHubRepository;
+use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
 use sync_core::patronus::SpaceRepository;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use trial_check::landing_gate::landing_needs_of;
@@ -57,7 +57,7 @@ impl SessionEnvironment for TestSessionEnvironment {
   /// session's sync running until the release
   fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
     let state = self.state.upgrade().ok_or_else(|| anyhow::anyhow!("The test server stopped"))?;
-    if let Some(host) = repository_by_path(&state, &key.worktree).ok().and_then(|repository| repository.existing_remote()) {
+    if let Some(host) = state.repository(&key.worktree).ok().and_then(|repository| repository.existing_remote()) {
       tokio::runtime::Handle::current().block_on(host.pass_held(HeldAnswer::Sync));
     }
     Ok(RunSetup {
@@ -65,7 +65,7 @@ impl SessionEnvironment for TestSessionEnvironment {
         issue_config: IssueConfigSource::Load,
         ..Default::default()
       },
-      prefix: branch_prefix_now(&state, &key.worktree)?,
+      prefix: state.branch_prefix_now(&key.worktree)?,
     })
   }
 
@@ -77,7 +77,7 @@ impl SessionEnvironment for TestSessionEnvironment {
   /// sync stay for the next run
   fn reporter(&self, key: &SessionKey, reporter: Arc<dyn ProgressReporter>) -> Arc<dyn ProgressReporter> {
     let overrides = self.state.upgrade().and_then(|state| {
-      let repository = repository_by_path(&state, &key.worktree).ok()?;
+      let repository = state.repository(&key.worktree).ok()?;
       let mut set = repository.sync_overrides.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
       if set.as_ref().is_some_and(|overrides| overrides.every) {
         set.clone()
@@ -96,7 +96,7 @@ impl SessionEnvironment for TestSessionEnvironment {
     self
       .state
       .upgrade()
-      .and_then(|state| repository_by_path(&state, &key.worktree).ok().map(|repository| repository.store.app().auto_sync_on_focus))
+      .and_then(|state| state.repository(&key.worktree).ok().map(|repository| repository.store.app().auto_sync_on_focus))
       .unwrap_or(false)
   }
 
@@ -106,12 +106,16 @@ impl SessionEnvironment for TestSessionEnvironment {
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs> {
     let state = self.state.upgrade().ok_or_else(|| anyhow::anyhow!("The test server stopped"))?;
     let (in_flight, host) = {
-      let repository = repository_by_path(&state, &key.worktree).map_err(|_gone| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
+      let repository = state
+        .repository(&key.worktree)
+        .map_err(|_gone| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
       (Arc::clone(&repository.in_flight), repository.existing_remote())
     };
     let _command = in_flight.blocking_read();
     // a deletion that came first has removed it and waited for the hold
-    repository_by_path(&state, &key.worktree).map_err(|_gone| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
+    state
+      .repository(&key.worktree)
+      .map_err(|_gone| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
     if let Some(host) = host {
       tokio::runtime::Handle::current().block_on(host.pass_held(HeldAnswer::LandingNeeds));
     }
@@ -120,7 +124,7 @@ impl SessionEnvironment for TestSessionEnvironment {
 
   /// A test fails the view of the robots (`HeldAnswer::RepositoryView`) as it fails a read of the bridge
   fn before_patronus_view(&self, key: &SessionKey) -> Result<(), ApiError> {
-    let host = self.state.upgrade().and_then(|state| repository_by_path(&state, &key.worktree).ok()?.existing_remote());
+    let host = self.state.upgrade().and_then(|state| state.repository(&key.worktree).ok()?.existing_remote());
     match host {
       Some(host) if host.fails(HeldAnswer::RepositoryView) => Err(ApiError::internal("the fixture fails this read")),
       _ => Ok(()),
@@ -130,13 +134,37 @@ impl SessionEnvironment for TestSessionEnvironment {
   /// Records the `keep` of the repository (`prunes` of `GET /repositories/{id}/review-requests`), then prunes as the app
   fn prune_review_refs(&self, git: &GitCommandExecutor, key: &SessionKey, keep: &[u32]) {
     if let Some(state) = self.state.upgrade()
-      && let Ok(repo) = repository_by_path(&state, &key.worktree)
+      && let Ok(repo) = state.repository(&key.worktree)
     {
       repo.review_prune_keeps.lock().expect("review prune lock").push(keep.to_vec());
     }
     if let Err(error) = sync_core::review_fetch::prune_review_refs(git, &key.worktree, keep) {
       tracing::warn!(worktree = %key.worktree, "Cannot prune the review refs: {error:#}");
     }
+  }
+}
+
+/// The repository of a session, held as a command holds it while a read of its facts runs: its deletion waits
+async fn holding(state: &AppState, key: &SessionKey) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, ApiError> {
+  let in_flight = Arc::clone(&state.repository(&key.worktree)?.in_flight);
+  Ok(in_flight.read_owned().await)
+}
+
+/// The fake services of the repository at `path` (`remote_host.rs`), started now if not yet; the repository is not held
+fn remote_of(state: &AppState, path: &str) -> Result<Arc<RemoteHost>, ApiError> {
+  Ok(state.repository(path)?.remote(&state.git_executor))
+}
+
+/// The Space repository of the repository at `path`, None while no Patronus fixture put it on Space
+fn space_of(state: &AppState, path: &str) -> Result<Option<SpaceRepository>, ApiError> {
+  Ok(state.repository(path)?.existing_remote().and_then(|host| host.space_repository()))
+}
+
+/// Keeps the robots of an answer by id, for the tests that pin a revision the fake resolved
+fn keep_answered(state: &AppState, path: &str, result: &PatronusRobotsResult) {
+  if let Ok(repository) = state.repository(path) {
+    let mut answered = repository.patronus_answered.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    answered.extend(result.robots.iter().map(|robot| (robot.id.clone(), robot.clone())));
   }
 }
 
@@ -168,7 +196,7 @@ impl TestFactSources {
   /// Counts a read of the repository of `key` by `calls`: the tests check the request policy
   fn count(&self, key: &SessionKey, calls: impl FnOnce(&TestRepository) -> &AtomicU32) -> Result<Arc<AppState>, ApiError> {
     let state = self.state()?;
-    calls(&*repository_by_path(&state, &key.worktree).map_err(rejected)?).fetch_add(1, Ordering::SeqCst);
+    calls(&*state.repository(&key.worktree)?).fetch_add(1, Ordering::SeqCst);
     Ok(state)
   }
 
@@ -187,9 +215,9 @@ impl TestFactSources {
   /// The fake of the repository of `key` passes a held `answer` (`/remote-gates`), or fails it as its fixture says;
   /// nothing holds a repository without fakes
   async fn gate(&self, key: &SessionKey, answer: HeldAnswer, operation: &str) -> Result<(), ApiError> {
-    let host = repository_by_path(&*self.state()?, &key.worktree).map_err(rejected)?.existing_remote();
+    let host = self.state()?.repository(&key.worktree)?.existing_remote();
     match host {
-      Some(host) => held_or_failed(&host, answer, operation).await.map_err(rejected),
+      Some(host) => held_or_failed(&host, answer, operation).await,
       None => Ok(()),
     }
   }
@@ -269,7 +297,7 @@ impl FactSources for TestFactSources {
       let state = self.state()?;
       let _command = holding(&state, key).await?;
       {
-        let repo = repository_by_path(&state, &key.worktree).map_err(rejected)?;
+        let repo = state.repository(&key.worktree)?;
         let branches: Vec<&str> = asks.iter().map(|ask| ask.branch_name.as_str()).collect();
         let mut calls = repo.review_readiness_calls.lock().expect("review readiness calls lock");
         calls.push(serde_json::json!({"branches": branches, "recheck": recheck}));
@@ -321,7 +349,7 @@ impl operations::rewrite::RewriteHost for TestServices {
   /// baseline (else an earlier commit of `HEAD`), so the review has a range on the template
   fn review_fetch(&self, mut params: domain_types::review_request::FetchReviewHeadParams) -> Result<domain_types::review_request::FetchReviewHeadParams, ApiError> {
     let state = self.state()?;
-    let repo = repository_by_path(&state, &params.repository_path).map_err(rejected)?;
+    let repo = state.repository(&params.repository_path)?;
     repo.review_fetch_calls.fetch_add(1, Ordering::SeqCst);
     let fetch_error = repo.review_requests.read().unwrap_or_else(std::sync::PoisonError::into_inner).fetch_error.clone();
     if let Some(message) = fetch_error {
@@ -375,19 +403,21 @@ impl ServiceHost for TestServices {
     let Ok(state) = self.state() else {
       return Vec::new();
     };
-    repository_by_path(&state, &key.worktree).map_or_default(|repo| app_settings::linked_pull_requests::linked(&repo.store, &repository.full_name()))
+    state
+      .repository(&key.worktree)
+      .map_or_default(|repo| app_settings::linked_pull_requests::linked(&repo.store, &repository.full_name()))
   }
 
   fn link_pull_request(&self, key: &SessionKey, repository: &GitHubRepository, link: domain_types::review_request::LinkedPullRequest) -> Result<(), ApiError> {
     let state = self.state()?;
-    let repo = repository_by_path(&state, &key.worktree).map_err(rejected)?;
+    let repo = state.repository(&key.worktree)?;
     app_settings::linked_pull_requests::link(&repo.store, &repository.full_name(), link).map_err(|error| ApiError::internal(error.to_string()))?;
     Ok(())
   }
 
   fn forget_linked_pull_requests(&self, key: &SessionKey, repository: &GitHubRepository, numbers: &[u32]) {
     if let Ok(state) = self.state()
-      && let Ok(repo) = repository_by_path(&state, &key.worktree)
+      && let Ok(repo) = state.repository(&key.worktree)
     {
       let _ = app_settings::linked_pull_requests::forget(&repo.store, &repository.full_name(), numbers);
     }
@@ -397,40 +427,44 @@ impl ServiceHost for TestServices {
   fn config_git(&self, key: &SessionKey) -> GitCommandExecutor {
     let state = self.state.upgrade();
     state
-      .and_then(|state| crate::tauri_command_bridge::config_git(&state, &key.worktree).ok())
+      .and_then(|state| state.repository(&key.worktree).ok().map(|repository| repository.context.git.clone()))
       .unwrap_or_else(|| self.git.clone())
   }
 
   fn patronus(&self, key: &SessionKey) -> Result<Arc<PatronusService>, ApiError> {
-    Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.patronus_service())
+    Ok(remote_of(&*self.state()?, &key.worktree)?.patronus_service())
   }
 
   fn github(&self, key: &SessionKey) -> Result<Arc<github::service::GitHubService>, ApiError> {
-    Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.github_service())
+    Ok(remote_of(&*self.state()?, &key.worktree)?.github_service())
   }
 
   fn youtrack(&self, key: &SessionKey) -> Result<Arc<youtrack::service::YouTrackService>, ApiError> {
-    Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.shared_youtrack_service())
+    Ok(remote_of(&*self.state()?, &key.worktree)?.shared_youtrack_service())
   }
 
   /// The sign-ins of the test repository: its fakes are its accounts
   fn sign_ins(&self, key: &SessionKey) -> Result<remote_facts::sign_in::SignIns, ApiError> {
-    Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.sign_ins().clone())
+    Ok(remote_of(&*self.state()?, &key.worktree)?.sign_ins().clone())
   }
 
   fn space_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {
-    Box::pin(async move { Ok(space_of(&*self.state()?, &key.worktree).map_err(rejected)?.map(|(_, space)| space)) })
+    Box::pin(async move { space_of(&*self.state()?, &key.worktree) })
   }
 
   fn github_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<GitHubRepository>, ApiError>> {
     Box::pin(async move {
-      let state = self.state()?;
-      github_of(&state, &key.worktree).await.map_err(rejected)
+      // the config of the test as its fixtures write it (`branchdeck.githubRepository`), read each time
+      let git = self.state()?.repository(&key.worktree)?.context.git.clone();
+      let path = key.worktree.clone();
+      run_blocking(move || resolve_github_repository(&git, &path)).await
     })
   }
 
   fn new_api(&self, key: &SessionKey) -> bool {
-    self.state().is_ok_and(|state| patronus_new_api_of(&state, &key.worktree).unwrap_or(false))
+    self
+      .state()
+      .is_ok_and(|state| state.repository(&key.worktree).is_ok_and(|repository| repository.store.app().patronus_new_api))
   }
 
   fn object_cache<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, ObjectCache> {
@@ -448,7 +482,8 @@ impl ServiceHost for TestServices {
       let Some(state) = self.state.upgrade() else {
         return;
       };
-      let moved = repository_by_path(&state, &key.worktree)
+      let moved = state
+        .repository(&key.worktree)
         .ok()
         .and_then(|repository| repository.existing_remote())
         .is_some_and(|host| host.remote_moved_behind());

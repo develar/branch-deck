@@ -7,8 +7,9 @@
 //! `<class> <kind> <name>(<argument>: <type>, …) [channel <name>: <event>, open] -> <output> = <body>;`, the output
 //! left out for a `now` command that answers nothing (`void` in the bindings, where `-> ()` would be `null`):
 //! - the class says what it does to the app and its repositories: `read` writes nothing, `engine` runs or stops an
-//!   operation of a session (`operations::engine`), `app` writes what no session admits (the reason of each is in
-//!   `command_registry_test.rs` of the e2e server);
+//!   operation of a session (`operations::engine`), `app(<reason>)` writes what no session admits, with the reason
+//!   ([`AppReason`]); the e2e tests answer no command but a `read` in the page (`command_registry_test.rs` of the e2e
+//!   server);
 //! - the kind says how it runs and answers: `json` is `async fn(&AppContext, arguments…) -> Result<output, ApiError>`,
 //!   `raw` the same with the output bytes the typed bindings cannot say (`Vec<u8>`), `window` the same for the window
 //!   that calls it, `async fn(&AppContext, &Call, arguments…)` (a search of its own, which a newer one of the window
@@ -39,8 +40,29 @@ pub enum CommandClass {
   Read,
   /// Runs or stops an operation of a session, which its registry admits (`operations::engine`)
   Engine,
-  /// Writes what no session admits: a ticket of a session, the settings, an account, the app itself
-  App,
+  /// Writes what no session admits: a ticket of a session, the settings, an account, the app itself; the reason says
+  /// which, and its one writer (docs/design/rust-domain-authority.md, "Решение 2026-10-28")
+  App(AppReason),
+}
+
+/// Why a write is a command of the app and not an intent of the engine: no repository is its subject, or what it writes
+/// has a writer of its own
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppReason {
+  /// The session's own tickets: a sync and a focus ask the session to read, never admitted as an operation
+  SessionTickets,
+  /// The cancel of a read: it ends the read of this window, which wrote nothing
+  CanceledRead,
+  /// The page's journal of the app data directory, one writer (`operations::journal`) under its lock
+  PageJournal,
+  /// A settings writer of no repository's session, serialized per file
+  SettingsWriter,
+  /// The app itself: its menu, its CLI, its update and its restart
+  TheApp,
+  /// The CLIs of Settings → Tools, one action of a tool at a time (`cli_tools`)
+  Tools,
+  /// An account of the app, one sign-in of a provider at a time (`remote_facts::sign_in`)
+  Accounts,
 }
 
 /// How a command runs and answers
@@ -99,8 +121,8 @@ pub trait Command {
 /// its arguments `…::Args`) and lists them all in `COMMANDS`
 #[macro_export]
 macro_rules! api_commands {
-  ($($(#[doc = $doc:literal])* $class:ident $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
-    $($crate::api_command!($class $kind $name($($arg: $type),*) [$(channel $channel: $event $(, $open)?)?] -> [$($output)?] = $body);)*
+  ($($(#[doc = $doc:literal])* $class:ident $(($reason:ident))? $kind:ident $name:ident($($arg:ident: $type:ty),*) $([channel $channel:ident: $event:ty $(, $open:ident)?])? $(-> $output:ty)? = $body:path;)*) => {
+    $($crate::api_command!([$class $($reason)?] $kind $name($($arg: $type),*) [$(channel $channel: $event $(, $open)?)?] -> [$($output)?] = $body);)*
 
     /// Every command of the registry, in the order of `for_each_command!`
     pub const COMMANDS: &[$crate::registry::CommandSpec] = &[$(<$name::Command as $crate::registry::Command>::SPEC),*];
@@ -117,8 +139,8 @@ macro_rules! api_command {
   (@class engine) => {
     $crate::registry::CommandClass::Engine
   };
-  (@class app) => {
-    $crate::registry::CommandClass::App
+  (@class app $reason:ident) => {
+    $crate::registry::CommandClass::App($crate::registry::AppReason::$reason)
   };
   (@kind json) => {
     $crate::registry::CommandKind::Json
@@ -204,7 +226,7 @@ macro_rules! api_command {
     let _ = $call;
     $body($ctx, $($args.$arg,)* $sink)
   }};
-  ($class:ident $kind:ident $name:ident($($arg:ident: $type:ty),*) [$($channel:tt)*] -> [$($output:ty)?] = $body:path) => {
+  ([$($class:tt)+] $kind:ident $name:ident($($arg:ident: $type:ty),*) [$($channel:tt)*] -> [$($output:ty)?] = $body:path) => {
     pub mod $name {
       pub struct Command;
 
@@ -217,7 +239,7 @@ macro_rules! api_command {
       impl $crate::registry::Command for Command {
         const SPEC: $crate::registry::CommandSpec = $crate::registry::CommandSpec {
           name: stringify!($name),
-          class: $crate::api_command!(@class $class),
+          class: $crate::api_command!(@class $($class)+),
           kind: $crate::api_command!(@kind $kind),
           args: &[$(stringify!($arg)),*],
           channel: $crate::api_command!(@channel_spec [$($channel)*]),

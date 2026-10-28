@@ -31,7 +31,6 @@ pub mod session_routes;
 pub mod state;
 pub mod static_files;
 pub mod sync_overrides;
-pub mod tauri_command_bridge;
 pub mod templates;
 pub mod updater;
 pub mod youtrack_fixtures;
