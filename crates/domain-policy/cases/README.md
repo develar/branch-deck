@@ -135,6 +135,7 @@ fakes; both sides read that.
 | `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` · `withoutChecks` · `bypassRules` | the flags of `bd` of the same names, the choices of the popover (`Land`); `withoutChecks` and `bypassRules` the ones of `bd land` |
 | `route` | `push` | `branchdeck.landing push`: the repository lands by a push of the copy into the target, `bd land` its side |
 | `permission` | `read` · `write` | `remote.origin.pushurl` github.com/acme/monorepo, and the listing of the pull requests names `viewerPermission: READ` or `WRITE` |
+| `baselineAhead` | `true` | a commit of someone else on origin/master, fetched: HEAD lacks it, the copies are built on the fork point |
 | `rules` | `keep` · `dismiss` · `unknown` · `statusChecks` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none, `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500, `statusChecks` the rule `required_status_checks` |
 | `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) |

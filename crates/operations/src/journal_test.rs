@@ -233,6 +233,25 @@ fn an_operation_in_a_slot_of_the_lease_pool_is_journaled_as_an_agents() {
   assert_eq!(told(&common, |entry| entry.lease_slot), [("agent".to_string(), true), ("user".to_string(), false)]);
 }
 
+/// A start of the push route is journaled with the target it pushes into, by the remote-tracking ref it held, also when
+/// it was refused before its first effect, so Activity names it a push into master; a start of a robot has none
+#[test]
+fn a_start_of_the_push_route_is_journaled_with_its_target_also_when_refused_before_its_first_effect() {
+  let common = tempfile::tempdir().unwrap();
+  let registry = ProcessRegistry::of(common.path());
+  let mut push = safe_push("auth");
+  push.resources.push(domain_types::operation::Resource::Ref {
+    name: "refs/remotes/origin/master".to_string(),
+  });
+  finished(&registry, "push", &session("user"), &push, Err(&ApiError::new(ErrorCode::BaselineMoved, "master moved")));
+  finished(&registry, "robot", &session("user"), &safe_push("docs"), Ok(&started(&id("robot"), EffectStatus::Done)));
+
+  assert_eq!(
+    told(&common, |entry| entry.into.clone()),
+    [("push".to_string(), Some("master".to_string())), ("robot".to_string(), None)]
+  );
+}
+
 /// The journal keeps the newest `LIMIT` entries of the last `MAX_AGE` seconds, in their order; a line without its end is
 /// no entry
 #[test]

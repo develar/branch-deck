@@ -2931,6 +2931,12 @@ export type JournalEntry = {
 	intent: Intent,
 	/**  What it is about, as the view keys it (`Intent::subject`) */
 	subject: string | null,
+	/**
+	 *  The target a start pushes the copy of its subject into (the push route, Push to master: "master"), by the
+	 *  remote-tracking ref it held, also when it failed before its first effect; `None` for a start of a robot and every
+	 *  other operation
+	 */
+	into?: string | null,
 	/**  Unix seconds of its admission */
 	startedAt: number,
 	/**  Unix seconds of its end, or of the transition */
@@ -4874,7 +4880,12 @@ export type Reason =
  *  The server refused a push into `target` before in this session (a hook, a protected branch), with `message`, what
  *  it said: a push of the copy may be refused again, so the gate of the route asks first
  */
-{ code: "baselineRefusedPush"; target: string; message: string };
+{ code: "baselineRefusedPush"; target: string; message: string } | 
+/**
+ *  The fetched baseline `upstream` (`origin/master`) has commits the fork point of the checked out branch lacks, which
+ *  the copies are built on: a push of one is no fast-forward, so the update comes first and builds it anew on them
+ */
+{ code: "baselineAhead"; upstream: string };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";
@@ -6495,7 +6506,13 @@ export type StepKind =
  *  The row `push` of a repository that lands by a push into the target: "Push to master", its copy pushed into
  *  `target` as a fast-forward (`NextStep::lands` the branches it lands); its start is `NextStep::safe_push`
  */
-{ kind: "pushToBaseline"; target: string };
+{ kind: "pushToBaseline"; target: string } | 
+/**
+ *  The row `push′`: the fetched baseline `upstream` has commits the fork point of the checked out branch lacks, which
+ *  the copy is built on, so a push of it is no fast-forward: Update Project builds it anew on them first; Push to
+ *  master is disabled with `Reason::BaselineAhead` (`NextStep::safe_push`)
+ */
+{ kind: "updateProject"; upstream: string };
 
 /**  The retarget "⋯" offers of an open pull request into another base than the target */
 export type StepRetarget = {
@@ -6513,7 +6530,9 @@ export type StepRow = "noSlot" | "0" | "1" | "1′" | "1″" | "2" | "3" | "5" |
  *  The row of a repository that lands by a push into the target (spec/branch/next-step.spec.md, "A push into the
  *  target"): "Push to master"
  */
-"push";
+"push" | 
+/**  The row before it while the fetched baseline has commits the copy is not built on: "Update Project" */
+"push′";
 
 /**
  *  The commits of the refs of Branch Deck that a grouping reads and the rewrites write

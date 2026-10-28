@@ -95,7 +95,9 @@ The specs are the contract of each part:
   the changes requested on it are confirmations, and so is what the gate asks. After a push that landed, Update Project
   follows as an operation of its own: the originals whose copies landed drop out of the branch. A target that moved
   refuses the push as no fast-forward; the copies are built on the fork point of the branch, so the same update builds
-  them anew on it, and the step offers the push again. The page tells the push and the update in one toast; Settings →
+  them anew on it, and the step offers the push again. A fetch that already shows the target ahead of the fork point
+  refuses the push before it is sent (the gate's `BaselineAhead`): the step is Update Project, a push would cost a round
+  trip to be refused. The page tells the push and the update in one toast; Settings →
   Landing names the route. `bd land` lands by the route of the repository and names `bd update` after it.
   - *Rationale:* the update is a rule of Rust, not of the page: a landing by a click leaves the branch where the next
     click lands nothing twice; `bd` never moves the files of an agent's checkout by itself.

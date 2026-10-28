@@ -185,6 +185,7 @@ fn of_step(facts: &NodeFacts<'_>) -> LandingNode {
     | StepKind::Draft { .. }
     | StepKind::NeedsBranch { .. }
     | StepKind::PickRemoteCommits { .. }
+    | StepKind::UpdateProject { .. }
     | StepKind::RobotPullRequest { .. }
     | StepKind::RequestReview { .. } => LandingNodeKind::YourStep,
     // "In #12": its approvals count in the pull request of the whole stack, whose step is in the island header

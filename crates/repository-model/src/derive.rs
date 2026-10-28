@@ -966,11 +966,12 @@ pub fn landed_states_of(state: &TableState, facts: &FactStore) -> BTreeMap<Strin
 }
 
 /// The route of the repository of `header` into master with its gate (`domain_policy::landing_route::route`): what its
-/// last grouping read of git (the setting, where the remotes push, the target), the facts of GitHub of `facts` (the
-/// listing of the pull requests with the permission of the token, the rules of the target), and the refusal of the
-/// server of its last push into the target (`BaselinePushes::refused`)
+/// last grouping read of git (the setting, where the remotes push, the target), the check of the update of its last
+/// sync (`landed`: the fork point the copies are built on, the fetched baseline), the facts of GitHub of `facts` (the listing of
+/// the pull requests with the permission of the token, the rules of the target), and the refusal of the server of its
+/// last push into the target (`BaselinePushes::refused`)
 #[must_use]
-pub fn landing_route_of(header: &TableHeader, facts: &FactStore) -> LandingRoute {
+pub fn landing_route_of(header: &TableHeader, landed: &LandedSection, facts: &FactStore) -> LandingRoute {
   let remote = &header.landing;
   let rules = rules_target(remote).and_then(|target| facts.rules.get(target)).map(FactRecord::fact);
   route(&RouteFacts {
@@ -979,6 +980,7 @@ pub fn landing_route_of(header: &TableHeader, facts: &FactStore) -> LandingRoute
     github: GitHubFacts::of(facts.pull_requests.view()),
     rules: TargetRules::of(rules),
     refused: facts.baseline_pushes.refused.as_ref().map(|refused| refused.message.as_str()),
+    update: landed.baseline.as_ref().and_then(|baseline| baseline.update.as_ref()),
   })
 }
 
@@ -1087,7 +1089,7 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
   let robots = listed_robots(facts.robots.view());
   let target = baseline_on_remote(&state.parts.header.baseline_branch);
   let readiness = |key: &str| facts.readiness.fact(key);
-  let route = landing_route_of(&state.parts.header, facts);
+  let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts);
   let sources = LandSources {
     route: &route,
     pushed: Some(&facts.baseline_pushes.landed),
@@ -1548,7 +1550,7 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
   let robots = facts.robots.view();
   let patronus = PatronusStanding::of(&robots.head, &part.state);
   let readiness = |key: &str| facts.readiness.fact(key);
-  let route = landing_route_of(&parts.header, facts);
+  let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
   let sources = StepSources {
     route: &route,
     table: &table.table,

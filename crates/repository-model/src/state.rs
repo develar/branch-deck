@@ -138,7 +138,7 @@ impl View {
       landed: changed(&last.sections.landed, &parts.sections.landed),
       reviews: changed(&last.reviews, &reviews),
       patronus: patronus_change(&last.patronus, facts.patronus.part()),
-      route: changed(&last.route, &landing_route_of(&parts.header, facts)),
+      route: changed(&last.route, &landing_route_of(&parts.header, &parts.sections.landed, facts)),
       facts: facts_change(&last.facts, facts),
       news: new_news(&last.news, facts.news()),
     };

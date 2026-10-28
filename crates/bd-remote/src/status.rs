@@ -709,6 +709,7 @@ fn route_of_status(context: &RepoContext, grouping: &BranchGrouping) -> Result<L
     github: GitHubFacts::Pending,
     rules: TargetRules::Pending,
     refused: None,
+    update: None,
   }))
 }
 

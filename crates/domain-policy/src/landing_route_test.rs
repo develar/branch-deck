@@ -5,6 +5,7 @@ use domain_types::pull_request::ViewerPermission::{Admin, Maintain, Read, Triage
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, ViewerPermission};
 use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState, PullRequestsView};
+use domain_types::update_project::{UpdateCheck, UpdateKind, UpdateState};
 use pretty_assertions::assert_eq;
 
 const REPOSITORY: &str = "develar/branch-deck";
@@ -45,6 +46,7 @@ fn decide(remote: &LandingRemote, github: GitHubFacts<'_>, rules: TargetRules<'_
     github,
     rules,
     refused: None,
+    update: None,
   })
 }
 
@@ -341,6 +343,7 @@ fn a_refusal_of_the_server_in_this_session_is_asked_before_the_next_push() {
       github,
       rules,
       refused: Some("remote: master is protected"),
+      update: None,
     })
   };
   let refused = Reason::BaselineRefusedPush {
@@ -370,4 +373,61 @@ fn a_refusal_of_the_server_in_this_session_is_asked_before_the_next_push() {
     with_refusal(GitHubFacts::Pending, TargetRules::Pending),
     LandingRoute::Push { gate: RouteGate::Wait { .. }, .. }
   ));
+}
+
+/// A fetched baseline with commits the fork point of the checked out branch lacks, which the copies are built on,
+/// refuses a push the gate would let go or ask about: it is no fast-forward, the update comes first; a gate that
+/// refuses or waits keeps its answer, and a branch on the head of the baseline pushes
+#[test]
+fn a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update() {
+  let remote = on_github(Some(LandingSetting::Push));
+  let check = |base: &str| UpdateCheck {
+    branch: "master".to_owned(),
+    upstream: "origin/master".to_owned(),
+    head: "head".to_owned(),
+    upstream_head: "fetched".to_owned(),
+    base: base.to_owned(),
+    state: UpdateState::Clean { kind: UpdateKind::Rebase },
+    fetched_at: None,
+    resolved_by_words: Vec::new(),
+  };
+  let (behind, current) = (check("fork-point"), check("fetched"));
+  let checks = BranchRules {
+    required_status_checks: true,
+    ..BranchRules::default()
+  };
+  let with = |github: GitHubFacts<'_>, rules: TargetRules<'_>, update: &UpdateCheck| {
+    route(&RouteFacts {
+      remote: &remote,
+      baseline: "origin/master",
+      github,
+      rules,
+      refused: None,
+      update: Some(update),
+    })
+  };
+  let ahead = push(RouteGate::Refused {
+    reason: Reason::BaselineAhead {
+      upstream: "origin/master".to_owned(),
+    },
+  });
+  assert_eq!(with(listed(Write), TargetRules::Known(&BranchRules::default()), &behind), ahead);
+  assert_eq!(with(listed(Write), TargetRules::Known(&checks), &behind), ahead);
+  assert_eq!(with(listed(Write), TargetRules::Known(&BranchRules::default()), &current), push(RouteGate::Open));
+  assert_eq!(
+    with(listed(Write), TargetRules::Pending, &behind),
+    push(RouteGate::Wait {
+      fact: RouteFact::TargetRules,
+      failed: None,
+    })
+  );
+  assert_eq!(
+    with(listed(Read), TargetRules::Pending, &behind),
+    push(RouteGate::Refused {
+      reason: Reason::NoWriteAccess {
+        repository: REPOSITORY.to_owned(),
+        target: "master".to_owned(),
+      }
+    })
+  );
 }

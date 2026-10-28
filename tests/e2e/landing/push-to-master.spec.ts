@@ -9,7 +9,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, waitForStepFacts } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 
@@ -215,6 +215,27 @@ test.describe("Push to master", () => {
     await expect(pushStep(page, BRANCH)).toBeEnabled()
     await expect(pushStep(page, BRANCH)).toHaveText("Push to master")
     await expect(findBranchRow(page, BRANCH)).toBeVisible()
+  })
+
+  test("should offer Update Project while the fetched master has commits the branch is not built on, and push after it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    // someone else pushed into master and a fetch in the terminal brought it: the copy is built on the commit before it
+    await repo.commitOnRemote("master", { subject: "Fix the build", author: "Ann <ann@example.com>", timestamp: 1704200000, files: { "build.txt": "fixed\n" } })
+    await repo.fetchInTerminal()
+    await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
+    const slot = findBranchRow(page, BRANCH).getByTestId("next-step-slot")
+    await expect(slot).toHaveAttribute("data-step", "updateProject")
+    const update = slot.getByTestId("next-step")
+    await expect(update).toHaveText("Update Project")
+    await expect(getLandingNode(findBranchRow(page, BRANCH))).toHaveAttribute("data-kind", "yourStep")
+    // the push would be no fast-forward: every surface holds it back with why
+    await findBranchRow(page, BRANCH).click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Push to master" })).toBeDisabled()
+    await page.keyboard.press("Escape")
+    await runAndWaitForUpdate(page, () => update.click())
+    // the update built the copy anew on master: the step offers its push again
+    await expect(pushStep(page, BRANCH)).toHaveText("Push to master")
+    await expect(pushStep(page, BRANCH)).toBeEnabled()
   })
 
   test("should say in the words of the server why it refused the push, and ask about it before the next push", async ({ page, setupRepo, syncAndWaitForBranches }) => {

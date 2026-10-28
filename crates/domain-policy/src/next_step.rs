@@ -529,6 +529,13 @@ fn push_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Optio
     return settled(general, dry_run);
   }
   let refused = match gate {
+    // row push′: the copy is built on the commit before the new ones of the fetched baseline, the update builds it anew
+    RouteGate::Refused {
+      reason: reason @ Reason::BaselineAhead { upstream },
+    } => {
+      let blocker = general.or_else(|| Some(StepBlocker::Rule { reason: reason.clone() }));
+      return step(StepRow::PushPrime, StepKind::UpdateProject { upstream: upstream.clone() }, blocker, dry_run);
+    }
     RouteGate::Refused { reason } => Some(StepBlocker::Rule { reason: reason.clone() }),
     RouteGate::Wait { fact, .. } if general.is_none() => {
       let fact = match fact {

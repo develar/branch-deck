@@ -1152,3 +1152,24 @@ fn a_push_into_the_target_is_the_step_of_its_route_and_its_gate_holds_it_back() 
   });
   assert_eq!(needs.step().row, StepRow::OnePrime);
 }
+
+/// Row push′: while the fetched baseline has commits the copy is not built on, the step is Update Project, which builds
+/// it anew on them, and Push to master is disabled with why
+#[test]
+fn a_fetched_baseline_ahead_of_the_copy_offers_update_project_before_the_push() {
+  let ahead = Reason::BaselineAhead {
+    upstream: "origin/master".to_string(),
+  };
+  let step = Fixture::pushing(RouteGate::Refused { reason: ahead.clone() }).step();
+  assert_eq!(
+    shape(&step),
+    (
+      StepRow::PushPrime,
+      StepKind::UpdateProject {
+        upstream: "origin/master".to_string()
+      },
+      rule(ahead),
+      rule(Reason::DryRunNeedsPatronus)
+    )
+  );
+}

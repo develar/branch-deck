@@ -283,3 +283,17 @@ fn a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits() {
     (LandingNodeKind::Waiting, NodeLabel::Held)
   );
 }
+
+/// The fetched baseline has commits the copy is not built on (row push′): Update Project is the user's step
+#[test]
+fn a_fetched_baseline_ahead_of_the_copy_makes_the_update_the_users_step() {
+  let ahead = node(&Fixture::pushing(RouteGate::Refused {
+    reason: Reason::BaselineAhead {
+      upstream: "origin/master".to_string(),
+    },
+  }));
+  assert!(matches!(
+    (ahead.kind, &ahead.label),
+    (LandingNodeKind::YourStep, NodeLabel::Step { step }) if matches!(step.kind, StepKind::UpdateProject { .. })
+  ));
+}

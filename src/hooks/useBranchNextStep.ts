@@ -36,6 +36,7 @@ import { getSelectedProject, isSelectedRepository, repositoryStore, useSelectedP
 import { getReadinessTarget } from "@/stores/review-readiness"
 import type { LandRun } from "@/stores/safe-push"
 import { getLandRun, useLandRun } from "@/stores/safe-push"
+import { runUpdateProject } from "@/stores/update-project"
 
 /**
  * Retargets the open pull request of the branch to the target of Patronus, as a pull request names it ("master"), as
@@ -167,6 +168,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),
+    updateProject: () => void runUpdateProject(),
     restart: robot === undefined ? null : (getRobotActionItems(robot, { offered: inputs.robotActions }).find(isRestart) ?? null),
     requestReview: inputs.pullRequest === undefined ? null : getRequestReviewItem(key),
   }

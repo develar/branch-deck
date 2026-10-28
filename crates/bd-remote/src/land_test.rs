@@ -65,6 +65,28 @@ fn a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused
   assert!(refused["error"]["message"].as_str().unwrap().contains("master is protected"), "{refused}");
 }
 
+/// A fetched master with a commit the branch is not built on refuses the push before it is sent, as `baseline_moved`
+/// with `bd update` next: the copy is built on the fork point, so the push would be no fast-forward; `--check` names
+/// the update as the step
+#[test_log::test]
+fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
+  let (repo, remote) = landing_by_push();
+  let theirs = push_from_elsewhere_to(&remote, "master", "Their fix");
+  git(&repo, &["fetch", "-q", "origin"]);
+  let (exit_code, check) = run_in(&repo, &["land", "auth", "--check"]);
+  assert_eq!(exit_code, 0, "{check}");
+  assert_eq!(
+    (&check["next_step"]["row"], &check["next_step"]["step"]),
+    (&json!("push′"), &json!("update_project")),
+    "{check}"
+  );
+  assert_eq!(check["refusals"][0]["code"], json!("baseline_moved"), "{check}");
+  let (exit_code, refused) = run_in(&repo, &["land", "auth", "--without-checks"]);
+  assert_error(&refused, exit_code, (3, "baseline_moved"));
+  assert_eq!(next_steps(&refused["error"]), [("bd update".to_string(), true)]);
+  assert_eq!(remote_tip(&remote, "master"), theirs, "nothing was pushed");
+}
+
 /// The merge of a pull request on GitHub is no route of `bd land` yet; Patronus off Space neither
 #[test_log::test]
 fn a_repository_that_lands_through_its_pull_request_is_not_landed_by_bd_yet() {

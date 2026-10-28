@@ -327,5 +327,9 @@
     "code": "baselineRefusedPush",
     "target": "master",
     "message": "remote: master is protected"
+  },
+  {
+    "code": "baselineAhead",
+    "upstream": "origin/master"
   }
 ]

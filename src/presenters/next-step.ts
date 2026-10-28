@@ -41,6 +41,7 @@ export type NextStepKind =
   | "pending"
   | "needsBranch"
   | "pickRemoteCommits"
+  | "updateProject"
   | "restart"
   | "pullRequest"
   | "retarget"
@@ -83,6 +84,8 @@ export interface NextStepActions {
   readonly refreshPatronus: () => void
   /** Pick Remote Commits… of the subject: the question of its push button, which lists the commits with the pick */
   readonly pickRemoteCommits: () => void
+  /** Update Project (⌘T) of the repository the subject is of */
+  readonly updateProject: () => void
   /** "Restart Safe Push" of the robot of the subject (`getRobotActions`); null when it can't restart */
   readonly restart: MenuItem | null
   /**
@@ -482,6 +485,13 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       const reason = `The remote has ${commits} of someone else that ${subject} doesn't: a push drops ${kind.count === 1 ? "it" : "them"}`
       const item: MenuItem = { id: "next-step-pick-remote", label: "Pick Remote Commits", icon: DownloadIcon, description: reason, onSelect: actions.pickRemoteCommits }
       return { kind: "pickRemoteCommits", item, own: reason, notice: { title: `${subject} lacks ${commits} of the remote`, description: reason } }
+    }
+    case "updateProject": {
+      // row push′: the copy is built on the commit before the new ones of the fetched baseline, a push of it is no
+      // fast-forward; the update builds it anew on them, then the step offers the push
+      const reason = `${kind.upstream} has new commits: Update Project builds ${subject} anew on them before its push`
+      const item: MenuItem = { id: "next-step-update-project", label: "Update Project", icon: RefreshCwIcon, description: reason, onSelect: actions.updateProject }
+      return { kind: "updateProject", item, own: reason, notice: { title: `${kind.upstream} has new commits`, description: reason } }
     }
     case "restart":
       return actions.restart === null ? { kind: "safePush", item: safePushItem(step, context, general) } : { kind: "restart", item: actions.restart }

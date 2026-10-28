@@ -39,6 +39,7 @@ targets:
   - ../../crates/operations/src/engine.rs
   - ../../crates/operations/src/witness.rs
   - ../../crates/operations/src/close.rs
+  - ../../crates/operations/src/journal.rs
   - ../../crates/repository-model/src/derive.rs
   - ../../crates/repository-model/src/facts.rs
   - ../../crates/repository-model/src/landed_closes.rs
@@ -223,6 +224,15 @@ target, read before anything is pushed.
   [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_target_that_moved_refuses_the_copy_as_no_fast_forward`, `the_server_refusing_the_push_is_said_in_its_words_and_a_large_push_never_goes`)
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_target_that_moved_is_fetched_and_synced_and_the_push_is_baseline_moved`, `a_refusal_of_the_server_is_baseline_refused_in_its_words_and_goes_into_the_facts`)
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_refusal_of_the_server_in_this_session_is_asked_before_the_next_push`)
+- A fetched baseline with commits the fork point of the checked out branch lacks (the check of the update of the last
+  sync: its `base` is not the head of the baseline) must refuse a push the gate would let go or ask about
+  (`baselineAhead`, "origin/master has new commits: Update Project first"): the copy is built on the fork point, so the
+  server would refuse it as no fast-forward after a round trip. The step is Update Project (row push′ of
+  [Next Step](next-step.spec.md#a-push-into-the-target)); `bd land` refuses it as `baseline_moved` with `bd update`
+  next, before anything is sent. A gate that refuses for another reason or waits keeps its answer.
+  [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update`)
+  [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 - A push that landed must land its subject at once, each branch of what it landed at the tip it pushed, until a fetch
   shows it (`landed_state`: "Landed in origin/master"): a second click pushes nothing. Then Update Project with its fetch
   follows as an operation of its own (`land_direct::update_after`, run by the engine), whose replay drops the originals
@@ -313,9 +323,12 @@ target, read before anything is pushed.
   update that did not run). A target that moved is a notice in the same way: "master moved: JIRA-456 is rebuilt on the
   new commits", nothing pushed, the update, then "Push to master again", which the step offers. A refusal of the server
   is an error in its words: "Cannot push JIRA-456 into master" with "The server refused the push into master: …".
-  Activity says the same (`presentLandOutcome`). The slot says the operation as a push ("Push of auth into master",
-  by the remote-tracking ref it holds).
+  Activity says the same (`presentLandOutcome`), a start refused before its first effect as a push too ("Cannot push
+  auth into master", by the target its journal entry names, `JournalEntry.into`). The slot says the operation as a
+  push ("Push of auth into master", by the remote-tracking ref it holds).
   [@test] ../../src/presenters/outcome.test.ts (`says what it pushed, a target that moved, the words of the server that refused it, and the push again of a plan that changed`, `says the update that follows it: running, what it did, or Update Project where it did not move the branch`)
+  [@test] ../../src/presenters/activity.test.ts (`says a start of the push route refused before its first effect as a push into its target, not a Safe Push`)
+  [@test] ../../crates/operations/src/journal_test.rs (`a_start_of_the_push_route_is_journaled_with_its_target_also_when_refused_before_its_first_effect`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should say that master moved, push nothing, and offer the push of the copy rebuilt on it`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should say in the words of the server why it refused the push, and ask about it before the next push`)
 - A refusal of the gate must disable Push to master on every surface with its reason: below write access "You have no

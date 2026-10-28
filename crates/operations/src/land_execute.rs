@@ -653,6 +653,8 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     }
     // the gates of a push into the target (`domain_policy::landing_route`): the server would refuse it
     Reason::NoWriteAccess { .. } => ErrorCode::NoWriteAccess,
+    // the server would refuse it as no fast-forward: the update first, as after a target that moved
+    Reason::BaselineAhead { .. } => ErrorCode::BaselineMoved,
     Reason::BaselineRequiresPullRequest { .. } => ErrorCode::BaselineRequiresPullRequest,
     Reason::BaselineRequiresMergeQueue { .. } | Reason::BaselineRestrictsUpdates { .. } | Reason::BaselineRequiresSignatures { .. } | Reason::BaselineRefusedPush { .. } => {
       ErrorCode::BaselineRefused

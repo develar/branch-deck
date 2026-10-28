@@ -27,7 +27,7 @@
 use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::activity::{ActivityLog, PageActivity, PageEntry, RepositoryJournal};
 use domain_types::error::ApiError;
-use domain_types::operation::{JournalEntry, JournalTransition, OperationResult, OperationStats, Outcome};
+use domain_types::operation::{Intent, JournalEntry, JournalTransition, OperationResult, OperationStats, Outcome, Resource};
 use domain_types::review_request::ReviewRange;
 use history_rewrite::repository_lock::lock_file;
 use lease_pool::lease::{Pool, canonical_path};
@@ -202,6 +202,7 @@ fn entry_of(registry: &ProcessRegistry, record: &Record, transition: Option<Jour
     lease_slot: is_lease_slot(registry, &record.session.worktree),
     intent: record.intent.clone(),
     subject: record.intent.subject(),
+    into: pushed_into(record),
     started_at: record.started_at,
     ended_at: unix_now(),
     effects: Vec::new(),
@@ -210,6 +211,18 @@ fn entry_of(registry: &ProcessRegistry, record: &Record, transition: Option<Jour
     stats: OperationStats::default(),
     transition,
   }
+}
+
+/// The target the start of `record` pushes the copy into: the branch of the remote-tracking ref it holds
+/// (`refs/remotes/origin/master`, `engine::reserved`), "master"; `None` for a start of a robot and any other operation
+fn pushed_into(record: &Record) -> Option<String> {
+  if !matches!(record.intent, Intent::Land(_)) {
+    return None;
+  }
+  record.resources.iter().find_map(|resource| match resource {
+    Resource::Ref { name } => name.strip_prefix("refs/remotes/")?.split_once('/').map(|(_, target)| target.to_owned()),
+    _ => None,
+  })
 }
 
 /// Whether `worktree` is a slot of the lease pool of the repository of `registry`, by its state (`leases.json`, read

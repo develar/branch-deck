@@ -182,6 +182,7 @@ const words = {
   notOnGitHub: () => "The pull requests of the branches are not on GitHub",
   dryRunNeedsPatronus: () => "A Dry Run is a robot of Patronus: the repository lands by a push into its target",
   baselineRefusedPush: ({ target, message }) => `The server refused a push into ${target} before: ${message}`,
+  baselineAhead: ({ upstream }) => `${upstream} has new commits: Update Project first`,
 } satisfies Words as Words
 
 /**

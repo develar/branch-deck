@@ -9,7 +9,10 @@
 //!   route stays and others merge. The facts of GitHub count only when the remote of the baseline pushes to the
 //!   repository they describe: otherwise there is no gate, and the server answers. A fact without an answer waits,
 //!   never "no". A refusal of the server of a push into the target in this session (`[remote rejected]`: a hook, a
-//!   protected branch) is asked first before the next push (`BaselineRefusedPush`): a hook may refuse only some commits
+//!   protected branch) is asked first before the next push (`BaselineRefusedPush`): a hook may refuse only some commits.
+//!   A fetched baseline with commits the fork point of the checked out branch lacks refuses a push that the gate would
+//!   let go (`BaselineAhead`): the copies are built on the fork point, so the server would refuse it as no fast-forward;
+//!   the update comes first
 //! - `rules_target`: the branch whose rules the session reads for the route: the target, while the repository lands by
 //!   a push into it on GitHub
 
@@ -18,6 +21,7 @@ use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, R
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, ViewerPermission};
 use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState, PullRequestsView};
+use domain_types::update_project::UpdateCheck;
 
 /// What GitHub answered of the repository of the pull requests, as the listing of the session stands
 #[derive(Clone, Copy, Debug)]
@@ -90,6 +94,10 @@ pub struct RouteFacts<'a> {
   pub rules: TargetRules<'a>,
   /// What the server said when it refused a push into the target in this session; `None` without one (`bd`)
   pub refused: Option<&'a str>,
+  /// The check of the update of the checked out branch onto the fetched baseline, as the last sync reported it: its
+  /// fork point (`base`), which the copies are built on, and the head of the baseline; `None` before one, or without a
+  /// sync (`bd status`)
+  pub update: Option<&'a UpdateCheck>,
 }
 
 /// The route of the repository with its gate
@@ -101,7 +109,7 @@ pub fn route(facts: &RouteFacts<'_>) -> LandingRoute {
       gate: if remote.on_space { RouteGate::Open } else { refused(Reason::NotOnSpace) },
     },
     LandingSetting::Push => LandingRoute::Push {
-      gate: with_refusal(push_gate(facts), facts),
+      gate: with_refusal(behind(push_gate(facts), facts), facts),
       remote: remote.remote.clone(),
     },
     LandingSetting::PullRequest => LandingRoute::PullRequest { merge: merge_gate(facts) },
@@ -143,6 +151,17 @@ fn with_refusal(gate: RouteGate, facts: &RouteFacts<'_>) -> RouteGate {
       RouteGate::Confirm { confirmations }
     }
     gate @ (RouteGate::Wait { .. } | RouteGate::Refused { .. }) => gate,
+  }
+}
+
+/// `gate` refusing a push it would let go while the fetched baseline has commits the fork point of the checked out
+/// branch lacks (`BaselineAhead`): the copy is built on the fork point, so the push is no fast-forward
+fn behind(gate: RouteGate, facts: &RouteFacts<'_>) -> RouteGate {
+  match (gate, facts.update) {
+    (RouteGate::Open | RouteGate::Confirm { .. }, Some(update)) if update.base != update.upstream_head => refused(Reason::BaselineAhead {
+      upstream: update.upstream.clone(),
+    }),
+    (gate, _) => gate,
   }
 }
 

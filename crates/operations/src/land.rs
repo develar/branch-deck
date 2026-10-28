@@ -102,7 +102,7 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
   let facts = session.facts();
   let readiness = |key: &str| -> Option<&Fact<SubjectReadiness>> { facts.readiness.fact(key) };
   let header = session.state().header();
-  let route = landing_route_of(header, facts);
+  let route = landing_route_of(header, &session.state().sections().landed, facts);
   let sources = LandSources {
     route: &route,
     // a command keeps no push of its own: its process ends with it

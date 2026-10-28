@@ -54,9 +54,10 @@ describe("formatReason", () => {
       "The pull requests of the branches are not on GitHub",
       "A Dry Run is a robot of Patronus: the repository lands by a push into its target",
       "The server refused a push into master before: remote: master is protected",
+      "origin/master has new commits: Update Project first",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(38)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(39)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

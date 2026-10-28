@@ -85,6 +85,7 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::NotOnGitHub => "the pull requests of the branches are not on GitHub".to_string(),
     Reason::DryRunNeedsPatronus => "a Dry Run is a robot of Patronus, and the repository lands by a push into its target".to_string(),
     Reason::BaselineRefusedPush { target, message } => format!("the server refused a push into {target} before: {message}"),
+    Reason::BaselineAhead { upstream } => format!("{upstream} has new commits, and the copy of {subject} is built on the commit before them: the update builds it anew on them"),
   }
 }
 

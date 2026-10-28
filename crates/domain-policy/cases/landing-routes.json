@@ -116,5 +116,30 @@
         "lands": ["auth"]
       }
     }
+  },
+  {
+    "id": "push-to-master-after-a-fetch-updates-first",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a push whose fetched master has a commit the branch is not built on: the step is Update Project, and the push, which would be no fast-forward, is refused before it is sent",
+    "spec": ["spec/branch/landing-routes.spec.md#gates", "spec/branch/next-step.spec.md#the-table:push′", "spec/cli/agent-cli.spec.md#bd-land"],
+    "given": {
+      "route": "push",
+      "baselineAhead": true,
+      "flags": ["withoutChecks"]
+    },
+    "expect": {
+      "step": {
+        "row": "push′",
+        "kind": "updateProject",
+        "safePush": "baselineAhead",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "blockers": ["baselineAhead"],
+        "confirmations": ["unchecked"],
+        "into": "master",
+        "lands": ["auth"]
+      }
+    }
   }
 ]

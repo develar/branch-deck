@@ -52,7 +52,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
   let repository = github_repository_known(pull_requests, robots);
   let sync_running = matches!(state.sync, SyncState::Running { .. });
   let operations = state.operations();
-  let push_route = matches!(landing_route_of(&parts.header, facts), LandingRoute::Push { .. });
+  let push_route = matches!(landing_route_of(&parts.header, &parts.sections.landed, facts), LandingRoute::Push { .. });
   let mut actions = BTreeMap::new();
   for (name, branch) in &parts.branches {
     let Some(step) = sources.steps.get(name) else {

@@ -697,6 +697,12 @@ pub struct JournalEntry {
   pub intent: Intent,
   /// What it is about, as the view keys it (`Intent::subject`)
   pub subject: Option<String>,
+  /// The target a start pushes the copy of its subject into (the push route, Push to master: "master"), by the
+  /// remote-tracking ref it held, also when it failed before its first effect; `None` for a start of a robot and every
+  /// other operation
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub into: Option<String>,
   /// Unix seconds of its admission
   pub started_at: u32,
   /// Unix seconds of its end, or of the transition

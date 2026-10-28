@@ -89,7 +89,7 @@ impl SessionStart {
           tip,
           baseline: table.table.baseline.clone(),
           landed,
-          push_route: matches!(landing_route_of(state.header(), facts), LandingRoute::Push { .. }),
+          push_route: matches!(landing_route_of(state.header(), &state.sections().landed, facts), LandingRoute::Push { .. }),
         })
       })
       .await

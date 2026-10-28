@@ -114,6 +114,23 @@ describe("the words of the next step", () => {
     )
   })
 
+  it("row push′: updates the project, whose fetched baseline has commits the copy is not built on, and Push to master says why it waits", () => {
+    const calls: string[] = []
+    const ahead = { code: "baselineAhead", upstream: "origin/master" } as const
+    const step = presentNextStep(
+      testStep({ kind: "updateProject", upstream: "origin/master" }, { safePush: { code: "rule", reason: ahead } }),
+      testContext({ actions: testActions(calls) }),
+    )
+    expect(step).toMatchObject({ kind: "updateProject", safePushBlocker: "origin/master has new commits: Update Project first" })
+    expect(step.item).toMatchObject({
+      id: "next-step-update-project",
+      label: "Update Project",
+      description: "origin/master has new commits: Update Project builds auth anew on them before its push",
+    })
+    step.item!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["updateProject"])
+  })
+
   it("rows 2 and 3: restarts the robot, or the pull request that collects the approvals, or a Safe Push where it can't restart", () => {
     const restart = { id: "push-and-restart-robot", label: "Restart Safe Push", onSelect: () => {} }
     expect(presentNextStep(testStep({ kind: "restart", robotId: "r" }), testContext({ actions: testActions([], { restart }) })).item).toBe(restart)

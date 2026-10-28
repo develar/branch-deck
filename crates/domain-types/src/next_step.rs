@@ -113,6 +113,9 @@ pub enum StepRow {
   /// target"): "Push to master"
   #[serde(rename = "push")]
   Push,
+  /// The row before it while the fetched baseline has commits the copy is not built on: "Update Project"
+  #[serde(rename = "push′")]
+  PushPrime,
 }
 
 impl StepRow {
@@ -138,6 +141,7 @@ impl StepRow {
       Self::TenPrime => "10′",
       Self::Eleven => "11",
       Self::Push => "push",
+      Self::PushPrime => "push′",
     }
   }
 }
@@ -212,6 +216,10 @@ pub enum StepKind {
   /// The row `push` of a repository that lands by a push into the target: "Push to master", its copy pushed into
   /// `target` as a fast-forward (`NextStep::lands` the branches it lands); its start is `NextStep::safe_push`
   PushToBaseline { target: String },
+  /// The row `push′`: the fetched baseline `upstream` has commits the fork point of the checked out branch lacks, which
+  /// the copy is built on, so a push of it is no fast-forward: Update Project builds it anew on them first; Push to
+  /// master is disabled with `Reason::BaselineAhead` (`NextStep::safe_push`)
+  UpdateProject { upstream: String },
 }
 
 /// Why "Safe Push" (or a Dry Run) can't open now, the same on every surface

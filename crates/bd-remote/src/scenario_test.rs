@@ -195,6 +195,9 @@ struct Given {
   /// What the token may do in the GitHub repository `origin` pushes to (its push URL github.com/acme/monorepo), as the
   /// listing of the pull requests names it
   permission: Option<GivenPermission>,
+  /// The fetched baseline has a commit of someone else the checked out branch lacks: the copies the sync builds are
+  /// built on its fork point
+  baseline_ahead: Option<bool>,
 }
 
 /// The route a case names (`branchdeck.landing`)
@@ -238,6 +241,7 @@ impl Default for Given {
       dangling: None,
       route: None,
       permission: None,
+      baseline_ahead: None,
     }
   }
 }
@@ -758,6 +762,17 @@ fn land_in_the_baseline(repo: &TestRepo) {
   git(repo, &["checkout", "-q", &branch]);
 }
 
+/// Someone else pushed a commit into master, and it was fetched: origin/master has it, HEAD lacks it until Update Project
+fn fetch_a_commit_of_someone_else(repo: &TestRepo) {
+  let branch = git(repo, &["symbolic-ref", "--short", "HEAD"]);
+  git(repo, &["checkout", "-q", "--detach", "refs/remotes/origin/master"]);
+  write(repo, "theirs.txt", "theirs\n");
+  git(repo, &["add", "theirs.txt"]);
+  git(repo, &["commit", "-q", "-m", "Fix the build"]);
+  git(repo, &["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  git(repo, &["checkout", "-q", &branch]);
+}
+
 /// `bd <args>` in the repository of the case, which succeeds
 fn bd_ok(environment: &Environment, args: &[&str]) {
   let mut all_args = vec!["--prefix", PREFIX];
@@ -852,6 +867,9 @@ impl Situation {
         land_auth_by_content(&space.repo);
       }
       None => {}
+    }
+    if given.baseline_ahead == Some(true) {
+      fetch_a_commit_of_someone_else(&space.repo);
     }
     match given.remote {
       Remote::None => {}

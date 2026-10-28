@@ -1416,8 +1416,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   and the freeze under the lock, the push by the push URL after it. What CI did not check and the changes requested
   refuse it (`checks_not_passed`) unless `--without-checks`; what the gate of the route asks refuses it with the code of
   its reason (`baseline_requires_pull_request`, `baseline_refused`, `push_refused`) unless `--bypass-rules`; both only
-  once the user agreed. A target that moved is `baseline_moved` (exit 3, master fetched, next step `bd update`), a
-  refusal of the server `baseline_refused` in its words; below write access `no_write_access`.
+  once the user agreed. A target that moved is `baseline_moved` (exit 3, master fetched, next step `bd update`), and so
+  is a fetched master with commits the branch is not built on, refused before anything is sent (`--check` names the
+  step `update_project`); a refusal of the server `baseline_refused` in its words; below write access `no_write_access`.
+  [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`, `a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 - `bd land` must never update: a push that landed prints `landed: true` and `next: "bd update"`, which brings the

@@ -258,7 +258,8 @@ function landSaid(entry: JournalEntry, told: boolean): Said[] {
     if (told || entry.error.code === "canceled") {
       return []
     }
-    const refusal = presentLandRefusal(entry.error, intent.mode, subject, {}, pushTargetOf(entry.effects.map(record => record.effect)))
+    // a start of the push route refused before its first effect has no effect that names the target: its entry does
+    const refusal = presentLandRefusal(entry.error, intent.mode, subject, {}, entry.into ?? pushTargetOf(entry.effects.map(record => record.effect)))
     return [
       { kind: "error", title: refusal.title, description: refusal.kind === "landing" ? refusal.reason : refusal.kind === "stopped" ? refusal.description : refusal.error.message },
     ]

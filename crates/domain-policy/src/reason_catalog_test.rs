@@ -52,10 +52,11 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::NotOnGitHub => 35,
     Reason::DryRunNeedsPatronus => 36,
     Reason::BaselineRefusedPush { .. } => 37,
+    Reason::BaselineAhead { .. } => 38,
   }
 }
 
-const CODES: usize = 38;
+const CODES: usize = 39;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -247,6 +248,7 @@ fn examples() -> Vec<Reason> {
       target: s("master"),
       message: s("remote: master is protected"),
     },
+    Reason::BaselineAhead { upstream: s("origin/master") },
   ]
 }
 

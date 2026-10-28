@@ -128,6 +128,9 @@ pub enum Reason {
   /// The server refused a push into `target` before in this session (a hook, a protected branch), with `message`, what
   /// it said: a push of the copy may be refused again, so the gate of the route asks first
   BaselineRefusedPush { target: String, message: String },
+  /// The fetched baseline `upstream` (`origin/master`) has commits the fork point of the checked out branch lacks, which
+  /// the copies are built on: a push of one is no fast-forward, so the update comes first and builds it anew on them
+  BaselineAhead { upstream: String },
 }
 
 impl Reason {
@@ -171,7 +174,8 @@ impl Reason {
       | Self::GitHubMirror { .. }
       | Self::NotOnGitHub
       | Self::DryRunNeedsPatronus
-      | Self::BaselineRefusedPush { .. } => None,
+      | Self::BaselineRefusedPush { .. }
+      | Self::BaselineAhead { .. } => None,
     }
   }
 }

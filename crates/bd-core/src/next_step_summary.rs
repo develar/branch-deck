@@ -72,6 +72,7 @@ const fn kind_name(kind: &StepKind) -> &'static str {
     StepKind::AwaitingUnjudged { .. } => "awaiting_unjudged",
     StepKind::SafePush => "safe_push",
     StepKind::PushToBaseline { .. } => "push_to_baseline",
+    StepKind::UpdateProject { .. } => "update_project",
   }
 }
 
@@ -115,7 +116,8 @@ fn pull_request_of(kind: &StepKind) -> Option<u32> {
     | StepKind::PickRemoteCommits { .. }
     | StepKind::Restart { .. }
     | StepKind::SafePush
-    | StepKind::PushToBaseline { .. } => None,
+    | StepKind::PushToBaseline { .. }
+    | StepKind::UpdateProject { .. } => None,
   }
 }
 
@@ -171,6 +173,7 @@ fn step_words(kind: &StepKind, what: &str) -> String {
       let commits = if *count == 1 { "1 commit".to_owned() } else { format!("{count} commits") };
       format!("The remote branch has {commits} of someone else that {what} lacks: `bd pick --remote {what}` takes them in, a push drops them")
     }
+    StepKind::UpdateProject { upstream } => format!("{upstream} has new commits: `bd update` builds the copy of {what} anew on them before its push"),
     StepKind::Hidden
     | StepKind::Settled
     | StepKind::NeedsBranch { .. }

@@ -438,6 +438,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
 
   | # | State | Slot | Start elsewhere |
   |---|---|---|---|
+  | push′ | The fetched baseline has commits the fork point of the checked out branch lacks, which the copy is built on (`baselineAhead`, the gate of the route) | "Update Project" (⌘T's update), its node the user's step | Push to master disabled: "origin/master has new commits: Update Project first" |
   | push | Nothing of the table above holds it | "Push to master" ("Push to master · 3" for what it is built on), its node ready | disabled with the refusal of the gate ("You have no write access to acme/monorepo"), else enabled: its popover confirms what CI did not check and what the gate asks |
 
   A Dry Run is a robot of Patronus: never offered on this route (`dryRunNeedsPatronus`). The whole stack of a root that
@@ -452,6 +453,13 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should push the copy into master from the slot of the row, the popover asking what CI did not pass, and update after it`, `should open the popover of Push to master with S on the row`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should disable Push to master with the reason when the token has no write access to the repository`)
+- Row push′: a push of a copy built on the commit before the new ones of the fetched baseline would be no fast-forward,
+  which the server refuses after a round trip; the step is Update Project, which builds the copy anew on them, and the
+  push waits for it on every surface. `bd land` refuses it as `baseline_moved` with `bd update` next, pushing nothing.
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_fetched_baseline_ahead_of_the_copy_offers_update_project_before_the_push`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_fetched_baseline_ahead_of_the_copy_makes_the_update_the_users_step`)
+  [@test] ../../src/presenters/next-step.test.ts (`row push′: updates the project, whose fetched baseline has commits the copy is not built on, and Push to master says why it waits`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should offer Update Project while the fetched master has commits the branch is not built on, and push after it`)
 
 ### The surfaces
 

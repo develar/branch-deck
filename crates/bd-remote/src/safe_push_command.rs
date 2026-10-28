@@ -1610,6 +1610,12 @@ impl Told<'_> {
         ),
       )
       .with_next_step(format!("{} update", context.bd), true),
+      // a push of the copy is no fast-forward of the fetched baseline: the update builds it anew first
+      Reason::BaselineAhead { .. } => Refusal::new(
+        refusal_code(reason),
+        format!("Nothing was pushed: {}", start_refusal_text(reason, what, self.session.robots())),
+      )
+      .with_next_step(format!("{} update", context.bd), true),
       Reason::StackNotBuilt { state, .. } => match (self.stack(), state) {
         // the branch of the commit that conflicts builds with what it is built on: a piece to land
         (Some(update), StackBranchState::Conflict) => Refusal::new(ErrorCode::StackConflict, stack_conflict_message(context, self.synced, update)).with_next_step(

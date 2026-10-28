@@ -187,6 +187,12 @@ describe("presentActivity", () => {
     ])
   })
 
+  it("says a start of the push route refused before its first effect as a push into its target, not a Safe Push", () => {
+    const ahead = apiError("baseline_moved", "Nothing was pushed: origin/master has new commits")
+    const refused = operation("op1", LAND, [], { error: ahead, into: "master" })
+    expect(said([refused])).toEqual([{ repositoryPath: "/a", kind: "error", title: "Cannot push auth into master", description: ahead.message }])
+  })
+
   it("says an operation that failed unless the page recorded the error of its toast, and leaves out the canceled", () => {
     const failed = operation("op1", PUSH, [pushed(["auth"], [null], { kind: "failed", error: apiError("push_refused", "The remote refused the push: hook") })])
     const refused = operation("op2", LAND, [], { error: apiError("busy", "bd runs the Safe Push of auth"), endedAt: 102 })

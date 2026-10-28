@@ -174,6 +174,7 @@ pub fn land(context: &RepoContext, args: &LandArgs, environment: &Environment) -
     github: GitHubFacts::Pending,
     rules: TargetRules::Pending,
     refused: None,
+    update: None,
   });
   match routed {
     LandingRoute::Push { .. } => land_by_push(context, args, environment),
@@ -350,7 +351,7 @@ fn land_by_push(context: &RepoContext, args: &LandArgs, environment: &Environmen
       landed: &synced.landed_section,
       readiness: None,
       target: &target,
-      route: &landing_route_of(facts.session.state().header(), facts.session.facts()),
+      route: &landing_route_of(facts.session.state().header(), &facts.session.state().sections().landed, facts.session.facts()),
     };
     (output.decided.step, output.next_step) = check_next_step(context, &read, &start, &what).unzip();
     output.refusals = refusals;
@@ -470,7 +471,7 @@ fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, wha
     };
     let refusal = Refusal::new(refusal_code(reason), format!("Nothing was pushed: {words}"));
     match reason {
-      Reason::LandedIn { .. } => refusal.with_next_step(format!("{} update", context.bd), true),
+      Reason::LandedIn { .. } | Reason::BaselineAhead { .. } => refusal.with_next_step(format!("{} update", context.bd), true),
       _ => refusal,
     }
   });
