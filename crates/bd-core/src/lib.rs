@@ -14,6 +14,8 @@
 //!   the facts over them (`BdServices`, for `remote_facts::service_sources::ServiceFactSources`)
 //! - `review_summary`: the code-owner review of a branch as the outputs print it
 //! - `next_step_summary`: the next step of a branch or a whole stack as the outputs print it
+//! - `operation_record`: the record of a run in the operations registry of its repository and its entry in the journal:
+//!   of an operation of the remote once its plan holds, of a rewrite, an update and a pick before any lock
 //! - `suggest_plan`: the plan of `bd suggest`, read by `bd check --plan` and `bd pick`
 
 pub mod bd_command;
@@ -22,6 +24,7 @@ pub mod check_summary;
 pub mod context;
 pub mod error;
 pub mod next_step_summary;
+pub mod operation_record;
 pub mod output;
 pub mod review_summary;
 pub mod services;

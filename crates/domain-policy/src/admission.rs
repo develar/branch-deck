@@ -17,8 +17,9 @@
 //! request that differs in anything waits and is decided again over what the first one left. Two resources are one
 //! when they are equal (`Resource`: a ref, what a robot lands, a robot, a field of a pull request, an issue, HEAD). HEAD
 //! (`Resource::Head`, which every rewrite holds) is one only within a process: the rewrites of a process run one after
-//! the other, while between processes the repository lock orders them, and a rewrite of another process makes none
-//! busy (only the same intent does).
+//! the other, while between processes the repository lock orders them, so a rewrite, an update or a pick of another
+//! process makes none busy, the same one neither (`Intent::ordered_by_repository_lock`): it waits for the lock, and its
+//! core runs on what the other one left (a second `bd unstack beta` beside the app's finds beta a root already).
 
 use domain_types::operation::{Admission, Intent, Origin, Resource, RunningOperation};
 
@@ -41,12 +42,12 @@ pub fn admit(running: &[RunningOperation], intent: &Intent, resources: &[Resourc
 /// `resources` needs, which makes the new one busy: the same intent, or one of its resources. The sessions of all
 /// worktrees of a repository share its refs, robots and pull requests, so a ref by its full name, a robot, a field of a
 /// pull request and an issue are one in all of them; a branch named without its prefix (`Resource::Lands`) and an
-/// intent, which names its subject so, are one only under the same prefix; HEAD never (the repository lock orders the
-/// rewrites of the processes)
+/// intent, which names its subject so, are one only under the same prefix; HEAD never, nor the same intent of one the
+/// repository lock orders (a rewrite, an update, a pick: the lock orders the processes)
 #[must_use]
 pub fn holds_across(held: &RunningOperation, held_prefix: &str, prefix: &str, intent: &Intent, resources: &[Resource]) -> bool {
   let same_prefix = held_prefix == prefix;
-  (same_prefix && held.intent == *intent)
+  (same_prefix && held.intent == *intent && !intent.ordered_by_repository_lock())
     || held
       .resources
       .iter()

@@ -530,6 +530,7 @@ pub enum OperationKind {
   UpdateProject,
   DismissLanded,
   FetchReview,
+  Pick,
 }
 
 /// Which program holds the lock, or runs an operation

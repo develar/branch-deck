@@ -6,6 +6,7 @@ targets:
   - ../../crates/bd-core/src/text_input.rs
   - ../../crates/bd-remote/src/operation_command.rs
   - ../../crates/operations/src/journal.rs
+  - ../../crates/bd-core/src/operation_record.rs
   - ../../src-tauri/src/main.rs
   - ../../crates/bd-cli/src/main.rs
   - ../../scripts/build-bd.mjs
@@ -182,7 +183,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 2` and, after its own
   fields, the `operation_id` of the run (a ULID, new for each run, an error object and `bd --version` included): the
   id of the root span of its log lines, and of its record in the operations registry and its entry in the journal
-  when it runs an operation of the remote.
+  when it runs an operation of the remote, a rewrite, an update or a pick that writes.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
   [@test] ../../crates/bd-cli/src/operation_test.rs (`every_log_line_of_a_command_names_its_operation_whose_id_its_json_carries`)
@@ -277,6 +278,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app`, `the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)
   [@test] ../../crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`, `a_gone_process_of_this_host_leaves_at_once_and_one_of_another_host_after_five_minutes`, `a_registry_of_another_schema_is_busy_and_never_written`)
+- A rewrite that writes (`bd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `park`, `unpark`, `unapply`,
+  `reapply`, `undo`, `move-hunk`), `bd update` and `bd pick` must be recorded in the operations registry of the
+  repository before the command takes any lock, as the intent of the app's family (`rewrite`, `updateProject`,
+  `pick`), so the app's windows show it on its rows as `bd`'s; its record must leave once the command ended, before
+  its `--sync`, or at the next admission once its process is gone. HEAD, which it holds, must make no other process
+  `busy`, nor the same rewrite of another process: the repository lock orders them, and a rewrite of the app meanwhile
+  is waited for. Two Unstacks of a branch in the app and `bd unstack` of it beside them must be one rewrite of the app
+  and nothing more of `bd` (`invalid_plan` once it got the lock). A dry run, `bd update --status` and `bd check --fix`
+  must record nothing.
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_triple_unstack_of_the_app_and_bd_is_one_rewrite_journaled_once_by_each`)
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_bd_killed_in_its_rewrite_leaves_a_record_the_app_drops_once_its_process_is_gone`)
+  [@test] ../../crates/domain-policy/src/admission_test.rs (`a_rewrite_waits_for_the_rewrites_of_its_process_and_for_none_of_another`)
 - The run of such an operation must be journaled once it ended, in the journal of the operations of the repository
   (`$GIT_COMMON_DIR/branch-deck/journal.jsonl`, the app's operations in the same file) under the `operation_id` of the
   JSON: `tool: bd`, its pid, worktree and prefix, whether the worktree is a slot of the lease pool, the intent and its
@@ -285,7 +298,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `internal`; a start whose answer was lost is journaled again, under its id, once a read of Patronus settled it
   (`started`, `notStarted`) or it was forgotten (`forgotten`). The journal keeps the newest 200 entries of the last
   30 days.
-  [@test] ../../crates/bd-cli/src/operation_test.rs (`a_safe_push_is_journaled_under_the_operation_id_of_its_json`)
+  [@test] ../../crates/bd-cli/src/operation_test.rs (`a_safe_push_is_journaled_under_the_operation_id_of_its_json`, `a_rewrite_is_journaled_under_the_operation_id_of_its_json`)
   [@test] ../../crates/operations/src/journal_test.rs (`an_operation_of_the_app_and_one_of_bd_are_journaled_once_each_with_what_they_cost`, `a_start_whose_answer_was_lost_is_journaled_again_once_settled_or_forgotten`, `a_dropped_operation_is_journaled_as_internal_and_a_discarded_one_not_at_all`)
   [@test] ../../crates/operations/src/journal_test.rs (`an_operation_in_a_slot_of_the_lease_pool_is_journaled_as_an_agents`, `the_journal_keeps_the_newest_entries_of_the_last_thirty_days`)
 - A start of `bd safe-push` (and of the app) must record what it sends before its request goes out, and an answer

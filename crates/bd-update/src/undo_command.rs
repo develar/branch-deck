@@ -1,20 +1,28 @@
 //! `bd undo`: the undo of a token a rewrite, `bd update`, `bd pick` or `bd unapply` printed. A rewrite token goes to
 //! `history_rewrite::regroup::undo_regroup_core`; `update:`, `pick:` and `unapply:` tokens to the undo of their command,
-//! which moves the files back too
+//! which moves the files back too. Each is recorded in the operations registry of the repository before the lock, as the
+//! undo of its kind (`RewriteIntent::Undo`)
 
 use crate::pick_command::undo_pick;
 use crate::unapply_command::{undo_reapply, undo_unapply};
 use crate::update_command::undo_update;
 use bd_core::context::RepoContext;
 use bd_core::error::{CliError, regroup_error};
+use bd_core::operation_record::recorded;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
+use domain_types::operation::Intent;
+use domain_types::rewrite::{RewriteIntent, UndoKind, UndoToken as DomainUndoToken};
 use git_ops::revs::read_head;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::regroup::{UndoToken, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use schemars::JsonSchema;
 use serde::Serialize;
+use sync_core::reapply_branch::ReapplyUndoToken;
+use sync_core::unapply_branch::UnapplyUndoToken;
+use update_core::pick::PickUndoToken;
+use update_core::update_project::UpdateUndoToken;
 
 #[derive(Debug, clap::Args)]
 pub struct UndoArgs {
@@ -85,6 +93,32 @@ fn moved_back(context: &RepoContext, (previous, new): (&str, &str), already_undo
 }
 
 pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
+  let intent = RewriteIntent::Undo {
+    token: DomainUndoToken {
+      kind: undo_kind(&args.token),
+      token: args.token.clone(),
+    },
+  };
+  recorded(context, &Intent::Rewrite(Box::new(intent)), || undone(context, args))
+}
+
+/// The core that undoes `token`, by its kind
+fn undo_kind(token: &str) -> UndoKind {
+  if ReapplyUndoToken::is_reapply_token(token) {
+    UndoKind::Reapply
+  } else if UnapplyUndoToken::is_unapply_token(token) {
+    UndoKind::Unapply
+  } else if PickUndoToken::is_pick_token(token) {
+    UndoKind::Pick
+  } else if UpdateUndoToken::is_update_token(token) {
+    UndoKind::Update
+  } else {
+    UndoKind::Regroup
+  }
+}
+
+/// `undo` once recorded
+fn undone(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
   if let Some(result) = undo_reapply(context, &args.token) {
     let (token, undone) = result?;
     return Ok(moved_back(context, (&token.previous_head, &token.new_head), undone.already_undone, token.unapplied_branch));

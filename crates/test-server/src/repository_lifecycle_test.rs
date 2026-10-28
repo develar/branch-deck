@@ -176,8 +176,8 @@ fn every_command_of_a_route_test_names_its_repository() {
   assert_eq!(built_by_hand, [] as [String; 0], "a command request built outside test_support::command");
 }
 
-/// The deletion of a repository closes its sessions: the stream of a window still subscribed ends, so the deletion does
-/// not wait for it, and the session is gone
+/// The deletion of a repository closes its sessions: the stream of a window still subscribed ends, after a patch the
+/// session sent before (the sign-ins it reads at its open), so the deletion does not wait for it, and the session is gone
 #[tokio::test]
 async fn deleting_a_repository_closes_its_sessions() {
   let (addr, state) = start_test_server_with_state().await;
@@ -194,6 +194,11 @@ async fn deleting_a_repository_closes_its_sessions() {
   let started = Instant::now();
   delete_repository(&client, addr, &id, &path).await;
   assert!(started.elapsed() < Duration::from_secs(30), "the deletion waited for the stream: {:?}", started.elapsed());
-  assert_eq!(messages.next_or_end().await, None, "the stream of the closed session ended");
+  // the patch of what the session read before it closed (the sign-ins, read at its open) may come first
+  let mut after = Vec::new();
+  while let Some(message) = messages.next_or_end().await {
+    assert!(message.get("progress").is_some() && after.len() < 2, "the stream of the closed session ended: {message}");
+    after.push(message);
+  }
   assert!(!state.sessions.is_open(&key));
 }

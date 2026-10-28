@@ -29,13 +29,14 @@ use crate::push_command::{
 };
 use crate::push_refusals::robot_command;
 use crate::robot_list::keep_listed;
-use crate::safe_push_run::{BdStart, admit, run_admitted, start_services};
+use crate::safe_push_run::{BdStart, start_services};
 use crate::session_facts::{SessionFacts, listed_robots};
 use bd_core::bd_command::shell_word;
 use bd_core::check_summary::{CheckConflict, CheckWarning, DanglingReferenceSummary, dangling_reference_message, dangling_references_in, session_of_sync};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep, regroup_error};
 use bd_core::next_step_summary::NextStepSummary;
+use bd_core::operation_record::{admit_planned, run_admitted};
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use bd_core::services::{BdServices, cli_user_agent, github_service, patronus_service, session_key};
@@ -645,7 +646,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     let github = plan.github.clone().map(|repository| (Arc::clone(&github), repository));
     let services = start_services(context, Some(Arc::clone(&service)), plan.space.name.clone(), github, plan.target.clone(), &synced.baseline)?;
     // busy while another process runs what the start needs; the record leaves once the run ended
-    let entry = admit(context, &services, &plan.planned).map_err(|error| start_error(context, args, &plan, error))?;
+    let entry = admit_planned(context, &services, &plan.planned).map_err(|error| start_error(context, args, &plan, error))?;
     let accepted = Accepted {
       fingerprint: plan.planned.plan.fingerprint.clone(),
       confirmations: plan.planned.plan.confirmations.clone(),

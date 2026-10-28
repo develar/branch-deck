@@ -21,7 +21,7 @@
 //! (`Outcome::version_after`), which the toast of the window waits for. An undo names no table: its token moves each ref
 //! back with compare-and-swap.
 
-use crate::engine::{Hosts, outcome_of, run};
+use crate::engine::{Hosts, outcome_of, run, runs_only_in_bd};
 use crate::events::EventSink;
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard, Stepper};
 use crate::witness::{Witness, plan_changed, read_refs};
@@ -198,9 +198,12 @@ pub(crate) fn rewrite_request(prefix: &str, rewrite: &RewriteIntent) -> Operatio
 ///
 /// # Errors
 /// What its core refused, with the code of its typed error; `plan_changed` for a commit no longer there; `canceled`
-/// after a stopped wait for the lock: nothing was written
+/// after a stopped wait for the lock: nothing was written; `invalid_arguments` for one only `bd` runs (`recorded_only`)
 #[instrument(skip_all, fields(subject = ?rewrite.subject()))]
 pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: RewriteIntent, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
+  if rewrite.recorded_only() {
+    return Err(runs_only_in_bd(&Intent::Rewrite(Box::new(rewrite))));
+  }
   let sessions = registry.sessions();
   let request = rewrite_request(&key.prefix, &rewrite);
   // what it names, read off the table of the click before a rewrite before it changes the table
@@ -708,6 +711,8 @@ impl Core {
       // resolved into a move back of the commits of its branch
       RewriteIntent::Ungroup { .. } => return Err(failed(anyhow::anyhow!("An ungroup runs as the move back of its commits"))),
       RewriteIntent::Undo { token } => self.undo(token, lock_wait).map_err(Failure::Undo)?,
+      // refused before its admission (`execute_rewrite`)
+      RewriteIntent::Group { .. } | RewriteIntent::MoveHunk { .. } => return Err(failed(anyhow::anyhow!("Only bd runs it"))),
     })
   }
 

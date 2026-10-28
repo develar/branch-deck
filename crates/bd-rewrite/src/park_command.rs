@@ -1,11 +1,15 @@
 //! `bd park` and `bd unpark`: keep a branch local (`refs/branch-deck/parked`), so that `bd push` and `bd safe-push` never
-//! send it and the app shows it apart from the branches to land (spec/branch/parked-branches.spec.md)
+//! send it and the app shows it apart from the branches to land (spec/branch/parked-branches.spec.md); recorded in the
+//! operations registry of the repository before the lock, as every rewrite of `bd` (`bd_core::operation_record`)
 
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
+use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
 use domain_types::error::ErrorCode;
+use domain_types::operation::Intent;
+use domain_types::rewrite::{ParkBranchLine, RewriteIntent};
 use history_rewrite::parked::{ParkError, ParkLine, ParkOutcome, park_core, unpark_core};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
@@ -45,7 +49,14 @@ pub struct ParkOutput {
 }
 
 pub fn park(context: &RepoContext, args: &ParkArgs) -> Result<ParkOutput, CliError> {
-  locked(context, |options| {
+  let intent = RewriteIntent::Park {
+    branches: vec![ParkBranchLine {
+      branch_name: args.branch.clone(),
+      note: args.note.clone(),
+    }],
+    witness: asked_on(None),
+  };
+  locked(context, intent, |options| {
     park_core(
       &context.git,
       &context.repository,
@@ -59,11 +70,21 @@ pub fn park(context: &RepoContext, args: &ParkArgs) -> Result<ParkOutput, CliErr
 }
 
 pub fn unpark(context: &RepoContext, args: &UnparkArgs) -> Result<ParkOutput, CliError> {
-  locked(context, |options| unpark_core(&context.git, &context.repository, &[args.branch.as_str()], options))
+  let intent = RewriteIntent::Unpark {
+    branch_names: vec![args.branch.clone()],
+    witness: asked_on(None),
+  };
+  locked(context, intent, |options| unpark_core(&context.git, &context.repository, &[args.branch.as_str()], options))
 }
 
-/// `write` under the repository lock that bd takes (a wait for it reads the config again), and its output
-fn locked(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<ParkOutcome, ParkError>) -> Result<ParkOutput, CliError> {
+/// `write`, the rewrite `intent`, recorded in the operations registry and under the repository lock that bd takes (a
+/// wait for it reads the config again), and its output
+fn locked(context: &RepoContext, intent: RewriteIntent, write: impl FnOnce(&RewriteOptions) -> Result<ParkOutcome, ParkError>) -> Result<ParkOutput, CliError> {
+  recorded(context, &Intent::Rewrite(Box::new(intent)), || written(context, write))
+}
+
+/// `locked` once recorded
+fn written(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<ParkOutcome, ParkError>) -> Result<ParkOutput, CliError> {
   let held = lock(context)?;
   let options = RewriteOptions {
     held_lock: Some(&held),

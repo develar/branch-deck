@@ -21,6 +21,8 @@ sync-utils = { path = "../sync-utils" }
 history-rewrite = { path = "../history-rewrite" }
 repository-model = { path = "../repository-model" }
 remote-facts = { path = "../remote-facts" }
+# the record of a run of a command in the operations registry of its repository (`operation_record`)
+operations = { path = "../operations" }
 domain-policy = { path = "../domain-policy" }
 domain-types = { path = "../domain-types", features = ["schemars"] }
 youtrack = { path = "../youtrack" }

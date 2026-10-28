@@ -1,13 +1,14 @@
 //! `bd reword`: new messages of commits ahead of the baseline through `history_rewrite::reword`, with the contract of
-//! `bd group` (`rewrite.rs`): the repository lock over the rewrite and, with --sync, the sync, `--expect-head`, the
-//! undo token, `--dry-run`
+//! `bd group` (`rewrite.rs`): the record in the operations registry, the repository lock over the rewrite and, with
+//! --sync, the sync, `--expect-head`, the undo token, `--dry-run`
 
 use crate::rewrite::{RewriteArgs, RewriteOutput, rewrite};
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
+use bd_core::operation_record::asked_on;
 use bd_core::text_input::read_text;
 use domain_types::error::ErrorCode;
-use domain_types::rewrite::{CommitReword, RewordText};
+use domain_types::rewrite::{CommitReword, RewordText, RewriteIntent};
 use history_rewrite::reword::reword_core;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -111,7 +112,11 @@ pub fn reword(context: &RepoContext, args: &RewordArgs) -> Result<RewriteOutput,
       )
     });
   }
-  rewrite(context, "reword", &args.rewrite, &BTreeMap::new(), |options| {
+  let intent = RewriteIntent::Reword {
+    rewords: rewords.clone(),
+    witness: asked_on(args.rewrite.expect_head.as_deref()),
+  };
+  rewrite(context, ("reword", intent), &args.rewrite, &BTreeMap::new(), |options| {
     reword_core(&context.git, &context.repository, &rewords, options)
   })
 }

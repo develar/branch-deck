@@ -29,6 +29,7 @@ const KIND_WORDS: Record<OperationKind, string> = {
   update_project: "update of the project",
   dismiss_landed: "dismissal of the landed commits",
   fetch_review: "fetch of a pull request to review",
+  pick: "pick of commits",
 }
 
 /** Who runs it: `bd`, or another Branch Deck */
@@ -94,6 +95,8 @@ function runningWords(intent: Intent): readonly [label: string, phrase: string] 
       return ["Dismissing the landed commits", "the dismissal of the landed commits"]
     case "fetchReview":
       return [`Fetching #${intent.number} to review`, `a fetch of #${intent.number} to review`]
+    case "pick":
+      return ["Picking commits", "a pick of commits"]
   }
 }
 
@@ -148,6 +151,11 @@ function rewriteRows(rewrite: RewriteIntent, lookup: RowLookup): readonly string
       return rewrite.branchNames
     case "squashFixups":
       return rewrite.scope.type === "branch" ? [rewrite.scope.value] : []
+    case "group":
+      // a branch of the plan by its path, `parent/leaf` with stacked branches: its leaf is the row
+      return [...Object.keys(rewrite.plan.branches ?? {}).map(path => path.slice(path.lastIndexOf("/") + 1)), ...(rewrite.plan.unstack ?? [])]
+    case "moveHunk":
+      return lookup.branchesOf([rewrite.from, rewrite.to])
     case "applyConflictFix":
     case "undo":
       return []

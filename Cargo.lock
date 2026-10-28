@@ -540,6 +540,7 @@ dependencies = [
  "github",
  "history-rewrite",
  "object-cache",
+ "operations",
  "patronus",
  "pretty_assertions",
  "remote-facts",

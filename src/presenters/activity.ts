@@ -212,11 +212,30 @@ function resultSaid(entry: JournalEntry, github: GitHubRepository | null, told: 
       said.push({ kind: "patronus", title: `Safe Push started on #${result.comment.number}`, details: pullRequestDetails(github, result.comment.number) })
     }
   }
+  const done = entry.tool === "bd" && entry.error === null ? doneByBd(intent) : null
+  if (done !== null) {
+    said.push({ kind: "rewrite", title: done })
+  }
   const failure = told ? null : failureOf(entry)
   if (failure !== null) {
     said.push({ kind: "error", title: failureTitle(intent, subjectOf(entry)), description: failure })
   }
   return said
+}
+
+/**
+ * What a rewrite or a pick of `bd` did, which no toast told: "Unstacked beta", "Picked commits"; null for another
+ * operation (its effects say it), and for an update of `bd`, whose record tells nothing of what it moved
+ */
+function doneByBd(intent: Intent): string | null {
+  switch (intent.kind) {
+    case "rewrite":
+      return presentRewrite(intent).done
+    case "pick":
+      return "Picked commits"
+    default:
+      return null
+  }
 }
 
 function robotSaid(title: string, robot: Parameters<typeof describeRobot>[0]): Said {
@@ -327,5 +346,7 @@ function failureTitle(intent: Intent, subject: string): string {
       return "Cannot dismiss the landed commits"
     case "fetchReview":
       return `Cannot fetch pull request #${intent.number}`
+    case "pick":
+      return "Cannot pick the commits"
   }
 }

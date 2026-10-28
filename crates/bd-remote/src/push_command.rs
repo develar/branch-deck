@@ -26,11 +26,12 @@ use crate::landed::LandedBySummary;
 use crate::push_refusals::{Covered, decide};
 use crate::request_review_command::availability_error;
 use crate::safe_push_command::{STACK_REMOTE, youtrack_service};
-use crate::safe_push_run::{BdStart, admit, run_admitted, start_services};
+use crate::safe_push_run::{BdStart, start_services};
 use crate::session_facts::SessionFacts;
 use bd_core::bd_command;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep};
+use bd_core::operation_record::{admit_planned, run_admitted};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
@@ -357,7 +358,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     text: None,
   };
   // busy while another process runs what the push needs; the record leaves once the run ended
-  let entry = admit(context, &services, &planned)?;
+  let entry = admit_planned(context, &services, &planned)?;
   let accepted = Accepted {
     fingerprint: planned.plan.fingerprint.clone(),
     confirmations: planned.plan.confirmations.clone(),

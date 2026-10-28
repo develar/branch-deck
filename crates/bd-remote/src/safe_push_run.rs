@@ -4,27 +4,22 @@
 //! freeze of the push, so the reads of the remote, the trial and the check against the target kept no other `bd` writer
 //! waiting. A rewrite of another session between the sync and the witness changes the plan: `plan_changed` (exit 3),
 //! nothing done; one after the push and before the start skips the start, and the error says what was pushed. A run of
-//! `bd` is recorded in the operations registry of the repository first (`admit`), so it is `busy` while the app or
-//! another `bd` runs what it needs, and the other way round; a start whose answer was lost in its way is settled first
-//! by a read of Patronus, or names `bd operation forget <op>`.
+//! `bd` is recorded in the operations registry of the repository first (`bd_core::operation_record::admit_planned`), so
+//! it is `busy` while the app or another `bd` runs what it needs, and the other way round; a start whose answer was lost
+//! in its way is settled first by a read of Patronus, or names `bd operation forget <op>`.
 
 use crate::push_command::push_size_limit;
 use crate::safe_push_command::STACK_REMOTE;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
-use bd_core::services::session_key;
 use domain_types::RemoteStatusUpdate;
-use domain_types::error::{ApiError, ErrorCode, HolderTool};
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::Land;
-use domain_types::operation::OperationId;
 use domain_types::patronus::{PatronusAvailability, PatronusRobot};
 use github::service::GitHubService;
-use operations::engine::request_of;
 use operations::land::{LandHost, one_shot_planned};
-use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, PushedRef, StartHost, StartServices, Started, bounded_lock, shown_remote};
+use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, PushedRef, StartHost, StartServices, bounded_lock, shown_remote};
 use operations::push::Sent;
-use operations::reconcile::{ReconcileSources, SettleWith, admit_settled};
-use operations::registry_file::{Entry, ProcessRegistry};
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::{FactSources, Read};
 use repository_model::one_shot::OneShot;
@@ -34,7 +29,6 @@ use repository_model::table::RemoteSubject;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
 use sync_utils::clock::SystemClock;
-use sync_utils::timestamp::unix_now;
 
 /// The facts of a run of `bd`: its one-shot session as the plan read it, a start prepared again on it (the same facts,
 /// so the same plan while the refs are as the sync left them; `land`, none for a push, which runs the plan it made), the
@@ -142,41 +136,4 @@ pub(crate) fn start_services(
 /// The repository lock of `bd` for the full witness and the freeze: the bounded wait of the command (`locked`)
 pub(crate) fn locker(context: &RepoContext) -> Locker {
   bounded_lock(context.git_common_dir.clone(), context.lock_timeout)
-}
-
-/// The record of the run of `planned` in the operations registry of the repository (`registry_file`), as the operation
-/// of the command (`RepoContext::operation_id`, the `operation_id` of its JSON and of its log lines), with what the
-/// app's admission of the same plan holds (`engine::request_of`): `busy`, naming the holder, while another process (the
-/// app, another `bd`) runs what it needs. A start whose answer was lost in its way is settled first over the services of
-/// the run (`reconcile::admit_settled`): one that started no robot leaves, one that did refuses the run as
-/// `plan_changed`, one not known yet is `busy` with how to forget it. The run holds the record until `run_admitted`
-/// ends it
-///
-/// # Errors
-/// As `admit_settled`
-pub(crate) fn admit(context: &RepoContext, services: &StartServices, planned: &Planned) -> Result<Entry, ApiError> {
-  let op = OperationId(context.operation_id.to_string());
-  let request = request_of(&context.prefix, planned);
-  let key = session_key(context);
-  let sources = ReconcileSources::of_start(services, &key, context.patronus_new_api, unix_now());
-  let registry = ProcessRegistry::of(&context.git_common_dir);
-  let runtime = context.runtime().map_err(|error| ApiError::internal(error.message))?;
-  let admitted = runtime.block_on(admit_settled(&registry, &op, HolderTool::Bd, &key, &request, Some(SettleWith::Sources(sources))));
-  admitted.entry
-}
-
-/// Runs `run`, the run of the operation `entry` admitted, on the runtime of the command, counting what it costs from its
-/// admission on (`OperationTally`); then its record leaves the registry with its entry in the journal of the operations
-/// (`Entry::finish`), as the app's run ends
-///
-/// # Errors
-/// What `run` answers
-pub(crate) fn run_admitted(context: &RepoContext, entry: Entry, run: impl Future<Output = Result<Started, ApiError>>) -> Result<Started, ApiError> {
-  let started = match context.runtime() {
-    Ok(runtime) => runtime.block_on(entry.tally().counting(run)),
-    Err(error) => Err(ApiError::internal(error.message)),
-  };
-  let stats = entry.stats();
-  entry.finish(started.as_ref().map(|started| &started.outcome), stats);
-  started
 }

@@ -223,6 +223,22 @@ describe("presentActivity", () => {
     ])
   })
 
+  it("says a rewrite and a pick of bd, which no toast told, an agent's marked, and not the rewrites of the app nor an update of bd", () => {
+    const witness = { head: "", storeTips: { issueGroups: null, stackParents: null, parked: null } }
+    const unstack: Intent = { kind: "rewrite", rewrite: "unstack", branchName: "beta", witness }
+    const bd = { tool: "bd" } as const
+    const unstacked = operation("op1", unstack, [], { ...bd, subject: "beta", leaseSlot: true, worktree: "/pool/branch-deck-1/1/a", endedAt: 101 })
+    const picked = operation("op2", { kind: "pick", source: "/pool/branch-deck-1/1/a" }, [], { ...bd, subject: null, endedAt: 102 })
+    const refused = operation("op3", unstack, [], { ...bd, subject: "beta", error: apiError("invalid_plan", "beta is not stacked"), endedAt: 103 })
+    const apps = operation("op4", unstack, [], { subject: "beta", endedAt: 104 })
+    const updated = operation("op5", { kind: "updateProject", fetch: true }, [], { ...bd, subject: null, endedAt: 105 })
+    expect(said([unstacked, picked, refused, apps, updated]).map(it => [it.kind, it.title, it.description, it.agent])).toEqual([
+      ["error", "Cannot unstack beta", "beta is not stacked", undefined],
+      ["rewrite", "Picked commits", undefined, undefined],
+      ["rewrite", "Unstacked beta", undefined, { worktree: "/pool/branch-deck-1/1/a" }],
+    ])
+  })
+
   it("puts the operations of a journal in every project of its repository, and the page's entries in theirs, newest first", () => {
     const entry = operation("op1", PUSH, [pushed(["auth"], [null])], { endedAt: 100 })
     const page: PageEntry = {

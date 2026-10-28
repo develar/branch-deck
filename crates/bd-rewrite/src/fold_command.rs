@@ -1,12 +1,15 @@
 //! `bd fold`: fold the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
-//! (`history_rewrite::autosquash`, spec/commit/fixups.spec.md), under the repository lock its core takes. One rewrite that
-//! keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo` takes it back
+//! (`history_rewrite::autosquash`, spec/commit/fixups.spec.md), recorded in the operations registry, under the repository
+//! lock its core takes. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo`
+//! takes it back
 
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
+use bd_core::operation_record::{asked_on, recorded_unless};
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
-use domain_types::rewrite::AutosquashScope;
+use domain_types::operation::Intent;
+use domain_types::rewrite::{AutosquashScope, RewriteIntent};
 use git_ops::revs::{DetachedHead, current_branch};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
 use history_rewrite::autosquash::{PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
@@ -61,6 +64,15 @@ pub struct FoldedTarget {
 }
 
 pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError> {
+  let intent = RewriteIntent::SquashFixups {
+    scope: args.branch.clone().map_or(AutosquashScope::All, AutosquashScope::Branch),
+    witness: asked_on(args.expect_head.as_deref()),
+  };
+  recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || folded(context, args))
+}
+
+/// `fold`, recorded unless a dry run
+fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError> {
   let current_branch = ensure_guards(context)?;
   let (plan, branches) = get_autosquash_plan_with_branches(&context.git, &context.repository)?;
   if let Some(branch) = args.branch.as_ref().filter(|branch| !branches.contains(*branch)) {

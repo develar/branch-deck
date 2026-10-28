@@ -4,15 +4,18 @@
 //! lock), the local changes on the paths the update writes and the move, through the guarded working-tree update of
 //! `git_ops::update_branch`; what the update did and landed is read after the release. A conflict starts a resolve
 //! session (`--continue`, `--abort`, `--status`) under the lock: the rounds are resolved outside the working tree,
-//! which only the finish writes. A block changes nothing; bd never stashes
+//! which only the finish writes. A block changes nothing; bd never stashes. A run that writes is recorded in the
+//! operations registry of the repository before the fetch (`Intent::UpdateProject`, `bd_core::operation_record`)
 
 use bd_core::bd_command::shell_word;
 use bd_core::context::RepoContext;
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorExtra, ProcessKind, ProcessOutput};
+use bd_core::operation_record::recorded_unless;
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
+use domain_types::operation::Intent;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_ops::index_lock::IndexLocked;
 use git_ops::landed_pairing::{LandedProof, PathLines};
@@ -552,6 +555,14 @@ pub struct UpdateConflictCommit {
 }
 
 pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
+  let fetch = !(args.no_fetch || args.resume || args.abort || args.status);
+  // a dry run and a status read only: no record
+  let reads_only = args.dry_run || (args.status && !args.materialize);
+  recorded_unless(context, reads_only, &Intent::UpdateProject { fetch }, || updated(context, args))
+}
+
+/// `update`, recorded unless it reads only
+fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
   if args.force && !args.materialize && !args.abort {
     return Err(CliError::new(ErrorCode::InvalidArguments, "--force goes with --status --materialize or with --abort"));
   }

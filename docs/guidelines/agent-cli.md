@@ -32,7 +32,13 @@ its first effect fails as `plan_changed` (exit 3, nothing done). The run is the 
 recorded in the operations registry of the repository under the `operation_id` of the JSON (the id of the root span
 below), `busy` while another process runs what it needs, and once it ended it goes into the journal of the operations
 of the repository under that id, beside the app's (what it did, how it ended, its git processes, its HTTP requests and
-its time from the admission; [Journal](../design/git-operations.md#journal)).
+its time from the admission; [Journal](../design/git-operations.md#journal)). A rewrite (`group`, `rename`,
+`restack`, `unstack`, `reword`, `fold`, `park`, `unpark`, `unapply`, `reapply`, `undo`, `move-hunk`), `update` and
+`pick` that write are recorded too, before they take any lock (`bd_core::operation_record::recorded`): the app's
+windows show them on their rows ("bd: Unstacking beta…") and Activity lists them, but HEAD, which they hold, makes no
+other process `busy`: the repository lock orders the rewrites of the app and of every `bd`, and a rewrite of the app
+meanwhile is waited for (`locked` after the bounded wait). A dry run, `bd update --status` and `bd check --fix`, which
+write nothing, are no record.
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
@@ -85,8 +91,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - Every object ends with the `operation_id` of the run, an error object and `bd --version` too: a ULID, new for each
   run, the id of the root span of its log lines (`-v`), and of its record in the operations registry and its entry in
   the journal of the operations when the command runs an operation of the remote (`push`, `safe-push`,
-  `request-review`). `bd operation forget` prints its own and the one it forgot (`forgotten`). `bd schema` declares it
-  in every output (`schema.rs`, `with_operation_id`).
+  `request-review`), a rewrite, an update or a pick that writes. `bd operation forget` prints its own and the one
+  it forgot (`forgotten`). `bd schema` declares it in every output (`schema.rs`, `with_operation_id`).
 - Optional fields are left out when they are empty. `group` is the exception: it is always present and is `null` for
   an unassigned commit. In a `--brief` view a field is also left out when another field says it: `issue_key` when it
   is the `group` (`bd commits --brief`) or the `name` (`bd status --brief`) of an issue branch, and the `(prefix)` of a
@@ -185,8 +191,9 @@ Agents branch on the code and the exit code, never on the message. `commits` nam
 true, whatever the exit code. It is the `retry` class of the code other than `no`: `same` (`locked`, `busy`, `network_error`) runs
 the same command again, `after_reread` (`head_moved` and the other `*_moved`, `plan_changed`) builds it again from a new read. The message of `locked` names the holder when it wrote its record (`` `bd check --fix` (pid 4242, for 12
 min 3 s) holds …/branch-deck.lock (waited 10.0 s); retry when it is done``), else "Another Branch Deck operation".
-`busy` (`bd push`, `bd safe-push`, `bd request-review`) names the operation of another process that holds what the
-command needs, from the operations registry of the repository (docs/design/git-operations.md, "Operations registry"):
+`busy` (`bd push`, `bd safe-push`, `bd request-review`; of a rewrite only `bd reapply` while another process pushes
+the unapplied branch) names the operation of another process that holds what the command needs, from the operations
+registry of the repository (docs/design/git-operations.md, "Operations registry"):
 its `error.holder` is `{op, tool, pid, kind, subject, held_for, unknown}` (`kind` `safe_push`, `dry_run`, `push`, …;
 `op` the `operation_id` of its log lines), left out for a registry of another Branch Deck, whose operations can't be
 read. `unknown: true` is a start whose answer was lost (its request went out and no answer came, or its process was

@@ -128,6 +128,20 @@ pub enum RewriteIntent {
   Undo {
     token: UndoToken,
   },
+  /// The regroup of a plan (`bd group --plan`): only the record of a run of `bd` in the operations registry of the
+  /// repository, which the view and the journal show; the engine of the app runs none
+  Group {
+    plan: RegroupPlan,
+    witness: TableWitness,
+  },
+  /// A hunk of `path` moves from the commit `from` into the commit `to` (`bd move-hunk`): only the record of a run of
+  /// `bd`, as `Group`
+  MoveHunk {
+    from: String,
+    to: String,
+    path: String,
+    witness: TableWitness,
+  },
 }
 
 impl RewriteIntent {
@@ -152,13 +166,22 @@ impl RewriteIntent {
       | Self::ApplyConflictFix { witness, .. }
       | Self::DeleteArchived { witness, .. }
       | Self::DeleteUnapplied { witness, .. }
-      | Self::PickRemote { witness, .. } => Some(witness),
+      | Self::PickRemote { witness, .. }
+      | Self::Group { witness, .. }
+      | Self::MoveHunk { witness, .. } => Some(witness),
       Self::Undo { .. } => None,
     }
   }
 
+  /// Whether only `bd` runs it (`Group`, `MoveHunk`): the engine of the app refuses it, its record in the operations
+  /// registry is the view's and the journal's
+  #[must_use]
+  pub const fn recorded_only(&self) -> bool {
+    matches!(self, Self::Group { .. } | Self::MoveHunk { .. })
+  }
+
   /// The branch it is about, as the view keys a row: the target of a move, the branch of the others; none for a move
-  /// back, a squash, a reword, a fix, an undo
+  /// back, a squash, a reword, a fix, an undo, a regroup of a plan, a move of a hunk
   #[must_use]
   pub fn subject(&self) -> Option<&str> {
     match self {
@@ -180,7 +203,9 @@ impl RewriteIntent {
       | Self::DeleteArchived { branch_name, .. }
       | Self::DeleteUnapplied { branch_name, .. }
       | Self::PickRemote { branch_name, .. } => Some(branch_name),
-      Self::Squash { .. } | Self::SquashFixups { .. } | Self::Reword { .. } | Self::ApplyConflictFix { .. } | Self::Undo { .. } => None,
+      Self::Squash { .. } | Self::SquashFixups { .. } | Self::Reword { .. } | Self::ApplyConflictFix { .. } | Self::Undo { .. } | Self::Group { .. } | Self::MoveHunk { .. } => {
+        None
+      }
     }
   }
 }

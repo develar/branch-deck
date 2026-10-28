@@ -45,6 +45,12 @@ impl WrappedGit {
     &self.executor
   }
 
+  /// The directory of the wrapper, where its arms keep their marks (`{dir}`)
+  #[must_use]
+  pub fn directory(&self) -> &std::path::Path {
+    self.directory.path()
+  }
+
   /// Whether an arm left the mark `name` in the directory of the wrapper (`touch '{dir}/name'`)
   pub fn marked(&self, name: &str) -> bool {
     self.directory.path().join(name).exists()

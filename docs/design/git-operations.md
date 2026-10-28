@@ -532,7 +532,12 @@ reword and one ref transaction. A dry run of it, without the lock, is the previe
 The app's move, rename, restack, unstack, park, unpark and their undo run in the engine only (the page's
 `runRewriteIntent`), on these cores with the HEAD of their witness expected ([Rewrite in the
 engine](#rewrite-in-the-engine)): `rename_branch_core` and `restack_branch_core` with `RegroupOptions::expect_head`, and
-`move_result` of their outcome.
+`move_result` of their outcome. `bd group`, `bd rename`, `bd restack`, `bd unstack` and `bd reword` run the same cores
+after their record went into the operations registry of the repository ("Operations registry",
+`bd_core::operation_record::recorded`: `RewriteIntent::Group` of the plan, `Rename`, `Restack`, `Unstack`, `Reword`,
+on the HEAD of `--expect-head`), before the lock; the record leaves before the `--sync`, which runs after the release.
+A rewrite of the app and one of `bd` meanwhile make each other neither busy nor joined: the second takes the lock
+after the first and runs on what it left (a second unstack of beta: `invalid_plan`, "beta is not stacked").
 
 `bd reword` (`crates/history-rewrite/src/reword.rs`) gives the regroup whole new messages by id (`Change::messages`,
 a `--subject` keeps the body it reads from the snapshot, under the lock), cleaned up as `git commit` does, before the
@@ -2940,15 +2945,17 @@ Code: `crates/trial-check/src/conflict_fix.rs`, `src-tauri/src/commands/conflict
 
 #### Operations registry
 
-The operations of the remote that a process runs (an app's session, `bd push`, `bd safe-push`, `bd request-review`)
-are recorded in `$GIT_COMMON_DIR/branch-deck/operations.json`, so no process runs what another process of the same
-repository runs (`operations::registry_file`, its one writer; `registry_scan_test.rs` fails on the names of its files
-anywhere else):
+The operations that a process runs (every operation of an app's session; `bd push`, `bd safe-push`,
+`bd request-review`; the rewrites of `bd`, `bd update` and `bd pick`) are recorded in
+`$GIT_COMMON_DIR/branch-deck/operations.json`, so no process runs what another process of the same repository runs,
+and each shows what the others run (`operations::registry_file`, its one writer; `registry_scan_test.rs` fails on the
+names of its files anywhere else):
 
 - **A record** (`schema: 1`): the id of the operation (the `operation_id` of its log lines), `tool` (`bd`, `app`), the
   pid with the start time of its process and its host, `startedAt` and `heartbeatAt` (Unix seconds), its session (the
   worktree and the branch prefix), the intent, the resources it holds (`Resource`, as the admission of its family asks
-  for them: `engine::request_of` for a plan of `bd`), its step at the admission, `status` (`running`, `unknown`) and
+  for them: `engine::request_of` for a plan of `bd`, `engine::unplanned_request` for its rewrites), its step at the
+  admission, `status` (`running`, `unknown`) and
   the external effect it has in flight (`external.pendingStart`, which a reconcile of a lost answer reads). No token,
   no secret; a record leaves once its operation ended, so the file holds what runs now.
 - **The lock**: every change is a read-modify-write under `operations.lock` (the line of the process, then a `flock`
@@ -2956,16 +2963,18 @@ anywhere else):
   actor of a session; the file is written to a temporary file and renamed over, so a read without the lock sees one
   whole state. It is not the repository lock, which `bd` holds across its sync: an admission never waits for a sync.
 - **Admission**: an operation goes into the file before its session admits it (the app on the blocking pool, before
-  the actor of the session sees it, `Registry::admit`; `bd` after its plan, before its run). A record of another
+  the actor of the session sees it, `Registry::admit`; `bd` after its plan, before its run; a rewrite, an update or a
+  pick of `bd` before the command takes any lock, `bd_core::operation_record::recorded`). A record of another
   process that runs the same intent or holds one of its resources makes it `busy` (exit 3, `retry: same`), naming that
   operation (`ErrorDetails::Busy { holder }`, `error.holder` of `bd`: id, tool, pid, kind, subject, how long), and
   nothing is done. The records of a process never hold its own operations: its session admits those over each other
   (a join, the queue). A record holds what it needs in every session of the repository: a ref by its full name, a
   robot, a field of a pull request, an issue; a branch named without its prefix (what a start lands) and the intent
   only under the same branch prefix (`domain_policy::admission::holds_across`); HEAD (`Resource::Head`, which a rewrite
-  holds) never: the repository lock orders the rewrites of the processes, and the record of a rewrite tells the view
-  and the journal who rewrites. It leaves the file once its operation ended (the app after the end on the actor, `bd`
-  after its run).
+  holds) never, nor the same intent of a rewrite, an update or a pick (`Intent::ordered_by_repository_lock`): the
+  repository lock orders them between processes, and the record of a rewrite tells the view and the journal who
+  rewrites. It leaves the file once its operation ended (the app after the end on the actor, `bd` after its run, a
+  rewrite of `bd` before its `--sync`), with its entry in the journal.
 - **Liveness**: a record of a process that is gone leaves at the next admission: of this host one whose pid runs no
   more or runs another process (another start time, `process_scan::is_running`), at once; of another host (a common
   dir on a shared disk), whose pids tell nothing here, once its heartbeat is older than 5 minutes. A record with an

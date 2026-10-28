@@ -158,11 +158,15 @@ tells the present, its line of the last day opens Activity at its Robots.
   is the entry of its error toast, which names it (`operationId`), in the projects of the journal of the operation,
   whichever repository the main window showed when the toast came (a Safe Push of one repository that fails while
   another is shown is in the log of the first only); one no toast told (of `bd`) says what it was for and why it failed
-  ("Cannot push auth" / "The remote refused the push: …"); a canceled one is no entry. Clear Log of a repository
-  forgets the errors the page told of the operations of its journal too.
+  ("Cannot push auth" / "The remote refused the push: …"); a canceled one is no entry. A rewrite or a pick of `bd`
+  (its journal entry, `tool: bd`), which no toast told, is an entry of kind `rewrite` in the words of the rewrite
+  ("Unstacked beta", "Picked commits"; `presentRewrite`), an agent's marked as any other; an update of `bd` tells
+  nothing of what it moved and is no entry. Clear Log of a repository forgets the errors the page told of the
+  operations of its journal too.
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about, in the repository the main window shows`)
   [@test] ../../src/presenters/activity.test.ts (`says an operation that failed unless the page recorded the error of its toast, and leaves out the canceled`)
   [@test] ../../src/presenters/activity.test.ts (`puts the error the page told of an operation where the operation ran, whichever repository the window showed then`)
+  [@test] ../../src/presenters/activity.test.ts (`says a rewrite and a pick of bd, which no toast told, an agent's marked, and not the rewrites of the app nor an update of bd`)
   [@test] ../../crates/operations/src/journal_test.rs (`clear_log_forgets_the_errors_the_page_told_of_the_operations_of_the_journal`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`)
 - The entry of an error a command returned keeps the operation it names as `operationId`, the key to the command's

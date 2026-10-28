@@ -13,11 +13,12 @@
 
 use crate::push_command::unknown_or_unapplied;
 use crate::safe_push_command::{UNKNOWN_GITHUB_REPOSITORY, compared_table, readiness_names};
-use crate::safe_push_run::{BdStart, admit, run_admitted, start_services};
+use crate::safe_push_run::{BdStart, start_services};
 use crate::session_facts::SessionFacts;
 use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
+use bd_core::operation_record::{admit_planned, run_admitted};
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
@@ -263,7 +264,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let space = space.map_or_default(|space| space.name);
   let run = start_services(context, patronus, space, Some((Arc::clone(&github), repository)), target.clone(), &synced.baseline)?;
   // busy while another process runs what the request needs; the record leaves once the run ended
-  let entry = admit(context, &run, &planned)?;
+  let entry = admit_planned(context, &run, &planned)?;
   let accepted = Accepted {
     fingerprint: planned.plan.fingerprint.clone(),
     confirmations: Vec::new(),

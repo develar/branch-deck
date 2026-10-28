@@ -1,15 +1,18 @@
 //! `bd unapply`, `bd reapply` and their `bd undo`: the commits of a virtual branch and their files out of the branch
 //! checked out here, the branch kept as `{prefix}/unapplied/<name>`, and back on top (spec/branch/unapply.spec.md). The core
 //! (`sync_core::unapply_branch`) takes the repository lock, checks that the virtual branch is the copies of its commits,
-//! and moves HEAD through the guarded working-tree update; local changes on the paths it writes change nothing
+//! and moves HEAD through the guarded working-tree update; local changes on the paths it writes change nothing. Each is
+//! recorded in the operations registry of the repository before the lock (`bd_core::operation_record`)
 
 use crate::update_command::{core_error, undo_core_error};
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
+use bd_core::operation_record::{asked_on, recorded, recorded_unless};
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
 use domain_types::error::ErrorCode;
-use domain_types::rewrite::{UndoneReapply, UndoneUnapply};
+use domain_types::operation::Intent;
+use domain_types::rewrite::{RewriteIntent, UndoneReapply, UndoneUnapply};
 use git_ops::unapply::DropRefused;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
@@ -44,6 +47,16 @@ pub struct UnapplyOutput {
 }
 
 pub fn unapply(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutput, CliError> {
+  let intent = RewriteIntent::Unapply {
+    branch_name: args.branch.clone(),
+    original_commit_ids: None,
+    witness: asked_on(args.expect_head.as_deref()),
+  };
+  recorded(context, &Intent::Rewrite(Box::new(intent)), || unapplied(context, args))
+}
+
+/// `unapply` once recorded
+fn unapplied(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutput, CliError> {
   let held = lock(context)?;
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
@@ -152,6 +165,15 @@ pub struct ReappliedOutput {
 }
 
 pub fn reapply(context: &RepoContext, args: &ReapplyArgs) -> Result<ReapplyOutput, CliError> {
+  let intent = RewriteIntent::Reapply {
+    branch_name: args.branch.clone(),
+    witness: asked_on(args.expect_head.as_deref()),
+  };
+  recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || reapplied(context, args))
+}
+
+/// `reapply`, recorded unless a dry run
+fn reapplied(context: &RepoContext, args: &ReapplyArgs) -> Result<ReapplyOutput, CliError> {
   let held = if args.dry_run { None } else { Some(lock(context)?) };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),

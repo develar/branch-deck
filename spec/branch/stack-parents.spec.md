@@ -193,8 +193,10 @@ only the stack parents ref.
 - The app's Stack On, Unstack and Rename are the rewrites `restack`, `unstack` and `rename` of the engine
   (`operations::rewrite`, over the same cores), named on the table the window shows: a second click of the same one
   (a double click, three clicks from two windows) runs one rewrite with one outcome, another rewrite waits behind it in
-  the queue of the session, and its toast with Undo comes once the sync it asked showed the branch.
+  the queue of the session, and its toast with Undo comes once the sync it asked showed the branch. `bd unstack` of an
+  agent beside the app's waits for the repository lock and changes nothing more.
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_triple_unstack_is_one_rewrite_with_one_outcome`)
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_triple_unstack_of_the_app_and_bd_is_one_rewrite_journaled_once_by_each`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`)
 
 ### A stacked branch that builds alone

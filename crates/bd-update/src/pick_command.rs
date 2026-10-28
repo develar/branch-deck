@@ -1,16 +1,21 @@
 //! `bd pick` and `bd undo pick:…`: the commits of another worktree landed on the branch checked out here, without
 //! `git cherry-pick` (spec/cli/pick.spec.md). The core (`update_core::pick`) takes the repository lock, which every
 //! worktree shares, replays the commits in memory, and moves the branch (and, with --follow, the source worktree)
-//! through the guarded working-tree update; a conflict or local changes in the way change nothing
+//! through the guarded working-tree update; a conflict or local changes in the way change nothing. A pick that writes is
+//! recorded in the operations registry of the repository first (`Intent::Pick`, of `--remote` the rewrite `PickRemote`,
+//! `bd_core::operation_record`)
 
 use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError};
+use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::suggest_plan::SuggestPlan;
 use bd_core::sync_command::sync;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
+use domain_types::operation::Intent;
+use domain_types::rewrite::RewriteIntent;
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use schemars::JsonSchema;
@@ -313,6 +318,29 @@ pub struct HomePick {
 
 /// `bd pick`, or with `home` the pick of `bd lease pick` (`args.from` the lease, `args.follow` set)
 pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>) -> Result<PickOutput, CliError> {
+  let intent = match (&args.from, &args.revisions, &args.remote) {
+    _ if args.dry_run => None,
+    (Some(dir), _, _) => Some(Intent::Pick {
+      source: environment.cwd.join(dir).to_string_lossy().into_owned(),
+    }),
+    (None, Some(revisions), _) => Some(Intent::Pick { source: revisions.clone() }),
+    (None, None, Some(branch)) => Some(Intent::Rewrite(Box::new(RewriteIntent::PickRemote {
+      branch_name: branch.clone(),
+      parent_branch: None,
+      my_email: None,
+      expected_remote: args.expect_remote.clone(),
+      witness: asked_on(args.expect_head.as_deref()),
+    }))),
+    (None, None, None) => None,
+  };
+  match intent {
+    Some(intent) => recorded(context, &intent, || picked(context, args, environment, home)),
+    None => picked(context, args, environment, home),
+  }
+}
+
+/// `pick_into`, recorded unless a dry run
+fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>) -> Result<PickOutput, CliError> {
   let from = match (&args.from, &args.revisions, &args.remote) {
     (Some(dir), _, _) => PickFrom::Worktree(environment.cwd.join(dir).to_string_lossy().into_owned()),
     (None, Some(revisions), _) => PickFrom::Revisions(revisions.clone()),

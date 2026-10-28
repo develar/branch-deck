@@ -1,15 +1,20 @@
 //! `bd group`, `bd rename`, `bd restack` and `bd unstack`: message-only history rewrites through
-//! `history_rewrite::regroup`, which validates before it writes. bd holds the repository lock over the rewrite and the
-//! descriptions of a plan; with --sync, the sync runs after the release, as `bd sync` does
+//! `history_rewrite::regroup`, which validates before it writes. The rewrite is recorded in the operations registry of
+//! the repository before the lock (`bd_core::operation_record::recorded`: the app's windows show it, the journal keeps
+//! it), then bd holds the repository lock over the rewrite and the descriptions of a plan; with --sync, the record ended
+//! and the lock released, the sync runs, as `bd sync` does
 
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use bd_core::branch_view::ParentSourceName;
 use bd_core::context::RepoContext;
 use bd_core::error::regroup_error;
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorBody};
+use bd_core::operation_record::{asked_on, recorded_unless};
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::{SyncOutput, lock, sync};
 use bd_core::text_input::read_text;
+use domain_types::operation::Intent;
+use domain_types::rewrite::RewriteIntent;
 use git_ops::branch_description::Description;
 use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core};
 use history_rewrite::repository_lock::{LockWait, RepositoryLock};
@@ -227,7 +232,11 @@ pub struct IdMapping {
 pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, CliError> {
   let text = read_text(&args.plan, "the plan")?;
   let plan = parse_group_plan(&text)?;
-  rewrite(context, "group", &args.rewrite, &plan.descriptions, |options| {
+  let intent = RewriteIntent::Group {
+    plan: plan.regroup.clone(),
+    witness: asked_on(args.rewrite.expect_head.as_deref()),
+  };
+  rewrite(context, ("group", intent), &args.rewrite, &plan.descriptions, |options| {
     regroup_commits_accepted(&context.git, &context.repository, &plan.regroup, options, |outcome| {
       check_descriptions(&plan.descriptions, &outcome.commits)
     })
@@ -235,33 +244,65 @@ pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, C
 }
 
 pub fn rename(context: &RepoContext, args: &RenameArgs) -> Result<RewriteOutput, CliError> {
-  rewrite(context, "rename", &args.rewrite, &BTreeMap::new(), |options| {
+  let intent = RewriteIntent::Rename {
+    branch_name: args.old.clone(),
+    new_name: args.new.clone(),
+    witness: asked_on(args.rewrite.expect_head.as_deref()),
+  };
+  rewrite(context, ("rename", intent), &args.rewrite, &BTreeMap::new(), |options| {
     rename_branch_core(&context.git, &context.repository, &args.old, &args.new, options)
   })
 }
 
 pub fn restack(context: &RepoContext, args: &RestackArgs) -> Result<RewriteOutput, CliError> {
-  rewrite(context, "restack", &args.rewrite, &BTreeMap::new(), |options| {
+  let intent = RewriteIntent::Restack {
+    branch_name: args.branch.clone(),
+    parent: args.parent.clone(),
+    witness: asked_on(args.rewrite.expect_head.as_deref()),
+  };
+  rewrite(context, ("restack", intent), &args.rewrite, &BTreeMap::new(), |options| {
     restack_branch_core(&context.git, &context.repository, &args.branch, Some(&args.parent), options)
   })
 }
 
 pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutput, CliError> {
-  rewrite(context, "unstack", &args.rewrite, &BTreeMap::new(), |options| {
+  let intent = RewriteIntent::Unstack {
+    branch_name: args.branch.clone(),
+    witness: asked_on(args.rewrite.expect_head.as_deref()),
+  };
+  rewrite(context, ("unstack", intent), &args.rewrite, &BTreeMap::new(), |options| {
     restack_branch_core(&context.git, &context.repository, &args.branch, None, options)
   })
 }
 
-/// Run `regroup` under the repository lock (none for a dry run), then under the same lock write the changed
-/// `descriptions`; with --sync, release the lock and sync. A failure after the rewrite is the `error` of the rewrite
-/// output, so the output keeps the undo token
+/// Run `regroup`, the rewrite `operation` (its name in the output, the intent of its record), recorded in the operations
+/// registry of the repository (none for a dry run) and under the repository lock, then under the same lock write the
+/// changed `descriptions`; with --sync, end the record, release the lock and sync. A failure after the rewrite is the
+/// `error` of the rewrite output, so the output keeps the undo token
 pub(crate) fn rewrite(
+  context: &RepoContext,
+  operation: (&str, RewriteIntent),
+  args: &RewriteArgs,
+  descriptions: &BTreeMap<String, Description>,
+  regroup: impl FnOnce(&RegroupOptions) -> Result<RegroupOutcome, RegroupError>,
+) -> Result<RewriteOutput, CliError> {
+  let (name, intent) = operation;
+  let locked = || rewrite_locked(context, name, args, descriptions, regroup);
+  let (mut output, held_lock) = recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), locked)?;
+  if args.sync && output.after_error.is_none() {
+    (output.sync, output.after_error) = sync_after_rewrite(context, held_lock);
+  }
+  Ok(output)
+}
+
+/// `rewrite` up to its sync: its output, and the lock it holds (none for a dry run)
+fn rewrite_locked(
   context: &RepoContext,
   operation: &str,
   args: &RewriteArgs,
   descriptions: &BTreeMap<String, Description>,
   regroup: impl FnOnce(&RegroupOptions) -> Result<RegroupOutcome, RegroupError>,
-) -> Result<RewriteOutput, CliError> {
+) -> Result<(RewriteOutput, Option<RepositoryLock>), CliError> {
   let held_lock = if args.dry_run { None } else { Some(lock(context)?) };
   let options = RegroupOptions {
     expect_head: args.expect_head.clone(),
@@ -276,18 +317,13 @@ pub(crate) fn rewrite(
   let mut output = rewrite_output(context, operation, args, &outcome);
   if args.dry_run {
     set_described(&mut output, &changed);
-    return Ok(output);
+    return Ok((output, held_lock));
   }
   let (written, error) = write_descriptions(context, &changed);
   set_described(&mut output, &changed[..written]);
-  if let Some(error) = error {
-    output.after_error = Some(error.to_output().error);
-    return Ok(output);
-  }
-  if args.sync {
-    (output.sync, output.after_error) = sync_after_rewrite(context, held_lock);
-  }
-  Ok(output)
+  // the sync is skipped after a failed write of a description
+  output.after_error = error.map(|error| error.to_output().error);
+  Ok((output, held_lock))
 }
 
 fn set_described(output: &mut RewriteOutput, changes: &[DescriptionChange]) {

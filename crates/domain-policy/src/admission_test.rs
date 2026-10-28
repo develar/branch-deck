@@ -185,8 +185,8 @@ fn unstack(branch: &str, head: &str) -> Intent {
 }
 
 /// Every rewrite holds HEAD: within a process the same rewrite joins, another waits behind the newest rewrite (an undo
-/// too, never refused), and a push runs beside them; a rewrite of another process makes none busy, the repository lock
-/// orders them, but the same rewrite under the same prefix does
+/// too, never refused), and a push runs beside them; a rewrite of another process makes none busy, the same one neither
+/// (the repository lock orders them), nor does an update or a pick of `bd`; the ref a reapply holds does
 #[test]
 fn a_rewrite_waits_for_the_rewrites_of_its_process_and_for_none_of_another() {
   let first = running("a", unstack("beta", "h1"), &[Resource::Head]);
@@ -205,5 +205,30 @@ fn a_rewrite_waits_for_the_rewrites_of_its_process_and_for_none_of_another() {
   let of_another = of_bd(first);
   assert!(!holds_across(&of_another, "user", "user", &unstack("gamma", "h1"), &[Resource::Head]));
   assert!(!holds_across(&of_another, "user", "user", &undo, &[Resource::Head]));
-  assert!(holds_across(&of_another, "user", "user", &unstack("beta", "h1"), &[Resource::Head]));
+  assert!(!holds_across(&of_another, "user", "user", &unstack("beta", "h1"), &[Resource::Head]));
+  let update = Intent::UpdateProject { fetch: true };
+  assert!(!holds_across(
+    &of_bd(running("u", update.clone(), &[Resource::Head])),
+    "user",
+    "user",
+    &update,
+    &[Resource::Head]
+  ));
+  let pick = Intent::Pick { source: "../lease".to_string() };
+  assert!(!holds_across(
+    &of_bd(running("p", pick.clone(), &[Resource::Head])),
+    "user",
+    "user",
+    &pick,
+    &[Resource::Head]
+  ));
+  let unapplied = Resource::Ref {
+    name: "user/unapplied/beta".to_string(),
+  };
+  let reapply = Intent::Rewrite(Box::new(RewriteIntent::Reapply {
+    branch_name: "beta".to_string(),
+    witness: TableWitness::default(),
+  }));
+  let reapplying = of_bd(running("r", reapply, &[Resource::Head, unapplied.clone()]));
+  assert!(holds_across(&reapplying, "user", "user", &push("beta"), &[unapplied]));
 }

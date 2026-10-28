@@ -25,9 +25,10 @@ use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_requ
 use crate::witness::{Witness, check};
 use crate::{close, forget, issue, land, pull_request, push, review, review_fetch, robot, update};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
-use domain_types::error::ApiError;
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Land, PlannedEffect, Subject};
 use domain_types::operation::{EffectRecord, Intent, NewsKey, OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, Resource, RunningMove};
+use domain_types::rewrite::RewriteIntent;
 use domain_types::session::Version;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::session::{SessionKey, Sessions};
@@ -105,6 +106,8 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::Rewrite(rewrite) => Ok(prepare_rewrite(sessions, key, *rewrite).await),
     intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => Ok(update::prepare_update(sessions, key, intent).await),
     Intent::FetchReview { number } => Ok(review_fetch::prepare_review_fetch(sessions, key, number).await),
+    // only `bd` runs it: no plan the app could run
+    Intent::Pick { .. } => Ok(None),
   }
 }
 
@@ -115,7 +118,8 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
 /// it names its commits on is in its intent (`rewrite::execute_rewrite`)
 ///
 /// # Errors
-/// What refused it before its first effect, a session that is not open, an intent whose family runs elsewhere
+/// What refused it before its first effect, a session that is not open; `invalid_arguments` for an intent only `bd` runs
+/// (a pick, a regroup of a plan, a move of a hunk: `runs_only_in_bd`)
 pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
   let services = hosts.services;
   match intent {
@@ -136,6 +140,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     Intent::UpdateProject { fetch } => Box::pin(update::execute_update(registry, key, fetch, hosts, events)).await,
     Intent::DismissLanded => update::execute_dismiss(registry, key, hosts, events).await,
     Intent::FetchReview { number } => review_fetch::execute_review_fetch(registry, key, number, hosts, events).await,
+    intent @ Intent::Pick { .. } => Err(runs_only_in_bd(&intent)),
   }
 }
 
@@ -229,7 +234,43 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     Intent::Rewrite(rewrite) => rewrite_request(prefix, rewrite),
     intent @ (Intent::FetchBaseline | Intent::UpdateProject { .. } | Intent::DismissLanded) => update::update_request(intent, update::planned_upstream(plan)),
     Intent::FetchReview { number } => review_fetch::review_fetch_request(*number),
+    intent @ Intent::Pick { .. } => pick_request(intent),
   }
+}
+
+/// What `intent`, of a family whose request names no plan, asks the registry for in a session of `prefix`, as the
+/// app's admission of it asks: `bd` records the run of its rewrites, its update and its pick with it in the operations
+/// registry of the repository (`registry_file`), which the view and the journal show; `None` for an intent whose
+/// resources its plan names (a start, a push, an action on the remote: `request_of`)
+#[must_use]
+pub fn unplanned_request(prefix: &str, intent: &Intent) -> Option<OperationRequest> {
+  match intent {
+    Intent::Rewrite(rewrite) => Some(rewrite_request(prefix, rewrite)),
+    Intent::UpdateProject { .. } | Intent::DismissLanded => Some(update::update_request(intent, "")),
+    Intent::Pick { .. } => Some(pick_request(intent)),
+    _ => None,
+  }
+}
+
+/// What the pick `intent` of `bd` holds: HEAD, which it moves under the repository lock
+fn pick_request(intent: &Intent) -> OperationRequest {
+  OperationRequest {
+    intent: intent.clone(),
+    resources: vec![Resource::Head],
+    step: OperationStep::Rewriting,
+    moves: Vec::new(),
+  }
+}
+
+/// The refusal of `intent` that only `bd` runs (a pick, a regroup of a plan, a move of a hunk): its record in the
+/// operations registry is the view's and the journal's, the engine of the app has no run of it
+pub(crate) fn runs_only_in_bd(intent: &Intent) -> ApiError {
+  let what = match intent {
+    Intent::Rewrite(rewrite) if matches!(**rewrite, RewriteIntent::Group { .. }) => "the regroup of a plan (`bd group`)",
+    Intent::Rewrite(_) => "the move of a hunk (`bd move-hunk`)",
+    _ => "a pick of commits (`bd pick`)",
+  };
+  ApiError::new(ErrorCode::InvalidArguments, format!("Only bd runs {what}: the app shows its record and runs none"))
 }
 
 /// What a start of `subject` reserves: the branches its plan lands, the refs its push writes, the robot it cancels

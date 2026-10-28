@@ -89,6 +89,11 @@ pub enum Intent {
   /// (`refs/branch-deck/review/<n>/{head,base}`) unless both are local, and its range answered (`operations::review_fetch`):
   /// the head and the base GitHub names, as the review requests of the session have them
   FetchReview { number: u32 },
+  /// The commits of another worktree (`source`: its directory as `bd pick --from` named it) or of a range of revisions
+  /// (`source`: `<rev>` or `<a>..<b>`) are replayed onto the checked out branch (`bd pick`, `bd lease pick`): only the
+  /// record of a run of `bd` in the operations registry of the repository, which the view and the journal show; the
+  /// engine of the app runs none
+  Pick { source: String },
 }
 
 impl Intent {
@@ -114,7 +119,16 @@ impl Intent {
       Self::UpdateProject { .. } => OperationKind::UpdateProject,
       Self::DismissLanded => OperationKind::DismissLanded,
       Self::FetchReview { .. } => OperationKind::FetchReview,
+      Self::Pick { .. } => OperationKind::Pick,
     }
+  }
+
+  /// Whether the repository lock orders its runs between processes: a rewrite, Update Project, a pick, which each take
+  /// it for their move; so the same intent of another process makes it no `busy` (`domain_policy::admission::holds_across`):
+  /// it waits for the lock, and its core runs on what the other one left
+  #[must_use]
+  pub const fn ordered_by_repository_lock(&self) -> bool {
+    matches!(self, Self::Rewrite(_) | Self::UpdateProject { .. } | Self::Pick { .. })
   }
 
   /// The subject it names, as the view keys it (`Subject::key`: the branch, `stack:<root>` a whole stack); `None` for an
