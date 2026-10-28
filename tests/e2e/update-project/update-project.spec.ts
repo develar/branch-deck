@@ -38,14 +38,16 @@ async function updateWaiting(page: Page): Promise<Locator> {
   return page.getByTestId("update-steps")
 }
 
-/** Drops feature-auth onto the park zone, which waits in the session: the hover of the "⋯" of its busy row */
-async function parkWaiting(page: Page): Promise<Locator> {
+/** Drops feature-auth onto the park zone, which waits in the session: the hover of the "⋯" of its busy row says what for */
+async function expectParkWaiting(page: Page, text: string | RegExp): Promise<void> {
   await startDrag(page, findBranchRow(page, "feature-auth"))
   await dropAt(page, page.getByTestId("drag-target-bar").getByTestId("park-drop-zone"))
   const more = getMoreButton(findBranchRow(page, "feature-auth"))
   await expect(more).toHaveAttribute("aria-busy", "true")
   await more.hover()
-  return page.getByRole("tooltip")
+  // the tooltip by its words: one hovered just before (Update's) is still mounted for its exit transition, while this one
+  // opens at once, its group warm
+  await expect(page.getByRole("tooltip", { name: text })).toHaveText(text)
 }
 
 /** The agent releases the repository lock: the update and the park waiting in the session both run, none refused */
@@ -198,7 +200,7 @@ test.describe("Update Project", () => {
     await syncAndWaitForBranches()
     // an agent holds the repository lock: the park waits for it in the session, holding HEAD
     await repo.holdRepositoryLock(true)
-    await expect(await parkWaiting(page)).toHaveText(/^Waiting for `bd pick --follow`/)
+    await expectParkWaiting(page, /^Waiting for `bd pick --follow`/)
 
     // ⌘T: the update fetches, then waits for the park in the queue of the session, never refused
     await expect((await updateWaiting(page)).getByRole("listitem")).toHaveText([
@@ -221,7 +223,7 @@ test.describe("Update Project", () => {
     await expect(await updateWaiting(page)).toContainText(/Waiting for `bd pick --follow`/)
 
     // a park meanwhile waits behind the update in the queue of the session, never refused
-    await expect(await parkWaiting(page)).toHaveText("Waits for Updating the project…")
+    await expectParkWaiting(page, "Waits for Updating the project…")
     await expectUpdatedAndParked(page, repo)
   })
 
