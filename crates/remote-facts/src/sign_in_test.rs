@@ -276,3 +276,31 @@ async fn a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_check
   assert!(!setup.sign_ins.youtrack_pending(), "nothing waits for the browser after the cancel");
   assert_eq!(setup.changed(), [Account::YouTrack, Account::YouTrack], "neither ended sign-in changed an account");
 }
+
+/// A token pasted while the browser sign-in of the same YouTrack waits for the Hub is another request, never a join of
+/// that wait: the browser sign-in ends first, as canceled, and the token is checked and kept; the host hears one change
+#[tokio::test]
+async fn a_pasted_token_ends_the_browser_sign_in_that_runs_and_is_kept() {
+  let setup = setup().await;
+  let (fake, url) = start_fake().await;
+  fake.accept_token("perm-right");
+  let (browser_tx, mut browser_rx) = unbounded_channel();
+  let browser_sink = move |event| drop(browser_tx.send(event));
+  let browser = setup.sign_ins.sign_in(SignIn::YouTrack { url: url.clone(), token: None }, &browser_sink);
+  let pasted = async {
+    hub_page(&mut browser_rx).await;
+    assert!(setup.sign_ins.youtrack_pending(), "the browser sign-in waits for the Hub");
+    let token = SignIn::YouTrack {
+      url: url.clone(),
+      token: Some("perm-right".to_owned()),
+    };
+    setup.sign_ins.sign_in(token, &|_| {}).await
+  };
+  let (browser, pasted) = within_sign_in(async { tokio::join!(browser, pasted) }).await;
+  assert_eq!(browser.map_err(|error| error.code), Err(ErrorCode::Canceled));
+  assert!(matches!(&pasted, Ok(SignInDone::YouTrack { .. })), "{pasted:?}");
+  assert!(!setup.sign_ins.youtrack_pending(), "nothing waits for the browser any more");
+  let status = setup.sign_ins.status().await.youtrack;
+  assert_eq!(status.source, Some(domain_types::youtrack::YouTrackTokenSource::PastedToken));
+  assert_eq!(setup.changed(), [Account::YouTrack], "the pasted token, never the canceled browser sign-in");
+}

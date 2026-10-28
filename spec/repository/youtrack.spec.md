@@ -119,15 +119,18 @@ client takes a pasted token.
   [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
   [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_sign_ins_and_service_against_the_fake`)
   [@test] ../../src/stores/auth.test.ts (`opens the Hub page once the sign-in waits for the browser, again on request, then tells who signed in where`)
-- One sign-in at a time: a second call while one runs (another window, a second click) joins it: it hears the Hub page
-  of the one that runs, then its end; the YouTrack is asked for one Hub. A sign-in of the `youtrack` CLI shares the
-  session ([The youtrack CLI](#the-youtrack-cli)): one of either ends the other first, as canceled. Cancel and a sign-out
+- One sign-in at a time: a second call of the same request while one runs (another window, a second click) joins it:
+  it hears the Hub page of the one that runs, then its end; the YouTrack is asked for one Hub. Another request (a token
+  pasted while the browser signs in, another YouTrack) never joins it: the one that runs ends first, as canceled, and
+  the new one runs. A sign-in of the `youtrack` CLI shares the session ([The youtrack CLI](#the-youtrack-cli)): one of
+  either ends the other first, as canceled. Cancel and a sign-out
   end the sign-in that runs at once with the error code `canceled` (`SignInError::Canceled` through
   `app_api::api_error`; the listener closed, nothing pending), which is no error: the page tells nothing of it, by the
   code, never by the words of the error. A sign-in that changed the account tells the host once, however many calls
   joined it: every session reads its fact `auth` again and every window hears `auth-changed`, as for GitHub ([GitHub
   Sign-In](github-sign-in.spec.md#sign-in)).
   [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
+  [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_pasted_token_ends_the_browser_sign_in_that_runs_and_is_kept`)
   [@test] ../../crates/youtrack/src/sign_in_test.rs (`a_canceled_sign_in_stops_waiting`)
   [@test] ../../crates/youtrack/src/sign_in_session_test.rs (`a_canceled_sign_in_ends_its_wait_and_a_pasted_token_is_kept_once_youtrack_accepts_it`)
   [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_of_each_contract_case_is_its_json_in_the_fixture`)
@@ -140,7 +143,8 @@ client takes a pasted token.
   `GET /api/users/me` accepted it; a refused token is "Cannot sign in to YouTrack" with the reason, and the field stays.
   The token lives only in the field until then: never in a persisted store, a log or an error text. Save Token is the
   sign-in of YouTrack with the token (`sign_in({ provider: "youTrack", url, token })`): one at a time with the browser
-  sign-in, and the same tells of a changed account.
+  sign-in (Save Token is disabled while the browser sign-in asks the YouTrack for its Hub, and the form hides while it
+  waits for the browser), and the same tells of a changed account.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should cancel the browser sign-in, and paste a token instead`)
   [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
   [@test] ../../src/stores/auth.test.ts (`says why YouTrack refused a pasted token, and answers null, so the field keeps it`)

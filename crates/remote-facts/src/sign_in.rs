@@ -1,9 +1,10 @@
 //! The sign-ins of the app's accounts as the app's commands run them (docs/design/rust-domain-authority.md, "Решение
 //! 2026-10-28"; spec/repository/github-sign-in.spec.md): `sign_in`, `cancel`, `sign_out` and `status` over the cores of
 //! each account (`github::sign_in_session`, `youtrack::sign_in_session`, `youtrack_cli`). One sign-in of each provider
-//! runs at a time, in a task of its own: a second call of the same provider joins it and hears its current event (the
-//! code of GitHub, the page of the Hub), then the rest of its events and its end; a cancel, or a sign-in of the other
-//! provider of the same YouTrack session, ends it first. The lock of the runs only registers them, never spans a
+//! runs at a time, in a task of its own: a second call of the same request joins it and hears its current event (the
+//! code of GitHub, the page of the Hub), then the rest of its events and its end; a cancel, another request of the same
+//! provider (a pasted token while the browser signs in, another YouTrack), or a sign-in of the other provider of the
+//! same YouTrack session, ends it first, as canceled. The lock of the runs only registers them, never spans a
 //! request or the browser. A sign-in or a sign-out that changed an account tells the host once (`SignInHost::changed`),
 //! which has every session read the fact `auth` again and tells the windows without one. Hosted by the app
 //! (`src-tauri/src/commands/sign_in.rs`) and by each test repository of the E2E server (`RemoteHost`).
@@ -62,6 +63,8 @@ struct Inner {
 /// A sign-in that runs
 struct Run {
   id: u64,
+  /// What it signs in by: only a call of the same request joins it
+  request: SignIn,
   progress: watch::Receiver<Progress>,
   /// Taken by a cancel: the run ends as canceled, and no call joins it any more
   cancel: Option<oneshot::Sender<()>>,
@@ -102,8 +105,9 @@ impl SignIns {
     }
   }
 
-  /// Signs in by `request`, or joins the sign-in of its provider that runs: `events` hears where it is, from its current
-  /// event on, and `done` last; answers how it ended. A cancel ends it with the code `canceled`
+  /// Signs in by `request`, or joins the sign-in of the same request that runs: `events` hears where it is, from its
+  /// current event on, and `done` last; answers how it ended. A cancel, or a newer sign-in of another request of its
+  /// provider or of its YouTrack session, ends it with the code `canceled`
   ///
   /// # Errors
   /// Why it failed, as the host words a failure (`SignInHost::api_error`)
@@ -122,11 +126,12 @@ impl SignIns {
     follow(progress, events).await
   }
 
-  /// The progress of the run of `provider` that is not canceled, else of a new one: none starts while a canceled run of
-  /// it or a run sharing its session is still there (those are canceled, and the caller waits for their ends)
+  /// The progress of the run of `request` that is not canceled, else of a new one: none starts while another run of its
+  /// provider (canceled, or of another request) or a run sharing its session is still there (those are canceled, and
+  /// the caller waits for their ends)
   fn join_or_start(&self, provider: SignInProvider, request: &SignIn) -> Result<watch::Receiver<Progress>, Vec<watch::Receiver<Progress>>> {
     let mut runs = self.inner.runs();
-    if let Some(run) = runs.get(&provider).filter(|run| run.cancel.is_some()) {
+    if let Some(run) = runs.get(&provider).filter(|run| run.cancel.is_some() && run.request == *request) {
       return Ok(run.progress.clone());
     }
     let before = cancel_runs(&mut runs, |other| other == provider || shares_session(provider, other));
@@ -148,6 +153,7 @@ impl SignIns {
       provider,
       Run {
         id,
+        request: request.clone(),
         progress: receiver.clone(),
         cancel: Some(cancel),
       },

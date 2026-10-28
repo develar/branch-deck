@@ -51,8 +51,9 @@ What has no repository as its subject is no operation of a session: the sign-in 
 the app, and Settings opens without a repository) is a command of the app, `sign_in` with its events on the channel of
 the call, `cancel_sign_in` and `sign_out` (`remote_facts::sign_in`: GitHub, YouTrack and the `youtrack` CLI;
 [GitHub Sign-In](../../spec/repository/github-sign-in.spec.md), [YouTrack](../../spec/repository/youtrack.spec.md)).
-It joins as an operation does: one sign-in of each provider runs, a second call hears its current event and gets its
-end; its status is the fact `auth` of every session, which the host has read again after a sign-in or a sign-out.
+It joins as an operation does: one sign-in of each provider runs, a second call of the same request hears its current
+event and gets its end, another request of the provider (a pasted token, another YouTrack) ends it first; its status
+is the fact `auth` of every session, which the host has read again after a sign-in or a sign-out.
 
 So every command of the app that writes is `execute` or `cancel_operation` of the engine, or a command of the app
 with its one writer and the reason no session admits it: the ticket of a sync and the focus of a window (the session's

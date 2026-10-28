@@ -182,7 +182,8 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: Sign
               <Input id={tokenId} type="password" value={token} autoComplete="off" spellCheck={false} placeholder="perm-…" onChange={event => setToken(event.target.value)} />
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="xs" disabled={saving || token.trim() === "" || noUrl} onClick={save}>
+              {/* one sign-in at a time: not while the browser sign-in asks the YouTrack for its Hub */}
+              <Button size="xs" disabled={phase !== "idle" || token.trim() === "" || noUrl} onClick={save}>
                 {saving && <Spinner data-icon="inline-start" />}
                 Save Token
               </Button>
