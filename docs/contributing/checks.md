@@ -43,7 +43,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 | You changed | Run |
 |---|---|
 | Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p <crate>` or `-E 'test(/…/)'` while iterating); a new cross-crate edge fails the architecture test (`crates/bd-cli/src/architecture_test.rs`: the rules of [Crates](../design/rust-domain-authority.md#crates-и-направление-зависимостей) on `cargo metadata`, an allowlist that only shrinks); a lock, an async mutex or a network call changed: `cargo nextest run -p git-executor -E 'test(/scan/)'` (the concurrency scan beside the git scans) |
-| a git operation | also its test in `process_budget_test.rs` and the scan tests (`worktree_safety_test.rs`, `git_usage_scan_test.rs`) |
+| a git operation | also its test in `process_budget_test.rs` and the scan tests (`worktree_safety_test.rs`, `git_usage_scan_test.rs`, `concurrency_scan_test.rs`: `cargo nextest run -p git-executor`); a core that takes the repository lock: its row of [Lock spans](../design/git-operations.md#lock-spans) and the test that pins its span (`test_utils::lock_span::LockSpan`, `bd_cli::fixture_test::LockSpanGit` for a `bd` command) |
 | a command of app-api (`crates/app-api/src/commands.rs`) or a type it passes | `src/lib/bindings.ts`: `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` writes it, headless, the commands in the order of the registry; `crates/app-api/commands.json`, the table of the page mock: `UPDATE_COMMANDS=1 cargo nextest run -p app-api -E 'test(/commands_json/)'`; without the variables the tests fail on a stale file; a new command raises `COMMAND_COUNT` (`registry_test.rs`) and needs no route or wrapper of its own |
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code; an E2E spec or helper changed: also `pnpm lint:e2e-pins` (`command_registry_test.rs`: no page answer of a write, the pinned page answers only go down; `pnpm e2e` doesn't run it) |
 | code anywhere | `pnpm lint:cpd`: fix a clone with a helper, constant or fixture; `// jscpd:ignore-start` / `// jscpd:ignore-end` only for an intentional duplication, with the reason in the comment |
@@ -79,6 +79,7 @@ pnpm test:unit            # Vitest (`vp test run`; src/**/*.test.ts)
 
 pnpm e2e                  # Playwright E2E tests (installs Chromium if needed; `pnpm setup:e2e` for every browser)
 pnpm e2e-up               # E2E tests that rewrite the snapshots
+pnpm e2e:webkit           # The E2E tests tagged @webkit in WebKit (playwright.webkit.config.ts)
 DEBUG_E2E=1 pnpm e2e      # With the mock server's debug log and every page console line
 E2E_PORT=3031 pnpm e2e    # On another port when another checkout's mock server holds 3030
 pnpm test-server:dev      # Optional: the E2E mock server with auto-restart (needs watchexec); `pnpm e2e` reuses it
@@ -97,6 +98,7 @@ pnpm lint:arch            # the page acts on the code of an error, never on its 
 pnpm lint:e2e-pins        # the commands E2E tests answer in the page, pinned (crates/test-server/src/command_registry_test.rs)
 bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
+pnpm perf:bd-rebuild measure|summarize|compare  # the rebuild of the bd crates after a one-line edit (scripts/perf/bd-rebuild.mjs)
 pnpm perf:test-processes measure|summarize|compare  # the git processes of every Rust test (docs/contributing/rust-tests.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/contributing/agent-cli.md)
 ```

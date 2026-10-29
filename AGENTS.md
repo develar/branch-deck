@@ -36,6 +36,8 @@ Hard rules in one place; the linked section says why and what to do instead.
   `pnpm lint:arch` fails on it ([Code Style](#code-style)).
 - Never a read of the main window before its subscription: its start asks `subscribe_view` alone
   ([Warm start](docs/design/git-operations.md#warm-start)); `pnpm lint:arch` (`startup-read`) fails on it.
+- Never a rule of the domain in TS: the page words the view, sends intents (`src/model/intents.ts`) and its demand,
+  reads the selected project before the first `await`; `pnpm lint:arch` fails on the rest ([Code Style](#code-style)).
 - Never `#[allow]` (`#[expect(lint, reason = "…")]`), never `pub use`, never a `../` import in the frontend (`@/`).
 - Never a `dark:` variant, a colour outside the semantic tokens, or a radius class in `src/components/ui/*`.
 - Never a read or write of the operations registry or its journal beside `operations::registry_file` and
@@ -100,7 +102,7 @@ If Homebrew `cargo` comes before rustup in `PATH`, prefix cargo commands with `P
 | You changed | Run (every filter: [Checks → By Change](docs/contributing/checks.md#by-change)) |
 |---|---|
 | Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p`, `-E 'test(/…/)'` while iterating); a new cross-crate edge fails `crates/bd-cli/src/architecture_test.rs` |
-| a git operation | also its test in `process_budget_test.rs` and the scan tests (`worktree_safety_test.rs`, `git_usage_scan_test.rs`) |
+| a git operation | also its test in `process_budget_test.rs`, the scan tests (`cargo nextest run -p git-executor`), a core under the repository lock its row of [Lock spans](docs/design/git-operations.md#lock-spans) and its test |
 | a command of app-api or a type it passes | `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` (`src/lib/bindings.ts`), `UPDATE_COMMANDS=1 cargo nextest run -p app-api -E 'test(/commands_json/)'`; a new command raises `COMMAND_COUNT` |
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code; an E2E spec or helper: also `pnpm lint:e2e-pins` |
 | code anywhere | `pnpm lint:cpd` (fix a clone; `jscpd:ignore` only with the reason) and `pnpm lint:arch` (an exception is an `ALLOWLIST` entry with its reason) |
@@ -250,6 +252,8 @@ Frontend, in full: [Frontend Rules](docs/contributing/frontend.md).
 - **Errors** go through `notifyError` (`src/lib/errors.ts`) and are decided by `error.code`; a toast of an event is
   `showEventToast`, one per event. **Wording** by [UX Writing](docs/contributing/ux-writing.md): "Cannot <verb>
   <object>", Title Case for buttons and menu items. **Actions**: one builder of `MenuItem`s per object for every surface.
+- **Rules and intents**: a presenter reads no store; `execute` and `cancel_operation` only in `src/model/intents.ts`,
+  each `app(…)` command from its one module (`APP_COMMAND_CALLERS`).
 - **React Compiler** compiles everything (`panicThreshold: "all_errors"`): no disable comment of a React rule, no
   `try`/`finally` without `catch`, no JSX parameter default.
 - **State**: zustand vanilla stores, narrow `useStore` selectors; a persisted setting is a `createPersistentStore`
@@ -336,7 +340,7 @@ Contributing (`docs/contributing/`): [Code Map](docs/contributing/code-map.md), 
 [Agent CLI](docs/contributing/agent-cli.md), [Platform Checks](docs/contributing/platform-checks.md),
 [Studio Runs](docs/contributing/studio-runs.md), [Real App Checks](docs/contributing/real-app-checks.md),
 [Import Guidelines](docs/contributing/imports.md), [UX Writing](docs/contributing/ux-writing.md),
-[Design Docs Guidelines](docs/contributing/design-docs.md). Guide for a person: [Runs on Another Mac](docs/guide/host-runs.md).
+[Design Docs Guidelines](docs/contributing/design-docs.md), [Releases](docs/contributing/releases.md). Guide for a person: [Runs on Another Mac](docs/guide/host-runs.md).
 
 ### File Structure
 `src/` is the page (`components/`, `hooks/`, `model/` the window's side of its session, `presenters/` the words of

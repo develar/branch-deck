@@ -98,9 +98,10 @@ flowchart LR
   the robot of a restart and its actions, the pull request a review step names) and the move that runs on it, which
   the page lays over the step.
   [@test] ../../crates/repository-model/src/derive_budget_test.rs (`a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_budget`)
-- **Push progress** has its own store (`pushProgressStore`). Its ticks, every 100 ms, reach only
-  `useBranchPushProgress`, not every selector of the branch store. The one push of a stack writes the tick of all
-  its branches in one update (`setBranchesPushProgress`).
+- **Push progress** has its own store (`pushProgressStore`, by operation). Its ticks, every 100 ms at most
+  (`PROGRESS_INTERVAL` of the push), reach only `useOperationPushProgress`, not every selector of the branch store: a
+  push button finds the operation that pushes its branch in the view (`useBranchPushProgress`, `pushOperationIn`), so
+  the one push of a stack writes one tick for all its branches (`setOperationPushProgress`).
 - **The robot of a branch:** the session names it in its view (`robotId`, matched in Rust by one index per list of
   robots, `domain_policy::robot_match`), and a row reads it by id (`useBranchRobot`); the landing overview takes the
   ids of every row once per view (`useRowRobots`, a `WeakMap`).
@@ -133,8 +134,9 @@ flowchart LR
    (`useSelectedProjectPath`); `useSelectedProject` re-renders on every change of the
    metadata. A menu a component renders comes from a selector cached by the states of the stores its builder reads
    (`getBranchMenuNow` and `useBranchMenu`, `getStackIslandMenuNow` of the "⋯" of an island header, `menuSources`),
-   or takes the state it marks as a parameter
-   (the running operations, `useOperations`, [Running Operations](operations.md)): a `getState()` inside the builder
+   or takes the state it marks as a parameter (the running operations of the session, `getSessionOperations()` of
+   the builder handed to `getRobotActionItems` and `BlockerWords.operations`, [Running Operations](operations.md); a
+   presenter reads no store, `presenter-state` of `pnpm lint:arch`): a `getState()` inside the builder
    would be memoized on its other arguments, and a menu reopened while it still fades out showed its first state (a
    Safe Push the pull request no longer allowed). The "⋯" of an island opened before the pull requests loaded showed
    "Create Pull Request of the Stack…" and never the items of #12. The node of a row is its part of the view, one kept

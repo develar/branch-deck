@@ -1,6 +1,7 @@
 //! The git of Branch Deck on objects and refs, one process per phase, never the working tree except the guarded update
 //! (docs/design/git-operations.md). A module owns one operation or one reader or writer that operations share; the
-//! repository lock, the expected HEAD and the order of the steps are sync-core's (docs/contributing/adding-git-operation.md, "Checklist").
+//! repository lock, the expected HEAD and the order of the steps are the cores' (`history-rewrite`, `sync-core`,
+//! `update-core`, `trial-check`; docs/contributing/adding-git-operation.md, "Checklist").
 //!
 //! Reading the repository:
 //! - `revs`: the worktree, HEAD and its branch, commits by name, ref tips, the hash of the refs and the config,

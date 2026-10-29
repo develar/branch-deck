@@ -560,7 +560,7 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   canonical name and its own classes, without paths and SVG presentation attributes. No icon name index is needed.
 - **Transition settling**: before capturing, the helper waits until no element has `data-starting-style`/`data-ending-style`,
   no closed Base UI popup is still mounted in a portal, and no finite animation is running. Base UI keeps closing popups and
-  outgoing tab panels mounted until their exit transition ends; `waitForTabSwitchSettled` covers tab switches. It also
+  outgoing tab panels mounted until their exit transition ends, so it waits for those of a tab switch too. It also
   waits until no commit list (`table`, the `ol` of the branch preview) is `aria-busy`: a list is busy while the file
   counts of its meta lines are read ([Commit Files](../../spec/commit/commit-files.spec.md)).
 - **Update**: `pnpm e2e-up` rewrites snapshots. Review the diff, a changed snapshot can hide a regression.
@@ -757,7 +757,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   and the read of a window without a session, `get_auth_status`, held in `TestHost::before_auth_status`), `cliTools` (the tools of Settings), `sync` (a sync
   run of the session, held in `TestSessionEnvironment::run_setup` before it reads anything: the session's sync runs
   until the release, so a push that waits for it, `WaitingForSync`, is seen waiting; a page hold of the `sync` command
-  never reaches the session). A held request reaches its fake and waits at a `FakeGate`
+  never reaches the session; a path "during a sync" presses Sync held with `pressSyncHeld` and ends it with
+  `releaseHeldSync` of `sync-helpers.ts`, which asserts it was the one sync since the press). A held request reaches its fake and waits at a `FakeGate`
   (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
   shows before the answer, and a release lets it through with what the fixture holds then. `fail` makes a route of
   the fake Patronus answer 500 (`FakePatronus::set_failing`) or the server reject the read at its gate

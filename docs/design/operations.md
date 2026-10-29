@@ -243,7 +243,7 @@ is not stacked") once it got the lock.
 
 - **The robot**: its restart (with the push first of a robot whose branch moved past its commit) and its cancel are
   operations of the session in Rust (`RestartRobot`, `CancelRobot` of `operations::robot`, holding `Resource::Robot`;
-  `src/lib/robot-run.ts` runs them, `runIntent`): Rust lays the one that runs over the actions of its robot
+  `src/lib/robot-run.ts` runs them with `runIntent` of `src/model/intents.ts`): Rust lays the one that runs over the actions of its robot
   (`robot:<id>`: the restart or the cancel `Running`, the other `Busy` behind it), so the slot, the details and the
   landing overview show it (a spinner in place of its icon) in every window; a second restart joins it in Rust, and a
   cancel during it waits there.
@@ -251,7 +251,7 @@ is not stacked") once it got the lock.
   `Retarget` of `operations::pull_request`, which holds its base, so a review request of it runs beside; its row busy
   and its item running in the slot, from the view). The creation, "Continue on GitHub" and "Request Review…" are operations
   of the session in Rust (`CreatePullRequest`, `RequestReview` of `operations::pull_request`; `src/lib/pull-request-run.ts`
-  runs them, `runIntent`), each with its push first: the creation holds the head of its subject (a second submit joins
+  runs them with `runIntent`), each with its push first: the creation holds the head of its subject (a second submit joins
   it, another text waits for it and is decided again), a review request the reviewers of its pull request; the dialog
   and the popover read theirs from `RepositoryView.operations` (`pullRequestOperationIn`), in every window.
 - **The review of a pull request**: Approve, Request Changes and Approve and Safe Push are an operation of the session
@@ -358,7 +358,8 @@ and back. The other operations pass, as a sync does: the node keeps the state th
   land](git-operations.md#push-and-land)): of a branch alone and of an unapplied branch (`pushBranch`,
   `pushUnappliedBranch`), of a stack (the push button that pushes the stack, Push Stack, Push with Children, Push Up to
   Here: `pushFromButton`, `pushStack`, `pushWithChildren`, `pushUpTo`) and of the stack branch of a whole stack alone
-  (`pushWholeStack`), all in `src/lib/push-run.ts` over `runIntent`. Rust admits it per ref it writes
+  (`pushWholeStack`), all in `src/lib/push-run.ts`, which plans each (`planIntent`) and runs its plan (`executePlan` of
+  `src/model/intents.ts`). Rust admits it per ref it writes
   (`Resource::Ref`, the refs its plan pushes in their order): the same intent joins it (a second click, the push of
   an action that asks the same push; the record counts the joins, `RunningOperation.joined`, so every window and a
   test see the second click admitted), another push of one of its refs waits in the queue and is decided again on what

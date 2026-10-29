@@ -1,8 +1,10 @@
 //! The moves of the checked out branch onto commits from elsewhere, and their undo: Update Project onto the fetched
 //! baseline, `bd pick` of another worktree's commits, and the resolve sessions of a conflicting `bd update`. Each core
-//! takes the repository lock before it reads anything; the move itself is the guarded two-way `read-tree -m -u` of
-//! `git_ops::update_branch` (docs/contributing/git-rules.md, "Never write to the working tree"). The baseline, its fetch and the update check
-//! that every sync runs, the landed report and the sync stay in `sync-core`.
+//! checks and computes before the repository lock and holds it only for the witness of what it read, the local changes
+//! and the move (docs/design/git-operations.md, "Lock spans"; `bd update --continue` holds it for its whole round, the
+//! one exception of this crate); the move itself is the guarded two-way `read-tree -m -u` of
+//! `git_ops::update_branch` (docs/contributing/git-rules.md, "Never write to the working tree"). The baseline, its fetch
+//! and the update check that every sync runs, the landed report and the sync stay in `sync-core`.
 //!
 //! - `update_project`: the update onto the baseline (after the fetch of `sync_core::baseline`) and its undo
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), and the undo

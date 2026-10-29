@@ -35,8 +35,9 @@ exports (`git_command_test.rs` fails on a raw `Command::new("git")`).
 ## Scan tests
 
 The scan tests (`crates/git-executor/src/git_usage_scan_test.rs`, on the sources as `source_scan_test.rs` reads them
-for the worktree safety scan too): git starts only in `GitCommandExecutor` (and `git_info.rs`'s discovery); the bd
-crates (`crates/bd-*`) and src-tauri start no git of their own; no `--no-pager`, no `credential.helper=`; `update-ref` only in
+for the worktree safety scan too: `production_sources`, the production part of `src-tauri` and of every crate but
+`test-utils`, whose fixtures run git through `git_command`): git starts only in `GitCommandExecutor` (and
+`git_info.rs`'s discovery); the bd crates (`crates/bd-*`) and src-tauri start no git of their own; no `--no-pager`, no `credential.helper=`; `update-ref` only in
 `ref_transaction.rs`; `cat-file --batch*` only in `cat_file_batch.rs`; `--name-only`, `--name-status` and `--raw`
 only with `-z`; paths after `--` only with `--literal-pathspecs`; `push`, `fetch` and `ls-remote` only through
 `execute_remote_command*`. The concurrency scan on the same sources (`concurrency_scan_test.rs`): no guard of an

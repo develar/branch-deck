@@ -1,6 +1,7 @@
 //! The GitHub API (REST and GraphQL), as far as Branch Deck uses it, and the tokens it is asked with. Which repository,
 //! which pull requests and what an answer means for them is `remote_facts` (`pull_requests.rs`, `review_requests.rs`,
-//! `pull_request_writes.rs`, `patronus_command.rs`).
+//! `pull_request_writes.rs`, `patronus_command.rs`). Behind the feature `fake` (and in the tests of this crate),
+//! `fake_github` and `fake_repository`: the in-process GitHub of the tests and of the e2e server.
 
 pub mod client;
 pub mod device_flow;

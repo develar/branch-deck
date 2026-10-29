@@ -1,3 +1,13 @@
+//! The E2E mock server (docs/design/e2e-testing.md): a host of app-api for the page in a browser, so a Playwright test
+//! runs the commands of the app on the cores the app runs, against fakes of the remote services.
+//! - `invoke`: one route `/invoke/<name>` per entry of the registry (`app_api::commands`), SSE for a channel
+//! - `host`, `session_routes`, `state`: what the app gives the commands (the desktop, the event streams of the pages,
+//!   the sessions of each test repository)
+//! - `remote_host`, `remote_fixtures`, `remote_git_fixtures`, `review_fixtures`, `youtrack_fixtures`,
+//!   `cli_tools_fixtures`: the fakes of each test repository and the fixture routes that set and read them
+//! - `templates`, `sync_overrides`, `updater`, `static_files`: the repositories a test copies, what it changes of the
+//!   next sync, the updater of its app, the built page
+
 use axum::Router;
 use axum::{
   extract::{Request, State},

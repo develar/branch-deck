@@ -52,6 +52,16 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   disable comment for a React rule (`react/rule-suppression`; use `useEffectEvent`), no `try`/`finally` without
   `catch` (use `promise.finally`), no JSX parameter default ([Rendering Performance](../design/rendering-performance.md)).
   `oxc-transform-react` is pinned to the range `@vitejs/plugin-react` declares; `pnpm update-deps` leaves it alone.
+- **Rules and intents** ([Rust as the Domain Authority](../design/rust-domain-authority.md)): a rule of the domain is
+  a file of `crates/domain-policy/src/` ([Rule Index](code-map.md#rule-index)) that the session derives into the view; the page
+  words its answer (`src/presenters/`: a presenter takes the part its caller selected and reads no store), sends what
+  the user asks as an intent (`planIntent`, `runIntent`, `executePlan`, `executeRewrite`, `cancelIntent` of
+  `src/model/intents.ts`, the one module that calls `execute` and `cancel_operation`; a command of the app,
+  `app(…)` of `crates/app-api/src/commands.rs`, from its one module of `APP_COMMAND_CALLERS`), tells what it shows
+  (`src/model/demand.ts`), and reads the key of the selected project before the first `await` of a run, so the run
+  acts on the repository of its press. `pnpm lint:arch` enforces it (`rule-module`, `intent-call`, `presenter-state`,
+  `late-project-read`), `the_writes_of_the_engine_are_its_intents_and_their_cancel` (`crates/app-api/src/registry_test.rs`)
+  keeps every write of a repository an intent of `execute`.
 - **State**: zustand vanilla stores (`createStore`) read with `useStore` selectors; select narrow slices: the compiler
   memoizes renders, not selectors, which run on every store change. A persisted setting is a `createPersistentStore`
   (`src/stores/settings/persistent-store.ts`): it starts from the snapshot the backend injects and changes only through

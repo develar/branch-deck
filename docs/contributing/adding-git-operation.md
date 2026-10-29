@@ -48,7 +48,10 @@ are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../
   `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `snapshot`, `repository_lock`
   and `regroup` in `history_rewrite`; `repo_facts`, `baseline` and `remote_command` in `sync_core`.
 - **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test in
-  `process_budget_test.rs` that pins its processes by subcommand; the scan tests stay green.
+  `process_budget_test.rs` that pins its processes by subcommand; a core that takes the repository lock, its row of
+  [Lock spans](../design/git-operations.md#lock-spans) and the test of its span; the scan tests stay green, the
+  concurrency scan beside the git scans (`concurrency_scan_test.rs`: no guard of an async mutex across another await,
+  no repository lock across a network call).
 
 ## Layers
 
@@ -118,8 +121,13 @@ modules by area; the layers are the
   operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, of `history-rewrite` too;
   `crates/update-core/src/`, `crates/trial-check/src/`, `crates/remote-facts/src/`, `crates/operations/src/` and
   `crates/branch-integration/src/` for theirs; `crates/bd-cli/src/` for a `bd` command)
-  that pins its processes by subcommand; the scan tests stay green (`worktree_safety_test.rs`,
-  `git_usage_scan_test.rs`, [Scan tests](git-rules.md#scan-tests)), an exemption added only with its reason and its number of hits.
+  that pins its processes by subcommand; a core that takes the repository lock, its row of
+  [Lock spans](../design/git-operations.md#lock-spans) and the test of its span (`test_utils::lock_span::LockSpan`, a
+  `bd` command on `bd_cli::fixture_test::LockSpanGit`); the scan tests stay green (`worktree_safety_test.rs`,
+  `git_usage_scan_test.rs`, [Scan tests](git-rules.md#scan-tests)), and the concurrency scan beside them
+  (`concurrency_scan_test.rs`: no guard of an async mutex across another `.await`, no guard of the repository lock
+  across `execute_remote_command*`, `fetch_baseline`, `push_baseline`, HTTP or `block_on`); an exemption added only
+  with its reason and its number of hits. All of them: `cargo nextest run -p git-executor`.
 
 ## Helpers
 

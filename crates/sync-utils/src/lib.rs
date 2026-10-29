@@ -1,3 +1,14 @@
+//! The small utilities every crate of Branch Deck may use, with no git process and no remote service:
+//! - the files: `atomic_file` (a file other processes read at any time), `private_file` (0600 in the app data
+//!   directory), `secret_store` (the tokens of the sign-ins), `fs_retry` (the removals and renames Windows refuses for a
+//!   while), `paths` (as the shell and git take them)
+//! - the processes that are not git: `child_process`, `known_tools` (where each is looked for), `process_scan` (the
+//!   processes inside a directory)
+//! - the grammars of a commit: `commit_subject`, `commit_body`, `issue_pattern`
+//! - an operation: `operation_id` (its ULID), `operation_tally` (what it cost), `clock` (the clock of its timers),
+//!   `span` (the span of its caller on another thread), `single_flight` (one read for every caller of the same key)
+//! - the values as a setting or a service writes them: `git_bool`, `host_ref_name`, `list_cut`, `size`, `timestamp`
+
 pub mod atomic_file;
 pub mod child_process;
 pub mod clock;
