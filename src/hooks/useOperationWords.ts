@@ -1,6 +1,6 @@
 import { useStore } from "zustand"
 import type { ActionId, ActionState } from "@/lib/bindings"
-import type { OperationNames, OperationWords } from "@/presenters/actions"
+import type { OperationNames, OperationWords } from "@/presenters/operations"
 import { NO_OPERATIONS, useBranchSyncField } from "@/stores/branch-sync"
 import { indicatorsStore } from "@/stores/indicators"
 

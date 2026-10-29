@@ -134,7 +134,8 @@ operation ("Unstacking oauth…", "Waits for Moving 1 commit to docs…", whom i
 repository lock), the words of a surface where it has its own (a restart: "Restarting the Safe Push…"); the busy state
 of an operation of this window is the one it gave it (`BlockerWords.named`, which the caller selects with the
 operations: `useOperationWords` while an item of it runs, waits or is busy, `getOperationWords` for a builder), of
-another process its row's ("bd: Pushing auth"). The commit menus are the page's and stay enabled: their move, squash and reword queue in the session. A surface
+another process its row's ("bd: Pushing auth"), else the view's; one rule names it, for the items and the "⋯" of its
+row alike (`presentOperationLabel` of `src/presenters/operations.ts`). The commit menus are the page's and stay enabled: their move, squash and reword queue in the session. A surface
 that renders a builder reads it through a selector cached by the states of the stores it reads, the view and the
 indicators among them (`useBranchMenu`, `menuSources`): a store read inside a builder that the React Compiler memoizes
 would show a stale menu ([Rendering Performance](rendering-performance.md)). A disabled submenu (Stack On ›) is an item
@@ -173,7 +174,7 @@ then for another process as long as the holder lives (the undo of a pick and of 
 [Git Operations](git-operations.md), "Repository lock"), and its
 step in the view says whom for: `waitingForLock` with the holder ("Waiting for `bd pick` (pid 4242, for 12 s)", told
 again about once a second, `presentLockWait`), `queued` behind another operation (the busy state of that one).
-`operationBusyOf` (`src/stores/indicators.ts`, `presentOperationBusy`) says it in place of the busy state, so every
+`operationBusyOf` (`src/stores/indicators.ts`, `presentOperationBusy` of `getOperationWords`) says it in place of the busy state, so every
 surface of the operation shows it, in every window: the spinner's hover on the "⋯" of its row
 (`useUnclaimedOperation`), its item in the menus, the label of a `MenuItemButton`, the progress row of an inline form,
 and `LockWaitNotice` on the surfaces that show their own busy state (the squash dialog, the commit message editor, the

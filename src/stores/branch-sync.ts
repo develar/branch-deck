@@ -1094,14 +1094,6 @@ function isRefOf(ref: string, name: string): boolean {
 }
 
 /**
- * The operations of the session as the view has them now (`RepositoryView.operations`), for the items built on demand
- * (a menu, a toast, a drop target): the busy words of the action an item runs as or waits for (`BlockerWords.operations`)
- */
-export function getSessionOperations(): BranchSyncState["operations"] {
-  return branchSyncStore.getState().operations
-}
-
-/**
  * The operation of the session that pushes `name` now, as the view has it (`RepositoryView.operations`): a push of it
  * (`Push`, from its admission on, its waits for another push, a sync and the lock included), or another operation in
  * the push step of its plan (a pull request, a review request, a restart that pushes first); a start of a Safe Push

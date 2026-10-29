@@ -36,7 +36,7 @@
 //   aside); an entry of `APP_COMMAND_CALLERS` that names no `app(…)` command or whose module doesn't call it fails too.
 // A presenter words what the caller selected of the view (src/presenters):
 // - `presenter-state`: a `.getState()` of a store, or an import of a value of a store module (`@/stores/…`,
-//   `@/model/store`: its getters read the store, `getRowPart`, `getPullRequest`, `operationLabelOf`), in src/presenters
+//   `@/model/store`: its getters read the store, `getRowPart`, `getPullRequest`, `getOperationWords`), in src/presenters
 //   (their tests aside): a presenter imports a store for its types only, the caller passes the part it selected.
 // A run in the repository of its press (docs/design/rust-domain-authority.md, "Конкурентность"): the key of the selected
 // project is read before the run waits for anything, never after the user may have selected another repository:

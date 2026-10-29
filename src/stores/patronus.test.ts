@@ -240,7 +240,6 @@ vi.mock("@/stores/branch-sync", () => ({
     subscribe: () => () => {},
   },
   getBranch: (name: string) => branches.current[name],
-  getSessionOperations: () => ({}),
   getStackBranch: (root: string) => branches.stacks[root],
   whenSynced: () => branches.synced,
   // the structure Rust sent: the branches built on `name`, parents first, by the parent each was placed on, and those

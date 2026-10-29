@@ -297,7 +297,7 @@ test("a presenter reads no store: the caller passes what it selected of the view
     "import {",
     "  getOpenPullRequest,",
     '} from "@/stores/branch-sync"',
-    "import { operationLabelOf } from '@/stores/indicators'",
+    "import { getOperationWords } from '@/stores/indicators'",
     'const actions = getRowPart(name, "actions")',
     // its types read nothing, nor a module beside the stores
     'import type { Branch, BranchSyncState } from "@/stores/branch-sync"',

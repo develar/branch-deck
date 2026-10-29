@@ -2,10 +2,10 @@ import { useEffect } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { OperationId, RunningOperation } from "@/lib/bindings"
-import type { OperationWords } from "@/presenters/actions"
 import type { WaitingOperation } from "@/presenters/lock-wait"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
-import { presentOperationBusy, presentRunningLabel } from "@/presenters/operations"
+import type { OperationWords } from "@/presenters/operations"
+import { presentOperationBusy } from "@/presenters/operations"
 import { branchSyncStore, useBranchSyncField } from "@/stores/branch-sync"
 
 /**
@@ -87,17 +87,13 @@ export function getOperationWords(): OperationWords {
   return { operations: branchSyncStore.getState().operations, named: indicatorsStore.getState().starts }
 }
 
-/** The busy state this window gave the operation `operation`, else as the view names it ("Unstacking oauth") */
-export function operationLabelOf(operation: RunningOperation): string {
-  return indicatorsStore.getState().starts[operation.id]?.label ?? presentRunningLabel(operation)
-}
-
 /**
- * The busy state of `operation` as its surfaces say it (`presentOperationBusy`): whom it waits for while another holder
- * has the repository lock, the operation it waits behind in the queue, else its own
+ * The busy state of `operation` as its surfaces say it now (`presentOperationBusy` of `getOperationWords`): whom it
+ * waits for while another holder has the repository lock, the operation it waits behind in the queue, else its own, each
+ * by the name the items give it (`presentOperationLabel`)
  */
 export function operationBusyOf(operation: RunningOperation): string {
-  return presentOperationBusy(operation, branchSyncStore.getState().operations, operationLabelOf)
+  return presentOperationBusy(operation, getOperationWords())
 }
 
 /** Whether the surface that started `operation` is mounted and shows its spinner: the "⋯" of its row shows it otherwise */

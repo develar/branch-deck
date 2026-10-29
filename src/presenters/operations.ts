@@ -142,26 +142,51 @@ export function presentRunningLabel(operation: RunningOperation): string {
 /** The operations of the session of the repository the main window shows, by id (`RepositoryView.operations`) */
 export type SessionOperations = Readonly<Record<OperationId, RunningOperation>>
 
+/** The busy states this window gave the operations it started, by id (`startIndicator`, `indicatorsStore.starts`) */
+export type OperationNames = Readonly<Record<OperationId, { readonly label: string }>>
+
+/** What the words of an operation read: the operations of the session, and the busy states this window gave its own */
+export interface OperationWords {
+  /**
+   * The operations of the session as the caller selected them (`RepositoryView.operations`, `BranchSyncState.operations`):
+   * the busy words of the one an item runs as or waits for
+   */
+  readonly operations: SessionOperations
+  /**
+   * The busy states this window gave the operations it started (`getOperationWords` of `src/stores/indicators.ts`,
+   * `useOperationWords`), so an item names one as its surface did ("Undoing the squash", where the view says
+   * "Undoing"); an operation it didn't start as the view names it
+   */
+  readonly named: OperationNames
+}
+
+/**
+ * The name of `operation` on every surface that shows it or waits for it, the one rule of it: of another process as its
+ * row says it ("bd: Pushing branch auth", `presentOtherProcess`), of this window as it named it (`named`: "Undoing the
+ * squash", where the view says "Undoing"), else as the view names it ("Unstacking oauth")
+ */
+export function presentOperationLabel(operation: RunningOperation, named: OperationNames): string {
+  return presentOtherProcess(operation)?.label ?? named[operation.id]?.label ?? presentRunningLabel(operation)
+}
+
 /**
  * The busy state of `operation` as every surface that shows it says it: whom it waits for while another holder has the
  * repository lock ("Waiting for `bd pick` (pid 4242, for 12 s)"), what it waits behind in the queue of the session
  * ("Waits for Unstacking oauth"), that it waits for a sync ("Unstacking oauth after the sync"), else its own
- * ("Unstacking tool-events"); `labelOf` the busy state of an operation, as the window that started it named it
+ * ("Unstacking tool-events"); each operation by its name (`presentOperationLabel`)
  */
-export function presentOperationBusy(operation: RunningOperation, operations: SessionOperations, labelOf: (operation: RunningOperation) => string): string {
+export function presentOperationBusy(operation: RunningOperation, words: OperationWords): string {
   const lockWait = presentOperationLockWait(operation)
   if (lockWait !== null) {
     return lockWait
   }
   if (operation.step.kind === "queued") {
-    const behind = operations[operation.step.behind]
-    return `Waits for ${behind === undefined ? "another operation" : labelOf(behind)}`
+    const behind = words.operations[operation.step.behind]
+    return `Waits for ${behind === undefined ? "another operation" : presentOperationLabel(behind, words.named)}`
   }
-  if (operation.step.kind === "waitingForSync") {
-    // a rewrite asked on the rows of the frame of an earlier run, a push of a tip the running sync brings
-    return `${labelOf(operation)} after the sync`
-  }
-  return labelOf(operation)
+  const label = presentOperationLabel(operation, words.named)
+  // a rewrite asked on the rows of the frame of an earlier run, a push of a tip the running sync brings
+  return operation.step.kind === "waitingForSync" ? `${label} after the sync` : label
 }
 
 /** What finds the rows of an operation in the table of the page: the branches with the commits it names, the open pull request of a row */

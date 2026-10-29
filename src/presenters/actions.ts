@@ -57,7 +57,8 @@ import { cancelRobot, forgetStart, openUnknownStart, restartRobot } from "@/lib/
 import { formatAskFirst } from "@/lib/stack"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
 import { formatPendingFact, formatProblemsFailure, formatStepBlocker } from "@/presenters/next-step"
-import { presentOtherProcess, presentRunningLabel } from "@/presenters/operations"
+import type { OperationWords } from "@/presenters/operations"
+import { presentOperationLabel } from "@/presenters/operations"
 import { formatLanded, formatReason, formatRobotsLanded, formatStackHold } from "@/presenters/reasons"
 
 /** How an action looks on every surface: its label where no fact names it ("Push Branch (2)" does), its icon, its key */
@@ -122,8 +123,11 @@ export const ACTION_LOOKS = {
   "forget-start": { label: "Forget This Start", icon: EraserIcon },
 } as const satisfies Record<ActionId, ActionLook>
 
-/** What the words of a blocker read beside it, of the page: the subject it refuses and what the page shows of it */
-export interface BlockerWords {
+/**
+ * What the words of a blocker read beside it, of the page: the subject it refuses, what the page shows of it, and the
+ * operations an item runs as, waits for or is busy behind (`OperationWords`)
+ */
+export interface BlockerWords extends OperationWords {
   /** The branch the action acts on (of a whole stack its root) */
   readonly subject: string
   /** The status text of the row of the branch (`Branch.statusText`): why its sync failed */
@@ -133,24 +137,7 @@ export interface BlockerWords {
    * blocker of its start without review): the step words its own reasons by its kind
    */
   readonly step?: string | null
-  /**
-   * The operations of the session as the caller selected them (`RepositoryView.operations`, `BranchSyncState.operations`):
-   * the busy words of the one an item runs as or waits for
-   */
-  readonly operations: SessionOperations
-  /**
-   * The busy states this window gave the operations it started (`getOperationWords` of `src/stores/indicators.ts`,
-   * `useOperationWords`), so an item names one as its surface did ("Undoing the squash", where the view says
-   * "Undoing"); an operation it didn't start as the view names it
-   */
-  readonly named: OperationNames
 }
-
-/** The operations of the session by id, as the view has them (`RepositoryView.operations`) */
-export type SessionOperations = Readonly<Record<OperationId, RunningOperation>>
-
-/** The busy states this window gave the operations it started, by id (`BlockerWords.named`) */
-export type OperationNames = Readonly<Record<OperationId, { readonly label: string }>>
 
 /** Why Push with Children of `name` pushes nothing beyond the branch itself */
 function nothingBeyondWords(name: string, why: NothingBeyond): string {
@@ -205,20 +192,10 @@ const SYNC_WAIT = "Wait for the sync to finish"
 /** The words of a remote action on the cached frame of an earlier run, which waits for the first sync of this one */
 const FIRST_SYNC_WAIT = "Waits for the first sync"
 
-/** What the words of a busy item read: the operations of the session, and the busy states this window gave its own */
-export type OperationWords = Pick<BlockerWords, "operations" | "named">
-
-/**
- * The busy state of the operation `op` among the `operations` of `words` as an item that waits for it says it: of
- * another process as its row says it ("bd: Pushing auth"), of this window as it named it (`named`), else as the view
- * names it ("Unstacking oauth")
- */
+/** The name of the operation `op` among the `operations` of `words` as an item that waits for it says it (`presentOperationLabel`) */
 function operationLabel(op: OperationId, words: OperationWords): string {
   const operation = words.operations[op]
-  if (operation === undefined) {
-    return "Another operation"
-  }
-  return presentOtherProcess(operation)?.label ?? words.named[op]?.label ?? presentRunningLabel(operation)
+  return operation === undefined ? "Another operation" : presentOperationLabel(operation, words.named)
 }
 
 /** Why nobody is asked to review a draft (`PullRequestView.draft`) */

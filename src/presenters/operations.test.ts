@@ -1,12 +1,15 @@
 // @spec spec/branch/patronus.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { Intent, RunningOperation } from "@/lib/bindings"
-import { presentOperationBusy, presentOperationHolder, presentOtherProcess } from "@/presenters/operations"
+import type { Intent, RunningOperation, TableWitness } from "@/lib/bindings"
+import type { OperationNames } from "@/presenters/operations"
+import { presentOperationBusy, presentOperationHolder, presentOperationLabel, presentOtherProcess } from "@/presenters/operations"
 
 /** `intent` that `bd` with pid 4242 runs, as the session shows it from the operations registry of the repository */
 function ofBd(intent: Intent): RunningOperation {
   return { id: "op", intent, resources: [], step: { kind: "checking" }, origin: { kind: "otherProcess", tool: "bd", pid: 4242 }, moves: [] }
 }
+
+const WITNESS: TableWitness = { head: "h1", storeTips: { issueGroups: null, stackParents: null, parked: null } }
 
 const SAFE_PUSH: Intent = { kind: "land", subject: { kind: "branch", name: "auth" }, mode: "rebaseAutosquash", profile: { kind: "default" } }
 
@@ -59,10 +62,23 @@ describe("presentOperationHolder", () => {
 describe("presentOperationBusy", () => {
   it("says that an operation waits for the sync, behind another one, or what it does", () => {
     const unstack: RunningOperation = { ...ofBd(SAFE_PUSH), id: "unstack", origin: { kind: "thisProcess" }, step: { kind: "waitingForSync" } }
-    const labelOf = (operation: RunningOperation) => (operation.id === "unstack" ? "Unstacking oauth" : "Squashing 2 commits")
-    expect(presentOperationBusy(unstack, { unstack }, labelOf)).toBe("Unstacking oauth after the sync")
+    const named: OperationNames = { unstack: { label: "Unstacking oauth" } }
+    expect(presentOperationBusy(unstack, { operations: { unstack }, named })).toBe("Unstacking oauth after the sync")
     const squash: RunningOperation = { ...unstack, id: "squash", step: { kind: "queued", behind: "unstack" } }
-    expect(presentOperationBusy(squash, { unstack, squash }, labelOf)).toBe("Waits for Unstacking oauth")
-    expect(presentOperationBusy({ ...unstack, step: { kind: "checking" } }, { unstack }, labelOf)).toBe("Unstacking oauth")
+    expect(presentOperationBusy(squash, { operations: { unstack, squash }, named })).toBe("Waits for Unstacking oauth")
+    expect(presentOperationBusy({ ...unstack, step: { kind: "checking" } }, { operations: { unstack }, named })).toBe("Unstacking oauth")
+    expect(presentOperationBusy({ ...squash, step: { kind: "queued", behind: "gone" } }, { operations: { squash }, named })).toBe("Waits for another operation")
+  })
+
+  it("names an operation by the one rule of its items: of another process as its row, of this window as it named it, else as the view", () => {
+    const rename: Intent = { kind: "rewrite", rewrite: "rename", branchName: "auth", newName: "login", witness: WITNESS }
+    const ofThisApp: RunningOperation = { ...ofBd(rename), id: "mine", origin: { kind: "thisProcess" }, step: { kind: "rewriting" } }
+    const ofAgent: RunningOperation = { ...ofBd(rename), id: "agent", step: { kind: "rewriting" } }
+    const named: OperationNames = { mine: { label: "Renaming auth to login from the row" }, agent: { label: "never shown" } }
+    expect(presentOperationLabel(ofThisApp, named)).toBe("Renaming auth to login from the row")
+    expect(presentOperationLabel(ofThisApp, {})).toBe("Renaming auth to login")
+    // the "⋯" of the row of a rewrite of `bd` says it as `bd`'s, as the item that waits behind it does
+    expect(presentOperationLabel(ofAgent, named)).toBe("bd: Renaming auth to login")
+    expect(presentOperationBusy(ofAgent, { operations: { agent: ofAgent }, named })).toBe("bd: Renaming auth to login")
   })
 })

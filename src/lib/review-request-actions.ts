@@ -3,8 +3,8 @@ import type { ActionId, ActionState, ReviewRequest } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import type { OperationWords } from "@/presenters/actions"
 import { findAction, formatActionBlocker, presentAction } from "@/presenters/actions"
+import type { OperationWords } from "@/presenters/operations"
 import type { ReviewAction } from "@/stores/review-requests"
 
 /*

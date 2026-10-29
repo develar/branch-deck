@@ -1,8 +1,9 @@
 // @spec spec/branch/branch-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ActionBlocker, ActionId, ActionState, Intent, Reason, RunningOperation } from "@/lib/bindings"
-import type { OperationNames, OperationWords } from "@/presenters/actions"
 import { ACTION_LOOKS, formatActionBlocker, getStartActionItems, presentAction } from "@/presenters/actions"
+import type { OperationNames, OperationWords } from "@/presenters/operations"
+import { presentOperationBusy } from "@/presenters/operations"
 import { formatStackHold } from "@/presenters/reasons"
 import { disabled, enabled } from "@/test-support/actions"
 
@@ -133,6 +134,22 @@ describe("the actions Rust offers", () => {
     expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op: "u1" } } })?.description).toBe("Unstacking oauth from auth…")
     // the one it didn't start, as the view names it
     expect(item({ id: "unstack", availability: { kind: "running", op: "u2" } })?.description).toBe("Unstacking auth…")
+  })
+
+  it("names the operation an item runs as, waits for or is busy behind as the busy state of its row does", () => {
+    const operations = {
+      u1: operation("u1", unstack, { kind: "rewriting" }),
+      b1: operation("b1", { ...unstack, branchName: "auth" } as Intent, { kind: "rewriting" }, { kind: "otherProcess", tool: "bd", pid: 4242 }),
+    }
+    const words: OperationWords = { operations, named: { u1: { label: "Unstacking oauth from auth" } } }
+    const item = (action: ActionState) => presentAction([action], action.id, { onSelect: () => {} }, { subject: "auth", ...words })
+    for (const op of ["u1", "b1"] as const) {
+      const row = presentOperationBusy(operations[op], words)
+      expect(item({ id: "unstack", availability: { kind: "running", op } })?.description).toBe(`${row}…`)
+      expect(item({ id: "rename", availability: { kind: "waits", op } })?.description).toBe(`Waits for ${row}…`)
+      expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op } } })?.description).toBe(`${row}…`)
+    }
+    expect(presentOperationBusy(operations.b1, words)).toBe("bd: Unstacking auth")
   })
 })
 
