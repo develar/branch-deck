@@ -58,6 +58,7 @@ targets:
   - ../../crates/domain-policy/src/pull_request.rs
   - ../../crates/domain-policy/src/review.rs
   - ../../crates/repository-model/src/derive.rs
+  - ../../crates/sync-core/src/remote_url.rs
 ---
 
 # Pull Requests

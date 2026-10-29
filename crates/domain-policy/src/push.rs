@@ -1,6 +1,7 @@
 //! What a push of a branch does to its remote branch, by its remote status (`RemoteStatusUpdate`, compared by content:
 //! a branch only rebased onto a newer baseline has nothing to push), for the app and `bd` alike
-//! (docs/design/rust-domain-authority.md, R1 and D4):
+//! (docs/design/rust-domain-authority.md, R1 and D4; spec/branch/branch-row.spec.md, spec/branch/stacked-branches.spec.md,
+//! spec/repository/outgoing.spec.md, spec/branch/patronus.spec.md):
 //!
 //! - `action`: create, push (a fast-forward), force (rebased, older versions replaced, remote commits dropped) or up to
 //!   date; `sync_core::remote_status` stores it on the status, so the page and `bd` read this one answer

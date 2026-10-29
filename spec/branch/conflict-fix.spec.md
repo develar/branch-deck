@@ -22,6 +22,11 @@ targets:
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/components/branch/BranchPreviewDialog.tsx
   - ../../src/components/conflict/ConflictWindowPage.tsx
+  - ../../src/presenters/rewrite.ts
+  - ../../src/hooks/useConflictBase.ts
+  - ../../crates/git-ops/src/conflict_analysis.rs
+  - ../../crates/git-ops/src/merge_conflict.rs
+  - ../../crates/domain-types/src/conflict.rs
 ---
 
 # Conflict Fix

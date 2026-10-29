@@ -36,6 +36,8 @@ targets:
   - ../../crates/git-ops/src/reapply.rs
   - ../../crates/git-ops/src/pick.rs
   - ../../src/lib/git/reapply.ts
+  - ../../src/presenters/rewrite.ts
+  - ../../crates/operations/src/push.rs
 ---
 
 # Unapply and Reapply

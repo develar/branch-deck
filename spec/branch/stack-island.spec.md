@@ -41,6 +41,11 @@ targets:
   - ../../crates/domain-policy/src/landing_node.rs
   - ../../crates/domain-policy/src/next_step.rs
   - ../../crates/repository-model/src/derive.rs
+  - ../../crates/operations/src/push.rs
+  - ../../crates/operations/src/pull_request.rs
+  - ../../crates/operations/src/close.rs
+  - ../../src/hooks/useOrphanedStackPullRequest.ts
+  - ../../src/presenters/push.ts
 ---
 
 # Stack Island

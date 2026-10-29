@@ -69,6 +69,12 @@ targets:
   - ../../src/components/shared/NestedPanel.tsx
   - ../../src/lib/merge-conflict.ts
   - ../../crates/sync-core/src/conflict_chain.rs
+  - ../../src/presenters/rewrite.ts
+  - ../../crates/git-ops/src/word_resolve.rs
+  - ../../crates/git-ops/src/attributes.rs
+  - ../../crates/git-ops/src/conflict_analysis.rs
+  - ../../crates/git-ops/src/merge_conflict.rs
+  - ../../crates/domain-types/src/conflict.rs
 ---
 
 # Commit Row

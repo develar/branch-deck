@@ -12,7 +12,6 @@ targets:
   - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/autosquash.ts
   - ../../src/lib/commit.ts
-  - ../../crates/sync-utils/src/commit_subject.rs
   - ../../src/hooks/useSquashFixups.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useCommitMoveList.ts
@@ -20,6 +19,7 @@ targets:
   - ../../src/components/commit/SquashFixupsPopover.tsx
   - ../../src/components/commit/CommitList.tsx
   - ../../src/components/branch/BranchNameCell.tsx
+  - ../../src/presenters/rewrite.ts
 ---
 
 # Squash Fixups

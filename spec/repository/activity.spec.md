@@ -58,6 +58,8 @@ targets:
   - ../../src/lib/landed-run.ts
   - ../../src/model/intents.ts
   - ../../src/lib/remote-status.ts
+  - ../../src/presenters/rewrite.ts
+  - ../../src/presenters/outcome.ts
 ---
 
 # Activity

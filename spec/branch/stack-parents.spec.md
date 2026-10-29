@@ -33,6 +33,7 @@ targets:
   - ../../src/hooks/useMoveCommits.ts
   - ../../src/lib/patronus-stack.ts
   - ../../src/components/commit/PrefixChangeHint.tsx
+  - ../../src/presenters/rewrite.ts
 ---
 
 # Stack Parents

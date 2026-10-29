@@ -46,6 +46,7 @@ targets:
   - ../../src/components/branch/IssueFamilyRow.tsx
   - ../../src/stores/commit-move.ts
   - ../../src/stores/branch-sync.ts
+  - ../../src/presenters/rewrite.ts
 ---
 
 # Move Commits

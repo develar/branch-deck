@@ -43,6 +43,16 @@ targets:
   - ../../src/lib/update-conflict.ts
   - ../../src/lib/text.ts
   - ../../crates/sync-utils/src/list_cut.rs
+  - ../../crates/operations/src/events.rs
+  - ../../src/model/intents.ts
+  - ../../crates/update-core/src/error_cases.rs
+  - ../../crates/git-ops/src/word_replay.rs
+  - ../../crates/git-ops/src/index_lock.rs
+  - ../../crates/domain-types/src/update.rs
+  - ../../crates/domain-types/src/update_project.rs
+  - ../../src/presenters/lock-wait.ts
+  - ../../src/presenters/operations.ts
+  - ../../src/presenters/outcome.ts
 ---
 
 # Update Project

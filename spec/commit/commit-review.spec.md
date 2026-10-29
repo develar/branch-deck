@@ -27,7 +27,6 @@ targets:
   - ../../src/stores/commit-files.ts
   - ../../src/lib/commit-files.ts
   - ../../src/pages/BranchReviewPage.tsx
-  - ../../src/pages/CommitReviewPage.tsx
   - ../../src/lib/commit-review-window.ts
   - ../../src/lib/branch-review-window.ts
   - ../../src/components/commit/CommitList.tsx
@@ -44,6 +43,7 @@ targets:
   - ../../src/lib/file-filter.ts
   - ../../src/lib/text-search.ts
   - ../../src/components/files/FileHeaderParts.tsx
+  - ../../crates/sync-core/src/uncommitted_changes.rs
 ---
 
 # Commit Review

@@ -1,10 +1,11 @@
-//! The input of the rules (docs/design/rust-domain-authority.md, s8-policy): the branch table as the rules read it,
-//! borrowed from where it lives, never copied. Its one shape is `Repository`, read from the view of a session (`of_view`,
-//! what `repository_model::derive` builds the view's structure with), or from a table a sync or a grouping left as its
-//! grouped branches (`of_grouping`: `repository_model::branch_table::BranchTable` and `bd status`, until they read the
-//! view of a session too). The rules of each family take it: `stack` (the stacks by declared parent, the ancestors by
-//! effective base) and `parked`. The holds and the starts read the robots of the user by id (`Robots`) and what is known
-//! of a remote branch (`RemoteBranch`).
+//! The input of the rules (docs/design/rust-domain-authority.md, s8-policy; spec/branch/stacked-branches.spec.md,
+//! spec/branch/parked-branches.spec.md): the branch table as the rules read it, borrowed from where it lives, never
+//! copied. Its one shape is `Repository`, read from the view of a session (`of_view`, what `repository_model::derive`
+//! builds the view's structure with), or from a table a sync or a grouping left as its grouped branches (`of_grouping`:
+//! `repository_model::branch_table::BranchTable` and `bd status`, until they read the view of a session too). The rules
+//! of each family take it: `stack` (the stacks by declared parent, the ancestors by effective base) and `parked`. The
+//! holds and the starts read the robots of the user by id (`Robots`) and what is known of a remote branch
+//! (`RemoteBranch`).
 
 use domain_types::GroupedBranchInfo;
 use domain_types::patronus::PatronusRobot;

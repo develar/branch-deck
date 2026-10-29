@@ -74,7 +74,6 @@ targets:
   - ../../crates/domain-policy/src/news.rs
   - ../../crates/domain-policy/src/refresh.rs
   - ../../crates/remote-facts/src/scheduler_github.rs
-  - ../../crates/repository-model/src/pull_request_facts.rs
   - ../../src/lib/merge-pull-request.ts
   - ../../src/lib/auto-merge-news.ts
   - ../../crates/github/src/fake_repository.rs

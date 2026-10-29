@@ -19,6 +19,8 @@ targets:
   - ../../crates/git-ops/src/update_branch.rs
   - ../../crates/git-ops/src/revs.rs
   - ../../crates/bd-cli/src/lib.rs
+  - ../../crates/update-core/src/error_cases.rs
+  - ../../crates/git-ops/src/word_replay.rs
 ---
 
 # bd update

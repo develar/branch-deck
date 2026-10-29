@@ -38,6 +38,11 @@ targets:
   - ../../src/lib/remote-commits-news.ts
   - ../../src/lib/git/pick-remote.ts
   - ../../src/lib/review-commit.ts
+  - ../../src/model/intents.ts
+  - ../../crates/repository-model/src/ref_claims.rs
+  - ../../src/presenters/lock-wait.ts
+  - ../../src/presenters/reasons.ts
+  - ../../src/presenters/push.ts
 ---
 
 # Outgoing Commits

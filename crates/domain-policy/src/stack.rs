@@ -1,4 +1,5 @@
-//! The stacks of a table, for the app and `bd` alike (docs/design/rust-domain-authority.md, D8 and the rule index):
+//! The stacks of a table, for the app and `bd` alike (docs/design/rust-domain-authority.md, D8 and the rule index;
+//! spec/branch/stacked-branches.spec.md, spec/branch/whole-stack.spec.md, spec/branch/stack-island.spec.md):
 //!
 //! - `declared_parent`: the branch of the table a branch stacks on, as the user declared it (a `(parent/child)` prefix or
 //!   the stored parent of `refs/branch-deck/stack-parents`, `BranchStack::declared_parent`), not the branch a sync built

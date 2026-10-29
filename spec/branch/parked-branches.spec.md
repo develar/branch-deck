@@ -43,6 +43,8 @@ targets:
   - ../../src/lib/branch-drop.ts
   - ../../src/components/branch/InlineParkBranchInput.tsx
   - ../../src/components/branch/BranchRowStatus.tsx
+  - ../../src/presenters/rewrite.ts
+  - ../../crates/operations/src/push.rs
 ---
 
 # Parked Branches

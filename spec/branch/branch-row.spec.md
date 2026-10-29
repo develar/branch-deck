@@ -99,6 +99,30 @@ targets:
   - ../../crates/app-api/src/reads/commits.rs
   - ../../src/lib/git/delete-kept-branch.ts
   - ../../src/model/store.ts
+  - ../../crates/domain-policy/src/admission.rs
+  - ../../crates/domain-policy/src/reasons.rs
+  - ../../src/presenters/rewrite.ts
+  - ../../src/presenters/running-move.ts
+  - ../../crates/operations/src/close.rs
+  - ../../crates/operations/src/registry.rs
+  - ../../src/model/intents.ts
+  - ../../src/hooks/useAddIssueReference.ts
+  - ../../src/components/branch/InlineIssueReferenceInput.tsx
+  - ../../crates/sync-core/src/add_issue_reference.rs
+  - ../../crates/branch-integration/src/detector.rs
+  - ../../crates/branch-integration/src/strategy.rs
+  - ../../crates/branch-integration/src/archive.rs
+  - ../../crates/branch-integration/src/rebase.rs
+  - ../../crates/branch-integration/src/merge.rs
+  - ../../crates/branch-integration/src/squash.rs
+  - ../../crates/branch-integration/src/detection_notes.rs
+  - ../../crates/branch-integration/src/common.rs
+  - ../../crates/domain-types/src/operation.rs
+  - ../../crates/domain-types/src/rewrite.rs
+  - ../../crates/domain-types/src/branch_integration.rs
+  - ../../src/presenters/lock-wait.ts
+  - ../../src/presenters/operations.ts
+  - ../../src/presenters/reasons.ts
 ---
 
 # Branch Row

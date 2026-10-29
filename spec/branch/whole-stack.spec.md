@@ -94,6 +94,11 @@ targets:
   - ../../crates/app-api/src/remote/pull_requests.rs
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/BranchActions.tsx
+  - ../../crates/operations/src/land.rs
+  - ../../crates/operations/src/robot.rs
+  - ../../crates/operations/src/push.rs
+  - ../../crates/operations/src/pull_request.rs
+  - ../../src/hooks/useOrphanedStackPullRequest.ts
 ---
 
 # Whole Stack

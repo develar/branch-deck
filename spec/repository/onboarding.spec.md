@@ -61,8 +61,11 @@ targets:
   - ../../crates/app-api/src/app/desktop.rs
   - ../../crates/test-server/src/host.rs
   - ../../crates/history-rewrite/src/baseline.rs
-  - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/git-executor/src/git_info.rs
+  - ../../crates/git-ops/src/commit_chain.rs
+  - ../../crates/git-ops/src/commit_list.rs
+  - ../../crates/repository-model/src/branch_table.rs
+  - ../../crates/domain-types/src/repository_view.rs
 ---
 
 # Onboarding

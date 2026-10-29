@@ -34,6 +34,7 @@ targets:
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchCreator.tsx
   - ../../src/components/commit/CommitList.tsx
+  - ../../src/model/intents.ts
 ---
 
 # Landed Commits

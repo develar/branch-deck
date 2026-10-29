@@ -79,7 +79,6 @@ targets:
   - ../../src/lib/repository-config.ts
   - ../../src/lib/branch-prefix.ts
   - ../../src/hooks/useRepositoryConfig.ts
-  - ../../src/hooks/useRepositoryConfigChanges.ts
   - ../../src/hooks/useStackIndependence.ts
   - ../../src/components/settings/RepositoryPage.tsx
   - ../../src/components/branch/SafePushPopover.tsx

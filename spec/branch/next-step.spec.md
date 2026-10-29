@@ -53,6 +53,12 @@ targets:
   - ../../crates/domain-types/src/landing.rs
   - ../../crates/repository-model/src/facts.rs
   - ../../src/presenters/landing.ts
+  - ../../src/presenters/running-move.ts
+  - ../../crates/operations/src/land.rs
+  - ../../crates/operations/src/robot.rs
+  - ../../crates/operations/src/pull_request.rs
+  - ../../crates/domain-types/src/next_step.rs
+  - ../../src/presenters/reasons.ts
 ---
 
 # Next Step

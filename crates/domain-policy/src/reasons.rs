@@ -1,4 +1,5 @@
-//! The reasons the rules give (`domain_types::reason::Reason`), built from the facts and the robots they name: the push
+//! The reasons the rules give (`domain_types::reason::Reason`; spec/branch/branch-row.spec.md, an action disabled with
+//! its reason; spec/branch/patronus.spec.md, a start refused), built from the facts and the robots they name: the push
 //! mode and the target of a robot go with its code, so the words of either side need nothing else (the page:
 //! `src/presenters/reasons.ts`; `bd` and the engine: `repository_model::refusal_words::start_refusal_text`,
 //! `repository_model::push_guard`). `reason_catalog_test` writes every code with an example to `reasons.json`,

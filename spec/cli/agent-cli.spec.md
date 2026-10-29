@@ -118,6 +118,17 @@ targets:
   - ../../crates/bd-remote/src/landed.rs
   - ../../crates/bd-remote/src/robot_list.rs
   - ../../crates/sync-core/src/robot_landing.rs
+  - ../../crates/domain-policy/src/admission.rs
+  - ../../crates/domain-policy/src/land.rs
+  - ../../crates/bd-rewrite/src/block_patch.rs
+  - ../../crates/bd-remote/src/session_facts.rs
+  - ../../crates/bd-core/src/services.rs
+  - ../../crates/operations/src/land.rs
+  - ../../crates/operations/src/witness.rs
+  - ../../crates/operations/src/needs.rs
+  - ../../crates/operations/src/facts.rs
+  - ../../crates/repository-model/src/branch_table.rs
+  - ../../crates/repository-model/src/one_shot.rs
 ---
 
 # Agent CLI

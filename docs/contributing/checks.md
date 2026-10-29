@@ -53,7 +53,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 | the next step, the Safe Push decision or `plan()` of `bd safe-push`; the sync, `patronus_view`, the robot list, the review scan or what the session derives (`repository_model::derive`) | `cargo nextest run -p bd-remote -E 'test(/scenario/)'`: one expectation per case that the app's session and `bd` both answer; the cases in `crates/domain-policy/cases/` updated in the same commit, the diff reviewed like code ([Scenario table](../design/rust-domain-authority.md#таблица-сценариев)) |
 | a rule of `domain-policy` (a file of the [rule index](../../AGENTS.md#rule-index)) or what the view derives of it | `cargo nextest run -p domain-policy` (the table test of each rule beside it, `<rule>_test.rs`) and `cargo nextest run -p repository-model -E 'test(/derive|action_view|state/)'` (the parts of the view, `derive_budget_test.rs` its time); then the scenario table (the row above), and the page's presenter of what changed (`src/presenters/*.test.ts`) |
 | a `Reason` code (`domain_types::reason`), an action or a blocker of an action (`domain_types::actions`) | `UPDATE_REASON_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/reason/)'` writes `crates/domain-policy/reasons.json`, `UPDATE_ACTION_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/action_catalog/)'` `crates/domain-policy/actions.json`; `src/presenters/reasons.test.ts` and `actions.test.ts` word them code by code, so a code without words fails `pnpm test:unit` |
-| a spec, a doc or a test title | `pnpm lint:specs`: every test link a line of its own, naming tests that exist |
+| a spec, a doc, a test title, a rule of `domain-policy` or a presenter | `pnpm lint:specs` (`scripts/check-spec-links.mjs`): every test link a line of its own, naming tests that exist; the `targets:` of every spec, each once, `../../` paths of files that exist; every rule of `crates/domain-policy/src/` a target of each spec its `//!` header names (a header that names none fails); every presenter of `src/presenters/` a target of a spec |
 | `#[cfg]` or `cfg!` code | Linux and Windows too: [Platform Checks](platform-checks.md) (a check on the Mac compiles only its side) |
 | what the release app shows (a window that opens late, a "Loading…" frame) | [Real App Checks](real-app-checks.md) (`pnpm install-app`, Peekaboo) |
 
@@ -92,7 +92,7 @@ pnpm lint:backend         # cargo fmt, clippy --fix, then clippy -D warnings
 pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + lint:typecheck
 pnpm lint:typecheck       # tsc of tsconfig.app.json, tsconfig.node.json and tsconfig.e2e.json
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
-pnpm lint:specs           # the test links of spec/ and docs/ name test files and tests that exist
+pnpm lint:specs           # the test links of spec/ and docs/ name tests that exist; the targets: of the specs name files, of every rule and presenter
 pnpm lint:arch            # the page acts on the code of an error, never on its words, decides no rule, reads nothing before its subscription, calls the engine through src/model/intents.ts (scripts/lint-arch.mjs)
 pnpm lint:e2e-pins        # the commands E2E tests answer in the page, pinned (crates/test-server/src/command_registry_test.rs)
 bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)

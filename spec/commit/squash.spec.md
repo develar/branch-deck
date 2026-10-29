@@ -17,6 +17,7 @@ targets:
   - ../../src/components/commit/MovableCommitList.tsx
   - ../../src/components/commit/SquashCommitsDialog.tsx
   - ../../src/lib/squash-message.ts
+  - ../../src/presenters/rewrite.ts
 ---
 
 # Squash Commits

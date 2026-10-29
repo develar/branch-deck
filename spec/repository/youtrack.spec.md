@@ -42,6 +42,7 @@ targets:
   - ../../src/components/ui/popover.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/App.tsx
+  - ../../src/model/intents.ts
 ---
 
 # YouTrack

@@ -66,7 +66,6 @@ targets:
   - ../../src/lib/robot-run.ts
   - ../../crates/operations/src/land_execute.rs
   - ../../crates/operations/src/land_session.rs
-  - ../../crates/operations/src/robot_start.rs
   - ../../crates/operations/src/engine.rs
   - ../../crates/domain-policy/src/push.rs
   - ../../crates/domain-policy/src/holds.rs
@@ -119,7 +118,6 @@ targets:
   - ../../src/stores/update-project.ts
   - ../../crates/sync-core/src/baseline_fetch.rs
   - ../../crates/operations/src/update.rs
-  - ../../src/lib/robot-run.ts
   - ../../src/model/intents.ts
   - ../../src/presenters/actions.ts
   - ../../src/components/ui/toast.tsx
@@ -128,6 +126,16 @@ targets:
   - ../../src/lib/landing-toast.ts
   - ../../src/components/branch/BranchRowStatus.tsx
   - ../../src/hooks/useRowRobot.ts
+  - ../../crates/domain-policy/src/admission.rs
+  - ../../crates/operations/src/registry.rs
+  - ../../crates/operations/src/witness.rs
+  - ../../crates/operations/src/events.rs
+  - ../../crates/operations/src/needs.rs
+  - ../../crates/operations/src/facts.rs
+  - ../../crates/operations/src/registry_file.rs
+  - ../../crates/repository-model/src/patronus_view.rs
+  - ../../crates/domain-types/src/operation.rs
+  - ../../crates/domain-types/src/robot_landing.rs
 ---
 
 # Patronus

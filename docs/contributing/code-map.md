@@ -61,11 +61,12 @@ The rows and the menus of the main window: `branch/branch-row`, `commit/commit-r
 
 ## Rule Index
 
-Every rule of the domain is one file of `crates/domain-policy/src/` (a `//!` header names the rule and its spec, a table
-test `<rule>_test.rs` beside it), a pure function of `domain-types` that the app and `bd` both call: the session
-derives its answer into a part of the view (`repository_model::derive`, [The landing of a
-session](../design/git-operations.md#the-landing-of-a-session)), which the page only words (`src/presenters/`), and
-`bd` decides by the same function. A rule never goes into `src/lib` or `src/hooks` (`pnpm lint:arch`, `rule-module`).
+Every rule of the domain is one file of `crates/domain-policy/src/` (a `//!` header names the rule and its spec, whose
+`targets:` list it, `pnpm lint:specs`; a table test `<rule>_test.rs` beside it), a pure function of `domain-types` that
+the app and `bd` both call: the session derives its answer into a part of the view (`repository_model::derive`, [The
+landing of a session](../design/git-operations.md#the-landing-of-a-session)), which the page only words
+(`src/presenters/`), and `bd` decides by the same function. A rule never goes into `src/lib` or `src/hooks`
+(`pnpm lint:arch`, `rule-module`).
 
 | Rule | File | Its answer in the view; in `bd` |
 |---|---|---|

@@ -72,6 +72,7 @@ targets:
   - ../../src/components/settings/SettingRow.tsx
   - ../../src/components/branch/BranchCreator.tsx
   - ../../src/App.tsx
+  - ../../src/model/intents.ts
 ---
 
 # Review Requests

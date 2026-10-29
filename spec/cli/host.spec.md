@@ -22,6 +22,8 @@ targets:
   - ../../.branchdeck.toml
   - ../../src-tauri/tauri.macos-bd-host.conf.json
   - ../../scripts/build-bd-host.mjs
+  - ../../crates/bd-host/src/report_fd.rs
+  - ../../crates/lease-pool/src/host_brew.rs
 ---
 
 # bd-host

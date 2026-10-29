@@ -77,6 +77,8 @@ targets:
   - ../../src/lib/pull-request-run.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../crates/remote-facts/src/pull_request_writes.rs
+  - ../../crates/operations/src/pull_request.rs
+  - ../../src/hooks/useBaselineOnRemote.ts
 ---
 
 # Stacked Branches

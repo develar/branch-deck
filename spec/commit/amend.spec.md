@@ -13,6 +13,9 @@ targets:
   - ../../src/components/branch/InlineAmendChangesInput.tsx
   - ../../src/components/branch/UncommittedChangesCard.tsx
   - ../../src/components/conflict/SubjectFileDiffList.tsx
+  - ../../src/presenters/rewrite.ts
+  - ../../crates/sync-core/src/uncommitted_changes.rs
+  - ../../crates/git-ops/src/index_lock.rs
 ---
 
 # Amend Changes
