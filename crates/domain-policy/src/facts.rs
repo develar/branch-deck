@@ -103,7 +103,7 @@ impl<'a> Repository<'a> {
 
   /// Whether any branch has a parked line
   #[must_use]
-  pub fn has_parked(&self) -> bool {
+  pub const fn has_parked(&self) -> bool {
     !self.parked.is_empty()
   }
 

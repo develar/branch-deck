@@ -28,7 +28,7 @@ impl CloneSkips {
     root
   }
 
-  fn is_empty(&self) -> bool {
+  const fn is_empty(&self) -> bool {
     self.children.is_empty() && self.skipped.is_none()
   }
 }

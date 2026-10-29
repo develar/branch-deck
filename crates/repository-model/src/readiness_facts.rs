@@ -151,12 +151,12 @@ impl ReadinessFact {
   }
 
   #[must_use]
-  pub fn len(&self) -> usize {
+  pub const fn len(&self) -> usize {
     self.subjects.len()
   }
 
   #[must_use]
-  pub fn is_empty(&self) -> bool {
+  pub const fn is_empty(&self) -> bool {
     self.subjects.is_empty()
   }
 
