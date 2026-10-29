@@ -39,10 +39,19 @@ pub fn qualified_branch_name(branch_prefix: &str, kind: BranchKind, branch_name:
   ensure!(!name.is_empty(), "branch name cannot be blank");
 
   // Validate that the branch name is already sanitized
-  let sanitized_name = sanitize_branch_name(name);
-  ensure!(sanitized_name == name, "Branch name must be pre-sanitized. Got '{name}', expected '{sanitized_name}'");
+  ensure!(
+    is_sanitized(name),
+    "Branch name must be pre-sanitized. Got '{name}', expected '{}'",
+    sanitize_branch_name(name)
+  );
 
-  Ok(format!("{prefix}/{}/{name}", kind.segment()))
+  // the rules look tips up by these names for every row of every patch of a view: one allocation of the exact size
+  let segment = kind.segment();
+  let mut full_name = String::with_capacity(prefix.len() + segment.len() + name.len() + 2);
+  for part in [prefix, "/", segment, "/", name] {
+    full_name.push_str(part);
+  }
+  Ok(full_name)
 }
 
 /// Build the virtual branch name `{prefix}/virtual/{name}`
@@ -84,6 +93,15 @@ pub fn is_valid_branch_prefix(prefix: &str) -> bool {
   !prefix.is_empty() && !prefix.chars().any(|c| c.is_whitespace() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\')) && !prefix.contains("..") && !prefix.contains("@{")
 }
 
+/// The characters `sanitize_branch_name` makes hyphens
+const PROBLEMATIC: [char; 9] = [' ', '~', '^', ':', '?', '*', '[', ']', '\\'];
+
+/// Whether `sanitize_branch_name` leaves `name` as it is, without building the sanitized copy: no `.` or `/` at either
+/// end, none of `PROBLEMATIC`, no hyphen at either end and no two in a row (the ones it collapses or drops)
+fn is_sanitized(name: &str) -> bool {
+  name.trim_matches('.').trim_matches('/').len() == name.len() && !name.contains(PROBLEMATIC) && !name.starts_with('-') && !name.ends_with('-') && !name.contains("--")
+}
+
 /// Sanitizes a branch name to make it valid for Git references
 /// Git reference names cannot contain spaces, certain special characters, etc.
 pub fn sanitize_branch_name(name: &str) -> String {
@@ -92,7 +110,7 @@ pub fn sanitize_branch_name(name: &str) -> String {
   let trimmed = name.trim_matches('.').trim_matches('/');
   let mut result = String::with_capacity(trimmed.len());
   for c in trimmed.chars() {
-    let c = if matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | ']' | '\\') { '-' } else { c };
+    let c = if PROBLEMATIC.contains(&c) { '-' } else { c };
     // Collapse consecutive hyphens and never start with one
     if c == '-' && (result.is_empty() || result.ends_with('-')) {
       continue;

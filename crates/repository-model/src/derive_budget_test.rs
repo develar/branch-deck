@@ -1,8 +1,9 @@
 //! The time the view derives what its rows show, on the branches of the `branch_table_large` template of `pnpm
 //! perf:table` (120 lone branches and three stacks of seven that fork, 141 rows, robots running on ten): the next step
 //! and the node of every subject, as a flush of the session derives them twice (the readiness it asks, then the patch),
-//! and the whole patch of the view. A budget of the derivation (docs/design/rendering-performance.md): the minimum of
-//! several runs decides it, so the preemption of a loaded machine doesn't; the times are printed.
+//! and the whole first patch of the view. Budgets of the derivation (docs/design/rendering-performance.md, B10 of
+//! docs/design/rust-domain-authority.md): the minimum of several runs decides each, so the preemption of a loaded
+//! machine doesn't; the times are printed.
 
 use crate::action_view::{ActionSources, actions_of};
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
@@ -25,6 +26,10 @@ use std::time::{Duration, Instant};
 
 /// The derivations of all rows of one flush take at most this long, in a debug build
 const BUDGET: Duration = Duration::from_millis(20);
+/// The whole first patch of the view (every part derived and compared from nothing, and the view moved to it) takes at
+/// most this long: B10, 2 ms in a release build; 40 ms in a debug build, which takes about five times as long, with the
+/// margin `BUDGET` leaves a loaded machine
+const PATCH_BUDGET: Duration = if cfg!(debug_assertions) { Duration::from_millis(40) } else { Duration::from_millis(2) };
 const RUNS: usize = 9;
 
 pub(crate) fn at(seq: u32) -> Observation {
@@ -261,8 +266,8 @@ fn least(mut derive: impl FnMut()) -> Duration {
     .unwrap_or_default()
 }
 
-/// A flush derives the next step, the node and the actions of every row, the readiness it asks and the patch, within the
-/// budget; the whole first patch of the view is printed beside it
+/// A flush derives the next step, the node and the actions of every row, the readiness it asks and the patch, within its
+/// budget, and the whole first patch of the view within its own
 #[test]
 fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_budget() {
   let (state, facts) = session();
@@ -304,6 +309,7 @@ fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_
     let mut view = View::new(1);
     let _ = view.diff(&state, &facts);
   });
-  eprintln!("the next steps and the actions of 141 rows per flush: {flush:?} (budget {BUDGET:?}); the first patch of the view: {patch:?}");
+  eprintln!("the next steps and the actions of 141 rows per flush: {flush:?} (budget {BUDGET:?}); the first patch of the view: {patch:?} (budget {PATCH_BUDGET:?})");
   assert!(flush <= BUDGET, "the next steps of a flush took {flush:?}, over the budget of {BUDGET:?}");
+  assert!(patch <= PATCH_BUDGET, "the first patch of the view took {patch:?}, over the budget of {PATCH_BUDGET:?}");
 }

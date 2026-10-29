@@ -1,6 +1,6 @@
 use crate::branch_names::{
-  BranchKind, BranchNameCheck, BranchNameRules, BranchNameState, baseline_on_remote, check_branch_name, is_valid_branch_prefix, normalize_branch_prefix, qualified_branch_name,
-  sanitize_branch_name, strip_branch_namespace, to_final_branch_name, to_stack_branch_name,
+  BranchKind, BranchNameCheck, BranchNameRules, BranchNameState, baseline_on_remote, check_branch_name, is_sanitized, is_valid_branch_prefix, normalize_branch_prefix,
+  qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name, to_stack_branch_name,
 };
 
 const FLAT: BranchNameRules = BranchNameRules { stacks: false, leaf_only: false };
@@ -113,6 +113,18 @@ fn test_sanitize_branch_name_trims_before_replacing() {
   assert_eq!(sanitize_branch_name("/.test"), ".test");
   assert_eq!(sanitize_branch_name("a - b"), "a-b");
   assert_eq!(sanitize_branch_name("~~~"), "");
+}
+
+/// The check of a qualified name builds no sanitized copy: it says what a comparison with one would
+#[test]
+fn a_name_is_sanitized_when_sanitizing_leaves_it_as_it_is() {
+  let dots = ["", "a", ".a", "a.", ".", "..", "a..b", " .test. ", ".test."];
+  let slashes = ["/a", "a/", "a/b", "./a", "a/.", "/.test", "parent/child"];
+  let hyphens = ["feature-auth", "-a", "a-", "-", "--", "a--b", "a---b", "a-b-c", "a - b", "é-ü"];
+  let replaced = ["ui dispatcher", "test~branch", "a^b", "a:b", "a?b", "a*b", "a[b]", "a\\b", "~~~"];
+  for name in dots.into_iter().chain(slashes).chain(hyphens).chain(replaced) {
+    assert_eq!(is_sanitized(name), sanitize_branch_name(name) == name, "{name:?}");
+  }
 }
 
 #[test]

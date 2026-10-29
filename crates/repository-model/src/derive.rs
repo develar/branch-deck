@@ -805,7 +805,7 @@ impl<'a> LandingFacts<'a> {
   /// (`BranchTable::in_baseline`, as the view's pushes read it). `None` for a branch the table lacks
   #[must_use]
   pub fn branch_subject(&self, name: &str, pull_requests: Option<&PullRequestsView>, baseline: &LandedSection) -> Option<BranchSubject<'_>> {
-    let name = self.table.branch(name)?.name.as_str();
+    let name = self.repo.branch(name)?.name;
     let replaces = self.replaces(name);
     let chain = build_ancestors(&self.repo, name)
       .into_iter()
@@ -1128,7 +1128,8 @@ pub fn patronus_lands(robots: &RobotsView) -> bool {
   !matches!(robots.head.value.as_ref().map(|head| &head.availability), Some(PatronusAvailability::NotPatronus))
 }
 
-/// The decisions of the default intents of every branch and of every whole stack that forks
+/// The decisions of the default intents of every branch and of every whole stack that forks: both of a subject over
+/// the one reading of its facts
 #[must_use]
 pub fn decide_lands(sources: &LandSources<'_>) -> BTreeMap<String, LandDecisions> {
   let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None).with_pushed(sources.pushed);
@@ -1142,12 +1143,17 @@ pub fn decide_lands(sources: &LandSources<'_>) -> BTreeMap<String, LandDecisions
   branches
     .chain(stacks)
     .filter_map(|subject| {
-      let decide = |mode| decide_with(sources, &landing, &default_land(subject.clone(), mode)).map(|(decision, _)| decision);
-      let decisions = LandDecisions {
-        safe_push: decide(PatronusPushMode::RebaseAutosquash)?,
-        dry_run: decide(PatronusPushMode::DryRun)?,
-      };
-      Some((subject.key(), decisions))
+      let key = subject.key();
+      let decisions = with_land_facts(sources, &landing, &subject, &key, |facts, _| {
+        let mut land = default_land(subject.clone(), PatronusPushMode::RebaseAutosquash);
+        let safe_push = decide(facts, &land);
+        land.mode = PatronusPushMode::DryRun;
+        LandDecisions {
+          safe_push,
+          dry_run: decide(facts, &land),
+        }
+      })?;
+      Some((key, decisions))
     })
     .collect()
 }
@@ -1157,7 +1163,7 @@ pub fn decide_lands(sources: &LandSources<'_>) -> BTreeMap<String, LandDecisions
 #[must_use]
 pub fn land_decision(sources: &LandSources<'_>, land: &Land) -> Option<(LandDecision, LandProfiles)> {
   let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None).with_pushed(sources.pushed);
-  let (decision, last) = decide_with(sources, &landing, land)?;
+  let (decision, last) = with_land_facts(sources, &landing, &land.subject, &land.subject.key(), |facts, last| (decide(facts, land), last))?;
   let profiles = standing(sources.profiles).map_or_default(|options| offered_profiles(options, last, land.mode, land.without_approvals));
   Some((decision, profiles))
 }
@@ -1174,10 +1180,16 @@ fn default_land(subject: Subject, mode: PatronusPushMode) -> Land {
   }
 }
 
-/// `decide` of `land` over `sources`, with the profile of the last robot of its subject (the default); `None` for a
-/// subject the table lacks, or a whole stack that doesn't fork
-fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: &Land) -> Option<(LandDecision, Option<&'s PatronusRobotProfile>)> {
-  let (subject, robot, needs) = match &land.subject {
+/// `decide` over the facts of a start of `subject` (its key `key`) in `sources`, with the profile of the last robot of
+/// the subject (the default); `None` for a subject the table lacks, or a whole stack that doesn't fork
+fn with_land_facts<'s, T>(
+  sources: &LandSources<'s>,
+  landing: &LandingFacts<'s>,
+  subject: &Subject,
+  key: &str,
+  decide: impl FnOnce(&LandFacts<'_>, Option<&'s PatronusRobotProfile>) -> T,
+) -> Option<T> {
+  let (subject, robot, needs) = match subject {
     Subject::Branch { name } => {
       let needs = match sources.view.branches.get(name.as_str()).map(|facts| &facts.landing_needs) {
         Some(LandingNeeds::Known { refusals }) => Some(refusals.as_slice()),
@@ -1212,12 +1224,12 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
     profiles: sources.profiles,
     last_profile: last,
     pull_requests: sources.pull_requests,
-    readiness: (sources.readiness)(&land.subject.key()),
+    readiness: (sources.readiness)(key),
     rules: sources.rules,
     landing: needs,
     target_conflict: sources.target_conflict,
   };
-  Some((decide(&facts, land), last))
+  Some(decide(&facts, last))
 }
 
 /// What a row of the table says of its subject for its next step and its node: the sync of it, its failure, its
@@ -1400,7 +1412,8 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
   let patronus = sources.patronus.answer();
   let listing = Listing::of(&sources.pull_requests.head);
   let rows: HashMap<&str, &RowFacts> = sources.rows.iter().map(|(name, row)| (name.as_str(), row)).collect();
-  let mut steps = BTreeMap::new();
+  // in the order of the rows, then of the stacks: collected into the map at once
+  let mut steps = Vec::with_capacity(sources.rows.len() + sources.table.stack_branches.len());
   for (name, row) in sources.rows {
     let facts = sources.view.branches.get(name);
     let landing = facts.map(|facts| &facts.landing);
@@ -1466,7 +1479,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       step: next_step(&step),
       node: landing_node(&node),
     };
-    steps.insert(name.clone(), view);
+    steps.push((name.clone(), view));
   }
   for stack in sources.table.stack_branches.iter().filter(|stack| !stack.members.is_empty()) {
     let key = stack_readiness_key(&stack.root);
@@ -1533,9 +1546,9 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       step: next_step(&step),
       node: landing_node(&node),
     };
-    steps.insert(key, view);
+    steps.push((key, view));
   }
-  steps
+  steps.into_iter().collect()
 }
 
 /// The open pull request of each subject of `state` as the rules read it (`open_pull_requests_view`), over the pull

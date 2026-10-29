@@ -65,7 +65,7 @@ pub(crate) fn branch_change(last: Option<&BranchView>, now: &BranchView) -> Opti
       head: Some(now.head.clone()),
       commits: Some(now.commits.clone()),
       sync: changed(&BranchSync::SYNCING, &now.sync),
-      copies: changed(&vec![CommitSync::default(); now.commits.len()], &now.copies),
+      copies: (!unsynced(now)).then(|| now.copies.clone()),
       remote: changed(&BranchRemote::default(), &now.remote),
       structure: changed(&BranchStructure::default(), &now.structure),
     },
@@ -79,6 +79,12 @@ pub(crate) fn branch_change(last: Option<&BranchView>, now: &BranchView) -> Opti
     },
   };
   (change != BranchChange::default()).then_some(change)
+}
+
+/// Whether the copies of `branch` are the ones a branch the sync has not reported yet has: one default per commit, which
+/// a window fills in for a branch whose patch carries none (`apply_branch_change`)
+fn unsynced(branch: &BranchView) -> bool {
+  branch.copies.len() == branch.commits.len() && branch.copies.iter().all(|copy| *copy == CommitSync::default())
 }
 
 /// Applies `patch` to `view`, all of it or nothing
@@ -142,45 +148,20 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   for name in &removed_branches {
     view.branches.remove(name);
   }
-  for (name, change) in branches {
-    apply_branch_change(&mut view.branches, name, change);
-  }
-  for root in &removed_stacks {
-    view.stacks.remove(root);
-  }
-  view.stacks.extend(stacks);
-  for name in &removed_pushes {
-    view.pushes.remove(name);
-  }
-  view.pushes.extend(pushes);
-  for key in &removed_open_pull_requests {
-    view.open_pull_requests.remove(key);
-  }
-  view.open_pull_requests.extend(open_pull_requests);
-  for key in &removed_lands {
-    view.lands.remove(key);
-  }
-  view.lands.extend(lands);
-  for key in &removed_landed_states {
-    view.landed_states.remove(key);
-  }
-  view.landed_states.extend(landed_states);
-  for key in &removed_next_steps {
-    view.next_steps.remove(key);
-  }
-  view.next_steps.extend(next_steps);
-  for key in &removed_actions {
-    view.actions.remove(key);
-  }
-  view.actions.extend(actions);
-  for key in &removed_attention {
-    view.attention.remove(key);
-  }
-  view.attention.extend(attention);
-  for id in &removed_operations {
-    view.operations.remove(id);
-  }
-  view.operations.extend(operations);
+  let added = branches
+    .into_iter()
+    .filter_map(|(name, change)| apply_branch_change(&mut view.branches, &name, change).map(|branch| (name, branch)))
+    .collect();
+  apply_keyed(&mut view.branches, added, &[]);
+  apply_keyed(&mut view.stacks, stacks, &removed_stacks);
+  apply_keyed(&mut view.pushes, pushes, &removed_pushes);
+  apply_keyed(&mut view.open_pull_requests, open_pull_requests, &removed_open_pull_requests);
+  apply_keyed(&mut view.lands, lands, &removed_lands);
+  apply_keyed(&mut view.landed_states, landed_states, &removed_landed_states);
+  apply_keyed(&mut view.next_steps, next_steps, &removed_next_steps);
+  apply_keyed(&mut view.actions, actions, &removed_actions);
+  apply_keyed(&mut view.attention, attention, &removed_attention);
+  apply_keyed(&mut view.operations, operations, &removed_operations);
   set_if_some(&mut view.reviews, reviews);
   set_if_some(&mut view.route, route);
   let sections = &mut view.sections;
@@ -191,10 +172,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     let section = &mut sections.archived;
     set_if_some(&mut section.names, archived.names);
     set_if_some(&mut section.newly_archived, archived.newly_archived);
-    for name in &archived.removed_integration {
-      section.integration.remove(name);
-    }
-    section.integration.extend(archived.integration);
+    apply_keyed(&mut section.integration, archived.integration, &archived.removed_integration);
   }
   if let Some(patronus) = patronus {
     apply_patronus_change(&mut view.patronus, patronus);
@@ -213,14 +191,8 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   } = facts.unwrap_or_default();
   set_if_some(&mut view.facts.review_requests, review_requests);
   set_if_some(&mut view.facts.auth, auth);
-  for key in &removed_readiness {
-    view.facts.readiness.remove(key);
-  }
-  view.facts.readiness.extend(readiness);
-  for id in &removed_robot_details {
-    view.facts.robot_details.remove(id);
-  }
-  view.facts.robot_details.extend(robot_details);
+  apply_keyed(&mut view.facts.readiness, readiness, &removed_readiness);
+  apply_keyed(&mut view.facts.robot_details, robot_details, &removed_robot_details);
   if let Some(pull_requests) = pull_requests {
     apply_pull_requests_change(&mut view.facts.pull_requests, pull_requests);
   }
@@ -237,10 +209,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     } = robots;
     let view = &mut view.facts.robots;
     set_if_some(&mut view.head, head);
-    for id in &removed_robots {
-      view.robots.remove(id);
-    }
-    view.robots.extend(robots);
+    apply_keyed(&mut view.robots, robots, &removed_robots);
     set_if_some(&mut view.failing, failing);
     set_if_some(&mut view.needs_review, needs_review);
     set_if_some(&mut view.problems_failed, problems_failed);
@@ -249,6 +218,67 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   let excess = view.news.len().saturating_sub(NEWS_KEPT);
   view.news.drain(..excess);
   Ok(())
+}
+
+/// A copy of the parts of `changes` that the table and the facts hold, without the parts the view derives of them (the
+/// rules' answers: the pushes, the open pull requests, the starts, what landed, the next steps, the actions, the
+/// attention, the reviews and the route), which `state::View` moves into the view it keeps instead of copying them
+pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
+  let TableChanges {
+    cached,
+    sync,
+    header,
+    order,
+    branches,
+    removed_branches,
+    stacks,
+    removed_stacks,
+    pushes: _,
+    removed_pushes: _,
+    open_pull_requests: _,
+    removed_open_pull_requests: _,
+    lands: _,
+    removed_lands: _,
+    landed_states: _,
+    removed_landed_states: _,
+    next_steps: _,
+    removed_next_steps: _,
+    actions: _,
+    removed_actions: _,
+    attention: _,
+    removed_attention: _,
+    operations,
+    removed_operations,
+    unassigned,
+    archived,
+    unapplied,
+    landed,
+    reviews: _,
+    patronus,
+    route: _,
+    facts,
+    news,
+  } = changes;
+  TableChanges {
+    cached: *cached,
+    sync: sync.clone(),
+    header: header.clone(),
+    order: order.clone(),
+    branches: branches.clone(),
+    removed_branches: removed_branches.clone(),
+    stacks: stacks.clone(),
+    removed_stacks: removed_stacks.clone(),
+    operations: operations.clone(),
+    removed_operations: removed_operations.clone(),
+    unassigned: unassigned.clone(),
+    archived: archived.clone(),
+    unapplied: unapplied.clone(),
+    landed: landed.clone(),
+    patronus: patronus.clone(),
+    facts: facts.clone(),
+    news: news.clone(),
+    ..TableChanges::default()
+  }
 }
 
 /// A patch applies only to the view at its base, in the same epoch, and brings it to a newer version: the next one, or
@@ -269,13 +299,27 @@ fn check_base(view: Version, patch: &ViewPatch) -> Result<(), PatchRejected> {
   Ok(())
 }
 
+/// `map` without the keys `removed`, with the entries of `set`; a map left empty takes `set` as it is (the first patch of
+/// a view, a part that had nothing)
+fn apply_keyed<K: Ord, V>(map: &mut BTreeMap<K, V>, set: BTreeMap<K, V>, removed: &[K]) {
+  for key in removed {
+    map.remove(key);
+  }
+  if map.is_empty() {
+    *map = set;
+  } else {
+    map.extend(set);
+  }
+}
+
 fn set_if_some<T>(target: &mut T, value: Option<T>) {
   if let Some(value) = value {
     *target = value;
   }
 }
 
-fn apply_branch_change(branches: &mut BTreeMap<String, BranchView>, name: String, change: BranchChange) {
+/// `change` applied to the branch `name` of `branches`; of a branch `branches` lacks, the branch it adds
+fn apply_branch_change(branches: &mut BTreeMap<String, BranchView>, name: &str, change: BranchChange) -> Option<BranchView> {
   let BranchChange {
     head,
     commits,
@@ -284,33 +328,26 @@ fn apply_branch_change(branches: &mut BTreeMap<String, BranchView>, name: String
     remote,
     structure,
   } = change;
-  match branches.get_mut(&name) {
-    Some(branch) => {
-      set_if_some(&mut branch.head, head);
-      set_if_some(&mut branch.commits, commits);
-      set_if_some(&mut branch.sync, sync);
-      set_if_some(&mut branch.copies, copies);
-      set_if_some(&mut branch.remote, remote);
-      set_if_some(&mut branch.structure, structure);
-    }
+  let Some(branch) = branches.get_mut(name) else {
     // the head and the commits are checked by `apply_patch`
-    None => {
-      if let (Some(head), Some(commits)) = (head, commits) {
-        let copies = copies.unwrap_or_else(|| vec![CommitSync::default(); commits.len()]);
-        branches.insert(
-          name,
-          BranchView {
-            head,
-            commits,
-            sync: sync.unwrap_or(BranchSync::SYNCING),
-            copies,
-            remote: remote.unwrap_or_default(),
-            structure: structure.unwrap_or_default(),
-          },
-        );
-      }
-    }
-  }
+    let (head, commits) = (head?, commits?);
+    let copies = copies.unwrap_or_else(|| vec![CommitSync::default(); commits.len()]);
+    return Some(BranchView {
+      head,
+      commits,
+      sync: sync.unwrap_or(BranchSync::SYNCING),
+      copies,
+      remote: remote.unwrap_or_default(),
+      structure: structure.unwrap_or_default(),
+    });
+  };
+  set_if_some(&mut branch.head, head);
+  set_if_some(&mut branch.commits, commits);
+  set_if_some(&mut branch.sync, sync);
+  set_if_some(&mut branch.copies, copies);
+  set_if_some(&mut branch.remote, remote);
+  set_if_some(&mut branch.structure, structure);
+  None
 }
 
 fn apply_patronus_change(part: &mut PatronusPart, change: PatronusChange) {
@@ -327,14 +364,8 @@ fn apply_patronus_change(part: &mut PatronusPart, change: PatronusChange) {
   set_if_some(&mut part.state, state);
   set_if_some(&mut part.landing_needs, landing_needs);
   let view = &mut part.view;
-  for name in &removed_branches {
-    view.branches.remove(name);
-  }
-  view.branches.extend(branches);
-  for root in &removed_stacks {
-    view.stacks.remove(root);
-  }
-  view.stacks.extend(stacks);
+  apply_keyed(&mut view.branches, branches, &removed_branches);
+  apply_keyed(&mut view.stacks, stacks, &removed_stacks);
   set_if_some(&mut view.landed_by_robot, landed_by_robot);
   set_if_some(&mut view.restarts, restarts);
 }
@@ -358,14 +389,8 @@ fn apply_pull_requests_change(view: &mut PullRequestsView, change: PullRequestsC
     view.viewer_permission = viewer_permission;
     view.merge_methods = merge_methods;
   }
-  for name in &removed_pull_requests {
-    view.pull_requests.remove(name);
-  }
-  view.pull_requests.extend(pull_requests);
-  for root in &removed_stack_pull_requests {
-    view.stack_pull_requests.remove(root);
-  }
-  view.stack_pull_requests.extend(stack_pull_requests);
+  apply_keyed(&mut view.pull_requests, pull_requests, &removed_pull_requests);
+  apply_keyed(&mut view.stack_pull_requests, stack_pull_requests, &removed_stack_pull_requests);
 }
 
 /// The parts of a view as they are now, borrowed, which `changes` compares with a view: of a session, its table state
@@ -401,12 +426,11 @@ pub(crate) struct Now<'a> {
 
 /// The changes from `last` to `now`, by part: only the parts that differ, each cloned once
 pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
-  let mut branches = BTreeMap::new();
-  for (name, branch) in now.branches {
-    if let Some(change) = branch_change(last.branches.get(name), branch) {
-      branches.insert(name.clone(), change);
-    }
-  }
+  let branches = now
+    .branches
+    .iter()
+    .filter_map(|(name, branch)| Some((name.clone(), branch_change(last.branches.get(name), branch)?)))
+    .collect();
   let removed_branches = last.branches.keys().filter(|name| !now.branches.contains_key(*name)).cloned().collect();
   let (stacks, removed_stacks) = diff_keyed(&last.stacks, now.stacks);
   let (pushes, removed_pushes) = now.pushes.map_or_else(|| (BTreeMap::new(), Vec::new()), |pushes| diff_keyed(&last.pushes, pushes));

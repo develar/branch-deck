@@ -90,7 +90,10 @@ flowchart LR
   `View::diff` derives them on every patch over the table and the facts (the pushes, the lands and
   what landed not while a sync runs) and sends only the keys whose value changed (`diff_keyed`, by `PartialEq`) and
   those removed, so a patch that moves one branch carries the parts of that branch and of what its change decides, and
-  `applyViewPatch` replaces only those records. A row reads its part with one kept reference (`useRowPart(name,
+  `applyViewPatch` replaces only those records. The view the session keeps takes the derived parts as they were
+  derived (moved in, not copied from the patch) and copies only the parts of the table and the facts; the whole first
+  patch of the 141 rows, every part derived and compared from nothing, is a budget: at most 2 ms in a release build
+  (B10), 40 ms in a debug one. A row reads its part with one kept reference (`useRowPart(name,
   "landing")`, `useRowPart(name, "actions")`) and words it in the render (`presentNextStep`, `presentLandingNode`,
   `presentAction`): no row derives a rule, and no selector reads the seven stores the step was made of
   (`useNextStepStores` and its `getBranchNextStepNow` per row on every change of a store are gone). Beside the part
@@ -336,9 +339,10 @@ and task and 41 % fewer bytes, and asks one command before its rows, the subscri
 What the page no longer derives the session derives on every patch, so its time is a budget too (B10 there, at most
 2 ms in a release build for the 141 rows): `derive_budget_test.rs` takes the least of nine runs of a flush (the
 readiness the session asks, the next step, the node and the actions of every row and whole stack) and of the whole
-first patch of the view (every part derived and compared from nothing). In a release build on the Mac Studio, three
-runs at a load of 3: 0.60–1.09 ms per flush and 1.70–2.14 ms for the whole first patch (medians 0.60 and 1.71 ms); a
-debug build asserts a flush within 20 ms.
+first patch of the view (every part derived and compared from nothing), and asserts a flush within 20 ms and the first
+patch within 2 ms in a release build, 40 ms in a debug one (`PATCH_BUDGET`). In a release build on the Mac Studio,
+three runs at a load of 3: 0.60–1.09 ms per flush and 1.70–2.14 ms for the whole first patch (medians 0.60 and
+1.71 ms).
 
 The final measurements of the rework (s14, [Итог s14](rust-domain-authority.md#итог-s14)) ran the tree of s0a
 (`66938306`, the page that derived the table from `SyncEvent`s) and the tree of s14 in turn on the Mac Studio, two
@@ -347,6 +351,14 @@ turns of five runs each in Chromium at a load of 4 to 20: the first sync 378 / 3
 did not), a sync that changes nothing 61 / 57 ms against 36 / 42 ms, the first rows 1865 / 2037 ms against
 1569 / 1600 ms; the derivation in a release build, three runs at a load of 12.6: 0.67–0.69 ms per flush and
 2.01–2.03 ms for the whole first patch, 1 % over B10.
+
+The first patch then lost a third of its time (s16-2, [s16-rust-budgets](rust-domain-authority.md#s16-rust-budgets)),
+its bytes the same: the view the session keeps takes the parts the rules derived instead of a second copy of them from
+the patch, and a part of a view that has none takes the map of the patch whole; both default starts of a subject (a
+Safe Push and a Dry Run) are decided over one reading of its facts, the branch found by the index of the table; a
+qualified ref name, by which the rules look up the tip of every row, is checked without a sanitized copy and built with
+one allocation; the actions of a branch are sized once. In a release build on the Mac Studio, three runs at a load of
+3.8 to 5.7: 0.60–0.67 ms per flush and 1.32–1.53 ms for the whole first patch, within B10.
 
 WebKit, the engine of the app, lost one thing on the way: a layout of the view after its width changed (`relayoutMs`,
 what each frame of a resize of the window costs) takes 110.91 ms against 6.68 ms in the tree of s0a. The cause is the

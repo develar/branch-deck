@@ -106,12 +106,15 @@ pub struct BranchFacts<'a> {
   pub cached: bool,
 }
 
+/// The most actions a branch offers: the vector of them is sized once (every row of every patch of a view derives them)
+const BRANCH_ACTIONS: usize = 24;
+
 /// The actions of a branch, in the order of the enum
 #[must_use]
 pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   let row = &facts.row;
   let step = facts.step;
-  let mut actions = Vec::new();
+  let mut actions = Vec::with_capacity(BRANCH_ACTIONS);
   let mut offer = |id: ActionId, reason: Option<ActionBlocker>| actions.push(state(id, reason));
   // until Patronus answers its starts are offered, disabled with what they wait for: hidden only off Space, and where
   // the push into the target lands it
