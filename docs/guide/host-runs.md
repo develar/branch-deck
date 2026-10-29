@@ -44,17 +44,42 @@ On this Mac:
 
 - Branch Deck for macOS, and its agent CLI: Help → Install Agent CLI…, or `bd install`. It links
   `~/.local/bin/bd-host` to the binary in the app bundle. The Windows app has no bd-host.
-- An ssh alias of the host that logs in without a prompt, with a key in the ssh agent. Check it with
-  `ssh -o BatchMode=yes studio true`. Only the setup uses it.
+- An ssh alias of the host that logs in without a prompt, with a key in the ssh agent. Only the setup uses it.
 
 On the host, a Mac (on Linux the agent runs only by hand, `bd-host serve`, without `upgrade`):
 
+- Remote Login on, for the setup: System Settings → General → Sharing → Remote Login.
 - [Homebrew](https://brew.sh). The agent keeps the git of Homebrew at the version that Branch Deck needs.
 - A clone of each repository that you run there, under the same directory name as here, side by side, for example
   `~/projects/branch-deck`. A run goes to the clone of the same name beside the main repository of the setup
   (`--repo`).
 - The tools of your commands (cargo, pnpm, a JDK) on the login `PATH` of your user. A run gets the login environment.
 - You logged in. The agent is a LaunchAgent of your user: it starts at your login and runs while you are logged in.
+
+### The ssh alias
+
+The alias is a `Host` entry of `~/.ssh/config` on this Mac. The name of the entry becomes the name of the host for
+bd-host (`bd-host run studio`):
+
+```text
+Host studio
+  HostName studio.local            # the Bonjour name of the host: System Settings → General → Sharing
+  User alex                        # your user on the host
+  IdentityFile ~/.ssh/id_ed25519
+  AddKeysToAgent yes               # the key goes to the ssh agent at the first use
+  UseKeychain yes                  # macOS: the passphrase stays in the keychain
+```
+
+Put the key on the host once with `ssh-copy-id studio`, then check that the alias logs in without a prompt:
+
+```sh
+ssh -o BatchMode=yes studio true && echo ok
+```
+
+A run does not go through ssh: `setup` reads `HostName` (`ssh -G studio`) and keeps it and its addresses in the host
+file, and each run connects to them directly on port 7742. So `HostName` must be a name or an address that this Mac
+reaches on its own: a `ProxyJump` or a `ProxyCommand` serves the setup only. When the address of the host changes,
+the next run resolves `HostName` again.
 
 ## Set up a host
 
