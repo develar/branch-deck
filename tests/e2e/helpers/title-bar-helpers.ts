@@ -45,6 +45,11 @@ export function windowCalls(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])
 }
 
+/** The theme the page set on the frame of its window (`useTheme`): `null` follows the system, `undefined` never set */
+export function windowTheme(page: Page): Promise<string | null | undefined> {
+  return page.evaluate(() => (window as unknown as { __e2eWindowState: { theme?: string | null } }).__e2eWindowState.theme)
+}
+
 /** Opens View of ☰ (a custom title bar): File opens first, the open menu has the focus, → goes to View */
 export async function openMainMenuView(page: Page): Promise<void> {
   await page.getByTestId("main-menu-button").click()

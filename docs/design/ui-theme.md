@@ -57,7 +57,10 @@ flowchart TD
 - **Islands.** Every other top-level block on the canvas is a `Card` (`bg-card`, `ring-foreground/5`, no shadow).
   Examples are the tables, the collapsible sections, alerts and the sub-window context cards.
 - **Dark mode.** The same tokens give islands (`#191A1C`) darker than the canvas (`#26282C`), which is what Islands Dark
-  does. Popovers (`#26282C`) are lighter than the island under them. There are no `dark:` overrides.
+  does. Popovers (`#26282C`) are lighter than the island under them. There are no `dark:` overrides. The dark values
+  apply under `:root[data-theme="dark"]` of `src/index.css`, the attribute `useTheme` sets in every window by
+  Settings → Appearance → Theme (System follows `prefers-color-scheme`, Light and Dark fix it), and the `dark` variant
+  matches the same attribute ([Settings](../../spec/repository/settings.spec.md)).
 - **White fields.** `--background` stays white (the island colour in dark), so outline buttons and bordered fields
   (`bg-background border-input`) read as fields on an island and on the canvas.
 

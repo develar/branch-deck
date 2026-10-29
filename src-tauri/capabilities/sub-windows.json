@@ -3,5 +3,5 @@
   "identifier": "sub-windows",
   "description": "Capability for all sub-windows (missing commits, conflicting files, branch review, pull request review, commit review, settings, activity)",
   "windows": ["missing-commits", "conflicting-files", "branch-review", "pull-request-review", "commit-review", "settings", "activity"],
-  "permissions": ["core:event:default", "core:webview:allow-set-webview-zoom", "log:default", "opener:allow-open-url", "opener:allow-default-urls"]
+  "permissions": ["core:event:default", "core:webview:allow-set-webview-zoom", "core:window:allow-set-theme", "log:default", "opener:allow-open-url", "opener:allow-default-urls"]
 }

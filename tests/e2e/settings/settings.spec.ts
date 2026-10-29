@@ -9,7 +9,7 @@ import { expectSettingsOpened, openSettingsWindow, settingsTab } from "../helper
 import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { windowCalls } from "../helpers/title-bar-helpers"
+import { windowCalls, windowTheme } from "../helpers/title-bar-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 const WINDOW_SIZE = { width: 720, height: 540 }
@@ -246,6 +246,36 @@ test.describe("Settings window", () => {
     await window.getByRole("button", { name: "Actual Size" }).click()
     await expect(level).toHaveText("100%")
     await expect.poll(() => webviewZoom(page)).toBe(1)
+  })
+
+  test("should set the theme of every window from Appearance, System following the system", async ({ page, testStore }) => {
+    await page.emulateMedia({ colorScheme: "light" })
+    const settings = await openSettingsWindow(page, { page: "appearance" })
+    await settings.emulateMedia({ colorScheme: "light" })
+    const picker = settings.getByTestId("setting-theme")
+    await expect(picker.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+
+    await picker.getByRole("button", { name: "Dark" }).click()
+    await expect(picker.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true")
+    // both windows show the dark tokens, and the main window saves the choice and sets the theme of its frame
+    await expect(settings.locator("html")).toHaveAttribute("data-theme", "dark")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+    await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).colorScheme)).toBe("dark")
+    await expect.poll(async () => ((await testStore.get("appSettings")) as { theme?: string } | null)?.theme).toBe("dark")
+    await expect.poll(() => windowTheme(page)).toBe("dark")
+
+    await picker.getByRole("button", { name: "Light" }).click()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+    await page.emulateMedia({ colorScheme: "dark" })
+    // Light stays light whatever the system shows
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+
+    await picker.getByRole("button", { name: "System" }).click()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+    await expect.poll(() => windowTheme(page)).toBeNull()
+    await page.emulateMedia({ colorScheme: "light" })
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
   })
 
   test("should set every diff from Diffs & Merge, the Whitespace menu naming its choice", async ({ page, testStore }) => {

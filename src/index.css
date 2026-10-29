@@ -13,8 +13,8 @@
 /* its real italic faces: the comments of the IntelliJ schemes are italic, not an oblique the browser makes */
 @import "@fontsource-variable/jetbrains-mono/wght-italic.css";
 
-/* The colour scheme follows the OS; there is no manual toggle */
-@custom-variant dark (@media (prefers-color-scheme: dark));
+/* The colour scheme of Settings → Appearance → Theme (System follows the OS): `data-theme` of the root (`useTheme`) */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /* Branch Deck specific padding utilities */
 
@@ -439,115 +439,114 @@
   --diff-card-border: var(--canvas);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    /* the IntelliJ hover is #FFFFFF10 on a list, #FFFFFF17 on a toolbar */
-    --bd-tint: 7%;
-    /* MainWindow.background #26282C: in Islands Dark the window is lighter than the islands */
-    --canvas: oklch(0.276 0.008 264.4);
-    /* ToolWindow.background #191A1C */
-    --background: oklch(0.218 0.004 264.5);
-    --card: oklch(0.218 0.004 264.5);
-    /* Popup.background #26282C, lighter than the island under it */
-    --popover: oklch(0.276 0.008 264.4);
-    /* text-default #D1D3D9, muted #9FA2A8 */
-    --foreground: oklch(0.867 0.009 271.3);
-    --muted-foreground: oklch(0.712 0.009 264.5);
-    /* the dark-theme link #71A1FE, with dark text */
-    --primary: oklch(0.716 0.146 262.6);
-    --primary-foreground: oklch(0.218 0.004 264.5);
-    /* error #F57E84, success #6DB083, warning #D59637, violet #AB7DF8 */
-    --destructive: oklch(0.729 0.146 18.2);
-    --destructive-foreground: oklch(0.218 0.004 264.5);
-    --success: oklch(0.7 0.095 153.9);
-    --success-foreground: oklch(0.218 0.004 264.5);
-    --warning: oklch(0.719 0.131 73.5);
-    --warning-foreground: oklch(0.218 0.004 264.5);
-    --info: oklch(0.688 0.178 298.9);
-    /* the same slots stepped for the dark card */
-    --chart-1: #3987e5;
-    --chart-2: #d95926;
-    --chart-3: #7d828c;
-    --chart-4: #c98500;
-    /* step 550 of the same ramp */
-    --chart-context: #1c5cab;
-    --info-foreground: oklch(0.218 0.004 264.5);
-    /* separatorColor #33353B, Component.borderColor #40434A */
-    --border: oklch(0.329 0.011 271.1);
-    --input: oklch(0.383 0.013 267.2);
-    --window-button-glyph: #ced0d6;
-    --window-button-shade: #ffffff;
-    --window-button-kde-glyph: #ced0d6;
-    --window-button-kde-circle: #f0f1f2;
-    --window-button-kde-circle-hover: #dfe1e6;
-    --window-button-kde-circle-pressed: #ced0d6;
-    --window-button-kde-on-circle: #393b40;
-    /* the IntelliJ New UI Dark editor scheme */
-    --syntax-foreground: #bcbec4;
-    --syntax-keyword: #cf8e6d;
-    --syntax-string: #6aab73;
-    --syntax-escape: #cf8e6d;
-    --syntax-number: #2aacb8;
-    --syntax-comment: #7a7e85;
-    --syntax-function-declaration: #56a8f5;
-    --syntax-field: #c77dbb;
-    --syntax-annotation: #b3ae60;
-    --syntax-tag: #d5b778;
-    --syntax-attribute: #bcbec4;
-    /*
-     * Islands Dark (`themes/islands/IslandSchemeDark.xml`), its parent Darcula and what the plugins add to Darcula
-     * (Rust takes its colours from Darcula, its calls from `RustIslandsDark.xml`): a comment is plain, a doc comment and
-     * its tags italic, a global variable italic
-     */
-    --syntax-comment-style: normal;
-    --syntax-doc-comment: #5f826b;
-    --syntax-doc-tag: #67a37c;
-    --syntax-doc-tag-decoration: none;
-    --syntax-doc-tag-value: #abadb3;
-    --syntax-label: #32b8af;
-    --syntax-default-label-decoration: none;
-    --syntax-named-argument: #56c1d6;
-    --syntax-macro: #4eade5;
-    --syntax-lifetime: #20999d;
-    --syntax-type-parameter: #16baac;
-    --syntax-self: #d98eb3;
-    --syntax-enum-variant: #6da1ab;
-    --syntax-question: #cc7832;
-    --syntax-tag-bracket: #d5b778;
-    --syntax-component-tag: #2fbaa3;
-    --syntax-regexp: #42c3d4;
-    --syntax-method: #56a8f5;
-    --syntax-local-variable: #a9b7c6;
-    --syntax-global-variable: #c77dba;
-    --syntax-global-variable-style: italic;
-    --syntax-parameter-decoration: none;
-    --syntax-global-function: #56a8f5;
-    --syntax-global-function-style: normal;
-    --syntax-mutable-underline: #84868c;
-    --syntax-mutable-underline-kotlin: #84868c;
-    --syntax-mutable-underline-rust: #84868c;
-    --syntax-type-parameter-rust: #20999d;
-    --syntax-type-parameter-typescript: #507874;
-    /* the diff colours of Islands Dark and its parent Darcula, pale against the editor background #191A1C */
-    --diff-inserted: #294436;
-    --diff-inserted-pale: #1f2b26;
-    --diff-deleted: #484a4a;
-    --diff-deleted-pale: #2c2d2e;
-    --diff-modified: #385570;
-    --diff-modified-pale: #25323e;
-    --diff-conflict: #45302b;
-    --diff-conflict-pale: #2b2322;
-    --diff-line-number: #4b5059;
-    --diff-separator: #2b2d30;
-    --diff-separator-wave: #555555;
-    --diff-selection: #214283;
-    --diff-search-result: #114957;
-    --diff-search-result-border: #165e70;
-    /* the gap is the island itself; the border #26282C, the canvas */
-    --diff-card-gap: var(--card);
-    --diff-card-border: var(--canvas);
-  }
+/* the dark tokens: `data-theme` of the root, which `useTheme` sets by the setting of Appearance, else by the system */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  /* the IntelliJ hover is #FFFFFF10 on a list, #FFFFFF17 on a toolbar */
+  --bd-tint: 7%;
+  /* MainWindow.background #26282C: in Islands Dark the window is lighter than the islands */
+  --canvas: oklch(0.276 0.008 264.4);
+  /* ToolWindow.background #191A1C */
+  --background: oklch(0.218 0.004 264.5);
+  --card: oklch(0.218 0.004 264.5);
+  /* Popup.background #26282C, lighter than the island under it */
+  --popover: oklch(0.276 0.008 264.4);
+  /* text-default #D1D3D9, muted #9FA2A8 */
+  --foreground: oklch(0.867 0.009 271.3);
+  --muted-foreground: oklch(0.712 0.009 264.5);
+  /* the dark-theme link #71A1FE, with dark text */
+  --primary: oklch(0.716 0.146 262.6);
+  --primary-foreground: oklch(0.218 0.004 264.5);
+  /* error #F57E84, success #6DB083, warning #D59637, violet #AB7DF8 */
+  --destructive: oklch(0.729 0.146 18.2);
+  --destructive-foreground: oklch(0.218 0.004 264.5);
+  --success: oklch(0.7 0.095 153.9);
+  --success-foreground: oklch(0.218 0.004 264.5);
+  --warning: oklch(0.719 0.131 73.5);
+  --warning-foreground: oklch(0.218 0.004 264.5);
+  --info: oklch(0.688 0.178 298.9);
+  /* the same slots stepped for the dark card */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #7d828c;
+  --chart-4: #c98500;
+  /* step 550 of the same ramp */
+  --chart-context: #1c5cab;
+  --info-foreground: oklch(0.218 0.004 264.5);
+  /* separatorColor #33353B, Component.borderColor #40434A */
+  --border: oklch(0.329 0.011 271.1);
+  --input: oklch(0.383 0.013 267.2);
+  --window-button-glyph: #ced0d6;
+  --window-button-shade: #ffffff;
+  --window-button-kde-glyph: #ced0d6;
+  --window-button-kde-circle: #f0f1f2;
+  --window-button-kde-circle-hover: #dfe1e6;
+  --window-button-kde-circle-pressed: #ced0d6;
+  --window-button-kde-on-circle: #393b40;
+  /* the IntelliJ New UI Dark editor scheme */
+  --syntax-foreground: #bcbec4;
+  --syntax-keyword: #cf8e6d;
+  --syntax-string: #6aab73;
+  --syntax-escape: #cf8e6d;
+  --syntax-number: #2aacb8;
+  --syntax-comment: #7a7e85;
+  --syntax-function-declaration: #56a8f5;
+  --syntax-field: #c77dbb;
+  --syntax-annotation: #b3ae60;
+  --syntax-tag: #d5b778;
+  --syntax-attribute: #bcbec4;
+  /*
+   * Islands Dark (`themes/islands/IslandSchemeDark.xml`), its parent Darcula and what the plugins add to Darcula
+   * (Rust takes its colours from Darcula, its calls from `RustIslandsDark.xml`): a comment is plain, a doc comment and
+   * its tags italic, a global variable italic
+   */
+  --syntax-comment-style: normal;
+  --syntax-doc-comment: #5f826b;
+  --syntax-doc-tag: #67a37c;
+  --syntax-doc-tag-decoration: none;
+  --syntax-doc-tag-value: #abadb3;
+  --syntax-label: #32b8af;
+  --syntax-default-label-decoration: none;
+  --syntax-named-argument: #56c1d6;
+  --syntax-macro: #4eade5;
+  --syntax-lifetime: #20999d;
+  --syntax-type-parameter: #16baac;
+  --syntax-self: #d98eb3;
+  --syntax-enum-variant: #6da1ab;
+  --syntax-question: #cc7832;
+  --syntax-tag-bracket: #d5b778;
+  --syntax-component-tag: #2fbaa3;
+  --syntax-regexp: #42c3d4;
+  --syntax-method: #56a8f5;
+  --syntax-local-variable: #a9b7c6;
+  --syntax-global-variable: #c77dba;
+  --syntax-global-variable-style: italic;
+  --syntax-parameter-decoration: none;
+  --syntax-global-function: #56a8f5;
+  --syntax-global-function-style: normal;
+  --syntax-mutable-underline: #84868c;
+  --syntax-mutable-underline-kotlin: #84868c;
+  --syntax-mutable-underline-rust: #84868c;
+  --syntax-type-parameter-rust: #20999d;
+  --syntax-type-parameter-typescript: #507874;
+  /* the diff colours of Islands Dark and its parent Darcula, pale against the editor background #191A1C */
+  --diff-inserted: #294436;
+  --diff-inserted-pale: #1f2b26;
+  --diff-deleted: #484a4a;
+  --diff-deleted-pale: #2c2d2e;
+  --diff-modified: #385570;
+  --diff-modified-pale: #25323e;
+  --diff-conflict: #45302b;
+  --diff-conflict-pale: #2b2322;
+  --diff-line-number: #4b5059;
+  --diff-separator: #2b2d30;
+  --diff-separator-wave: #555555;
+  --diff-selection: #214283;
+  --diff-search-result: #114957;
+  --diff-search-result-border: #165e70;
+  /* the gap is the island itself; the border #26282C, the canvas */
+  --diff-card-gap: var(--card);
+  --diff-card-border: var(--canvas);
 }
 
 @layer base {

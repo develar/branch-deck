@@ -407,6 +407,10 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
       case "set_min_size":
         windowState.minSize = payload?.value?.size ?? payload?.value
         break
+      // the frame of the window (`useTheme`): `null` follows the system
+      case "set_theme":
+        windowState.theme = payload?.value ?? null
+        break
       case "set_progress_bar":
         ;((window as any).__e2eDockCalls ??= []).push({ progressBar: payload?.value ?? null })
         break

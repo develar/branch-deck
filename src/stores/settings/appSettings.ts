@@ -5,6 +5,8 @@ import type { AppSettings as RustAppSettings, StatsPeriod } from "@/lib/bindings
 import { STATS_PERIODS } from "@/lib/robot-stats"
 import { SETTINGS_PAGES } from "@/lib/settings-pages"
 import type { SettingsPageId } from "@/lib/settings-pages"
+import { THEMES } from "@/lib/theme"
+import type { Theme } from "@/lib/theme"
 import { createPersistentStore, snapshotValueOf } from "./persistent-store"
 
 /**
@@ -33,6 +35,8 @@ const AppSettingsSchema = z.object({
   ...RustFields,
   // the page of Settings shown last, where the window opens again
   settingsPage: z.enum(SETTINGS_PAGES).catch("general"),
+  // Settings → Appearance → Theme: the system's, Light or Dark, in every window (`useTheme`)
+  theme: z.enum(THEMES).catch("system"),
   // Settings → Notifications: the OS notifications in the background (`src/lib/os-notification.ts`)
   notifyReviewRequests: z.boolean().default(true),
   notifyPatronusMerges: z.boolean().default(true),
@@ -97,6 +101,10 @@ export type AppSettingsSwitch =
 
 export function setAppSettingsSwitch(name: AppSettingsSwitch, value: boolean): void {
   appSettingsStore.setState({ [name]: value })
+}
+
+export function setTheme(theme: Theme): void {
+  appSettingsStore.setState({ theme })
 }
 
 export function setSystemTitleBar(systemTitleBar: boolean): void {
