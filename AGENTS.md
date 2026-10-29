@@ -27,8 +27,8 @@ was copied from, `v-commit-source-v1:<parent tree> <tree>`, and for a copy resol
 Hard rules in one place; the linked section says why and what to do instead.
 - Never edit, build or commit in the main checkout: every session, a background job too, works in its own lease
   ([Worktrees](#worktrees)).
-- Never `git stash` in a lease: every worktree of the pool shares the one stash of the repository
-  ([Agent Pitfalls](#agent-pitfalls)).
+- Never `git stash` in a lease, and never a file rerere resolved left unread: every worktree of the pool shares the
+  stash and the rerere cache of the repository ([Agent Pitfalls](#agent-pitfalls)).
 - Never `cargo test`: always `cargo nextest run` ([Verification](#verification)).
 - Never a merge commit, `--no-ff`, `--no-verify`, or `commit-tree` with two `-p` ([Commits and History](#commits-and-history)).
 - Never a behaviour change without its spec, `[@test]` links and docs in the same commit ([Specs and Docs](#specs-and-docs)).
@@ -231,10 +231,14 @@ Mistakes agents made here; each cost a session.
   argument. Write the arguments out, use `${=args}`, or run the loop under `bash -c '…'`.
 - **An "unresolved import" of a module that clearly exists**, after another session moved branches under the same
   `target/`, is a stale cargo fingerprint: `touch` the crate's files and rebuild.
-- **One stash for every lease**: `refs/stash` is one ref of the repository, shared by every worktree of the lease pool,
-  so a `git stash pop` in one lease can apply the entry another lease pushed meanwhile (and the resolution of its
-  conflict goes into the shared `rr-cache`). Never `git stash` in a lease: keep work in progress as a WIP commit of the
-  lease, or as a patch file in `notes.local/`.
+- **One stash and one rerere cache for every lease**: `refs/stash` and `.git/rr-cache` belong to the common git dir, so
+  every worktree of the lease pool shares them, and a `git stash pop` in one lease can apply the entry another lease
+  pushed meanwhile. Rerere is on without any config, because the `rr-cache` directory exists (132 resolutions on
+  2026-10-29): a resolution recorded at a commit in one lease is replayed into the same conflict of a `git rebase`,
+  `cherry-pick`, `merge` or `stash pop` in another ("Resolved '<path>' using previous resolution.", the file left for
+  `git add`); a conflict of `bd lease pick` opens its resolve session, which rerere never touches. Never `git stash` in
+  a lease: keep work in progress as a WIP commit of the lease or a patch file in `notes.local/`; after a conflicted
+  rebase or cherry-pick, check every file rerere resolved as if you wrote it.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config
