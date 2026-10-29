@@ -3804,7 +3804,7 @@ Read-only, without the repository lock and without a sync: `bd robot` reads the 
    branches under the prefix (`BranchGrouping::listed`, `remote_tips`), which a robot of a temporary ref (the IDE, the
    Safe Push CLI) is matched by (`domain_policy::robot_match::RobotIndex`).
 2. The Space repository comes from the push URL of `origin` (`RepoContext::origin_url`).
-3. For a failed or failing robot, the [robot commit map](#robot-commit-map) and one `symbolic-ref --quiet HEAD`
+3. For a failed or failing robot, the [robot commit map](../../spec/branch/safe-push-failure-prompt.spec.md#the-commit-map) and one `symbolic-ref --quiet HEAD`
    (`robot_failure_report`, the same as the app's `get_robot_failure`).
 
 Code: `crates/bd-remote/src/robot_command.rs`.

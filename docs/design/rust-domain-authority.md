@@ -531,7 +531,7 @@ facts](git-operations.md#session-facts)).
 - **Поздний witness** (дешёвый, после push, до старта) ловит rewrite между unlock и стартом: virtual ветка ушла с
   запушенного oid. Его `PlanChanged` приходит, когда `Retarget`, `CancelRobot` и push уже сделаны, и их не
   откатывает: cancel должен идти до push (push hold отказывает ветке под работающим роботом,
-  [App stack push](git-operations.md#app-stack-push)). `Outcome` честно перечисляет `Retarget Done`,
+  [Push and land](git-operations.md#push-and-land)). `Outcome` честно перечисляет `Retarget Done`,
   `CancelRobot Done { robot }`, `Push Done`, `StartRobot Skipped(PlanChanged)`; toast «Cannot start Safe Push of
   auth» с причиной «auth changed after the push; Safe Push #812 was canceled» предлагает «Start Safe Push» — новый
   intent из новой таблицы, чей план уже без cancel и push, — и Open in Patronus отменённого робота. Окно — от unlock
