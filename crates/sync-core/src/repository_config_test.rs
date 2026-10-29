@@ -53,9 +53,9 @@ fn nothing_set_is_the_defaults() {
   assert_eq!(config.branch_prefix, unset(None));
   // unset is the default limit of a push
   assert_eq!(config.push_size_limit, unset(None));
-  // an agent works in a lease of its own, and writes the subject as the repository does
+  // an agent works in a lease of its own, and names the branch in each subject
   assert_eq!(config.agent_lease, unset(true));
-  assert_eq!(config.agent_subject_branch, unset(false));
+  assert_eq!(config.agent_subject_branch, unset(true));
   assert_eq!(config.detected_github_repository, None);
   assert_eq!(config.landing_default, LandingDefault::of(false));
 }
@@ -487,7 +487,7 @@ fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
   let path = test_repo.path_str();
 
   set_config(&git, path, &RepositoryConfigChange::AgentLease(Some(false)), WriteScope::Global).unwrap();
-  let config = set_config(&git, path, &RepositoryConfigChange::AgentSubjectBranch(Some(true)), WriteScope::Local).unwrap();
+  let config = set_config(&git, path, &RepositoryConfigChange::AgentSubjectBranch(Some(false)), WriteScope::Local).unwrap();
   assert_eq!(std::fs::read_to_string(global.path()).unwrap(), "[branchdeck]\n\tagentLease = false\n");
   assert_eq!((config.agent_lease.value, config.agent_lease.scope), (false, Some(ConfigScope::Global)));
   assert_eq!(
@@ -496,13 +496,13 @@ fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
       config.agent_subject_branch.scope,
       config.agent_subject_branch.fallback_value
     ),
-    (true, Some(ConfigScope::Local), false)
+    (false, Some(ConfigScope::Local), true)
   );
-  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.agentsubjectbranch", Some("true"))]);
+  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.agentsubjectbranch", Some("false"))]);
 
   // "Like Global": the local value goes, the default applies again
   let config = set_config(&git, path, &RepositoryConfigChange::AgentSubjectBranch(None), WriteScope::Local).unwrap();
-  assert_eq!(config.agent_subject_branch, unset(false));
+  assert_eq!(config.agent_subject_branch, unset(true));
 }
 
 /// Settings → Repository saves a typed prefix on blur and a switch at once: two writes of the app, each answering the

@@ -69,7 +69,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
       "skills": skill_files(&home),
       "uninstalled": false,
       "bd_host": null,
-      "agents": { "lease": true, "subject_branch": false }
+      "agents": { "lease": true, "subject_branch": true }
     })
   );
   assert_eq!(std::fs::read_link(&link).unwrap(), app);

@@ -385,8 +385,8 @@ alert with the reason and the next step, never a raw Git error.
 
 - Help → Install Agent CLI… ([Agent CLI](../cli/agent-cli.spec.md#bd-install)) says in its toast how coding agents work
   from now on, by the rules of every repository ([bd workspace](../cli/workspace.spec.md)): "Agents work in their own
-  worktree and land each commit on your branch; commit subjects stay as written." (by default), with "Open Agent
-  Settings", which opens Settings → Agents.
+  worktree and land each commit on your branch, and name the branch in each commit subject." (by default), with
+  "Open Agent Settings", which opens Settings → Agents.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says how agents work once the Agent CLI is installed, and opens their settings`)
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`says how agents work by the rules of every repository`)
 - The help of the unassigned commits, where the `(name)` prefix first shows, says whether agents write it here

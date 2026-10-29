@@ -270,7 +270,7 @@ test.describe("Onboarding", () => {
     await emitTauriEvent(page, "install_agent_cli")
     const toast = page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
-      "Coding agents find bd through the skills in /Users/test/.claude/skills/branch-deck/SKILL.md, /Users/test/.agents/skills/branch-deck/SKILL.md. In a terminal, run bd. Agents work in their own worktree and land each commit on your branch; commit subjects stay as written.",
+      "Coding agents find bd through the skills in /Users/test/.claude/skills/branch-deck/SKILL.md, /Users/test/.agents/skills/branch-deck/SKILL.md. In a terminal, run bd. Agents work in their own worktree and land each commit on your branch, and name the branch in each commit subject.",
     )
     await toast.getByRole("button", { name: "Open Agent Settings" }).click()
     await expectSettingsOpened(page, { page: "agents" })
@@ -310,7 +310,7 @@ test.describe("Onboarding", () => {
     await syncBranches(page)
     await page.getByTestId("unassigned-commits-help-icon").hover()
     const line = page.getByTestId("unassigned-commits-agent-subjects")
-    await expect(line).toContainText("Coding agents write (name) when they commit once Name the branch in each commit subject is on for this repository.")
+    await expect(line).toContainText("Coding agents write (name) when they commit here.")
     await line.getByRole("button", { name: "Open Agent Settings" }).click()
     await expectSettingsOpened(page, { page: "agents" })
   })

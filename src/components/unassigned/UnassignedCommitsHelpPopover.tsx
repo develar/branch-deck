@@ -42,7 +42,7 @@ export function UnassignedCommitsHelpPopover() {
 }
 
 /**
- * Whether coding agents write the prefix when they commit here (`branchdeck.agentSubjectBranch`, off by default), read
+ * Whether coding agents write the prefix when they commit here (`branchdeck.agentSubjectBranch`, on by default), read
  * when the popover opens, with the setting one click away
  */
 function AgentSubjects() {

@@ -1,6 +1,6 @@
 //! Where a coding agent works and how it writes a commit subject, asked before its first edit (`bd workspace`,
 //! spec/cli/workspace.spec.md): `branchdeck.agentLease` (on by default) says to work in a lease of the pool and land each
-//! commit with `bd lease pick`, `branchdeck.agentSubjectBranch` (off by default) to start each subject with its `(branch)`.
+//! commit with `bd lease pick`, `branchdeck.agentSubjectBranch` (on by default) to start each subject with its `(branch)`.
 //! Read only: one `rev-parse`, one `git config`, and in the shared checkout or a lease one `status` of the shared
 //! checkout; in a lease one more `rev-parse` of the branch the shared checkout has checked out now; in the shared
 //! checkout with the lease on, one more `git config` for the pool directory.
@@ -196,7 +196,7 @@ pub(crate) fn unwritable_dir(dir: &Path) -> Option<String> {
 pub struct AgentDefaults {
   /// `branchdeck.agentLease`: work in a lease of their own and land each commit with `bd pick` (on by default)
   pub lease: bool,
-  /// `branchdeck.agentSubjectBranch`: start each subject with `(branch)` (off by default)
+  /// `branchdeck.agentSubjectBranch`: start each subject with `(branch)` (on by default)
   pub subject_branch: bool,
 }
 

@@ -501,10 +501,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should install the agent skill from the page, and then name it`)
 - Two rules, each a switch with what it does and its git key: "Work in their own worktree" ("Each agent leases a
   worktree and lands each commit on your branch", `branchdeck.agentLease`, on by default) and "Name the branch in each
-  commit subject" ("(auth) Add login form: the commit goes into the branch auth", `branchdeck.agentSubjectBranch`, off
+  commit subject" ("(auth) Add login form: the commit goes into the branch auth", `branchdeck.agentSubjectBranch`, on
   by default). The switch is the value of every repository: it writes the global git config (`set_repository_config`
   with `scope: "global"`), and shows the global or system value, else the default, with the line of Diffs & Merge ("On
-  by default. A change goes to your global Git config, which bd reads too", "Off by default. …", "Set in your global Git
+  by default. A change goes to your global Git config, which bd reads too", "Off by default. …" for a rule off by
+  default, "Set in your global Git
   config, which bd reads too", "Set in the system Git config. …"). With a repository selected, "In <repository>" has
   Like Global · On · Off (`aria-pressed`): On and Off write `.git/config`, Like Global removes the value there; the
   repository's value is read again when the window gets the focus.

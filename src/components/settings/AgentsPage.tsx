@@ -27,7 +27,7 @@ const AGENT_RULES = [
     configKey: "agentSubjectBranch",
     label: "Name the branch in each commit subject",
     description: "(auth) Add login form: the commit goes into the branch auth",
-    defaultValue: false,
+    defaultValue: true,
     globalErrorTitle: "Cannot change how agents write commit subjects in every repository",
   },
 ] as const

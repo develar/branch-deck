@@ -143,7 +143,7 @@ enum Command {
   /// Where a coding agent works and how it writes a commit subject: run it before the first edit. Read only
   ///
   /// `branchdeck.agentLease` (on by default): work in a lease of your own and land each commit with `bd pick`;
-  /// `branchdeck.agentSubjectBranch` (off by default): start each subject with `(branch)`. `next` names what to run
+  /// `branchdeck.agentSubjectBranch` (on by default): start each subject with `(branch)`. `next` names what to run
   Workspace,
   /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets, keeping HEAD's tree
   #[command(after_help = "Outputs and refusals: `bd fold --help`", after_long_help = FOLD_HELP)]

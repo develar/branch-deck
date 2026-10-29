@@ -30,7 +30,7 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
     (
       &json!("main"),
       &json!({ "on": true, "source": "default" }),
-      &json!({ "on": false, "source": "default" }),
+      &json!({ "on": true, "source": "default" }),
       &json!(false)
     )
   );
@@ -62,17 +62,17 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
   assert_eq!(workspace_in(&fixture, fixture.repo.path())["active_leases"], output["active_leases"]);
 }
 
-/// `branchdeck.agentLease false` in the global config turns the lease off everywhere, a repository's own value wins;
-/// `branchdeck.agentSubjectBranch true` turns the subject branch on
+/// `branchdeck.agentLease false` and `branchdeck.agentSubjectBranch false` in the global config turn both rules off
+/// everywhere, a repository's own value wins
 #[test_log::test]
 fn the_global_config_turns_a_rule_off_and_a_repository_keeps_its_own() {
   let fixture = Fixture::new();
-  std::fs::write(fixture.global_config.path(), "[branchdeck]\n\tagentLease = false\n\tagentSubjectBranch = true\n").unwrap();
+  std::fs::write(fixture.global_config.path(), "[branchdeck]\n\tagentLease = false\n\tagentSubjectBranch = false\n").unwrap();
 
   let output = workspace_in(&fixture, fixture.repo.path());
   assert_eq!(
     (&output["lease"], &output["subject_branch"], &output["next"]),
-    (&json!({ "on": false, "source": "global" }), &json!({ "on": true, "source": "global" }), &json!([]))
+    (&json!({ "on": false, "source": "global" }), &json!({ "on": false, "source": "global" }), &json!([]))
   );
 
   fixture.repo.set_config("branchdeck.agentLease", "true").unwrap();
@@ -83,7 +83,7 @@ fn the_global_config_turns_a_rule_off_and_a_repository_keeps_its_own() {
     (&output["lease"], &output["subject_branch"], &output["stacks"]),
     (
       &json!({ "on": true, "source": "local" }),
-      &json!({ "on": false, "source": "local", "invalid": "maybe is not a boolean (true or false)" }),
+      &json!({ "on": true, "source": "local", "invalid": "maybe is not a boolean (true or false)" }),
       &json!(true)
     )
   );

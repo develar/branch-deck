@@ -43,8 +43,9 @@ pub const RESOLVE_BY_WORDS_CONFIG_KEY: &str = "branchdeck.resolveByWords";
 /// `bd pick`; a git boolean, on when unset (`bd workspace`)
 pub const AGENT_LEASE_CONFIG_KEY: &str = "branchdeck.agentLease";
 
-/// Whether a coding agent starts each commit subject with the `(branch)` it belongs to; a git boolean, off when unset:
-/// a prefix reaches the remote as it is wherever Branch Deck does not build the branches (`bd workspace`)
+/// Whether a coding agent starts each commit subject with the `(branch)` it belongs to; a git boolean, on when unset:
+/// the prefix groups the commit, and the copies of the virtual branches drop it; a repository whose commits land as
+/// they are turns it off (`bd workspace`)
 pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch";
 
 /// The config file an entry comes from, in git's order: a later scope wins over an earlier one
@@ -409,7 +410,7 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
     resolve_by_words: resolve_setting(entries, RepositoryConfigKey::ResolveByWords, true, |value| bool_setting(value, true)),
     landing: landing_setting(entries),
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
-    agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, false, |value| bool_setting(value, false)),
+    agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, true, |value| bool_setting(value, true)),
     detected_github_repository: origin.detected_github_repository,
     landing_default: LandingDefault::of(origin.on_space),
     stacks_off_clashes: Vec::new(),

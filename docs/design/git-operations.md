@@ -3857,8 +3857,8 @@ unset, `0` or `off` for none: see [Push size](#push-size); one value for every r
 `branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
-lands each commit with `bd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, off when unset: an agent starts
-each subject with its `(branch)`). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
+lands each commit with `bd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
+each subject with its `(branch)`, which the copies of the virtual branches drop). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
 two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspace.spec.md)), and their global values
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `bd install` and the app's Install Agent CLI: no sync,
 no operation.

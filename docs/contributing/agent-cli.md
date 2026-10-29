@@ -1897,8 +1897,9 @@ checked out now. Two rules of the git config, each `{on, source, invalid, reason
   its tests at once with `bd lease pick`, return the lease when done. Off with a `reason` in a linked worktree outside the
   pool (a checkout of its own already), outside a working tree, and when the pool directory can't be written (a
   sandbox; a probe file in its first existing parent, removed at once).
-- `subject_branch`: `branchdeck.agentSubjectBranch`, off by default. Start each commit subject with `(branch) `. Off
-  by default because a prefix reaches the remote as it is wherever Branch Deck does not build the branches.
+- `subject_branch`: `branchdeck.agentSubjectBranch`, on by default. Start each commit subject with `(branch) `: the
+  prefix groups the commit into its branch, and the copies of the virtual branches drop it. A repository whose commits
+  land as they are turns it off, since there the prefix reaches the remote.
 
 `source` is the scope that sets the rule (`local`, `worktree`, `command`, `global`, `system`) or `default`; the user
 sets the global value and the repository's own in Settings → Agents, or with `git config [--global]`. `kind` is
@@ -1909,7 +1910,7 @@ commits land on (the main worktree, or the source of this lease); in a lease `ho
 lease of the pool (`lease_id`, `holder`, `path`); `next` the commands to run, in order:
 
 ```json
-{"schema":2,"kind":"main","lease":{"on":true,"source":"default"},"subject_branch":{"on":false,"source":"default"},
+{"schema":2,"kind":"main","lease":{"on":true,"source":"default"},"subject_branch":{"on":true,"source":"default"},
  "stacks":false,"top_level":"/work/app","subdir":"crates/x","shared_checkout":"/work/app","local_changes":1,
  "active_leases":[],"next":["bd lease get --holder <your name> -C /work/app"]}
 ```
@@ -1958,7 +1959,7 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
   `bd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
 
 It prints `{"schema":2,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false,
-"agents":{"lease":true,"subject_branch":false}}`. `agents` is what `bd workspace` answers in a repository without its
+"agents":{"lease":true,"subject_branch":true}}`. `agents` is what `bd workspace` answers in a repository without its
 own value (one `git config --global`), which the app's toast tells the user. `on_path`
 says whether `bd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
 Finder has a minimal one. `--uninstall` removes the skills and the symlink if it points at this app (or at a removed

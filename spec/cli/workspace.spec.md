@@ -1,6 +1,6 @@
 ---
 name: bd workspace
-description: Requirements for bd workspace, which a coding agent runs before its first edit, and the two rules it reads, branchdeck.agentLease (work in a lease of the pool and land each commit with bd lease pick, on by default) and branchdeck.agentSubjectBranch (start each commit subject with its branch, off by default), which the user changes in Settings → Agents.
+description: Requirements for bd workspace, which a coding agent runs before its first edit, and the two rules it reads, branchdeck.agentLease (work in a lease of the pool and land each commit with bd lease pick, on by default) and branchdeck.agentSubjectBranch (start each commit subject with its branch, on by default), which the user changes in Settings → Agents.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/workspace_command.rs
@@ -22,10 +22,11 @@ Where the skill of Branch Deck is installed ([Agent CLI](agent-cli.spec.md), `bd
 `bd workspace` before its first edit or commit in a repository, and follows it. Two rules of the git config decide it:
 `branchdeck.agentLease`, on by default, makes the agent lease a worktree of the pool ([bd lease](lease.spec.md)),
 commit there and land each commit at once with `bd pick` ([bd pick](pick.spec.md)), then return the lease;
-`branchdeck.agentSubjectBranch`, off by default, makes it start each commit subject with its `(branch)`. The lease is
-on everywhere, since isolation harms no repository; the subject branch is off until the user turns it on, because a
-`(branch)` prefix reaches the remote as it is wherever Branch Deck does not build the branches (only the virtual
-branch copies drop it). The global config gives every repository its value, the repository's own `.git/config` wins,
+`branchdeck.agentSubjectBranch`, on by default, makes it start each commit subject with its `(branch)`. The lease is
+on everywhere, since isolation harms no repository; the subject branch is on everywhere too, since the prefix is what
+groups an agent's commit into its branch and the copies of the virtual branches drop it. A `(branch)` prefix reaches
+the remote as it is only where the commits land themselves, not their virtual branches: such a repository turns the
+rule off, or names its own form of a subject in its agent instructions, which win. The global config gives every repository its value, the repository's own `.git/config` wins,
 and the user changes both in Settings → Agents ([Settings](../repository/settings.spec.md#agents)). What the user says
 in the session wins over both.
 
@@ -46,7 +47,7 @@ in the session wins over both.
 - `bd workspace` (`-C <dir>`, else the current directory) must print `{"schema":2,"kind","lease","subject_branch",
   "stacks","top_level","subdir","shared_checkout","home","lease_id","holder","local_changes","active_leases","next"}`; each
   rule is `{on, source, invalid, reason}`, `source` the config scope that sets it (`local`, `worktree`, `command`,
-  `global`, `system`) or `default`. By default the lease is on and the subject branch off.
+  `global`, `system`) or `default`. By default both are on.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`nothing_set_is_the_defaults`)
 - In the main worktree (`kind: main`) with the lease on, `next` must be `bd lease get --holder <your name> -C

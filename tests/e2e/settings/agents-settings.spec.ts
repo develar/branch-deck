@@ -21,8 +21,8 @@ test.describe("Settings → Agents", () => {
     await expect(lease).toContainText("branchdeck.agentLease")
     await expect(lease.getByRole("switch")).toBeChecked()
     await expect(window.getByTestId("setting-agentLease-source")).toHaveText("On by default. A change goes to your global Git config, which bd reads too")
-    await expect(subjects.getByRole("switch")).not.toBeChecked()
-    await expect(window.getByTestId("setting-agentSubjectBranch-source")).toHaveText("Off by default. A change goes to your global Git config, which bd reads too")
+    await expect(subjects.getByRole("switch")).toBeChecked()
+    await expect(window.getByTestId("setting-agentSubjectBranch-source")).toHaveText("On by default. A change goes to your global Git config, which bd reads too")
 
     // off for every repository: the global config of the test repository (its own file)
     await lease.click()
@@ -30,18 +30,18 @@ test.describe("Settings → Agents", () => {
     await expect(window.getByTestId("setting-agentLease-source")).toHaveText("Set in your global Git config, which bd reads too")
     expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "agentLease", value: false }, scope: "global" }])
 
-    // the subject branch on in this repository alone: .git/config
+    // the subject branch off in this repository alone: .git/config
     const own = window.getByTestId("setting-agentSubjectBranch-repository")
     await expect(own).toContainText(`In ${nameOf(repo.path)}`)
     await expect(own.getByRole("button", { name: "Like Global" })).toHaveAttribute("aria-pressed", "true")
-    await own.getByRole("button", { name: "On", exact: true }).click()
-    await expect(own.getByRole("button", { name: "On", exact: true })).toHaveAttribute("aria-pressed", "true")
-    await expect(subjects.getByRole("switch")).not.toBeChecked()
+    await own.getByRole("button", { name: "Off", exact: true }).click()
+    await expect(own.getByRole("button", { name: "Off", exact: true })).toHaveAttribute("aria-pressed", "true")
+    await expect(subjects.getByRole("switch")).toBeChecked()
     // back to the value of every repository
     await own.getByRole("button", { name: "Like Global" }).click()
     await expect(own.getByRole("button", { name: "Like Global" })).toHaveAttribute("aria-pressed", "true")
     expect(writes.slice(1)).toEqual([
-      { repositoryPath: repo.path, change: { key: "agentSubjectBranch", value: true }, scope: "local" },
+      { repositoryPath: repo.path, change: { key: "agentSubjectBranch", value: false }, scope: "local" },
       { repositoryPath: repo.path, change: { key: "agentSubjectBranch", value: null }, scope: "local" },
     ])
 
@@ -87,7 +87,7 @@ test.describe("Settings → Agents", () => {
     await expect(skill).toContainText("The agent skill is not installed")
     await skill.getByRole("button", { name: "Install Agent CLI" }).click()
     const toast = window.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })
-    await expect(toast).toContainText("Agents work in their own worktree and land each commit on your branch; commit subjects stay as written.")
+    await expect(toast).toContainText("Agents work in their own worktree and land each commit on your branch, and name the branch in each commit subject.")
     // the page is the place the toast of the main window opens: no action to open it
     await expect(toast.getByRole("button", { name: "Open Agent Settings" })).toHaveCount(0)
     await expect(skill).toContainText("Installed: agents find bd (/Users/test/.local/bin/bd) through /Users/test/.claude/skills/branch-deck/SKILL.md")
@@ -104,7 +104,7 @@ const EMPTY_CONFIG: RepositoryConfig = {
   resolveByWords: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
   agentLease: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
-  agentSubjectBranch: { value: false, scope: null, localSet: false, invalid: null, fallbackValue: false, fallbackScope: null },
+  agentSubjectBranch: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   detectedGithubRepository: null,
   landingDefault: { route: "pullRequest", onSpace: false },
   stacksOffClashes: [],

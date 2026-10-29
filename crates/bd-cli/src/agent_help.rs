@@ -120,7 +120,7 @@ Workflow: the commits into pull requests
 Other tasks
 - Before the first edit of a session: `bd workspace` says whether to work in a lease of your own
   (`branchdeck.agentLease`, on by default) and whether to start each subject with `(branch)`
-  (`branchdeck.agentSubjectBranch`, off by default), and `next` what to run; the user's words win over it.
+  (`branchdeck.agentSubjectBranch`, on by default), and `next` what to run; the user's words win over it.
 - Update the branch onto its baseline: `bd update` (--no-fetch, --dry-run), the app's Update Project; a conflict opens
   a resolve session (exit 1), which `bd help update` explains.
 - Several sessions on one branch: `bd lease get` leases a worktree, `bd lease pick` in it lands its commits where it
@@ -245,7 +245,7 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    `low_disk_space` (exit 4): the volume of the pool has less free space than `branchdeck.leaseMinFree` asks; tell the
    user, never pass --min-free 0 on your own. `idle_leases`: leases whose holder process is gone; the user decides.
 
-1. When `bd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, off by default), write the prefix
+1. When `bd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, on by default), write the prefix
    when you commit, never later; off, write the subject as the repository does, and the owner groups the commits
    (`bd suggest`, issue keys). A subject is `(branch) <one sentence>`. With stacked branches
    (`branchdeck.stacks`) a new stack is declared once, `(parent/leaf) <one sentence>`; once the stack parents know the
