@@ -445,9 +445,13 @@ Safe Push it allows.
   outline), Approve and Safe Push… (`M`, outline, where Patronus merges, see below), and **Approve** (`A`, the
   primary). Once the user approved the shown commit, Approve is "✓ Approved" (`success`, "You approved <hash>" on hover;
   `A` does nothing), and Safe Push…, the next step, is the primary while it can start. The keys work in both views; a
-  key typed into a text field is no key of the review (`isTypingTarget`).
+  key typed into a text field is no key of the review (`isTypingTarget`). A key acts as its button: while the button
+  is disabled (a write runs, the commit of another request loads) the key does nothing. A disabled decision keeps the
+  focus (`aria-disabled`): its form gives the focus back to it as it closes, also while its write ends, else the focus
+  fell to the page and the keys of the review stopped until a click.
   [@test] ../../src/lib/review-request-actions.test.ts (`lists the same actions in the row menu and the review, the writes of the row opening the review`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`)
 - A review is on the commit the review shows, the head of the fetched range (`commit_id`), also when the pull request
   got commits since. Until it is fetched, after a failed fetch, and when the commit the pull request shows could not be
   fetched (`missing`), Approve and Request Changes are disabled with the reason. An approval of the same commit again

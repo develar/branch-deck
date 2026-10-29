@@ -5,7 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { NOW, availableReviewRequests, openedReviewWindow, reviewRequest } from "../helpers/review-request-helpers"
+import { NOW, availableReviewRequests, openedReviewWindow, pressDecisionKey, reviewRequest } from "../helpers/review-request-helpers"
 import type { ReviewRequestsFixture } from "../helpers/review-request-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -148,7 +148,7 @@ test.describe("Reviews view", () => {
     await expect(review.getByTestId("review-asked-by")).toContainText("ide-platform asked for a review of carol's pull request")
 
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
-    await window.keyboard.press("a")
+    await pressDecisionKey(window, review, "a")
     await expect.poll(() => gitHubRequests(repo, "POST", "pulls", 201, "reviews")).toEqual([{ event: "APPROVE", commit_id: expect.stringMatching(/^[0-9a-f]{40}$/) }])
     await expect(review.getByTestId("review-approve")).toHaveText("Approved")
   })

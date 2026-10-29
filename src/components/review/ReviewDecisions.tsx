@@ -69,7 +69,8 @@ export interface ReviewDecisionsProps {
  * The decisions on the pull request, the primary last: Request Changes… (R), Approve and Safe Push… (M) where Patronus
  * merges, and Approve (A), the primary. Once the user approved the commit, "Approved" says so and Safe Push…, the next
  * step, is the primary. They end the title bar of the window: in a narrow one the keys hide and Request Changes… is its
- * icon.
+ * icon. Disabled (a write runs, the commit of another request loads), a decision keeps the focus: its form gives it
+ * back as it closes, else the focus fell to the page and the keys of the review stopped.
  */
 export function ReviewDecisions(props: ReviewDecisionsProps) {
   const { request, actions, busy, commitId, requestChangesRef, approveRef, safePushRef } = props
@@ -83,6 +84,7 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
         size="sm"
         narrow="label"
         pending={busy === "requestChanges"}
+        focusableWhenDisabled
         data-testid="review-request-changes"
       />
       <RequestChangesPopover
@@ -102,6 +104,7 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
             size="sm"
             narrow="key"
             pending={busy === "safePush"}
+            focusableWhenDisabled
             data-testid="review-safe-push"
           />
           <SafePushPopover
@@ -119,7 +122,16 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
       {actions.approved ? (
         <ApprovedBadge description={actions.approve.description} />
       ) : (
-        <MenuItemButton item={actions.approve} ref={approveRef} variant="default" size="sm" narrow="key" pending={busy === "approve"} data-testid="review-approve" />
+        <MenuItemButton
+          item={actions.approve}
+          ref={approveRef}
+          variant="default"
+          size="sm"
+          narrow="key"
+          pending={busy === "approve"}
+          focusableWhenDisabled
+          data-testid="review-approve"
+        />
       )}
     </div>
   )

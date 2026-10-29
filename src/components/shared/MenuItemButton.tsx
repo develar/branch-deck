@@ -34,6 +34,11 @@ export interface MenuItemButtonProps {
   className?: string
   /** The button, as the anchor of the popover its action opens */
   ref?: RefObject<HTMLButtonElement | null>
+  /**
+   * Disabled, it keeps the focus (`aria-disabled`): the anchor of a form that gives the focus back to it as it closes,
+   * also while its action runs, so the keys of the window go on working
+   */
+  focusableWhenDisabled?: boolean
   "data-testid"?: string
 }
 
@@ -42,7 +47,18 @@ export interface MenuItemButtonProps {
  * the key last; the key only where it works, the reason it is disabled in a tooltip, so the button and the menus of the
  * object say the same. The action it started shows here while it runs (`surface`).
  */
-export function MenuItemButton({ item, variant = "ghost", size = "xs", pending = false, narrow, surface, className, ref, "data-testid": testId }: MenuItemButtonProps) {
+export function MenuItemButton({
+  item,
+  variant = "ghost",
+  size = "xs",
+  pending = false,
+  narrow,
+  surface,
+  className,
+  ref,
+  focusableWhenDisabled = false,
+  "data-testid": testId,
+}: MenuItemButtonProps) {
   useIndicatorClaim(surface)
   const busy = useSurfaceBusy(surface)
   const stopWaiting = presentStopWaiting(useSurfaceOperation(surface))
@@ -56,6 +72,7 @@ export function MenuItemButton({ item, variant = "ghost", size = "xs", pending =
     ref,
     variant,
     disabled: item.disabled === true || running,
+    focusableWhenDisabled,
     "aria-busy": running || undefined,
     className,
     "data-testid": testId,

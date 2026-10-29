@@ -13,6 +13,7 @@ import {
   getYourTurnCard,
   openedReviewWindow,
   openReviewWindow,
+  pressDecisionKey,
   reviewRequest,
   routeReviewFetch,
 } from "../helpers/review-request-helpers"
@@ -447,7 +448,7 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("commit-review")).toBeVisible()
     await expect(approve).toBeVisible()
     await repo.setReviewRequests(availableReviewRequests([RECENT]))
-    await reviewPage.keyboard.press("a")
+    await pressDecisionKey(reviewPage, review, "a")
     // the toast is the window's; the main window records it in Activity
     await expect(reviewToast(reviewPage, "Approved #101")).toBeVisible()
     await expect(reviewToast(page, "Approved #101")).toHaveCount(0)
@@ -478,7 +479,7 @@ test.describe("Review window", () => {
     await repo.holdRemoteAnswers({ hold: ["submitReview"] })
     const { window: reviewPage, review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
-    await reviewPage.keyboard.press("a")
+    await pressDecisionKey(reviewPage, review, "a")
     await expect(review.getByTestId("review-approve")).toBeDisabled()
     // Escape keeps the window while GitHub has not answered
     await reviewPage.keyboard.press("Escape")
@@ -529,16 +530,14 @@ test.describe("Review window", () => {
     await reviewPage.keyboard.press("ArrowDown")
     await expect(review.getByRole("heading", { name: "Add OAuth login" })).toBeVisible()
     // a write waits for the commit the user sees
-    await expect(review.getByTestId("review-request-changes")).toBeEnabled()
-    await reviewPage.keyboard.press("r")
+    await pressDecisionKey(reviewPage, review, "r")
     await expect(comment).toHaveValue("")
     await expect(comment).toBeFocused()
     await reviewPage.keyboard.press("Escape")
     await review.getByTestId("review-dialog-body").focus()
     await reviewPage.keyboard.press("ArrowUp")
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
-    await expect(review.getByTestId("review-request-changes")).toBeEnabled()
-    await reviewPage.keyboard.press("r")
+    await pressDecisionKey(reviewPage, review, "r")
     await expect(comment).toHaveValue("a d o r: sort by the snapshot")
     // reopened while the last form still closes, the comment has the focus all the same
     await expect(comment).toBeFocused()
@@ -549,8 +548,9 @@ test.describe("Review window", () => {
       { event: "REQUEST_CHANGES", commit_id: expect.stringMatching(/^[0-9a-f]{40}$/), body: "a d o r: sort by the snapshot" },
     ])
     await expect(review.getByTestId("review-dialog-submitted")).toHaveText("changes requested by you")
-    // sent: the draft is gone
-    await reviewPage.keyboard.press("r")
+    // sent: the form gave the focus back to its button, disabled while the write ends; the draft is gone
+    await expect(review.getByTestId("review-request-changes")).toBeFocused()
+    await pressDecisionKey(reviewPage, review, "r")
     await expect(comment).toHaveValue("")
   })
 
@@ -594,7 +594,7 @@ test.describe("Review window", () => {
     // Approve stays the primary; the Safe Push is the next step after it
     await expect(safePush).toHaveAttribute("data-variant", "outline")
     await expect(review.getByTestId("review-approve")).toHaveAttribute("data-variant", "default")
-    await reviewPage.keyboard.press("m")
+    await pressDecisionKey(reviewPage, review, "m")
     const form = reviewPage.getByTestId("review-safe-push-form")
     await expect(form.getByTestId("review-safe-push-description")).toHaveText(
       /^Approves [0-9a-f]{8}, then comments \/patronus merge on #101: Patronus rebases user-name\/virtual\/ABC-123 onto master, runs the checks, merges it and deletes the branch\. It reports in the pull request\.$/,
@@ -638,7 +638,7 @@ test.describe("Review window", () => {
 
     const { window: reviewPage, review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
-    await reviewPage.keyboard.press("m")
+    await pressDecisionKey(reviewPage, review, "m")
     await reviewPage.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start").click()
     await expect(reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
 

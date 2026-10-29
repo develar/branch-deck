@@ -107,6 +107,19 @@ export async function openReviewWindow(
 }
 
 /** The `count`-th review window the main window opened, once it is recorded */
+/** The button of each key of a decision of the review window */
+const DECISION_BUTTONS = { a: "review-approve", r: "review-request-changes", m: "review-safe-push" } as const
+
+/**
+ * Presses the key of a decision of the review window (A Approve, R Request Changes…, M Safe Push…) once its button is
+ * enabled: the key acts only then, as the button, so a press before its facts came (the commit the user sees, the end
+ * of a write) does nothing
+ */
+export async function pressDecisionKey(window: Page, review: Locator, key: keyof typeof DECISION_BUTTONS): Promise<void> {
+  await expect(review.getByTestId(DECISION_BUTTONS[key])).toBeEnabled()
+  await window.keyboard.press(key)
+}
+
 export async function openedReviewWindow(page: Page, count = 1): Promise<OpenedSubWindow<PullRequestReviewWindowData>> {
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
   const opened = (await getOpenedSubWindows<PullRequestReviewWindowData>(page))[count - 1]!
