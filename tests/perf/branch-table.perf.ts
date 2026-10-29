@@ -54,7 +54,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
-import type { RepositoryView, Version } from "../../src/lib/bindings"
+import type { Version } from "../../src/lib/bindings"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { findBranchRow } from "../e2e/helpers/branch-helpers"
 import { reloadWarm } from "../e2e/helpers/common-setup"
@@ -65,7 +65,6 @@ import { hoverStatusChip } from "../e2e/helpers/review-status-helpers"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
 import { runAndWaitForSync, syncBranches, waitForBranchesLoaded, waitForViewVersion } from "../e2e/helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../e2e/helpers/test-repository"
-import { TEST_SERVER_URL } from "../e2e/helpers/test-server-url"
 
 const RUNS = Number(process.env.PERF_RUNS ?? 3)
 /** The branch rows of the template: 120 lone branches and three stacks of seven */
@@ -188,13 +187,6 @@ async function waitForStepFacts(page: Page): Promise<void> {
   await expect(page.getByTestId("next-step-slot").and(page.locator("[data-waits-for]"))).toHaveCount(0)
 }
 
-/** The view of the session of `repo` as the server has it (`get_snapshot`, outside the page and its counters) */
-async function sessionView(repo: TestRepositoryBuilder): Promise<RepositoryView | null> {
-  const body = JSON.stringify({ repositoryPath: repo.path })
-  const response = await fetch(`${TEST_SERVER_URL}/invoke/get_snapshot`, { method: "POST", headers: { "Content-Type": "application/json" }, body })
-  return (await response.json()) as RepositoryView | null
-}
-
 /**
  * The session committed its first sync and derived the view of its robots and their landing needs over it, and the
  * page holds that view
@@ -203,7 +195,8 @@ async function waitForSettledSession(page: Page, repo: TestRepositoryBuilder): P
   let settled: Version | null = null
   await expect
     .poll(async () => {
-      const view = await sessionView(repo)
+      // the view of the session as the server has it (`get_snapshot` in the app of the repository, outside the page)
+      const view = await repo.sessionView()
       const fresh = view !== null && !view.cached && view.patronus.state.kind === "fresh" && view.patronus.landingNeeds.kind === "fresh"
       settled = fresh ? view.version : null
       return fresh

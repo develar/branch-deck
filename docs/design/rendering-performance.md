@@ -337,6 +337,23 @@ first patch of the view (every part derived and compared from nothing). In a rel
 runs at a load of 3: 0.60–1.09 ms per flush and 1.70–2.14 ms for the whole first patch (medians 0.60 and 1.71 ms); a
 debug build asserts a flush within 20 ms.
 
+The final measurements of the rework (s14, [Итог s14](rust-domain-authority.md#итог-s14)) ran the tree of s0a
+(`66938306`, the page that derived the table from `SyncEvent`s) and the tree of s14 in turn on the Mac Studio, two
+turns of five runs each in Chromium at a load of 4 to 20: the first sync 378 / 394 ms of script against 303 / 301 ms
+(−22 %), its task 616 / 646 ms against 784 / 769 ms (+22 %: the script of the page went down, the rest of its task
+did not), a sync that changes nothing 61 / 57 ms against 36 / 42 ms, the first rows 1865 / 2037 ms against
+1569 / 1600 ms; the derivation in a release build, three runs at a load of 12.6: 0.67–0.69 ms per flush and
+2.01–2.03 ms for the whole first patch, 1 % over B10.
+
+WebKit, the engine of the app, lost one thing on the way: a layout of the view after its width changed (`relayoutMs`,
+what each frame of a resize of the window costs) takes 110.91 ms against 6.68 ms in the tree of s0a. The cause is the
+container of the view, `@container/branch-view` on `BranchColumnsRoot` (`src/components/branch/BranchColumns.tsx`,
+since 2026-10-26, for the words "with children" of `ChildrenPushButton` at `@4xl`): without it the same tree takes
+5.43 ms (three runs), and the layouts of a text that changes (`widerTextMs`, `sameWidthTextMs`) go back from 0.37 and
+0.35 ms to 2.07 and 1.44 ms, as the inline-size containment of the container keeps them inside the view. Chromium
+pays nothing for it (0.71 ms). The lever is a query that no width change of the whole view re-evaluates for every
+row: a container per cell, or the width the column registry measures already.
+
 ### The IPC of the branch view
 
 `pnpm perf:table` counts the IPC of the page on the same template too, in every engine, from the counters of the Tauri
