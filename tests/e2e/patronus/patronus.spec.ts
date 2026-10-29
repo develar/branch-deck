@@ -3,10 +3,10 @@ import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobotProfile } from "../../../src/lib/bindings"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
-import { expectNothingToPush, findBranchRow, getBranchCells, getLandingNode, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getBranchCells, getLandingNode, restOnBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
-import { INTENT_DWELL_PAST_MS, resetIpc, settledInvokes, withoutAppTimers } from "../helpers/ipc-helpers"
+import { resetIpc, settledInvokes, withoutAppTimers } from "../helpers/ipc-helpers"
 import { availableRobots, buildsNeverStarted, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, virtualBranch } from "../helpers/push-helpers"
@@ -209,11 +209,11 @@ test.describe("Patronus chip", () => {
 
   test("should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens", async ({ page, repo }) => {
     const row = findBranchRow(page, "JIRA-456")
-    // the hover reads the review of the branch ahead and no fact: the facts are the session's, which sends them
+    // a rest of the pointer on the row asks nothing: the facts are the session's, which sends them, and the review of
+    // the branch is read as its window opens
     await resetIpc(page)
-    await row.hover()
-    await page.clock.fastForward(INTENT_DWELL_PAST_MS)
-    expect(withoutAppTimers(await settledInvokes(page))).toEqual({ prefetch_branch_review: 1 })
+    await restOnBranchRow(page, "JIRA-456")
+    expect(withoutAppTimers(await settledInvokes(page))).toEqual({})
 
     await resetIpc(page)
     await row.click({ button: "right" })

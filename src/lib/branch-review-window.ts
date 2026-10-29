@@ -128,10 +128,10 @@ const prefetched = new Set<string>()
 
 /**
  * Reads ahead what the review window of a branch asks for first (`prefetch_branch_review`: its parts, the files and
- * the patch of the part it shows), once per state of the branch: on the intent to review (the pointer rests on its
- * row, its row has the focus) and on the open, beside the start of the window
+ * the patch of the part it shows) as the window opens, beside its start, once per state of the branch. A hover or a
+ * focus of its row reads nothing: a pointer that passes over the table costs no IPC and no git
  */
-export function prefetchBranchReview(branchName: string, focus: BranchReviewFocus = {}): void {
+function prefetchBranchReview(branchName: string, focus: BranchReviewFocus = {}): void {
   const source = getBranchReviewSource(branchName, focus)
   const part = prefetchedPart(focus.range)
   if (source === null || part === null) {

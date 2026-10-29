@@ -145,12 +145,13 @@ keys.
 - The review gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, where
   to start (`BranchReviewFocus`: the branch itself, or the whole stack from the Safe Push popover and the island; the
   filter, the commit, the file), the reviewer groups of the last code-owner check of the branch at its current head.
-- The app must read the review ahead when the user may open it: when the pointer rests on a branch row for 200 ms,
-  when the row gets the focus, and on the open, beside the start of the window. The backend reads the segments and the
-  files and the patch of the part the window shows first (the branch on its parent, or the whole stack) into its
-  memory, so D finds them read (`prefetch_branch_review`). Once per state of the branch: its chain and their heads;
-  a branch that cannot be reviewed is not read.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the review of a branch ahead once the pointer rests on its row or it has the focus, once per state`)
+- The app must read the review ahead as its window opens, beside the start of the window: the backend reads the
+  segments and the files and the patch of the part the window shows first (the branch on its parent, or the whole
+  stack) into its memory while the window starts, so its first read finds them read (`prefetch_branch_review`). Once
+  per state of the branch: its chain and their heads; an open of the branch the window shows reads nothing again. A
+  hover or a focus of a branch row reads nothing: no IPC for a pointer that passes over the table.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the review of a branch ahead as its window opens, once per state, and nothing on a hover or a focus of its row`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
 - The window must start the read of its segments with its page, not after its route chunk loaded; its first read
   takes that read when it asks for the same review, a later one reads again.
   [@test] ../../src/lib/review-window-reads.test.ts (`gives the first read of the page the read its load started, once, and only for the same review`)

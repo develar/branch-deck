@@ -60,7 +60,8 @@
 //   `subscribe_view`) and the commands the page invokes until its rows and chips;
 // - resyncIpcBytes: the bytes of the parameters, the answers and the patches of a sync that changes nothing, once no
 //   step waits for a fact;
-// - hoverIpc: the commands a rest of the pointer on a branch row invokes (the review read ahead);
+// - hoverIpc: the commands a rest of the pointer on a branch row invokes (its "⋯" until its tooltip shows): none, the
+//   review of a branch is read as its window opens;
 // - menuIpc: the commands the menu of that row invokes, opened by a right click (the one menu of the table);
 // - popoverIpc: the commands the popover of its robot invokes, opened by a hover of its chip.
 // The bytes of the patches of the view on the Rust side, without the page, are budgets of their own (the first patch,
@@ -71,10 +72,10 @@ import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
 import type { Version } from "../../src/lib/bindings"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
-import { findBranchRow } from "../e2e/helpers/branch-helpers"
+import { findBranchRow, restOnBranchRow } from "../e2e/helpers/branch-helpers"
 import { reloadWarm } from "../e2e/helpers/common-setup"
 import type { IpcStats } from "../e2e/helpers/ipc-helpers"
-import { INTENT_DWELL_PAST_MS, firstRowsAsks, recordIpcAtFirstRows, resetIpc, settledIpc, withoutAppTimers } from "../e2e/helpers/ipc-helpers"
+import { firstRowsAsks, recordIpcAtFirstRows, resetIpc, settledIpc, withoutAppTimers } from "../e2e/helpers/ipc-helpers"
 import { availableRobots, robot } from "../e2e/helpers/patronus-helpers"
 import { recordRenders, renderCounts, renderedKeys, resetRenders } from "../e2e/helpers/render-helpers"
 import type { RenderCounts } from "../e2e/helpers/render-helpers"
@@ -438,11 +439,10 @@ test.describe("Branch table performance", () => {
       await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
       const resync = await settledIpc(page)
 
-      // a row with a robot: the hover of its chip rests on the row too, whose review was read ahead already
+      // a row with a robot: the pointer rests on it
       const row = findBranchRow(page, "feature-000")
       await resetIpc(page)
-      await row.hover()
-      await page.clock.fastForward(INTENT_DWELL_PAST_MS)
+      await restOnBranchRow(page, "feature-000")
       const hover = await settledIpc(page)
 
       await resetIpc(page)

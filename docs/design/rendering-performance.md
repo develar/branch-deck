@@ -188,7 +188,7 @@ flowchart LR
      mounts the root in the same event (`flushSync`: a press that follows meets the real trigger) and replays itself
      on the trigger that took the place of the plain one: the focus moves to it, the pointer enters and moves over it,
      so the hover opens its popup after the delay it always had. The root stays from then on; one opened from code (a
-     confirm of a push) mounts while it is open. No IPC: the hover reads ahead what it read before (`hoverIpc`). The
+     confirm of a push) mounts while it is open. No IPC: a hover of a row reads nothing (`hoverIpc`). The
      intent replays once (a ref marks it): a view of the main window runs the effects of its rows again as it shows
      (React's `Activity`), and a replay there opened the popup of every trigger hovered before with the pointer
      elsewhere and gave the focus back to a push button focused before ([Main Views](../../spec/repository/main-views.spec.md)).
@@ -398,8 +398,8 @@ mock (`window.__ipcStats`, [E2E Testing](e2e-testing.md)), each read once the pa
 pending: the messages of the first sync and the commands invoked until its rows and chips (`firstSyncPatches`, the
 patches of the session on the channel of `subscribe_view`, before 2026-10-24 the `SyncEvent`s of the sync command;
 `firstSyncInvokes`), the bytes of a sync that changes nothing (`resyncIpcBytes`: parameters, answers and channel
-messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the intent,
-`page.clock.fastForward`), of its menu opened by a right click (`menuIpc`, the one menu of the table) and of its
+messages), and the commands of a rest of the pointer on a row (`hoverIpc`, on its "⋯" until its tooltip shows,
+`restOnBranchRow`), of its menu opened by a right click (`menuIpc`, the one menu of the table) and of its
 robot's popover (`popoverIpc`). The counts are exact, the same in every run, except the patches: the session sends at
 most one per 16 ms of the run, so their number follows how long the sync took. The commands of the app's own timers are
 left out (`withoutAppTimers` of ipc-helpers.ts, as the E2E test of these numbers): the debounced writes of the settings
@@ -420,6 +420,8 @@ budgets of `patch_bytes_test.rs` (above), which prints them:
 | 2026-10-25, the facts in the session (s7), Chromium, the app's timers left out | 60–102 / 1 | 25290–25691 | 1 / 0 / 1 |
 | 2026-10-26, the rules in `domain-policy` (s8), Chromium, three turns | 61–63 / 3 | 25290–26384 | 1 / 0 / 1 |
 | master `21e7e183`, Chromium, in the same turns | 61–63 / 1 | 26384–26388 | 1 / 0 / 1 |
+| 2026-10-29, the review read as its window opens (s15), Chromium, Mac Studio, two runs at load 48 | 68 / 3 | 26360 | 0 / 0 / 1 |
+| 2026-10-29, the same runs, WebKit | 70 / 3 | 25272 | 0 / 0 / 1 |
 
 A sync on the `SyncEvent` channel sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
 `remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
@@ -433,8 +435,9 @@ commands on master `20d2b938`, the reads of the facts and of the view of the rob
 it shows as they are, and Rust asks the readiness of those whose step waits for it, `domain_policy::readiness::wanted`,
 where the page filtered them before), the menu of a row nothing and the popover of its
 robot one `set_demand` (the details it shows, which the session reads and sends as a patch, again every minute of a
-running robot while it is open); the hover of a row reads ahead the review of the branch (`prefetch_branch_review`) and
-no fact.
+running robot while it is open), the hover of a row nothing. The review of a branch is read ahead as its window opens,
+beside the start of the window (`prefetch_branch_review`, [Branch Review](../../spec/branch/branch-review.spec.md)),
+not on a hover or a focus of its row as before 2026-10-29: a pointer that passes over the table costs no IPC and no git.
 An E2E test pins these numbers.
 [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
 

@@ -13,9 +13,6 @@ export interface IpcStats {
 
 type IpcWindow = { __ipcStats: IpcStats & { reset: () => void } }
 
-/** Past the rest of the pointer that counts as the intent to look at a row (`INTENT_DWELL_MS` of usePreviewHotkeys) */
-export const INTENT_DWELL_PAST_MS = 300
-
 /** What the app invokes on its own timers, wherever they fire: the debounced writes of the settings, the check for updates after the start */
 const APP_TIMERS: ReadonlySet<string> = new Set(["set_setting", "check_for_updates"])
 

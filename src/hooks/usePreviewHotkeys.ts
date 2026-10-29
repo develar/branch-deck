@@ -69,15 +69,7 @@ function isRowKeyTarget(target: EventTarget | null): boolean {
 export interface PreviewHotkeys {
   preview: (id: string) => void
   review?: (id: string) => void
-  /**
-   * The user may review the row next: the pointer rested on it (`INTENT_DWELL_MS`) or it got the focus. A table reads
-   * ahead what its review shows first, so D finds it read
-   */
-  intent?: (id: string) => void
 }
-
-/** How long the pointer rests on a row before it counts as the intent to look at it: passing over a row does not */
-const INTENT_DWELL_MS = 200
 
 /** Marks the tables that open a preview on Space, so the innermost one owns the focus inside it */
 const PREVIEW_TABLE_ATTRIBUTE = "data-space-preview"
@@ -134,42 +126,5 @@ export function usePreviewHotkeys(tableRef: RefObject<HTMLTableElement | null>, 
     }
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [tableRef])
-
-  // the intent: a row of this table (not of a table nested in it) the pointer rests on, or that gets the focus; on the
-  // document, as the keys: the table may mount after the hook
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let pointed: string | null = null
-    const ownRowId = (target: EventTarget | null): string | null => {
-      const table = tableRef.current
-      const row = target instanceof Element ? target.closest<HTMLElement>("tr[data-row-id]") : null
-      return table !== null && row !== null && row.closest("table") === table ? (row.dataset.rowId ?? null) : null
-    }
-    const tell = (id: string) => latestRef.current.hotkeys.intent?.(id)
-    const handlePointerOver = (event: PointerEvent) => {
-      const id = ownRowId(event.target)
-      if (id === pointed) {
-        return
-      }
-      clearTimeout(timer)
-      pointed = id
-      if (id !== null) {
-        timer = setTimeout(() => tell(id), INTENT_DWELL_MS)
-      }
-    }
-    const handleFocusIn = (event: FocusEvent) => {
-      const id = ownRowId(event.target)
-      if (id !== null) {
-        tell(id)
-      }
-    }
-    document.addEventListener("pointerover", handlePointerOver, { passive: true })
-    document.addEventListener("focusin", handleFocusIn)
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener("pointerover", handlePointerOver)
-      document.removeEventListener("focusin", handleFocusIn)
-    }
   }, [tableRef])
 }

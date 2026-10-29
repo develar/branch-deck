@@ -68,7 +68,6 @@ export const ALLOWLIST = [
   { file: "src/hooks/useBranchSuggestions.ts", rule: "poll-timer", reason: "the names are suggested once typing rests: a debounce of the input" },
   { file: "src/hooks/useStackPathPointer.ts", rule: "poll-timer", reason: "the hover intent of a stack path: no request" },
   { file: "src/hooks/useReviewerSearch.ts", rule: "poll-timer", reason: "the reviewers are searched once typing rests: a debounce of the input" },
-  { file: "src/hooks/usePreviewHotkeys.ts", rule: "poll-timer", reason: "the dwell of the hover intent before a preview: no request" },
   { file: "src/hooks/useCopyToClipboard.ts", rule: "poll-timer", reason: "the Copied state for 2 s: no request" },
   { file: "src/hooks/useCommitDrag.ts", rule: "poll-timer", reason: "the drag image goes once the browser took it: no request" },
   { file: "src/hooks/useAutoUpdate.ts", rule: "poll-timer", reason: "one check for updates shortly after the start of the app, never again by a timer" },

@@ -22,7 +22,7 @@ use std::path::Path;
 /// helper that answers counts as its answers): a state that neither the fixtures of the fakes nor the templates make
 /// yet. The numbers only go down: a new answer of a command in the page fails, so it comes from a fixture of the fake;
 /// a removed one lowers its number
-const ROUTED_IN_PAGE: &[(&str, usize)] = &[("agent_cli_status", 2), ("get_repository_config", 3), ("prefetch_branch_review", 1)];
+const ROUTED_IN_PAGE: &[(&str, usize)] = &[("agent_cli_status", 2), ("get_repository_config", 3)];
 
 fn read_workspace_file(path: &str) -> String {
   let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(path);

@@ -3,8 +3,9 @@ import type { Page } from "@playwright/test"
 import type { PatronusProfile } from "../../../src/lib/bindings"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow, restOnBranchRow } from "../helpers/branch-helpers"
 import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-helpers"
+import { settledInvokes } from "../helpers/ipc-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
 import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
@@ -15,7 +16,7 @@ import { clickContextMenuItem, openContextMenu } from "../helpers/selection-help
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordRewrites, routeCommand } from "../helpers/wait-helpers"
+import { recordCommand, recordRewrites } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -154,26 +155,41 @@ test.describe("A commit of the branch preview", () => {
 })
 
 test.describe("Reading the review ahead", () => {
-  test("should read the review of a branch ahead once the pointer rests on its row or it has the focus, once per state", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should read the review of a branch ahead as its window opens, once per state, and nothing on a hover or a focus of its row", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
-    const prefetches = await routeCommand(page, "prefetch_branch_review", () => ({ status: "ok", data: null }))
+    // the server reads it: the test only records the command
+    const prefetches = await recordCommand(page, "prefetch_branch_review")
 
-    // the pointer rests on the row: its own part on its parent, the stack from the root
-    await findBranchRow(page, "login").hover()
-    await expect.poll(() => prefetches.length).toBe(1)
-    expect(prefetches[0]).toMatchObject({ review: { chain: ["auth", "login"] }, part: "own" })
-
-    // read already: neither the focus of the row nor D reads it again; D opens the window
+    // the pointer rests on the row, the row gets the focus: nothing is read
+    await restOnBranchRow(page, "login")
     await findBranchRow(page, "login").focus()
+    await expect(findBranchRow(page, "login")).toBeFocused()
+    await settledInvokes(page)
+    expect(prefetches).toEqual([])
+
+    // D opens the window and reads its own part on its parent, the stack from the root
     await page.keyboard.press("d")
     expect((await openedReview(page, 1)).title).toBe("Review login")
+    await settledInvokes(page)
+    expect(prefetches).toMatchObject([{ review: { chain: ["auth", "login"] }, part: "own" }])
+
+    // Review Changes of its menu: the window comes to the front, the branch is read already
+    await openReviewWindow(page, "login")
+    await settledInvokes(page)
     expect(prefetches).toHaveLength(1)
 
-    // another row by the focus alone
-    await findBranchRow(page, "auth").focus()
-    await expect.poll(() => prefetches.length).toBe(2)
-    expect(prefetches[1]).toMatchObject({ review: { chain: ["auth"] }, part: "own" })
+    // another branch: its own read
+    await openReviewWindow(page, "auth")
+    await settledInvokes(page)
+    expect(prefetches).toMatchObject([
+      { review: { chain: ["auth", "login"] }, part: "own" },
+      { review: { chain: ["auth"] }, part: "own" },
+    ])
   })
 })
 

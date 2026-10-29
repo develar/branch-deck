@@ -293,9 +293,8 @@ Mock implementation:
   ([Remote services](#remote-services)); a push goes to the remote of the repository, and the test asserts what that
   remote has and took ([The remote of a repository](#the-remote-of-a-repository)); its failure stays
   `routeCommandError`, the one page answer that is no route count. The page answers of the read commands are pinned per
-  command (`ROUTED_IN_PAGE`, three commands: the repository config, the status of the agent CLI and the read ahead of a
-  branch review, states that neither the fixtures of the fakes nor the
-  templates make yet; no fact of a session is among them). An answer
+  command (`ROUTED_IN_PAGE`, two commands: the repository config and the status of the agent CLI, states that neither
+  the fixtures of the fakes nor the templates make yet; no fact of a session is among them). An answer
   counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
   `helpers/` or a spec's own, through the helpers it calls) counts its answers once per call, not once per definition,
   so the pinned answers are the calls of the helpers. Inside a test the count is of the places that answer, not

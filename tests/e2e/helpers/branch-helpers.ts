@@ -9,6 +9,18 @@ export function findBranchRow(page: Page, branchName: string): Locator {
   return page.locator(`[data-testid="branch-row"][data-branch-name="${branchName}"]`)
 }
 
+/**
+ * The pointer rests on the row of `branchName`: on its "⋯", until the tooltip of the button shows, the effect of the
+ * rest the user sees. A count of what a hover of a row asks (its IPC) is anchored on it: the hover took place, and
+ * time passed as the user rests
+ */
+export async function restOnBranchRow(page: Page, branchName: string): Promise<void> {
+  const row = findBranchRow(page, branchName)
+  await row.hover()
+  await row.getByRole("button", { name: `More actions for ${branchName}` }).hover()
+  await expect(page.getByRole("tooltip", { name: "More actions", exact: true })).toBeVisible()
+}
+
 /** `name@depth` of the branch rows in display order */
 export async function branchTree(page: Page): Promise<string[]> {
   return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => `${row.getAttribute("data-branch-name")}@${row.getAttribute("data-depth") ?? 0}`))

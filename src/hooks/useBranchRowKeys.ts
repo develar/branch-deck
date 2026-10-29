@@ -2,8 +2,6 @@ import type { KeyboardEvent, RefObject } from "react"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
 import { getMoveRowsNow } from "@/hooks/useBranchFilter"
 import { requestSafePush } from "@/hooks/useSafePush"
-import { reviewBlockerOf } from "@/lib/branch-review"
-import { prefetchBranchReview } from "@/lib/branch-review-window"
 import { moveRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { FROM_MENU, selectMenuItemById } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
@@ -72,14 +70,6 @@ function openSafePush(name: string): void {
  */
 export function reviewBranchRow(name: string): void {
   selectRowItem(name, "review-changes", () => {})
-}
-
-/** The pointer rests on a branch row or it got the focus: its review is read ahead, if it can be reviewed */
-export function prefetchBranchRowReview(name: string): void {
-  const branch = getBranch(name)
-  if (branch !== undefined && reviewBlockerOf(branch) === null) {
-    prefetchBranchReview(name)
-  }
 }
 
 /**
