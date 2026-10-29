@@ -25,7 +25,8 @@
 //   and the task time beyond the three is mostly paint, the compositor's commit and the work of the browser outside them;
 // - resyncScriptMs, resyncTaskMs, resyncLayouts, resyncLayoutMs, resyncStyles, resyncStyleMs: the same of a sync that
 //   changes nothing (the Patronus view comes in the patches of the session: the page asks no view of the robots), once
-//   no step waits for a fact (`waitForStepFacts`).
+//   no step waits for a fact (`waitForStepFacts`), its button clicked and its end waited for in the page
+//   (`syncInPage`): the locators of Playwright, which the first sync waits with, were a third of its script.
 //
 // The renders of a sync (every engine; `countRender` of src/lib/render-counts.ts, which counts only in a page whose init
 // script set `window.__bdRenderCounts`, `recordRenders` of tests/e2e/helpers/render-helpers.ts), each read once the
@@ -48,8 +49,9 @@
 // - warmStartInvokes: the commands the page invoked before its first row, its protocol aside (`firstRowsAsks`): the
 //   subscription alone, whose channel carries the rest (B7).
 //
-// PERF_PROFILE=1 adds one more first sync under the CPU profiler of CDP (Chromium; sampled every 100 µs), after the
-// measured runs, which it would slow: tests/results/perf/first-sync-<project>.cpuprofile, for the Performance panel of
+// PERF_PROFILE=1 adds one more first sync and one more sync that changes nothing under the CPU profiler of CDP
+// (Chromium; sampled every 100 µs), after the measured runs, which it would slow:
+// tests/results/perf/first-sync-<project>.cpuprofile and resync-<project>.cpuprofile, for the Performance panel of
 // DevTools or a summary by function (the build has no source maps: map its positions with a `vp build --sourcemap` of
 // the same commit).
 //
@@ -244,6 +246,30 @@ async function waitForStepFacts(page: Page): Promise<void> {
 }
 
 /**
+ * A sync from the Sync button, clicked as the DOM clicks it, until its end: the next finished sync (`data-sync-count`)
+ * with the button enabled again, as `runAndWaitForSync` waits for it, but watched in the page. A locator of Playwright
+ * runs its selector engine over the whole document on every frame of a wait, in the main thread of the page: about
+ * 3.5 ms of the 12 ms of script a sync that changes nothing at 141 rows was charged with on the Mac Studio (2026-10-29)
+ */
+async function syncInPage(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>(resolve => {
+        const button = document.querySelector<HTMLButtonElement>('[data-testid="sync-button"]')!
+        const finished = button.dataset.syncCount
+        const observer = new MutationObserver(() => {
+          if (button.dataset.syncCount !== finished && !button.disabled) {
+            observer.disconnect()
+            resolve()
+          }
+        })
+        observer.observe(button, { attributes: true })
+        button.click()
+      }),
+  )
+}
+
+/**
  * The session committed its first sync and derived the view of its robots and their landing needs over it, and the
  * page holds that view
  */
@@ -270,6 +296,14 @@ async function settledSyncRenders(page: Page, repo: TestRepositoryBuilder): Prom
   await waitForSettledSession(page, repo)
   await waitForStepFacts(page)
   return renderCounts(page)
+}
+
+/** Stops the CPU profiler of the page and writes its profile to tests/results/perf/<name>-<project>.cpuprofile */
+async function writeProfile(cdp: CDPSession, name: string): Promise<void> {
+  const { profile } = await cdp.send("Profiler.stop")
+  const directory = path.join("tests", "results", "perf")
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(path.join(directory, `${name}-${test.info().project.name}.cpuprofile`), JSON.stringify(profile))
 }
 
 /** The robots of the template: running on ten of its lone branches */
@@ -333,7 +367,7 @@ test.describe("Branch table performance", () => {
         await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
       })
       await waitForStepFacts(page)
-      const resync = await timeMainThread(cdp, () => runAndWaitForSync(page, () => page.getByTestId("sync-button").click()))
+      const resync = await timeMainThread(cdp, () => syncInPage(page))
       syncRuns.push({ ...syncMainThread("firstSync", first), ...syncMainThread("resync", resync) })
     })
   }
@@ -418,10 +452,22 @@ test.describe("Branch table performance", () => {
       await syncBranches(page)
       await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
       await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
-      const { profile } = await cdp.send("Profiler.stop")
-      const directory = path.join("tests", "results", "perf")
-      mkdirSync(directory, { recursive: true })
-      writeFileSync(path.join(directory, `first-sync-${test.info().project.name}.cpuprofile`), JSON.stringify(profile))
+      await writeProfile(cdp, "first-sync")
+    })
+
+    test("the CPU profile of a sync of 141 rows that changes nothing", async ({ page, setupRepo, browserName }) => {
+      test.skip(browserName !== "chromium", "the CPU profile is Chromium's")
+      await setupTable(page, setupRepo)
+      await syncBranches(page)
+      await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
+      await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
+      await waitForStepFacts(page)
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send("Profiler.enable")
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 })
+      await cdp.send("Profiler.start")
+      await syncInPage(page)
+      await writeProfile(cdp, "resync")
     })
   }
 

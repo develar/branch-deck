@@ -1,6 +1,6 @@
 import type { ActionState, BranchReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
-import { sameStringRecord } from "@/lib/record"
+import { sameFields } from "@/lib/record"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { getRowPart } from "@/model/store"
 import { actionBlocker } from "@/presenters/actions"
@@ -225,7 +225,7 @@ export function settledReviewTable(state: BranchSyncState, chain: readonly strin
 
 /** The same table for the review: a view that changed nothing it reads keeps the record, and the window renders nothing */
 export function sameReviewTable(a: ReviewedTable | null, b: ReviewedTable | null): boolean {
-  return a === b || (a !== null && b !== null && a.baselineBranch === b.baselineBranch && sameStringRecord(a.tips, b.tips) && sameStringRecord(a.stackCommits, b.stackCommits))
+  return a === b || (a !== null && b !== null && a.baselineBranch === b.baselineBranch && sameFields(a.tips, b.tips) && sameFields(a.stackCommits, b.stackCommits))
 }
 
 /**

@@ -101,6 +101,7 @@ targets:
   - ../../crates/app-api/src/reads/commits.rs
   - ../../src/lib/git/delete-kept-branch.ts
   - ../../src/model/store.ts
+  - ../../src/model/branch-row.ts
   - ../../crates/domain-policy/src/admission.rs
   - ../../crates/domain-policy/src/reasons.rs
   - ../../src/presenters/rewrite.ts
@@ -388,6 +389,15 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../crates/repository-model/src/table_test.rs (`a_quiet_resync_keeps_the_shown_state_and_a_changed_branch_starts_syncing`)
   [@test] ../../src/model/store.test.ts (`keeps the records of the branches a patch leaves alone, and of the commits of a branch whose state alone changed`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once, over the remote tip the sync brought, the row as it was meanwhile`)
+- A sync must render only what it changed. A branch whose status alone changed (each branch of a sync that changes
+  nothing, `Created` to `Unchanged`; each step of the progress of a sync) renders the status of its row, nothing else
+  of the row; a branch whose commits, texts or remote status changed renders its row; no other row renders, nor the
+  branch table or a stack island whose rows stay. The status of a row is a leaf of its own that reads its branch by
+  name (`BranchRowStatus`); the row and its cells read what the row shows beside the status, one object the store keeps
+  while it is equal (`Branch.row`, [Rendering Performance](../../docs/design/rendering-performance.md) Key Decision
+  3), with the status text only of a branch the sync did not build (empty while it syncs and once it built it).
+  [@test] ../../tests/e2e/branch-row-layout/row-renders.spec.ts (`should render only the row of the branch a sync changed, and of a sync that changes nothing the status of each row`)
+  [@test] ../../src/model/store.test.ts (`keeps what the row of a branch shows as one object while a patch changes only its status, and builds it anew for a change the row shows`)
 - The remote status of a row, of a stack branch and of an unapplied branch must be the session's, which orders a push
   against the syncs: the outcome of a push (the statuses it left, or the ones it fetched when the remote moved) reaches
   the rows as a patch with no sync after it, and a sync that started before the push ended never replaces it, also

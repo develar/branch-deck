@@ -9,7 +9,6 @@ import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { lanesBelow, segmentLanesBelow } from "@/lib/stack-lanes"
 import type { UIColor } from "@/lib/ui-types"
 import { landingNodeLooks } from "@/presenters/landing-node"
-import type { Branch } from "@/stores/branch-sync"
 import { useBranchRobot, useRobotFailing } from "@/stores/patronus"
 import { useIsPushedOnPath, useStackPathSegments } from "@/stores/stack-view"
 
@@ -43,7 +42,8 @@ const nodeColorClass: Record<UIColor, string> = {
 
 export interface LaneCellProps {
   lanes: StackLanes
-  branch: Branch
+  /** The branch of the row */
+  name: string
   /** Under its issue: the guide of the family, and the folder button one step further right */
   familyIndent: 0 | 1
   /** The line from the node runs to the bottom of the row: the branch has children, or its commits are shown below */
@@ -85,9 +85,9 @@ function verticalPath(lanes: readonly number[]): string {
  * and the node of the branch: the highlighted path to the root of the stack (`useStackPathSegments`) over them, the
  * landing span of a running robot on top.
  */
-export function LaneCell({ lanes, branch, familyIndent, lineDown, collapsedBelow = false, ring = false, highlight = null }: LaneCellProps) {
+export function LaneCell({ lanes, name, familyIndent, lineDown, collapsedBelow = false, ring = false, highlight = null }: LaneCellProps) {
   const { lane, forkFrom, up, through } = lanes
-  const path = useStackPathSegments(branch.name)
+  const path = useStackPathSegments(name)
   const lines = segmentPath({ up, down: lineDown, fork: forkFrom !== null, through }, lane, forkFrom)
   const drawn = Math.max(lane, ...through) + 1
   return (
@@ -113,7 +113,7 @@ export function LaneCell({ lanes, branch, familyIndent, lineDown, collapsedBelow
             data-testid="lane-collapsed"
           />
         )}
-        <LaneNodeMark branch={branch} ring={ring} />
+        <LaneNodeMark name={name} ring={ring} />
       </span>
     </>
   )
@@ -127,12 +127,12 @@ const NODE_TARGET = "pointer-events-auto absolute top-1/2 left-[calc((var(--bd-n
  * while the next step is the user's, hollow while it waits for others or is done; the hover says it, with its links and
  * the robot it tells of (`LandingNodeHover`). The push has the dot of the status text.
  */
-function LaneNodeMark({ branch, ring }: { branch: Branch; ring: boolean }) {
-  const node = useLandingNode(branch.name)
+function LaneNodeMark({ name, ring }: { name: string; ring: boolean }) {
+  const node = useLandingNode(name)
   // the hovered push button sends this branch: the node is circled in its colour
-  const pushed = useIsPushedOnPath(branch.name)
+  const pushed = useIsPushedOnPath(name)
   const kind = node?.kind ?? "waiting"
-  const dot = <LaneNodeDot kind={kind} ring={ring ? <LaneRobotRing branchName={branch.name} /> : null} pushed={pushed} />
+  const dot = <LaneNodeDot kind={kind} ring={ring ? <LaneRobotRing branchName={name} /> : null} pushed={pushed} />
   if (node === null) {
     return (
       <span className={NODE_TARGET} data-testid="lane-node-target">
@@ -141,7 +141,7 @@ function LaneNodeMark({ branch, ring }: { branch: Branch; ring: boolean }) {
     )
   }
   return (
-    <LandingNodeHover node={node} subject={{ kind: "branch", name: branch.name }} trigger={<span className={NODE_TARGET} data-testid="lane-node-target" />}>
+    <LandingNodeHover node={node} subject={{ kind: "branch", name }} trigger={<span className={NODE_TARGET} data-testid="lane-node-target" />}>
       {dot}
     </LandingNodeHover>
   )

@@ -349,8 +349,8 @@ Mock implementation:
   reads no fact, its menu invokes nothing, the popover of its robot one `set_demand`
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
 - **Render counter**: beside the IPC, a test counts what the page renders. `countRender(key)` (`src/lib/render-counts.ts`)
-  in the render body of a branch row (`row:<name>`), of the branch table card (`table`) and of the card of a stack
-  island (`island:<root>`) adds one to the key in `window.__bdRenderCounts`, a map an init script of the test sets
+  in the render body of a branch row (`row:<name>`), of the status of a row (`status:<name>`), of the branch table
+  card (`table`) and of the card of a stack island (`island:<root>`) adds one to the key in `window.__bdRenderCounts`, a map an init script of the test sets
   before the page loads (`recordRenders` of `tests/e2e/helpers/render-helpers.ts`; `resetRenders` clears it,
   `renderCounts` reads it). The app's module takes the map as it loads, so a page without the script counts nothing,
   at the cost of one comparison per render, and the build the tests run is the build of the app: no profiling build

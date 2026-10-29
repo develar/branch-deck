@@ -52,13 +52,14 @@ import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
 import { isApiError } from "@/lib/errors"
-import { sameStringRecord, withoutKeys } from "@/lib/record"
+import { sameFields, withoutKeys } from "@/lib/record"
 import { toRemoteStatus } from "@/lib/remote-status"
 import type { SyncDeferral } from "@/lib/sync-deferred"
 import { describeSyncDeferral } from "@/lib/sync-deferred"
 import { showToast } from "@/lib/toast-message"
 import { addTiming } from "@/lib/update-progress"
 import { isMainWindow } from "@/lib/window-label"
+import { branchRowFacts } from "@/model/branch-row"
 import { setDemandFocused, setDemandSubscription } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
 import type { BranchStructure } from "@/model/structure"
@@ -717,9 +718,9 @@ function headerFields(state: BranchSyncState, view: RepositoryView): Partial<Bra
     baselineBranch: header.baselineBranch === "" ? null : header.baselineBranch,
     stacksEnabled: header.stacksEnabled,
     reviewExperimental: header.reviewExperimental,
-    issueGroups: sameStringRecord(header.issueGroups, state.issueGroups) ? state.issueGroups : header.issueGroups,
-    stackParents: sameStringRecord(header.stackParents, state.stackParents) ? state.stackParents : header.stackParents,
-    parked: sameStringRecord(header.parked, state.parked) ? state.parked : header.parked,
+    issueGroups: sameFields(header.issueGroups, state.issueGroups) ? state.issueGroups : header.issueGroups,
+    stackParents: sameFields(header.stackParents, state.stackParents) ? state.stackParents : header.stackParents,
+    parked: sameFields(header.parked, state.parked) ? state.parked : header.parked,
   }
 }
 
@@ -770,9 +771,17 @@ function branchesOf(shown: Readonly<Record<string, Branch>>, view: RepositoryVie
 
 /**
  * The record of a branch of the view. Its commits and their index stay the same arrays while neither the commits nor
- * their copies changed, and its remote status stays the same object while the patch has none for it
+ * their copies changed, its remote status stays the same object while the patch has none for it, and what its row
+ * shows beside its status stays the same object while it is equal (`Branch.row`): a patch of its sync alone renders the
+ * status of its row, not the row
  */
 function branchOf(shown: Branch | undefined, view: BranchView, change: BranchChange | null): Branch {
+  const branch = branchFieldsOf(shown, view, change)
+  const row = branchRowFacts(branch)
+  return { ...branch, row: shown !== undefined && sameFields(shown.row, row) ? shown.row : row }
+}
+
+function branchFieldsOf(shown: Branch | undefined, view: BranchView, change: BranchChange | null): Omit<Branch, "row"> {
   const { head, sync } = view
   const keepCommits = shown !== undefined && change !== null && change.commits == null && change.copies == null
   const keepRemote = shown !== undefined && change !== null && change.remote == null
@@ -849,11 +858,17 @@ function commitIndexOf(commits: readonly Commit[]): Record<string, number> {
   return index
 }
 
-/** The text of a row's status: a stack problem names itself as Rust says it ("conflicting parents"), not as a failure */
+/**
+ * Why the sync did not build the branch as it is (`Branch.statusText`): a stack problem names itself as Rust says it
+ * ("conflicting parents"), not as a failure; nothing while it syncs and once it built it, which its status says
+ */
 function statusTextOf({ head, sync }: BranchView): string {
   switch (sync.status) {
     case "Syncing":
-      return "syncing…"
+    case "Created":
+    case "Updated":
+    case "Unchanged":
+      return ""
     case "Blocked":
       // not an error of this branch: its parent can't be built on
       return sync.blockedReason ?? "blocked"
@@ -872,8 +887,6 @@ function statusTextOf({ head, sync }: BranchView): string {
       return "merge conflict"
     case "AnalyzingConflict":
       return "analyzing conflict…"
-    default:
-      return sync.status.toLowerCase()
   }
 }
 

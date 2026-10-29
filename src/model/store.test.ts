@@ -9,7 +9,7 @@ import { resetDemand } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
 import { adoptCachedModel, closeSession, openSession, requestSessionSync, resubscribeSession, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
 import { branchSyncStore, getBranch, getStackBranch, whenSynced } from "@/stores/branch-sync"
-import { emptyView, fakeCommit, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
+import { emptyView, fakeCommit, fakeHead, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
 
 const { toasts, archived, syncRecords, answers } = vi.hoisted(() => ({
   toasts: [] as { type?: string; title: string; description?: string }[],
@@ -688,14 +688,40 @@ describe("the table of the view", () => {
     await send(running)
     expect(branchSyncStore.getState().branches).toBe(branches)
     expect(branchSyncStore.getState().branchOrder).toBe(branchOrder)
-    // a's result: its record is new, its commits the same; b untouched
+    // a's result: its record is new, its commits and what its row shows the same; b untouched
     await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
-    expect(getBranch("a")).toMatchObject({ status: "Unchanged", statusText: "unchanged", processedCount: 1 })
+    expect(getBranch("a")).toMatchObject({ status: "Unchanged", statusText: "", processedCount: 1 })
     expect(getBranch("a")!.commits).toBe(branches.a!.commits)
+    expect(getBranch("a")!.row).toBe(branches.a!.row)
     expect(getBranch("b")).toBe(branches.b)
     // a copy of a's commit changes its commits
     await send({ branches: { a: { copies: [{ hash: "a1-new", status: "Created" }] } } })
     expect(getBranch("a")!.commits).toEqual([expect.objectContaining({ originalHash: "a1", hash: "a1-new", status: "Created" })])
+  })
+
+  it("keeps what the row of a branch shows as one object while a patch changes only its status, and builds it anew for a change the row shows", async () => {
+    await open()
+    await send(grouping("a", "b"))
+    const shown = getBranch("a")!.row
+    expect(shown).toMatchObject({ name: "a", commitCount: 1, summary: "subject", hasError: false, statusText: "", blocked: false, commitsHidden: false })
+    // the statuses of a sync that changes nothing: the status of the row says them, the rest of the row is as it was
+    for (const status of ["Syncing", "Created", "Unchanged", "Updated"] as const) {
+      await send({ branches: { a: { sync: { status, processedCount: 1, hasError: false } } } })
+      expect(getBranch("a")!.status).toBe(status)
+      expect(getBranch("a")!.row).toBe(shown)
+    }
+    // a new summary is a row of its own
+    await send({ branches: { a: { head: { ...fakeHead("a"), summary: "another subject" } } } })
+    const renamed = getBranch("a")!.row
+    expect(renamed).not.toBe(shown)
+    expect(renamed.summary).toBe("another subject")
+    // a failure: the row offers no push and hides the commits, and the push says why
+    await send({ branches: { a: { sync: { status: "Error", processedCount: 1, hasError: true, errorDetails: { Generic: "cannot copy a1" } } } } })
+    expect(getBranch("a")!.row).toMatchObject({ hasError: true, statusText: "cannot copy a1", commitsHidden: true })
+    // a block by the parent: what the push and the menu of the row say
+    await send({ branches: { a: { sync: { status: "Blocked", processedCount: 1, hasError: false, blockedReason: "blocked by b" } } } })
+    expect(getBranch("a")!.row).toMatchObject({ hasError: false, statusText: "blocked by b", blocked: true, commitsHidden: false })
+    expect(getBranch("b")!.row).toMatchObject({ blocked: false })
   })
 
   it("shows the remote status every patch brings, also while a push of the branch runs: Rust orders the push's outcome against the syncs", async () => {

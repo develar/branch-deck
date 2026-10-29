@@ -84,6 +84,12 @@ export interface DroppedCommits {
   more: number
 }
 
+/**
+ * What a push button reads of a branch: its name, its remote status, its stack and why its sync did not build it,
+ * which the row of the branch shows (`Branch.row`) and a branch has
+ */
+export type PushedBranch = Pick<Branch, "name" | "statusText" | "remoteStatus" | "stack">
+
 /** The nearest branch a stacked branch is built on that has work for the remote */
 export interface UnpushedParent {
   name: string
@@ -92,7 +98,7 @@ export interface UnpushedParent {
   /** The branches a Push Stack of the branch pushes, the branch included */
   stackSize: number
   /** The branches the push button pushes, root first (`PushOrders.button`); empty when it pushes the branch alone */
-  buttonStack: readonly Branch[]
+  buttonStack: readonly PushedBranch[]
 }
 
 /** The branches stacked on a branch that have work for the remote, and the stack branch of its whole stack */
@@ -178,12 +184,12 @@ function describeUnpushedParent(branchName: string, parent: UnpushedParent): str
 }
 
 /** One line per branch a stack push sends, root first, in the words of a push (`formatStackPushLine`) */
-function describeStackPush(branches: readonly Branch[]): string {
+function describeStackPush(branches: readonly PushedBranch[]): string {
   return `Pushes ${branches.length} branches, parents first:\n${branches.map(branch => formatStackPushLine(branch)).join("\n")}`
 }
 
 /** The colour of a stack push: the branch's own, unless it is neutral (none of its commits are the user's) and an ancestor's isn't */
-function stackPushColor(branch: Branch, stack: readonly Branch[]): UIColor {
+function stackPushColor(branch: PushedBranch, stack: readonly PushedBranch[]): UIColor {
   const own = getPushColor(branch) ?? "primary"
   return own !== "neutral" ? own : (stack.map(it => getPushColor(it)).find(color => color !== null && color !== "neutral") ?? own)
 }
@@ -212,7 +218,7 @@ function describeUnpushedChildren(branchName: string, names: readonly string[], 
  * pushes Rust orders (`unpushedParent`, `unpushedChildren`) and the remote status of the row in words
  */
 export function getPushButtonState(
-  branch: Branch,
+  branch: PushedBranch,
   {
     isPushing = false,
     blocker = null,
@@ -355,7 +361,7 @@ export function childrenPushEnabled(actions: readonly ActionState[] | undefined)
  * (`useLandingPushes`; a root whose Push with Children updates the open pull request of its whole stack, the callers),
  * and in a repository with neither Patronus nor GitHub, where it is the one way to share the branch.
  */
-export function isFirstPushInLanding(branch: Branch, { landingPushes, held = false }: { landingPushes: boolean; held?: boolean }): boolean {
+export function isFirstPushInLanding(branch: Pick<Branch, "remoteStatus">, { landingPushes, held = false }: { landingPushes: boolean; held?: boolean }): boolean {
   return landingPushes && !held && branch.remoteStatus?.action.kind === "create"
 }
 

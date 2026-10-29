@@ -16,7 +16,7 @@ import { useRowOperation } from "@/hooks/useRowOperation"
 import { pickRemoteCommits } from "@/lib/git/pick-remote"
 import { pushFromButton } from "@/lib/push-run"
 import { pushBranch } from "@/lib/push-run"
-import { blockingBranchOf, formatStackPushing, stackPushSubject } from "@/lib/stack"
+import { formatStackPushing, stackPushSubject } from "@/lib/stack"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { stopWaitingPushItem, transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
@@ -24,7 +24,7 @@ import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from 
 import { useRowPart } from "@/model/store"
 import { isStartable } from "@/presenters/actions"
 import type { PushButtonAction } from "@/presenters/push-button"
-import type { Branch } from "@/stores/branch-sync"
+import type { BranchRowFacts } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { usePushHold } from "@/stores/patronus"
@@ -33,7 +33,8 @@ import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
 import { useLandRun } from "@/stores/safe-push"
 
 export interface BranchPushButtonProps {
-  branch: Branch
+  /** What the row shows of the branch (`Branch.row`): the button renders again only when that changes, not its status */
+  branch: BranchRowFacts
   /** The text takes the push colour of the branch (`getPushColor`); off in the preview footer */
   colored?: boolean
   /** Before the label instead of the upload icon, e.g. the key of the preview footer */
@@ -264,10 +265,10 @@ const HOLD_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-re
  * robot that holds the branch (`PushHold`), its restart while it runs on the branch itself ("…or restart it on the
  * current branch") and "Open in Patronus", from the one list of its actions (`getGatedRobotActions`)
  */
-function PushHeldActions({ branch, close }: { branch: Branch; close: () => void }) {
+function PushHeldActions({ branch, close }: { branch: BranchRowFacts; close: () => void }) {
   const hold = usePushHold(branch.name)
   const robotParts = useRobotParts(hold?.robot)
-  const blocker = blockingBranchOf(branch)
+  const blocker = branch.blockedBy
   if (blocker !== null) {
     return (
       <Button

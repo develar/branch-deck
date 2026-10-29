@@ -96,7 +96,7 @@ export interface RemoteStatus {
 /**
  * Virtual branch, built from the parts of its branch in the view of the session (`src/model/store.ts`).
  * Immutable: a patch that changes a part of it creates a new record, so a component selecting one branch re-renders only
- * when that branch changes.
+ * when that branch changes; what its row shows beside its status is `row`, the same object while it says the same.
  */
 export interface Branch {
   readonly name: string
@@ -105,6 +105,11 @@ export interface Branch {
   readonly commitIndex: Readonly<Record<string, number>>
   readonly commitCount: number
   readonly status: BranchStatus
+  /**
+   * Why the last sync did not build the branch as it is, in the words of its row: its error, its conflict, its
+   * analysis, its block ("blocked by auth"); empty while it syncs and once it built it (`Created`, `Updated`,
+   * `Unchanged`), which its status says alone
+   */
   readonly statusText: string
   readonly processedCount: number
   readonly hasError: boolean
@@ -130,6 +135,27 @@ export interface Branch {
   readonly stack: BranchStack | null
   /** Where the branch is among the others, as Rust placed it (`BranchView.structure`) */
   readonly structure: BranchStructure
+  /** What its row shows beside its status, the same object while it says the same (`BranchRowFacts`) */
+  readonly row: BranchRowFacts
+}
+
+/**
+ * What the row of a branch shows beside its status, and what its cells read (`BranchRow`: its name cell, its
+ * commits, its push, its next step and its "⋯"): the same object while these are equal (`branchOf` of
+ * src/model/store.ts, `branchRowFacts`), so a sync that changes only the status of a branch, every `Created` to `Unchanged`, renders the
+ * status of its row (`BranchRowStatus`, which reads the whole branch), not the row. Each field is the one of `Branch`
+ * of the same name, but `blocked`, `blockedBy` and `commitsHidden`, which its status decides
+ */
+export interface BranchRowFacts extends Pick<
+  Branch,
+  "name" | "commitCount" | "summary" | "descriptionTitle" | "descriptionLead" | "nameIssueKey" | "issueKey" | "hasError" | "statusText" | "remoteStatus" | "stack"
+> {
+  /** Its stack parent can't be built on (`Blocked`): the sync left its ref as it was */
+  readonly blocked: boolean
+  /** The branch that keeps a blocked branch from being rebuilt (`blockingBranchOf`); null otherwise */
+  readonly blockedBy: string | null
+  /** The sync failed to build it, not for a stack problem: its expanded row shows no commits, only the failure */
+  readonly commitsHidden: boolean
 }
 
 /** The structure of `name` as the view placed it; `ROOT_STRUCTURE` for a branch the table lacks */
@@ -1070,6 +1096,11 @@ function findCommitsIn({ branches, unassignedCommits }: BranchSyncState, ids: re
 /** A single branch; the component re-renders only when this branch changes. */
 export function useBranch(name: string): Branch | undefined {
   return useBranchSyncEntry("branches", name, branch => branch)
+}
+
+/** What the row of a branch shows beside its status (`Branch.row`): re-rendered only when one of those facts changed */
+export function useBranchRowFacts(name: string): BranchRowFacts | undefined {
+  return useBranchSyncEntry("branches", name, branch => branch?.row)
 }
 
 /** The commit the local virtual branch points to; undefined before the sync created it. Not re-rendered by other changes of the branch. */

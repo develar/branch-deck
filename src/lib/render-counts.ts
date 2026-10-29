@@ -8,7 +8,7 @@
  */
 const counts: Map<string, number> | undefined = typeof window === "undefined" ? undefined : window.__bdRenderCounts
 
-/** One more render of `key` (`row:<name>`, `table`, `island:<root>`), when the page counts them */
+/** One more render of `key` (`row:<name>`, `status:<name>`, `table`, `island:<root>`), when the page counts them */
 export function countRender(key: string): void {
   if (counts !== undefined) {
     counts.set(key, (counts.get(key) ?? 0) + 1)

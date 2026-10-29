@@ -1,5 +1,4 @@
 import { useMemo } from "react"
-import { useLandedIn } from "@/hooks/useLandedIn"
 import { landedBranchDescription } from "@/lib/landed"
 import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
@@ -72,7 +71,6 @@ export function statusOutranksRobot(branch: Branch, landedIn: string | null): bo
   )
 }
 
-export function useStatusBadge(branch: Branch): StatusTexts {
-  const landedIn = useLandedIn(branch.name)
+export function useStatusBadge(branch: Branch, landedIn: string | null): StatusTexts {
   return useMemo(() => getStatusBadge(branch, landedIn), [branch, landedIn])
 }

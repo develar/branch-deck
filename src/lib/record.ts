@@ -1,6 +1,6 @@
-/** The same keys with the same values (`===`) */
-export function sameStringRecord(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
-  const keys = Object.keys(a)
+/** The same keys with the same values (`===`): a record a patch built again that says what the shown one says */
+export function sameFields<T extends object>(a: T, b: T): boolean {
+  const keys = Object.keys(a) as (keyof T)[]
   return keys.length === Object.keys(b).length && keys.every(key => a[key] === b[key])
 }
 

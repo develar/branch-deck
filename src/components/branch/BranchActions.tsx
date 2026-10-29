@@ -14,14 +14,15 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { cancelIntent } from "@/model/intents"
 import { presentStopWaiting, waitingOf } from "@/presenters/lock-wait"
 import { firstPushPending, isFirstPushInLanding } from "@/presenters/push-button"
-import type { Branch } from "@/stores/branch-sync"
+import type { BranchRowFacts } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { operationBusyOf } from "@/stores/indicators"
 import { usePatronusPending, usePushHold } from "@/stores/patronus"
 import { usePullRequestsLoading } from "@/stores/pull-requests"
 
 export interface BranchActionsProps {
-  branch: Branch
+  /** What the row shows of the branch (`Branch.row`): the cell renders again only when that changes, not its status */
+  branch: BranchRowFacts
   setExpanded: (name: string, expanded: boolean) => void
   /** The root of an island: the island header shows the push of its stack, the row only its own push */
   stackPushInHeader?: boolean
@@ -68,11 +69,11 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   // robot holds the children, a merged one landed them, an open pull request of the whole stack takes its stack branch
   // along, so a button shown before them could leave or come at them; the settled layout keeps the track meanwhile
   const offersChildren = childrenToPush && landingPending === null
-  const upToDate = idle && ((pushAction === "upToDate" && branch.status !== "Blocked" && !offersChildren) || hold !== null || firstPush || firstPushWaits)
+  const upToDate = idle && ((pushAction === "upToDate" && !branch.blocked && !offersChildren) || hold !== null || firstPush || firstPushWaits)
   // the branch has nothing of its own to send, the branches stacked on it have: its push is Push with Children, as the
   // header of an island, also while that push runs
   const pushesChildren =
-    !upToDate && !stackPushInHeader && pushAction === "upToDate" && branch.status !== "Blocked" && hold === null && !isPushing && (offersChildren || startedStackPush !== null)
+    !upToDate && !stackPushInHeader && pushAction === "upToDate" && !branch.blocked && hold === null && !isPushing && (offersChildren || startedStackPush !== null)
   return (
     <ActionTracks>
       <ColumnTrack track="push">{canPush && <PushSlot branch={branch} upToDate={upToDate} pushesChildren={pushesChildren} stackPushInHeader={stackPushInHeader} />}</ColumnTrack>
@@ -98,7 +99,7 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
  * own to send (`pushesChildren`). The focus in the button or its description (pushed with a click or P) goes to the
  * row when the push is done and the button leaves: the row keeps its keys, Space included.
  */
-function PushSlot({ branch, upToDate, pushesChildren, stackPushInHeader }: { branch: Branch; upToDate: boolean; pushesChildren: boolean; stackPushInHeader: boolean }) {
+function PushSlot({ branch, upToDate, pushesChildren, stackPushInHeader }: { branch: BranchRowFacts; upToDate: boolean; pushesChildren: boolean; stackPushInHeader: boolean }) {
   const leftWithFocusRef = useRef(false)
   const name = branch.name
   useLayoutEffect(() => {

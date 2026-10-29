@@ -92,7 +92,7 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
         </Tooltip>
       )}
       {(patronusOffered || landsByPush || landsByMerge) && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
-      {hasPush && <BranchPushButton branch={branch} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" waits={waits} />}
+      {hasPush && <BranchPushButton branch={branch.row} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" waits={waits} />}
     </>
   )
 }

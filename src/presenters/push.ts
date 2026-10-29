@@ -82,7 +82,7 @@ export function pushUpToIn(state: BranchSyncState, orders: PushOrders, name: str
  * "auth · 1 commit · force push" for a rebased one, with what a force push replaces or drops (`formatForcePushPart`);
  * "login · 2 of 5 commits" for a part of the branch (`sent` of its commits for the remote)
  */
-export function formatStackPushLine(branch: Branch, sent: number | null = null): string {
+export function formatStackPushLine(branch: Pick<Branch, "name" | "remoteStatus" | "stack">, sent: number | null = null): string {
   const action = branch.remoteStatus?.action.kind
   const parts = [branch.name]
   const ahead = branch.remoteStatus?.commitsAhead ?? 0

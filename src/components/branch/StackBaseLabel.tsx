@@ -25,7 +25,7 @@ export function StackBaseLabel({ name, className }: { name: string; className?: 
  * why in its tooltip ("air-misc landed · IJAI-1184 is built on master"). The stack graph of the table shows the parent
  * otherwise.
  */
-export function PassedParentLabel({ branch }: { branch: Branch }) {
+export function PassedParentLabel({ branch }: { branch: Pick<Branch, "name" | "stack"> }) {
   const baseline = useBaselineOnRemote()
   const passed = passedParentOf(branch)
   if (passed === null) {

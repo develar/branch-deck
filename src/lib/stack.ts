@@ -7,7 +7,7 @@ import type { Branch } from "@/stores/branch-sync"
  * The stack problem the sync reports for the branch, the first of its problems, with its label, its reason, its message
  * and its fixes as Rust decides them (`StackProblemView`, the rule `bd` prints too); null for a branch without one
  */
-export function stackProblemOf(branch: Branch): StackProblemView | null {
+export function stackProblemOf(branch: Pick<Branch, "stack">): StackProblemView | null {
   return branch.stack?.problems[0] ?? null
 }
 
@@ -17,7 +17,7 @@ export function stackOnFixes(problem: StackProblemView): string[] {
 }
 
 /** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that can't be built); null if not blocked */
-export function blockingBranchOf(branch: Branch): string | null {
+export function blockingBranchOf(branch: Pick<Branch, "status" | "stack">): string | null {
   if (branch.status !== "Blocked") {
     return null
   }
@@ -126,7 +126,7 @@ export function describeParentState(parent: string, state: Exclude<ParentState, 
  * The declared parent of a branch built on another branch or the baseline because the parent has no commits, and how
  * the parent stands; null for any other branch
  */
-export function passedParentOf(branch: Branch): { parent: string; state: Exclude<ParentState, "Active"> } | null {
+export function passedParentOf(branch: Pick<Branch, "stack">): { parent: string; state: Exclude<ParentState, "Active"> } | null {
   const stack = branch.stack
   const parent = stack?.declaredParent ?? null
   const state = stack?.parentState ?? null

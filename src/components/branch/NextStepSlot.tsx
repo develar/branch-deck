@@ -42,8 +42,11 @@ const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover")
  * Nothing in a repository that is not on Space, but the anchors of Request Review…, which asks GitHub
  * (`RequestReviewAnchors`).
  */
+/** What the slot reads of its branch: its name and the remote status Request Review… needs (`Branch.row` has them) */
+type SlotBranch = Pick<Branch, "name" | "remoteStatus">
+
 export interface NextStepSlotProps {
-  branch: Branch
+  branch: SlotBranch
   /**
    * The header of a stack island: the step of the last branch of its main line, whose Safe Push lands the line in one
    * robot, its popover at the header's slot, with the hover of the header; the step of the row otherwise
@@ -113,7 +116,7 @@ export function SafePushAskPopover({ ask, anchor }: { ask: SafePushAsk | null; a
  * The Request Review… popover of the row's open pull request: around the step's button in row 9, else around an
  * anchor at the end of the slot, which the item of the branch menu opens (`openRequestReview`)
  */
-function RequestReview({ branch, step }: { branch: Branch; step: MenuItem | null }) {
+function RequestReview({ branch, step }: { branch: SlotBranch; step: MenuItem | null }) {
   return <RequestReviewSlot owner={branch} pullRequest={usePullRequest(branch.name)} step={step} />
 }
 
@@ -161,7 +164,7 @@ export function RequestReviewSlot({ owner, pullRequest, step }: { owner: Pick<Br
  * pull request and, on the root of a small stack, of the pull request of its whole stack, which the menus open
  * (`openRequestReview`); the push and "⋯" of the row stand where they stand in every other row (`GaplessAnchors`)
  */
-function RequestReviewAnchors({ branch, wholeStack }: { branch: Branch; wholeStack: boolean }) {
+function RequestReviewAnchors({ branch, wholeStack }: { branch: SlotBranch; wholeStack: boolean }) {
   const own = usePullRequest(branch.name)?.state === "open"
   const forks = useWholeStack(branch.name)?.kind === "forking"
   const stackPullRequest = useStackPullRequest(branch.name)

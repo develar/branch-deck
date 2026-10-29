@@ -10,9 +10,10 @@ import type { Branch } from "@/stores/branch-sync"
  * Only an error or a conflict is a badge; a routine state ("not pushed", "1 (3)↑ · 2↓") is muted text with a dot in
  * the push colour. A state that needs no action ("up to date") shows nothing: most rows are in it, and the states that
  * need the user stand out. The node of the row says where the branch is on its way into master, not its push.
+ * `landedIn`: the baseline that has every commit of the branch (`useLandedIn`), which the row reads once for its cell.
  */
-export function BranchStatusBadge({ branch }: { branch: Branch }) {
-  const status = useStatusBadge(branch)
+export function BranchStatusBadge({ branch, landedIn }: { branch: Branch; landedIn: string | null }) {
+  const status = useStatusBadge(branch, landedIn)
   const exceptional = status.badge === true
   if (status.quiet === true) {
     return null

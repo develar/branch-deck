@@ -25,7 +25,8 @@ import type { SafePushPlacement } from "@/stores/safe-push"
 import { stopStart, useLandProgress, useLandRun } from "@/stores/safe-push"
 
 export interface SafePushButtonProps {
-  branch: Branch
+  /** The branch whose next step it starts, by its name */
+  branch: Pick<Branch, "name">
   /** `ghost` in the row and the preview footer, `outline` among the buttons of the robot details */
   variant?: "ghost" | "outline"
   /** The key that starts it where the button is (S on the focused row of the branch table), shown on hover */

@@ -21,13 +21,13 @@ import { laneContentInsetClass } from "@/lib/stack-lanes"
 import { useRowPart } from "@/model/store"
 import { pushUpToCommitsIn } from "@/presenters/push"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchSync } from "@/stores/branch-sync"
+import { useBranch, useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useRobotCoverage } from "@/stores/robot-coverage"
 import { usePushUpToCommits } from "@/stores/stack-view"
 
 export interface ActiveBranchExpandedProps {
-  branch: Branch
+  name: string
   /** The amend form is open: mark the tip commit as the amend target */
   highlightTipCommit?: boolean
   /** Under the row of its issue: the commits are one step further in, beside the family guide */
@@ -40,7 +40,23 @@ export interface ActiveBranchExpandedProps {
   landing?: LaneSegments | null
 }
 
-export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes, landing = null }: ActiveBranchExpandedProps) {
+/**
+ * The expanded commits of a branch row; it reads the whole branch, the sync state of each commit included, which its row
+ * (`Branch.row`) leaves out
+ */
+export function ActiveBranchExpanded({ name, ...props }: ActiveBranchExpandedProps) {
+  const branch = useBranch(name)
+  return branch === undefined ? null : <ExpandedCommits branch={branch} {...props} />
+}
+
+function ExpandedCommits({
+  branch,
+  highlightTipCommit = false,
+  familyIndent = 0,
+  familyBelow = false,
+  lanes,
+  landing = null,
+}: Omit<ActiveBranchExpandedProps, "name"> & { branch: Branch }) {
   // a stack problem says itself with its fixes and keeps the commits, among them the ones to fix; a failure hides them
   const problem = stackProblemOf(branch)
   const genericError = problem === null ? branch.errorDetails?.Generic : undefined

@@ -7,7 +7,7 @@ import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
-import { useRowRobot } from "@/hooks/useRowRobot"
+import { useRowRobotSlot } from "@/hooks/useRowRobot"
 import { statusOutranksRobot } from "@/hooks/useStatusBadge"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
@@ -15,9 +15,11 @@ import { formatParkedLabel } from "@/lib/parked"
 import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, getRowRobotChip, isFailingChip, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
+import { countRender } from "@/lib/render-counts"
 import { formatRobotProgress, formatSpokenRobotProgress } from "@/lib/robot-eta"
 import type { Branch } from "@/stores/branch-sync"
-import { useParkedState } from "@/stores/branch-sync"
+import { useBranch, useParkedState } from "@/stores/branch-sync"
+import { useBranchRobot } from "@/stores/patronus"
 
 /**
  * The robot reads as the status text it replaces: `text-sm`, its icon where the status dot is; the hover underline and
@@ -32,18 +34,42 @@ const ROW_ROBOT = "h-6 gap-2 px-0 text-sm"
  * text (`BranchStatusBadge`). A sync running, an error, a conflict, a block and a landed branch say more than the robot.
  * A parked branch says why it stays local instead of its push state, which it never changes; its error or conflict
  * still shows.
+ *
+ * A leaf of its row: it reads the branch by its name, the status of its sync included, which the row leaves out
+ * (`Branch.row`), so a sync that changes only the status of a branch renders this alone.
  */
-export function BranchRowStatus({ branch }: { branch: Branch }) {
+export function BranchRowStatus({ name }: { name: string }) {
+  countRender(`status:${name}`)
+  const branch = useBranch(name)
+  return branch === undefined ? null : <RowStatus branch={branch} />
+}
+
+/** The state of the branch in its life; the robot's hooks only for a branch with a robot, a few of the rows */
+function RowStatus({ branch }: { branch: Branch }) {
   const landedIn = useLandedIn(branch.name)
-  const { robot, slot } = useRowRobot(branch)
+  const robot = useBranchRobot(branch.name)
   const parked = useParkedState(branch.name)
-  const chip = getRowRobotChip(slot)
+  if (robot !== undefined) {
+    return <RobotRowStatus branch={branch} robot={robot} landedIn={landedIn} parked={parked} />
+  }
+  return parked !== null && saysParked(branch) ? <ParkedStatus state={parked} /> : <BranchStatusBadge branch={branch} landedIn={landedIn} />
+}
+
+/** A parked branch says so, unless its sync runs or failed: its error or its conflict shows */
+function saysParked(branch: Branch): boolean {
   const broken = branch.hasError || branch.status === "MergeConflict" || branch.status === "AnalyzingConflict" || branch.status === "Error"
-  if (parked !== null && !broken && branch.status !== "Syncing" && slot.kind !== "running") {
+  return !broken && branch.status !== "Syncing"
+}
+
+/** The robot of the branch, running or finished on the branch as it is, unless the status says more */
+function RobotRowStatus({ branch, robot, landedIn, parked }: { branch: Branch; robot: PatronusRobot; landedIn: string | null; parked: ParkedState | null }) {
+  const slot = useRowRobotSlot(branch, robot)
+  const chip = getRowRobotChip(slot)
+  if (parked !== null && saysParked(branch) && slot.kind !== "running") {
     return <ParkedStatus state={parked} />
   }
-  if (robot === undefined || chip === null || statusOutranksRobot(branch, landedIn)) {
-    return <BranchStatusBadge branch={branch} />
+  if (chip === null || statusOutranksRobot(branch, landedIn)) {
+    return <BranchStatusBadge branch={branch} landedIn={landedIn} />
   }
   return slot.kind === "running" ? (
     <RunningRowRobot branchName={branch.name} robot={robot} chip={chip} />

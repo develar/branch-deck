@@ -14,9 +14,9 @@ import { stackReadinessKey } from "@/lib/whole-stack"
 import { cancelIntent } from "@/model/intents"
 import { useRowPart } from "@/model/store"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
-import type { PushButtonRuns, PushButtonState, PushRetarget, UnpushedChildren, UnpushedParent } from "@/presenters/push-button"
+import type { PushButtonRuns, PushButtonState, PushedBranch, PushRetarget, UnpushedChildren, UnpushedParent } from "@/presenters/push-button"
 import { childrenPushEnabled, getPushButtonState, landingPushes, parentOf, pushBlockerOf, retargetCandidates } from "@/presenters/push-button"
-import type { Branch, ChildrenPushOrder } from "@/stores/branch-sync"
+import type { ChildrenPushOrder } from "@/stores/branch-sync"
 import { pushOperationIn, pushOrdersIn, useBranchSync, useBranchSyncField, useIsStackBranchPushing, useOperationPushProgress } from "@/stores/branch-sync"
 import { usePatronusAvailable } from "@/stores/patronus"
 import { pullRequestsStore, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
@@ -59,8 +59,8 @@ export function useStackBranchPushProgress(root: string): PushProgress | null {
 }
 
 /** The push button of a branch row and of the branch preview */
-export function usePushButton(branch: Branch, isPushing: boolean): PushButtonState {
-  const unpushedParent = useUnpushedParent(branch)
+export function usePushButton(branch: PushedBranch, isPushing: boolean): PushButtonState {
+  const unpushedParent = useUnpushedParent(branch.name)
   const unpushedChildren = useUnpushedChildren(branch.name)
   const landedIn = useLandedIn(branch.name)
   const actions = useRowPart(branch.name, "actions")
@@ -94,12 +94,12 @@ function usePushRetargets(names: readonly string[]): readonly PushRetarget[] {
 }
 
 /** The nearest branch a stacked branch is built on that has work for the remote, and the stack pushes of the branch */
-export function useUnpushedParent(branch: Branch): UnpushedParent | null {
-  const name = branch.name
-  // each selector returns branch records (compared one by one) or a number, so the store notifies only when they change
-  const parent = useBranchSync(state => parentOf(state, pushOrdersIn(state, name)))
+export function useUnpushedParent(name: string): UnpushedParent | null {
+  // each selector returns what the rows of the branches show (`Branch.row`, compared one by one) or a number, so the
+  // store notifies only when they change, not when a sync changes the status of a branch of the stack
+  const parent = useBranchSync(state => parentOf(state, pushOrdersIn(state, name))?.row)
   const stackSize = useBranchSync(state => pushOrdersIn(state, name).stack.length)
-  const buttonStack = useBranchSync(useShallow(state => pushOrdersIn(state, name).button.flatMap(it => state.branches[it] ?? [])))
+  const buttonStack = useBranchSync(useShallow(state => pushOrdersIn(state, name).button.flatMap(it => state.branches[it]?.row ?? [])))
   return useMemo(() => {
     if (parent === undefined) {
       return null

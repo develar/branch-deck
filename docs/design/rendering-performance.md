@@ -130,9 +130,19 @@ flowchart LR
    **Rationale**: memoization saves the render, not the selector, which runs on every store update. Selectors return a
    primitive, a joined string, or an interned record. The hooks a row calls for its own parts do not even run on a
    change of the others: `useBranchSyncEntry(field, key, select)` (its branch, the next step and the actions of its
-   subject: `useBranch`, `useRowPart`) wakes only when its entry is another object, `useBranchSyncField(field, select)`
+   subject: `useBranchRowFacts`, `useRowPart`) wakes only when its entry is another object, `useBranchSyncField(field, select)`
    (the operations of the session, the baseline) only when its field is, and `select` gets that part alone, so it
-   reads nothing it is not woken for (`src/stores/branch-sync.ts`: one listener of the store compares the parts). The selected project is read by field
+   reads nothing it is not woken for (`src/stores/branch-sync.ts`: one listener of the store compares the parts).
+   Within its own entry a row renders only for what it shows: a patch of the sync of a branch makes a new record of
+   it, and the row and its cells read `Branch.row` (its texts, its count of commits, its remote status and its stack,
+   and of its sync only what the push, the menu and the commits say: an error, a block, why the sync did not build
+   it), which `branchOf` of `src/model/store.ts` keeps as the same object while it is equal; the status of the row is
+   a leaf that reads the whole branch (`BranchRowStatus`). The status text says only what a sync did not build (empty
+   while it syncs and once it built the branch), so the progress of a sync and its result leave `row` as it was. A
+   sync that changes nothing renders the 141 statuses and no row, a step of the progress of the first sync the
+   statuses of the branches it reached; a selector over the whole store that picks the records of other branches
+   picks their `row` (`useUnpushedParent`), so the push of a stacked branch does not render for the sync of its parent.
+   The selected project is read by field
    (`useSelectedProjectPath`); `useSelectedProject` re-renders on every change of the
    metadata. A menu a component renders comes from a selector cached by the states of the stores its builder reads
    (`getBranchMenuNow` and `useBranchMenu`, `getStackIslandMenuNow` of the "⋯" of an island header, `menuSources`),
@@ -284,7 +294,8 @@ The goal of the stage for the script of the first sync, 30 % less (B4 of [Rust a
 Authority](rust-domain-authority.md#бюджеты-производительности)), is not reached.
 
 `PERF_PROFILE=1 pnpm perf:table` adds a run of the first sync under the CPU profiler
-(`tests/results/perf/first-sync-chromium.cpuprofile`). Its profile at the end of s9 said where the time goes: the
+(`tests/results/perf/first-sync-chromium.cpuprofile`), and since s15-4 one of a sync that changes nothing
+(`resync-chromium.cpuprofile`). Its profile at the end of s9 said where the time goes: the
 mount of the 141 rows was about half of the busy main thread, its JavaScript mostly the roots of Base UI each row
 mounts (tooltips, popovers, its context menu and its "⋯" menu) and React; the patches of the progress of the rows
 woke every selector of the store, 7,324 of them for each of the 54 changes of the store; the last three patches
@@ -390,6 +401,28 @@ with the renders of the table card and of the island cards in that sync. In its 
 Studio at a load of 7 to 32, which says nothing of the times) a sync of one more commit on `feature-050` rendered that
 row alone, in Chromium and in WebKit, and neither the table nor an island (B3: one row); a sync that changes nothing
 rendered all 141 rows, as the status of each went from `Created` to `Unchanged` (B5).
+
+Since s15-4 a row reads what it shows beside its status (`Branch.row`, Key Decision 3) and its status is a leaf of its
+own: a sync that changes nothing renders the 141 statuses and no row (`resyncRows` 0), a sync of one more commit on one
+branch its row and its status alone, no table, no island (`row-renders.spec.ts`: the keys exact; their counts are the
+patches, which the session batches by 16 ms). A status asks the hooks of a robot only for a branch with one (ten of the
+141). The resync measures its own sync now: its button clicked as the DOM clicks it and its end watched in the page
+(`syncInPage`), since the locators of Playwright, which wait by their selector engine over the whole document on every
+frame, ran in the main thread of the page and were charged to it; the first sync still waits with them. On the Mac
+Studio in turns, three runs each, the stage before the step and the step:
+
+| 2026-10-29 | first sync, script / task | sync that changes nothing, script / task | rows it renders |
+|---|---|---|---|
+| before, the wait of the locators, load 5.3–6.4 | 294 / 723, 277 / 707 ms | 37.3 / 99, 34.4 / 104 ms | 141 |
+| the step, the wait of the locators, in the same turns | 231 / 643, 236 / 661 ms | 11.8 / 74, 12.7 / 68 ms | 0 |
+| before, the wait in the page, load 2.5–10.6 (a turn under another run taken again) | 283 / 707, 284 / 701 ms | 32.4 / 63, 39.4 / 67 ms | 141 |
+| the step, the wait in the page, in the same turns | 238 / 677, 228 / 637, 238 / 672 ms | 8.3 / 42, 8.9 / 32, 8.3 / 31 ms | 0 |
+
+A sync that changes nothing costs 75 % less script, within B5 (at most 10 ms); the first sync, whose progress no longer
+renders the rows, 17 % less script and 6 % less task. What the resync still spends is the patches (their JSON and their
+records, `branchOf` of 141 branches), the selectors over the whole store that each patch runs (the units of the landing
+indicator, `getLandingUnitsNow`; Push with Children of each row, `useUnpushedChildren`; the counts of the filter chips)
+and the 141 statuses (`PERF_PROFILE=1` writes the profile of a resync beside that of the first sync).
 
 ### The IPC of the branch view
 

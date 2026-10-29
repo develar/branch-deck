@@ -1,6 +1,7 @@
 import type { PushAction, WholeStackView } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
 import { layoutStack } from "@/lib/stack-lanes"
+import { branchRowFacts } from "@/model/branch-row"
 import type { BranchStructure, TableRows } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE, rowsOf } from "@/model/structure"
 import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
@@ -58,8 +59,9 @@ export function testTip(name: string): SyncedCommit {
   }
 }
 
+/** `row` comes from the other fields as the store builds it (`branchRowFacts`), unless `overrides` has one */
 export function testBranch(name: string, parent: string | null, overrides: Partial<Branch> = {}): Branch {
-  return {
+  const branch: Omit<Branch, "row"> = {
     name,
     commits: [],
     commitIndex: {},
@@ -91,6 +93,7 @@ export function testBranch(name: string, parent: string | null, overrides: Parti
     structure: { ...ROOT_STRUCTURE, parent },
     ...overrides,
   }
+  return { ...branch, row: overrides.row ?? branchRowFacts(branch) }
 }
 
 /** The tables of the page tests: the branches, their order, the parked lines and the stack branches */

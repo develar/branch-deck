@@ -29,10 +29,9 @@ import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
 import { countRender } from "@/lib/render-counts"
-import { stackProblemOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
-import { getBranchCommits, getBranchTableOrder, getDraggableBranchOrder, useBranch, useParkedState } from "@/stores/branch-sync"
+import { getBranchCommits, getBranchTableOrder, getDraggableBranchOrder, useBranchRowFacts, useParkedState } from "@/stores/branch-sync"
 import {
   clearBranchSelection,
   endCommitDrag,
@@ -95,7 +94,8 @@ export interface BranchRowProps {
 
 /**
  * Rows of one active branch: the branch row, then (if open) the inline form row, the amend conflict row and the expanded commits row.
- * Subscribes to its own branch only, so a sync event for another branch does not re-render it.
+ * Reads what it shows of its own branch only (`Branch.row`): a sync event for another branch does not re-render it, and
+ * one that changes only its status renders its status (`BranchRowStatus`), which reads the branch by its name.
  */
 export const BranchRow = memo(function BranchRow({
   name,
@@ -116,7 +116,7 @@ export const BranchRow = memo(function BranchRow({
   setExpanded,
 }: BranchRowProps) {
   countRender(`row:${name}`)
-  const branch = useBranch(name)
+  const branch = useBranchRowFacts(name)
   const parked = useParkedState(name)
   // the node of a branch whose robot runs has the ring of the Safe Push slot
   const robot = useBranchRobot(name)
@@ -192,7 +192,7 @@ export const BranchRow = memo(function BranchRow({
   const blockDropClass = isDropOver ? "bg-primary/5" : undefined
   // the expanded commits sit on the lane of the branch: its line runs down from the node to them; a collapsed row shows
   // none, in an island too. A failure hides them; a stack problem keeps them, as the commits to fix are among them
-  const commitsOnLane = expanded && branch.commits.length > 0 && (branch.errorDetails?.Generic === undefined || stackProblemOf(branch) !== null)
+  const commitsOnLane = expanded && branch.commitCount > 0 && !branch.commitsHidden
   // the lines beside the inline form and the amend conflict, and where their content starts
   const gutter = <LaneGutter name={name} lanes={lanes} commitsBelow={commitsOnLane} familyIndent={familyIndent} landing={landing} />
   const insetClass = laneContentInsetClass(familyIndent)
@@ -231,7 +231,7 @@ export const BranchRow = memo(function BranchRow({
           lanes={
             <LaneCell
               lanes={lanes}
-              branch={branch}
+              name={name}
               familyIndent={familyIndent}
               lineDown={lanes.down || commitsOnLane}
               collapsedBelow={stackCollapsed && !commitsOnLane}
@@ -275,7 +275,7 @@ export const BranchRow = memo(function BranchRow({
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           <div className={cn("flex items-center", TRACK_GROUP_CLASS.status)}>
             <ColumnTrack track="state">
-              <BranchRowStatus branch={branch} />
+              <BranchRowStatus name={name} />
             </ColumnTrack>
             <ColumnTrack track="pr">
               <PullRequestChip branchName={name} />
@@ -341,7 +341,7 @@ export const BranchRow = memo(function BranchRow({
           {/* the cell positions the lines of the lanes, the rail pads itself */}
           <td colSpan={columnCount} className="relative p-0">
             <ActiveBranchExpanded
-              branch={branch}
+              name={name}
               familyIndent={familyIndent}
               lanes={lanes}
               landing={landing}
