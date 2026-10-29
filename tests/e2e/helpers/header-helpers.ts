@@ -62,6 +62,35 @@ export async function expectHeaderControlsOnOneLine(page: Page, ids: string[], z
   return headerBox
 }
 
+/** The controls of the header that a width shows or hides, with those of every width: the names of the views and the count */
+export const HEADER_ROW = ["main-menu-button", ...HEADER_CONTROLS, "main-view-switcher", "branch-count", "window-controls"]
+
+/**
+ * What breaks the one line of the header at the width the page has: a control of `ids` outside the header or its line,
+ * or two that overlap. One read of the page, so a sweep over the widths of a window stays quick; a control the page
+ * doesn't render at this width (`display: none`, or none at all) is left out
+ */
+export async function headerLineProblems(page: Page, ids: readonly string[]): Promise<string[]> {
+  const { headerBox, boxes } = await header(page).evaluate((root, ids) => {
+    const boxOfElement = (element: Element) => {
+      const rect = element.getBoundingClientRect()
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }
+    return {
+      headerBox: boxOfElement(root),
+      boxes: ids.flatMap(id => {
+        const element = root.querySelector(`[data-testid="${id}"]`)
+        return element !== null && element.getClientRects().length > 0 ? [{ id, box: boxOfElement(element) }] : []
+      }),
+    }
+  }, ids)
+  return boxes.flatMap(({ id, box }, index) => [
+    ...(box.x < headerBox.x || box.x + box.width > headerBox.x + headerBox.width ? [`${id} leaves the header`] : []),
+    ...(box.y < headerBox.y || box.y + box.height > headerBox.y + headerBox.height ? [`${id} leaves the header line`] : []),
+    ...boxes.slice(index + 1).flatMap(other => (overlaps(box, other.box) ? [`${id} overlaps ${other.id}`] : [])),
+  ])
+}
+
 /** What the page set in the Dock, in order (`__e2eDockCalls` of the Tauri mock) */
 export function getDockCalls(page: Page): Promise<Record<string, unknown>[]> {
   return page.evaluate(() => (window as unknown as { __e2eDockCalls?: Record<string, unknown>[] }).__e2eDockCalls ?? [])

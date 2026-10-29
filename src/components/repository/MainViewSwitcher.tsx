@@ -8,7 +8,8 @@ import { MAIN_VIEWS, showMainView, useMainView } from "@/stores/main-view"
 /**
  * Branches · Landing in the title bar, after the repository: where the user is (`spec/repository/main-views.spec.md`).
  * One option set, the stock `ToggleGroup`, the shown view pressed; the arrow keys move the focus between the views and
- * Enter or Space shows the focused one. The names give way to the icons on a narrow window.
+ * Enter or Space shows the focused one. The names give way to the icons where the room of the repository in the title
+ * row (the container of `ConfigurationHeader`) is narrower than `@md`.
  */
 export function MainViewSwitcher() {
   const view = useMainView()
@@ -32,7 +33,7 @@ export function MainViewSwitcher() {
         <Tooltip key={entry.view}>
           <TooltipTrigger render={<ToggleGroupItem value={entry.view} aria-label={entry.label} data-testid={`main-view-${entry.view}`} />}>
             <entry.icon data-icon="inline-start" />
-            <span className="hidden @5xl:inline">{entry.label}</span>
+            <span className="hidden @md:inline">{entry.label}</span>
           </TooltipTrigger>
           <TooltipContent>
             <span className="flex items-center gap-1.5">

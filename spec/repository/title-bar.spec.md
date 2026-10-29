@@ -227,9 +227,15 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   its content, `show_when_settled`).
 - The toolbar keeps its size at any page zoom, as window chrome does ([Zoom](zoom.spec.md)).
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom the islands but not the toolbar, the title bar of the window`)
-- Every control stays on the one 40px line down to the 960px minimum width of the window, beside the traffic lights.
+- Every control stays on the one 40px line, apart from the others, at every width of the window down to its 960px
+  minimum, beside the traffic lights or between ☰ and the window buttons. The repository, the switcher of the views and
+  the count of the branches share the room the rest of the row leaves them (a container of its own,
+  `ConfigurationHeader`): the names of the views and the count show where that room is `@md` (28rem) or more, so the
+  window buttons and ☰ of a custom title bar take their room first. Without it GNOME's 1077px maximized window put the
+  names and the count over the repository selector and Update.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar beside the traffic lights on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons on one line at every width, the names of the views where the repository keeps its room`)
 
 ### Main window
 

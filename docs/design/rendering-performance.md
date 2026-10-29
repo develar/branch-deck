@@ -444,10 +444,13 @@ used to download and compile the main window's tree before its own page: 61 modu
   reason freezes the layer tree then; the presentation answers 15–80 ms after the ready, and the window is ordered in
   after it, on the rows ([Real App Checks](../guidelines/real-app-checks.md#an-agents-check-copy)). Elsewhere the
   webview tells no presentation and the window shows at once, with no earlier frame to show. WebKitGTK paints nothing
-  while its view is not visible (`DrawingAreaCoordinatedGraphics::suspendPainting`): in the VM the shell entered the
-  DOM 0.25–0.6 s before the show and the first rendering update came 50–160 ms after it; a capture of the X window at
-  60 fps from 60 ms after the show had 8 transparent frames, then one frame with the rows and without the title row,
-  then the whole page, never a canvas (GNOME rounds the window, which is transparent). WebView2 paints a hidden page (it is `visible` to itself,
+  while its view is not visible (`DrawingAreaCoordinatedGraphics::suspendPainting`). In the VM (2026-10-29, the check
+  copy of the release build, cold and warm, [Real App Checks](../guidelines/real-app-checks.md#linux-in-the-vm)) GTK
+  creates the X window at the show (it realizes the window then, after its titlebar), 50–120 ms after the backend
+  logs the show; its pixels are transparent with GTK's shadow until WebKit's first paint 107–275 ms later, and that
+  paint is the whole page, the title row with the rows (of the frame on a warm start), never a canvas or a part of
+  the page. On the screen GNOME animates that transparent window in under X11, a see-through outline for about 0.2 s;
+  under Wayland, GNOME's default, the first frame it shows of the window has the page, as it fades in. WebView2 paints a hidden page (it is `visible` to itself,
   its first rendering update came 6–9 ms after the shell, while the window was hidden), and Windows fades the window
   in from that frame: the frames of the fade had the shell or the Welcome card from the first one on, never a bare
   canvas.

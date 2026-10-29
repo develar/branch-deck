@@ -100,17 +100,21 @@ export function ConfigurationHeader() {
       >
         {/* the main menu replaces the native menu bar where the row is the title bar on Windows and Linux */}
         {hasCustomTitleBar && <MainMenuButton />}
-        {/* repository info: gives way to the actions on a narrow window, the repository selector first */}
-        <RepositorySelector disabled={isSyncing} />
-        {/* where the user is: the view of the repository (Branches · Landing) */}
-        {hasSelectedProject && pathValidation.valid && <MainViewSwitcher />}
+        {/* repository info: gives way to the actions on a narrow window, the repository selector first. A container of
+            its own: the names of the views and the count show where its room holds them beside the selector, whatever
+            the title bar takes of the row (the traffic lights, or ☰ and the window buttons) */}
+        <div className="@container flex min-w-0 flex-1 items-center gap-3">
+          <RepositorySelector disabled={isSyncing} />
+          {/* where the user is: the view of the repository (Branches · Landing) */}
+          {hasSelectedProject && pathValidation.valid && <MainViewSwitcher />}
 
-        {/* the filter bar says it from FILTER_BAR_MIN_BRANCHES on ("All 35") */}
-        {hasSelectedProject && branchCount > 0 && !hasFilterBar && pathValidation.valid && (
-          <span className="hidden text-xs whitespace-nowrap text-muted-foreground @5xl:flex">
-            {branchCount} {branchCount === 1 ? "branch" : "branches"}
-          </span>
-        )}
+          {/* the filter bar says it from FILTER_BAR_MIN_BRANCHES on ("All 35") */}
+          {hasSelectedProject && branchCount > 0 && !hasFilterBar && pathValidation.valid && (
+            <span className="hidden text-xs whitespace-nowrap text-muted-foreground @md:flex" data-testid="branch-count">
+              {branchCount} {branchCount === 1 ? "branch" : "branches"}
+            </span>
+          )}
+        </div>
       </WindowTitleBar>
       {isRefusedDialogMounted && (
         <Suspense fallback={null}>

@@ -147,7 +147,8 @@ nothing from the work: the view changes only when the user changes it, and the b
 ## User Experience
 
 - The switcher is the stock `ToggleGroup` (`outline`, `sm`, `spacing={0}`) on the canvas, the shown view in its
-  pressed state, no colour of its own; the names give way to the icons below `@5xl` (the three of them would crowd the row of a narrow window), the name then the accessible name
+  pressed state, no colour of its own; the names give way to the icons where the room of the repository in the title
+  row is below `@md` (the three of them would crowd the repository selector; [Title Bar](title-bar.spec.md)), the name then the accessible name
   and the tooltip with ⌘1, ⌘2 and ⌘3.
 - The charts are shadcn Charts (Recharts, `src/components/ui/chart.tsx`), in a chunk of their own that loads the first
   time Landing shows. Their series take the chart palette `--chart-1…4` of `src/index.css` (blue, orange, a neutral,
