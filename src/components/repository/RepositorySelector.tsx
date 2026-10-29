@@ -93,7 +93,7 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
           variant="outline"
           size="icon-sm"
           disabled={disabled}
-          aria-label="Browse repository"
+          aria-label="Open Repository"
           className={cn(hasError && "border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive")}
           data-testid="browse-repository-button"
           onClick={() => void browseRepository()}

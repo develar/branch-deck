@@ -3,6 +3,8 @@ import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers"
 import { collapseBranch, findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { openPalette, palette, runByKeyboard, search } from "../helpers/command-palette-helpers"
+import { header } from "../helpers/header-helpers"
+import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
@@ -81,6 +83,66 @@ testWithIssueLinks.describe("Command palette", () => {
     await expect.poll(async () => (await getOpenedSubWindows(page)).slice(count).map(window => window.windowId)).toEqual(["branch-review"])
   })
 
+  testWithIssueLinks("should show the views, Activity and every command of the app without a scroll in the window of the start", async ({ page }) => {
+    // the size the main window opens at (`inner_size` in src-tauri/src/lib.rs)
+    await page.setViewportSize({ width: 1024, height: 900 })
+    await openPalette(page)
+    const shown = [
+      "Branches",
+      "Reviews",
+      "Landing",
+      "Activity Panel",
+      "Activity Window",
+      "Add Pull Request by Link…",
+      "Open Repository…",
+      "Sync Branches",
+      "Update Project",
+      "Settings…",
+      "Install Agent CLI…",
+      "Getting Started",
+      "GitHub Repository",
+    ]
+    const commands = palette(page)
+      .getByRole("group")
+      .filter({ hasText: /^Commands/ })
+      .getByRole("option")
+    await expect(commands).toHaveText(shown.slice(5).map(label => new RegExp(`^${label}`)))
+    for (const label of shown) {
+      await expect(
+        palette(page)
+          .getByRole("option", { name: new RegExp(`^${label}`) })
+          .first(),
+        label,
+      ).toBeInViewport({ ratio: 1 })
+    }
+    // the key of each command of the window
+    await expect(
+      palette(page)
+        .getByRole("option", { name: /^Update Project/ })
+        .locator("[data-slot=kbd]"),
+    ).toHaveText(["Ctrl", "T"])
+    await expect(
+      palette(page)
+        .getByRole("option", { name: /^Settings…/ })
+        .locator("[data-slot=kbd]"),
+    ).toHaveText(["Ctrl", ","])
+  })
+
+  testWithIssueLinks("should open a repository and the help of the app as the header and the Help menu do", async ({ page, issueLinksRepo }) => {
+    // the folder dialog picks a folder that is no repository: the selector shows it, with why
+    await issueLinksRepo.setDialogPick("/Users/ann/projects/scratch/demo")
+    await openPalette(page)
+    await runByKeyboard(page, "open repo", "Open Repository…")
+    await expect(header(page).getByTestId("repository-path")).toHaveText(/\/demo$/)
+    await expect(page.getByTestId("error-alert")).toBeVisible()
+
+    await openPalette(page)
+    await runByKeyboard(page, "getting", "Getting Started")
+    await openPalette(page)
+    await palette(page).getByRole("option", { name: "GitHub Repository" }).click()
+    await expect.poll(() => getOpenedUrls(page)).toEqual(["https://github.com/develar/branch-deck#getting-started", "https://github.com/develar/branch-deck"])
+  })
+
   testWithIssueLinks("should run the commands of the app: Sync Branches, Settings… and Install Agent CLI…", async ({ page }) => {
     await openPalette(page)
     await runAndWaitForSync(page, () => runByKeyboard(page, "sync", "Sync Branches"))
@@ -143,6 +205,17 @@ test.describe("Command palette of a stack", () => {
       expect(executes).toEqual([])
     },
   )
+})
+
+test.describe("Command palette beside the traffic lights", () => {
+  test("should check for updates where the build updates itself, as the app menu does", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await useTitleBar(page, { ...TITLE_BARS.macos, checkForUpdates: true })
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await openPalette(page)
+    await runByKeyboard(page, "updates", "Check for Updates…")
+    await expect(page.locator("[data-slot=toast]", { hasText: "is up to date" })).toBeVisible()
+  })
 })
 
 test.describe("Command palette of a custom title bar", () => {

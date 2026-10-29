@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { AppWindowIcon, GitBranchIcon, HistoryIcon, LinkIcon } from "lucide-react"
+import { AppWindowIcon, FolderSearchIcon, GitBranchIcon, HistoryIcon, LinkIcon } from "lucide-react"
 import { mainMenus } from "@/lib/main-menu"
 import type { MainMenuState } from "@/lib/main-menu"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -9,10 +9,10 @@ import type { MainViewEntry } from "@/stores/main-view"
 /*
  * The command palette of the main window (⌘K, spec/repository/command-palette.spec.md): a way to where the user wants
  * to be, to the commands of the app and to the actions of the branch at hand. Its sources, in their order: the views of
- * the window (`MAIN_VIEWS`, which a view joins by its entry), Activity, the commands of the app's menu (the items of
- * `mainMenus`, so the palette offers them as the menu does), the actions of the branch whose row has the focus (the
- * items of its menu, `getBranchContextMenuItems`, which present the actions Rust decides) and "Go to <branch>" for every
- * branch of the table.
+ * the window (`MAIN_VIEWS`, which a view joins by its entry), Activity, the commands of the header and of the app's menu
+ * (the items of `mainMenus`, so the palette offers them as the menu does), the actions of the branch whose row has the
+ * focus (the items of its menu, `getBranchContextMenuItems`, which present the actions Rust decides) and "Go to
+ * <branch>" for every branch of the table.
  */
 
 export type PaletteGroup = "Views" | "Activity" | "Commands" | "Branch" | "Branches"
@@ -51,6 +51,11 @@ export interface PaletteSources {
   readonly branchMenu: { readonly name: string; readonly groups: MenuItemGroups } | null
   /** Shows Reviews with the focus in its field of a link: a pull request the author forgot to ask the user for */
   readonly addPullRequestByLink?: () => void
+  /**
+   * The folder button of the repository selector: the folder dialog, and the repository picked in it; `reason` why it
+   * waits, as the selector does while a sync runs
+   */
+  readonly openRepository: { readonly reason: string | null; readonly run: () => void }
 }
 
 /**
@@ -79,8 +84,11 @@ function branchActions(name: string, groups: MenuItemGroups): PaletteCommand[] {
   })
 }
 
-/** The commands of the app's menu the palette offers: what the user does with the app, never a view setting */
-const MENU_COMMANDS = ["sync_branches", "update_project", "open_settings", "install_agent_cli", "check_for_updates"] as const
+/**
+ * The commands of the app's menu the palette offers, in the order of the menu: what the user does with the app and its
+ * help, never a view setting (Auto-sync on Focus, the zoom) nor the palette itself
+ */
+const MENU_COMMANDS = ["sync_branches", "update_project", "open_settings", "install_agent_cli", "check_for_updates", "getting_started", "github_link"] as const
 
 /** The commands of the palette, in the order of their groups; an id a source gave before is left out */
 export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
@@ -99,6 +107,14 @@ export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
     ...(sources.addPullRequestByLink === undefined
       ? []
       : [{ id: "reviews:link", label: "Add Pull Request by Link…", group: "Commands" as const, icon: LinkIcon, run: sources.addPullRequestByLink }]),
+    {
+      id: "repository:open",
+      label: "Open Repository…",
+      group: "Commands",
+      icon: FolderSearchIcon,
+      ...(sources.openRepository.reason !== null && { disabled: true, description: sources.openRepository.reason }),
+      run: sources.openRepository.run,
+    },
     ...MENU_COMMANDS.flatMap(id => {
       const item = menus.map(groups => findMenuItem(groups, id)).find(found => found !== undefined)
       if (item === undefined) {

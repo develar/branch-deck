@@ -15,24 +15,29 @@ targets:
   - ../../src/presenters/actions.ts
   - ../../src/stores/commit-move.ts
   - ../../src/components/branch/BranchRow.tsx
+  - ../../src/lib/title-bar.ts
+  - ../../src-tauri/src/title_bar.rs
+  - ../../src/components/repository/RepositorySelector.tsx
+  - ../../src/stores/repository.ts
 ---
 
 # Command Palette
 
 Status: Implemented
-Date: 2026-10-22
+Date: 2026-10-22, the commands of the header and of Help and a list that shows them 2026-10-29
 
 ## Summary
 
 The main window has more places than its menus show at a glance: the views, the Activity panel and window, a branch
-among dozens. ⌘K opens a dialog with one search over them, over the commands of the app (Sync, Update Project,
-Settings…) and over the actions of the branch at hand, as the palettes of IntelliJ (Search Everywhere) and VS Code do:
+among dozens. ⌘K opens a dialog with one search over them, over the commands of the app (Open Repository…, Sync,
+Update Project, Settings…) and over the actions of the branch at hand, as the palettes of IntelliJ (Search Everywhere) and VS Code do:
 type a few letters, press Enter. The actions of a branch are its menu's, as Rust decides them: one builder, one set of
 names and reasons.
 
 ## Goals
 
-- Every place of the main window and every command of the app's menu in a few keys, without the mouse.
+- Every place of the main window and every command of the header and of the app's menu in a few keys, without the
+  mouse, and in sight when the palette opens.
 - The same names, keys and reasons as the menus: one builder per command ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
 - The focus back where it was when nothing runs, where the command puts it when one does.
 
@@ -58,10 +63,14 @@ names and reasons.
 - The groups, in this order (`paletteCommands`): Views (`MAIN_VIEWS` of `src/stores/main-view.ts`, Branches, Reviews
   and Landing: a view joins the palette by its entry there), Activity (Activity Panel, which toggles the side panel as the header button does, and
   Activity Window), Commands (Add Pull Request by Link…, which shows Reviews with the focus in its field and its text selected
-  ([Reviews](reviews.spec.md#links)), then the items Sync Branches, Update Project, Settings…, Install Agent CLI… and, where the
-  build updates itself, Check for Updates… of `mainMenus`, disabled with the reason where the menu disables them), the
+  ([Reviews](reviews.spec.md#links)); Open Repository…, the folder button of the repository selector, disabled with
+  "Wait for the sync to finish" while a sync runs, as the selector is; then the items Sync Branches, Update Project,
+  Settings…, Install Agent CLI…, where the build updates itself Check for Updates… (on macOS too, as the app menu
+  has it: `checkForUpdates` of every title bar the page draws), Getting Started and GitHub Repository of `mainMenus`,
+  disabled with the reason where the menu disables them; never a view setting, Auto-sync on Focus or the zoom), the
   actions of the branch at hand (below) and Branches ("Go to <branch>" for every branch of the table, in its order).
-  [@test] ../../src/lib/command-palette.test.ts (`lists the views, Activity, the commands of the app's menu and the branches, by namespaced ids`, `hints only the keys of the window, disables Sync with its reason, offers updates where the build updates itself`)
+  [@test] ../../src/lib/command-palette.test.ts (`lists the views, Activity, the commands of the header and of the app's menu and the branches, by namespaced ids`, `hints only the keys of the window, disables Sync and Open Repository with the reason, offers updates where the build updates itself`)
+  [@test] ../../src-tauri/src/title_bar_test.rs (`the_page_gets_one_json_object`)
 - Actions of the branch at hand, between Commands and Branches, the group named by the branch: the branch whose row had
   the focus when the palette opened, else the one branch selected; none without one. Its commands are the items of its
   menu ([Branch Row](../branch/branch-row.spec.md#branch-menu), `getBranchContextMenuItems`, which presents the
@@ -78,8 +87,13 @@ names and reasons.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should change the view only by the user: a sync keeps it, a reveal of a branch shows the branches`)
   [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should show every pull request the user takes part in once, by section, and read them only while the view shows`, `should add a pull request by its link from the field the palette focuses, keep it, and remove it from its menu`)
 - A key hint only for a key of the window (⌘R, ⌘T, ⌘,; a view's key once it has one), none for a branch or Activity.
-  [@test] ../../src/lib/command-palette.test.ts (`hints only the keys of the window, disables Sync with its reason, offers updates where the build updates itself`)
-  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from ⌘K of the native menu, list every source and give the focus back on Escape`)
+  [@test] ../../src/lib/command-palette.test.ts (`hints only the keys of the window, disables Sync and Open Repository with the reason, offers updates where the build updates itself`)
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from ⌘K of the native menu, list every source and give the focus back on Escape`, `should show the views, Activity and every command of the app without a scroll in the window of the start`)
+- The list is as high as the window lets it below the search, at most 36rem and 4rem short of the 80% of the window
+  under the top of the palette: in the window of the start (1024×900, and down to 720 px high) the views, Activity and
+  every command show without a scroll, the actions of the branch and the branches below them; a lower window scrolls
+  the rest. A list cut above them hides them: the scroll bars of macOS show only while a list scrolls.
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should show the views, Activity and every command of the app without a scroll in the window of the start`)
 - The search keeps the commands whose label has the typed text, ignoring case (the filter of Base UI `Combobox`), the
   first one highlighted; Enter or a click runs it. Nothing kept: "No command or branch matches".
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should go to a branch: the row expanded, selected and focused`, `should open the Activity panel with the focus in it from the keyboard, and the Activity window by a click`)
@@ -102,9 +116,11 @@ names and reasons.
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should go to the branch a search names before an action that names it, and focus its row in a collapsed stack`)
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open the Activity panel with the focus in it from the keyboard, and the Activity window by a click`)
   [@test] ../../src/lib/command-palette.test.ts (`runs what its source runs`)
-- A command of the app runs as its menu item does (`onSelect` of the item of `mainMenus`).
+- A command of the app runs as its menu item does (`onSelect` of the item of `mainMenus`), Open Repository… as the
+  folder button does (`browseRepository`: the folder dialog, then the repository picked in it).
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should run the commands of the app: Sync Branches, Settings… and Install Agent CLI…`)
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from Ctrl+K and from View → Command Palette… of ☰, and run Update Project and Check for Updates…`)
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open a repository and the help of the app as the header and the Help menu do`, `should check for updates where the build updates itself, as the app menu does`)
 - Escape or a click outside closes the palette with nothing run and gives the focus back to the element that had it
   (the element itself: a row is focusable, not tabbable).
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from ⌘K of the native menu, list every source and give the focus back on Escape`)
@@ -112,7 +128,7 @@ names and reasons.
 ## User Experience
 
 - A `Dialog` at 20% of the window height, `sm:max-w-lg`, no close button: the search (`ComboboxInput`, "Type a command
-  or a branch", named "Command or branch"), then the list (`max-h-80`, scrolling) with the group labels and per item its
+  or a branch", named "Command or branch"), then the list (as high as the window lets it, scrolling) with the group labels and per item its
   icon, its label, the reason of a disabled one muted, and its key hint at the end (`KbdGroup`). The title "Command
   Palette" is for the screen reader only.
 
@@ -125,9 +141,9 @@ names and reasons.
 
 ## Open Questions / Risks
 
-- Check for Updates… shows only where the page knows that the build updates itself: the custom title bar of Windows and
-  Linux tells it (`titleBar.checkForUpdates`); on macOS the app menu has the item and the palette lacks it until the
-  backend tells the page there too.
+- Check for Updates… shows only where the page knows that the build updates itself: the title bar it draws tells it
+  (`checkForUpdates` of the overlay of macOS and of the custom title bar of Windows and Linux); where the system title
+  bar stays, its Help menu has the item and the palette lacks it until the backend tells the page there too.
 
 ## References
 

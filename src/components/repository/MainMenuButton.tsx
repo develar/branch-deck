@@ -10,7 +10,7 @@ import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { mainMenus, matchMainMenuOpenKey } from "@/lib/main-menu"
 import type { MainMenu, MainMenuId } from "@/lib/main-menu"
 import { isWindows } from "@/lib/platform"
-import { titleBar } from "@/lib/title-bar"
+import { updatesItself } from "@/lib/title-bar"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
 /**
@@ -22,7 +22,7 @@ import { useAppSettings } from "@/stores/settings/appSettings"
 export function MainMenuButton() {
   const sync = useSyncAvailability()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
-  const menus = mainMenus({ sync, autoSyncOnFocus, updates: titleBar.kind === "custom" && titleBar.checkForUpdates })
+  const menus = mainMenus({ sync, autoSyncOnFocus, updates: updatesItself })
   // the open menu; `highlighted`: expanded without an open menu (the Alt tap), File focused
   const [open, setOpen] = useState<MainMenuId | null>(null)
   const [highlighted, setHighlighted] = useState(false)

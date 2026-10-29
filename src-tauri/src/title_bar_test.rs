@@ -161,6 +161,14 @@ mod decision {
       serde_json::to_string(&custom).unwrap(),
       r#"{"kind":"custom","controls":{"start":["close"],"end":[],"style":"gnome"},"doubleClick":"toggle-maximize","checkForUpdates":true,"cornerRadius":12}"#
     );
+    let overlay = crate::title_bar::TitleBar::Overlay {
+      double_click: DoubleClick::ToggleMaximize,
+      check_for_updates: true,
+    };
+    assert_eq!(
+      serde_json::to_string(&overlay).unwrap(),
+      r#"{"kind":"overlay","doubleClick":"toggle-maximize","checkForUpdates":true}"#
+    );
     let native = crate::title_bar::TitleBar::Native { reason: NativeReason::TilingWm };
     assert_eq!(serde_json::to_string(&native).unwrap(), r#"{"kind":"native","reason":"tiling-wm"}"#);
   }

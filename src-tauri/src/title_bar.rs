@@ -13,13 +13,17 @@ use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum TitleBar {
+  /// `check_for_updates`: the build updates itself (the `auto-update` feature), so the command palette offers Check for
+  /// Updates… as the app menu does
   Overlay {
     double_click: DoubleClick,
+    check_for_updates: bool,
   },
-  /// `check_for_updates`: the build updates itself (the `auto-update` feature), so the main menu offers Check for Updates…
-  /// as the native menu would. `corner_radius`: the page rounds the corners of the window as the desktop's windows are
-  /// (Linux with a compositor: GTK3 rounds its decorations but doesn't clip the webview, so the window is transparent
-  /// and the page clips its canvas), 0 where the system does it (Windows 11) or can't (no compositor)
+  /// `check_for_updates`: the build updates itself (the `auto-update` feature), so the main menu and the command palette
+  /// offer Check for Updates… as the native menu would. `corner_radius`: the page rounds the corners of the window as
+  /// the desktop's windows are (Linux with a compositor: GTK3 rounds its decorations but doesn't clip the webview, so the
+  /// window is transparent and the page clips its canvas), 0 where the system does it (Windows 11) or can't (no
+  /// compositor)
   Custom {
     controls: WindowControls,
     double_click: DoubleClick,
@@ -269,6 +273,7 @@ fn platform_title_bar(_environment: &TitleBarEnvironment) -> TitleBar {
   let action = defaults.stringForKey(ns_string!("AppleActionOnDoubleClick")).map(|it| it.to_string());
   TitleBar::Overlay {
     double_click: macos_double_click(action.as_deref()),
+    check_for_updates: cfg!(feature = "auto-update"),
   }
 }
 

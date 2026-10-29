@@ -1,5 +1,17 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { BookOpenIcon, CircleArrowUpIcon, CommandIcon, GitBranchIcon, HistoryIcon, RefreshCwIcon, SettingsIcon, TerminalIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react"
+import {
+  BookOpenIcon,
+  CircleArrowUpIcon,
+  CommandIcon,
+  ExternalLinkIcon,
+  GitBranchIcon,
+  HistoryIcon,
+  RefreshCwIcon,
+  SettingsIcon,
+  TerminalIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+} from "lucide-react"
 import { openActivity } from "@/lib/activity-window"
 import { runAppCommand } from "@/lib/app-commands"
 import type { AppCommand } from "@/lib/app-commands"
@@ -91,7 +103,7 @@ export function mainMenus(state: MainMenuState): MainMenu[] {
           { id: "install_agent_cli", label: "Install Agent CLI…", icon: TerminalIcon, onSelect: () => runAppCommand("install_agent_cli") },
           ...(state.updates ? [{ id: "check_for_updates", label: "Check for Updates…", icon: CircleArrowUpIcon, onSelect: () => runAppCommand("check_for_updates") }] : []),
         ],
-        [{ id: "github_link", label: "GitHub Repository", onSelect: () => open(REPOSITORY_URL) }],
+        [{ id: "github_link", label: "GitHub Repository", icon: ExternalLinkIcon, onSelect: () => open(REPOSITORY_URL) }],
       ],
     },
   ]

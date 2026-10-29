@@ -19,29 +19,40 @@ function sources(overrides: Partial<PaletteSources> = {}): PaletteSources {
     openActivityWindow: vi.fn(),
     goToBranch: vi.fn(),
     branchMenu: null,
+    openRepository: { reason: null, run: vi.fn() },
     ...overrides,
   }
 }
 
 describe("paletteCommands", () => {
-  it("lists the views, Activity, the commands of the app's menu and the branches, by namespaced ids", () => {
+  it("lists the views, Activity, the commands of the header and of the app's menu and the branches, by namespaced ids", () => {
     expect(paletteCommands(sources()).map(command => [command.id, command.label, command.group])).toEqual([
       ["view:branches", "Branches", "Views"],
       ["activity:panel", "Activity Panel", "Activity"],
       ["activity:window", "Activity Window", "Activity"],
+      ["repository:open", "Open Repository…", "Commands"],
       ["app:sync_branches", "Sync Branches", "Commands"],
       ["app:update_project", "Update Project", "Commands"],
       ["app:open_settings", "Settings…", "Commands"],
       ["app:install_agent_cli", "Install Agent CLI…", "Commands"],
+      ["app:getting_started", "Getting Started", "Commands"],
+      ["app:github_link", "GitHub Repository", "Commands"],
       ["branch:auth", "Go to auth", "Branches"],
       ["branch:IJPL-1", "Go to IJPL-1", "Branches"],
     ])
   })
 
-  it("hints only the keys of the window, disables Sync with its reason, offers updates where the build updates itself", () => {
-    const commands = paletteCommands(sources({ menu: { sync: { canSync: false, reason: "Set the branch prefix first" }, autoSyncOnFocus: true, updates: true } }))
+  it("hints only the keys of the window, disables Sync and Open Repository with the reason, offers updates where the build updates itself", () => {
+    const commands = paletteCommands(
+      sources({
+        menu: { sync: { canSync: false, reason: "Set the branch prefix first" }, autoSyncOnFocus: true, updates: true },
+        openRepository: { reason: "Wait for the sync to finish", run: vi.fn() },
+      }),
+    )
     const byId = new Map(commands.map(command => [command.id, command]))
     expect(byId.get("app:sync_branches")).toMatchObject({ kbds: ["mod", "r"], disabled: true, description: "Set the branch prefix first" })
+    expect(byId.get("repository:open")).toMatchObject({ disabled: true, description: "Wait for the sync to finish" })
+    expect(byId.get("app:update_project")?.kbds).toEqual(["mod", "t"])
     expect(byId.get("app:open_settings")?.kbds).toEqual(["mod", ","])
     expect(byId.has("app:check_for_updates")).toBe(true)
     expect(commands.filter(command => command.kbds !== undefined).map(command => command.id)).toEqual(["app:sync_branches", "app:update_project", "app:open_settings"])
@@ -107,6 +118,8 @@ describe("paletteCommands", () => {
     expect(given.goToBranch).toHaveBeenCalledWith("IJPL-1")
     byId.get("app:update_project")!.run()
     expect(runAppCommand).toHaveBeenCalledWith("update_project")
+    byId.get("repository:open")!.run()
+    expect(given.openRepository.run).toHaveBeenCalled()
   })
 })
 
@@ -134,7 +147,7 @@ describe("paletteGroups", () => {
     // the words of an action find it first, the commands of the app before the actions where both start with them
     expect(listed("push")[0]).toEqual(["Branch", ["Push Stack (2 branches)", "Push session Only", "Stack On › auth"]])
     expect(listed("s").slice(0, 2)).toEqual([
-      ["Commands", ["Sync Branches", "Settings…", "Update Project", "Install Agent CLI…"]],
+      ["Commands", ["Sync Branches", "Settings…", "Open Repository…", "Update Project", "Install Agent CLI…", "Getting Started", "GitHub Repository"]],
       ["Branch", ["Stack On › auth", "Push Stack (2 branches)", "Push session Only"]],
     ])
     // a Go to found by its label keeps its place among the branches

@@ -4,7 +4,7 @@ import type { TitleBar } from "../../../src/lib/title-bar"
 
 /** What the backend decides on each platform (`title_bar_script` in src-tauri/src/title_bar.rs) */
 export const TITLE_BARS = {
-  macos: { kind: "overlay", doubleClick: "toggle-maximize" },
+  macos: { kind: "overlay", doubleClick: "toggle-maximize", checkForUpdates: false },
   windows: {
     kind: "custom",
     controls: { start: [], end: ["minimize", "maximize", "close"], style: "windows" },

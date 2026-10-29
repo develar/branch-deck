@@ -13,10 +13,11 @@ import { paletteCommands, paletteGroups } from "@/lib/command-palette"
 import type { PaletteCommand, PaletteCommandGroup } from "@/lib/command-palette"
 import { logError } from "@/lib/errors"
 import { kbdLabel } from "@/lib/menu"
-import { titleBar } from "@/lib/title-bar"
+import { updatesItself } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { getSelectedBranches, requestReveal, selectBranches } from "@/stores/commit-move"
 import { MAIN_VIEWS, showMainView } from "@/stores/main-view"
+import { browseRepository } from "@/stores/repository"
 import { requestLinkFieldFocus } from "@/stores/reviews"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
@@ -61,6 +62,8 @@ export function CommandPalette() {
   const sync = useSyncAvailability()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   const branches = useBranchSync(state => state.branchOrder)
+  // the repository selector waits for a sync to end, its folder button too
+  const isSyncing = useBranchSync(state => state.isSyncing)
   // the branch at hand when the palette opened, and its menu as the stores have it while the palette shows
   const [actionBranch, setActionBranch] = useState<string | null>(null)
   const branchGroups = useBranchMenu(actionBranch ?? "", expandRow)
@@ -97,7 +100,7 @@ export function CommandPalette() {
     ? paletteCommands({
         views: MAIN_VIEWS,
         showView: entry => showMainView(entry.view),
-        menu: { sync, autoSyncOnFocus, updates: titleBar.kind === "custom" && titleBar.checkForUpdates },
+        menu: { sync, autoSyncOnFocus, updates: updatesItself },
         branches,
         toggleActivityPanel: () => openActivity(),
         openActivityWindow: () => openActivityInWindow(null),
@@ -107,6 +110,7 @@ export function CommandPalette() {
           requestLinkFieldFocus()
           showMainView("reviews")
         },
+        openRepository: { reason: isSyncing ? "Wait for the sync to finish" : null, run: () => void browseRepository() },
       })
     : []
   const groups = paletteGroups(commands, text, startsWith)
@@ -150,7 +154,8 @@ export function CommandPalette() {
         >
           <ComboboxInput showTrigger={false} placeholder="Type a command or a branch" aria-label="Command or branch" className="m-2 h-8" />
           <ComboboxEmpty>No command or branch matches</ComboboxEmpty>
-          <ComboboxList className="max-h-80 border-t border-border">
+          {/* as high as the window lets it below the search, so the views, Activity and the commands show before a branch */}
+          <ComboboxList className="max-h-[min(36rem,calc(80dvh-4rem))] border-t border-border">
             {(group: PaletteCommandGroup) => (
               <ComboboxGroup key={group.value} items={group.items}>
                 <ComboboxLabel>{group.value === "Branch" && actionBranch !== null ? actionBranch : group.value}</ComboboxLabel>

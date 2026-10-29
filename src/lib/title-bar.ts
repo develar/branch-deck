@@ -8,7 +8,12 @@
  *   manager, an unknown desktop) and where the user asked for it (`reason`); in E2E without one.
  */
 export type TitleBar =
-  | { readonly kind: "overlay"; readonly doubleClick: DoubleClickAction }
+  | {
+      readonly kind: "overlay"
+      readonly doubleClick: DoubleClickAction
+      /** The build updates itself: the command palette offers Check for Updates…, as the app menu does */
+      readonly checkForUpdates: boolean
+    }
   | {
       readonly kind: "custom"
       readonly controls: WindowControlsLayout
@@ -47,3 +52,9 @@ export const drawsTitleBar = titleBar.kind !== "native"
 
 /** The page draws the window buttons and the main menu, and handles the keys of the menu: there is no native menu bar */
 export const hasCustomTitleBar = titleBar.kind === "custom"
+
+/**
+ * The build updates itself (the `auto-update` feature, as the backend says): the main menu (☰) and the command palette
+ * offer Check for Updates…. Where the system title bar stays, its Help menu has the item, which the page is not told
+ */
+export const updatesItself = titleBar.kind !== "native" && titleBar.checkForUpdates
