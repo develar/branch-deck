@@ -581,8 +581,12 @@ pub struct OrphanFixup {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct SquashedTarget {
+  /// The target before the squash
   pub target: String,
+  pub subject: String,
   pub new_id: String,
+  /// The fixups folded into it, oldest first
+  pub fixups: Vec<String>,
 }
 // jscpd:ignore-end
 

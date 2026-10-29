@@ -1,5 +1,6 @@
 use crate::autosquash::{
-  AutosquashPlan, FixupKind, PlannedFixup, PlannedGroup, SquashFixupsParams, build_fixup_message, get_autosquash_plan_core, plan_autosquash, squash_fixup_commits_core,
+  AutosquashPlan, FixupKind, NothingToSquash, PlannedFixup, PlannedGroup, SquashFixupsParams, build_fixup_message, get_autosquash_plan_core, plan_autosquash,
+  squash_fixup_commits_core,
 };
 use crate::commit_grouper::GroupingInputs;
 use crate::repository_lock::RewriteOptions;
@@ -232,13 +233,17 @@ fn repo_path(test_repo: &TestRepo) -> String {
   test_repo.path().to_str().unwrap().to_string()
 }
 
+/// The squash of the fixups of `scope` on the HEAD the app's request names, `expected_head`
 fn squash_fixups(test_repo: &TestRepo, expected_head: &str, scope: AutosquashScope) -> anyhow::Result<SquashFixupsResult> {
   let params = SquashFixupsParams {
     repository_path: repo_path(test_repo),
-    expected_head: expected_head.to_string(),
     scope,
   };
-  squash_fixup_commits_core(test_repo.git_executor(), &params, &RewriteOptions::default())
+  let options = RewriteOptions {
+    expect_head: Some(expected_head.to_string()),
+    ..RewriteOptions::default()
+  };
+  squash_fixup_commits_core(test_repo.git_executor(), &params, &options)
 }
 
 fn messages(test_repo: &TestRepo) -> String {
@@ -273,6 +278,25 @@ fn squashes_interleaved_groups_in_one_rewrite() {
   assert_eq!(result.squashed.len(), 2);
   assert_eq!(result.squashed[0].new_id, test_repo.rev_parse("HEAD~2").unwrap());
   assert_eq!(result.squashed[1].new_id, test_repo.rev_parse("HEAD~1").unwrap());
+  // what it squashed, as the plan names it
+  let squashed: Vec<_> = result
+    .squashed
+    .iter()
+    .map(|target| (target.target.clone(), target.subject.clone(), target.fixups.clone()))
+    .collect();
+  let planned: Vec<_> = plan
+    .groups
+    .iter()
+    .map(|group| {
+      (
+        group.target.clone(),
+        group.target_subject.clone(),
+        group.folded.iter().map(|fixup| fixup.commit_id.clone()).collect(),
+      )
+    })
+    .collect();
+  assert_eq!(squashed, planned);
+  assert_eq!(squashed.iter().map(|(_, subject, _)| subject.as_str()).collect::<Vec<_>>(), ["(a) Add a", "(b) Add b"]);
   assert_eq!(result.orphans.iter().map(|orphan| orphan.subject.as_str()).collect::<Vec<_>>(), ["fixup! (c) Gone"]);
   assert_eq!(test_repo.rev_parse("HEAD~2:a.txt").unwrap(), test_repo.rev_parse(&format!("{head}:a.txt")).unwrap());
   let reflog = test_repo.log(&["-g", "-1", "--format=%gs"]).unwrap();
@@ -295,11 +319,15 @@ fn squashes_only_the_fixups_of_one_branch_or_one_fixup() {
   squash_fixups(&test_repo, &test_repo.head(), AutosquashScope::Fixup(fixup)).unwrap();
   assert_eq!(test_repo.log(&["--format=%s"]).unwrap().trim_end(), "fixup! (c) Gone\n(b) Add b\n(a) Add a\nInitial");
 
-  // nothing left but an orphan
-  let error = squash_fixups(&test_repo, &test_repo.head(), AutosquashScope::Branch("c".to_string())).expect_err("only an orphan");
-  assert!(format!("{error:#}").contains("1 without a target"), "{error:#}");
-  let error = squash_fixups(&test_repo, &test_repo.head(), AutosquashScope::Unassigned).expect_err("no unassigned fixups");
-  assert!(format!("{error:#}").contains("No fixup commits"), "{error:#}");
+  // nothing left but an orphan: refused with that orphan and the HEAD it was planned on, which `bd fold` answers
+  let head = test_repo.head();
+  let error = squash_fixups(&test_repo, &head, AutosquashScope::Branch("c".to_string())).expect_err("only an orphan");
+  assert_eq!(format!("{error:#}"), "No fixup commits to squash: 1 without a target in this range");
+  let nothing = error.downcast_ref::<NothingToSquash>().unwrap_or_else(|| panic!("not NothingToSquash: {error:#}"));
+  let orphans: Vec<&str> = nothing.orphans.iter().map(|orphan| orphan.subject.as_str()).collect();
+  assert_eq!((nothing.head.as_str(), orphans), (head.as_str(), vec!["fixup! (c) Gone"]));
+  let error = squash_fixups(&test_repo, &head, AutosquashScope::Unassigned).expect_err("no unassigned fixups");
+  assert_eq!(format!("{error:#}"), "No fixup commits to squash");
 }
 
 #[test]
@@ -422,7 +450,6 @@ fn a_fold_locks_only_the_witness_and_the_write() {
   let span = test_utils::lock_span::LockSpan::new(&test_repo.path().join(".git"));
   let params = SquashFixupsParams {
     repository_path: test_repo.path_str().to_owned(),
-    expected_head: head.clone(),
     scope: AutosquashScope::All,
   };
   let options = RewriteOptions {

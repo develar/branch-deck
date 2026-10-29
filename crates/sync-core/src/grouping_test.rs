@@ -50,7 +50,7 @@ fn a_branch_without_commits_has_no_baseline() {
 #[test]
 fn the_branches_come_newest_first_by_their_oldest_commit_and_no_rewrite_of_their_commits_moves_one() {
   let (_upstream, repo) = TestRepo::upstream_and_clone(&[("README.md", "readme")]);
-  let commits = repo.commit_history(
+  repo.commit_history(
     "refs/heads/master",
     &[
       HistoryCommit::new("(auth) IJAI-101 Validate the password", &[("auth.txt", "validate\n")]).at(1_700_000_100),
@@ -73,7 +73,6 @@ fn the_branches_come_newest_first_by_their_oldest_commit_and_no_rewrite_of_their
     repo.git_executor(),
     &SquashFixupsParams {
       repository_path: repo.path_str().to_string(),
-      expected_head: commits[3].clone(),
       scope: AutosquashScope::All,
     },
     &RewriteOptions::default(),

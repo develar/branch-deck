@@ -781,7 +781,7 @@ sync dropped lines of is read as the sync left it. HEAD that another process mov
 computation itself (after the history, before the guard reads HEAD again, `History::check_rewrite`; after the snapshot
 or the listing, before the history of a reword or of the move of a hunk) is the computation's `HeadMoved`, which
 `RewriteOptions::lock_prepared` and `lock_prepared_move` compute once more under the lock too, for a request that named
-no HEAD; one that named it answers it (`expect_head`, the plan of squash fixups, an undo), and so does a caller that
+no HEAD; one that named it answers it (`expect_head`, an undo), and so does a caller that
 holds the lock (`a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_lock`,
 `a_head_moved_between_two_reads_of_a_move_computes_it_once_more_under_the_lock`). A `CopyCommitError` of git-ops is no
 `std::error::Error`: its `?` into an `anyhow::Error` keeps the typed error of `Other` (`HeadMoved`, `RewriteRefused`)
@@ -1033,13 +1033,19 @@ its body, an `amend!` replaces the message with its body, as UTF-8 text; if an i
 (one `cat-file --batch` for those), the squash is refused.
 
 `squash_fixup_commits_core` plans again and takes the groups of the scope: the target's branch (grouper rules), the
-unassigned targets, or one fixup. It refuses with `HeadMoved` unless HEAD, the newest commit of the planned range and
-the history the squash replays all are the confirmed head; these are three reads, and a commit between them would
-otherwise give a plan for one head and a rewrite of another. The history is read last, down to the oldest target of
-the scope (see "Rewrite history"), once the plan names the targets. The branch moves with `branch-deck: squash fixups` and a
-CAS on that head; Undo is the squash undo. The core plans and writes the squashed commits before the repository lock
-and holds it for the witness of HEAD and the move, as the squash does; `bd fold` passes its `--expect-head` and lock
-timeout to it, with the head it planned for.
+unassigned targets, or one fixup; a scope with nothing to squash is `NothingToSquash` (the head and the orphans of that
+plan). HEAD, the newest commit of the planned range and the history the squash replays are three reads, which must end
+at the same head, or a commit between them would give a plan for one head and a rewrite of another: another one is
+`HeadMoved`, computed once more under the lock for a request that named no HEAD, as every rewrite does. The request
+names a HEAD as the other rewrites do, by `RewriteOptions::expect_head`: the app's rewrite the head it resolved on the
+table the user confirmed the plan on, `bd fold` its `--expect-head` alone. The history is read last, down to the oldest
+target of the scope (see "Rewrite history"), once the plan names the targets. The branch moves with `branch-deck: squash
+fixups` and a CAS on that head; Undo is the squash undo. The core plans and writes the squashed commits before the
+repository lock and holds it for the witness of HEAD and the move, as the squash does, and answers what it squashed
+(`SquashFixupsResult`: each target with its subject, its new id and its fixups, the orphans of the scope).
+`bd fold` passes its `--expect-head` and lock timeout to it and prints that answer, so a HEAD another process moved
+after bd read its plan is folded as the core found it. bd's own plan answers only `--dry-run`, an unknown `--branch` and
+nothing to fold; a `NothingToSquash` of the core (another process folded them) is nothing to fold too.
 
 Code: `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/autosquash_targets.rs` (the target of each
 fixup), `crates/sync-utils/src/commit_subject.rs` (`parse_subject`), `crates/history-rewrite/src/commit_grouper.rs`

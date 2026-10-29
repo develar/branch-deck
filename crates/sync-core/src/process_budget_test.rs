@@ -666,13 +666,12 @@ fn a_park_and_an_unpark() {
 fn a_squash_of_fixups() {
   let (repo, _) = alpha_and_beta_on_origin();
   repo.create_commit("fixup! (alpha) Alpha 1", "alpha-1.txt", "alpha fixed\n");
-  let head = repo.create_commit("squash! (beta) Beta 2\n\nAlso this", "beta-2.txt", "beta squashed\n");
+  repo.create_commit("squash! (beta) Beta 2\n\nAlso this", "beta-2.txt", "beta squashed\n");
   let git = counting();
   squash_fixup_commits_core(
     &git,
     &SquashFixupsParams {
       repository_path: path(&repo),
-      expected_head: head,
       scope: AutosquashScope::All,
     },
     &RewriteOptions::default(),

@@ -1087,6 +1087,9 @@ tree stay as they are.
 
 - `--branch` folds only the fixups whose target is in that branch; a name that is no branch is `unknown_branch`.
   `orphans` are fixups without an older target: they stay. Nothing to fold prints `folded: []` without a token.
+- Without `--expect-head` it folds the fixups of HEAD as the squash finds it, also after another process moved HEAD
+  since bd read the plan (a rewrite of the app, a commit): `folded`, `orphans` and `previous_head` are what the squash
+  folded there, the commit of the other process kept; a HEAD without fixups there is nothing to fold.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; the fold also checks that the planned
   commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
 - `bd undo <undo_token>` restores the previous head.

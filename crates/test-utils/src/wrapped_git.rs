@@ -50,6 +50,16 @@ impl WrappedGit {
     format!("*\" {args} \"*) [ -f '{{dir}}/committed' ] || {{ echo {file} > '{file}' && git add -- '{file}' && git commit -q -m '{subject}' && touch '{{dir}}/committed'; }};;")
   }
 
+  /// An arm in which another process runs `other` (a shell command in the repository that moves HEAD: a commit, a
+  /// `reset`) once, before the `nth` command (from 1) whose arguments hold `args`, counted in `{dir}/seen`, and leaves
+  /// the mark `moved`: after the reads of one step of the operation, before the same reads of the next one
+  #[must_use]
+  pub fn move_head_before(args: &str, nth: u32, other: &str) -> String {
+    format!(
+      "*\" {args} \"*) seen=$(($(cat '{{dir}}/seen' 2>/dev/null || echo 0) + 1)); echo $seen > '{{dir}}/seen'; [ $seen -ne {nth} ] || {{ {other} && touch '{{dir}}/moved'; }};;"
+    )
+  }
+
   pub const fn executor(&self) -> &GitCommandExecutor {
     &self.executor
   }
