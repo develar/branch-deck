@@ -1814,8 +1814,9 @@ waits for a clone.
    process the get runs for (the nearest ancestor that is no shell: the agent, the terminal), and the lock is released.
    The pid of the get is gone a moment later, so only the holder process tells whether a `ready` lease is still worked
    in: 13 of the 15 slots of idea-1 were leased at once, some by sessions that had given up, and every further get
-   cloned the main checkout. A gone holder frees nothing (unlanded work, a resumed session runs as another process),
-   but a get that adds a slot names those leases (`idle_leases`), and `bd lease status` says `holder_alive`.
+   cloned the main checkout. A gone holder alone frees nothing (unlanded work, a resumed session runs as another
+   process); a get takes the lease over only once its work landed (Takeover, below), names the others when it adds a
+   slot (`idle_leases`), and `bd lease status` says `holder_alive` and `idle`.
 2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below, which may write the
    slot's index (below). A dirty slot is freed again,
    marked dirty and skipped, and the next one is reserved. A clean one moves by the diff (`move_clean_slot`): a HEAD on
@@ -1930,6 +1931,46 @@ index for the dry run of the files, and the guards, none of which a return may t
 Reachability stays the fast path, and decides alone without a recorded branch and when the branch is gone; the output
 names the check (`landed_check`) and the proof of each commit found landed (`landed`). The proofs cost the processes of
 the pick and about twenty more, only when `log` found commits (`a_lease_return_whose_commit_landed_by_the_ladder`).
+
+Takeover: on 2026-10-29 a get cloned a new slot of idea-1, 16 GB and more than 15 minutes of checkout, while six
+slots of the pool had a `ready` lease of a dead holder, four of them with nothing unlanded: the get only named them
+(`idle_leases`), and no user reads the answer of a get an agent ran, so the pool grew by one clone for each dead
+session. After the free slots, before it takes the clones lock, the reserve now takes an idle lease (`reserve_idle`):
+`ready`, its holder gone, no host slot, no process in its slot but its Bazel servers, and quiet for an hour, its get
+and the last move of its HEAD (the mtime of `logs/HEAD`, no git), so a holder recorded as a wrapper that exits at once
+(`cargo run`, `pnpm`) does not lose the lease its agent just began. The get's `preparing` lease keeps the idle one
+(`taking_over`) while the check runs without the lock (`check_idle`), cheap things first:
+
+1. the verdict of the check before, while it holds (`IdleCheck`: the tree work while the slot's `HEAD` and reflog are
+   unchanged, the commits also while the home tip is; one `rev-parse`), so an idle lease with work costs a get one
+   process, not a `status` of 1.4M files;
+2. the commits the home branch lacks, `log HEAD --not refs/heads/<home> <leased commit>`: the home branch only, since
+   the lease's own `-b` branch holds them, each proven by the landed rule of the return (`landed_work`, above);
+3. a git operation in progress in the slot's git dir (`rebase-merge`, `MERGE_HEAD`, `sequencer` …; `status` shows
+   none) and its resolve session (one `show-ref`);
+4. one `status`.
+
+Work gives the lease back with the check (`idle_check`), from the get's own copy, so a bd that wrote the state without
+the field loses nothing; the get skips it as `idle_with_work` and goes on, at most two full checks per get. A get that
+dies while it checks leaves its `preparing` lease with `taking_over`: every reader that acts on an abandoned lease
+(the reserve of a get, the mark of `bd lease clean`, a return, the status) puts the idle lease back
+(`settle_abandoned`), never a free slot. The commit point is under the pool lock: the lease still the get's and the
+slot's mark as the check found it, so a commit of a resumed session meanwhile stops the takeover; the idle lease then
+becomes the record of the slot (`Slot::reclaimed`), and a get that dies after it leaves a free slot, as its work
+landed. Then the get returns the old lease as a return would (its seeded paths, HEAD detached, its branch kept, the
+clean rules of the source moved into the trash), stops the Bazel servers, and moves the slot by the diff. It leaves its
+trash for the next return or clean (the trash of a run that is gone, `Trash::sweep`), so a get stays as quick as a
+reuse; a get below the minimum free space sweeps it first. The fill of the host slots takes over nothing: the trash of
+the agent's process would outlive every return. `bd lease reclaim --idle` applies the same check to every idle lease,
+with a CAS on each, and returns it at once.
+
+A resumed session of the old holder must not work in the slot its lease lost. Every command of `bd` checks it in the
+resolvers of its context (`refuse_reclaimed`, one read of `leases.json`): in a slot with the record, a write of
+another session than the one that holds the slot now, told by the process the lease was got for (its pid and start
+time an ancestor of `bd`, `ProcessScan::has_ancestor`, a scan only in such a slot), is `lease_reclaimed`, naming both
+leases, the home branch, the old branch and `bd lease get` as the next step; `bd workspace`, the first command of a
+session, refuses too, a read passes. A session whose new holder died too can't be told from the old one, and nothing
+is refused there; the slot is idle again.
 
 Where the commits of a lease land is part of the lease: the get records the source checkout and the branch it had
 checked out (`source`, `source_branch`) and prints them as `home` with the session's `next`. Before, the get printed

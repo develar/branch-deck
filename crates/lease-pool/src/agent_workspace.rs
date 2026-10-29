@@ -7,8 +7,8 @@
 //! `agent_defaults` reads the same two rules of the global git config, what `bd install` and the app's Install Agent CLI
 //! report.
 
-use crate::lease::{LeaseHome, SlotState, canonical_path, lease_status_core, pool_dir};
-use anyhow::{Result, anyhow};
+use crate::lease::{IdleCheck, LeaseHome, SlotState, canonical_path, lease_status_core, pool_dir, reclaimed_refusal};
+use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::{read_head, repository_dirs};
@@ -39,6 +39,10 @@ pub struct ActiveLease {
   pub path: String,
   /// Where its commits go
   pub home: LeaseHome,
+  /// Whether the process it was got for still runs
+  pub holder_alive: Option<bool>,
+  /// Its holder is gone (`Lease::is_idle`): with the last check that found work in it, if any
+  pub idle: Option<Option<IdleCheck>>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +94,10 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
       pool_unusable: None,
     });
   };
+  // a resumed session in a slot taken over from its dead holder learns it here, before its first edit
+  if let Some(refusal) = reclaimed_refusal(Path::new(&dirs.git_common_dir), &dirs.top_level, true, None)? {
+    bail!(refusal);
+  }
   let config = repository_config_from_entries(&read_config_entries(git, &dirs.top_level)?, OriginFacts::default());
   let top_level = canonical_path(Path::new(&dirs.top_level));
 
@@ -104,6 +112,8 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
         holder: lease.holder.clone(),
         path: status.slot.path.clone(),
         home: lease.home(),
+        holder_alive: lease.holder_alive(),
+        idle: lease.is_idle().then(|| lease.idle_check.clone()),
       })
     })
     .collect();

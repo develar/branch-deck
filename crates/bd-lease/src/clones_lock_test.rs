@@ -58,6 +58,8 @@ fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::Checkout { .. } => "checkout",
       GetStep::CheckoutEveryFile { .. } => "checkout every file",
       GetStep::Seed { .. } => "seed",
+      GetStep::TakeOver { .. } => "take over",
+      GetStep::CleanTakenOver { .. } => "clean taken over",
     })
     .collect();
   kinds.dedup_by(|next, previous| next == previous && *next == "wait");

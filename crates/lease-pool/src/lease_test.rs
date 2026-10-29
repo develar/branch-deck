@@ -1,8 +1,7 @@
 #[cfg(unix)]
 use crate::lease::stop_servers;
-use crate::lease::{glob_matches, repository_name, seed_candidates};
+use crate::lease::{Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
 use std::path::Path;
-#[cfg(unix)]
 use std::time::Duration;
 #[cfg(unix)]
 use sync_utils::process_scan::{ProcessInfo, is_running, process_started};
@@ -95,4 +94,66 @@ fn a_server_is_signalled_only_while_its_pid_has_the_start_time_of_the_scan() {
 
   child.kill().unwrap();
   child.wait().unwrap();
+}
+
+/// The commit point of a takeover holds only while the slot is as the check found it: a commit of a resumed session in
+/// the slot meanwhile (another mark) stops it and leaves the state alone; the mark the check saw moves the idle lease
+/// into the record of the slot
+#[test]
+fn a_commit_during_the_check_stops_the_takeover() {
+  let dir = tempfile::tempdir().unwrap();
+  let pool = Pool::new(dir.path());
+  let lease = |id: &str, state: LeaseState| Lease {
+    id: id.to_string(),
+    holder: id.to_string(),
+    leased_at: 1,
+    state,
+    pid: std::process::id(),
+    process_started: None,
+    source_head: "a".repeat(40),
+    source: String::new(),
+    source_branch: Some("master".to_string()),
+    branch: None,
+    seeded: Vec::new(),
+    reused: true,
+    holder_pid: None,
+    holder_started: None,
+    taking_over: None,
+    idle_check: None,
+  };
+  let get = Lease {
+    taking_over: Some(Box::new(lease("idle", LeaseState::Ready))),
+    ..lease("get", LeaseState::Preparing)
+  };
+  // no such directory: the mark of the slot is the empty one
+  let path = dir.path().join("slot").to_string_lossy().into_owned();
+  let before = LeaseStore {
+    slots: vec![Slot {
+      name: "slot".to_string(),
+      path: path.clone(),
+      dirty: false,
+      returned: None,
+      lease: Some(get.clone()),
+      reclaimed: None,
+    }],
+  };
+  pool
+    .update(Duration::from_secs(5), |store| {
+      *store = before.clone();
+      Ok(())
+    })
+    .unwrap();
+  let moved = SlotMark {
+    head: "ref: refs/heads/lane".to_string(),
+    log_len: 1,
+    log_modified: 1,
+  };
+  assert!(!commit_takeover(&pool, Duration::from_secs(5), &path, &get, &moved).unwrap());
+  assert_eq!(pool.read().unwrap(), before);
+
+  assert!(commit_takeover(&pool, Duration::from_secs(5), &path, &get, &SlotMark::default()).unwrap());
+  let slot = pool.read().unwrap().slots.remove(0);
+  assert_eq!(slot.lease.as_ref().map(|lease| (lease.id.as_str(), lease.taking_over.is_none())), Some(("get", true)));
+  let reclaimed = slot.reclaimed.unwrap();
+  assert_eq!((reclaimed.lease_id.as_str(), reclaimed.by_lease_id.as_deref()), ("idle", Some("get")));
 }

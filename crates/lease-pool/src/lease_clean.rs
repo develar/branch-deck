@@ -593,8 +593,9 @@ impl Trash {
     left
   }
 
-  /// Delete the trash directories of runs whose process is gone (killed by a timeout before it emptied its trash)
-  fn sweep(&self) {
+  /// Delete the trash directories of runs whose process is gone (killed by a timeout before it emptied its trash, or a
+  /// get whose takeover left its trash for later)
+  pub(crate) fn sweep(&self) {
     let Ok(entries) = std::fs::read_dir(&self.root) else { return };
     for entry in entries.flatten() {
       let name = entry.file_name().to_string_lossy().into_owned();

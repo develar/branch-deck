@@ -18,8 +18,8 @@ use bd_core::output::{WithOperation, write_json};
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{
-  LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status, lease_tree_check,
-  pick_requires_check, refuse_update_in_lease, unchecked_tree,
+  LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_reclaim, lease_return, lease_status,
+  lease_tree_check, pick_requires_check, refuse_reclaimed, refuse_update_in_lease, unchecked_tree,
 };
 use bd_lease::workspace_command::workspace;
 use bd_remote::land_command::{LandArgs, land};
@@ -134,10 +134,12 @@ enum Command {
   /// commits someone else pushed to a virtual branch
   #[command(after_help = "Outputs and refusals: `bd pick --help`", after_long_help = PICK_HELP)]
   Pick(PickArgs),
-  /// The worktrees of the lease pool, one per agent session: get, return, status, adopt, clean (`bd help worktrees`)
+  /// The worktrees of the lease pool, one per agent session: get, pick, return, status, adopt, clean, reclaim (`bd help
+  /// worktrees`)
   ///
-  /// `get` leases a free slot moved to the HEAD of -C (only the diff written), else adds one; `return` frees it, refused
-  /// while it has unlanded commits, local changes or a process in it. The state is in
+  /// `get` leases a free slot moved to the HEAD of -C (only the diff written), else takes over an idle lease whose work
+  /// landed, else adds one; `return` frees it, refused while it has unlanded commits, local changes or a process in it.
+  /// The state is in
   /// `$GIT_COMMON_DIR/branch-deck/leases.json`
   Lease(LeaseArgs),
   /// Where a coding agent works and how it writes a commit subject: run it before the first edit. Read only
@@ -500,14 +502,21 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     no_cache: cli.no_cache,
   };
   let operation_id = out.operation_id;
+  let guard = reclaim_guard(&cli.command);
+  // in a slot taken over from a dead holder only the session that holds it now works (`lease_reclaimed`)
+  let check_reclaimed =
+    |git_common_dir: &std::path::Path, top_level: &str| guard.map_or(Ok(()), |(mutates, lease_id)| refuse_reclaimed(git_common_dir, top_level, mutates, lease_id));
   let context = || {
     RepoContext::resolve(environment, &options)
       .map(|context| context.with_operation_id(operation_id))
       .inspect(|context| *common_dir.borrow_mut() = Some(context.git_common_dir.clone()))
+      .and_then(|context| check_reclaimed(&context.git_common_dir, &context.repository).map(|()| context))
   };
   // a lease needs no branch prefix: git and the worktree of `directory`, else of -C, else of the current directory
   let lease_context = |directory: Option<&std::path::Path>| {
-    LeaseContext::resolve(environment, directory.or(options.repo)).inspect(|context| *common_dir.borrow_mut() = Some(PathBuf::from(&context.dirs.git_common_dir)))
+    LeaseContext::resolve(environment, directory.or(options.repo))
+      .inspect(|context| *common_dir.borrow_mut() = Some(PathBuf::from(&context.dirs.git_common_dir)))
+      .and_then(|context| check_reclaimed(std::path::Path::new(&context.dirs.git_common_dir), &context.dirs.top_level).map(|()| context))
   };
   match &cli.command {
     Command::Status(args) if args.brief => context()
@@ -560,6 +569,11 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       command: LeaseCommand::Clean(args),
     }) => lease_context(None)
       .and_then(|context| lease_clean(&context, environment, args))
+      .and_then(|output| printed(out, &output)),
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Reclaim(args),
+    }) => lease_context(None)
+      .and_then(|context| lease_reclaim(&context, args))
       .and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),
@@ -658,7 +672,23 @@ const fn reads_only(command: &Command) -> bool {
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Clean(args),
     }) => args.dry_run,
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Reclaim(args),
+    }) => args.dry_run,
     _ => false,
+  }
+}
+
+/// How the refusal of a slot taken over from a dead holder applies to `command` (`refuse_reclaimed`): whether it
+/// writes, and the lease it names; `None` for the status of the pool, which never refuses. `bd workspace` refuses
+/// itself, as a write would: it is the first command of a session
+fn reclaim_guard(command: &Command) -> Option<(bool, Option<&str>)> {
+  match command {
+    Command::Lease(LeaseArgs { command: LeaseCommand::Status(_) }) => None,
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Return(args),
+    }) => Some((true, args.lease_id.as_deref())),
+    _ => Some((!reads_only(command), None)),
   }
 }
 

@@ -94,6 +94,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::BranchExists, 4, false),
   (ErrorCode::OtherVolume, 4, false),
   (ErrorCode::LowDiskSpace, 4, false),
+  (ErrorCode::LeaseReclaimed, 4, false),
   (ErrorCode::GitNotFound, 5, false),
   (ErrorCode::NoIdentity, 2, false),
   (ErrorCode::GitError, 5, false),

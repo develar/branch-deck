@@ -280,6 +280,10 @@ pub enum ErrorCode {
   OtherVolume,
   /// `bd lease get`: the volume of the pool has less free space than `branchdeck.leaseMinFree` or `--min-free` asks
   LowDiskSpace,
+  /// A command in a slot whose lease a get or `bd lease reclaim` took from its dead holder, as its work had landed, run
+  /// by another session than the one that holds the slot now (a resumed session of the old holder): this worktree is
+  /// not the caller's; get a lease of its own. Nothing was changed
+  LeaseReclaimed,
   /// No usable git executable: none found, or one older than the minimum (the message says which and how to install
   /// or upgrade Git)
   GitNotFound,
@@ -400,6 +404,7 @@ impl ErrorCode {
       | Self::BranchExists
       | Self::OtherVolume
       | Self::LowDiskSpace
+      | Self::LeaseReclaimed
       | Self::Canceled => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError | Self::PatronusError | Self::Internal => 5,
     }

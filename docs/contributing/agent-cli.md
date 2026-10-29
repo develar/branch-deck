@@ -163,7 +163,7 @@ branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `cr
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked`, `no_identity` (git cannot form the identity of the user: set `user.name` and `user.email`) |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `plan_changed` (the facts a remote action was planned on changed before its first effect; nothing was done), `locked`, `busy` (an operation of another process, the app or another `bd`, runs what the command needs: `error.holder`; nothing was done) |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `lease_reclaimed`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -915,10 +915,13 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   there): one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with
   local changes is skipped and marked dirty, one with a process of another session in it is skipped as busy
   (`skipped`, `processes`); the Bazel servers of a free slot are stopped with SIGTERM (`stopped_servers`). No free
-  slot: a new one, `<pool>/<n>/<repository name>` (`reused: false`): on macOS an APFS clone of a free slot or of the
+  slot: an idle lease, its holder process gone for an hour, is taken over when every commit its home branch lacks is
+  proven there (the landed rule of the return) and its tree is clean (`took_over`: `lease_id`, `holder`, `branch`,
+  which stays, `landed` with the proof of each commit); one with work is skipped (`reason: "idle_with_work"`, `idle`
+  with `commits`, `paths`, `operation`) and never touched, the user decides. Else a new one, `<pool>/<n>/<repository name>` (`reused: false`): on macOS an APFS clone of a free slot or of the
   source without what the `delete` clean rules delete, then the diff checked out (`created_by: "clone"`,
   `cloned_from`), else a full checkout (`created_by: "checkout"`); with a new slot, `idle_leases` names the leases
-  whose holder process is gone. The pool is `~/.branch-deck/pool/<name>-<hash>`, or
+  whose holder process is gone, each with its `lease_id` and `idle` (`idle` or `idle_with_work`). The pool is `~/.branch-deck/pool/<name>-<hash>`, or
   `git config branchdeck.leasePool <dir>`. The ignored files `.worktreeinclude` names are copied in (`seeded`).
   `free_bytes` is the free space before the get.
 - A pool adds one slot at a time (`clones.lock` beside the state): a get that must add a slot while another adds one
@@ -977,8 +980,17 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 - `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
   `templating` (a get clones it into a new slot), `returning` (its return runs), `cleaning` (`bd lease clean` cleans
   it) or `abandoned` (the get, the return or the clean of it died), `dirty`, `missing`, `lease` (`holder_pid`,
-  `holder_alive`: whether the process the get ran for still runs), `free_bytes`, `trash_bytes`; no `git status`.
-  `--processes` adds the processes in each slot.
+  `holder_alive`: whether the process the get ran for still runs; `idle` of a ready lease whose holder is gone:
+  `idle`, or `idle_with_work` with the `commits`, `paths` or `operation` a check found; `taking_over` while a get
+  checks one), `reclaimed` (the lease a takeover or a reclaim took from its dead holder), `free_bytes`,
+  `trash_bytes`; no `git status`. `--processes` adds the processes in each slot.
+- `bd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` returns every idle lease of the pool whose
+  work landed, as a takeover would (`reclaimed`, with `landed`, `stopped_servers`, `cleaned`), keeps the ones with
+  work (`kept`, as `idle_with_work`) and names the rest (`skipped`: `not_quiet`, `busy`, `changed`, `failed`);
+  `--dry-run` writes nothing. Output `lease_reclaim`.
+- In a slot whose lease was taken over, a write of another session than the one that holds it now (a resumed
+  session of the old holder) and its `bd workspace` are `lease_reclaimed` (exit 4): the message names both leases, the
+  home branch and the old branch, which stays; `next_steps` is `bd lease get --holder <old holder> -C <home>`.
 - `bd lease adopt [--move] <dir>...` adds clean linked worktrees of this repository as free slots where they are
   (`adopted`), and lists the refused ones with their code (`refused`: `not_a_slot`, `slot_in_pool`, `slot_busy`,
   `dirty_worktree`; exit 4). `--move` moves each into the pool directory with `git worktree move` (`moved_from`),
@@ -1909,7 +1921,8 @@ sets the global value and the repository's own in Settings → Agents, or with `
 commits land on (the main worktree, or the source of this lease); in a lease `home` as `bd lease get` prints it, with
 `switched_to` when the shared checkout has another branch checked out now (`null`: detached); `lease_id` and `holder` this slot's lease;
 `local_changes` the number of local changes of the shared checkout, which a lease lacks; `active_leases` every ready
-lease of the pool (`lease_id`, `holder`, `path`); `next` the commands to run, in order:
+lease of the pool (`lease_id`, `holder`, `path`, `holder_alive`, `idle` for one whose holder is gone); in a slot taken
+over from a dead holder, another session's `bd workspace` is `lease_reclaimed`; `next` the commands to run, in order:
 
 ```json
 {"schema":2,"kind":"main","lease":{"on":true,"source":"default"},"subject_branch":{"on":true,"source":"default"},

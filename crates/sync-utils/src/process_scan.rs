@@ -238,6 +238,25 @@ impl ProcessScan {
   }
 }
 
+impl ProcessScan {
+  /// Whether the process `pid`, started at `started` when known, is an ancestor of this one: the session a lease was got
+  /// for is one of the processes above a `bd` it runs, a shell or `cargo` between them or not. False without a scan
+  pub fn has_ancestor(&self, pid: u32, started: Option<u64>) -> bool {
+    let Self::Done { processes, .. } = self else { return false };
+    let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|process| (process.pid, process)).collect();
+    let mut seen = HashSet::new();
+    let mut current = by_pid.get(&std::process::id()).map_or(0, |process| process.parent);
+    while current > 1 && seen.insert(current) {
+      let Some(process) = by_pid.get(&current) else { return false };
+      if process.pid == pid {
+        return started.is_none_or(|started| process.started == Some(started));
+      }
+      current = process.parent;
+    }
+    false
+  }
+}
+
 /// The session of `pid` among `processes`: it, the chain of its parents, and every process of a group one of them is
 /// in (the other commands of its pipeline, what the agent above it runs in its own group). The group of the init
 /// process (pid 1) and an unknown group (0) are not counted

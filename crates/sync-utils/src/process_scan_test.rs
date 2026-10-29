@@ -160,6 +160,32 @@ fn the_session_is_the_ancestors_and_their_groups() {
   assert_eq!(scan.session().map(|process| process.pid), Some(100));
 }
 
+/// The holder of a lease is an ancestor of `bd` by its pid and its start time, whatever runs between them (a shell,
+/// `cargo`); a sibling, a process of the same group and a pid with another start time are not
+#[test]
+fn an_ancestor_is_a_process_above_this_one_with_its_start_time() {
+  let me = std::process::id();
+  let mut processes = vec![
+    process(1, 0, &["launchd"]),
+    process(100, 1, &["claude"]),
+    process(200, 100, &["cargo", "run", "-p", "branch-deck", "--", "cli"]),
+    process(me, 200, &["bd", "lease", "pick"]),
+    process(300, 100, &["zsh"]),
+  ];
+  processes[1].started = Some(7);
+  processes[4].group = 200;
+  let scan = ProcessScan::Done {
+    processes,
+    own: std::collections::HashSet::new(),
+  };
+  assert!(scan.has_ancestor(100, Some(7)));
+  assert!(scan.has_ancestor(100, None));
+  assert!(scan.has_ancestor(200, None));
+  assert!(!scan.has_ancestor(100, Some(8)), "another process with the pid of the holder");
+  assert!(!scan.has_ancestor(300, None), "a sibling of the same group");
+  assert!(!ProcessScan::Unavailable.has_ancestor(100, None));
+}
+
 /// A kill names the start time of the process it means: another start time (the pid of a process that exited, given to
 /// another one) is never signalled, the right one is killed at once
 #[cfg(unix)]

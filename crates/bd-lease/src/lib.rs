@@ -21,4 +21,6 @@ mod lease_pick_test;
 #[cfg(test)]
 mod lease_test;
 #[cfg(test)]
+mod takeover_test;
+#[cfg(test)]
 mod workspace_test;

@@ -531,7 +531,7 @@ fn a_clone_that_fails_falls_back_to_a_checkout() {
 }
 
 /// Commit `file` in the slot at `path`
-fn commit_in(path: &str, subject: &str, file: &str) -> String {
+pub(crate) fn commit_in(path: &str, subject: &str, file: &str) -> String {
   commit_content(path, subject, file, &format!("{subject}\n"))
 }
 
@@ -567,7 +567,7 @@ fn a_return_after_a_follow_and_a_rewrite_of_master_finds_the_work_landed_by_cont
 }
 
 /// Write `content` into `file` of the slot at `path` and commit it as `subject`
-fn commit_content(path: &str, subject: &str, file: &str, content: &str) -> String {
+pub(crate) fn commit_content(path: &str, subject: &str, file: &str, content: &str) -> String {
   std::fs::write(Path::new(path).join(file), content).unwrap();
   slot_git(path, &["add", file]);
   slot_git(path, &["commit", "-q", "-m", subject]);
@@ -575,7 +575,7 @@ fn commit_content(path: &str, subject: &str, file: &str, content: &str) -> Strin
 }
 
 /// The `(commit, proof)` of each commit a return or a takeover found landed
-fn proofs(landed: &Value) -> Vec<(String, String)> {
+pub(crate) fn proofs(landed: &Value) -> Vec<(String, String)> {
   landed
     .as_array()
     .unwrap_or_else(|| panic!("no landed commits: {landed}"))
@@ -1061,7 +1061,8 @@ fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
 #[test_log::test]
 fn the_status_tells_whether_the_holder_of_a_lease_is_alive() {
   let fixture = Fixture::new();
-  let path = path_of(&fixture.get(&["--holder", "gone-agent"]));
+  let first = fixture.get(&["--holder", "gone-agent"]);
+  let (path, first_id) = (path_of(&first), &first["lease_id"]);
   let lease = &fixture.status()["slots"][0]["lease"];
   assert_eq!(lease["holder_alive"], json!(true), "{lease}");
   assert!(lease["holder_pid"].as_u64().unwrap() > 1, "{lease}");
@@ -1075,9 +1076,15 @@ fn the_status_tells_whether_the_holder_of_a_lease_is_alive() {
   state["slots"][0]["lease"]["holder_started"] = json!(started.unwrap_or(1));
   std::fs::write(fixture.state_file(), serde_json::to_vec(&state).unwrap()).unwrap();
   assert_eq!(fixture.status()["slots"][0]["lease"]["holder_alive"], json!(false));
+  // got a moment ago, it is not quiet yet: the get adds a slot and names it, unchecked
   let second = fixture.get(&[]);
-  assert_eq!(second["idle_leases"], json!([{ "path": path, "holder": "gone-agent" }]), "{second}");
+  assert_eq!(
+    second["idle_leases"],
+    json!([{ "path": path, "holder": "gone-agent", "lease_id": first_id, "idle": { "state": "idle" } }]),
+    "{second}"
+  );
   assert_eq!(states(&fixture.status())[0], (path, "ready".to_string()));
+  assert_eq!(fixture.status()["slots"][0]["lease"]["idle"], json!({ "state": "idle" }));
 }
 
 /// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new. The two new

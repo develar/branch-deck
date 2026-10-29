@@ -592,3 +592,25 @@ pub fn writable_state(repo: &TestRepo) -> (String, String, String, Vec<u8>, Stri
     git(repo, &["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
   )
 }
+
+/// The lease of the slot at `slot` (canonical, as the pool names it) in the pool state `state_file` idle: its holder a
+/// process that is gone, its get and the last move of the slot's HEAD (the mtime of its `logs/HEAD`) two hours ago,
+/// past the quiet time of a takeover. After the last commit in the slot
+pub fn make_lease_idle(state_file: &Path, slot: &str) {
+  let mut child = std::process::Command::new("true").spawn().unwrap();
+  let (pid, started) = (child.id(), sync_utils::process_scan::process_started(child.id()));
+  child.wait().unwrap();
+  let long_ago = std::time::SystemTime::now() - std::time::Duration::from_hours(2);
+  let mut state: Value = serde_json::from_slice(&std::fs::read(state_file).unwrap()).unwrap();
+  let entry = state["slots"].as_array_mut().unwrap().iter_mut().find(|entry| entry["path"] == json!(slot)).unwrap();
+  let lease = &mut entry["lease"];
+  lease["holder_pid"] = json!(pid);
+  lease["holder_started"] = json!(started.unwrap_or(1));
+  lease["leased_at"] = json!(long_ago.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
+  std::fs::write(state_file, serde_json::to_vec(&state).unwrap()).unwrap();
+  let git_dir = git_ops::lease_slot::linked_worktree(Path::new(slot)).unwrap().git_dir;
+  let log = git_dir.join("logs").join("HEAD");
+  if log.exists() {
+    std::fs::File::options().write(true).open(&log).unwrap().set_modified(long_ago).unwrap();
+  }
+}

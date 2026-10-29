@@ -3,7 +3,7 @@
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
 use crate::fixture_test::{
-  EMPTY_GLOBAL_CONFIG, PREFIX, canonical, commit_all, commit_subjects, context_with_the_config_prefix, environment, git, repo_with_baseline, run_in, write,
+  EMPTY_GLOBAL_CONFIG, PREFIX, canonical, commit_all, commit_subjects, context_with_the_config_prefix, environment, git, make_lease_idle, repo_with_baseline, run_in, write,
 };
 use crate::remote_fixture_test::{
   AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, repo_with_remote, robot as robot_json, stack_remote_moved_back, their_fix_on_auth,
@@ -13,7 +13,7 @@ use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
 use clap::Parser;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
-use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_get_reporting, lease_return};
+use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReclaimArgs, LeaseReturnArgs, lease_get, lease_get_reporting, lease_reclaim, lease_return};
 use bd_lease::workspace_command::workspace_with;
 use bd_remote::land_command::{LandArgs, LandOutput, land};
 use bd_remote::push_command::{PushArgs, push};
@@ -729,6 +729,103 @@ fn a_lease_return_whose_commit_landed_by_the_ladder() {
       ("symbolic-ref", 1),
     ],
   );
+}
+
+/// A repository and the pool of its lease, whose commit landed on master by a pick without a follow, onto a commit of a
+/// peer, then idle (`make_lease_idle`); with the context of a lease command in the repository
+fn idle_landed_lease() -> (TestRepo, tempfile::TempDir, bd_core::context::Environment, LeaseContext) {
+  let repo = repo_with_branches();
+  let (home, environment) = lease_environment(&repo);
+  let slot = leased_slot(&environment);
+  let slot_text = slot.to_string_lossy().into_owned();
+  std::fs::write(slot.join("lane-c.txt"), "c\n").unwrap();
+  let in_slot = |args: &[&str]| GitCommandExecutor::new().execute_command(args, &slot_text).unwrap();
+  in_slot(&["add", "lane-c.txt"]);
+  in_slot(&["commit", "-q", "-m", "(lane) Add c"]);
+  repo.create_commit("(peer) Add p", "p.txt", "p\n");
+  let (exit_code, picked) = run_in(&repo, &["pick", "--from", &slot_text]);
+  assert_eq!(exit_code, 0, "{picked}");
+  make_lease_idle(&repo.path().join(".git/branch-deck/leases.json"), &canonical_path(&slot));
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  (repo, home, environment, context)
+}
+
+/// The processes of the check of an idle lease whose commit landed by a pick (`check_idle`: the home tip, the
+/// candidates, the dry run of the pick that proves the commit, the resolve session, one `status`) and of its return (the
+/// config, HEAD), with `more` (each count replacing the one of its subcommand)
+fn idle_lease_processes(more: &[(&'static str, u32)]) -> Vec<(&'static str, u32)> {
+  let mut processes = BTreeMap::from([
+    ("config", 1),
+    ("for-each-ref", 1),
+    ("log", 3),
+    ("merge-base", 4),
+    ("remote", 1),
+    ("rev-list", 1),
+    ("show-ref", 3),
+    ("status", 1),
+    ("symbolic-ref", 1),
+  ]);
+  processes.extend(more.iter().copied());
+  processes.into_iter().collect()
+}
+
+/// A get that takes over an idle lease whose commit landed by a pick: the get of a free slot, then the check of the
+/// idle lease (the home tip, the proofs of `landed_work`: here the dry run of the pick proves the commit, the git dir
+/// and one `show-ref` of the resolve session, one `status`), its return (HEAD, the clean rules) and the move by the
+/// diff
+#[test]
+fn a_lease_get_that_takes_over_an_idle_lease() {
+  let (_repo, _home, environment, context) = idle_landed_lease();
+  let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  assert!(got.took_over.is_some(), "{got:?}");
+  // the get of a free slot (its source HEAD, the pool config) and the move by the diff (`reset`, the HEAD of the slot)
+  assert_git_processes(&context.git, &idle_lease_processes(&[("reset", 1), ("rev-parse", 7)]));
+}
+
+/// A get that passes over an idle lease whose work a get before it found: one `rev-parse` of the home tip, as the slot
+/// did not move, then a new slot by a clone (`a_lease_get_of_a_new_slot_by_a_clone`, macOS only)
+#[cfg(target_os = "macos")]
+#[test]
+fn a_lease_get_that_passes_over_an_idle_lease_it_checked() {
+  let repo = repo_with_branches();
+  let (_home, environment) = lease_environment(&repo);
+  let slot = leased_slot(&environment);
+  std::fs::write(slot.join("left.txt"), "left\n").unwrap();
+  make_lease_idle(&repo.path().join(".git/branch-deck/leases.json"), &canonical_path(&slot));
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  assert_eq!(serde_json::to_value(&got).unwrap()["skipped"][0]["reason"], "idle_with_work", "{got:?}");
+  assert_git_processes(
+    &context.git,
+    &[
+      ("checkout", 1),
+      ("clean", 1),
+      ("config", 1),
+      ("rev-parse", 3),
+      ("status", 1),
+      ("update-index", 1),
+      ("worktree", 2),
+    ],
+  );
+}
+
+/// `bd lease reclaim --idle` of one idle lease whose commit landed: the config, the check of `check_idle`, the return
+#[test]
+fn a_lease_reclaim() {
+  let (_repo, _home, _environment, context) = idle_landed_lease();
+  let reclaimed = lease_reclaim(
+    &context,
+    &LeaseReclaimArgs {
+      idle: true,
+      ..LeaseReclaimArgs::default()
+    },
+  )
+  .unwrap();
+  assert_eq!(reclaimed.reclaimed.len(), 1, "{reclaimed:?}");
+  assert_git_processes(&context.git, &idle_lease_processes(&[("rev-parse", 5)]));
 }
 
 /// `bd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto

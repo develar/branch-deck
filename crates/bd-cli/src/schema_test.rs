@@ -24,6 +24,7 @@ fn schema_lists_every_output() {
       "lease_clean",
       "lease_get",
       "lease_pick",
+      "lease_reclaim",
       "lease_return",
       "lease_status",
       "move_hunk",

@@ -57,7 +57,10 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
       format!("bd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()),
     ])
   );
-  assert_eq!(output["active_leases"], json!([{ "lease_id": lease["lease_id"], "holder": "lane-1", "path": slot }]));
+  assert_eq!(
+    output["active_leases"],
+    json!([{ "lease_id": lease["lease_id"], "holder": "lane-1", "path": slot, "holder_alive": true }])
+  );
   // the shared checkout names the lease too: a session that lost its path finds it by its holder
   assert_eq!(workspace_in(&fixture, fixture.repo.path())["active_leases"], output["active_leases"]);
 }

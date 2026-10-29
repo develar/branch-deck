@@ -24,7 +24,7 @@ use git_ops::lease_slot::{
   ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot, slot_changes, start_deferred_maintenance,
   unlock_slot,
 };
-use git_ops::revs::{RepositoryDirs, read_head, ref_exists, short_id};
+use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit, short_id};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLock, lock_file_while_held};
 use serde::{Deserialize, Serialize};
@@ -82,6 +82,119 @@ pub struct Slot {
   pub returned: Option<u64>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub lease: Option<Lease>,
+  /// The lease a takeover or `bd lease reclaim` took from its dead holder: a command of another session in the slot is
+  /// refused (`reclaimed_refusal`) until the next get of the free slot
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reclaimed: Option<Reclaimed>,
+}
+
+/// A lease that was taken from its dead holder because its work had landed
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reclaimed {
+  pub lease_id: String,
+  pub holder: String,
+  /// Unix seconds of its get
+  pub leased_at: u64,
+  /// The branch its get created: it stays, with the commits of the lease
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  /// Where its commits landed, the home of the lease
+  #[serde(default, skip_serializing_if = "String::is_empty")]
+  pub source: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub source_branch: Option<String>,
+  /// Unix seconds of the takeover
+  pub at: u64,
+  /// The lease of the get that took it over; none for `bd lease reclaim`, which left the slot free
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub by_lease_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub by_holder: Option<String>,
+}
+
+/// The last check of an idle lease that found work (`check_idle`): a later get checks it again only when what the
+/// verdict rests on moved
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdleCheck {
+  /// Unix seconds
+  pub at: u64,
+  /// The slot as its files tell it, no git: a commit, a reset or a checkout changes it
+  pub mark: SlotMark,
+  /// The tip of the home branch: a commit that lands there may prove the commits
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub home_tip: Option<String>,
+  /// The commits no proof found on the home branch, newest first
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub commits: Vec<WorkCommit>,
+  /// The local changes
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub paths: Vec<String>,
+  /// A git operation in progress (`rebase`, `merge`, `cherry-pick`, `revert`, `bisect`) or an open resolve session
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub operation: Option<String>,
+}
+
+impl IdleCheck {
+  /// The work, in words: "2 commit(s) its home branch lacks", "3 local change(s)", "a rebase in progress"
+  pub fn describe(&self) -> String {
+    let mut work = Vec::new();
+    if !self.commits.is_empty() {
+      work.push(format!("{} commit(s) its home branch lacks", self.commits.len()));
+    }
+    if !self.paths.is_empty() {
+      work.push(format!("{} local change(s)", self.paths.len()));
+    }
+    if let Some(operation) = &self.operation {
+      work.push(format!("a {operation} in progress"));
+    }
+    work.join(", ")
+  }
+
+  /// Whether the verdict holds for the slot as `mark` and the home tip `home_tip` tell it now: the tree work while the
+  /// slot did not change (its holder is gone), the commits while the home branch did not move either
+  fn holds(&self, mark: &SlotMark, home_tip: Option<&str>) -> bool {
+    self.mark == *mark && (!self.paths.is_empty() || self.operation.is_some() || self.home_tip.as_deref() == home_tip)
+  }
+}
+
+/// A commit of a lease that its home branch lacks
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkCommit {
+  pub id: String,
+  pub subject: String,
+}
+
+/// What the files of the git dir of a slot tell of its HEAD, without git: the content of `HEAD`, the length and the
+/// modification time of its reflog. A commit, a reset or a checkout in the slot changes it
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotMark {
+  pub head: String,
+  pub log_len: u64,
+  /// Unix seconds
+  pub log_modified: u64,
+}
+
+impl SlotMark {
+  /// The mark of the slot at `path`; empty when it is no linked worktree
+  pub fn of(path: &Path) -> Self {
+    let Some(worktree) = linked_worktree(path) else {
+      return Self::default();
+    };
+    let log = std::fs::metadata(worktree.git_dir.join("logs").join("HEAD")).ok();
+    Self {
+      head: std::fs::read_to_string(worktree.git_dir.join("HEAD")).unwrap_or_default().trim().to_string(),
+      log_len: log.as_ref().map_or(0, std::fs::Metadata::len),
+      log_modified: log.and_then(|log| log.modified().ok()).map_or(0, unix_seconds),
+    }
+  }
+}
+
+fn unix_seconds(time: SystemTime) -> u64 {
+  time.duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
+}
+
+fn now() -> u64 {
+  unix_seconds(SystemTime::now())
 }
 
 /// The lease of a slot
@@ -122,6 +235,13 @@ pub struct Lease {
   pub holder_pid: Option<u32>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub holder_started: Option<u64>,
+  /// The idle lease this `preparing` lease of a get takes over, while the get checks its work: a failed check, and a
+  /// get gone meanwhile, put it back (`settle_abandoned`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub taking_over: Option<Box<Self>>,
+  /// The last check of the idle lease that found work
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub idle_check: Option<IdleCheck>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,10 +266,46 @@ impl Lease {
     self.state != LeaseState::Ready && !is_running(self.pid, self.process_started)
   }
 
-  /// Whether the process the lease was got for still runs; `None` when the get recorded none. A gone holder does not
-  /// free a lease: the slot may hold unlanded work, and a resumed session runs as another process
+  /// Whether the process the lease was got for still runs; `None` when the get recorded none. A gone holder alone does
+  /// not free a lease: the slot may hold unlanded work, and a resumed session runs as another process; a get takes it
+  /// over only once its work landed (`is_idle`)
   pub fn holder_alive(&self) -> Option<bool> {
     self.holder_pid.map(|pid| is_running(pid, self.holder_started))
+  }
+
+  /// Whether the lease is idle: `ready`, its holder gone, and no host slot (idle between runs by design; only
+  /// `bd-host slots --local --shrink` gives one back)
+  pub fn is_idle(&self) -> bool {
+    self.state == LeaseState::Ready && self.holder_alive() == Some(false) && !self.holder.starts_with(HOST_HOLDER_PREFIX)
+  }
+}
+
+/// How long an idle lease must have been quiet before a get takes it over: its get and the last move of its HEAD. A
+/// holder recorded as a wrapper that exits at once (`cargo run`, `pnpm`) must not lose the lease its agent just began
+pub const IDLE_QUIET: Duration = Duration::from_hours(1);
+
+/// Whether the idle lease of `slot` was quiet for `IDLE_QUIET`: since its get and since the last move of its HEAD (the
+/// reflog of the slot, no git)
+fn is_quiet(slot: &Slot, lease: &Lease, now: u64) -> bool {
+  let quiet = IDLE_QUIET.as_secs();
+  now.saturating_sub(lease.leased_at) >= quiet && now.saturating_sub(SlotMark::of(Path::new(&slot.path)).log_modified) >= quiet
+}
+
+/// A lease that is not `ready` and whose process is gone: the idle lease it was taking over comes back, else the slot
+/// is free. The one rule of every reader that acts on such a lease: the reserve of a get, the mark of a clean, the
+/// return, the status
+fn settle_abandoned(slot: &mut Slot) {
+  if let Some(lease) = slot.lease.as_mut().filter(|lease| lease.is_abandoned()) {
+    warn!(slot = %slot.path, "freeing a lease whose process is gone");
+    slot.lease = lease.taking_over.take().map(|old| *old);
+  }
+}
+
+/// `settle_abandoned` of a get gone while it took an idle lease over, only: the idle lease comes back. A return and the
+/// status act on another abandoned lease as before (a return whose process died is returned by its retry)
+fn settle_abandoned_takeover(slot: &mut Slot) {
+  if slot.lease.as_ref().is_some_and(|lease| lease.is_abandoned() && lease.taking_over.is_some()) {
+    settle_abandoned(slot);
   }
 }
 
@@ -185,6 +341,9 @@ fn busy_processes(processes: &[&ProcessInfo]) -> Vec<BusyProcess> {
 pub struct IdleLease {
   pub path: String,
   pub holder: String,
+  pub lease_id: String,
+  /// The last check that found work in it
+  pub check: Option<IdleCheck>,
 }
 
 /// The `ready` leases of `store` whose holder process is gone
@@ -195,9 +354,11 @@ fn idle_leases(store: &LeaseStore) -> Vec<IdleLease> {
     .filter_map(|slot| {
       let lease = slot.lease.as_ref()?;
       // a host slot is idle between runs by design: `bd-host slots --local --shrink` gives it back, never a hand return
-      (lease.state == LeaseState::Ready && lease.holder_alive() == Some(false) && !lease.holder.starts_with(HOST_HOLDER_PREFIX)).then(|| IdleLease {
+      lease.is_idle().then(|| IdleLease {
         path: slot.path.clone(),
         holder: lease.holder.clone(),
+        lease_id: lease.id.clone(),
+        check: lease.idle_check.clone(),
       })
     })
     .collect()
@@ -219,10 +380,11 @@ pub enum LeaseRefusal {
   #[error("Bazel servers of {path} did not exit on SIGTERM: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
   #[error(
-    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}. Tell the user (`bd lease clean --free` and the Bazel output bases of slots no longer used free space); never pass `--min-free 0` on your own",
+    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle` and the Bazel output bases of slots no longer used free space); never pass `--min-free 0` on your own",
     describe_size(*.available),
     describe_size(*.required),
-    describe_idle(.idle)
+    describe_idle(.idle),
+    describe_trash(*.trash)
   )]
   LowDiskSpace {
     pool: String,
@@ -230,6 +392,8 @@ pub enum LeaseRefusal {
     required: u64,
     free_slots: usize,
     idle: Vec<IdleLease>,
+    /// The trash a process still running keeps
+    trash: u64,
   },
   #[error("{key} {value:?}: {reason}")]
   InvalidSize { key: String, value: String, reason: String },
@@ -267,6 +431,40 @@ pub enum LeaseRefusal {
   HostSlot { path: String, n: u32 },
   #[error("The holder {0:?} is reserved: the host slots of `bd-host` are `{HOST_HOLDER_PREFIX}<n>`")]
   ReservedHolder(String),
+  #[error("{}", describe_reclaimed(.path, .reclaimed, *.in_progress))]
+  LeaseReclaimed {
+    path: String,
+    reclaimed: Box<Reclaimed>,
+    /// The get still checks the work of the lease, which may come back
+    in_progress: bool,
+  },
+}
+
+fn describe_reclaimed(path: &str, reclaimed: &Reclaimed, in_progress: bool) -> String {
+  let Reclaimed {
+    lease_id,
+    holder,
+    branch,
+    source_branch,
+    by_lease_id,
+    by_holder,
+    ..
+  } = reclaimed;
+  let home = source_branch.as_deref().unwrap_or("its home branch");
+  let by = match (by_lease_id, by_holder) {
+    (Some(id), Some(by)) => format!("the lease {id} of {by}"),
+    _ => "`bd lease reclaim`, which left it free".to_string(),
+  };
+  let branch = branch.as_ref().map_or_else(String::new, |branch| format!("; its branch {branch} stays"));
+  if in_progress {
+    format!(
+      "The lease {lease_id} of {holder} in {path} is being taken over by {by}, which checks whether its work landed on {home}: this worktree is not yours now{branch}. Wait for `bd lease status`, then get a lease of your own"
+    )
+  } else {
+    format!(
+      "The lease {lease_id} of {holder} in {path} was taken over by {by}: its holder process was gone and every commit of it was on {home}{branch}. This worktree is not yours; get a lease of your own and work there"
+    )
+  }
 }
 
 fn describe_processes(processes: &[BusyProcess]) -> String {
@@ -293,8 +491,22 @@ fn describe_idle(idle: &[IdleLease]) -> String {
   if idle.is_empty() {
     return String::new();
   }
-  let leases: Vec<String> = idle.iter().map(|lease| format!("{} ({})", lease.path, lease.holder)).collect();
+  let leases: Vec<String> = idle
+    .iter()
+    .map(|lease| match &lease.check {
+      Some(check) => format!("{} ({}, with {})", lease.path, lease.holder, check.describe()),
+      None => format!("{} ({})", lease.path, lease.holder),
+    })
+    .collect();
   format!("; leases whose holder process is gone: {}", leases.join(", "))
+}
+
+fn describe_trash(trash: u64) -> String {
+  if trash == 0 {
+    String::new()
+  } else {
+    format!("; {} in the trash of a run that still runs", describe_size(trash))
+  }
 }
 
 /// The pool state of one repository: its file and its lock in `$GIT_COMMON_DIR/branch-deck/`
@@ -404,6 +616,8 @@ pub enum SkipReason {
   Dirty { paths: Vec<String> },
   /// Processes have their working directory in it, or a Bazel server of it did not exit
   Busy { processes: Vec<BusyProcess> },
+  /// An idle lease, its holder gone, with work its home branch lacks: the get leaves it to the user
+  IdleWithWork { holder: String, lease_id: String, check: IdleCheck },
 }
 
 pub struct LeaseGetParams<'a> {
@@ -451,6 +665,10 @@ pub enum GetStep {
   CheckoutEveryFile { slot: String, reason: String },
   /// The copy of the paths that `.worktreeinclude` names
   Seed { slot: String, paths: usize },
+  /// The check of the work of an idle lease, whose holder is gone: landed in its home branch, a clean tree
+  TakeOver { slot: String, holder: String },
+  /// The return of the idle lease the get took over: its seeded paths, its branch detached, the clean rules
+  CleanTakenOver { slot: String },
 }
 
 impl fmt::Display for GetStep {
@@ -466,6 +684,8 @@ impl fmt::Display for GetStep {
       Self::Checkout { slot, commit } => write!(f, "checking out {} in {slot}", short_id(commit)),
       Self::CheckoutEveryFile { slot, reason } => write!(f, "checking out every file of {slot}, because git refused the diff: {reason}"),
       Self::Seed { slot, paths } => write!(f, "copying {paths} path(s) that {WORKTREE_INCLUDE} names into {slot}"),
+      Self::TakeOver { slot, holder } => write!(f, "checking whether the work of the idle lease of {holder} in {slot} landed"),
+      Self::CleanTakenOver { slot } => write!(f, "returning the idle lease of {slot}: its seeded paths, its branch and the clean rules"),
     }
   }
 }
@@ -533,6 +753,8 @@ pub struct LeaseGot {
   pub free_bytes: Option<u64>,
   /// With a new slot: the leases whose holder process is gone, which keep their slots from the pool
   pub idle: Vec<IdleLease>,
+  /// The idle lease the get took over, its work landed
+  pub took_over: Option<TookOver>,
   /// Whether the processes were checked (`ProcessScan::Unavailable` on Windows)
   pub process_scan: bool,
   /// How long the get waited for the clones lock, which other gets held while they added slots; `None` when it waited
@@ -544,6 +766,14 @@ pub struct LeaseGot {
 enum Reserved {
   /// With the Bazel servers of the slot, the only processes in it: the get stops them before the checkout
   Free { path: String, name: String, servers: Vec<ProcessInfo> },
+  /// An idle lease, which the get takes over once its work landed (`check_idle`); `old` is that lease, which the
+  /// `preparing` one of the get keeps as `taking_over` meanwhile, and `servers` the Bazel servers of the slot
+  TakeOver {
+    path: String,
+    name: String,
+    servers: Vec<ProcessInfo>,
+    old: Box<Lease>,
+  },
   /// A new slot at `path`; `template` is a free slot marked `templating` for its clone
   New { path: PathBuf, template: Option<String> },
   /// No free slot, and the get does not hold the clones lock yet: nothing is reserved
@@ -568,15 +798,28 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
   if let Some(holder) = params.holder.as_ref().filter(|holder| holder.starts_with(HOST_HOLDER_PREFIX)) {
     bail!(LeaseRefusal::ReservedHolder(holder.clone()));
   }
-  get_lease(git_executor, params)
+  get_lease(git_executor, params, TakeOver::Idle)
 }
 
-/// The get of a host slot (`host_slots::fill`), with its holder `bd-host/<n>`
+/// The get of a host slot (`host_slots::fill`), with its holder `bd-host/<n>`: it takes over no idle lease, as the
+/// trash of a takeover is named by the process of the long-lived agent, which no later return deletes while it runs
 pub(crate) fn get_host_slot(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
-  get_lease(git_executor, params)
+  get_lease(git_executor, params, TakeOver::None)
 }
 
-fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
+/// Which idle leases a get takes over
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TakeOver {
+  /// Those whose work landed (`check_idle`), before it adds a slot
+  Idle,
+  None,
+}
+
+/// How many idle leases one get checks in full (`landed_work`, a `status`): one whose verdict still holds costs one
+/// `rev-parse` and counts not
+const IDLE_CHECKS_PER_GET: usize = 2;
+
+fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, take_over: TakeOver) -> Result<LeaseGot> {
   let report = |step: GetStep| {
     if let Some(progress) = params.progress {
       progress(step);
@@ -600,9 +843,8 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> 
   std::fs::create_dir_all(&pool_dir).with_context(|| format!("Cannot create the pool directory {}", pool_dir.display()))?;
   let pool_dir = PathBuf::from(canonical_path(&pool_dir));
   let pool = Pool::new(&git_common_dir);
-  let mut free_bytes = available_bytes(&pool_dir);
   let mut min_free = required_free(params, &config)?;
-  check_free_space(&pool, &pool_dir, free_bytes, min_free)?;
+  let mut free_bytes = free_space(&pool, &pool_dir, min_free)?;
   let seeds = seed_paths(git_executor, source)?;
   // the rules of the source leave out of a cloned slot what a return would delete; a file that can't be read clones all
   let skips = CloneSkips::new(&clone_skips(&read_clean_rules(Path::new(source)).unwrap_or_else(|error| {
@@ -627,6 +869,8 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> 
     reused: false,
     holder_pid: holder.map(|process| process.pid),
     holder_started: holder.and_then(|process| process.started),
+    taking_over: None,
+    idle_check: None,
   };
 
   let mut skipped = Vec::new();
@@ -635,14 +879,17 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> 
   let mut cloned_from = None;
   let mut stopped_servers = Vec::new();
   let mut idle = Vec::new();
+  let mut took_over = None;
+  let mut idle_checks = 0;
   // held from the reserve of a new slot until the slot is ready or given back (dropped on return)
   let mut clones_lock: Option<RepositoryLock> = None;
   let mut waited_for_clone: Option<Duration> = None;
   loop {
     let adding = clones_lock.is_some();
     report(GetStep::Reserve { adding });
+    let takes_over = take_over == TakeOver::Idle && idle_checks < IDLE_CHECKS_PER_GET;
     let reserved = pool.update(params.lock_timeout, |store| {
-      let reserved = reserve(store, &git_common_dir, &pool_dir, &scan, &mut tried, &mut skipped, &lease, adding);
+      let reserved = reserve(store, &git_common_dir, &pool_dir, &scan, &mut tried, &mut skipped, &lease, adding, takes_over);
       if matches!(reserved, Reserved::New { .. }) {
         idle = idle_leases(store);
       }
@@ -659,35 +906,16 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> 
           scan = ProcessScan::scan();
         }
         // a queue of gets never adds slots past the minimum: each measures what the ones before it left
-        free_bytes = available_bytes(&pool_dir);
-        check_free_space(&pool, &pool_dir, free_bytes, min_free)?;
+        free_bytes = free_space(&pool, &pool_dir, min_free)?;
         clones_lock = Some(lock);
         continue;
       }
       Reserved::Free { path, name, servers } => {
         // a slot freed while the get waited for the clones lock: the next get that adds a slot goes on
         clones_lock = None;
-        if !servers.is_empty() {
-          report(GetStep::StopServers {
-            slot: path.clone(),
-            servers: servers.len(),
-          });
-          let servers: Vec<&ProcessInfo> = servers.iter().collect();
-          let stopped = stop_servers(&servers, params.server_timeout);
-          let running: Vec<&ProcessInfo> = servers.iter().copied().filter(|server| !stopped.iter().any(|stopped| stopped.pid == server.pid)).collect();
-          stopped_servers.extend(stopped);
-          if !running.is_empty() {
-            debug!(slot = %path, servers = running.len(), "skipping a slot whose Bazel servers did not exit");
-            release_marker(&pool, params.lock_timeout, &path, &lease.id);
-            skipped.push(SkippedSlot {
-              name,
-              path,
-              reason: SkipReason::Busy {
-                processes: busy_processes(&running),
-              },
-            });
-            continue;
-          }
+        if let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), &lease.id, &servers, &mut stopped_servers) {
+          skipped.push(busy);
+          continue;
         }
         report(GetStep::Status { slot: path.clone() });
         let changes = slot_changes(git_executor, &path, config.untracked).map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
@@ -707,12 +935,59 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> 
           });
           continue;
         }
-        report(GetStep::Checkout {
+        move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
+        (path, true)
+      }
+      Reserved::TakeOver { path, name, servers, old } => {
+        clones_lock = None;
+        report(GetStep::TakeOver {
           slot: path.clone(),
-          commit: source_head.clone(),
+          holder: old.holder.clone(),
         });
-        move_reused_slot(git_executor, &path, &source_head, params.branch.as_deref(), config.workers, &report)
+        let verdict = check_idle(git_executor, &path, &name, &old, config.untracked);
+        let landed = match verdict {
+          Ok(IdleVerdict::Landed { landed, mark }) if commit_takeover(&pool, params.lock_timeout, &path, &lease, &mark)? => landed,
+          Ok(IdleVerdict::Landed { .. }) => {
+            debug!(slot = %path, "the idle slot moved while the get checked it");
+            keep_idle(&pool, params.lock_timeout, &path, &lease.id, *old);
+            idle_checks += 1;
+            continue;
+          }
+          Ok(IdleVerdict::Work { check, fresh }) => {
+            idle_checks += usize::from(fresh);
+            let mut kept = *old;
+            kept.idle_check = Some(check.clone());
+            skipped.push(SkippedSlot {
+              name,
+              path: path.clone(),
+              reason: SkipReason::IdleWithWork {
+                holder: kept.holder.clone(),
+                lease_id: kept.id.clone(),
+                check,
+              },
+            });
+            keep_idle(&pool, params.lock_timeout, &path, &lease.id, kept);
+            continue;
+          }
+          Err(error) => {
+            warn!(slot = %path, error = %format!("{error:#}"), "cannot check the work of an idle lease");
+            keep_idle(&pool, params.lock_timeout, &path, &lease.id, *old);
+            idle_checks += 1;
+            continue;
+          }
+        };
+        // the lease is the get's now: what fails from here frees the slot, whose work landed
+        if let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), &lease.id, &servers, &mut stopped_servers) {
+          skipped.push(busy);
+          continue;
+        }
+        report(GetStep::CleanTakenOver { slot: path.clone() });
+        // the trash stays: the next return or clean deletes it as the trash of a gone run, and the get goes on
+        let trash = Trash::new(&pool.trash_dir());
+        finish_return(git_executor, &path, &old, &[], Some(CleanOverrides::default()), &trash)
           .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
+        move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
+        took_over = Some(TookOver { lease: *old, landed });
         (path, true)
       }
       Reserved::New { path, template } => {
@@ -790,10 +1065,63 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> 
       stopped_servers,
       free_bytes,
       idle,
+      took_over,
       process_scan: scan.is_available(),
       waited_for_clone,
     });
   }
+}
+
+/// Stop the Bazel servers of the slot `(name, path)` that the get of `lease_id` reserved, added to `stopped`: with one
+/// that did not exit, the slot is given back free and skipped as busy
+fn stop_reserved_servers(
+  pool: &Pool,
+  params: &LeaseGetParams<'_>,
+  (name, path): (&str, &str),
+  lease_id: &str,
+  servers: &[ProcessInfo],
+  stopped: &mut Vec<StoppedServer>,
+) -> Option<SkippedSlot> {
+  if servers.is_empty() {
+    return None;
+  }
+  if let Some(progress) = params.progress {
+    progress(GetStep::StopServers {
+      slot: path.to_string(),
+      servers: servers.len(),
+    });
+  }
+  let servers: Vec<&ProcessInfo> = servers.iter().collect();
+  let exited = stop_servers(&servers, params.server_timeout);
+  let running: Vec<&ProcessInfo> = servers.iter().copied().filter(|server| !exited.iter().any(|stopped| stopped.pid == server.pid)).collect();
+  stopped.extend(exited);
+  if running.is_empty() {
+    return None;
+  }
+  debug!(slot = %path, servers = running.len(), "skipping a slot whose Bazel servers did not exit");
+  release_marker(pool, params.lock_timeout, path, lease_id);
+  Some(SkippedSlot {
+    name: name.to_string(),
+    path: path.to_string(),
+    reason: SkipReason::Busy {
+      processes: busy_processes(&running),
+    },
+  })
+}
+
+/// Move the reserved slot `path` to `commit` (`move_reused_slot`), onto the new branch of the get; a failure gives the
+/// slot back
+fn move_leased_slot(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseGetParams<'_>, path: &str, lease_id: &str, commit: &str, workers: CheckoutWorkers) -> Result<()> {
+  let report = |step: GetStep| {
+    if let Some(progress) = params.progress {
+      progress(step);
+    }
+  };
+  report(GetStep::Checkout {
+    slot: path.to_string(),
+    commit: commit.to_string(),
+  });
+  move_reused_slot(git_executor, path, commit, params.branch.as_deref(), workers, &report).map_err(|error| give_back(pool, params.lock_timeout, path, lease_id, false, error))
 }
 
 /// The free space the volume of the pool must have: `--min-free`, else `branchdeck.leaseMinFree` of `config`, else none
@@ -809,12 +1137,19 @@ fn required_free(params: &LeaseGetParams<'_>, config: &LeaseConfig) -> Result<u6
   }
 }
 
-/// `LowDiskSpace` when the volume of the pool has less than `min_free` (`available`); nothing where the system does not
-/// tell it
-fn check_free_space(pool: &Pool, pool_dir: &Path, available: Option<u64>, min_free: u64) -> Result<()> {
-  if let Some(available) = available
-    && available < min_free
-  {
+/// The free space of the volume of the pool (`None` where the system does not tell it), at least `min_free`: else
+/// `LowDiskSpace`. Below the minimum, the trash of runs that are gone is deleted first (what the clean rules of a
+/// takeover moved there, which only a later return or clean deletes), and the space measured again
+fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64) -> Result<Option<u64>> {
+  let below = |available: Option<u64>| available.is_some_and(|available| available < min_free);
+  let mut available = available_bytes(pool_dir);
+  let mut trash = if below(available) { pool.trash_bytes() } else { 0 };
+  if trash > 0 {
+    Trash::new(&pool.trash_dir()).sweep();
+    available = available_bytes(pool_dir);
+    trash = pool.trash_bytes();
+  }
+  if let Some(available) = available.filter(|&available| available < min_free) {
     let store = pool.read()?;
     bail!(LeaseRefusal::LowDiskSpace {
       pool: display_path(pool_dir),
@@ -822,9 +1157,10 @@ fn check_free_space(pool: &Pool, pool_dir: &Path, available: Option<u64>, min_fr
       required: min_free,
       free_slots: store.slots.iter().filter(|slot| slot.lease.is_none()).count(),
       idle: idle_leases(&store),
+      trash,
     });
   }
-  Ok(())
+  Ok(available)
 }
 
 /// The clones lock of `pool` (`Pool::lock_clones`), and how long the get waited for it when another get held it; the
@@ -887,12 +1223,10 @@ fn reserve(
   skipped: &mut Vec<SkippedSlot>,
   lease: &Lease,
   may_add: bool,
+  take_over: bool,
 ) -> Reserved {
   for slot in &mut store.slots {
-    if slot.lease.as_ref().is_some_and(Lease::is_abandoned) {
-      warn!(slot = %slot.path, "freeing a lease whose get is gone");
-      slot.lease = None;
-    }
+    settle_abandoned(slot);
   }
   store.slots.retain(|slot| slot.lease.is_some() || Path::new(&slot.path).is_dir());
   for dirty in [false, true] {
@@ -909,24 +1243,21 @@ fn reserve(
       tried.insert(slot.path.clone());
       // a Bazel server serves only its slot, and a free slot is the pool's: the get stops it. A `--watchfs` server could
       // miss the events of the checkout and build stale
-      let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = scan.inside(Path::new(&slot.path)).into_iter().partition(|process| process.bazel_workspace().is_some());
-      if !others.is_empty() {
-        skipped.push(SkippedSlot {
-          name: slot.name.clone(),
-          path: slot.path.clone(),
-          reason: SkipReason::Busy {
-            processes: busy_processes(&others),
-          },
-        });
+      let Some(servers) = servers_alone(scan, slot, skipped) else {
         continue;
-      }
+      };
       slot.lease = Some(lease.clone());
+      // the record of a takeover lasts until the free slot is leased again
+      slot.reclaimed = None;
       return Reserved::Free {
         path: slot.path.clone(),
         name: slot.name.clone(),
-        servers: servers.into_iter().cloned().collect(),
+        servers,
       };
     }
+  }
+  if take_over && let Some(reserved) = reserve_idle(store, git_common_dir, scan, tried, skipped, lease) {
+    return reserved;
   }
   if !may_add {
     return Reserved::NoFreeSlot;
@@ -939,8 +1270,197 @@ fn reserve(
     dirty: false,
     returned: None,
     lease: Some(lease.clone()),
+    reclaimed: None,
   });
   Reserved::New { path, template }
+}
+
+/// The Bazel servers of `slot` when they are the only processes in it, which the get stops itself; else `None`, and the
+/// slot skipped as busy
+fn servers_alone(scan: &ProcessScan, slot: &Slot, skipped: &mut Vec<SkippedSlot>) -> Option<Vec<ProcessInfo>> {
+  let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = scan.inside(Path::new(&slot.path)).into_iter().partition(|process| process.bazel_workspace().is_some());
+  if !others.is_empty() {
+    skipped.push(SkippedSlot {
+      name: slot.name.clone(),
+      path: slot.path.clone(),
+      reason: SkipReason::Busy {
+        processes: busy_processes(&others),
+      },
+    });
+    return None;
+  }
+  Some(servers.into_iter().cloned().collect())
+}
+
+/// Under the pool lock: the idle lease (`Lease::is_idle`) that was quiet longest (`is_quiet`), of a slot of this
+/// repository with no process in it but its Bazel servers, taken by the `preparing` lease of the get, which keeps the
+/// idle one as `taking_over`; a busy slot is skipped
+fn reserve_idle(store: &mut LeaseStore, git_common_dir: &Path, scan: &ProcessScan, tried: &mut HashSet<String>, skipped: &mut Vec<SkippedSlot>, lease: &Lease) -> Option<Reserved> {
+  let now = now();
+  let mut order: Vec<usize> = (0..store.slots.len())
+    .filter(|&index| {
+      let slot = &store.slots[index];
+      slot.lease.as_ref().is_some_and(|idle| idle.is_idle() && is_quiet(slot, idle, now)) && !tried.contains(&slot.path) && is_worktree_of(Path::new(&slot.path), git_common_dir)
+    })
+    .collect();
+  order.sort_by_key(|&index| store.slots[index].lease.as_ref().map_or(0, |idle| idle.leased_at));
+  for index in order {
+    let slot = &mut store.slots[index];
+    tried.insert(slot.path.clone());
+    let Some(servers) = servers_alone(scan, slot, skipped) else {
+      continue;
+    };
+    let old = Box::new(slot.lease.take()?);
+    slot.lease = Some(Lease {
+      taking_over: Some(old.clone()),
+      ..lease.clone()
+    });
+    return Some(Reserved::TakeOver {
+      path: slot.path.clone(),
+      name: slot.name.clone(),
+      servers,
+      old,
+    });
+  }
+  None
+}
+
+/// What the check of an idle lease found
+enum IdleVerdict {
+  /// Every commit of the lease is in its home branch and the tree is clean: `mark` is the slot as the check found it
+  Landed { landed: Vec<LandedCommit>, mark: SlotMark },
+  /// Work the get leaves alone; `fresh` when this check found it, not the one before (its verdict still holds)
+  Work { check: IdleCheck, fresh: bool },
+}
+
+/// Whether the work of the idle lease `old` of the slot at `path` (the worktree `name`) landed, cheap checks first:
+/// the verdict of the check before while it holds (`IdleCheck::holds`, one `rev-parse` of the home tip), the commits on
+/// git objects only (`landed_work`), a git operation or a resolve session in progress (no git but one `show-ref`), the
+/// local changes (one `status`)
+fn check_idle(git_executor: &GitCommandExecutor, path: &str, name: &str, old: &Lease, untracked: UntrackedFiles) -> Result<IdleVerdict> {
+  let mark = SlotMark::of(Path::new(path));
+  let home_tip = match &old.source_branch {
+    Some(branch) => resolve_commit(git_executor, path, &format!("refs/heads/{branch}"))?,
+    None => None,
+  };
+  if let Some(check) = old.idle_check.as_ref().filter(|check| check.holds(&mark, home_tip.as_deref())) {
+    return Ok(IdleVerdict::Work {
+      check: check.clone(),
+      fresh: false,
+    });
+  }
+  let work = |commits: Vec<WorkCommit>, paths: Vec<String>, operation: Option<String>| IdleVerdict::Work {
+    check: IdleCheck {
+      at: now(),
+      mark: mark.clone(),
+      home_tip: home_tip.clone(),
+      commits,
+      paths,
+      operation,
+    },
+    fresh: true,
+  };
+  let landed = landed_work(git_executor, path, &old.source_head, old.source_branch.as_deref(), Purpose::TakeOver)?;
+  if !landed.unlanded.is_empty() {
+    let commits = landed
+      .unlanded
+      .into_iter()
+      .map(|commit| WorkCommit {
+        id: commit.id,
+        subject: commit.subject,
+      })
+      .collect();
+    return Ok(work(commits, Vec::new(), None));
+  }
+  if let Some(operation) = operation_in_progress(git_executor, path, name) {
+    return Ok(work(Vec::new(), Vec::new(), Some(operation)));
+  }
+  let paths = slot_changes(git_executor, path, untracked)?;
+  if !paths.is_empty() {
+    return Ok(work(Vec::new(), paths, None));
+  }
+  Ok(IdleVerdict::Landed { landed: landed.landed, mark })
+}
+
+/// A git operation in progress in the slot at `path` (its git dir, which `status` does not show), or its resolve
+/// session (`refs/branch-deck/resolve/<name>`): the next lease would find it half done
+fn operation_in_progress(git_executor: &GitCommandExecutor, path: &str, name: &str) -> Option<String> {
+  const OPERATIONS: [(&str, &str); 7] = [
+    ("rebase-merge", "rebase"),
+    ("rebase-apply", "rebase"),
+    ("MERGE_HEAD", "merge"),
+    ("CHERRY_PICK_HEAD", "cherry-pick"),
+    ("REVERT_HEAD", "revert"),
+    ("sequencer", "cherry-pick"),
+    ("BISECT_LOG", "bisect"),
+  ];
+  let git_dir = linked_worktree(Path::new(path))?.git_dir;
+  if let Some((_, operation)) = OPERATIONS.iter().find(|(file, _)| git_dir.join(file).exists()) {
+    return Some((*operation).to_string());
+  }
+  let session = session_ref(name);
+  ref_exists(git_executor, path, &session).then(|| format!("resolve session {session}"))
+}
+
+/// The commit point of a takeover, under the pool lock: the slot still has the lease of the get and is as the check
+/// found it (`mark`: no commit of a resumed session meanwhile), and the idle lease leaves for the record of the slot
+/// (`Slot::reclaimed`). From here a get that dies leaves the slot free, as its work landed. False when the check no
+/// longer holds
+pub(crate) fn commit_takeover(pool: &Pool, timeout: Duration, path: &str, lease: &Lease, mark: &SlotMark) -> Result<bool> {
+  pool.update(timeout, |store| {
+    let Some(slot) = leased_slot(store, path, &lease.id) else {
+      return Ok(false);
+    };
+    if SlotMark::of(Path::new(path)) != *mark {
+      return Ok(false);
+    }
+    let Some(old) = slot.lease.as_mut().and_then(|current| current.taking_over.take()) else {
+      return Ok(false);
+    };
+    slot.reclaimed = Some(Reclaimed::of(&old, Some(lease)));
+    Ok(true)
+  })
+}
+
+/// Give the idle lease `old` back to the slot at `path` that the get of `lease_id` reserved, from the copy of the get: a
+/// bd before `taking_over` that wrote the state meanwhile dropped the one in the state. Best effort: a get gone before
+/// it gives it back leaves it to `settle_abandoned`
+fn keep_idle(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, old: Lease) {
+  let kept = pool.update(timeout, |store| {
+    if let Some(slot) = leased_slot(store, path, lease_id) {
+      slot.lease = Some(old);
+    }
+    Ok(())
+  });
+  if let Err(error) = kept {
+    warn!(slot = %path, error = %format!("{error:#}"), "cannot give the idle lease back");
+  }
+}
+
+impl Reclaimed {
+  /// The record of `old`, taken over by `by` (none: `bd lease reclaim`)
+  fn of(old: &Lease, by: Option<&Lease>) -> Self {
+    Self {
+      lease_id: old.id.clone(),
+      holder: old.holder.clone(),
+      leased_at: old.leased_at,
+      branch: old.branch.clone(),
+      source: old.source.clone(),
+      source_branch: old.source_branch.clone(),
+      at: now(),
+      by_lease_id: by.map(|lease| lease.id.clone()),
+      by_holder: by.map(|lease| lease.holder.clone()),
+    }
+  }
+}
+
+/// The idle lease a get took over
+#[derive(Debug, Clone)]
+pub struct TookOver {
+  /// As it was before the get
+  pub lease: Lease,
+  /// Its commits that its home branch was proven to have
+  pub landed: Vec<LandedCommit>,
 }
 
 /// The path of the next new slot: `<pool>/<n>/<repository name>`, the smallest `n` whose directory does not exist and
@@ -1196,7 +1716,8 @@ fn give_back(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, remove:
         .slots
         .retain(|slot| !(slot.path == path && slot.lease.as_ref().is_some_and(|lease| lease.id == lease_id)));
     } else if let Some(slot) = leased_slot(store, path, lease_id) {
-      slot.lease = None;
+      // the idle lease it took over, before the commit point of the takeover
+      slot.lease = slot.lease.take().and_then(|lease| lease.taking_over).map(|old| *old);
     }
     Ok(())
   });
@@ -1568,7 +2089,9 @@ fn return_once(
   checked: &mut Option<Slot>,
 ) -> Result<ReturnStep> {
   let path = path.to_string();
-  let store = pool.read()?;
+  let mut store = pool.read()?;
+  // as the next writer settles it: a get gone while it took the lease over gave it back
+  store.slots.iter_mut().for_each(settle_abandoned_takeover);
   let current = store
     .slots
     .iter()
@@ -1739,7 +2262,11 @@ enum Reservation {
 fn reserve_return(pool: &Pool, timeout: Duration, path: &str, lease_id: &str) -> Result<Reservation> {
   let pid = std::process::id();
   pool.update(timeout, |store| {
-    let current = store.slots.iter_mut().find(|slot| slot.path == path).and_then(|slot| slot.lease.as_mut());
+    let slot = store.slots.iter_mut().find(|slot| slot.path == path);
+    let current = slot.and_then(|slot| {
+      settle_abandoned_takeover(slot);
+      slot.lease.as_mut()
+    });
     let Some(current) = current.filter(|current| current.id == lease_id) else {
       return Ok(Reservation::Returned);
     };
@@ -1916,9 +2443,57 @@ pub fn ready_slot_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Sl
   )
 }
 
+/// Why a command of `bd` in the worktree `top_level` must not run: the slot's lease was taken over from a dead holder
+/// (`Slot::reclaimed`) or is being taken over, and this process is no process of the session that holds it now, as a
+/// resumed session of the old holder is not. From the state, no git; a process scan only in such a slot. A command that
+/// `mutates` nothing passes but while a get takes the lease over. `lease_id`, the id a command names, passes when it is
+/// the current lease's (a coordinator returns it). Not refused: a slot that no takeover touched, and a holder that is
+/// gone too or a platform without a scan, where the two sessions can't be told apart
+pub fn reclaimed_refusal(git_common_dir: &Path, top_level: &str, mutates: bool, lease_id: Option<&str>) -> Result<Option<LeaseRefusal>> {
+  let path = canonical_path(Path::new(top_level));
+  let store = Pool::new(Path::new(&canonical_path(git_common_dir))).read()?;
+  let Some(slot) = store.slots.into_iter().find(|slot| slot.path == path) else {
+    return Ok(None);
+  };
+  let refusal = |reclaimed: Reclaimed, in_progress: bool| {
+    Some(LeaseRefusal::LeaseReclaimed {
+      path: path.clone(),
+      reclaimed: Box::new(reclaimed),
+      in_progress,
+    })
+  };
+  if let Some(lease) = &slot.lease
+    && let Some(old) = lease.taking_over.as_ref().filter(|_| !lease.is_abandoned())
+  {
+    return Ok(refusal(Reclaimed::of(old, Some(lease)), true));
+  }
+  let Some(reclaimed) = slot.reclaimed else {
+    return Ok(None);
+  };
+  if !mutates {
+    return Ok(None);
+  }
+  match &slot.lease {
+    None => Ok(refusal(reclaimed, false)),
+    Some(lease) if lease_id == Some(lease.id.as_str()) => Ok(None),
+    Some(lease) if lease.state == LeaseState::Ready && lease.holder_alive() == Some(true) => {
+      let holder = lease.holder_pid.unwrap_or_default();
+      let scan = ProcessScan::scan();
+      if scan.is_available() && !scan.has_ancestor(holder, lease.holder_started) {
+        Ok(refusal(reclaimed, false))
+      } else {
+        Ok(None)
+      }
+    }
+    Some(_) => Ok(None),
+  }
+}
+
 /// Every slot of the pool from the state, no git: with `processes`, the process scan of each slot too
 pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<SlotStatus>, bool)> {
-  let store = Pool::new(Path::new(&canonical_path(git_common_dir))).read()?;
+  let mut store = Pool::new(Path::new(&canonical_path(git_common_dir))).read()?;
+  // a get gone while it took an idle lease over gave it back: the state as the next writer settles it
+  store.slots.iter_mut().for_each(settle_abandoned_takeover);
   let scan = if processes { ProcessScan::scan() } else { ProcessScan::Unavailable };
   let slots = store
     .slots
@@ -2007,6 +2582,8 @@ pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanPa
     reused: false,
     holder_pid: None,
     holder_started: None,
+    taking_over: None,
+    idle_check: None,
   };
   let trash = Trash::new(&pool.trash_dir());
   let mode = if params.apply { CleanMode::Trash(&trash) } else { CleanMode::Measure };
@@ -2068,12 +2645,231 @@ fn mark_for_clean(pool: &Pool, timeout: Duration, path: &str, marker: &Lease) ->
     let Some(slot) = store.slots.iter_mut().find(|slot| slot.path == path) else {
       return Ok(None);
     };
-    if let Some(lease) = slot.lease.as_ref().filter(|lease| !lease.is_abandoned()) {
+    settle_abandoned(slot);
+    if let Some(lease) = &slot.lease {
       return Ok(Some(lease.holder.clone()));
     }
     slot.lease = Some(marker.clone());
     Ok(None)
   })
+}
+
+/// What `bd lease reclaim --idle` reclaims
+pub struct LeaseReclaimParams<'a> {
+  /// A checkout of the repository: its config and its clean rules
+  pub repository: &'a RepositoryDirs,
+  /// Reclaim, the default; false (`--dry-run`) only checks and writes nothing
+  pub apply: bool,
+  /// The parameters of the call that change the clean rules of the file
+  pub clean: CleanOverrides,
+  /// How long the reclaim waits for the Bazel servers it asked to exit
+  pub server_timeout: Duration,
+  pub lock_timeout: Duration,
+}
+
+/// What `bd lease reclaim` did with each idle lease of the pool
+#[derive(Debug, Clone, Default)]
+pub struct LeaseReclaim {
+  /// Returned, as their work landed (with `--dry-run`: would be)
+  pub reclaimed: Vec<ReclaimedLease>,
+  /// Left alone, with the work their home branch lacks: the user's to decide
+  pub kept: Vec<KeptLease>,
+  /// Not checked or not returned now, and why
+  pub skipped: Vec<SkippedIdle>,
+  pub process_scan: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReclaimedLease {
+  pub path: String,
+  /// As it was before the reclaim
+  pub lease: Lease,
+  pub landed: Vec<LandedCommit>,
+  pub stopped_servers: Vec<StoppedServer>,
+  pub cleaned: Vec<Cleaned>,
+  /// What the trash kept: a path that could not be deleted once the slot was free
+  pub trash_left: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct KeptLease {
+  pub path: String,
+  pub lease: Lease,
+  pub check: IdleCheck,
+}
+
+#[derive(Debug, Clone)]
+pub struct SkippedIdle {
+  pub path: String,
+  pub lease: Lease,
+  pub reason: IdleSkip,
+}
+
+/// Why `bd lease reclaim` left an idle lease for now
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdleSkip {
+  /// Its get or the last move of its HEAD is younger than `IDLE_QUIET`
+  NotQuiet,
+  /// A process of another session works in it, or a Bazel server of it did not exit
+  Busy { processes: Vec<BusyProcess> },
+  /// It changed while the reclaim checked it: a get took it over, a session committed in it
+  Changed,
+  /// The check or the return failed
+  Failed { error: String },
+}
+
+/// Return every idle lease of the pool whose work landed (`check_idle`: the commits in its home branch, a clean tree,
+/// no operation in progress), each under its own CAS on its lease, its holder gone and its slot unchanged, as a return
+/// does: its Bazel servers stopped, its seeded paths removed, its branch detached, the clean rules applied, the slot
+/// free with the record of its lease (`Slot::reclaimed`). One with work is kept, its check recorded for the gets; with
+/// `apply` false nothing is written
+pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseReclaimParams<'_>) -> Result<LeaseReclaim> {
+  let git_common_dir = PathBuf::from(canonical_path(Path::new(&params.repository.git_common_dir)));
+  let pool = Pool::new(&git_common_dir);
+  let store = pool.read()?;
+  let scan = ProcessScan::scan();
+  let untracked = lease_config(git_executor, &params.repository.top_level)?.untracked;
+  let trash = Trash::new(&pool.trash_dir());
+  let now = now();
+  let mut answer = LeaseReclaim {
+    process_scan: scan.is_available(),
+    ..LeaseReclaim::default()
+  };
+  for slot in store.slots {
+    let Some(lease) = slot.lease.clone().filter(|lease| lease.is_idle() && is_worktree_of(Path::new(&slot.path), &git_common_dir)) else {
+      continue;
+    };
+    let path = slot.path.clone();
+    let skip = |reason: IdleSkip| SkippedIdle {
+      path: path.clone(),
+      lease: lease.clone(),
+      reason,
+    };
+    if !is_quiet(&slot, &lease, now) {
+      answer.skipped.push(skip(IdleSkip::NotQuiet));
+      continue;
+    }
+    let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = scan.inside(Path::new(&path)).into_iter().partition(|process| process.bazel_workspace().is_some());
+    if !others.is_empty() {
+      answer.skipped.push(skip(IdleSkip::Busy {
+        processes: busy_processes(&others),
+      }));
+      continue;
+    }
+    // a check of its own, whatever a get found before
+    let unchecked = Lease {
+      idle_check: None,
+      ..lease.clone()
+    };
+    let (landed, mark) = match check_idle(git_executor, &path, &slot.name, &unchecked, untracked) {
+      Ok(IdleVerdict::Landed { landed, mark }) => (landed, mark),
+      Ok(IdleVerdict::Work { check, .. }) => {
+        if params.apply {
+          record_idle_check(&pool, params.lock_timeout, &path, &lease.id, &check);
+        }
+        answer.kept.push(KeptLease { path, lease, check });
+        continue;
+      }
+      Err(error) => {
+        answer.skipped.push(skip(IdleSkip::Failed { error: format!("{error:#}") }));
+        continue;
+      }
+    };
+    let mut reclaimed = ReclaimedLease {
+      path: path.clone(),
+      lease: lease.clone(),
+      landed,
+      stopped_servers: Vec::new(),
+      cleaned: Vec::new(),
+      trash_left: Vec::new(),
+    };
+    if !params.apply {
+      answer.reclaimed.push(reclaimed);
+      continue;
+    }
+    if !reserve_reclaim(&pool, params.lock_timeout, &path, &lease.id, &mark)? {
+      answer.skipped.push(skip(IdleSkip::Changed));
+      continue;
+    }
+    reclaimed.stopped_servers = stop_servers(&servers, params.server_timeout);
+    let running: Vec<&ProcessInfo> = servers
+      .iter()
+      .copied()
+      .filter(|server| !reclaimed.stopped_servers.iter().any(|stopped| stopped.pid == server.pid))
+      .collect();
+    if !running.is_empty() {
+      restore_ready(&pool, params.lock_timeout, &path, &lease.id);
+      answer.skipped.push(skip(IdleSkip::Busy {
+        processes: busy_processes(&running),
+      }));
+      continue;
+    }
+    match finish_return(git_executor, &path, &lease, &[], Some(params.clean), &trash) {
+      Ok(finished) => reclaimed.cleaned = finished.cleaned,
+      Err(error) => {
+        restore_ready(&pool, params.lock_timeout, &path, &lease.id);
+        answer.skipped.push(skip(IdleSkip::Failed { error: format!("{error:#}") }));
+        continue;
+      }
+    }
+    pool.update(params.lock_timeout, |store| {
+      let last_return = store.slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
+      if let Some(slot) = leased_slot(store, &path, &lease.id) {
+        slot.lease = None;
+        slot.dirty = false;
+        slot.returned = Some(last_return + 1);
+        slot.reclaimed = Some(Reclaimed::of(&lease, None));
+      }
+      Ok(())
+    })?;
+    reclaimed.trash_left = trash.empty(&mut reclaimed.cleaned);
+    answer.reclaimed.push(reclaimed);
+  }
+  Ok(answer)
+}
+
+/// Under the pool lock, with CAS on the idle lease `lease_id` of `path`: still idle and its slot as the check found it
+/// (`mark`), the lease becomes `returning`, of this process, so no get takes it over meanwhile
+fn reserve_reclaim(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, mark: &SlotMark) -> Result<bool> {
+  let pid = std::process::id();
+  pool.update(timeout, |store| {
+    let Some(lease) = leased_slot(store, path, lease_id).and_then(|slot| slot.lease.as_mut()).filter(|lease| lease.is_idle()) else {
+      return Ok(false);
+    };
+    if SlotMark::of(Path::new(path)) != *mark {
+      return Ok(false);
+    }
+    lease.state = LeaseState::Returning;
+    lease.pid = pid;
+    lease.process_started = process_started(pid);
+    Ok(true)
+  })
+}
+
+/// The lease `lease_id` of `path` `ready` again, after a reclaim that could not finish; best effort
+fn restore_ready(pool: &Pool, timeout: Duration, path: &str, lease_id: &str) {
+  let restored = pool.update(timeout, |store| {
+    if let Some(lease) = leased_slot(store, path, lease_id).and_then(|slot| slot.lease.as_mut()) {
+      lease.state = LeaseState::Ready;
+    }
+    Ok(())
+  });
+  if let Err(error) = restored {
+    warn!(slot = %path, error = %format!("{error:#}"), "cannot give the lease back after a failed reclaim");
+  }
+}
+
+/// Record `check` on the idle lease `lease_id` of `path`, for the gets after it; best effort
+fn record_idle_check(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, check: &IdleCheck) {
+  let recorded = pool.update(timeout, |store| {
+    if let Some(lease) = leased_slot(store, path, lease_id).and_then(|slot| slot.lease.as_mut()) {
+      lease.idle_check = Some(check.clone());
+    }
+    Ok(())
+  });
+  if let Err(error) = recorded {
+    warn!(slot = %path, error = %format!("{error:#}"), "cannot record the check of an idle lease");
+  }
 }
 
 /// A directory `bd lease adopt` added, or refused
@@ -2152,6 +2948,7 @@ fn add_slot_entry(pool: &Pool, lock_timeout: Duration, path: &str, moved_from: O
       dirty: false,
       returned: None,
       lease: None,
+      reclaimed: None,
     };
     store.slots.push(slot.clone());
     Ok(Ok((slot, moved_from)))
@@ -2193,6 +2990,7 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
       dirty: false,
       returned: None,
       lease: None,
+      reclaimed: None,
     };
     store.slots.push(slot.clone());
     Ok(Ok(slot))

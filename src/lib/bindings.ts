@@ -2141,6 +2141,12 @@ export type ErrorCode =
 /**  `bd lease get`: the volume of the pool has less free space than `branchdeck.leaseMinFree` or `--min-free` asks */
 "low_disk_space" | 
 /**
+ *  A command in a slot whose lease a get or `bd lease reclaim` took from its dead holder, as its work had landed, run
+ *  by another session than the one that holds the slot now (a resumed session of the old holder): this worktree is
+ *  not the caller's; get a lease of its own. Nothing was changed
+ */
+"lease_reclaimed" | 
+/**
  *  No usable git executable: none found, or one older than the minimum (the message says which and how to install
  *  or upgrade Git)
  */

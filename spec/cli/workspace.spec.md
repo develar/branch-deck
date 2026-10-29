@@ -57,8 +57,12 @@ in the session wins over both.
   it ([bd lease](lease.spec.md)), `lease_id` and `holder` its lease, and `next` the same as the get's: `bd -C <top
   level> lease pick` and the return of this lease. When the shared checkout has another branch checked out now than
   at the get, `home.switched_to` names it (`null`: a detached HEAD), so the agent asks the user before it picks. `active_leases` must list every
-  ready lease of the pool, so a session that lost its path finds its own by `holder`.
+  ready lease of the pool, so a session that lost its path finds its own by `holder`, with `holder_alive` and, for one
+  whose holder is gone, `idle` as `bd lease status` shows it (`idle_with_work` with its work: tell the user). In a slot
+  whose lease a get or `bd lease reclaim` took over, `bd workspace` of another session than the one that holds it now
+  is `lease_reclaimed` (exit 4), so a resumed session of the old holder learns it before its first edit.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it`)
+  [@test] ../../crates/bd-lease/src/takeover_test.rs (`a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaimed`)
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_home_that_switched_its_branch`)
 - A value of the global config must set a rule for every repository, a value of the repository's own config must win
   over it, and a value git does not read as a boolean must leave the default with `invalid`.

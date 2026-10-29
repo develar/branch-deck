@@ -2,7 +2,7 @@
 //! (spec/cli/workspace.spec.md). The core is `lease_pool::agent_workspace`; this module turns it into the rules and the
 //! next commands of the agent
 
-use crate::lease_command::{LeaseHomeOutput, lease_next};
+use crate::lease_command::{IdleOutput, LeaseHomeOutput, lease_next, refusal_error};
 use bd_core::bd_command::shell_word;
 use bd_core::context::Environment;
 use bd_core::error::CliError;
@@ -10,6 +10,7 @@ use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use lease_pool::agent_workspace::{ActiveLease, AgentWorkspace, WorkspaceKind, agent_workspace};
+use lease_pool::lease::LeaseRefusal;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::Path;
@@ -97,6 +98,13 @@ pub struct ActiveLeaseOutput {
   pub holder: String,
   /// The slot, its top level
   pub path: String,
+  /// Whether the process the lease was got for still runs; omitted for a lease of an older bd
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub holder_alive: Option<bool>,
+  /// Its holder is gone: `idle` (a get takes it over once its work landed), or `idle_with_work` with what a check found,
+  /// which no get touches: tell the user
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub idle: Option<IdleOutput>,
 }
 
 /// `bd workspace` in `directory`, else in the current directory: no working tree is an answer, not an error
@@ -110,7 +118,10 @@ pub fn workspace_with(git: &GitCommandExecutor, environment: &Environment, direc
   if !directory.is_dir() {
     return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
   }
-  let answer = agent_workspace(git, &directory.to_string_lossy(), environment.home.as_deref())?;
+  let answer = agent_workspace(git, &directory.to_string_lossy(), environment.home.as_deref()).map_err(|error| match error.downcast_ref::<LeaseRefusal>() {
+    Some(refusal) => refusal_error(refusal),
+    None => CliError::from(error),
+  })?;
   Ok(workspace_output(answer))
 }
 
@@ -177,5 +188,7 @@ fn active_lease(lease: ActiveLease) -> ActiveLeaseOutput {
     lease_id: lease.lease_id,
     holder: lease.holder,
     path: lease.path,
+    holder_alive: lease.holder_alive,
+    idle: lease.idle.map(|check| IdleOutput::of(check.as_ref())),
   }
 }

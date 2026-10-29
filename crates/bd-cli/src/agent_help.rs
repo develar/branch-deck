@@ -243,7 +243,16 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    free slot itself (`stopped_servers`). `seeded`: ignored local files that `.worktreeinclude` names, copied from the
    shared checkout.
    `low_disk_space` (exit 4): the volume of the pool has less free space than `branchdeck.leaseMinFree` asks; tell the
-   user, never pass --min-free 0 on your own. `idle_leases`: leases whose holder process is gone; the user decides.
+   user, never pass --min-free 0 on your own. Before it adds a slot the get takes over an idle lease, one whose
+   holder process has been gone for an hour, when every commit of it is on its home branch (by a pick, a patch id,
+   the identity and the twin of `bd update`, the mapping note of a sync) and its tree is clean: `took_over` names its
+   holder, its lease and the commits it found landed (`landed`, each with its `proof`). One with work its home branch
+   lacks is never touched: `skipped` (`idle_with_work`) and `idle_leases` name it with its `commits`, `paths` or
+   `operation`; tell the user, never give it up with `bd lease return --confirm-preserved` on your own. `bd lease reclaim --idle`
+   returns every idle lease whose work landed (`reclaimed`) and names the rest (`kept`); --dry-run only reports,
+   --keep and --age as for the return.
+   `lease_reclaimed` (exit 4): your lease was taken over while your session was gone, as its work had landed; that
+   worktree is another session's now (its branch stays): stop working there and get a lease of your own (`next`).
 
 1. When `bd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, on by default), write the prefix
    when you commit, never later; off, write the subject as the repository does, and the owner groups the commits
@@ -331,7 +340,7 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    return stops them with SIGTERM once no other process is there (`stopped_servers`; their output bases stay), so
    never run `bazel shutdown` or kill one first. --confirm-preserved discards the changes and gives up the
    commits, only when the user said so. `bd lease status` lists the slots and their leases from the pool state
-   (--processes adds the processes in each; `holder_alive`, `free_bytes`). The return applies the clean rules of
+   (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work`, `reclaimed`, `free_bytes`). The return applies the clean rules of
    `.branchdeck.toml` (`cleaned`: stale cargo units, build output, test artifacts; a `delete` moves its paths into the
    trash and deletes them once the slot is free; `clean_error` when the file does not parse, the return still
    succeeds); notes that must outlive the return go outside the paths of the rules:

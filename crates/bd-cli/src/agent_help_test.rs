@@ -257,7 +257,8 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::UnlandedCommits
     | ErrorCode::DirtyWorktree
     | ErrorCode::OtherVolume
-    | ErrorCode::LowDiskSpace => &["help worktrees"],
+    | ErrorCode::LowDiskSpace
+    | ErrorCode::LeaseReclaimed => &["help worktrees"],
     ErrorCode::RoundMoved
     | ErrorCode::SessionStale
     | ErrorCode::UnsupportedConflict

@@ -17,8 +17,9 @@ use lease_pool::free_space::available_bytes;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
-  Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool, SkipReason,
-  SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at,
+  Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseReclaimParams, LeaseRefusal,
+  LeaseReturnParams, Pool, Reclaimed, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_reclaim_core,
+  lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age, read_pick_requires_check};
 use schemars::JsonSchema;
@@ -59,6 +60,21 @@ pub enum LeaseCommand {
   /// It deletes what the rules name; --dry-run only reports. A slot with a lease or with a process in it is skipped, and
   /// a host slot that a run has
   Clean(LeaseCleanArgs),
+  /// Return the idle leases of the pool whose work landed: the holder process gone for an hour, every commit in the home
+  /// branch, a clean tree. One with work is kept and named; --dry-run only reports
+  Reclaim(LeaseReclaimArgs),
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeaseReclaimArgs {
+  /// Every idle lease of the pool: its holder process gone, quiet for an hour
+  #[arg(long, required = true)]
+  pub idle: bool,
+  /// Only check and report; nothing is written
+  #[arg(long)]
+  pub dry_run: bool,
+  #[command(flatten)]
+  pub overrides: CleanOverrideArgs,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -248,8 +264,12 @@ pub struct LeaseGetOutput {
   /// one; omitted where bd can't tell (Windows)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub free_bytes: Option<u64>,
-  /// With a new slot: the leases whose holder process is gone, which keep their slots from the pool; the user decides
-  /// whether to return them
+  /// The idle lease the get took over: its holder process was gone, its work had landed on its home branch, its tree
+  /// was clean. A resumed session of that holder is refused in the slot (`lease_reclaimed`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub took_over: Option<TookOverOutput>,
+  /// With a new slot: the leases whose holder process is gone, which keep their slots from the pool: with work their
+  /// home branch lacks (`idle_with_work`) they are the user's to decide; tell the user
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub idle_leases: Vec<IdleLeaseOutput>,
   /// Whether the processes were checked; false where bd can't see them (Windows)
@@ -377,6 +397,19 @@ pub fn unchecked_tree(lease_dir: &str, check: &TreeCheck) -> CliError {
   CliError::new(ErrorCode::UncheckedTree, message)
 }
 
+/// A command of `bd` in the worktree at `top_level`: refused as `lease_reclaimed` in a slot whose lease a get or
+/// `bd lease reclaim` took from its dead holder, unless of the session that holds it now
+/// (`lease_pool::lease::reclaimed_refusal`): a resumed session of the old holder must not work there. `mutates`: the
+/// command writes (a read passes but while a get takes the lease over); `lease_id`: the lease it names
+/// (`bd lease return --lease-id`), which passes when it is the current one. No git: the state, and a process scan only
+/// in such a slot
+pub fn refuse_reclaimed(git_common_dir: &Path, top_level: &str, mutates: bool, lease_id: Option<&str>) -> Result<(), CliError> {
+  match reclaimed_refusal(git_common_dir, top_level, mutates, lease_id).map_err(lease_error)? {
+    Some(refusal) => Err(refusal_error(&refusal)),
+    None => Ok(()),
+  }
+}
+
 /// `bd update` in the worktree at `top_level`: refused in a lease of the pool (`lease_follows_home`), which follows the
 /// branch it was cut from, not the baseline: an update onto the baseline would move it past that branch, and its pick
 /// would refuse it (`source_on_newer_baseline`). A host slot of `bd-host` is no session's lease
@@ -404,6 +437,8 @@ pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<
 pub struct IdleLeaseOutput {
   pub path: String,
   pub holder: String,
+  pub lease_id: String,
+  pub idle: IdleOutput,
 }
 
 fn idle_output(idle: &[IdleLease]) -> Vec<IdleLeaseOutput> {
@@ -412,8 +447,110 @@ fn idle_output(idle: &[IdleLease]) -> Vec<IdleLeaseOutput> {
     .map(|lease| IdleLeaseOutput {
       path: lease.path.clone(),
       holder: lease.holder.clone(),
+      lease_id: lease.lease_id.clone(),
+      idle: IdleOutput::of(lease.check.as_ref()),
     })
     .collect()
+}
+
+/// A lease whose holder process is gone
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct IdleOutput {
+  /// `idle`: no check found work in it yet, a get takes it over once its work landed and it was quiet for an hour;
+  /// `idle_with_work`: a check found work its home branch lacks (`commits`, `paths`, `operation`), which no get touches:
+  /// tell the user
+  pub state: IdleStateOutput,
+  /// Unix seconds of the check that found the work
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub checked_at: Option<u64>,
+  /// The commits no proof found on the home branch, newest first
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub commits: Vec<GivenUpOutput>,
+  /// The local changes
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub paths: Vec<String>,
+  /// A git operation in progress (`rebase`, `merge`, `cherry-pick`, `revert`, `bisect`) or an open resolve session
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub operation: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IdleStateOutput {
+  Idle,
+  IdleWithWork,
+}
+
+impl IdleOutput {
+  pub fn of(check: Option<&IdleCheck>) -> Self {
+    match check {
+      None => Self {
+        state: IdleStateOutput::Idle,
+        checked_at: None,
+        commits: Vec::new(),
+        paths: Vec::new(),
+        operation: None,
+      },
+      Some(check) => Self {
+        state: IdleStateOutput::IdleWithWork,
+        checked_at: Some(check.at),
+        commits: check
+          .commits
+          .iter()
+          .map(|commit| GivenUpOutput {
+            commit: commit.id.clone(),
+            subject: commit.subject.clone(),
+          })
+          .collect(),
+        paths: cut(&check.paths),
+        operation: check.operation.clone(),
+      },
+    }
+  }
+}
+
+/// The idle lease a get took over
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct TookOverOutput {
+  pub lease_id: String,
+  pub holder: String,
+  /// Unix seconds of its get
+  pub leased_at: u64,
+  /// The branch its get created: it stays, with its commits
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  /// Its commits beyond the commit it was leased at, each with the proof that its home branch has it, newest first
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub landed: Vec<LandedCommitOutput>,
+}
+
+/// The record of a slot whose lease was taken from its dead holder
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ReclaimedOutput {
+  pub lease_id: String,
+  pub holder: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  /// Unix seconds
+  pub at: u64,
+  /// The lease of the get that took it over; omitted for `bd lease reclaim`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub by_lease_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub by_holder: Option<String>,
+}
+
+impl ReclaimedOutput {
+  fn of(reclaimed: &Reclaimed) -> Self {
+    Self {
+      lease_id: reclaimed.lease_id.clone(),
+      holder: reclaimed.holder.clone(),
+      branch: reclaimed.branch.clone(),
+      at: reclaimed.at,
+      by_lease_id: reclaimed.by_lease_id.clone(),
+      by_holder: reclaimed.by_holder.clone(),
+    }
+  }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
@@ -427,8 +564,12 @@ pub enum CreatedByOutput {
 pub struct SkippedOutput {
   pub slot: String,
   pub path: String,
-  /// `dirty`: local changes, the slot stays free and later gets try it last; `busy`: processes work in it
+  /// `dirty`: local changes, the slot stays free and later gets try it last; `busy`: processes work in it;
+  /// `idle_with_work`: an idle lease (its holder gone) with work its home branch lacks, left to the user
   pub reason: SkippedReason,
+  /// The idle lease of an `idle_with_work` slot and its work
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub idle: Option<IdleLeaseOutput>,
   /// The local changes of a `dirty` slot
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
@@ -445,6 +586,7 @@ pub struct SkippedOutput {
 pub enum SkippedReason {
   Dirty,
   Busy,
+  IdleWithWork,
 }
 
 fn processes_output(processes: &[BusyProcess]) -> Vec<ProcessOutput> {
@@ -532,11 +674,21 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
         let (reason, paths, processes) = match &skipped.reason {
           SkipReason::Dirty { paths } => (SkippedReason::Dirty, paths.as_slice(), Vec::new()),
           SkipReason::Busy { processes } => (SkippedReason::Busy, &[][..], processes_output(processes)),
+          SkipReason::IdleWithWork { .. } => (SkippedReason::IdleWithWork, &[][..], Vec::new()),
         };
         SkippedOutput {
           slot: skipped.name.clone(),
           path: skipped.path.clone(),
           reason,
+          idle: match &skipped.reason {
+            SkipReason::IdleWithWork { holder, lease_id, check } => Some(IdleLeaseOutput {
+              path: skipped.path.clone(),
+              holder: holder.clone(),
+              lease_id: lease_id.clone(),
+              idle: IdleOutput::of(Some(check)),
+            }),
+            SkipReason::Dirty { .. } | SkipReason::Busy { .. } => None,
+          },
           paths: cut(paths),
           paths_omitted: omitted(paths),
           processes,
@@ -545,6 +697,13 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
       .collect(),
     stopped_servers: stopped_output(&got.stopped_servers),
     free_bytes: got.free_bytes,
+    took_over: got.took_over.as_ref().map(|took_over| TookOverOutput {
+      lease_id: took_over.lease.id.clone(),
+      holder: took_over.lease.holder.clone(),
+      leased_at: took_over.lease.leased_at,
+      branch: took_over.lease.branch.clone(),
+      landed: landed_output(&took_over.landed),
+    }),
     idle_leases: idle_output(&got.idle),
     processes_checked: got.process_scan,
     waited_for_clone_ms: got.waited_for_clone.map(|waited| u64::try_from(waited.as_millis()).unwrap_or(u64::MAX)),
@@ -812,6 +971,10 @@ pub struct SlotOutput {
   pub missing: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub lease: Option<LeaseOutput>,
+  /// The lease a get or `bd lease reclaim` took from its dead holder, its work landed: a command of another session in
+  /// the slot is refused (`lease_reclaimed`) until the next get of the free slot
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub reclaimed: Option<ReclaimedOutput>,
   /// With --processes: the processes in the slot, without the session of bd, git's maintenance and `caffeinate`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub processes: Option<Vec<ProcessOutput>>,
@@ -845,10 +1008,22 @@ pub struct LeaseOutput {
   /// terminal); omitted for a lease of an older bd
   #[serde(skip_serializing_if = "Option::is_none")]
   pub holder_pid: Option<u32>,
-  /// Whether `holder_pid` still runs, with the start time the get recorded. A gone holder does not free the lease: the
-  /// slot may hold unlanded work, and a resumed session runs as another process
+  /// Whether `holder_pid` still runs, with the start time the get recorded. A gone holder alone does not free the
+  /// lease: a get takes it over only once its work landed (`idle`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub holder_alive: Option<bool>,
+  /// A `ready` lease whose holder process is gone, no host slot: `idle`, or `idle_with_work` with what a check found
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub idle: Option<IdleOutput>,
+  /// The idle lease a `preparing` get takes over, while it checks its work
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub taking_over: Option<TakingOverOutput>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct TakingOverOutput {
+  pub lease_id: String,
+  pub holder: String,
 }
 
 pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &LeaseStatusArgs) -> Result<LeaseStatusOutput, CliError> {
@@ -891,7 +1066,13 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
           reused: lease.reused,
           holder_pid: lease.holder_pid,
           holder_alive: lease.holder_alive(),
+          idle: lease.is_idle().then(|| IdleOutput::of(lease.idle_check.as_ref())),
+          taking_over: lease.taking_over.as_ref().map(|old| TakingOverOutput {
+            lease_id: old.id.clone(),
+            holder: old.holder.clone(),
+          }),
         }),
+        reclaimed: status.slot.reclaimed.as_ref().map(ReclaimedOutput::of),
         processes: status.processes.as_deref().map(processes_output),
       })
       .collect(),
@@ -984,6 +1165,129 @@ pub fn lease_adopt(context: &LeaseContext, environment: &Environment, args: &Lea
     }
   }
   Ok(output)
+}
+
+/// `bd lease reclaim --idle`
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseReclaimOutput {
+  pub schema: SchemaVersion,
+  pub repository: String,
+  /// With --dry-run: nothing was written, `reclaimed` is what a reclaim would return
+  pub dry_run: bool,
+  /// The idle leases returned, their work landed on their home branch: their slots are free
+  pub reclaimed: Vec<ReclaimedLeaseOutput>,
+  /// The idle leases left alone, with the work their home branch lacks (`idle_with_work`): the user decides; their
+  /// holder may resume, or `bd lease return --lease-id <id> --confirm-preserved` gives the work up once the user said
+  /// it is kept elsewhere
+  pub kept: Vec<IdleLeaseOutput>,
+  /// The idle leases not checked or not returned now: `not_quiet` (its get or the last move of its HEAD is younger
+  /// than an hour), `busy` (`processes`), `changed` (a get or a session acted on it meanwhile), `failed` (`error`)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub skipped: Vec<SkippedIdleOutput>,
+  /// Whether the processes were checked; false where bd can't see them (Windows)
+  pub processes_checked: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ReclaimedLeaseOutput {
+  pub path: String,
+  pub holder: String,
+  pub lease_id: String,
+  /// The branch its get created: it stays
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  /// Its commits beyond the commit it was leased at, each with its proof, newest first
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub landed: Vec<LandedCommitOutput>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stopped_servers: Vec<StoppedServerOutput>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub cleaned: Vec<CleanedOutput>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub trash_left: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SkippedIdleOutput {
+  pub path: String,
+  pub holder: String,
+  pub lease_id: String,
+  pub reason: SkippedIdleReason,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub processes: Vec<ProcessOutput>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SkippedIdleReason {
+  NotQuiet,
+  Busy,
+  Changed,
+  Failed,
+}
+
+/// `context` is of a checkout of the repository: its config and its clean rules
+pub fn lease_reclaim(context: &LeaseContext, args: &LeaseReclaimArgs) -> Result<LeaseReclaimOutput, CliError> {
+  let params = LeaseReclaimParams {
+    repository: &context.dirs,
+    apply: !args.dry_run,
+    clean: args.overrides.overrides()?,
+    server_timeout: context.server_stop_timeout,
+    lock_timeout: context.lock_timeout,
+  };
+  let reclaimed = lease_reclaim_core(&context.git, &params).map_err(lease_error)?;
+  Ok(LeaseReclaimOutput {
+    schema: SchemaVersion,
+    repository: context.dirs.top_level.clone(),
+    dry_run: args.dry_run,
+    reclaimed: reclaimed
+      .reclaimed
+      .iter()
+      .map(|reclaimed| ReclaimedLeaseOutput {
+        path: reclaimed.path.clone(),
+        holder: reclaimed.lease.holder.clone(),
+        lease_id: reclaimed.lease.id.clone(),
+        branch: reclaimed.lease.branch.clone(),
+        landed: landed_output(&reclaimed.landed),
+        stopped_servers: stopped_output(&reclaimed.stopped_servers),
+        cleaned: cleaned_output(&reclaimed.cleaned),
+        trash_left: reclaimed.trash_left.clone(),
+      })
+      .collect(),
+    kept: reclaimed
+      .kept
+      .iter()
+      .map(|kept| IdleLeaseOutput {
+        path: kept.path.clone(),
+        holder: kept.lease.holder.clone(),
+        lease_id: kept.lease.id.clone(),
+        idle: IdleOutput::of(Some(&kept.check)),
+      })
+      .collect(),
+    skipped: reclaimed
+      .skipped
+      .iter()
+      .map(|skipped| {
+        let (reason, processes, error) = match &skipped.reason {
+          IdleSkip::NotQuiet => (SkippedIdleReason::NotQuiet, Vec::new(), None),
+          IdleSkip::Busy { processes } => (SkippedIdleReason::Busy, processes_output(processes), None),
+          IdleSkip::Changed => (SkippedIdleReason::Changed, Vec::new(), None),
+          IdleSkip::Failed { error } => (SkippedIdleReason::Failed, Vec::new(), Some(error.clone())),
+        };
+        SkippedIdleOutput {
+          path: skipped.path.clone(),
+          holder: skipped.lease.holder.clone(),
+          lease_id: skipped.lease.id.clone(),
+          reason,
+          processes,
+          error,
+        }
+      })
+      .collect(),
+    processes_checked: reclaimed.process_scan,
+  })
 }
 
 /// `bd lease clean`
@@ -1092,7 +1396,7 @@ pub(crate) fn lease_error(error: anyhow::Error) -> CliError {
   CliError::new(ErrorCode::GitError, format!("{error:#}"))
 }
 
-fn refusal_error(refusal: &LeaseRefusal) -> CliError {
+pub(crate) fn refusal_error(refusal: &LeaseRefusal) -> CliError {
   let code = match refusal {
     LeaseRefusal::NoLease(_) | LeaseRefusal::Preparing { .. } => ErrorCode::NoLease,
     LeaseRefusal::LeaseMismatch { .. } => ErrorCode::LeaseMismatch,
@@ -1109,6 +1413,7 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
     LeaseRefusal::OtherVolume { .. } => ErrorCode::OtherVolume,
     LeaseRefusal::CannotMove { .. } => ErrorCode::GitError,
     LeaseRefusal::HostSlot { .. } => ErrorCode::HostSlot,
+    LeaseRefusal::LeaseReclaimed { .. } => ErrorCode::LeaseReclaimed,
   };
   let mut error = CliError::new(code, refusal.to_string());
   match refusal {
@@ -1120,6 +1425,12 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
       }
     }
     LeaseRefusal::HostSlot { path, .. } => error.paths = vec![path.clone()],
+    LeaseRefusal::LeaseReclaimed { reclaimed, .. } if !reclaimed.source.is_empty() => {
+      error = error.with_next_step(
+        format!("bd lease get --holder {} -C {}", shell_word(&reclaimed.holder), shell_word(&reclaimed.source)),
+        false,
+      );
+    }
     LeaseRefusal::SlotBusy { processes, .. } | LeaseRefusal::ServersRunning { processes, .. } => {
       error.extra = Some(Box::new(ErrorExtra {
         processes: processes_output(processes),

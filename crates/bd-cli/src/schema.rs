@@ -4,7 +4,7 @@ use bd_core::error::ErrorOutput;
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::SyncOutput;
 use bd_core::version::VersionOutput;
-use bd_lease::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
+use bd_lease::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReclaimOutput, LeaseReturnOutput, LeaseStatusOutput};
 use bd_lease::workspace_command::WorkspaceOutput;
 use bd_remote::land_command::LandOutput;
 use bd_remote::operation_command::OperationForgetOutput;
@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 
 /// The outputs of each command, by their names in `bd schema --all`: `rewrite` is the output of group, rename, restack,
 /// unstack and reword, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort`
-/// those of `bd update --status` and `--abort`, `lease_get` … `lease_clean` those of `bd lease <command>`. `error` is
+/// those of `bd update --status` and `--abort`, `lease_get` … `lease_reclaim` those of `bd lease <command>`. `error` is
 /// what any command prints when it fails
 pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("check", &["check"]),
@@ -44,7 +44,10 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("fold", &["fold"]),
   ("group", &["rewrite"]),
   ("install", &["install"]),
-  ("lease", &["lease_get", "lease_pick", "lease_return", "lease_status", "lease_adopt", "lease_clean"]),
+  (
+    "lease",
+    &["lease_get", "lease_pick", "lease_return", "lease_status", "lease_adopt", "lease_clean", "lease_reclaim"],
+  ),
   ("move-hunk", &["move_hunk"]),
   ("operation", &["operation_forget"]),
   ("land", &["land"]),
@@ -151,6 +154,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("install".to_string(), schema_for!(InstallOutput)),
     ("lease_adopt".to_string(), schema_for!(LeaseAdoptOutput)),
     ("lease_clean".to_string(), schema_for!(LeaseCleanOutput)),
+    ("lease_reclaim".to_string(), schema_for!(LeaseReclaimOutput)),
     ("lease_get".to_string(), schema_for!(LeaseGetOutput)),
     ("lease_pick".to_string(), schema_for!(LeasePickOutput)),
     ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),
