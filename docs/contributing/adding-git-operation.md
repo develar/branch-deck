@@ -42,7 +42,8 @@ are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../
   JSON object with `schema`, errors as `CliError` with an `ErrorCode`, and records a rewrite, an update, a pick and an
   operation of the remote in the operations registry (`bd_core::operation_record`); a command of the app is one entry
   of the registry of app-api (`crates/app-api/src/commands.rs`): a read `run_blocking` of the core, a write `execute`
-  of its intent or a command of the app, `app(<reason>)` (`AppReason`: what has no repository as its subject); the
+  of its intent or a command of the app, `app(<reason>)` (`AppReason`: what has no repository as its subject, or what
+  has a writer of its own that no session reads, as the reviewed refs); the
   app's Tauri wrapper and the E2E server's route come from the entry and run the same body.
 - **Reuse a helper** before writing a parser or a process: `ref_transaction`, `commit_writer`, `commit_chain`,
   `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `snapshot`, `repository_lock`

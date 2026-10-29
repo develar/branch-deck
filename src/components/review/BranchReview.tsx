@@ -1,12 +1,14 @@
 import { useEffect } from "react"
-import { GitMergeIcon, GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
+import { CheckCheckIcon, GitMergeIcon, GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { FilesCount } from "@/components/commit/CommitReview"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
+import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { Callout } from "@/components/shared/Callout"
 import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
@@ -19,6 +21,8 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 import { markWindowContentReady } from "@/lib/sub-window"
+import { setReviewFileOrder, useAppSettings } from "@/stores/settings/appSettings"
+import type { ReviewFileOrder } from "@/stores/settings/appSettings"
 import type { BranchReviewMenuItem, ReviewedBranch, WholeStackScope } from "@/types/sub-window"
 
 /*
@@ -81,8 +85,27 @@ export function BranchReviewGone({ model }: { model: BranchReviewModel }) {
   )
 }
 
-/** The header of the files: the owner chips, or the owner of them all ("18 files · Air Plugin") */
+/**
+ * The header of the files: the owner chips, or the owner of them all ("18 files · Air Plugin"); with the review plan on,
+ * Order: Tree / Dependencies beside them
+ */
 function BranchReviewFilesHeader({ model, count }: { model: BranchReviewModel; count: FilesCount | null }) {
+  const { loaded } = model
+  if (loaded === null || loaded.files === undefined) {
+    return null
+  }
+  if (loaded.plan === null) {
+    return <FilesHeaderOwners model={model} count={count} />
+  }
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-2">
+      <FilesHeaderOwners model={model} count={count} />
+      <FileOrderToggle />
+    </span>
+  )
+}
+
+function FilesHeaderOwners({ model, count }: { model: BranchReviewModel; count: FilesCount | null }) {
   const { loaded } = model
   if (loaded === null || loaded.files === undefined) {
     return null
@@ -98,6 +121,58 @@ function BranchReviewFilesHeader({ model, count }: { model: BranchReviewModel; c
         {owner ?? undefined}
       </SectionLabel>
     </span>
+  )
+}
+
+const FILE_ORDERS: ReadonlyArray<{ order: ReviewFileOrder; label: string }> = [
+  { order: "tree", label: "Tree" },
+  { order: "dependencies", label: "Dependencies" },
+]
+
+/**
+ * Order: Tree / Dependencies of the files of the review (spec/branch/review-plan.spec.md): the tree, or a flat list in
+ * the dependency order of the review plan; the choice is kept for every review. A press of the pressed one keeps it
+ */
+function FileOrderToggle() {
+  const current = useAppSettings(state => state.reviewFileOrder)
+  return (
+    <ToggleGroup
+      aria-label="Order"
+      variant="outline"
+      size="sm"
+      spacing={0}
+      value={[current]}
+      data-testid="branch-review-file-order"
+      onValueChange={next => {
+        const chosen = next.find(it => it !== current)
+        if (chosen !== undefined) {
+          setReviewFileOrder(chosen as ReviewFileOrder)
+        }
+      }}
+    >
+      {FILE_ORDERS.map(({ order, label }) => (
+        <ToggleGroupItem key={order} value={order} className="h-6 px-2 text-xs">
+          {label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  )
+}
+
+/** Mark Reviewed of the title bar, with the review plan on: the next review shows what changed since */
+export function BranchReviewMarkReviewed({ model }: { model: BranchReviewModel }) {
+  const markReviewed = model.loaded?.markReviewed
+  if (markReviewed == null) {
+    return null
+  }
+  return (
+    <ActionButton
+      data-testid="branch-review-mark-reviewed"
+      label="Mark Reviewed"
+      icon={CheckCheckIcon}
+      description={`Remembers ${model.loaded!.target} as reviewed: its next review shows what changed since`}
+      onClick={markReviewed}
+    />
   )
 }
 
@@ -139,6 +214,9 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       fileOwners={loaded.owners}
       rangeNoun="branch"
       filesHeader={count => <BranchReviewFilesHeader model={model} count={count} />}
+      scopeTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
+      commitTop={loaded.plan === null || !loaded.sinceShown ? undefined : <ReviewPlanCard state={loaded.plan} />}
+      fileOrder={loaded.fileOrder}
       commitMenu={commit => {
         // the commit's branch: the segment that has it
         const branch = loaded.segments.find(segment => segment.commits.some(it => it.id === commit.id))?.name

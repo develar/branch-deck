@@ -27,6 +27,7 @@ fn schema_lists_every_output() {
       "lease_reclaim",
       "lease_return",
       "lease_status",
+      "mark_reviewed",
       "move_hunk",
       "operation_forget",
       "park",
@@ -34,6 +35,7 @@ fn schema_lists_every_output() {
       "push",
       "reapply",
       "request_review",
+      "review_plan",
       "rewrite",
       "robot",
       "robot_stats",
@@ -131,6 +133,15 @@ fn outputs_match_schema() {
   let (_, sync) = run_in(&repo, &["sync"]);
   assert_eq!(sync.get("error"), None, "{sync}");
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &sync, "sync");
+  // the second mark names the pair it replaced
+  for _ in 0..2 {
+    let (_, marked) = run_in(&repo, &["mark-reviewed", "PROJ-1"]);
+    assert_eq!(marked.get("error"), None, "{marked}");
+    assert_covered(&schema["outputs"]["mark_reviewed"], &schema["outputs"]["mark_reviewed"], &marked, "mark_reviewed");
+  }
+  let (_, plan) = run_in(&repo, &["review-plan", "PROJ-1"]);
+  assert_ne!(plan["interdiff"]["commits"], json!([]), "{plan}");
+  assert_covered(&schema["outputs"]["review_plan"], &schema["outputs"]["review_plan"], &plan, "review_plan");
   let (_, status) = run_in(&repo, &["status", "--stats"]);
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with stacks");
   let (_, brief) = run_in(&repo, &["status", "--brief"]);

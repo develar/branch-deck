@@ -127,6 +127,11 @@ written only there) in that transaction.
   120 s of silence; pruned by the session at each change of its review windows, with one `for-each-ref` and one CAS
   `update-ref --stdin`. Range diffs (`DiffSubject::Range`) never go into the object cache (`RangeFilesCache` in
   memory) ([Review fetch](../design/git-operations.md#review-fetch)).
+- `refs/branch-deck/reviewed/<sha256 of the branch's full name>/{base,tip}` (`reviewed_refs.rs`): only
+  `mark_reviewed_core` (`bd mark-reviewed`, the app's `mark_branch_reviewed`), in one `update-ref --stdin` with CAS on every ref of the `for-each-ref`
+  it computed on (a `verify` for a ref it keeps), the deletes of the pairs of the branches that are gone in the same
+  transaction; never under the repository lock, the CAS is the witness; a sync never reads them
+  ([Review plan](../design/git-operations.md#review-plan)).
 - `refs/branch-deck/resolve/<worktree id>` (a shared ref: a gc in another worktree prunes a `refs/worktree/` ref):
   the state of a resolve session. The copies an agent edits (`resolve_copies.rs`) live only in `branch-deck/resolve/`
   of the worktree's git dir or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked for this

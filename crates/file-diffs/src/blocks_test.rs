@@ -107,3 +107,34 @@ fn a_scan_instance_reads_each_blob_once() {
     assert_eq!(lines[0].as_ref().map(|lines| lines.added.len()), Some(2));
   }
 }
+
+/// A rename that keeps the content has one blob on both sides: it is read once and its pair compared once, also when
+/// another pair needs the same blob
+#[test]
+fn a_rename_that_keeps_the_content_is_compared_once() {
+  let (repo, _) = repo();
+  let blob = repo.git(&["rev-parse", "HEAD:A.kt"]).trim().to_string();
+  let old = repo.git(&["rev-parse", "HEAD~1:A.kt"]).trim().to_string();
+  let pairs = [
+    BlobPair {
+      path: "B.kt",
+      old_path: Some("A.kt"),
+      old_id: Some(&blob),
+      new_id: Some(&blob),
+    },
+    BlobPair {
+      path: "A.kt",
+      old_path: None,
+      old_id: Some(&old),
+      new_id: Some(&blob),
+    },
+  ];
+  let counting = repo.git_executor().with_process_stats("test");
+  let scan = unhurried().blocks_of(&counting, repo_path(&repo), &ObjectCache::disabled(), &pairs).unwrap();
+  assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1)]);
+  let changed = |diff: &PairDiff| match diff {
+    PairDiff::Text(text) => !text.blocks.is_empty(),
+    PairDiff::NoText => panic!("{diff:?}"),
+  };
+  assert_eq!(scan.iter().map(changed).collect::<Vec<_>>(), [false, true]);
+}

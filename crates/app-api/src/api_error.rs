@@ -24,6 +24,8 @@ use history_rewrite::baseline::NoBaseline;
 use history_rewrite::parked::ParkError;
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{LockWaitCanceled, RepositoryLocked};
+use review_plan::mark_reviewed::{NoCommonHistory, UnknownReviewBase, UnknownReviewBranch};
+use review_plan::{SinceReviewedOfRange, UnknownRevision};
 use std::time::{SystemTime, UNIX_EPOCH};
 use sync_core::push_size::PushTooLarge;
 use sync_core::reapply_branch::ReapplyRefusal;
@@ -218,6 +220,17 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
     return Some((ErrorCode::PushTooLarge, Some(ErrorDetails::Paths { paths: too_large.paths() })));
   }
   if error.downcast_ref::<NotAnUpdate>().is_some() {
+    return code(ErrorCode::InvalidArguments);
+  }
+  // what a plan or a mark of a review is asked of: a branch that is gone, a base or a rev that names nothing
+  if error.downcast_ref::<UnknownReviewBranch>().is_some() {
+    return code(ErrorCode::UnknownBranch);
+  }
+  if error.downcast_ref::<UnknownReviewBase>().is_some()
+    || error.downcast_ref::<NoCommonHistory>().is_some()
+    || error.downcast_ref::<UnknownRevision>().is_some()
+    || error.downcast_ref::<SinceReviewedOfRange>().is_some()
+  {
     return code(ErrorCode::InvalidArguments);
   }
   if error.downcast_ref::<PendingUpdate>().is_some() {

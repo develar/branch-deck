@@ -1,0 +1,358 @@
+---
+name: Review Plan
+description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`bd review-plan`), the commits since then, and the API surface the reviewed commits change with its fan-in from accio, the risk of each file and the files in dependency order.
+style: plain-1
+targets:
+  - ../../crates/review-plan/src/lib.rs
+  - ../../crates/review-plan/src/mark_reviewed.rs
+  - ../../crates/review-plan/src/interdiff.rs
+  - ../../crates/review-plan/src/api.rs
+  - ../../crates/review-plan/src/fan_in.rs
+  - ../../crates/review-plan/src/risk.rs
+  - ../../crates/review-plan/src/order.rs
+  - ../../crates/trial-check/src/declaration_checks.rs
+  - ../../crates/trial-check/src/symbol_dependencies.rs
+  - ../../crates/file-diffs/src/accio.rs
+  - ../../crates/git-ops/src/reviewed_refs.rs
+  - ../../crates/bd-rewrite/src/mark_reviewed_command.rs
+  - ../../crates/bd-rewrite/src/review_plan_command.rs
+  - ../../crates/bd-cli/src/lib.rs
+  - ../../crates/bd-cli/src/agent_help.rs
+  - ../../crates/app-api/src/reads/review_plan.rs
+  - ../../crates/app-api/src/app/mark_reviewed.rs
+  - ../../crates/app-api/src/session/windows.rs
+  - ../../crates/sync-core/src/repository_config.rs
+  - ../../src/lib/review-plan.ts
+  - ../../src/lib/range-review.ts
+  - ../../src/lib/file-tree.ts
+  - ../../src/hooks/useReviewPlan.ts
+  - ../../src/hooks/useBranchReview.ts
+  - ../../src/presenters/review-plan.ts
+  - ../../src/components/review/ReviewPlanCard.tsx
+  - ../../src/components/review/BranchReview.tsx
+---
+
+# Review Plan
+
+Status: Experimental
+Date: 2026-10-29
+
+## Summary
+
+A review of a branch lists its files in tree order, and a branch that agents keep landing commits on is read whole
+again after each round. The review plan shows what the reviewer needs first: what changed since the last review, the
+public declarations the branch adds, removes or changes with the places that use them, the code changed without its
+tests, and the files in the order of their dependencies. It is computed in Rust, once for `bd` and the app
+(`crates/review-plan`), and printed by `bd` as JSON, so that it can be measured over many ranges before the review
+windows show it behind a flag.
+
+Its first parts are Mark Reviewed, the base and the tip of a local branch kept when the user says they reviewed it,
+and Since Your Review: the commits of the branch paired with the reviewed ones, unchanged, rewritten, added or
+dropped, and the plain range of the commits added on top (`bd review-plan`). Then the API surface: the public
+declarations the reviewed commits add, remove or change in form, ranked by their usages at the head of the range from
+accio, and the risk of each changed file: its highest fan-in, and whether it changed without its tests. Then the
+order of the files: a file that declares what another uses before it, a test right after its subject.
+
+## Goals
+
+- Remember, per local branch, the base and the tip the user reviewed, with one command and one write.
+- Keep the reviewed commits reachable, so that a review after a rewrite or a `git gc` still reads them.
+- Cost a fixed number of git processes, whatever the number of branches, of marks and of commits.
+- Show only what changed since the review, also after the branch was rebased, synced, amended or reworded.
+- Show the contract changes first, the one used most at the top, and never fail a plan because accio cannot answer.
+
+## Non-goals
+
+- Mark a pull request of GitHub: its "Since Your Review" stays the one of GitHub.
+- Push or fetch the marks: they are local to the repository, shared by its worktrees.
+- Mark a range that is no branch.
+- Build an accio index: a repository without one gets no fan-in.
+- The owners of a file in the risk: the review already filters by owner.
+
+## Requirements
+
+### Mark Reviewed
+
+- A mark must keep the branch's tip and its base, the merge base of the tip and the baseline, as
+  `refs/branch-deck/reviewed/<sha256 of the branch's full name>/{base,tip}`, so that the pairs of a branch `a` and a
+  branch `a/b` never clash; a mark of a branch that has a pair must replace both refs with compare-and-swap on the
+  values it read, and name the pair it replaced; the same base and tip again must move no ref.
+  [@test] ../../crates/git-ops/src/reviewed_refs_test.rs (`a_mark_writes_the_pair_of_the_branch_and_a_second_mark_replaces_it`, `the_same_mark_again_moves_no_ref`)
+  [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`marks_the_virtual_branch_of_a_name_at_its_merge_base_with_the_baseline`)
+- A branch stacked on another must be markable on the base its review shows, the head of its parent (`bd mark-reviewed
+  <branch> --base <parent>`, the parent named as a branch is, or any commit), so that its reviewed commits are its
+  own; the base is then the merge base of the tip and that commit, and no baseline is read.
+  [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`a_branch_stacked_on_another_is_marked_on_the_base_its_caller_names`)
+  [@test] ../../crates/bd-rewrite/src/mark_reviewed_test.rs (`a_stacked_branch_is_marked_on_its_parent`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_mark_reviewed_on_a_base`)
+- A base that names no branch and no commit (one `rev-parse --verify`, never git's message), or that shares no
+  history with the tip, must fail before the write and leave every reviewed ref as it was: `invalid_arguments` (exit
+  2) for a `--base`, `no_baseline` for a baseline with no history in common; a base that starts with `-` is never read
+  as an option of git.
+  [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`a_base_that_is_no_commit_or_shares_no_history_is_its_own_error_and_writes_nothing`)
+  [@test] ../../crates/bd-rewrite/src/mark_reviewed_test.rs (`a_base_that_is_no_commit_or_shares_no_history_is_refused`)
+- Every ref of the mark must be written in one `update-ref --stdin` with compare-and-swap on the listing it was
+  computed from, a ref the mark keeps included (`verify`): a mark or a prune of another process meanwhile must fail the
+  whole write and leave the other one's pair.
+  [@test] ../../crates/git-ops/src/reviewed_refs_test.rs (`a_concurrent_mark_fails_its_compare_and_swap`)
+- The same write must delete the pairs of the branches that are gone, and keep the others.
+  [@test] ../../crates/git-ops/src/reviewed_refs_test.rs (`a_mark_prunes_the_pairs_of_gone_branches`)
+- The branch must be named as `bd` names branches: the virtual branch `{prefix}/virtual/<name>` first, else the local
+  branch `<name>`, or exactly `refs/heads/<name>`; a name of no branch must be `unknown_branch` and write nothing.
+  [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`marks_the_virtual_branch_of_a_name_at_its_merge_base_with_the_baseline`, `an_unknown_branch_is_its_own_error`)
+  [@test] ../../crates/bd-rewrite/src/mark_reviewed_test.rs (`an_unknown_branch_is_refused`)
+- `bd mark-reviewed <branch>` must print the branch, its ref, the base, the tip, the pair it replaced (`previous`,
+  `null` the first time), `changed` and `pruned`, and its output must be in `bd schema`.
+  [@test] ../../crates/bd-rewrite/src/mark_reviewed_test.rs (`marks_a_virtual_branch_reviewed_and_again_after_a_new_commit`)
+  [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
+- A mark must run a fixed number of git processes: the baseline (only without a base), one `for-each-ref` of the
+  reviewed refs with the branches, one `rev-parse --verify` of a base that names no branch, one `merge-base` and one
+  `update-ref`; it takes no repository lock and writes no branch, index or working tree.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_mark_reviewed`, `a_mark_reviewed_on_a_base`)
+- An agent must run it only when the user says they reviewed the branch (`bd help worktrees`).
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
+
+### Since Your Review
+
+- A branch never marked must have no interdiff (`null`), and no scope; a range has none either.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`a_branch_never_marked_has_no_interdiff`, `a_range_has_no_interdiff`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`a_branch_never_marked_and_a_range_have_no_interdiff`)
+- Each commit of the branch (`<base>..<tip>`, the base as a mark finds it) must be paired one to one, oldest first,
+  with a commit of the reviewed pair: the same commit, else the same identity (author email, author time, subject
+  without the `(prefix)`), else the same changed lines (`patch-id --verbatim` of the diff without context). A pair
+  is `unchanged` when both change the same lines, else `rewritten`; a commit left is `added`, a reviewed one left is
+  `dropped`, listed after the commits of the branch.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`commits_added_after_the_mark_are_the_range_on_top`, `a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed`)
+- A commit amended since the review must be `rewritten` with the lines it changes that its reviewed version did not,
+  and the reverse, per path.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`an_amended_commit_is_rewritten_with_its_lines`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
+- A move of the baseline alone (a rebase, a sync onto a new baseline) must leave every commit `unchanged`.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`a_baseline_move_alone_leaves_every_commit_unchanged`)
+- When commits were only added on top, the scope must be the plain range `<first added>^..<tip>`; `<tip>..<tip>` when
+  nothing changed; none after a rewrite, a drop or a commit added below a reviewed one.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`commits_added_after_the_mark_are_the_range_on_top`, `a_baseline_move_alone_leaves_every_commit_unchanged`, `a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed`)
+- `--since-reviewed` must list only the `added` and the `rewritten` commits; of a range, or with `--base` of a range,
+  or a range rev that names no commit, it is `invalid_arguments` (exit 2).
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`a_range_has_no_interdiff`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`, `a_branch_never_marked_and_a_range_have_no_interdiff`)
+- `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
+  `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope`), with
+  `"schema": 2`, and its output must be in `bd schema`.
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
+  [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
+- The plan must read only and run a fixed number of git processes, whatever the number of commits: the listing and
+  the base of a mark, one `rev-list` per side, one `diff-tree` with one `patch-id` for the commits that are not the
+  same on both sides, one `diff-tree` for the rewritten ones; never `git range-diff`, never a process per commit.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_since_the_review`)
+
+### API Surface
+
+- The reviewed commits must be those of `base..head`; with `--since-reviewed` only the `added` and the `rewritten`
+  ones, adjacent or not, each read against its own parent, so an unchanged commit between them adds nothing; a branch
+  never marked has no reviewed commit, so all of its commits are read. The `api`, the `risk` and the `order` must be
+  computed from these commits alone.
+  [@test] ../../crates/review-plan/src/api_test.rs (`since_the_review_the_api_is_that_of_the_added_and_rewritten_commits`)
+- `api` must list the public declarations (it and every declaration around it public, Java's `protected` too, none
+  around it a function) that the commits add, remove or change in form, as the syntax summaries read them: the
+  header, the parameters of a JVM function, the reach, `open`, the constructors of a type, what Java sees; a change
+  counts when the declaration is public before or after it, so a narrowed reach is listed. A change of a private
+  declaration or of a body alone must not be listed, nor a member of a type added or removed with it. A name of one
+  or two characters must be listed too (the checks of a sync search only longer ones).
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_rust_function_changes_by_its_header`, `a_public_declaration_of_a_short_name_is_listed`)
+- Each entry must give its file and line, its name, its kind (`removed`, `changed`, `added`), the parts that
+  changed, and its form before and after: the header with the parameters after the name, a type by its constructors.
+  The file and line are those after the commits, through every rename, also one that changes no declaration; of a
+  removal, those before the first commit that touched the declaration, so `path:line` is of the same content: the old
+  path when that commit also renamed the file. A range of no source file of a known language has an empty `api`.
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_range_without_source_files_has_no_api`, `a_removal_after_a_rename_names_the_path_its_line_is_of`, `the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_risk_of_a_range`)
+
+### Fan-in
+
+- Every removed or changed entry, the first 20 of the card (`MAX_FANIN_QUERIES`), must get its usages at the head of
+  the range from `accio references <name> --ref <head>`, the declaration itself not counted, with `complete: false`
+  when accio cut its answer at 100; the queries run in parallel; an addition is never asked.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_fan_in`, `a_cut_answer_is_not_complete`, `at_most_twenty_queries_per_plan`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_fan_in_at_the_head_ranks_the_card`)
+- The entries must be sorted by their fan-in, the most first and those without one last, then removals, changes and
+  additions, then by file and line.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_fan_in`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_fan_in_at_the_head_ranks_the_card`)
+- Without accio, or without its index of the repository, the fan-in must be `null` and `index_note` must say why
+  ("accio is not installed", "accio has no index of this repository"); a plan never builds an index.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`without_an_index_the_fan_in_is_missing_and_the_note_says_why`)
+- A failing query must fail no plan: the others keep their answers and `index_note` gives the failure; only a
+  cancel of the caller (a newer request of the window) cancels the plan.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_failing_index_keeps_the_api`, `a_canceled_query_cancels_the_plan`)
+
+### Risk
+
+- `risk` must list every file the reviewed commits change and keep, at its last path (a renamed file at its new path,
+  a deleted one not at all), with the highest fan-in of the API it removes or changes (`max_fan_in`), `untested` when
+  it is a source file of a known language, no test itself, and no changed test names its stem, and `risky` when it is
+  `untested` or a removed or changed API of it has usages.
+  [@test] ../../crates/review-plan/src/risk_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_risked_at_its_new_path`)
+- The API of a file must count in its risk at its last path, also a removal whose entry names the old path: a file
+  renamed and stripped of a used declaration is `risky` with that fan-in, even when its test changed.
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path`)
+- The `risky` files must come first, then the most usages, then the `untested` ones, then by path: an API without
+  usages ranks below an untested file.
+  [@test] ../../crates/review-plan/src/risk_test.rs (`the_highest_fan_in_of_a_file_ranks_it_first`, `an_untested_file_ranks_above_an_api_without_usages`)
+- A test must be told by its path: a directory `test`, `tests`, `__tests__`, `testFixtures`, or a name `*Test`,
+  `*Tests`, `*_test`, `*.test`, `*.spec`, `test_*`; it names the stem without that mark, compared without case.
+  [@test] ../../crates/review-plan/src/risk_test.rs (`a_test_names_its_subject_by_its_path`)
+- `bd review-plan` must print `api`, `risk` and `index_note`, in `bd schema`.
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_risk_of_a_range`)
+- The API and the risk must add a fixed number of git processes, whatever the number of commits: one `log` of the
+  changes of the reviewed commits, one `cat-file` of their blobs, and the reads of the syntax summaries; accio runs no
+  git.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_since_the_review`, `a_review_plan_of_a_range`)
+
+### Dependency Order
+
+- `order` must list every path the reviewed commits change exactly once, at its last path: a renamed file at its new
+  path, a deleted one at its path (the review still shows it), none that the commits add and delete again.
+  [@test] ../../crates/review-plan/src/order_test.rs (`files_of_no_known_language_keep_the_tree_order`)
+- A file that declares what another file of the order uses or imports must come before it, read from the files as the
+  last reviewed commit that changes each leaves it, in Kotlin, Java, Rust and TypeScript.
+  [@test] ../../crates/review-plan/src/order_test.rs (`a_declaration_comes_before_the_file_that_uses_it`, `a_cycle_keeps_its_tree_order`)
+- A use must link to a declaration only with the evidence the symbol dependencies ask (an import, a qualified name,
+  the same package or module): of two modules that declare one name, a file follows only the one it imports.
+  [@test] ../../crates/review-plan/src/order_test.rs (`a_name_of_two_modules_links_only_the_one_imported`)
+- Files that use each other must keep their tree order among themselves, after what they use and before what uses
+  them; files with no edge between them keep their tree order: at each level the directories before the files, then
+  the names without case, a number by its value.
+  [@test] ../../crates/review-plan/src/order_test.rs (`a_cycle_keeps_its_tree_order`, `the_order_of_a_graph`, `the_tree_order_of_paths`)
+- A test (as `risk` tells one) must come right after its subject when the commits change it, also inside a cycle,
+  several in tree order; of two subjects of its stem the one it uses, else the one nearest in the tree. A test whose
+  subject the commits don't change is a file like any other.
+  [@test] ../../crates/review-plan/src/order_test.rs (`a_test_comes_right_after_its_subject`, `the_order_of_a_graph`)
+- A deleted file, a file of no language the summaries read and a degraded one must have no edge: a range of such files
+  is in tree order.
+  [@test] ../../crates/review-plan/src/order_test.rs (`files_of_no_known_language_keep_the_tree_order`)
+- `bd review-plan` must print `order`, in `bd schema`.
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_files_in_dependency_order`)
+- The order must run no git process: it reads the summaries the API read.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
+
+### In the App
+
+- The app must read the plan with `get_review_plan` and mark a branch with `mark_branch_reviewed`, through the same
+  `review_plan_core` and `mark_reviewed_core` as `bd`, the branch named with the prefix the app resolves for the
+  repository: after a mark and a commit on top, the plan since the review lists that commit as `added` with its scope,
+  and the fan-in comes from the index of the host (the fixture `.git/branch-deck-accio.json` in the e2e server).
+  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_fan_in`)
+- An unknown branch must answer `unknown_branch`; a base that names no commit, a branch that shares no history with
+  its base, an unknown revision of a range and `sinceReviewed` of a range must answer `invalid_arguments`.
+  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_fan_in`)
+- A window must read one plan at a time: a newer plan of the window and its close must supersede the plan in flight,
+  kill its queries of accio and answer `canceled`; a symbol search of the window and a plan must never supersede each
+  other.
+  [@test] ../../crates/app-api/src/session/windows_test.rs (`a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other`, `a_closed_window_supersedes_its_request`)
+- `branchdeck.reviewExperimental` must be off unless git config turns it on, read and written like the other keys of
+  Settings; a value git refuses must be off with its reason and fail no sync.
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_review_experiments_are_off_until_the_config_turns_them_on`, `nothing_set_is_the_defaults`)
+  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_review_experiments_are_off_unless_the_config_turns_them_on`)
+- The flag must reach the view through each sync (`TableHeader.reviewExperimental`), and a change of it from Settings
+  must sync; with the flag off the review windows must look as they do without the review plan. `bd review-plan` and
+  `bd mark-reviewed` must work without it, and so must the two commands of the app.
+  [@test] ../../crates/repository-model/src/table_test.rs (`the_header_takes_the_review_experiments_of_each_grouping`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should look as it does without the review plan while the flag is off`)
+
+### In the Review Window
+
+- With the flag off, the branch review window must offer none of what follows and read no plan.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should look as it does without the review plan while the flag is off`)
+- With it on, the window must read the plan of the shown part (`get_review_plan`): the reviewed branch on the base of
+  the part, the whole stack as its range; again when the head of the part moves, when "Since Your Review" is chosen
+  or left, and after Mark Reviewed; an answer `canceled` (a newer plan of the window) is dropped, and the plan of the
+  same branch stays while the next one is read. Its interdiff counts only while the part is one branch (the reviewed
+  pair is on the base of that branch alone) and the plan is of the head on screen: a part of several branches, or the
+  plan of the head before a sync, shows no "since" and offers no "Since Your Review".
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
+  [@test] ../../src/lib/range-review.test.ts (`takes the interdiff only of the part's own branch, and only of a plan of the head on screen`)
+- Mark Reviewed of the title bar must mark the reviewed branch of the part on the base of its own branch, as
+  `bd mark-reviewed <branch> --base <parent>` does, say so, and read the plan again: nothing is new after it. The
+  whole stack has no Mark Reviewed.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
+- "Since Your Review" must follow "All Changes" in the commit column only while the part is one branch, marked, with
+  a commit added or rewritten since; each such commit says "New" or "Rewritten". Chosen, it shows the range of the
+  commits added on top when the plan has that scope; otherwise the column lists only the added and rewritten commits,
+  adjacent or not, and shows the newest of them. "All Changes", another part or a mark leaves it.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
+  [@test] ../../src/lib/range-review.test.ts (`offers no scope for a branch never marked, nor when nothing was added or rewritten`, `marks the added and the rewritten commits, and lists only them, adjacent or not, under the scope`, `keeps the plain range of the commits added on top, and the column of one new commit`)
+- The API & Risk card must head the diffs of a scope, and in "Since Your Review" also a shown commit above its heading
+  (a rewritten commit shows its whole diff, the card what it changes against its reviewed version): the summary, what changed since the review (a rewritten commit
+  with the lines per path it changes against its reviewed version), the API in the order Rust ranked it with its
+  kind, `path:line`, the parts that changed, the forms before and after of a removal or a change and the usages, the
+  `risky` files with why, and the `index_note` when the usages are missing.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and order the files by their dependencies, kept for every review`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
+  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `words the usages, a cut answer as more, none without a fan-in`, `keeps the order Rust ranked, with the kind, the place, the parts that changed and the forms of a removal or a change`, `raises only the risky files, in Rust's order, with the usages and the missing test`, `sums the card up in its title`)
+- Order: Tree / Dependencies beside the header of the files must be kept for every review (`reviewFileOrder` of the
+  app settings); Dependencies shows the files as one flat list, each by its path, in the plan's `order`, a renamed file
+  also by its old path, a file the order lacks after them in tree order; the diffs, J and K follow it.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and order the files by their dependencies, kept for every review`)
+  [@test] ../../src/lib/file-tree.test.ts (`lists the files flat in the order of the review plan, a rename by either path, the files it lacks after in tree order`)
+
+## User Experience
+
+- `bd mark-reviewed auth` → `{"branch": "jane/virtual/auth", "ref": "refs/heads/jane/virtual/auth", "base": …,
+  "tip": …, "previous": null, "changed": true, "pruned": 0}`.
+- `bd mark-reviewed auth --base nope` → `{"error": {"code": "invalid_arguments", "message": "No branch or commit \"nope\"
+  to review the branch on"}}`, exit 2.
+- `bd review-plan auth --since-reviewed` after one commit on top → `{"branch": "jane/virtual/auth", "base": …, "head":
+  …, "interdiff": {"reviewed_base": …, "reviewed_tip": …, "commits": [{"id": …, "reviewed_id": null, "subject": "Add
+  logout", "state": "added"}], "scope": {"base": <reviewed tip>, "head": <tip>}}}`.
+- `bd review-plan base..head` of a new parameter → `"api": [{"path": "src/a/Api.kt", "line": 3, "name": "open",
+  "kind": "changed", "changes": ["parameters"], "before": "fun open(path:String) : Int", "after": "fun
+  open(path:String, mode:Int) : Int", "fan_in": {"usages": 12, "complete": true}}]`, `"risk": [{"path": "src/a/Api.kt",
+  "max_fan_in": 12, "untested": true, "risky": true}]`, `"index_note": null`.
+- `bd review-plan base..head` of a new `Store` that `User` imports, with its test → `"order": ["src/b/Store.kt",
+  "src/test/b/StoreTest.kt", "src/a/User.kt", "README.md"]`.
+- The review window, flag on: **Mark Reviewed** in the title bar → toast "Marked plan reviewed" ("plan was already
+  marked reviewed at this commit" when nothing moved); the column: "All Changes 3 commits", "Since Your Review 1
+  commit", "read the cache twice  New".
+- The card **API & Risk**, "3 API changes · 3 risky files": `Changed helper src/Store.kt:36 parameters 3 usages`, under
+  it `fun helper(value:Int) → fun helper(value:Int, scale:Int)`; `Added Cache src/b/Cache.kt:3`; risky `src/Store.kt
+  An API used in 3 places · No test changed`; "Since your review: 1 new · 1 rewritten", under it "Rewritten scale the helper: src/Store.kt +1 −1"; "No usages: accio has no index
+  of this repository"; "Cannot read the review plan: …".
+- **Order: Tree | Dependencies** beside the header of the files.
+
+## Measurements
+
+<!-- The corpus runs of `bd review-plan` and what they found go here. -->
+
+## Open Questions / Risks
+
+- A branch deleted and created again under the same name keeps the pair of the old one, unless a mark pruned it while
+  the branch was gone; the interdiff then compares it with the old branch.
+- An unapplied (`{prefix}/unapplied/<name>`) or archived virtual branch has no `{prefix}/virtual/<name>`, so a mark of
+  another branch meanwhile prunes its pair as gone; after a reapply it has no interdiff until it is marked again.
+- Without `--base`, `bd` takes the baseline of the checked out branch for the merge base, so a stacked branch is
+  marked with the commits of its parents; the app passes the base of the review's segment as `subject.base` and as
+  the `base` of `mark_branch_reviewed`.
+- A commit both reworded and amended has neither its identity nor its changed lines: it shows as `added`, and its
+  reviewed version as `dropped`, which errs toward showing too much.
+- Two commits of one author with the same subject in the same second share an identity; they pair in order.
+- A rewritten commit is read against its own parent, not against its reviewed version: a declaration it adds shows as
+  added even when its reviewed version added it too.
+- The fan-in counts the whole-word usages of a name, so another declaration of the same name counts too; a removal's
+  usages at the head are those left behind, or of a namesake.
+- The module roots of the summaries are read at the checked out HEAD, not at the head of the range.
+- A key gets one entry: when an overload changed and another was added in the same commits, only the change is
+  listed.
+- `untested` sees only test files the commits change; a Rust test module inside its file does not count.
+- The order reads each file as the last reviewed commit leaves it: with `--since-reviewed`, a later unreviewed commit
+  may change its uses. A call of a function of the same package without an import is no evidence, so it orders
+  nothing, as in the symbol dependencies.
+- The tree order of `order` (`compare_tree_paths`, as the work order of the diffs) approximates the collator of the
+  page's file tree for ASCII names; a name with accents may sort elsewhere.
+- The diffs show a commit or a range only: "Since Your Review" of commits that are not one range lists them in the
+  column and shows one at a time, never their changes together.
+- A part of several branches of a stack reads the plan of the reviewed branch on the base of the part, but offers no
+  "Since Your Review" and its card no "since": the reviewed pair is on the base of the branch alone.
+- The card heads the diffs of a scope, and a commit only in "Since Your Review": a commit chosen under "All Changes"
+  shows its own heading alone.

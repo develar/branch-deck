@@ -321,7 +321,14 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    To fix the message of your own commit after it landed, run `bd reword <commit> --expect-head <head> --subject
    '...'` from your worktree with -C <shared checkout>, without --sync (the owner syncs); your worktree needs nothing,
    a later pick or return finds the commit landed by content. A reword of a commit that
-   another session made is the user's to approve.
+   another session made is the user's to approve. The user reviews what the sessions landed: `bd mark-reviewed
+   <branch>` (experimental, no rewrite) keeps the base and the tip of a branch as reviewed, so that the next review
+   starts there (`mark-reviewed --base <parent>` for a stacked branch: only its own commits); run it only when the
+   user says they reviewed the branch. `bd review-plan <branch> --since-reviewed` (reads only; `review-plan --base
+   <parent>` as for the mark) lists the commits added or rewritten since then, and `scope`, the plain range to review
+   when commits were only added on top; its `api` and `risk` name the public declarations they change, ranked by
+   their usages from accio, and the files changed without their tests; `order` lists the files to read, each
+   declaration before its uses.
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by

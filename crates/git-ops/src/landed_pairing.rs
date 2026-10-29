@@ -11,6 +11,7 @@
 //!   one, on the logs of the landed report (`LandedReads`); the pairs by identity alone are candidates
 //! - the patch ids: `same_changes` of commit pairs without context, `pair_by_patch_id` and `patch_identical` with it
 //! - the interdiff of a candidate and its twin (`interdiffs`): what a drop of the candidate loses
+//! - the changed lines of a commit as one id (`change_ids`), whatever its parent: the interdiff of a review
 
 use crate::autosquash_targets::target_of_each_fixup;
 use crate::commit_list::parse_single_commit;
@@ -337,6 +338,17 @@ fn lines_of(items: impl IntoIterator<Item = impl AsRef<str>>) -> String {
     let _ = writeln!(input, "{}", item.as_ref());
     input
   })
+}
+
+/// The changed lines of each commit as one id, by commit: `patch-id --verbatim` of its diff without context (`-U0`)
+/// against its first parent, so two commits share it when they change the same lines in the same way, whatever their
+/// parents and line numbers; a commit without changes has none. What the interdiff of a review (crates/review-plan)
+/// pairs a reworded commit by. One `diff-tree --stdin -p` and one `patch-id`, none without commits
+pub fn change_ids(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[&str]) -> Result<HashMap<String, String>> {
+  if commits.is_empty() {
+    return Ok(HashMap::new());
+  }
+  patch_ids(git_executor, repo_path, commits, PatchContext::None, PatchIdMode::Verbatim)
 }
 
 /// Which of the `(older, newer)` pairs make the same changes: the patch ids of their diffs without context (`-U0`; a
@@ -776,6 +788,8 @@ fn same_changed_lines(git_executor: &GitCommandExecutor, repo_path: &str, pairs:
 /// The lines of one path that one side of a twin changes and the other does not: `+<line>` added, `-<line>` removed,
 /// `mode <old> <new>` and `binary <blob>` for what no line shows; at most `MAX_REPORTED_LINES`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PathLines {
   pub path: String,
   pub lines: Vec<String>,

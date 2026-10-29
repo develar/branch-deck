@@ -582,3 +582,24 @@ fn a_table_seeded_from_a_frame_is_cached_until_a_sync_commits() {
   assert!(!seeded.cached());
   assert_eq!(seeded.branch("auth"), state.branch("auth"), "a quiet resync keeps the row");
 }
+
+/// The header carries the flag of the review windows as each grouping read it (`branchdeck.reviewExperimental`): on
+/// after a grouping that read it on, off again after one that read it off
+#[test]
+fn the_header_takes_the_review_experiments_of_each_grouping() {
+  let grouping_with = |on: bool| {
+    let mut grouping = grouping(Vec::new());
+    if let SyncEvent::BranchesGrouped { review_experimental, .. } = &mut grouping {
+      *review_experimental = on;
+    }
+    grouping
+  };
+  let mut state = TableState::new();
+  assert!(!state.header().review_experimental);
+  state.begin_sync();
+  state.apply(grouping_with(true));
+  assert!(state.header().review_experimental);
+  state.begin_sync();
+  state.apply(grouping_with(false));
+  assert!(!state.header().review_experimental);
+}

@@ -3049,6 +3049,82 @@ Code: `crates/operations/src/review_fetch.rs`, `crates/sync-core/src/review_fetc
 `crates/sync-core/src/remote_command.rs`, `crates/git-executor/src/git_command_executor.rs`,
 `crates/repository-model/src/runtime.rs` (the prune), `crates/app-api/src/session/operations.rs` (the close of a window).
 
+#### Review plan
+
+The plan of a review ([Review Plan](../../spec/branch/review-plan.spec.md), experimental) is one core,
+`crates/review-plan`, for `bd` and the app. Its start is Mark Reviewed (`mark_reviewed_core`, `bd mark-reviewed
+<branch>`): the base and the tip a local branch has now become its reviewed pair, which the interdiff of its next
+review compares the branch with.
+
+| Step | Command | Note |
+|------|---------|------|
+| 1. Listing | `for-each-ref --format=%(refname)%00%(objectname) refs/branch-deck/reviewed/ refs/heads/` | the pairs and every local branch; the branch is `{prefix}/virtual/<name>`, else `<name>`, or exactly `refs/heads/<name>`; a base (`MarkReviewedParams::base`, `bd --base`) that names a branch so is its tip |
+| 2. Baseline | `detect_baseline_branch` (`remote`, the `@{u}` probe, a `for-each-ref` of the candidates) | only when the caller passes neither a base nor a baseline (`MarkReviewedParams::baseline_branch`); `bd` passes no baseline |
+| 3. Base | `rev-parse --verify --quiet --end-of-options <base>^{commit}` (`resolve_commit`), then `merge-base --end-of-options <tip> <base or baseline>` | the `rev-parse` only for a base that names no branch; its non-zero exit is `UnknownReviewBase`. The merge base is the base itself when it is an ancestor of the tip (a stack parent: only the branch's own commits); exit 1 is `NoCommonHistory`. Both fail before step 4, so nothing is written, and neither reads git's message (`bd`: `invalid_arguments` for a `--base`, `no_baseline` for a baseline) |
+| 4. Write | `update-ref -m "branch-deck: mark-reviewed" --stdin` | `create`, or `update` with the old value, of `…/<key>/base` and `…/<key>/tip`; `verify` of a ref the mark keeps; `delete` with the old value of each pair whose branch is gone |
+
+- **The refs.** `refs/branch-deck/reviewed/<key>/{base,tip}`, the key the SHA-256 of the branch's full name
+  (`jane/virtual/auth`), as for the conflict refs: the pairs of `a` and `a/b` never clash. They keep the reviewed
+  commits from `git gc`, so the interdiff still reads them after the branch was rewritten.
+- **The witness.** No repository lock: the mark moves no branch, and the compare-and-swap of its one transaction
+  on the values of step 1 is the witness, as for a write of the stores alone. A ref the mark keeps gets a `verify`, so
+  a mark over a listing another mark outdated fails also when it would move nothing. A failed write is an error;
+  marking again reads anew.
+- **Pruning.** The same transaction deletes the pairs whose key is no local branch's: no process of its own, and the
+  namespace stays the size of the branches that were marked.
+
+The plan (`review_plan_core`, `bd review-plan <branch | base..head> [--since-reviewed]`) reads only. For a branch it
+resolves the branch and its base as a mark does (`branch_on_base`, steps 1–3 above, the listing also giving the pair),
+then, when the branch has a pair, its interdiff (`interdiff::interdiff`) with our own pairing, not `git range-diff`,
+whose text is translated:
+
+| Step | Command | Note |
+|------|---------|------|
+| 1. Commits | `rev-list --no-commit-header --format=… --reverse --no-merges --end-of-options <tip> ^<base> --`, once for the reviewed pair, once for the branch now | `walk_commits`: each commit with its `CommitKey` (author email, author time, subject without the `(prefix)`) |
+| 2. Pairing | none | one to one, oldest first: the same commit on both sides is `unchanged`; then the same `CommitKey` (a rebase, a sync's copy, an amend keep it) |
+| 3. Changed lines | `diff-tree --stdin -p -U0 --no-renames` piped into `patch-id --verbatim` (`change_ids`) | only for the commits that are not the same on both sides, none without them: a pair by identity is `unchanged` when both change the same lines, else `rewritten`; the commits left pair by the same changed lines (a reword), `unchanged`; the rest are `added` and `dropped` |
+| 4. Interdiff | `diff-tree --stdin -p -U0 --full-index` (`interdiffs`) | only for the `rewritten` pairs, none without them: the lines each version changes and the other does not, per path |
+
+- **The scope.** When every commit is `unchanged` up to the first `added` one, every one after it is `added` and none
+  is `dropped`, the commits since the review are a plain range: `<the commit below the first added>..<tip>` (the base
+  when the first commit is added); `<tip>..<tip>`, empty, when nothing changed. A rewrite or a drop has no range.
+- **A baseline move** copies every commit with the same identity and the same changed lines: all `unchanged`, the
+  scope empty. A copy whose conflict was resolved differently is `rewritten`.
+- **`--since-reviewed`** keeps the `added` and the `rewritten` commits. A branch never marked, and a range, have no
+  interdiff; a range resolves its two revs by `rev-parse --verify` (`UnknownRevision`), and `--since-reviewed` of a
+  range is `SinceReviewedOfRange`, both `invalid_arguments` in `bd`.
+
+Then the API surface, its fan-in, the risk and the order of the files, from the reviewed commits: those of
+`base..head`, the commits of the interdiff when there is one (no process of their own), else one `rev-list`; with
+`--since-reviewed` only the `added` and the `rewritten` ones, each against its own parent, so an unchanged commit
+between two of them adds nothing:
+
+| Step | Command | Note |
+|------|---------|------|
+| 5. Changes | `log --no-walk=unsorted --stdin --raw -z -M` (`read_commit_diffs_cached`), and one `cat-file --batch` of the blobs for their blocks | the object cache first: a commit it knows runs nothing |
+| 6. Summaries | `cat-file --batch` of the trees above the files at HEAD and of the blobs no cache has (`read_symbol_input`) | parsed in parallel, written back to the cache by blob id |
+| 7. API | none | `changed_declarations` (trial-check) gives per commit and file the forms of the declarations of the names on the changed lines; `api.rs` compares, per key, the forms before the first commit that touches it in a file with those after the last one: public ones added, removed, or changed in the parts a use sees (`changed_form`, the constructors) |
+| 8. Fan-in | `accio references <name> --ref <head>`, no git | the first 20 removals and changes (`MAX_FANIN_QUERIES`), one thread each, through `Lenient`: a failed query leaves its entry without a fan-in and `index_note` says why; no accio or no index is a note too, never an index build; a cancel of the caller cancels the plan |
+| 9. Risk | none | per changed file, the highest fan-in of its removed or changed API, and `untested` when a source file changed with no test that names its stem (`risk.rs`) |
+| 10. Order | none | the summaries of step 6 of each kept file as the last reviewed commit leaves it, the declarations of each against the uses of the others with the evidence of the symbol dependencies (`file_links`, trial-check); Tarjan's components placed in topological order, the first in the tree first, a cycle in tree order, then each test right after its subject (`order.rs`) |
+
+`bd` passes `AccioCli::discover()` with no cancel. The app reads the plan with `get_review_plan`, a `window` read
+(`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
+fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the window asks a newer plan or closes
+(`Windows::begin_plan`, a slot of its own, so a Go to Declaration of the window never cancels its plan); a plan
+superseded after its last query answers `canceled` too. Mark Reviewed of the window is `mark_branch_reviewed`, a
+command of the app (`app(ReviewedRefs)`: the refs have their one writer, no session reads them,
+`crates/app-api/src/app/mark_reviewed.rs`), with the same `mark_reviewed_core` and its CAS; both name the branch with
+the prefix the app resolves for the repository (`PrefixInputs`), and the page passes the head of the stack parent as
+the base of a stacked branch. The review windows offer neither unless `branchdeck.reviewExperimental` is on, which the
+sync carries into the view (`TableHeader.review_experimental`, "Repository settings").
+
+Code: `crates/review-plan/src/mark_reviewed.rs`, `crates/review-plan/src/interdiff.rs`, `crates/review-plan/src/api.rs`,
+`crates/review-plan/src/fan_in.rs`, `crates/review-plan/src/risk.rs`, `crates/review-plan/src/order.rs`,
+`crates/git-ops/src/reviewed_refs.rs`, `crates/bd-rewrite/src/mark_reviewed_command.rs`,
+`crates/bd-rewrite/src/review_plan_command.rs`, `crates/app-api/src/reads/review_plan.rs`,
+`crates/app-api/src/app/mark_reviewed.rs`.
+
 #### Trial sync (check)
 
 `bd check` answers "would these branches build?" for a plan without touching anything a sync updates:
@@ -4006,12 +4082,15 @@ unset, `0` or `off` for none: see [Push size](#push-size); one value for every r
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
 lands each commit with `bd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
-each subject with its `(branch)`, which the copies of the virtual branches drop). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
+each subject with its `(branch)`, which the copies of the virtual branches drop), and, with no row, the flag of the
+review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, off when unset: Mark Reviewed, the local
+Since Your Review, the API & Risk card and Order: Dependencies, [Review Plan](../../spec/branch/review-plan.spec.md);
+`bd review-plan` and `bd mark-reviewed` work without it). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
 two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspace.spec.md)), and their global values
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `bd install` and the app's Install Agent CLI: no sync,
 no operation.
 
-- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch)$'`
+- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental)$'`
   (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from
   its value with a newline; a key without `=` (an implicit `true`) has no newline. Git prints the scopes in its order
   (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
@@ -4031,11 +4110,13 @@ no operation.
   (`turning_stacks_off_fails_the_sync_on_the_flat_child`); the page refuses the switch with those names
   (`stacks_off_clashes`). A failed grouping (no baseline yet) is no clash: the sync then says what fails.
 - **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
-  `git config -z --show-scope --get-regexp` of the seven keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
+  `git config -z --show-scope --get-regexp` of the eight keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
-  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing` and `descriptions`. A sync reads it once for the stack setting, the
+  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing`, `review_experimental` and `descriptions`. A sync reads it once for the stack setting, the
   route into master (sent in `BranchesGrouped` with the push URLs of its listing, `RepoFacts::landing_remote`; `bd status`
-  takes the same of the listing of its grouping, `BranchGrouping::landing`) and the
+  takes the same of the listing of its grouping, `BranchGrouping::landing`), the flag of the review windows (sent in
+  `BranchesGrouped` too, into `TableHeader.review_experimental` of the view: a value git refuses is off, with a
+  warning, and fails no sync) and the
   description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it
   before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `bd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
@@ -4053,7 +4134,8 @@ no operation.
   size limit a size or off as the push reads it (`parse_push_size_limit`), a route one of the three; an empty text
   unsets. A `push` route is taken only from the repository's own config: a global or system one reads as unset with
   the reason (`GLOBAL_PUSH_ROUTE_REASON`), and its global write is refused. The answer is the settings read again, and the main window gets `repository_config_changed`
-  (`{repositoryPath, key}`) to sync; the agent keys and the push size limit sync nothing.
+  (`{repositoryPath, key}`) to sync (`branchdeck.reviewExperimental` too: the view takes the flag from a sync); the agent
+  keys and the push size limit sync nothing.
 - **Writes at once**: the app writes one config file at a time (a mutex per file in `run_config_write`: the local one
   by the repository's path, the global one), so a prefix saved on blur and a switch flipped right after do not race for
   `config.lock`; a lock that another process holds (`bd describe`, a `git config` of the user, a write of another

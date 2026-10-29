@@ -1,7 +1,7 @@
 // @spec spec/branch/branch-review.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { BranchReviewSegment, ReviewCommit } from "@/lib/bindings"
-import { SINCE_REVIEW, isSingleCommit, keepCommit, pullRequestItems, rangePosition, segmentItems, shownKey } from "@/lib/range-review"
+import type { BranchReviewSegment, Interdiff, ReviewCommit, ReviewPlan } from "@/lib/bindings"
+import { SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, pullRequestItems, rangePosition, segmentItems, shownInterdiff, shownKey } from "@/lib/range-review"
 
 function commit(id: string, subject: string, authorTime = 1): ReviewCommit {
   return { id, subject, message: subject, author: "Test User", authorTime, committerTime: authorTime }
@@ -23,6 +23,56 @@ describe("segmentItems", () => {
     expect(isSingleCommit(items)).toBe(false)
     // one branch: no headings; one commit: nothing to choose
     expect(isSingleCommit(segmentItems([segment("auth", [commit("a1", "Add the token")])]))).toBe(true)
+  })
+})
+
+describe("the local Since Your Review", () => {
+  // the interdiff of a branch marked reviewed at r1..r3, oldest first: r1 amended (c1), r2 unchanged (c2), c4 added
+  const interdiff: Interdiff = {
+    reviewedBase: "base",
+    reviewedTip: "r3",
+    commits: [
+      { id: "c1", reviewedId: "r1", subject: "Add the token", state: "rewritten", changes: { newOnly: [], reviewedOnly: [] } },
+      { id: "c2", reviewedId: "r2", subject: "Style", state: "unchanged", changes: null },
+      { id: "c4", reviewedId: null, subject: "Log out", state: "added", changes: null },
+      { id: null, reviewedId: "r3", subject: "Typo", state: "dropped", changes: null },
+    ],
+    scope: null,
+  }
+  const branch = [segment("auth", [commit("c4", "Log out"), commit("c2", "Style"), commit("c1", "Add the token")])]
+  const words = (items: ReturnType<typeof segmentItems>) =>
+    items.map(item => (item.kind === "scope" ? `${item.label} ${item.detail}` : `${item.commit.subject}${item.since === undefined ? "" : ` (${item.since})`}`))
+
+  it("takes the interdiff only of the part's own branch, and only of a plan of the head on screen", () => {
+    const plan: ReviewPlan = { branch: "user/virtual/auth", base: "base", head: "c4", interdiff, api: [], risk: [], order: [], indexNote: null }
+    expect(shownInterdiff(plan, true, "c4")).toBe(interdiff)
+    // a part of several branches: the pair is on the base of the upper branch alone, the lower commits are no news
+    expect(shownInterdiff(plan, false, "c4")).toBeNull()
+    // the plan before a sync moved the head, kept while the next is read
+    expect(shownInterdiff(plan, true, "c5")).toBeNull()
+    expect(shownInterdiff(null, true, "c4")).toBeNull()
+  })
+
+  it("offers no scope for a branch never marked, nor when nothing was added or rewritten", () => {
+    expect(localSinceReview(null)).toBeNull()
+    expect(localSinceReview({ ...interdiff, commits: [interdiff.commits[1]!], scope: { base: "c2", head: "c2" } })).toBeNull()
+  })
+
+  it("marks the added and the rewritten commits, and lists only them, adjacent or not, under the scope", () => {
+    const since = localSinceReview(interdiff)!
+    expect(since.newestFirst).toEqual(["c4", "c1"])
+    expect(since.scope).toBeNull()
+    expect(words(segmentItems(branch, since))).toEqual(["All Changes 3 commits", "Since Your Review 2 commits", "Log out (New)", "Style", "Add the token (Rewritten)"])
+    expect(words(segmentItems(branch, since, true))).toEqual(["All Changes 3 commits", "Since Your Review 2 commits", "Log out (New)", "Add the token (Rewritten)"])
+  })
+
+  it("keeps the plain range of the commits added on top, and the column of one new commit", () => {
+    const onTop = localSinceReview({ ...interdiff, commits: [interdiff.commits[1]!, interdiff.commits[2]!], scope: { base: "c2", head: "c4" } })!
+    expect(onTop.scope).toEqual({ base: "c2", head: "c4" })
+    const items = segmentItems([segment("auth", [commit("c4", "Log out")])], onTop)
+    expect(words(items)).toEqual(["All Changes 1 commit", "Since Your Review 1 commit", "Log out (New)"])
+    // two scopes to choose from: the column stays
+    expect(isSingleCommit(items)).toBe(false)
   })
 })
 

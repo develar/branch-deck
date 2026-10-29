@@ -18,16 +18,20 @@
 //!   or property, whose key another file of the same package and module declares in the branch's tree but not in HEAD's
 //!   (a move whose deletion is in another branch). Overloads are told apart by their parameter types.
 //! - **Counts, not lines**, as in the line search: a path counts where the branch's tree has more such uses than HEAD's.
+//!
+//! The forms a commit's change of a file gives the declarations on its changed lines (`changed_declarations`), by the
+//! same keys and the same comparison as `Changed` (`changed_form`, `constructor_forms`), are what the API surface of a
+//! review is computed from (spec/branch/review-plan.spec.md, crate `review-plan`).
 
 use crate::dangling_references::DanglingKind;
 use crate::diff_scan::CommitDiff;
 use crate::symbol_dependencies::{
-  Accessor, Evidence, FileCtx, Site, accepts_call, accessor_names, bare, changed_lines, changed_sites, constructor_reaches, contains, has_entries, in_ranges, names, receiver_of,
-  resolve, same_entry, same_names, site_of, with_constructors,
+  Accessor, Evidence, FileCtx, Site, accepts_call, accessor_names, bare, changed_lines, changed_sites, changed_sites_named, constructor_reaches, contains, has_entries, in_ranges,
+  names, outward, receiver_of, resolve, same_entry, same_names, site_of, with_constructors,
 };
 use crate::symbol_scan::SymbolInput;
 use code_symbols::language::{Family, Language, language_of};
-use code_symbols::summary::{DeclKind, FileSummary, ImportTarget, MemberKind, Reference, Role, Shape};
+use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, MemberKind, Reach, Reference, Role, Shape};
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -196,10 +200,15 @@ pub struct TreeForm<'a> {
 /// The declarations of `ctx` by their key, of the kinds a search looks at, readable ones only; with `names`, only those
 /// of these names
 fn by_key<'a>(ctx: &'a FileCtx<'a>, names: Option<&HashSet<&str>>) -> BTreeMap<String, Vec<usize>> {
+  by_key_named(ctx, names, MIN_NAME_LENGTH)
+}
+
+/// `by_key` of the names of at least `min_name_length` bytes
+fn by_key_named<'a>(ctx: &'a FileCtx<'a>, names: Option<&HashSet<&str>>, min_name_length: usize) -> BTreeMap<String, Vec<usize>> {
   let mut keys: BTreeMap<String, Vec<usize>> = BTreeMap::new();
   for (index, declaration) in ctx.summary.declarations.iter().enumerate() {
     let name = ctx.summary.name(declaration.name);
-    if declaration.kind == DeclKind::Binding || declaration.in_error || name.len() < MIN_NAME_LENGTH || names.is_some_and(|names| !names.contains(name)) {
+    if declaration.kind == DeclKind::Binding || declaration.in_error || name.len() < min_name_length || names.is_some_and(|names| !names.contains(name)) {
       continue;
     }
     keys.entry(site_of(ctx, declaration).key).or_default().push(index);
@@ -268,6 +277,162 @@ fn constructor_forms(site: &Site<'_>) -> Option<Vec<String>> {
     forms.sort();
     forms
   })
+}
+
+/// A declaration on one side of a commit's change of a file, as a use from another file sees it (`changed_declarations`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclarationForm {
+  /// Namespace, containers and name: what identifies it across the commits
+  pub key: String,
+  pub name: String,
+  pub kind: DeclKind,
+  /// The line of its name, from 1
+  pub line: u32,
+  /// Its reach and that of every declaration around it are `Public` (Java's `protected` too), and none around it is a
+  /// function or a value: another module may name it
+  pub public: bool,
+  pub form: Form,
+}
+
+/// What a use may see of a declaration: two forms of one key differ exactly where `changed_form` tells them apart, and
+/// for a type where its constructors differ (`constructor_forms`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Form {
+  /// `Declaration::header`: the tokens before the body, without the parameters a signature holds
+  pub header: Option<String>,
+  /// The parameters of a JVM function as a call sees them, `,` apart: `name:Type?` with `[]` per array dimension, `=`
+  /// for a default and `*` for a vararg; `None` where the header holds them
+  pub parameters: Option<String>,
+  pub reach: Reach,
+  /// A subtype may override it (`open`)
+  pub overridable: bool,
+  /// What Java sees of it otherwise: the member kind, `@JvmStatic`, `@JvmField`, `@JvmName`
+  pub jvm: String,
+  /// The constructors of a type (`constructor_forms`), `;` apart
+  pub constructors: Option<String>,
+}
+
+/// The declarations a commit's change of a file touches: on each side, every declaration of a name declared on the
+/// changed lines of either side (`changed_sites`), overloads included, so that a key's forms on the two sides compare
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedDeclarations {
+  /// The file after the commit (before it for a deletion)
+  pub path: String,
+  /// The file before the commit, when the commit renamed it
+  pub old_path: Option<String>,
+  /// Before the commit; every declaration of a new file is on `after` only, of a deleted file on `before` only
+  pub before: Vec<DeclarationForm>,
+  pub after: Vec<DeclarationForm>,
+}
+
+/// Whether another module may name `declaration`: it and every declaration around it public, none of them a function
+/// or a value (a local)
+fn reaches_out(summary: &FileSummary, declaration: &Declaration) -> bool {
+  declaration.reach == Reach::Public
+    && outward(summary, declaration.container).all(|(_, container)| container.reach == Reach::Public && !matches!(container.kind, DeclKind::Function | DeclKind::Value))
+}
+
+/// The form of `site`: what `changed_form` compares, and the constructors of a type
+fn form_of(site: &Site<'_>) -> Form {
+  let declaration = site.declaration;
+  let summary = site.ctx.summary;
+  let parameters = site.signature().map(|signature| {
+    signature
+      .parameters
+      .iter()
+      .map(|parameter| {
+        let type_text = parameter.type_ref.as_ref().map_or_else(String::new, |type_ref| {
+          let names: Vec<&str> = type_ref.names.iter().map(|name| summary.name(*name)).collect();
+          format!(
+            "{}{}{}",
+            names.join("/"),
+            "[]".repeat(usize::from(type_ref.arrays)),
+            if type_ref.nullable { "?" } else { "" }
+          )
+        });
+        format!(
+          "{}:{type_text}{}{}",
+          summary.name(parameter.name),
+          if parameter.optional { "=" } else { "" },
+          if parameter.vararg { "*" } else { "" }
+        )
+      })
+      .collect::<Vec<_>>()
+      .join(",")
+  });
+  let constructors = if declaration.kind == DeclKind::Type { constructor_forms(site) } else { None };
+  Form {
+    header: declaration.header.clone(),
+    parameters,
+    reach: declaration.reach,
+    overridable: declaration.overridable,
+    jvm: format!("{:?} {} {} {}", declaration.member, declaration.jvm_static, declaration.jvm_field, declaration.jvm_name),
+    constructors: constructors.map(|forms| forms.join(";")),
+  }
+}
+
+/// The forms of the declarations of `keys` in `ctx`
+fn forms_of(ctx: &FileCtx<'_>, keys: &BTreeMap<String, Vec<usize>>) -> Vec<DeclarationForm> {
+  let summary = ctx.summary;
+  keys
+    .iter()
+    .flat_map(|(key, indices)| indices.iter().map(move |&index| (key, &summary.declarations[index])))
+    .map(|(key, declaration)| DeclarationForm {
+      key: key.clone(),
+      name: summary.name(declaration.name).to_string(),
+      kind: declaration.kind,
+      line: declaration.name_line,
+      public: reaches_out(summary, declaration),
+      form: form_of(&site_of(ctx, declaration)),
+    })
+    .collect()
+}
+
+/// The declarations each source file of `diff` touches, before and after the commit (`ChangedDeclarations`), whatever
+/// the length of their names (the checks search only names of `MIN_NAME_LENGTH`); a file whose summary is missing or
+/// degraded on a side it has is left out: its declarations are not known
+pub fn changed_declarations(input: &SymbolInput, diff: &CommitDiff) -> Vec<ChangedDeclarations> {
+  // a side: `Some(None)` without a file, `None` a file of no known summary
+  let side_of = |blob: Option<&String>| match blob {
+    None => Some(None),
+    Some(blob) => input.summaries.get(blob).map(AsRef::as_ref).filter(|summary| !summary.is_degraded()).map(Some),
+  };
+  let mut files = Vec::new();
+  for change in &diff.files {
+    let old_path = change.old_path.as_deref().unwrap_or(&change.path);
+    let (Some(before), Some(after)) = (side_of(change.old_blob.as_ref()), side_of(change.new_blob.as_ref())) else {
+      continue;
+    };
+    let before = before.map(|summary| input.file_ctx(old_path, summary));
+    let after = after.map(|summary| input.file_ctx(&change.path, summary));
+    let (forms_before, forms_after) = match (&before, &after) {
+      (Some(before), Some(after)) => {
+        let (added_lines, removed_lines) = changed_lines(change);
+        let mut changed: HashSet<&str> = HashSet::new();
+        for (side, ranges) in [(after, &added_lines), (before, &removed_lines)] {
+          let summary = side.summary;
+          changed.extend(changed_sites_named(side, ranges, 0).iter().map(|site| summary.name(site.declaration.name)));
+        }
+        (
+          forms_of(before, &by_key_named(before, Some(&changed), 0)),
+          forms_of(after, &by_key_named(after, Some(&changed), 0)),
+        )
+      }
+      (Some(before), None) => (forms_of(before, &by_key_named(before, None, 0)), Vec::new()),
+      (None, Some(after)) => (Vec::new(), forms_of(after, &by_key_named(after, None, 0))),
+      (None, None) => continue,
+    };
+    if forms_before.is_empty() && forms_after.is_empty() {
+      continue;
+    }
+    files.push(ChangedDeclarations {
+      path: change.path.clone(),
+      old_path: change.old_path.clone().filter(|old_path| *old_path != change.path),
+      before: forms_before,
+      after: forms_after,
+    });
+  }
+  files
 }
 
 /// The searches of the commits `own` of a branch (oldest first): what each removes, changes or adds. `members` are the

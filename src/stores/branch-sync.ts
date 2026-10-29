@@ -233,6 +233,11 @@ export interface BranchSyncState {
   groupedRun: number
   /** Stacked branches are on for the repository (`branchdeck.stacks`), as the last grouping read it */
   stacksEnabled: boolean
+  /**
+   * The review windows show the review plan (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md), as the
+   * last grouping read it
+   */
+  reviewExperimental: boolean
   /** Issue key -> branch name: the issue groups the last grouping read (`refs/branch-deck/issue-groups`) */
   issueGroups: Readonly<Record<string, string>>
   /** Child -> parent: the stack parents the last grouping read (`refs/branch-deck/stack-parents`); empty with stacks off */
@@ -340,6 +345,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   baselineStatus: null,
   groupedRun: 0,
   stacksEnabled: false,
+  reviewExperimental: false,
   issueGroups: {},
   stackParents: {},
   parked: {},

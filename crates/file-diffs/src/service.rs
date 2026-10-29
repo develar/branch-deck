@@ -662,8 +662,9 @@ pub(crate) fn priority_order(paths: &[&str], priority_paths: &[String]) -> Vec<u
 }
 
 /// The order of two paths in the tree: at the first directory level where they differ, a directory before a file,
-/// then the names as a person reads them (`file2` before `file10`, case-insensitive)
-fn compare_tree_paths(a: &str, b: &str) -> Ordering {
+/// then the names as a person reads them (`file2` before `file10`, case-insensitive); also the tiebreak of the
+/// dependency order of a review (`review_plan::order`)
+pub fn compare_tree_paths(a: &str, b: &str) -> Ordering {
   let (mut a_parts, mut b_parts) = (a.split('/').peekable(), b.split('/').peekable());
   loop {
     match (a_parts.next(), b_parts.next()) {

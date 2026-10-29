@@ -714,6 +714,9 @@ pub struct TableHeader {
   /// What the route into master is decided on of git (`branchdeck.landing`, where the remotes push), as the last
   /// grouping read it
   pub landing: LandingRemote,
+  /// The review windows show the review plan (`branchdeck.reviewExperimental`), as the last grouping read it: the main
+  /// window passes it to the review of a branch it opens
+  pub review_experimental: bool,
 }
 
 impl TableHeader {

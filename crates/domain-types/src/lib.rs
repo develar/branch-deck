@@ -296,6 +296,10 @@ pub enum SyncEvent {
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(optional))]
     landing: Box<LandingRemote>,
+    /// The review windows show the review plan (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md)
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    review_experimental: bool,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },

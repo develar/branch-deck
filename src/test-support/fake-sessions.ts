@@ -57,6 +57,7 @@ const EMPTY_HEADER: TableHeader = {
   branch: "",
   storeTips: { issueGroups: null, stackParents: null, parked: null },
   landing: { setting: null, onSpace: false, pushRepository: null, target: null },
+  reviewExperimental: false,
 }
 
 /** The view of a session that never synced, at `version` */

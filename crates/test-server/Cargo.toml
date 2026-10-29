@@ -30,6 +30,7 @@ tokio-stream.workspace = true
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
 file-diffs = { path = "../file-diffs" }
+review-plan = { path = "../review-plan" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
 github = { path = "../github", features = ["fake"] }

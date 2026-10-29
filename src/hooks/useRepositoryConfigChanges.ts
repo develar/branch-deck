@@ -50,6 +50,10 @@ export function useRepositoryConfigChanges(): void {
         // the route into master is read by the sync with its config: the steps of the rows follow it
         resync()
         break
+      case "reviewExperimental":
+        // the sync reads it with its config into the header of the view, which the review windows take it from
+        resync()
+        break
       case "pushSizeLimit":
         // a push reads it as it starts: nothing to sync
         break

@@ -52,6 +52,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   },
   agentLease: { value: false, scope: "worktree", localSet: true, invalid: null, fallbackValue: true, fallbackScope: "system" },
   agentSubjectBranch: { value: false, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: true, fallbackScope: "global" },
+  reviewExperimental: { value: false, scope: null, localSet: false, invalid: null, fallbackValue: false, fallbackScope: null },
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
   landingDefault: { route: "pullRequest", onSpace: false },
   stacksOffClashes: [

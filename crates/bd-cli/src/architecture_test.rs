@@ -96,6 +96,22 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "a trial check builds and reads the commits of the repository, never a remote service",
   },
   Unreachable {
+    from: "review-plan",
+    forbidden: &[
+      "github",
+      "patronus",
+      "youtrack",
+      "update-core",
+      "lease-pool",
+      "remote-facts",
+      "repository-model",
+      OPERATIONS,
+      TAURI,
+      "clap",
+    ],
+    why: "the plan of a review reads the commits, the symbols and the local index of accio; it asks no remote service, updates, leases and runs no operation, and serves bd and the app alike",
+  },
+  Unreachable {
     from: "lease-pool",
     forbidden: &[
       "github",

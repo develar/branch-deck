@@ -1,6 +1,7 @@
-import type { BranchReviewSegment, ReviewCommit } from "@/lib/bindings"
+import type { BranchReviewSegment, Interdiff, RangeScope, ReviewCommit, ReviewPlan } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
+import { formatPairState } from "@/presenters/review-plan"
 
 /**
  * An item of the commit column of a range review: a scope of the range ("All Changes", "Since Your Review") or one of
@@ -17,6 +18,8 @@ export type RangeReviewItem =
       readonly divider?: string
       /** The branch a commit of the whole stack came from: its commits are in the order of the history, not by branch */
       readonly branch?: string
+      /** What it is since the user's review of a local branch: "New", "Rewritten" */
+      readonly since?: string
     }
 
 /** The key of "All Changes": the whole range */
@@ -48,13 +51,69 @@ export function shownKey(items: readonly RangeReviewItem[], selected: string): s
   return items.some(item => item.key === selected) ? selected : ALL_CHANGES
 }
 
-/** The column of a part of a stack: "All Changes", then the commits of each branch, the reviewed (newest) one first */
-export function segmentItems(segments: readonly BranchReviewSegment[]): RangeReviewItem[] {
+/**
+ * What changed in a local branch since the user marked it reviewed (spec/branch/review-plan.spec.md), as the column
+ * shows it: the commits added or rewritten, by id, newest first, and their plain range when they are the commits on top
+ */
+export interface LocalSinceReview {
+  /** The words of each added or rewritten commit ("New", "Rewritten"), by its id */
+  readonly changed: ReadonlyMap<string, string>
+  /** The ids of `changed`, newest first, as the column lists them */
+  readonly newestFirst: readonly string[]
+  /** `<parent of the first added>..tip` when only commits were added on top; null when they are not one range */
+  readonly scope: RangeScope | null
+}
+
+/**
+ * The interdiff of `plan` as the shown part may use it: only when the part is one branch (`ownBranch`; the reviewed
+ * pair is on the base of that branch alone, so a part of several branches would count the lower ones as new), and only
+ * of a plan of the head on screen (the plan before a sync, kept while the next is read, names commits that may be gone)
+ */
+export function shownInterdiff(plan: ReviewPlan | null, ownBranch: boolean, head: string | null): Interdiff | null {
+  return ownBranch && plan !== null && plan.head === head ? plan.interdiff : null
+}
+
+/** "Since Your Review" of the interdiff of the plan: null for a branch never marked, and when nothing was added or rewritten */
+export function localSinceReview(interdiff: Interdiff | null): LocalSinceReview | null {
+  if (interdiff === null) {
+    return null
+  }
+  const changed = new Map<string, string>()
+  for (const commit of interdiff.commits) {
+    const words = formatPairState(commit.state)
+    if (commit.id !== null && words !== null) {
+      changed.set(commit.id, words)
+    }
+  }
+  if (changed.size === 0) {
+    return null
+  }
+  // the interdiff lists the commits of the branch oldest first
+  return { changed, newestFirst: [...changed.keys()].reverse(), scope: interdiff.scope }
+}
+
+/**
+ * The column of a part of a stack: "All Changes", then the commits of each branch, the reviewed (newest) one first.
+ * With `since` (a local branch marked reviewed, something changed since), "Since Your Review" after "All Changes", each
+ * changed commit says what it is, and `onlySince` lists only them: the added and the rewritten ones, adjacent or not
+ */
+export function segmentItems(segments: readonly BranchReviewSegment[], since: LocalSinceReview | null = null, onlySince = false): RangeReviewItem[] {
   const count = segments.reduce((sum, segment) => sum + segment.commits.length, 0)
   const items: RangeReviewItem[] = [{ kind: "scope", key: ALL_CHANGES, label: "All Changes", detail: formatCommitCount(count) }]
+  if (since !== null) {
+    items.push({ kind: "scope", key: SINCE_REVIEW, label: "Since Your Review", detail: formatCommitCount(since.changed.size) })
+  }
   for (const segment of [...segments].reverse()) {
-    segment.commits.forEach((commit, index) => {
-      items.push({ kind: "commit", key: commit.id, commit, ...(index === 0 && segments.length > 1 && { group: segment.name }) })
+    const commits = since !== null && onlySince ? segment.commits.filter(commit => since.changed.has(commit.id)) : segment.commits
+    commits.forEach((commit, index) => {
+      const words = since?.changed.get(commit.id)
+      items.push({
+        kind: "commit",
+        key: commit.id,
+        commit,
+        ...(index === 0 && segments.length > 1 && { group: segment.name }),
+        ...(words !== undefined && { since: words }),
+      })
     })
   }
   return items

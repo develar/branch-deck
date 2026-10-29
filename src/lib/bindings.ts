@@ -82,6 +82,19 @@ export const commands = {
 	 *  blobs the diffs read, then outside the review in the index of the repository (`accio`), waited for as long as it runs
 	 */
 	findUsages: (params: FindDeclarationParams) => typedError<FoundUsages, ApiError>(__TAURI_INVOKE("find_usages", { params })),
+	/**
+	 *  The plan of a review (spec/branch/review-plan.spec.md, Status: Experimental): what changed in a branch since it was
+	 *  marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
+	 *  from the index of the repository (`accio`), the risk per file and the files in dependency order
+	 *  (`review_plan_core`, as `bd review-plan`). A newer plan of the window or its close supersedes it: `canceled`
+	 */
+	getReviewPlan: (params: ReviewPlanParams) => typedError<ReviewPlan, ApiError>(__TAURI_INVOKE("get_review_plan", { params })),
+	/**
+	 *  Keeps the base and the tip a branch has now as its reviewed pair, which a later plan compares the branch with, and
+	 *  deletes the pairs of the branches that are gone, in one transaction with CAS (`mark_reviewed_core`, as `bd
+	 *  mark-reviewed`)
+	 */
+	markBranchReviewed: (params: MarkReviewedParams) => typedError<ReviewedTip, ApiError>(__TAURI_INVOKE("mark_branch_reviewed", { params })),
 	/**  Kills the symbol search of the calling window in flight, if any (Escape or Cancel while it searches) */
 	cancelSymbolSearch: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_symbol_search")),
 	/**
@@ -539,6 +552,41 @@ export type AmendResult = {
 	amendedCommitId: string,
 	rebasedToCommit: string,
 };
+
+/**  A public declaration the reviewed commits add, remove or change */
+export type ApiChange = {
+	/**
+	 *  The file that declares it after the commits; of a removal, the file before the first commit that touched it, the
+	 *  old path when that commit renamed it
+	 */
+	path: string,
+	/**  The line of its name there, from 1 */
+	line: number,
+	name: string,
+	/**  Namespace, containers and name: what identifies it across the commits */
+	key: string,
+	kind: ApiChangeKind,
+	/**  The parts of its form that changed, of a change only */
+	changes: FormChange[],
+	/**
+	 *  Its form before the commits, of a change or a removal: the header with the parameters after the name, or the
+	 *  constructors of a type
+	 */
+	before: string | null,
+	/**  Its form after the commits, of a change or an addition */
+	after: string | null,
+	/**  Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked or not answered */
+	fanIn: FanIn | null,
+};
+
+/**  What the reviewed commits do to a public declaration */
+export type ApiChangeKind = 
+/**  Gone, or one overload of it gone: a use of it may not compile */
+"removed" | 
+/**  Its form changed: a use may need to change */
+"changed" | 
+/**  New, or a new overload */
+"added";
 
 /**
  *  The error a command of the app answers, the same JSON from Tauri and from the E2E server: `{"code", "message",
@@ -1274,6 +1322,17 @@ start: number; items: string[] } |
 export type CommitBodyParams = {
 	/**  The whole message: its body is the lines after the subject line */
 	message: string,
+};
+
+/**
+ *  The lines a rewritten commit and its reviewed version change differently: per side, per path, `+<line>` added and
+ *  `-<line>` removed (`mode <old> <new>`, `binary <blob>` for what no line shows), at most 20 paths of 20 lines
+ */
+export type CommitChanges = {
+	/**  What the commit changes now and its reviewed version did not */
+	newOnly: PathLines[],
+	/**  What the reviewed version changed and the commit does not any more */
+	reviewedOnly: PathLines[],
 };
 
 /**  A changed file of a commit */
@@ -2432,6 +2491,13 @@ export type FailureCauses = {
 	flaky: FlakyCheck[],
 };
 
+/**  The usages of a declaration at the head of the range, from the index of the repository (`fan_in`) */
+export type FanIn = {
+	usages: number,
+	/**  False when the index cut its answer at its limit (100): there are more */
+	complete: boolean,
+};
+
 /**  The fastest start hours of everyone else's merges against the slowest one, to say when to start a robot */
 export type FastestHours = {
 	/**  The first local hour of the longest run of the fastest hours (`StartHour::level` 0) */
@@ -2509,6 +2575,17 @@ export type FileOwner = {
 	rule: string,
 	/**  The `OWNERSHIP` file of the rule, e.g. `plugins/air/OWNERSHIP` */
 	sourceFile: string,
+};
+
+/**  The risk of a changed file */
+export type FileRisk = {
+	path: string,
+	/**  The most usages of a declaration it removes or changes; `None` when it has none with a fan-in */
+	maxFanIn: number | null,
+	/**  A source file changed without a change of any of its tests */
+	untested: boolean,
+	/**  The card raises it: an API with usages removed or changed, or `untested` */
+	risky: boolean,
 };
 
 /**  How a file changed, from the status letter of `--raw` */
@@ -2627,6 +2704,21 @@ export type FlatNameClash = {
 	/**  The branch whose name is a directory of it, `auth` */
 	beside: string,
 };
+
+/**  The part of the form of a declaration that changed */
+export type FormChange = 
+/**  The tokens before the body: `suspend`, the return type, the receiver, the parameters outside the JVM */
+"header" | 
+/**  The parameters of a JVM function: names, types, defaults, varargs */
+"parameters" | 
+/**  Its own reach (`public`, `internal`, `private`) */
+"reach" | 
+/**  Whether a subtype may override it */
+"open" | 
+/**  The constructors of a type */
+"constructors" | 
+/**  What Java sees otherwise: static or not, `@JvmStatic`, `@JvmField`, `@JvmName` */
+"jvm";
 
 /**  The declarations a name may mean, the most likely first */
 export type FoundDeclarations = {
@@ -2955,6 +3047,21 @@ export type Intent =
  *  engine of the app runs none
  */
 ({ kind: "pick"; source: string }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
+
+/**  What changed in a branch since its review */
+export type Interdiff = {
+	/**  The reviewed pair, as Mark Reviewed kept it */
+	reviewedBase: string,
+	reviewedTip: string,
+	/**  The commits of the branch, oldest first, then the dropped ones in their reviewed order */
+	commits: PairedCommit[],
+	/**
+	 *  The commits added on top as a plain range, `<parent of the first added>..tip`, when every other commit is
+	 *  unchanged and none is dropped; `tip..tip`, empty, when nothing changed; `None` when a commit was rewritten,
+	 *  dropped or added below an unchanged one
+	 */
+	scope: RangeScope | null,
+};
 
 /**
  *  A title split at the issue key it starts with (`IJPL-1: Fix`, `[IJPL-1] Fix`, `IJPL-1 - Fix`), for a row that shows
@@ -3454,6 +3561,25 @@ export type LockHolderInfo = {
 	pid: number,
 	/**  Seconds since it took the lock */
 	held_for: number,
+};
+
+export type MarkReviewedParams = {
+	repositoryPath: string,
+	/**
+	 *  The branch, as `resolve_branch` takes it: a virtual branch by its name, a local branch by its name, or
+	 *  `refs/heads/<name>`
+	 */
+	branch: string,
+	/**
+	 *  The commit the branch is reviewed on: for a branch stacked on another, the head of its parent, so that the
+	 *  reviewed commits are the branch's own; `None` takes the baseline
+	 */
+	base?: string | null,
+	/**
+	 *  The baseline as the sync detected it (`origin/master`), used without a `base`; `None` detects that of the checked
+	 *  out branch
+	 */
+	baselineBranch?: string | null,
 };
 
 /**  A block of a merge */
@@ -4104,6 +4230,30 @@ export type PageEntry = {
 	activity: PageActivity,
 };
 
+/**  How a commit of the branch compares with the reviewed one */
+export type PairState = 
+/**  The reviewed commit, or a copy of it that changes the same lines (a rebase, a sync, a reword) */
+"unchanged" | 
+/**  A reviewed commit changed: the same identity, other changed lines (an amend, a fixup folded in) */
+"rewritten" | 
+/**  A commit the reviewed tip lacks */
+"added" | 
+/**  A reviewed commit the branch lacks now */
+"dropped";
+
+/**  A commit of the branch with the reviewed commit it pairs with */
+export type PairedCommit = {
+	/**  The commit of the branch, `None` when `dropped` */
+	id: string | null,
+	/**  The reviewed commit, `None` when `added` */
+	reviewedId: string | null,
+	/**  The subject of the commit, of the reviewed one when `dropped` */
+	subject: string,
+	state: PairState,
+	/**  `Some` only when `rewritten` */
+	changes: CommitChanges | null,
+};
+
 /**  Where the declared parent of a branch comes from */
 export type ParentSource = 
 /**  The prefixes of its commits declare it (`(parent/name)`) */
@@ -4159,6 +4309,15 @@ export type ParkedBranchChange = {
 export type ParkedMember = {
 	member: string,
 	parked: Parked,
+};
+
+/**
+ *  The lines of one path that one side of a twin changes and the other does not: `+<line>` added, `-<line>` removed,
+ *  `mode <old> <new>` and `binary <blob>` for what no line shows; at most `MAX_REPORTED_LINES`
+ */
+export type PathLines = {
+	path: string,
+	lines: string[],
 };
 
 /**  Whether Patronus can be asked for the repository */
@@ -4871,6 +5030,12 @@ export type PushUpTo = {
 	blocker?: Reason | null,
 };
 
+/**  A plain range, `base..head` */
+export type RangeScope = {
+	base: string,
+	head: string,
+};
+
 export type ReapplyBranchResult = {
 	/**  `{prefix}/unapplied/<name>`, deleted now (with a dry run: would be) */
 	unappliedBranchName: string,
@@ -5208,6 +5373,8 @@ export type RepositoryConfig = {
 	agentLease: ConfigSetting<boolean>,
 	/**  `branchdeck.agentSubjectBranch`, off by default */
 	agentSubjectBranch: ConfigSetting<boolean>,
+	/**  `branchdeck.reviewExperimental`, off by default */
+	reviewExperimental: ConfigSetting<boolean>,
 	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
 	detectedGithubRepository: DetectedGitHubRepository | null,
 	/**  The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`) */
@@ -5226,7 +5393,7 @@ export type RepositoryConfig = {
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
-export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "landing"; value?: LandingSetting | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null };
+export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "landing"; value?: LandingSetting | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null } | { key: "reviewExperimental"; value?: boolean | null };
 
 /**  The journal of the repository of one or more recent projects (the worktrees of one repository share it) */
 export type RepositoryJournal = {
@@ -5477,6 +5644,43 @@ export type ReviewPathsSource =
  */
 "unknown";
 
+/**  The plan of a review */
+export type ReviewPlan = {
+	/**  The full name of the reviewed branch, `None` for a range */
+	branch: string | null,
+	/**  The commits reviewed are `base..head`: for a branch the merge base of its tip and its base, and its tip */
+	base: string,
+	head: string,
+	/**
+	 *  What changed since the review of the branch; `None` for a range and for a branch never marked reviewed. With
+	 *  `since_reviewed`, only its `added` and `rewritten` commits
+	 */
+	interdiff: Interdiff | null,
+	/**  The public declarations the reviewed commits add, remove or change (`reviewed_commits`), the most usages first */
+	api: ApiChange[],
+	/**
+	 *  Every file the reviewed commits change and keep, at its last path (a deleted one is not listed): the `risky` ones
+	 *  first, then by the most usages, `untested`, path
+	 */
+	risk: FileRisk[],
+	/**
+	 *  Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
+	 *  again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
+	 *  subject, the tree order inside a cycle and between files with no edge
+	 */
+	order: string[],
+	/**  Why a removed or changed declaration has no fan-in: no accio, no index of the repository, a failed query */
+	indexNote: string | null,
+};
+
+/**  What a plan is asked for */
+export type ReviewPlanParams = {
+	repositoryPath: string,
+	subject: ReviewSubject,
+	/**  Only the commits added or rewritten since the reviewed tip of the branch; `SinceReviewedOfRange` for a range */
+	sinceReviewed?: boolean,
+};
+
 /**  What the review of a pull request diffs: `base..head`, as GitHub's "Files changed" */
 export type ReviewRange = {
 	/**  The merge base of the head and the base branch */
@@ -5657,6 +5861,46 @@ export type ReviewStart =
 { kind: "pullRequest"; number: number } | 
 /**  Through the API: no pull request is linked, no approval of one counts */
 { kind: "rest" };
+
+/**  What is reviewed */
+export type ReviewSubject = 
+/**
+ *  A local branch, by the name `mark_reviewed::resolve_branch` takes, on its base as `mark_reviewed::branch_on_base`
+ *  finds it: the reviewed pair is that branch's
+ */
+{ kind: "branch"; name: string; 
+/**  The commit the branch is reviewed on (the head of its stack parent); `None` takes the baseline */
+base?: string | null; 
+/**  The baseline as the sync detected it, used without a `base`; `None` detects that of the checked out branch */
+baselineBranch?: string | null } | 
+/**  The commits of `base..head`; no reviewed pair */
+{ kind: "range"; base: string; head: string };
+
+/**  The base and the tip of a branch as the user reviewed it */
+export type ReviewedPair = {
+	/**  The commit the reviewed commits are built on */
+	base: string,
+	/**  The last reviewed commit */
+	tip: string,
+};
+
+/**  The reviewed pair a mark kept */
+export type ReviewedTip = {
+	/**  The full name of the marked branch, without `refs/heads/` (`jane/virtual/auth`) */
+	branch: string,
+	/**
+	 *  The merge base of the tip and the base of the params (the base itself when it is an ancestor of the tip), else
+	 *  of the tip and the baseline
+	 */
+	base: string,
+	tip: string,
+	/**  The pair the mark replaced, `None` when the branch was never marked */
+	previous: ReviewedPair | null,
+	/**  Whether the mark moved or deleted a ref: `false` when the branch was marked at this base and tip already */
+	changed: boolean,
+	/**  How many pairs of branches that are gone the mark deleted */
+	pruned: number,
+};
 
 export type Reviewer = {
 	/**  The user login, or the team slug */
@@ -7015,6 +7259,11 @@ export type TableHeader = {
 	 *  grouping read it
 	 */
 	landing: LandingRemote,
+	/**
+	 *  The review windows show the review plan (`branchdeck.reviewExperimental`), as the last grouping read it: the main
+	 *  window passes it to the review of a branch it opens
+	 */
+	reviewExperimental: boolean,
 };
 
 /**  The sections below the branch table */

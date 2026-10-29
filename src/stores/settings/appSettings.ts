@@ -9,6 +9,10 @@ import { THEMES } from "@/lib/theme"
 import type { Theme } from "@/lib/theme"
 import { createPersistentStore, snapshotValueOf } from "./persistent-store"
 
+/** The orders of the files of a review with the review plan on: the tree, or the dependency order of the plan */
+const REVIEW_FILE_ORDERS = ["tree", "dependencies"] as const
+export type ReviewFileOrder = (typeof REVIEW_FILE_ORDERS)[number]
+
 /**
  * The fields Rust reads (`AppSettings` of `domain-types`, the type of the bindings): their defaults are Rust's
  * (`APP_SETTINGS_DEFAULTS`, which the bindings export from `AppSettings::default`), so the page, the backend and `bd`
@@ -49,6 +53,9 @@ const AppSettingsSchema = z.object({
   createPullRequestAssignSelf: z.boolean().default(true),
   // the sidebar of a review (the commits and the files) beside the diffs; F and its button hide it, never the window
   reviewSidebar: z.boolean().default(true),
+  // the order of the files of a review with the review plan on (spec/branch/review-plan.spec.md): the tree, or the
+  // dependency order Rust computed ("Order: Tree / Dependencies" above the files)
+  reviewFileOrder: z.enum(REVIEW_FILE_ORDERS).catch("tree"),
   // the Activity side panel of the main window (`src/stores/activity-panel.ts`); it shows where the window fits it
   activityPanel: z.boolean().default(false),
   // the period of the Safe Push statistics (`StatsPeriod`), as the user chose it last in the Landing view
@@ -70,6 +77,10 @@ export const zoomAtStart: number = RustFields.zoom.catch(APP_SETTINGS_DEFAULTS.z
 
 export function useAppSettings<T>(selector: (state: AppSettings) => T): T {
   return useStore(appSettingsStore, selector)
+}
+
+export function setReviewFileOrder(reviewFileOrder: ReviewFileOrder): void {
+  appSettingsStore.setState({ reviewFileOrder })
 }
 
 export function setReviewSidebar(reviewSidebar: boolean): void {

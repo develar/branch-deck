@@ -8,6 +8,9 @@
 //! - `suggest`: `bd suggest`, the clustering of commit-clustering checked by `bd check`
 //! - `commits`, `block_patch`, `symbol_stats`: `bd commits`, its patches and its symbol statistics
 //! - `describe`, `group_plan`: `bd describe`, and the plans and descriptions a rewrite reads
+//! - `mark_reviewed_command`: `bd mark-reviewed`, the reviewed pair of a branch (`review_plan::mark_reviewed`)
+//! - `review_plan_command`: `bd review-plan`, the plan of a review and the interdiff since the reviewed pair
+//!   (`review_plan::review_plan_core`)
 
 pub mod block_patch;
 pub mod check_command;
@@ -15,8 +18,10 @@ pub mod commits;
 pub mod describe;
 pub mod fold_command;
 pub mod group_plan;
+pub mod mark_reviewed_command;
 pub mod move_hunk_command;
 pub mod park_command;
+pub mod review_plan_command;
 pub mod reword_command;
 pub mod rewrite;
 pub mod squash_command;
@@ -32,11 +37,15 @@ mod describe_test;
 #[cfg(test)]
 mod fold_test;
 #[cfg(test)]
+mod mark_reviewed_test;
+#[cfg(test)]
 mod move_hunk_test;
 #[cfg(test)]
 mod park_error_test;
 #[cfg(test)]
 mod park_test;
+#[cfg(test)]
+mod review_plan_test;
 #[cfg(test)]
 mod reword_test;
 #[cfg(test)]

@@ -638,6 +638,65 @@ that groups commits here (`unknown_branch`); a second park changes the note (one
   "changed":true}
 ```
 
+### `bd mark-reviewed <branch> [--base <parent>]`
+
+Keeps the base and the tip a branch has now as reviewed, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)):
+only when the user says they reviewed the branch. The branch is a virtual branch by its name, else a local branch by
+its name, or `refs/heads/<name>` (`unknown_branch`, exit 2, for none); the base is its merge base with the baseline of
+the checked out branch, or with `--base` (a branch named the same way, else any commit): for a branch stacked on
+another, `--base <parent>` keeps only its own commits as reviewed. No rewrite:
+`refs/branch-deck/reviewed/<sha256 of the branch>/{base,tip}`, in one ref
+transaction with compare-and-swap that also deletes the pairs of the branches that are gone (`pruned`); no repository
+lock ("Review plan" in [Git Operations](../design/git-operations.md#review-plan)). `previous` is the pair it replaced,
+`changed` false when the branch was marked at this base and tip already.
+
+```json
+{"schema":2,"repository":"/repo","branch":"jane/virtual/auth","ref":"refs/heads/jane/virtual/auth","base":"1a2b3c4d",
+  "tip":"5e6f7a8b","previous":{"base":"1a2b3c4d","tip":"9c0d1e2f"},"changed":true,"pruned":0}
+```
+
+- `unknown_branch` (exit 2): no branch has the name.
+- `invalid_arguments` (exit 2): `--base` names no branch and no commit, or shares no history with the branch.
+- `no_baseline` (exit 4): no baseline, or one that shares no history with the branch.
+- Each refusal writes no ref.
+
+### `bd review-plan <branch | base..head> [--base <parent>] [--since-reviewed]`
+
+The plan of a review, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)); reads only. The branch is
+named as for `bd mark-reviewed`, on the same base (`--base <parent>` for a stacked branch); `base..head` is a range.
+For a branch marked reviewed, `interdiff` pairs each commit of `base..head` with a reviewed one: `unchanged` (the same
+commit, or a copy with the same identity and the same changed lines, or a reword), `rewritten` (the same identity,
+other lines: `new_only` and `reviewed_only` per path), `added` or `dropped` (listed last). `scope` is the plain range
+of the commits added on top when nothing else changed, `null` otherwise; `--since-reviewed` lists only the added and
+the rewritten commits. A branch never marked and a range have `"interdiff": null` ("Review plan" in
+[Git Operations](../design/git-operations.md#review-plan)).
+
+`api` lists the public declarations the reviewed commits add, remove or change in form (`kind`, `changes`, the form
+`before` and `after`), the most usages first: `fan_in` is the count of `accio references` at the head for the first 20
+removals and changes, `complete: false` past 100; a removal names the file and line before the commit that removed
+it. `risk` gives per changed file that is still there its `max_fan_in` and `untested`, a source file changed while
+none of its tests did, the `risky` ones first. The reviewed commits are those of `base..head`, with
+`--since-reviewed` only the added and rewritten ones. Without accio or its index, `fan_in` is `null` and `index_note`
+says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
+dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
+tree order inside a cycle and between files with no edge.
+
+```json
+{"schema":2,"repository":"/repo","branch":"jane/virtual/auth","base":"1a2b3c4d","head":"7a8b9c0d",
+  "interdiff":{"reviewed_base":"1a2b3c4d","reviewed_tip":"5e6f7a8b",
+    "commits":[{"id":"7a8b9c0d","reviewed_id":null,"subject":"Add logout","state":"added"}],
+    "scope":{"base":"5e6f7a8b","head":"7a8b9c0d"}},
+  "api":[{"path":"src/a/Session.kt","line":3,"name":"logout","kind":"changed","changes":["parameters"],
+    "before":"fun logout() : Unit","after":"fun logout(all:Boolean) : Unit","fan_in":{"usages":12,"complete":true}}],
+  "risk":[{"path":"src/a/Session.kt","max_fan_in":12,"untested":true,"risky":true}],
+  "order":["src/a/Session.kt","src/b/Logout.kt"],"index_note":null}
+```
+
+- `unknown_branch` (exit 2): no branch has the name.
+- `invalid_arguments` (exit 2): `--base` names no branch and no commit or shares no history with the branch; a rev of
+  the range names no commit; `--since-reviewed` or `--base` of a range.
+- `no_baseline` (exit 4): no baseline, or one that shares no history with the branch.
+
 ### `bd unapply <branch> [--expect-head <id>]`
 
 Takes the commits of a branch and their files out of the checked out branch and keeps the branch as

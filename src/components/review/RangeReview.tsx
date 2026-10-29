@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { KeyboardEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { CommitHeading } from "@/components/commit/CommitHeading"
@@ -43,6 +44,12 @@ export interface RangeReviewProps {
   commitAction?: (item: Extract<RangeReviewItem, { kind: "commit" }>) => ReactNode
   /** The menu of a commit: its right-click in the column and the "⋯" of its heading; none without */
   commitMenu?: (commit: ReviewCommit) => MenuItemGroups
+  /** Above the diffs of a scope ("All Changes", "Since Your Review"): the card of the review plan */
+  scopeTop?: ReactNode
+  /** Above the heading of a shown commit: the card of the review plan in "Since Your Review" */
+  commitTop?: ReactNode
+  /** The paths in the order the files show, flat (the dependency order of the review plan); the tree without it */
+  fileOrder?: readonly string[] | null
 }
 
 /**
@@ -65,6 +72,9 @@ export function RangeReview({
   filesHeader,
   commitAction,
   commitMenu,
+  scopeTop,
+  commitTop,
+  fileOrder,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
@@ -93,19 +103,25 @@ export function RangeReview({
         neighbours={neighbours}
         sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} commitMenu={commitMenu} />}
         filesHeader={filesHeader}
+        fileOrder={fileOrder}
         codeTop={
           shown?.kind === "commit" ? (
-            <ReviewCommitHeader
-              key={shown.key}
-              commit={shown.commit}
-              action={
-                <>
-                  {commitAction?.(shown)}
-                  {commitMenu !== undefined && <CommitHeadingMenu commit={shown.commit} commitMenu={commitMenu} />}
-                </>
-              }
-            />
-          ) : undefined
+            <>
+              {commitTop}
+              <ReviewCommitHeader
+                key={shown.key}
+                commit={shown.commit}
+                action={
+                  <>
+                    {commitAction?.(shown)}
+                    {commitMenu !== undefined && <CommitHeadingMenu commit={shown.commit} commitMenu={commitMenu} />}
+                  </>
+                }
+              />
+            </>
+          ) : (
+            scopeTop
+          )
         }
       />
     </div>
@@ -221,6 +237,11 @@ function ColumnItem({
         option(
           <>
             <span className="flex-1 truncate">{item.commit.subject}</span>
+            {item.since !== undefined && (
+              <Badge variant="info" data-testid="range-review-commit-since">
+                {item.since}
+              </Badge>
+            )}
             {item.branch !== undefined && (
               <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground" data-testid="range-review-commit-branch">
                 {item.branch}

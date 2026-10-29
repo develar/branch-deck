@@ -71,6 +71,9 @@ pub enum AppReason {
   Tools,
   /// An account of the app, one sign-in of a provider at a time (`remote_facts::sign_in`)
   Accounts,
+  /// The reviewed pair of a local branch (`refs/branch-deck/reviewed/`), one writer with CAS
+  /// (`review_plan::mark_reviewed::mark_reviewed_core`); no session reads it
+  ReviewedRefs,
 }
 
 /// How a command runs and answers

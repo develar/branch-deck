@@ -26,6 +26,8 @@ patronus = { path = "../patronus" }
 operations = { path = "../operations" }
 remote-facts = { path = "../remote-facts" }
 repository-model = { path = "../repository-model" }
+# the plan of a review and Mark Reviewed (experimental)
+review-plan = { path = "../review-plan" }
 sync-core = { path = "../sync-core" }
 sync-utils = { path = "../sync-utils" }
 trial-check = { path = "../trial-check" }

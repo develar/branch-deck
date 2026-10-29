@@ -26,7 +26,9 @@ use bd_rewrite::check_command::{CheckArgs, check};
 use bd_rewrite::commits::commits;
 // jscpd:ignore-end
 use bd_rewrite::fold_command::{FoldArgs, fold};
+use bd_rewrite::mark_reviewed_command::{MarkReviewedArgs, mark_reviewed};
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
+use bd_rewrite::review_plan_command::{ReviewPlanArgs, review_plan};
 use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RewriteArgs, group};
 use bd_rewrite::squash_command::{SquashArgs, squash};
@@ -506,6 +508,124 @@ fn a_reword() {
       ("update-ref", 1),
     ],
   );
+}
+
+/// `bd mark-reviewed auth` after a sync, whatever the number of branches and of reviewed pairs: the baseline
+/// (`remote`, the `@{u}` probe, a `for-each-ref` of its candidates without an upstream), one `for-each-ref` of the
+/// reviewed refs with the branches, one `merge-base` of the tip and the baseline, and one ref transaction that also
+/// prunes the pair of a branch that is gone
+#[test]
+fn a_mark_reviewed() {
+  let repo = repo_with_branches();
+  sync(&context(&repo)).unwrap();
+  let args = MarkReviewedArgs {
+    branch: "ui".to_string(),
+    base: None,
+  };
+  mark_reviewed(&context(&repo), &args).unwrap();
+  git(&repo, &["branch", "-D", "test-user/virtual/ui"]);
+  let context = context(&repo);
+  let args = MarkReviewedArgs {
+    branch: "auth".to_string(),
+    base: None,
+  };
+  let output = mark_reviewed(&context, &args).unwrap();
+  assert_eq!((output.changed, output.pruned), (true, 1));
+  assert_processes(&context, &[("for-each-ref", 2), ("merge-base", 1), ("remote", 1), ("rev-parse", 2), ("update-ref", 1)]);
+}
+
+/// `bd mark-reviewed auth --base <commit>` (a stack parent): no baseline, so one `for-each-ref`, the `rev-parse
+/// --verify` of a base that names no branch, one `merge-base` and one ref transaction; a base that names a branch costs
+/// no `rev-parse` (its tip is in the listing)
+#[test]
+fn a_mark_reviewed_on_a_base() {
+  let repo = repo_with_branches();
+  sync(&context(&repo)).unwrap();
+  let base = git(&repo, &["rev-parse", "origin/master"]);
+  let context = context(&repo);
+  let args = MarkReviewedArgs {
+    branch: "auth".to_string(),
+    base: Some(base),
+  };
+  let output = mark_reviewed(&context, &args).unwrap();
+  assert!(output.changed);
+  assert_processes(&context, &[("for-each-ref", 1), ("merge-base", 1), ("rev-parse", 2), ("update-ref", 1)]);
+}
+
+/// `bd review-plan auth --since-reviewed` after a mark, an amend of a reviewed commit and a commit added on top, whatever
+/// the number of commits: the baseline (`remote`, the `@{u}` probe, a `for-each-ref` of its candidates), one
+/// `for-each-ref` of the reviewed refs with the branches, one `merge-base`, one `rev-list` per side, one `diff-tree` with
+/// one `patch-id` for the changed lines of the commits that are not the same on both sides, and one `diff-tree` for the
+/// interdiff of the rewritten ones; then for the API and the risk of the rewritten and the added commits one `log` of
+/// their changes and one `cat-file` of their blobs (text files: no summary to read)
+#[test]
+fn a_review_plan_since_the_review() {
+  let repo = repo_with_branches();
+  sync(&context(&repo)).unwrap();
+  let mark = MarkReviewedArgs {
+    branch: "auth".to_string(),
+    base: None,
+  };
+  mark_reviewed(&context(&repo), &mark).unwrap();
+  write(&repo, "f2.txt", "(auth) Add c, amended");
+  git(&repo, &["add", "-A"]);
+  repo.commit_with(&["--amend", "--no-edit"], &[("GIT_COMMITTER_DATE", "1700000300 +0000")]);
+  write(&repo, "f3.txt", "(auth) Add d");
+  commit_all(&repo, "(auth) Add d", 1_700_000_400);
+  sync(&context(&repo)).unwrap();
+
+  let context = context(&repo);
+  let args = ReviewPlanArgs {
+    subject: "auth".to_string(),
+    base: None,
+    since_reviewed: true,
+  };
+  let output = review_plan(&context, &args).unwrap();
+  let states: Vec<String> = output.interdiff.unwrap().commits.iter().map(|commit| format!("{:?}", commit.state)).collect();
+  assert_eq!(states, ["Rewritten", "Added"]);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 1),
+      ("diff-tree", 2),
+      ("for-each-ref", 2),
+      ("log", 1),
+      ("merge-base", 1),
+      ("patch-id", 1),
+      ("remote", 1),
+      ("rev-list", 2),
+      ("rev-parse", 2),
+    ],
+  );
+}
+
+/// `bd review-plan` of a range of seven Kotlin commits, the same for four: one `rev-parse --verify` per rev, one
+/// `rev-list` of the commits, one `log` of their changes, one `cat-file` of their blobs, and the reads of the syntax
+/// summaries (`read_symbol_input`: the trees above the files and the blobs no cache has, one `rev-parse`); accio asks no
+/// git, and the dependency order of the files, each using the type of the next, comes from those summaries
+#[test]
+fn a_review_plan_of_a_range() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  for (number, name) in ["login", "logout", "session", "token", "user", "group", "role"].iter().enumerate() {
+    let next = number + 1;
+    write(
+      &repo,
+      &format!("src/a/{name}.kt"),
+      format!("package a{number}\n\nimport a{next}.C{next}\n\nclass C{number}(val next: C{next}?)\n"),
+    );
+    commit_all(&repo, &format!("(auth) Add {name}"), 1_700_000_100 + i64::try_from(number).unwrap() * 100);
+  }
+
+  let context = context(&repo);
+  let args = ReviewPlanArgs {
+    subject: "origin/master..HEAD".to_string(),
+    base: None,
+    since_reviewed: false,
+  };
+  let output = review_plan(&context, &args).unwrap();
+  assert_eq!(output.api.len(), 7);
+  assert_eq!(output.order.first().map(String::as_str), Some("src/a/role.kt"));
+  assert_processes(&context, &[("cat-file", 3), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// `bd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the

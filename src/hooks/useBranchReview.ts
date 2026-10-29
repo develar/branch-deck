@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
-import type { BranchReviewSegment } from "@/lib/bindings"
+import { useReviewPlan } from "@/hooks/useReviewPlan"
+import type { ReviewPlanState } from "@/hooks/useReviewPlan"
+import type { BranchReviewSegment, ReviewSubject } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { focusRange, keepSegmentRange, moveView, segmentRangeSubject } from "@/lib/branch-review"
 import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId } from "@/lib/commit-files"
 import { isTypingTarget } from "@/lib/preview-keys"
-import { ALL_CHANGES, isSingleCommit, keepCommit, rangePosition, segmentItems } from "@/lib/range-review"
+import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, rangePosition, segmentItems, shownInterdiff } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
 import { filterPaths } from "@/lib/review-owners"
 import type { ReviewFilter } from "@/lib/review-owners"
+import { markBranchReviewed } from "@/lib/review-plan"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 import { readBranchReview } from "@/lib/review-window-reads"
+import { showToast } from "@/lib/toast-message"
+import { formatMarkedReviewed } from "@/presenters/review-plan"
 import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
 import { dropFileDiffsOf } from "@/stores/file-diffs"
+import { useAppSettings } from "@/stores/settings/appSettings"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 /*
@@ -39,6 +45,12 @@ export interface BranchReviewSource {
    * of the stack (`GetBranchReviewParams.wholeStack`)
    */
   readonly wholeStack?: boolean
+  /**
+   * The review plan is on for the repository (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md): Mark
+   * Reviewed, "Since Your Review", the API & Risk card and the dependency order of the files; off, the review is as
+   * it is without them
+   */
+  readonly reviewExperimental?: boolean
 }
 
 /** What the review knows of the repository: the heads the last sync built (a branch not there has left) */
@@ -54,6 +66,8 @@ interface ReviewView {
   range: SegmentRange
   /** One commit of the part; null for all its changes */
   commitId: string | null
+  /** "Since Your Review": the column lists only the commits added or rewritten since the review of the branch */
+  since: boolean
 }
 
 type ReviewState = { status: "loading" } | { status: "loaded"; view: ReviewView } | { status: "error"; message: string }
@@ -66,12 +80,14 @@ function nextView(previous: ReviewView | null, segments: BranchReviewSegment[], 
       segments,
       range: focusRange(segments, focus.range),
       commitId: commitId !== null && segments.some(segment => segment.commits.some(it => it.id === commitId)) ? commitId : null,
+      since: false,
     }
   }
   return {
     segments,
     range: keepSegmentRange(previous.segments, segments, previous.range),
     commitId: keepCommit(previous.segments, segments, previous.commitId),
+    since: previous.since,
   }
 }
 
@@ -100,6 +116,17 @@ export interface BranchReviewModel {
     readonly target: string
     /** "Commit 1 / 3 · File 1 / 2" */
     readonly position: string
+    /**
+     * The review plan of the part, with the flag on; null with it off. Its interdiff only when the part is one branch:
+     * the reviewed pair is on the base of that branch alone
+     */
+    readonly plan: ReviewPlanState | null
+    /** "Since Your Review" is shown: the card heads a commit of it too, with what its rewrite changed */
+    readonly sinceShown: boolean
+    /** The paths in the order the files show, with Order: Dependencies and a plan; null for the tree order */
+    readonly fileOrder: readonly string[] | null
+    /** Mark Reviewed of the target, with the flag on, of a branch (not of the whole stack); null without it */
+    readonly markReviewed: (() => void) | null
   } | null
 }
 
@@ -174,7 +201,31 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   const view = state.status === "loaded" ? state.view : null
   const setView = (change: Partial<ReviewView>) => setState(previous => (previous.status === "loaded" ? { status: "loaded", view: { ...previous.view, ...change } } : previous))
   const rangeSubject = view === null ? null : segmentRangeSubject(view.segments, view.range)
-  const subject: DiffSubject | null = view?.commitId == null ? rangeSubject : { kind: "commit", id: view.commitId }
+
+  // the review plan of the part (spec/branch/review-plan.spec.md): a branch on the base of its part, the whole stack as
+  // its range; "Since Your Review" only of one branch, whose base is the one Mark Reviewed keeps
+  const experimental = source.reviewExperimental === true
+  const [planGeneration, setPlanGeneration] = useState(0)
+  const fileOrderSetting = useAppSettings(state => state.reviewFileOrder)
+  const planPart = experimental && view !== null ? reviewPlanPart(view.segments, view.range, wholeStack) : null
+  const plan = useReviewPlan(
+    planPart === null || rangeSubject?.kind !== "range"
+      ? null
+      : { repositoryPath, subject: planPart.subject, sinceReviewed: planPart.ownBranch && view!.since, head: rangeSubject.head, generation: planGeneration },
+  )
+  const interdiff = shownInterdiff(plan.plan, planPart?.ownBranch === true, rangeSubject?.kind === "range" ? rangeSubject.head : null)
+  const sinceReview = localSinceReview(interdiff)
+  const sinceShown = view?.since === true && sinceReview !== null
+  // the shown item: the commit chosen, else the scope; "Since Your Review" of commits that are not one range shows the
+  // newest of them, the column lists only them
+  const sinceKey = sinceReview === null ? ALL_CHANGES : sinceReview.scope === null ? (sinceReview.newestFirst[0] ?? ALL_CHANGES) : SINCE_REVIEW
+  const selected = view?.commitId ?? (sinceShown ? sinceKey : ALL_CHANGES)
+  let subject: DiffSubject | null = rangeSubject
+  if (selected === SINCE_REVIEW && sinceReview?.scope != null) {
+    subject = { kind: "range", base: sinceReview.scope.base, head: sinceReview.scope.head }
+  } else if (selected !== ALL_CHANGES && selected !== SINCE_REVIEW) {
+    subject = { kind: "commit", id: selected }
+  }
   const files = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
   const paths = useMemo(() => files?.map(file => file.path) ?? [], [files])
   const owners = useFileOwners(repositoryPath, baselineBranch, paths)
@@ -197,10 +248,22 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     }
   }, [rangeId])
 
+  // the range of "Since Your Review" is read for this review only, as the range of the part
+  const sinceId = subject?.kind === "range" && subject !== rangeSubject ? diffSubjectId(subject) : null
+  useEffect(() => {
+    if (sinceId === null) {
+      return
+    }
+    return () => {
+      dropFilesOf([sinceId])
+      dropFileDiffsOf([sinceId])
+    }
+  }, [sinceId])
+
   let loaded: BranchReviewModel["loaded"] = null
   if (view !== null && subject !== null) {
-    const items = segmentItems(view.segments.slice(view.range.from, view.range.to + 1))
-    const selected = view.commitId ?? ALL_CHANGES
+    const items = segmentItems(view.segments.slice(view.range.from, view.range.to + 1), sinceReview, sinceShown)
+    const target = view.segments[view.range.to]!
     loaded = {
       segments: view.segments,
       range: view.range,
@@ -209,8 +272,22 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
       subject,
       files,
       owners,
-      target: view.segments[view.range.to]!.name,
+      target: target.name,
       position: formatReviewPosition({ file: position, ...rangePosition(items, selected) }),
+      plan: experimental ? (plan.plan === null || plan.plan.interdiff === interdiff ? plan : { ...plan, plan: { ...plan.plan, interdiff } }) : null,
+      sinceShown,
+      fileOrder: experimental && fileOrderSetting === "dependencies" ? (plan.plan?.order ?? null) : null,
+      markReviewed:
+        planPart?.markable === true
+          ? () =>
+              void markBranchReviewed(repositoryPath, target.name, target.base).then(marked => {
+                if (marked !== null) {
+                  showToast({ title: formatMarkedReviewed(target.name, marked.changed) })
+                  setPlanGeneration(generation => generation + 1)
+                  setView({ since: false, commitId: view.since ? null : view.commitId })
+                }
+              })
+          : null,
     }
   }
   return {
@@ -219,12 +296,32 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     gone,
     filter,
     setFilter,
-    setRange: range => setView({ range, commitId: null }),
-    select: key => setView({ commitId: key === ALL_CHANGES ? null : key }),
+    setRange: range => setView({ range, commitId: null, since: false }),
+    select: key => setView(key === ALL_CHANGES ? { commitId: null, since: false } : key === SINCE_REVIEW ? { commitId: null, since: true } : { commitId: key }),
     showPosition,
     lastPath,
     loaded,
   }
+}
+
+/**
+ * What the plan of the part of the review is read of: the reviewed branch on the base of the part (its own branch only
+ * when the part is that branch alone, the base Mark Reviewed keeps), the whole stack as its range, never marked
+ */
+function reviewPlanPart(
+  segments: readonly BranchReviewSegment[],
+  range: SegmentRange,
+  wholeStack: boolean,
+): { subject: ReviewSubject; ownBranch: boolean; markable: boolean } | null {
+  const first = segments[range.from]
+  const last = segments[range.to]
+  if (first === undefined || last === undefined) {
+    return null
+  }
+  if (wholeStack) {
+    return { subject: { kind: "range", base: first.base, head: last.head }, ownBranch: false, markable: false }
+  }
+  return { subject: { kind: "branch", name: last.name, base: first.base }, ownBranch: range.from === range.to, markable: true }
 }
 
 /** ⌥↑/⌥↓ step through the commits of the part (it has a column) */

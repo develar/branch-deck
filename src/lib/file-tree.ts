@@ -104,6 +104,20 @@ function toNodes(directory: MutableDirectory, prefix: string, depth: number, par
   return nodes.sort(compareTreeNodes)
 }
 
+/**
+ * The files as one flat list in `order` (the dependency order of the review plan, by the path after the commits, a
+ * rename also by its old path), each named by its path: the tree cannot hold that order. A file the order lacks keeps
+ * its place of the tree after the ordered ones
+ */
+export function orderedFileNodes(files: readonly CommitFile[], order: readonly string[]): FileTreeNode[] {
+  const rank = new Map(order.map((path, index) => [path, index]))
+  const rankOf = (file: CommitFile) => rank.get(file.path) ?? (file.oldPath === null ? undefined : rank.get(file.oldPath)) ?? order.length
+  const treeOrder = flattenTreeFiles(buildFileTree(files))
+  const ranked = treeOrder.map((file, index) => ({ file, index, rank: rankOf(file) }))
+  ranked.sort((a, b) => a.rank - b.rank || a.index - b.index)
+  return ranked.map(({ file }) => ({ kind: "file", key: file.path, name: file.path, depth: 0, parentKey: undefined, file }))
+}
+
 /** The files in the order of the tree: what the tree shows from top to bottom with every directory open */
 /** What the actions of a row act on (`fileMenuItems`): a file by its path, a directory by its path and its files */
 export function fileActionTarget(node: FileTreeNode): FileActionTarget {

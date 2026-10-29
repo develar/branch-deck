@@ -72,6 +72,7 @@ moka.workspace = true
 # Crate dependencies
 git-ops = { path = "../crates/git-ops", features = ["specta"] }
 file-diffs = { path = "../crates/file-diffs", features = ["specta"] }
+review-plan = { path = "../crates/review-plan", features = ["specta"] }
 git-executor = { path = "../crates/git-executor" }
 object-cache = { path = "../crates/object-cache" }
 patronus = { path = "../crates/patronus" }

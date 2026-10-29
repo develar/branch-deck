@@ -201,17 +201,18 @@ impl SymbolIndex for AccioSearch<'_> {
 }
 
 /// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
-/// only a canceled one fails the lookup (`SearchCanceled`), which then answers nothing at all
-pub(crate) struct Lenient<'a> {
+/// only a canceled one fails the lookup (`SearchCanceled`), which then answers nothing at all. Shared by the threads of
+/// parallel queries (the fan-in of `review-plan`)
+pub struct Lenient<'a> {
   index: &'a dyn SymbolIndex,
-  error: std::cell::RefCell<Option<String>>,
+  error: std::sync::Mutex<Option<String>>,
 }
 
 impl<'a> Lenient<'a> {
-  pub(crate) fn new(index: &'a dyn SymbolIndex) -> Self {
+  pub fn new(index: &'a dyn SymbolIndex) -> Self {
     Self {
       index,
-      error: std::cell::RefCell::default(),
+      error: std::sync::Mutex::default(),
     }
   }
 
@@ -220,12 +221,22 @@ impl<'a> Lenient<'a> {
   }
 
   pub(crate) fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<References> {
-    Ok(self.answered(self.index.references(repository_root, name, revision))?.unwrap_or_default())
+    Ok(self.indexed_references(repository_root, name, revision)?.unwrap_or_default())
+  }
+
+  /// The usages of `name`, as `SymbolIndex::references`: `None` when the repository has no index or the query failed
+  /// (`error` says why)
+  pub fn indexed_references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>> {
+    self.answered(self.index.references(repository_root, name, revision))
   }
 
   /// Why the index did not answer, as the review says it: none when it answered every query
-  pub(crate) fn error(self) -> Option<String> {
-    self.error.into_inner().map(|error| format!("accio did not answer: {error}"))
+  pub fn error(self) -> Option<String> {
+    self
+      .error
+      .into_inner()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .map(|error| format!("accio did not answer: {error}"))
   }
 
   fn answered<T>(&self, result: Result<Option<T>>) -> Result<Option<T>> {
@@ -233,7 +244,11 @@ impl<'a> Lenient<'a> {
       Err(error) if error.is::<SearchCanceled>() => Err(error),
       Err(error) => {
         tracing::warn!(error = %format!("{error:#}"), "the index of the repository did not answer");
-        self.error.borrow_mut().get_or_insert_with(|| format!("{error:#}"));
+        self
+          .error
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner)
+          .get_or_insert_with(|| format!("{error:#}"));
         Ok(None)
       }
       Ok(answer) => Ok(answer),

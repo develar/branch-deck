@@ -18,8 +18,10 @@ use bd_rewrite::check_command::CheckOutput;
 use bd_rewrite::commits::{CommitsBrief, CommitsOutput};
 use bd_rewrite::describe::DescribeOutput;
 use bd_rewrite::fold_command::FoldOutput;
+use bd_rewrite::mark_reviewed_command::MarkReviewedOutput;
 use bd_rewrite::move_hunk_command::MoveHunkOutput;
 use bd_rewrite::park_command::ParkOutput;
+use bd_rewrite::review_plan_command::ReviewPlanOutput;
 use bd_rewrite::rewrite::RewriteOutput;
 use bd_rewrite::squash_command::SquashOutput;
 use bd_rewrite::suggest::SuggestOutput;
@@ -51,6 +53,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("move-hunk", &["move_hunk"]),
   ("operation", &["operation_forget"]),
   ("land", &["land"]),
+  ("mark-reviewed", &["mark_reviewed"]),
   ("park", &["park"]),
   ("pick", &["pick"]),
   ("push", &["push"]),
@@ -58,6 +61,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("rename", &["rewrite"]),
   ("request-review", &["request_review"]),
   ("restack", &["rewrite"]),
+  ("review-plan", &["review_plan"]),
   ("reword", &["rewrite"]),
   ("robot", &["robot"]),
   ("robot-stats", &["robot_stats"]),
@@ -161,9 +165,11 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("lease_status".to_string(), schema_for!(LeaseStatusOutput)),
     ("move_hunk".to_string(), schema_for!(MoveHunkOutput)),
     ("land".to_string(), schema_for!(LandOutput)),
+    ("mark_reviewed".to_string(), schema_for!(MarkReviewedOutput)),
     ("park".to_string(), schema_for!(ParkOutput)),
     ("operation_forget".to_string(), schema_for!(OperationForgetOutput)),
     ("pick".to_string(), schema_for!(PickOutput)),
+    ("review_plan".to_string(), schema_for!(ReviewPlanOutput)),
     ("push".to_string(), schema_for!(PushOutput)),
     ("reapply".to_string(), schema_for!(ReapplyOutput)),
     ("rewrite".to_string(), schema_for!(RewriteOutput)),

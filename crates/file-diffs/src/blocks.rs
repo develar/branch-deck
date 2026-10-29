@@ -42,6 +42,11 @@ pub enum PairDiff {
   NoText,
 }
 
+/// The blobs a pair needs, each once: a rename that keeps the content has the same blob on both sides
+fn blob_ids<'a>(pair: &BlobPair<'a>) -> impl Iterator<Item = &'a str> {
+  [pair.old_id, pair.new_id.filter(|new_id| pair.old_id != Some(*new_id))].into_iter().flatten()
+}
+
 impl FileDiffs {
   /// The diff of each pair under `Default`, in the order of `pairs`
   pub fn blocks_of(&self, git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, pairs: &[BlobPair<'_>]) -> Result<Vec<PairDiff>> {
@@ -80,7 +85,7 @@ impl FileDiffs {
     let mut needs: HashMap<&str, usize> = HashMap::new();
     let mut ids: Vec<String> = Vec::new();
     for &index in &pending {
-      for id in [pairs[index].old_id, pairs[index].new_id].into_iter().flatten() {
+      for id in blob_ids(&pairs[index]) {
         *needs.entry(id).or_default() += 1;
         if let Some(blob) = self.blobs.get(id) {
           have.insert(id.to_string(), blob);
@@ -116,7 +121,7 @@ impl FileDiffs {
           (old, new) => [old.flatten(), new.flatten()],
         };
         let _ = sender.send((index, sides));
-        for id in [pairs[index].old_id, pairs[index].new_id].into_iter().flatten() {
+        for id in blob_ids(&pairs[index]) {
           if let Some(count) = needs.get_mut(id) {
             *count -= 1;
             if *count == 0 {

@@ -1,8 +1,9 @@
 //! The `branchdeck.*` git config of a repository that Settings shows and writes: stacked branches, the symbol mode, the
 //! GitHub repository and the branch prefix (Settings → Repository), the resolve by words (Diffs & Merge), the push size
-//! limit (Patronus), the route into master (`branchdeck.landing`, spec/branch/landing-routes.spec.md), and how coding
-//! agents work (Settings → Agents, read by `bd workspace`). One `git config --get-regexp` reads all nine with their
-//! scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one where
+//! limit (Patronus), the route into master (`branchdeck.landing`, spec/branch/landing-routes.spec.md), how coding
+//! agents work (Settings → Agents, read by `bd workspace`), and the experiments of the review windows
+//! (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md). One `git config --get-regexp` reads all ten with
+//! their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one where
 //! the request names it (`WriteScope`; never a `push` route), and `bd` reads the same keys.
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
@@ -29,8 +30,9 @@ use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
-/// The nine keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
-const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch)$";
+/// The ten keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
+const CONFIG_KEYS_REGEXP: &str =
+  r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental)$";
 
 /// Why a `push` route of the global or the system config is taken as unset: a push into master of every repository of
 /// the user that names no route of its own would be a trap
@@ -47,6 +49,11 @@ pub const AGENT_LEASE_CONFIG_KEY: &str = "branchdeck.agentLease";
 /// the prefix groups the commit, and the copies of the virtual branches drop it; a repository whose commits land as
 /// they are turns it off (`bd workspace`)
 pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch";
+
+/// Whether the review windows show the review plan (spec/branch/review-plan.spec.md, Status: Experimental): Mark
+/// Reviewed and the local Since Your Review, the API & Risk card, Order: Dependencies. A git boolean, off when unset;
+/// `bd review-plan` and `bd mark-reviewed` work without it
+pub const REVIEW_EXPERIMENTAL_CONFIG_KEY: &str = "branchdeck.reviewExperimental";
 
 /// The config file an entry comes from, in git's order: a later scope wins over an earlier one
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +157,8 @@ pub struct RepositoryConfig {
   pub agent_lease: ConfigSetting<bool>,
   /// `branchdeck.agentSubjectBranch`, off by default
   pub agent_subject_branch: ConfigSetting<bool>,
+  /// `branchdeck.reviewExperimental`, off by default
+  pub review_experimental: ConfigSetting<bool>,
   /// The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set
   pub detected_github_repository: Option<DetectedGitHubRepository>,
   /// The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`)
@@ -218,6 +227,7 @@ pub enum RepositoryConfigKey {
   Landing,
   AgentLease,
   AgentSubjectBranch,
+  ReviewExperimental,
 }
 
 impl RepositoryConfigKey {
@@ -233,6 +243,7 @@ impl RepositoryConfigKey {
       Self::Landing => LANDING_CONFIG_KEY,
       Self::AgentLease => AGENT_LEASE_CONFIG_KEY,
       Self::AgentSubjectBranch => AGENT_SUBJECT_BRANCH_CONFIG_KEY,
+      Self::ReviewExperimental => REVIEW_EXPERIMENTAL_CONFIG_KEY,
     }
   }
 
@@ -247,6 +258,7 @@ impl RepositoryConfigKey {
       Self::Landing,
       Self::AgentLease,
       Self::AgentSubjectBranch,
+      Self::ReviewExperimental,
     ]
     .into_iter()
     .find(|candidate| candidate.config_key().eq_ignore_ascii_case(key))
@@ -279,6 +291,7 @@ pub enum RepositoryConfigChange {
   Landing(Option<LandingSetting>),
   AgentLease(Option<bool>),
   AgentSubjectBranch(Option<bool>),
+  ReviewExperimental(Option<bool>),
 }
 
 impl RepositoryConfigChange {
@@ -293,13 +306,16 @@ impl RepositoryConfigChange {
       Self::Landing(_) => RepositoryConfigKey::Landing,
       Self::AgentLease(_) => RepositoryConfigKey::AgentLease,
       Self::AgentSubjectBranch(_) => RepositoryConfigKey::AgentSubjectBranch,
+      Self::ReviewExperimental(_) => RepositoryConfigKey::ReviewExperimental,
     }
   }
 
   /// The value to write, validated as the reader takes it; None to unset. An empty text unsets too
   fn config_value(&self) -> Result<Option<String>> {
     Ok(match self {
-      Self::Stacks(value) | Self::ResolveByWords(value) | Self::AgentLease(value) | Self::AgentSubjectBranch(value) => value.map(|value| value.to_string()),
+      Self::Stacks(value) | Self::ResolveByWords(value) | Self::AgentLease(value) | Self::AgentSubjectBranch(value) | Self::ReviewExperimental(value) => {
+        value.map(|value| value.to_string())
+      }
       Self::Symbols(value) => value.map(|mode| symbol_mode_name(mode).to_string()),
       Self::Landing(value) => value.map(|setting| setting.config_value().to_string()),
       Self::GithubRepository(value) => match value.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
@@ -352,7 +368,7 @@ fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   Ok(value)
 }
 
-/// The nine keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
+/// The ten keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
 /// config alone for an empty `repository_path`
 #[instrument(skip(git))]
 pub fn read_config_entries(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<ConfigEntry>> {
@@ -411,6 +427,7 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
     landing: landing_setting(entries),
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
     agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, true, |value| bool_setting(value, true)),
+    review_experimental: resolve_setting(entries, RepositoryConfigKey::ReviewExperimental, false, |value| bool_setting(value, false)),
     detected_github_repository: origin.detected_github_repository,
     landing_default: LandingDefault::of(origin.on_space),
     stacks_off_clashes: Vec::new(),

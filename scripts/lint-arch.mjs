@@ -113,6 +113,7 @@ export const APP_COMMAND_CALLERS = {
   sync: "src/model/store.ts",
   link_pull_request: "src/stores/reviews.ts",
   unlink_pull_request: "src/stores/reviews.ts",
+  mark_branch_reviewed: "src/lib/review-plan.ts",
   sign_in: "src/lib/sign-in-run.ts",
   cancel_sign_in: "src/lib/sign-in-run.ts",
   sign_out: "src/lib/sign-in-run.ts",

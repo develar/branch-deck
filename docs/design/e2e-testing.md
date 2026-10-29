@@ -238,7 +238,8 @@ Mock implementation:
   `invoke.rs` names a route of a command; `PAGE_PLUGINS` holds only plugins. The class of an entry says what the
   command writes, the ratchet below reads it: `read`, `engine` (`execute`, `cancel_operation`, pinned in
   `registry_test.rs`) or `app(<reason>)`, a write no session admits with its reason (`AppReason`: a ticket of the
-  session, the cancel of a read, the page's journal, a settings writer, the app itself, the tools, an account). The app
+  session, the cancel of a read, the page's journal, a settings writer, the app itself, the tools, an account, the
+  reviewed refs of Mark Reviewed). The app
   itself is every command that acts on its windows or its desktop: an open of a window and the stages of a page that
   show it, the folder dialog, the window menu, a check for an update (which downloads it), the restart; a body that uses
   the desktop or the windows of `AppContext` beyond the reads of the updater and the agent CLI is no `read`

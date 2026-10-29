@@ -10,7 +10,9 @@
 //! - `missing_commits`: the commits a conflicting commit of a trial build likely needs, by the changed files
 //! - `conflict_fix`: the regroup after which the conflicting branches apply cleanly, found by trial builds
 //! - `dangling_references`: the declarations a branch removes while its tree still uses them, and by the summaries
-//!   (`symbol_dependencies::declaration_checks`) those it changes or declares again
+//!   (`symbol_dependencies::declaration_checks`) those it changes or declares again; the same module gives the forms of
+//!   the declarations a commit changes (`changed_declarations`), the API surface of `review-plan`; the uses between the
+//!   files of one state of the code (`symbol_dependencies::file_links`) give its dependency order
 //! - `dangling_fix`: the fix of a mutual dangling reference, offered when a trial build proves it
 //! - `inverted_stack`: a branch that needs a commit of a branch stacked on it, and its fixes
 //! - `missing_declarations`: the names a built branch uses that a commit outside it adds

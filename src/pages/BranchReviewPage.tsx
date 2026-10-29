@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useEffectEvent, useState } from "react"
 import { useStore } from "zustand"
 import { Card } from "@/components/ui/card"
-import { BranchReviewActions, BranchReviewBar, BranchReviewBody, BranchReviewGone } from "@/components/review/BranchReview"
+import { BranchReviewActions, BranchReviewBar, BranchReviewBody, BranchReviewGone, BranchReviewMarkReviewed } from "@/components/review/BranchReview"
 import type { BranchReviewMoves } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
@@ -82,13 +82,15 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   const wholeStack = data.wholeStack === true
   const table = useReviewedTable(data.chain, wholeStack)
   const viewVersion = useStore(branchSyncStore, state => viewVersionKey(state.viewVersion))
+  // the review plan, as the last sync of the window's session read `branchdeck.reviewExperimental`
+  const reviewExperimental = useStore(branchSyncStore, state => state.reviewExperimental)
   // the "Create pull request" dialog of a branch of the chain: in this window, its context from the main window; a move
   // to a commit waits until it closes
   const [dialog, setDialog] = useState<{ branchName: string; generation: number } | null>(null)
   // the reviewer groups of the check that answered while the window is open, else those of the open
   const groups = linked.selected ? linked.groups : null
   const model = useBranchReview(
-    { ...data, baselineBranch: table?.baselineBranch ?? data.baselineBranch, groups: groups === null ? data.groups : [...groups] },
+    { ...data, baselineBranch: table?.baselineBranch ?? data.baselineBranch, groups: groups === null ? data.groups : [...groups], reviewExperimental },
     data.focus,
     { known: table !== null, tips: table?.tips ?? {} },
     { openedAt: data.openedAt, focus: data.move ? data.focus : null, held: dialog !== null },
@@ -178,6 +180,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
             <ReviewSidebarToggle />
             <DiffViewToggle />
             <div className="flex items-center gap-1" data-testid="branch-review-actions">
+              <BranchReviewMarkReviewed model={model} />
               <BranchReviewActions actions={actions.items} branchName={loaded.target} onRun={actions.run} />
               <BranchReviewMenu
                 repositoryPath={data.repositoryPath}

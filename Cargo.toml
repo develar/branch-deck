@@ -10,6 +10,7 @@ members = [
   "crates/sync-core",
   "crates/update-core",
   "crates/trial-check",
+  "crates/review-plan",
   "crates/lease-pool",
   "crates/remote-facts",
   "crates/repository-model",

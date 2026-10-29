@@ -5,6 +5,7 @@
 //!   views, what the user types.
 //! - `diffs`: the diffs and the merges of the views on the channels of their commands, the file lists of the ranges.
 //! - `symbols`: the symbol searches of a window in a review.
+//! - `review_plan`: the plan of a review in its window (experimental).
 //! - `conflict_fix`: the search of the fix of the conflicts.
 
 pub mod blobs;
@@ -13,6 +14,7 @@ pub mod conflict_fix;
 pub mod diffs;
 pub mod grammar;
 pub mod repository;
+pub mod review_plan;
 pub mod symbols;
 
 #[cfg(test)]

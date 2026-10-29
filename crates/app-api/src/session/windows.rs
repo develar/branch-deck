@@ -6,7 +6,8 @@
 //! meanwhile) ends at once. A review fetch (`Intent::FetchReview`) stops with its window: the fetch of a pull request no
 //! window shows is of no use; every other operation of a closed window goes on. A symbol search (Go to Declaration, Find
 //! Usages) is superseded by a newer one of its window, its cancel and its close (`WindowRequests`): windows search apart,
-//! one never cancels the search of another.
+//! one never cancels the search of another. The read of a review plan (`get_review_plan`) is a request of its own kind,
+//! superseded by a newer plan of its window and by its close: a symbol search and a plan never cancel each other.
 
 use crate::transport::{Call, PageId, WindowId};
 use domain_types::operation::OperationId;
@@ -15,12 +16,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-/// The windows of an app: their subscriptions, their review fetches and their symbol searches
+/// The windows of an app: their subscriptions, their review fetches, their symbol searches and their review plans
 #[derive(Default)]
 pub struct Windows {
   subscriptions: Mutex<WindowSubscriptions>,
   fetches: WindowFetches,
   searches: WindowRequests,
+  plans: WindowRequests,
 }
 
 /// The review fetches each window runs (`Intent::FetchReview`), by its label
@@ -89,9 +91,16 @@ impl Windows {
     self.searches.cancel(window);
   }
 
-  /// `window` closed: its symbol search is superseded and forgotten
-  pub fn forget_search(&self, window: &WindowId) {
+  /// Starts a read of the review plan of `window`, which supersedes the one before; a symbol search of the window
+  /// goes on
+  pub fn begin_plan(&self, window: &WindowId) -> WindowRequest {
+    self.plans.begin(window)
+  }
+
+  /// `window` closed: its symbol search and its read of a review plan are superseded and forgotten
+  pub fn forget_reads(&self, window: &WindowId) {
     self.searches.forget(window);
+    self.plans.forget(window);
   }
 
   /// Every window with a page or a fetch

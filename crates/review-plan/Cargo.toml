@@ -1,0 +1,43 @@
+[package]
+name = "review-plan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The plan of a review (experimental): the reviewed tip of a local branch and what changed since it, the API surface with its accio fan-in, the risk per file and the dependency order of the files, read by `bd review-plan` and the review windows"
+publish = false
+
+[dependencies]
+git-executor = { path = "../git-executor" }
+git-ops = { path = "../git-ops" }
+# the virtual branch of a name (`to_final_branch_name`)
+domain-types = { path = "../domain-types" }
+# the baseline of the checked out branch when the caller knows none (`detect_baseline_branch`)
+history-rewrite = { path = "../history-rewrite" }
+# the diffs and the syntax summaries of the reviewed commits, the forms of their declarations (`changed_declarations`)
+trial-check = { path = "../trial-check" }
+code-symbols = { path = "../code-symbols" }
+object-cache = { path = "../object-cache" }
+# the blocks of the diffs, and accio for the fan-in (`SymbolIndex`, `Lenient`)
+file-diffs = { path = "../file-diffs" }
+# the span of the fan-in's threads (`in_current_span`)
+sync-utils = { path = "../sync-utils" }
+anyhow.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+# the schema of `bd schema` (`PairState`)
+schemars = { workspace = true, optional = true }
+# the types of the app's commands in `src/lib/bindings.ts`
+specta = { workspace = true, optional = true }
+
+[features]
+schemars = ["dep:schemars", "git-ops/schemars"]
+specta = ["dep:specta", "git-ops/specta"]
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
+pretty_assertions.workspace = true
+test-log.workspace = true
+
+[lints]
+workspace = true

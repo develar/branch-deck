@@ -6,7 +6,8 @@ use crate::github_repository::GitHubRepository;
 use crate::push_size::{DEFAULT_PUSH_SIZE_LIMIT, PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
 use crate::remote_url::split_owner_and_name;
 use crate::repository_config::{
-  ConfigEntry, GLOBAL_PUSH_ROUTE_REASON, OriginFacts, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries,
+  ConfigEntry, GLOBAL_PUSH_ROUTE_REASON, OriginFacts, RESOLVE_BY_WORDS_CONFIG_KEY, REVIEW_EXPERIMENTAL_CONFIG_KEY, RepositoryConfig, parse_config_entries,
+  repository_config_from_entries,
 };
 use anyhow::{Result, anyhow};
 use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
@@ -18,10 +19,10 @@ use history_rewrite::stack::STACKS_CONFIG_KEY;
 use std::collections::HashMap;
 use tracing::{instrument, warn};
 
-/// The seven `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `bd workspace` and
+/// The eight `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `bd workspace` and
 /// Settings read) and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
 /// lowercase, the branch name as it is
-const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing)|branch\..+\.description)$";
+const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental)|branch\..+\.description)$";
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
@@ -147,6 +148,17 @@ impl ConfigSnapshot {
       }
       Some(reason) => Err(anyhow!("{LANDING_CONFIG_KEY}: {reason}")),
     }
+  }
+
+  /// `branchdeck.reviewExperimental`, a git boolean, off when unset: whether the review windows show the review plan. A
+  /// value git would refuse is off, with a warning, and fails nothing: the flag only shows an experiment
+  pub fn review_experimental(&self) -> bool {
+    let setting = self.settings().review_experimental;
+    if let Some(reason) = setting.invalid {
+      warn!("{REVIEW_EXPERIMENTAL_CONFIG_KEY}: {reason}");
+      return false;
+    }
+    setting.value
   }
 
   /// `branchdeck.branchPrefix` as git resolves it, trimmed, and whether the repository's own config sets it

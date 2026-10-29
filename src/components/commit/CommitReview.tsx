@@ -17,7 +17,7 @@ import type { FileDiff } from "@/lib/diff/file-diff-model"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
 import { withEngineCounts } from "@/lib/diff/view-files"
 import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
-import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
+import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, orderedFileNodes, revealInTree, toggleInSet } from "@/lib/file-tree"
 import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
@@ -61,6 +61,11 @@ export interface CommitReviewProps {
   codeTop?: ReactNode
   /** What ⌥↑/⌥↓ show next: read once the subject is, so the step is instant */
   neighbours?: readonly DiffSubject[]
+  /**
+   * The paths in the order the files show, a flat list instead of the tree (the dependency order of the review plan);
+   * the tree without it
+   */
+  fileOrder?: readonly string[] | null
 }
 
 /**
@@ -84,6 +89,7 @@ export function CommitReview({
   filesHeader,
   codeTop,
   neighbours,
+  fileOrder = null,
 }: CommitReviewProps) {
   const subjectId = diffSubjectId(subject)
   const commitFiles = useFilesOfCommit(subjectId)
@@ -175,7 +181,7 @@ export function CommitReview({
   } else {
     loaded = {
       // the selection and the collapsed directories belong to one commit or range, and to one filter
-      key: pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`,
+      key: `${pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`}${fileOrder === null ? "" : "|ordered"}`,
       // the counts of the engine, none until its diffs are read: git's numstat counts what the policy ignores too
       files: withEngineCounts(shownFiles, entry?.kind === "loaded" ? entry.files : undefined),
       totalCount: filteredFiles?.length ?? shownFiles.length,
@@ -184,6 +190,7 @@ export function CommitReview({
       initialPath: initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null,
       // the commits of the sides: a declaration outside the review is read at them
       revisions: subject.kind === "commit" ? { old: `${subject.id}^`, new: subject.id } : { old: subject.base, new: subject.head },
+      fileOrder,
     }
   }
   // an error and an empty subject are the content: the window shows them
@@ -267,6 +274,8 @@ interface LoadedReview {
   diffsComplete: boolean
   initialPath: string | null
   revisions: DiffRevisions
+  /** The files flat in this order, not as the tree */
+  fileOrder: readonly string[] | null
 }
 
 /** The search of the files: the text belongs to the window, not to one subject */
@@ -331,7 +340,13 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   const sidebarShown = useAppSettings(state => state.reviewSidebar)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
-  const nodes = useMemo(() => (loadedFiles === undefined ? [] : buildFileTree(loadedFiles)), [loadedFiles])
+  const fileOrder = loaded?.fileOrder ?? null
+  const nodes = useMemo(() => {
+    if (loadedFiles === undefined) {
+      return []
+    }
+    return fileOrder === null ? buildFileTree(loadedFiles) : orderedFileNodes(loadedFiles, fileOrder)
+  }, [loadedFiles, fileOrder])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
   const filterText = search?.text ?? ""
   const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))

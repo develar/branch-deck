@@ -88,6 +88,17 @@ macro_rules! for_each_command {
       /// blobs the diffs read, then outside the review in the index of the repository (`accio`), waited for as long as it runs
       read window find_usages(params: file_diffs::model::FindDeclarationParams) -> file_diffs::model::FoundUsages = $crate::reads::symbols::find_usages;
 
+      /// The plan of a review (spec/branch/review-plan.spec.md, Status: Experimental): what changed in a branch since it was
+      /// marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
+      /// from the index of the repository (`accio`), the risk per file and the files in dependency order
+      /// (`review_plan_core`, as `bd review-plan`). A newer plan of the window or its close supersedes it: `canceled`
+      read window get_review_plan(params: review_plan::ReviewPlanParams) -> review_plan::ReviewPlan = $crate::reads::review_plan::get_review_plan;
+
+      /// Keeps the base and the tip a branch has now as its reviewed pair, which a later plan compares the branch with, and
+      /// deletes the pairs of the branches that are gone, in one transaction with CAS (`mark_reviewed_core`, as `bd
+      /// mark-reviewed`)
+      app(ReviewedRefs) json mark_branch_reviewed(params: review_plan::mark_reviewed::MarkReviewedParams) -> review_plan::mark_reviewed::ReviewedTip = $crate::app::mark_reviewed::mark_branch_reviewed;
+
       /// Kills the symbol search of the calling window in flight, if any (Escape or Cancel while it searches)
       app(CanceledRead) window cancel_symbol_search() -> () = $crate::reads::symbols::cancel_symbol_search;
 

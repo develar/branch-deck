@@ -120,13 +120,13 @@ impl AppContext {
     }
   }
 
-  /// `window` closed: its subscriptions end, its review fetches stop, its symbol search is superseded, and a window built
-  /// again under its label waits for its page again
+  /// `window` closed: its subscriptions end, its review fetches stop, its symbol search and its read of a review plan
+  /// are superseded, and a window built again under its label waits for its page again
   pub fn forget_window(&self, window: &WindowId) {
     for op in self.windows.forget_fetches(window) {
       self.registry.cancel(&op);
     }
-    self.windows.forget_search(window);
+    self.windows.forget_reads(window);
     self.sub_windows.forget(window.as_str());
     self.forget_page(window);
   }

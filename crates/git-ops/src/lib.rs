@@ -25,6 +25,8 @@
 //! Writing objects and refs:
 //! - `ref_transaction`: `RefTransaction`, every ref move in one `update-ref --stdin` with compare-and-swap
 //! - `commit_writer`: commits, store commits and notes from one `fast-import`, with exact metadata, and temporary refs
+//! - `reviewed_refs`: the base and the tip a local branch had when the user marked it reviewed
+//!   (`refs/branch-deck/reviewed/`), listed with the branches and written with compare-and-swap
 //!
 //! The copies of a sync:
 //! - `copy_commit`: one commit of a virtual branch, reused by its mapping note or cherry-picked
@@ -111,6 +113,7 @@ pub mod reapply;
 pub mod ref_transaction;
 pub mod replay;
 pub mod resolve_check;
+pub mod reviewed_refs;
 pub mod revs;
 pub mod reword_commits;
 pub mod rewrite_guard;
@@ -185,6 +188,9 @@ mod push_contents_test;
 
 #[cfg(test)]
 mod ref_transaction_test;
+
+#[cfg(test)]
+mod reviewed_refs_test;
 
 #[cfg(test)]
 mod rewrite_plan_test;

@@ -168,6 +168,7 @@ describe("newer", () => {
     landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
     agentLease: setting({}),
     agentSubjectBranch: setting({}),
+    reviewExperimental: setting({}),
     detectedGithubRepository: null,
     landingDefault: { route: "pullRequest", onSpace: false },
     stacksOffClashes: [],

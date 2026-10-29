@@ -157,6 +157,7 @@ dependencies = [
  "pretty_assertions",
  "remote-facts",
  "repository-model",
+ "review-plan",
  "serde",
  "serde_json",
  "specta",
@@ -700,6 +701,7 @@ dependencies = [
  "history-rewrite",
  "object-cache",
  "pretty_assertions",
+ "review-plan",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -854,6 +856,7 @@ dependencies = [
  "pretty_assertions",
  "remote-facts",
  "repository-model",
+ "review-plan",
  "serde",
  "serde_json",
  "specta",
@@ -5331,6 +5334,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-plan"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "code-symbols",
+ "domain-types",
+ "file-diffs",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "object-cache",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "specta",
+ "sync-utils",
+ "test-log",
+ "test-utils",
+ "thiserror 2.0.21",
+ "tracing",
+ "trial-check",
+]
+
+[[package]]
 name = "rfd"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6909,6 +6936,7 @@ dependencies = [
  "remote-facts",
  "repository-model",
  "reqwest",
+ "review-plan",
  "serde",
  "serde_json",
  "sync-core",

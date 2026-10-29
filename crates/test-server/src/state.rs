@@ -143,7 +143,8 @@ pub struct TestHosts {
 }
 
 /// The symbol index of a test repository is its fixture, `.git/branch-deck-accio.json` (`FixtureIndex`), as accio
-/// answers; read at once, so a cancel has no query to kill
+/// answers: for the symbol searches and for the fan-in of a review plan (`get_review_plan`); read at once, so a cancel
+/// has no query to kill
 pub struct FixtureIndexes;
 
 impl app_api::reads::symbols::SymbolIndexes for FixtureIndexes {

@@ -34,8 +34,10 @@ use bd_rewrite::check_command::{CheckArgs, check};
 use bd_rewrite::commits::{CommitsArgs, commits, commits_brief};
 use bd_rewrite::describe::{DescribeArgs, describe};
 use bd_rewrite::fold_command::{FoldArgs, fold};
+use bd_rewrite::mark_reviewed_command::{MarkReviewedArgs, mark_reviewed};
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use bd_rewrite::park_command::{ParkArgs, UnparkArgs, park, unpark};
+use bd_rewrite::review_plan_command::{ReviewPlanArgs, review_plan};
 use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UnstackArgs, group, rename, restack, unstack};
 use bd_rewrite::squash_command::{SquashArgs, SquashOutput, squash};
@@ -216,6 +218,18 @@ enum Command {
   Park(ParkArgs),
   /// Let a parked branch be pushed again; only when the user asks
   Unpark(UnparkArgs),
+  /// Remember the base and the tip a branch has now as reviewed (experimental), the start of its next review
+  ///
+  /// No rewrite: the refs `refs/branch-deck/reviewed/<sha256 of the branch>/{base,tip}`, with compare-and-swap; the
+  /// pairs of branches that are gone are deleted in the same write
+  MarkReviewed(MarkReviewedArgs),
+  /// The plan of a review of a branch or of `<base>..<head>` (experimental): what changed since the branch was marked
+  /// reviewed
+  ///
+  /// Reads only: each commit of the branch paired with the reviewed one (`unchanged`, `rewritten` with its lines,
+  /// `added`, `dropped`) and the plain range of the commits added on top; `--since-reviewed` lists only the added and
+  /// the rewritten ones
+  ReviewPlan(ReviewPlanArgs),
   /// Take the commits of a branch and their files out of the checked out branch; only when the user asks
   ///
   /// The branch is kept as `{prefix}/unapplied/<name>`, which no sync archives; `uncommitted_overlap` (exit 4) when local
@@ -607,6 +621,8 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| printed(out, &output)),
     Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| printed(out, &output)),
     Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| printed(out, &output)),
+    Command::MarkReviewed(args) => context().and_then(|context| mark_reviewed(&context, args)).and_then(|output| printed(out, &output)),
+    Command::ReviewPlan(args) => context().and_then(|context| review_plan(&context, args)).and_then(|output| printed(out, &output)),
     Command::Unapply(args) => context().and_then(|context| unapply(&context, args)).and_then(|output| printed(out, &output)),
     Command::Reapply(args) => context().and_then(|context| reapply(&context, args)).and_then(|output| printed(out, &output)),
     Command::Workspace => workspace(environment, options.repo).and_then(|output| printed(out, &output)),
@@ -645,6 +661,7 @@ const fn reads_only(command: &Command) -> bool {
   match command {
     Command::Status(_)
     | Command::Commits(_)
+    | Command::ReviewPlan(_)
     | Command::Suggest(_)
     | Command::Check(_)
     | Command::Robot(_)

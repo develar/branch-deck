@@ -101,6 +101,16 @@
     "transport": "json"
   },
   {
+    "name": "get_review_plan",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "mark_branch_reviewed",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "cancel_symbol_search",
     "class": "app",
     "transport": "json"

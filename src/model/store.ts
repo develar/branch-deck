@@ -716,6 +716,7 @@ function headerFields(state: BranchSyncState, view: RepositoryView): Partial<Bra
   return {
     baselineBranch: header.baselineBranch === "" ? null : header.baselineBranch,
     stacksEnabled: header.stacksEnabled,
+    reviewExperimental: header.reviewExperimental,
     issueGroups: sameStringRecord(header.issueGroups, state.issueGroups) ? state.issueGroups : header.issueGroups,
     stackParents: sameStringRecord(header.stackParents, state.stackParents) ? state.stackParents : header.stackParents,
     parked: sameStringRecord(header.parked, state.parked) ? state.parked : header.parked,
@@ -925,6 +926,7 @@ function resetTable(): void {
     autosquashPlan: null,
     baselineStatus: null,
     stacksEnabled: false,
+    reviewExperimental: false,
     issueGroups: {},
     stackParents: {},
     parked: {},

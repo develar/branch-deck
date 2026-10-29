@@ -70,6 +70,9 @@ mod repository_config_test;
 mod repository_lifecycle_test;
 
 #[cfg(test)]
+mod review_plan_test;
+
+#[cfg(test)]
 mod review_readiness_test;
 
 #[cfg(test)]

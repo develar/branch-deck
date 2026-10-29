@@ -59,7 +59,8 @@ So every command of the app that writes is `execute` or `cancel_operation` of th
 with its one writer and the reason no session admits it: the ticket of a sync and the focus of a window (the session's
 own), the cancel of a read, the page's journal, the writers of the settings (`set_setting`, `set_repository_config`,
 the links of Reviews, each serialized per file), the app itself (its menu, its CLI, its update, its restart), the CLIs
-of Settings → Tools and the accounts. The class is part of the entry of each command in the registry of app-api
+of Settings → Tools, the accounts and the reviewed refs of Mark Reviewed (`refs/branch-deck/reviewed/`, one writer with
+CAS that no session reads, [Review Plan](../../spec/branch/review-plan.spec.md)). The class is part of the entry of each command in the registry of app-api
 (`crates/app-api/src/commands.rs`: `read`, `engine`, or `app(<reason>)` with an `AppReason` of `registry.rs`), so a
 new command is classified where it is declared; `registry_test.rs` pins the two of the engine, and
 `crates/test-server/src/command_registry_test.rs` lets no E2E test answer a write in the page.

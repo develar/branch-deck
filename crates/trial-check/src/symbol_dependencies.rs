@@ -24,6 +24,8 @@
 //!   also one of the name of a type beside it (`KeyState`), and every key of Rust and TypeScript are only present or
 //!   absent, per file. The rules and their reasons are decisions 7 to 11 of docs/design/symbol-dependencies.md.
 //! - **Degraded files decide nothing**: a file with a twentieth of its bytes in parse errors makes no edge.
+//! - **Between files** (`file_links`): the same evidence links the files of one state of the code, every declaration
+//!   of each against the uses of the others, for the dependency order of a review.
 
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
@@ -1454,13 +1456,19 @@ fn literal_family(name: &str) -> Option<Argument> {
 /// The declarations of `side` on its `ranges` (the changed lines of that side), and the members of a container whose
 /// name changed there
 fn changed_sites<'a>(side: &'a FileCtx<'a>, ranges: &[(u32, u32)]) -> Vec<Site<'a>> {
+  changed_sites_named(side, ranges, MIN_NAME_LENGTH)
+}
+
+/// `changed_sites` of the names of at least `min_name_length` bytes: the API surface of a review lists the short names
+/// too, which a search would find everywhere
+fn changed_sites_named<'a>(side: &'a FileCtx<'a>, ranges: &[(u32, u32)], min_name_length: usize) -> Vec<Site<'a>> {
   let declarations = &side.summary.declarations;
   let on_changed_lines = |start_line: u32, end_line: u32| ranges.iter().any(|&(start, end)| start_line < end && start <= end_line);
   // a container whose name changed gives its members new keys, though their lines stay
   let renamed_container = |declaration: &Declaration| outward(side.summary, declaration.container).any(|(_, container)| on_changed_lines(container.name_line, container.name_line));
   declarations
     .iter()
-    .filter(|declaration| side.summary.name(declaration.name).len() >= MIN_NAME_LENGTH)
+    .filter(|declaration| side.summary.name(declaration.name).len() >= min_name_length)
     .filter(|declaration| on_changed_lines(declaration.start_line, declaration.end_line) || renamed_container(declaration))
     .map(|declaration| site_of(side, declaration))
     .collect()
@@ -1510,6 +1518,77 @@ fn removed_uses(input: &SymbolInput, files: &[ChangedFile<'_>], site: &Site<'_>)
       evidence: Evidence::RemovesAfter,
     })
   })
+}
+
+/// The uses between the files of one state of the code, each given by its path and the blob of its summary in `input`
+/// (the dependency order of a review): a link per name and pair of files, from the file that declares it to another
+/// that uses or imports it, with the evidence `resolve` asks of a commit's use, so a name declared in two modules
+/// links only where an import, a qualified name, a package or a module tells which. Names of any length; a degraded
+/// file, a blob without a summary and the private binding of an import (a name, not a declaration) link nothing.
+/// Sorted by the file of the use, the file of the declaration, the name; the line is that of the first use
+pub fn file_links(input: &SymbolInput, files: &[(&str, &str)]) -> Vec<SymbolLink> {
+  let contexts: Vec<FileCtx<'_>> = files
+    .iter()
+    .filter_map(|&(path, blob)| {
+      let summary = input.summaries.get(blob).filter(|summary| !summary.is_degraded())?;
+      Some(input.file_ctx(path, summary))
+    })
+    .collect();
+  // name -> the declarations of that name
+  let mut declared: HashMap<&str, Vec<Site<'_>>> = HashMap::new();
+  for ctx in &contexts {
+    for declaration in &ctx.summary.declarations {
+      let site = site_of(ctx, declaration);
+      if !is_private_binding(&site) {
+        declared.entry(ctx.summary.name(declaration.name)).or_default().push(site);
+      }
+    }
+  }
+  // (used in, declared in, name) -> (line, evidence)
+  let mut links: BTreeMap<(&str, &str, String), (u32, Evidence)> = BTreeMap::new();
+  for use_site in &contexts {
+    for reference in &use_site.summary.references {
+      let qualifier = reference.qualifier.as_deref().map(|qualifier| names(use_site.summary, qualifier));
+      // whether a use of `name` in `ctx` linked
+      let mut link = |ctx: &FileCtx<'_>, name: &str| {
+        let mut linked = false;
+        for site in declared.get(name).into_iter().flatten().filter(|site| site.ctx.path != use_site.path) {
+          let Some(evidence) = resolve(input, ctx, reference, qualifier.as_deref(), site) else {
+            continue;
+          };
+          linked = true;
+          let first = links.entry((use_site.path, site.ctx.path, site.name().to_string())).or_insert((reference.line, evidence));
+          if reference.line < first.0 {
+            *first = (reference.line, evidence);
+          }
+        }
+        linked
+      };
+      if link(use_site, use_site.summary.name(reference.name)) {
+        continue;
+      }
+      // else a property of the other JVM language by its accessor
+      for (name, accessor) in accessor_names(use_site, reference) {
+        let ctx = FileCtx {
+          accessor: Some(accessor),
+          ..use_site.clone()
+        };
+        if link(&ctx, &name) {
+          break;
+        }
+      }
+    }
+  }
+  links
+    .into_iter()
+    .map(|((used_in, declared_in, name), (line, evidence))| SymbolLink {
+      name,
+      declared_in: declared_in.to_string(),
+      used_in: used_in.to_string(),
+      line,
+      evidence,
+    })
+    .collect()
 }
 
 /// The evidence that `reference` in `use_site` means the declaration `site`, `None` without any; the name an import

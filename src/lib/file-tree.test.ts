@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-files.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile, FileStatus } from "@/lib/bindings"
-import { buildFileTree, flattenTreeFiles, formatTreeFileLabel, getInitiallyCollapsed, getVisibleRows, revealInTree } from "@/lib/file-tree"
+import { buildFileTree, flattenTreeFiles, formatTreeFileLabel, getInitiallyCollapsed, getVisibleRows, orderedFileNodes, revealInTree } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
@@ -110,5 +110,14 @@ describe("formatTreeFileLabel", () => {
     expect(formatTreeFileLabel(file("src/New.kt", 0, 0, "renamed", "src/Old.kt"))).toEqual({ name: "New.kt", from: "Old.kt" })
     expect(formatTreeFileLabel(file("src/impl/A.kt", 0, 0, "renamed", "src/api/A.kt"))).toEqual({ name: "A.kt", from: "api/A.kt" })
     expect(formatTreeFileLabel(file("A.kt", 0, 0, "copied", "lib/A.kt"))).toEqual({ name: "A.kt", from: "lib/A.kt" })
+  })
+})
+
+describe("orderedFileNodes", () => {
+  it("lists the files flat in the order of the review plan, a rename by either path, the files it lacks after in tree order", () => {
+    const files = [file("src/a/Reader.kt"), file("src/b/Cache.kt"), file("src/Store.kt"), file("src/New.kt", 1, 0, "renamed", "src/Old.kt"), file("README.md"), file("docs/z.md")]
+    const nodes = orderedFileNodes(files, ["src/b/Cache.kt", "src/Old.kt", "src/a/Reader.kt", "src/gone/Deleted.kt", "src/Store.kt"])
+    expect(outline(nodes)).toEqual(["src/b/Cache.kt", "src/New.kt", "src/a/Reader.kt", "src/Store.kt", "docs/z.md", "README.md"])
+    expect(flattenTreeFiles(nodes).map(it => it.path)).toEqual(["src/b/Cache.kt", "src/New.kt", "src/a/Reader.kt", "src/Store.kt", "docs/z.md", "README.md"])
   })
 })

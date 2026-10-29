@@ -36,6 +36,7 @@ export const CONFIG_KEYS: Record<RepositoryConfigKey, string> = {
   landing: "branchdeck.landing",
   agentLease: "branchdeck.agentLease",
   agentSubjectBranch: "branchdeck.agentSubjectBranch",
+  reviewExperimental: "branchdeck.reviewExperimental",
 }
 
 /** The last part of the path: the name the user knows the repository by */
@@ -288,6 +289,8 @@ export function writeErrorTitle(change: RepositoryConfigChange, fallbackStacks: 
       return `Cannot change where agents work in ${name}`
     case "agentSubjectBranch":
       return `Cannot change how agents write commit subjects in ${name}`
+    case "reviewExperimental":
+      return `Cannot change the review experiments of ${name}`
   }
 }
 

@@ -120,6 +120,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     branch: String::new(),
     store_tips: domain_types::session::StoreTips::default(),
     landing: Box::default(),
+    review_experimental: false,
   }];
   for branch in &branches {
     for commit in &branch.commits {

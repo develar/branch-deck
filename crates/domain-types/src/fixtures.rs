@@ -203,5 +203,6 @@ pub fn branches_grouped(branches: Vec<crate::GroupedBranchInfo>) -> crate::SyncE
     branch: String::new(),
     store_tips: crate::session::StoreTips::default(),
     landing: Box::default(),
+    review_experimental: false,
   }
 }
