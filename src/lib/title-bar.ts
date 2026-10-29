@@ -6,20 +6,15 @@
  *   (`controls`), and the main menu (☰) replaces the native menu bar;
  * - `native`: the system title bar above the row, on Linux where a custom one doesn't fit (WSL, a tiling window
  *   manager, an unknown desktop) and where the user asked for it (`reason`); in E2E without one.
+ *
+ * With every kind the backend says whether the build updates itself (`checkForUpdates`, `PageTitleBar`)
  */
-export type TitleBar =
-  | {
-      readonly kind: "overlay"
-      readonly doubleClick: DoubleClickAction
-      /** The build updates itself: the command palette offers Check for Updates…, as the app menu does */
-      readonly checkForUpdates: boolean
-    }
+export type TitleBar = (
+  | { readonly kind: "overlay"; readonly doubleClick: DoubleClickAction }
   | {
       readonly kind: "custom"
       readonly controls: WindowControlsLayout
       readonly doubleClick: DoubleClickAction
-      /** The build updates itself: the main menu offers Check for Updates…, as the native menu would */
-      readonly checkForUpdates: boolean
       /**
        * The page rounds the corners of the window as the desktop's windows are (px, 0 for none): Linux with a compositor,
        * whose GTK3 rounds its decorations but doesn't clip the webview; square while maximized, tiled or fullscreen
@@ -27,6 +22,10 @@ export type TitleBar =
       readonly cornerRadius: number
     }
   | { readonly kind: "native"; readonly reason?: NativeTitleBarReason }
+) & {
+  /** The build updates itself (the `auto-update` feature): ☰ and the command palette offer Check for Updates… */
+  readonly checkForUpdates: boolean
+}
 
 export type WindowButton = "minimize" | "maximize" | "close"
 
@@ -45,7 +44,7 @@ export type DoubleClickAction = "toggle-maximize" | "minimize" | "none"
 /** Why the system title bar stays */
 export type NativeTitleBarReason = "env" | "wsl" | "no-desktop" | "tiling-wm" | "setting"
 
-export const titleBar: TitleBar = window.__BD_TITLE_BAR__ ?? { kind: "native" }
+export const titleBar: TitleBar = window.__BD_TITLE_BAR__ ?? { kind: "native", checkForUpdates: false }
 
 /** The page draws the title bar: its empty parts drag the window */
 export const drawsTitleBar = titleBar.kind !== "native"
@@ -54,7 +53,7 @@ export const drawsTitleBar = titleBar.kind !== "native"
 export const hasCustomTitleBar = titleBar.kind === "custom"
 
 /**
- * The build updates itself (the `auto-update` feature, as the backend says): the main menu (☰) and the command palette
- * offer Check for Updates…. Where the system title bar stays, its Help menu has the item, which the page is not told
+ * The build updates itself (the `auto-update` feature, as the backend says, whatever draws the title bar): the main
+ * menu (☰) and the command palette offer Check for Updates…, as the native menu does
  */
-export const updatesItself = titleBar.kind !== "native" && titleBar.checkForUpdates
+export const updatesItself = titleBar.checkForUpdates

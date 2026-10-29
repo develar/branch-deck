@@ -13,21 +13,15 @@ use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum TitleBar {
-  /// `check_for_updates`: the build updates itself (the `auto-update` feature), so the command palette offers Check for
-  /// Updates… as the app menu does
   Overlay {
     double_click: DoubleClick,
-    check_for_updates: bool,
   },
-  /// `check_for_updates`: the build updates itself (the `auto-update` feature), so the main menu and the command palette
-  /// offer Check for Updates… as the native menu would. `corner_radius`: the page rounds the corners of the window as
-  /// the desktop's windows are (Linux with a compositor: GTK3 rounds its decorations but doesn't clip the webview, so the
-  /// window is transparent and the page clips its canvas), 0 where the system does it (Windows 11) or can't (no
-  /// compositor)
+  /// `corner_radius`: the page rounds the corners of the window as the desktop's windows are (Linux with a compositor:
+  /// GTK3 rounds its decorations but doesn't clip the webview, so the window is transparent and the page clips its
+  /// canvas), 0 where the system does it (Windows 11) or can't (no compositor)
   Custom {
     controls: WindowControls,
     double_click: DoubleClick,
-    check_for_updates: bool,
     corner_radius: u32,
   },
   Native {
@@ -273,7 +267,6 @@ fn platform_title_bar(_environment: &TitleBarEnvironment) -> TitleBar {
   let action = defaults.stringForKey(ns_string!("AppleActionOnDoubleClick")).map(|it| it.to_string());
   TitleBar::Overlay {
     double_click: macos_double_click(action.as_deref()),
-    check_for_updates: cfg!(feature = "auto-update"),
   }
 }
 
@@ -288,7 +281,6 @@ fn platform_title_bar(environment: &TitleBarEnvironment) -> TitleBar {
         style: ButtonStyle::Windows,
       },
       double_click: DoubleClick::ToggleMaximize,
-      check_for_updates: cfg!(feature = "auto-update"),
       // Windows 11 rounds the window itself (`shadow(true)`)
       corner_radius: 0,
     },
@@ -312,7 +304,6 @@ fn platform_title_bar(environment: &TitleBarEnvironment) -> TitleBar {
   TitleBar::Custom {
     controls: WindowControls { start, end, style },
     double_click: gtk_double_click(double_click.as_deref()),
-    check_for_updates: cfg!(feature = "auto-update"),
     corner_radius: if composited { linux_corner_radius(style) } else { 0 },
   }
 }
@@ -323,9 +314,24 @@ fn platform_title_bar(_environment: &TitleBarEnvironment) -> TitleBar {
   TitleBar::Native { reason: NativeReason::NoDesktop }
 }
 
+/// What the page reads before it loads (`window.__BD_TITLE_BAR__`): how it draws the title bar, and whether the build
+/// updates itself (the `auto-update` feature), whatever draws it: ☰ and the command palette offer Check for Updates…
+/// as the native menu does, the app menu of macOS and the Help menu of a native menu bar
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageTitleBar<'a> {
+  #[serde(flatten)]
+  pub title_bar: &'a TitleBar,
+  pub check_for_updates: bool,
+}
+
 /// The line of the initialization script that tells the page how it draws the title bar (`title_bar`)
 pub fn title_bar_script() -> String {
-  let json = serde_json::to_string(title_bar()).unwrap_or_else(|_| r#"{"kind":"native"}"#.to_owned());
+  let page = PageTitleBar {
+    title_bar: title_bar(),
+    check_for_updates: cfg!(feature = "auto-update"),
+  };
+  let json = serde_json::to_string(&page).unwrap_or_else(|_| r#"{"kind":"native","checkForUpdates":false}"#.to_owned());
   format!("window.__BD_TITLE_BAR__ = {json};")
 }
 

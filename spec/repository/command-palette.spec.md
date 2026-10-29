@@ -65,8 +65,8 @@ names and reasons.
   Activity Window), Commands (Add Pull Request by Link…, which shows Reviews with the focus in its field and its text selected
   ([Reviews](reviews.spec.md#links)); Open Repository…, the folder button of the repository selector, disabled with
   "Wait for the sync to finish" while a sync runs, as the selector is; then the items Sync Branches, Update Project,
-  Settings…, Install Agent CLI…, where the build updates itself Check for Updates… (on macOS too, as the app menu
-  has it: `checkForUpdates` of every title bar the page draws), Getting Started and GitHub Repository of `mainMenus`,
+  Settings…, Install Agent CLI…, where the build updates itself Check for Updates… (on every platform and title bar, as
+  the native menu has it: `checkForUpdates` of the title bar script), Getting Started and GitHub Repository of `mainMenus`,
   disabled with the reason where the menu disables them; never a view setting, Auto-sync on Focus or the zoom), the
   actions of the branch at hand (below) and Branches ("Go to <branch>" for every branch of the table, in its order).
   [@test] ../../src/lib/command-palette.test.ts (`lists the views, Activity, the commands of the header and of the app's menu and the branches, by namespaced ids`, `hints only the keys of the window, disables Sync and Open Repository with the reason, offers updates where the build updates itself`)
@@ -120,7 +120,7 @@ names and reasons.
   folder button does (`browseRepository`: the folder dialog, then the repository picked in it).
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should run the commands of the app: Sync Branches, Settings… and Install Agent CLI…`)
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from Ctrl+K and from View → Command Palette… of ☰, and run Update Project and Check for Updates…`)
-  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open a repository and the help of the app as the header and the Help menu do`, `should check for updates where the build updates itself, as the app menu does`)
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open a repository and the help of the app as the header and the Help menu do`, `should check for updates where the build updates itself beside the traffic lights, as the app menu does`, `should check for updates where the build updates itself under the system title bar, as its Help menu does`)
 - Escape or a click outside closes the palette with nothing run and gives the focus back to the element that had it
   (the element itself: a row is focusable, not tabbable).
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from ⌘K of the native menu, list every source and give the focus back on Escape`)
@@ -138,12 +138,6 @@ names and reasons.
   (the item and Ctrl+K).
 - `pnpm e2e`: `tests/e2e/command-palette/command-palette.spec.ts` with the templates `issue_links` and
   `behind_upstream`. The palette is `command-palette`; the native item is `emitTauriEvent(page, "open_command_palette")`.
-
-## Open Questions / Risks
-
-- Check for Updates… shows only where the page knows that the build updates itself: the title bar it draws tells it
-  (`checkForUpdates` of the overlay of macOS and of the custom title bar of Windows and Linux); where the system title
-  bar stays, its Help menu has the item and the palette lacks it until the backend tells the page there too.
 
 ## References
 

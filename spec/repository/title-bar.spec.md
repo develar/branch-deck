@@ -81,10 +81,10 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   `open_sub_window`), and its initialization script tells the page before it loads how the title bar is drawn
   (`title_bar_script`, `window.__BD_TITLE_BAR__`, `titleBar` in `src/lib/title-bar.ts`), one JSON object decided once
   per process (`init_title_bar`, in `setup` before the menu and the first window):
-  `{"kind":"overlay","doubleClick":…,"checkForUpdates":…}` on macOS, `{"kind":"custom","controls":{"start":[…],"end":[…],"style":…},"doubleClick":…,"checkForUpdates":…,"cornerRadius":…}`
-  on Windows and Linux, `{"kind":"native","reason":…}` where the system title bar stays; `checkForUpdates` says that
-  the build updates itself (the `auto-update` feature), for ☰ and the command palette (`updatesItself`). The page does
-  not guess from the user agent.
+  `{"kind":"overlay","doubleClick":…}` on macOS, `{"kind":"custom","controls":{"start":[…],"end":[…],"style":…},"doubleClick":…,"cornerRadius":…}`
+  on Windows and Linux, `{"kind":"native","reason":…}` where the system title bar stays, each with
+  `"checkForUpdates":…` (`PageTitleBar`): whether the build updates itself (the `auto-update` feature), whatever draws
+  the title bar, for ☰ and the command palette (`updatesItself`). The page does not guess from the user agent.
   [@test] ../../src-tauri/src/title_bar_test.rs (`the_page_gets_one_json_object`)
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should keep the native title bar where the page doesn't draw one`)
 - The system title bar stays (`native`), in this order of reasons: `BRANCH_DECK_NATIVE_TITLE_BAR=1` (`env`); on Linux

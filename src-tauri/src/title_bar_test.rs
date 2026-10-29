@@ -147,6 +147,8 @@ mod decision {
 
   #[test]
   fn the_page_gets_one_json_object() {
+    // whether the build updates itself goes with every kind: ☰ and the command palette offer Check for Updates…
+    let json = |title_bar: &crate::title_bar::TitleBar, check_for_updates: bool| serde_json::to_string(&crate::title_bar::PageTitleBar { title_bar, check_for_updates }).unwrap();
     let custom = crate::title_bar::TitleBar::Custom {
       controls: crate::title_bar::WindowControls {
         start: vec![Close],
@@ -154,23 +156,19 @@ mod decision {
         style: ButtonStyle::Gnome,
       },
       double_click: DoubleClick::ToggleMaximize,
-      check_for_updates: true,
       corner_radius: 12,
     };
     assert_eq!(
-      serde_json::to_string(&custom).unwrap(),
-      r#"{"kind":"custom","controls":{"start":["close"],"end":[],"style":"gnome"},"doubleClick":"toggle-maximize","checkForUpdates":true,"cornerRadius":12}"#
+      json(&custom, true),
+      r#"{"kind":"custom","controls":{"start":["close"],"end":[],"style":"gnome"},"doubleClick":"toggle-maximize","cornerRadius":12,"checkForUpdates":true}"#
     );
     let overlay = crate::title_bar::TitleBar::Overlay {
       double_click: DoubleClick::ToggleMaximize,
-      check_for_updates: true,
     };
-    assert_eq!(
-      serde_json::to_string(&overlay).unwrap(),
-      r#"{"kind":"overlay","doubleClick":"toggle-maximize","checkForUpdates":true}"#
-    );
+    assert_eq!(json(&overlay, true), r#"{"kind":"overlay","doubleClick":"toggle-maximize","checkForUpdates":true}"#);
     let native = crate::title_bar::TitleBar::Native { reason: NativeReason::TilingWm };
-    assert_eq!(serde_json::to_string(&native).unwrap(), r#"{"kind":"native","reason":"tiling-wm"}"#);
+    assert_eq!(json(&native, true), r#"{"kind":"native","reason":"tiling-wm","checkForUpdates":true}"#);
+    assert_eq!(json(&native, false), r#"{"kind":"native","reason":"tiling-wm","checkForUpdates":false}"#);
   }
 }
 

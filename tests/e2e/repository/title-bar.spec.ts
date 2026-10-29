@@ -433,10 +433,14 @@ test.describe("Keys of the native menu", () => {
   })
 
   test("should show a fixed system title bar in the settings with its reason", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await useTitleBar(page, { kind: "native", reason: "tiling-wm" })
+    await useTitleBar(page, { kind: "native", reason: "tiling-wm", checkForUpdates: false })
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    const settings = await openSettingsWindow(page, { page: "appearance" }, { beforeLoad: window => useTitleBar(window, { kind: "native", reason: "tiling-wm" }) })
+    const settings = await openSettingsWindow(
+      page,
+      { page: "appearance" },
+      { beforeLoad: window => useTitleBar(window, { kind: "native", reason: "tiling-wm", checkForUpdates: false }) },
+    )
     const row = settings.getByTestId("setting-systemTitleBar")
     await expect(row.getByRole("switch")).toBeChecked()
     await expect(row.getByRole("switch")).toBeDisabled()

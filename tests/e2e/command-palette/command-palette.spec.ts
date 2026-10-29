@@ -1,4 +1,5 @@
 // @spec spec/repository/command-palette.spec.md
+import type { Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers"
 import { collapseBranch, findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
@@ -207,14 +208,24 @@ test.describe("Command palette of a stack", () => {
   )
 })
 
-test.describe("Command palette beside the traffic lights", () => {
-  test("should check for updates where the build updates itself, as the app menu does", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await useTitleBar(page, { ...TITLE_BARS.macos, checkForUpdates: true })
-    await setupRepo("behind_upstream")
-    await syncAndWaitForBranches()
+test.describe("Command palette beside a native menu", () => {
+  /** Check for Updates… of the palette, which the native menu has too */
+  async function checkForUpdates(page: Page): Promise<void> {
     await openPalette(page)
     await runByKeyboard(page, "updates", "Check for Updates…")
     await expect(page.locator("[data-slot=toast]", { hasText: "is up to date" })).toBeVisible()
+  }
+
+  test("should check for updates where the build updates itself beside the traffic lights, as the app menu does", async ({ page, setupRepo }) => {
+    await useTitleBar(page, { ...TITLE_BARS.macos, checkForUpdates: true })
+    await setupRepo("behind_upstream")
+    await checkForUpdates(page)
+  })
+
+  test("should check for updates where the build updates itself under the system title bar, as its Help menu does", async ({ page, setupRepo }) => {
+    await useTitleBar(page, { kind: "native", reason: "setting", checkForUpdates: true })
+    await setupRepo("behind_upstream")
+    await checkForUpdates(page)
   })
 })
 
