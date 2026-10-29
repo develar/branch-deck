@@ -29,18 +29,6 @@ impl From<anyhow::Error> for CopyCommitError {
   }
 }
 
-impl CopyCommitError {
-  /// This error as an `anyhow::Error` that keeps the typed error of `Other` for a downcast (`HeadMoved`), where `?`
-  /// would hide it under this enum
-  #[must_use]
-  pub fn into_anyhow(self) -> anyhow::Error {
-    match self {
-      Self::Other(e) => e,
-      other @ Self::BranchError(_) => anyhow!("{other}"),
-    }
-  }
-}
-
 impl std::fmt::Display for CopyCommitError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
@@ -51,7 +39,16 @@ impl std::fmt::Display for CopyCommitError {
   }
 }
 
-impl std::error::Error for CopyCommitError {}
+/// `?` into an `anyhow::Error` keeps the typed error of `Other` for a downcast (`HeadMoved`, `RewriteRefused`): this
+/// enum is no `std::error::Error`, whose conversion would hide that error under it
+impl From<CopyCommitError> for anyhow::Error {
+  fn from(error: CopyCommitError) -> Self {
+    match error {
+      CopyCommitError::Other(error) => error,
+      refusal @ CopyCommitError::BranchError(_) => anyhow!("{refusal}"),
+    }
+  }
+}
 
 // Progress information for logging and user feedback
 #[derive(Debug)]

@@ -184,6 +184,37 @@ struct Computed {
   discarded: std::rc::Rc<std::cell::Cell<u32>>,
 }
 
+/// A repository with one commit at `head` on `branch`, and the count of the computations it discarded
+struct OneCommit {
+  repo: TestRepo,
+  head: String,
+  branch: String,
+  discarded: std::rc::Rc<std::cell::Cell<u32>>,
+}
+
+impl OneCommit {
+  fn new() -> Self {
+    let repo = TestRepo::new();
+    let head = repo.create_commit("One", "one.txt", "one");
+    let branch = repo.git(&["symbolic-ref", "--short", "HEAD"]);
+    Self {
+      repo,
+      head,
+      branch,
+      discarded: std::rc::Rc::default(),
+    }
+  }
+
+  /// The computation of `round`, on `head` of the branch
+  fn computed(&self, round: u32, head: &str) -> Computed {
+    Computed {
+      witness: crate::repository_lock::Witness::of_head(head, &self.branch),
+      round,
+      discarded: std::rc::Rc::clone(&self.discarded),
+    }
+  }
+}
+
 impl crate::repository_lock::Prepared for Computed {
   fn witness(&self) -> crate::repository_lock::Witness {
     self.witness.clone()
@@ -199,33 +230,74 @@ impl crate::repository_lock::Prepared for Computed {
 /// the lock computed under it, so no witness is read
 #[test]
 fn a_rewrite_computed_before_the_lock_is_written_while_its_witness_holds_else_computed_once_more_under_it() {
-  use crate::repository_lock::{Witness, lock_prepared};
-  let repo = TestRepo::new();
-  let head = repo.create_commit("One", "one.txt", "one");
-  let branch = repo.git(&["symbolic-ref", "--short", "HEAD"]);
-  let discarded = std::rc::Rc::new(std::cell::Cell::new(0));
-  let computed = |round, head: &str| Computed {
-    witness: Witness::of_head(head, &branch),
-    round,
-    discarded: std::rc::Rc::clone(&discarded),
-  };
+  use crate::repository_lock::lock_prepared;
+  let fixture = OneCommit::new();
+  let (repo, head, discarded) = (&fixture.repo, &fixture.head, &fixture.discarded);
+  let computed = |round, head: &str| fixture.computed(round, head);
   let (git, path) = (repo.git_executor(), repo.path_str());
   let lock = (LockWait::default(), None);
 
-  let (written, held) = lock_prepared(lock, git, path, computed(1, &head), || anyhow::Ok(computed(2, &head))).unwrap();
+  let (written, held) = lock_prepared(lock, git, path, computed(1, head), || anyhow::Ok(computed(2, head))).unwrap();
   assert_eq!((written.round, held.is_some(), discarded.get()), (1, true, 0));
   drop(held);
 
-  let (written, held) = lock_prepared(lock, git, path, computed(1, "0000000000000000000000000000000000000000"), || anyhow::Ok(computed(2, &head))).unwrap();
+  let (written, held) = lock_prepared(lock, git, path, computed(1, "0000000000000000000000000000000000000000"), || anyhow::Ok(computed(2, head))).unwrap();
   assert_eq!((written.round, held.is_some(), discarded.get()), (2, true, 1), "the witness missed");
   drop(held);
 
   let other = lock_repository_as_another_process(&repo.path().join(".git"), AGENT_PUSH).unwrap();
   let bounded = (LockWait::Bounded(Duration::ZERO), None);
-  let error = lock_prepared(bounded, git, path, computed(1, &head), || anyhow::Ok(computed(2, &head))).err().unwrap();
+  let error = lock_prepared(bounded, git, path, computed(1, head), || anyhow::Ok(computed(2, head))).err().unwrap();
   assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
   assert_eq!(discarded.get(), 2, "a lock not taken discards what was computed");
 
-  let (written, held) = lock_prepared((LockWait::default(), Some(&other)), git, path, computed(1, "moved"), || anyhow::Ok(computed(2, &head))).unwrap();
+  let (written, held) = lock_prepared((LockWait::default(), Some(&other)), git, path, computed(1, "moved"), || anyhow::Ok(computed(2, head))).unwrap();
   assert_eq!((written.round, held.is_none(), discarded.get()), (1, true, 2), "computed under the held lock");
+}
+
+/// `RewriteOptions::lock_prepared` of a computation that met HEAD moved between two of its reads (`HeadMoved`) takes the
+/// lock and computes once more under it; a request that named its HEAD gets that `HeadMoved` as its answer, and so does
+/// a caller that holds the lock, with nothing computed again; any other error is the answer as it is
+#[test]
+fn a_head_moved_between_two_reads_before_the_lock_is_computed_once_more_under_it_unless_the_request_named_its_head() {
+  use git_ops::rewrite_guard::HeadMoved;
+  let fixture = OneCommit::new();
+  let (repo, head) = (&fixture.repo, &fixture.head);
+  let computed = || fixture.computed(2, head);
+  let moved = || -> anyhow::Result<Computed> {
+    Err(
+      HeadMoved {
+        branch: fixture.branch.clone(),
+        expected: "0".repeat(40),
+        actual: head.clone(),
+      }
+      .into(),
+    )
+  };
+  let never = || -> anyhow::Result<Computed> { unreachable!("computed once more") };
+  let (git, path) = (repo.git_executor(), repo.path_str());
+
+  let (written, held) = RewriteOptions::default().lock_prepared(git, path, moved(), || anyhow::Ok(computed())).unwrap();
+  assert_eq!((written.round, held.is_some()), (2, true), "computed once more under the lock");
+  drop(held);
+
+  let named = RewriteOptions {
+    expect_head: Some(head.clone()),
+    ..RewriteOptions::default()
+  };
+  let error = named.lock_prepared(git, path, moved(), never).err().unwrap();
+  assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
+
+  let other = lock_repository_as_another_process(&repo.path().join(".git"), AGENT_PUSH).unwrap();
+  let under = RewriteOptions {
+    held_lock: Some(&other),
+    ..RewriteOptions::default()
+  };
+  let error = under.lock_prepared(git, path, moved(), never).err().unwrap();
+  assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
+  drop(other);
+
+  let error = RewriteOptions::default().lock_prepared(git, path, Err(anyhow::anyhow!("failed")), never).err().unwrap();
+  assert_eq!(error.to_string(), "failed");
+  assert_eq!(fixture.discarded.get(), 0, "nothing was computed before the lock");
 }

@@ -14,7 +14,7 @@ use crate::fixup_targets::check_fixup_targets;
 use crate::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_REF, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::parked::{PARKED, PARKED_DROP_MESSAGE, PARKED_REF};
-use crate::repository_lock::{LockWait, Prepared, RepositoryLock, RepositoryLocked, Witness, ensure_expected_head, lock_prepared};
+use crate::repository_lock::{LockWait, MovedHead, Prepared, RepositoryLock, RepositoryLocked, RewriteOptions, Witness, ensure_expected_head, lock_prepared};
 use crate::reword::{normalize_message, prepare_reword_at};
 use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, problem_view};
@@ -52,6 +52,17 @@ pub struct RegroupOptions<'a> {
   /// The repository lock the caller holds, so that it can write more under it (`bd group --sync`); `None` takes the
   /// lock for the regroup only
   pub held_lock: Option<&'a RepositoryLock>,
+}
+
+impl<'a> RegroupOptions<'a> {
+  /// The lock of the regroup as a rewrite takes it (`RewriteOptions::lock_prepared`)
+  fn rewrite_options(&self) -> RewriteOptions<'a> {
+    RewriteOptions {
+      expect_head: self.expect_head.clone(),
+      lock_wait: self.lock_wait,
+      held_lock: self.held_lock,
+    }
+  }
 }
 
 /// A commit ahead of the baseline after the regroup
@@ -323,6 +334,12 @@ impl FixupRefusal {
       Self::NamedById => "Fixups name their target by its id, which the rewrite changes",
       Self::AmendWaits => "An amend! waits to replace the message of a reworded commit at the next fold",
     }
+  }
+}
+
+impl MovedHead for RegroupError {
+  fn head_moved(&self) -> bool {
+    matches!(self, Self::HeadMoved(_))
   }
 }
 
@@ -709,9 +726,7 @@ impl PreparedUndo {
   fn write(&self, git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken) -> Result<(), RegroupError> {
     let undone = match &self.restore {
       None => self.also.commit(git_executor, repository_path, "undo").map_err(RegroupError::Other),
-      Some(restore) => restore
-        .apply(git_executor, repository_path, "undo", &self.also)
-        .map_err(|e| RegroupError::Other(e.into_anyhow())),
+      Some(restore) => restore.apply(git_executor, repository_path, "undo", &self.also).map_err(|e| RegroupError::Other(e.into())),
     };
     undone.map_err(|error| {
       self.discard(git_executor, repository_path);
@@ -776,10 +791,7 @@ fn check_undo(git_executor: &GitCommandExecutor, repository_path: &str, token: &
     prepared.parked_from = Some(from);
   }
   if let Some((previous_head, new_head)) = &token.head {
-    let restore = check_restore(git_executor, repository_path, new_head, previous_head).map_err(|error| match error.into_anyhow() {
-      error if error.is::<HeadMoved>() => RegroupError::HeadMoved(error.downcast().expect("a HeadMoved")),
-      error => RegroupError::Other(error),
-    })?;
+    let restore = check_restore(git_executor, repository_path, new_head, previous_head).map_err(|error| RegroupError::from(anyhow::Error::from(error)))?;
     prepared.restore = Some(restore);
   }
   Ok(())
@@ -871,19 +883,12 @@ fn regroup_accepted(
   let git_executor = &with_dirs_of(git_executor, repository_path)?;
   let mut prepare = || prepare_regroup(git_executor, repository_path, options, &mut assign, &mut accept);
   let prepared = match prepare() {
-    Ok(prepared) => prepared,
-    // another process rewrote HEAD between two reads of the computation (the snapshot and the history of the reword),
-    // which only the lock keeps still: computed once more under it, as after a witness that missed
-    Err(RegroupError::HeadMoved(_)) if options.expect_head.is_none() && !options.dry_run && options.held_lock.is_none() => {
-      let _lock = options.lock_wait.lock(git_executor, repository_path)?;
-      return prepare()?.write(git_executor, repository_path);
-    }
-    Err(error) => return Err(error),
+    Ok(prepared) if prepared.write.is_none() => return Ok(prepared.outcome),
+    // a dry run takes no lock
+    Err(error) if options.dry_run => return Err(error),
+    prepared => prepared,
   };
-  if prepared.write.is_none() {
-    return Ok(prepared.outcome);
-  }
-  let (prepared, _lock) = lock_prepared((options.lock_wait, options.held_lock), git_executor, repository_path, prepared, prepare)?;
+  let (prepared, _lock) = options.rewrite_options().lock_prepared(git_executor, repository_path, prepared, prepare)?;
   prepared.write(git_executor, repository_path)
 }
 

@@ -720,7 +720,15 @@ stores) reads no witness: the compare-and-swap of its transaction on the one sto
 moved between the read and the lock (another process rewrote HEAD, a sync dropped the lines of integrated branches
 from a store, `drop_store_lines`), the core discards its temporary refs and computes once more, under the lock now, so
 nothing it reads moves again: the HEAD it expects is checked there, another one is `HeadMoved`, and a store that a
-sync dropped lines of is read as the sync left it. The lock span tests (`test_utils::lock_span`, a git that logs
+sync dropped lines of is read as the sync left it. HEAD that another process moved between two reads of the
+computation itself (after the history, before the guard reads HEAD again, `History::check_rewrite`; after the snapshot
+or the listing, before the history of a reword or of the move of a hunk) is the computation's `HeadMoved`, which
+`RewriteOptions::lock_prepared` and `lock_prepared_move` compute once more under the lock too, for a request that named
+no HEAD; one that named it answers it (`expect_head`, the plan of squash fixups, an undo), and so does a caller that
+holds the lock (`a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_lock`,
+`a_head_moved_between_two_reads_of_a_move_computes_it_once_more_under_the_lock`). A `CopyCommitError` of git-ops is no
+`std::error::Error`: its `?` into an `anyhow::Error` keeps the typed error of `Other` (`HeadMoved`, `RewriteRefused`)
+for a downcast. The lock span tests (`test_utils::lock_span`, a git that logs
 whether the holder record of the lock exists when each command starts) pin it per core:
 `a_move_locks_only_the_witness_and_the_write` and its siblings in `regroup_test.rs`, `squash_test.rs` and
 `autosquash_test.rs`. So do amend and add issue reference (`RewriteOptions::lock_prepared` of a `PreparedRewrite` and

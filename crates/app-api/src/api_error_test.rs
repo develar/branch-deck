@@ -87,8 +87,8 @@ fn api_error_finds_a_typed_error_under_context() {
   assert_eq!(error.message, "Cannot refresh: Cannot sync: Not synced: HEAD is detached");
 }
 
-/// A squash the history refuses answers its code with the commits and files it names, also under the
-/// `CopyCommitError` that the `?` of a core wraps it in
+/// A squash the history refuses answers its code with the commits and files it names, also through the `?` of a core
+/// from its `CopyCommitError` and under a context
 #[test]
 fn api_error_answers_a_refused_squash_by_its_kind() {
   let refused = |kind| RewriteRefused {
@@ -97,7 +97,7 @@ fn api_error_answers_a_refused_squash_by_its_kind() {
     paths: vec!["src/x.rs".to_string()],
     message: "Squashing commit bbbbbbb into aaaaaaa conflicts".to_string(),
   };
-  let wrapped = anyhow::Error::new(CopyCommitError::Other(anyhow::Error::new(refused(RefusalKind::Conflict)))).context("Cannot squash");
+  let wrapped = anyhow::Error::from(CopyCommitError::Other(anyhow::Error::new(refused(RefusalKind::Conflict)))).context("Cannot squash");
   let error = api_error_at(&wrapped, NOW);
   assert_eq!(error.code, ErrorCode::SquashConflict);
   assert_eq!(

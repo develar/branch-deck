@@ -59,7 +59,7 @@ pub fn amend_uncommitted_to_branch_core(git_executor: &GitCommandExecutor, param
     options.expected_full_head(git_executor, repo)?;
     prepare()
   };
-  let locked = prepare().and_then(|prepared| options.lock_prepared(git_executor, repo, prepared, again));
+  let locked = options.lock_prepared(git_executor, repo, prepare(), again);
   let applied = locked.and_then(|(prepared, _lock)| apply_amend(git_executor, repo, &prepared, &original_commit_id).map_err(failed));
   match applied {
     Ok(result) => Ok(AmendCommandResult::Ok(AmendResult {

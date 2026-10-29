@@ -11,7 +11,6 @@ use anyhow::{Result, ensure};
 use domain_types::error::ErrorCode;
 use domain_types::rewrite::SquashCommitsResult;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::copy_commit::CopyCommitError;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::with_dirs_of;
@@ -53,7 +52,7 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let prepare = || prepare_squash_commits(git_executor, params, &message, options);
-  let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, prepare()?, prepare)?;
+  let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, prepare(), prepare)?;
   let squashed_count = params.commit_ids.len();
   let rewrite = &prepared.rewrite;
   rewrite.apply(git_executor, repo_path, RefTransaction::new(), &format!("squash {squashed_count} commits"))?;
@@ -288,11 +287,9 @@ pub fn restore_branch_head_core(git_executor: &GitCommandExecutor, params: &Rest
   let repo_path = &params.repository_path;
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let check = || check_restore(git_executor, repo_path, &params.expected_head, &params.previous_head).map_err(CopyCommitError::into_anyhow);
+  let check = || check_restore(git_executor, repo_path, &params.expected_head, &params.previous_head).map_err(anyhow::Error::from);
   let (restore, _lock) = lock_prepared((lock_wait, None), git_executor, repo_path, check()?, check)?;
-  restore
-    .apply(git_executor, repo_path, "undo squash", &RefTransaction::new())
-    .map_err(CopyCommitError::into_anyhow)?;
+  restore.apply(git_executor, repo_path, "undo squash", &RefTransaction::new())?;
   info!("Restored the branch head");
   Ok(())
 }

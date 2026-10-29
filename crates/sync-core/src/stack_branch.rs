@@ -273,9 +273,7 @@ pub fn build_stack_branch(
   let tree_id_cache = tree_id_cache.with_other_memo(Arc::new(LightConflicts));
   let chain = RefCell::new(CommitChain::new(git_executor, repository_path));
   let mut parent = base.to_string();
-  let mut committer_timestamp = tree_id_cache
-    .get_committer_timestamp(git_executor, repository_path, base)
-    .map_err(CopyCommitError::into_anyhow)?;
+  let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, base)?;
   let on_status = |_: BranchSyncStatus| {};
   for (index, commit) in commits.iter().enumerate() {
     committer_timestamp = committer_timestamp.max(commit.committer_timestamp);

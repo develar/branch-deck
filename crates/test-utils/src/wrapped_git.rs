@@ -43,6 +43,13 @@ impl WrappedGit {
     )
   }
 
+  /// An arm in which another process commits `file` (its name as its content) with `subject` once, before the first
+  /// command whose arguments hold `args`: HEAD moves there, between two reads of the operation (the mark `committed`)
+  #[must_use]
+  pub fn commit_once_before(args: &str, file: &str, subject: &str) -> String {
+    format!("*\" {args} \"*) [ -f '{{dir}}/committed' ] || {{ echo {file} > '{file}' && git add -- '{file}' && git commit -q -m '{subject}' && touch '{{dir}}/committed'; }};;")
+  }
+
   pub const fn executor(&self) -> &GitCommandExecutor {
     &self.executor
   }

@@ -3,7 +3,7 @@
 //! `prepare_squash` with a group per target.
 
 use crate::commit_grouper::GroupingInputs;
-use crate::repository_lock::{Prepared, RewriteOptions, Witness};
+use crate::repository_lock::{Prepared, RewriteOptions, Witness, lock_prepared};
 use crate::snapshot::{CommitsAhead, read_grouping_inputs};
 use anyhow::{Result, anyhow, bail};
 use domain_types::commit::{Commit, SubjectParts};
@@ -209,7 +209,8 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let prepare = || prepare_fold(git_executor, params, options);
-  let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, prepare()?, prepare)?;
+  // the request names the HEAD of its plan (`expected_head`): another one is its answer, never computed once more
+  let (prepared, _lock) = lock_prepared((options.lock_wait, options.held_lock), git_executor, repo_path, prepare()?, prepare)?;
   let PreparedFold { rewrite, groups, orphans } = prepared;
   rewrite.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
 

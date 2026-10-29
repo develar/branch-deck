@@ -40,9 +40,11 @@ modules by area; the layers are the
   oids (the expected HEAD checked there, `ensure_head`; merge-tree, replay, the `fast-import` of the new objects on
   temporary refs) before the lock, then `options.lock_prepared(..)` takes the lock for the witness of the refs it read
   (`Prepared::witness`: HEAD, its branch and the store tips, one `for-each-ref`), computes once more under the lock when
-  one moved, and the core writes under it: the CAS transaction, then the move of the index. The cores that still lock
-  first (amend, unapply, reapply, add issue reference, the move of a hunk) take `options.lock(..)` before they read
-  anything. An operation reads a repository fact once and passes it
+  one moved, and the core writes under it: the CAS transaction, then the move of the index. It passes what it computed
+  as a `Result` (`options.lock_prepared(git, repo, prepare(), prepare)`): HEAD that another process moved between two
+  reads of the computation is its `HeadMoved`, computed once more under the lock too unless the request named its HEAD;
+  a move that the files follow takes `options.lock_prepared_move(..)`, and `bd pick` checks again under the lock
+  (`recheck_pick`). An operation reads a repository fact once and passes it
   down: a step of a sync, or of a `bd` command after its sync, takes the facts `RepoFacts`, `ConfigSnapshot`,
   `Snapshot` or the `SyncReport` hold instead of reading them again, the baseline with its upstream comes from one
   `read_baseline` (with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`), and an operation that reads the directories in several steps takes them once at its entry

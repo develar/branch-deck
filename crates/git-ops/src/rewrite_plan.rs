@@ -26,8 +26,8 @@ use tracing::{debug, instrument, warn};
 
 /// A rewrite the history refuses, nothing changed: a squashed commit and the commits in between or after it change the
 /// same lines, or the rewrite loses changes. A caller answers it by its `kind` (`bd`: `squash_conflict`,
-/// `squash_empty`); it travels in `CopyCommitError::Other`, which `into_anyhow` keeps for a downcast, and `refused_in`
-/// finds it also under a `CopyCommitError` that a `?` wrapped
+/// `squash_empty`); it travels in `CopyCommitError::Other`, which a `?` into an `anyhow::Error` keeps for a downcast
+/// (`refused_in`)
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message}")]
 pub struct RewriteRefused {
@@ -59,15 +59,10 @@ pub enum RefusalKind {
   Empty,
 }
 
-/// The `RewriteRefused` of `error`, also under a `CopyCommitError` that a `?` wrapped
+/// The `RewriteRefused` of `error`, also under a context or a source
 #[must_use]
 pub fn refused_in(error: &anyhow::Error) -> Option<&RewriteRefused> {
-  error.chain().find_map(|cause| {
-    cause.downcast_ref::<RewriteRefused>().or_else(|| match cause.downcast_ref::<CopyCommitError>() {
-      Some(CopyCommitError::Other(error)) => error.downcast_ref::<RewriteRefused>(),
-      _ => None,
-    })
-  })
+  error.chain().find_map(|cause| cause.downcast_ref::<RewriteRefused>())
 }
 
 /// A rewrite of the checked out branch whose new commits exist, but whose branch has not moved yet

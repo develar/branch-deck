@@ -554,6 +554,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--dry-run`, and a detached HEAD `detached_head` (exit 4).
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
+- A rewrite without `--expect-head` (`bd group`, `bd reword`, `bd squash`, `bd unapply`, `bd move-hunk`) whose HEAD
+  another process moves between two of its reads before the lock must compute once more under the lock, on that HEAD,
+  and keep the commits of the other process, never answer `head_moved`; with `--expect-head` the moved HEAD is
+  `head_moved`, and `bd fold` answers it for the HEAD of its plan.
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_lock`)
+  [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`a_head_moved_between_two_reads_of_a_move_computes_it_once_more_under_the_lock`)
+  [@test] ../../crates/history-rewrite/src/repository_lock_test.rs (`a_head_moved_between_two_reads_before_the_lock_is_computed_once_more_under_it_unless_the_request_named_its_head`)
 - The output must list every commit's resulting group with its new id, the new HEAD and an undo token;
   `--dry-run` must write nothing and print the changed subjects (`changes`: the old and the new subject, `moved` with
   the branch before and after when it changes) and the stack forest; `--map` must add `{commit, new_id}` of every commit.
@@ -723,8 +730,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`refuses_a_move_that_leaves_a_commit_empty_or_names_no_change`)
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`, `a_fix_that_is_the_whole_commit_is_refused_as_a_squash`)
 - It must run a fixed number of git processes, whatever the number of commits between, and compute every one of them
-  but the witness of HEAD and the move of the branch before the repository lock.
+  but the witness of HEAD and the move of the branch before the repository lock; HEAD that another process moves
+  between the commits it lists and the history it reads makes it compute once more under the lock.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_move_hunk`)
+  [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`a_head_moved_between_two_reads_of_a_move_computes_it_once_more_under_the_lock`)
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`a_move_hunk_locks_only_the_witness_and_the_write`)
 
 ### `bd check`

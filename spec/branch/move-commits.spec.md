@@ -135,6 +135,7 @@ Renaming and ungrouping a branch are moves of all its commits.
   ref is left.
   [@test] ../../crates/history-rewrite/src/regroup_test.rs (`a_move_locks_only_the_witness_and_the_write`, `a_rename_locks_only_the_witness_and_the_write`, `a_reword_locks_only_the_witness_and_the_write`, `a_restack_locks_only_the_witness_and_the_write`, `an_undo_locks_only_the_witness_and_the_write`)
   [@test] ../../crates/history-rewrite/src/regroup_test.rs (`a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more_under_the_lock`, `a_head_moved_before_the_lock_is_read_once_more_under_it`, `an_undo_over_a_drop_after_its_checks_is_checked_once_more_under_the_lock`)
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_lock`)
 - A move, a rename, a restack, an unstack and their undo of the app are rewrites of the engine (`execute` of the
   intent `rewrite`, `operations::rewrite`), named on the table the window shows (`TableWitness`). Each must wait for
   the lock as long as its holder lives (an agent's `bd pick --follow`, `bd`, the app's own push), never refused after

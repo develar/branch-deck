@@ -109,7 +109,7 @@ pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, pa
     let expected_head = options.expected_full_head(git_executor, repository_path)?;
     prepare_reword(git_executor, repository_path, &baseline_branch, rewrites.clone(), expected_head.as_deref(), &[]).context("Failed to add issue reference")
   };
-  let (prepared, _lock) = options.lock_prepared(git_executor, repository_path, prepare()?, prepare)?;
+  let (prepared, _lock) = options.lock_prepared(git_executor, repository_path, prepare(), prepare)?;
   prepared
     .apply(git_executor, repository_path, RefTransaction::new())
     .context("Failed to add issue reference")?;

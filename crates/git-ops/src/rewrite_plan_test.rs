@@ -36,15 +36,14 @@ fn squash(repo: &TestRepo, target: &str, folded: &[&str], message: &str) -> Resu
   Ok(())
 }
 
-/// The squash is refused with an error containing `expected`, and nothing changed
 /// The squash is refused as `kind` naming `commits`, with an error containing `expected`, and nothing changed; the
-/// refusal is found also under the `CopyCommitError` a `?` wraps
+/// refusal stays typed through the `?` into an `anyhow::Error`
 fn assert_squash_refused(repo: &TestRepo, target: &str, folded: &[&str], expected: &str, kind: RefusalKind, commits: &[&str]) -> Result<()> {
   let head_before = repo.head();
   let (history, plan) = squash_plan(repo, target, folded, "Squashed\n")?;
   let error = prepare(repo, &history, &plan).expect_err("squash should be refused");
   assert!(error.to_string().contains(expected), "{error}");
-  let wrapped = anyhow::Error::new(error);
+  let wrapped = anyhow::Error::from(error);
   let refused = refused_in(&wrapped).expect("a typed refusal");
   let named: Vec<&str> = refused.commits.iter().map(String::as_str).collect();
   assert_eq!((refused.kind, named.as_slice()), (kind, commits));

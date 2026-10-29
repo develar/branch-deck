@@ -8,7 +8,7 @@
 
 use crate::baseline::NoBaseline;
 use crate::move_commits::validate_branch_name;
-use crate::repository_lock::{Prepared, RepositoryLocked, RewriteOptions, Witness};
+use crate::repository_lock::{MovedHead, Prepared, RepositoryLocked, RewriteOptions, Witness};
 use crate::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
 use crate::store_lines::{LineStore, StoreMoved, drop_store_lines, format_store_lines};
 use anyhow::Result;
@@ -87,6 +87,13 @@ impl ParkError {
       Self::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
       Self::Other(_) => return None,
     })
+  }
+}
+
+/// A park reads no HEAD: only a git failure could carry `HeadMoved`
+impl MovedHead for ParkError {
+  fn head_moved(&self) -> bool {
+    matches!(self, Self::Other(error) if error.head_moved())
   }
 }
 
@@ -181,10 +188,10 @@ fn write_prepared(
   options: &RewriteOptions,
   prepare: impl Fn() -> Result<PreparedLines, ParkError>,
 ) -> Result<ParkOutcome, ParkError> {
-  let prepared = prepare()?;
-  if prepared.written.is_none() {
-    return Ok(prepared.outcome);
-  }
+  let prepared = match prepare() {
+    Ok(prepared) if prepared.written.is_none() => return Ok(prepared.outcome),
+    prepared => prepared,
+  };
   let (prepared, lock) = options.lock_prepared(git_executor, repository_path, prepared, &prepare)?;
   match prepared.write(git_executor, repository_path) {
     Err(ParkError::Moved(_)) if lock.is_some() => prepare()?.write(git_executor, repository_path),

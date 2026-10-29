@@ -14,7 +14,7 @@ use git_ops::rewrite_guard::ensure_no_operation_in_progress;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_ids::{IdMatch, match_commit_id};
 use history_rewrite::regroup::RegroupError;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, Prepared, RepositoryLock, Witness, ensure_expected_head, lock_prepared};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, MovedHead, Prepared, RepositoryLock, RewriteOptions, Witness, ensure_expected_head};
 use object_cache::cache::ObjectCache;
 use std::time::Duration;
 use sync_core::repo_facts::{ListedBaseline, read_listed_baseline};
@@ -97,6 +97,12 @@ pub enum MoveHunkError {
   Rewrite(#[from] RegroupError),
 }
 
+impl MovedHead for MoveHunkError {
+  fn head_moved(&self) -> bool {
+    matches!(self, Self::Rewrite(error) if error.head_moved())
+  }
+}
+
 impl From<anyhow::Error> for MoveHunkError {
   fn from(error: anyhow::Error) -> Self {
     Self::Rewrite(RegroupError::from(error))
@@ -117,17 +123,15 @@ pub fn move_hunk_core(
   options: &MoveHunkOptions,
 ) -> Result<MoveHunkResult, MoveHunkError> {
   let prepare = || prepare_move(git_executor, repository_path, cache, params, options);
-  let prepared = prepare()?;
   let (prepared, _lock) = if options.mode == MoveHunkMode::Apply {
-    lock_prepared(
-      (LockWait::Bounded(options.lock_timeout), options.held_lock),
-      git_executor,
-      repository_path,
-      prepared,
-      prepare,
-    )?
+    let lock = RewriteOptions {
+      expect_head: options.expect_head.clone(),
+      lock_wait: LockWait::Bounded(options.lock_timeout),
+      held_lock: options.held_lock,
+    };
+    lock.lock_prepared(git_executor, repository_path, prepare(), prepare)?
   } else {
-    (prepared, None)
+    (prepare()?, None)
   };
   let PreparedMove { prepared, from, to, blocks } = prepared;
   let outcome = prepared.apply(git_executor, repository_path).map_err(rewrite_error)?;

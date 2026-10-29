@@ -12,6 +12,7 @@ use crate::commit_ids::MIN_ID_LENGTH;
 use anyhow::{Context, Result};
 use domain_types::error::{HolderTool, LockHolderInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::copy_commit::CopyCommitError;
 use git_ops::revs::{checked_out_branch, git_common_dir, head_and_tips, with_dirs_of};
 use git_ops::reword_commits::PreparedReword;
 use git_ops::rewrite_guard::HeadMoved;
@@ -698,21 +699,34 @@ impl<'a> RewriteOptions<'a> {
     }
   }
 
-  /// `lock_prepared` with the lock of these options
+  /// `lock_prepared` with the lock of these options, of what the core computed before it (`prepared`). HEAD that moved
+  /// between two reads of that computation (`HeadMoved`: the history and the guard, the snapshot and the history of a
+  /// reword) is computed once more under the lock too, as after a witness that missed, since only the lock keeps HEAD
+  /// still; for a request that named its HEAD (`expect_head`) another one is the answer, and under a lock the caller
+  /// holds it is too
   ///
   /// # Errors
-  /// The lock not taken (`RepositoryLocked`, `LockWaitCanceled`), the witness not read, the error of `again`
-  pub fn lock_prepared<P: Prepared, E: From<anyhow::Error>>(
+  /// The error of `prepared` but such a `HeadMoved`, the lock not taken (`RepositoryLocked`, `LockWaitCanceled`), the
+  /// witness not read, the error of `again`
+  pub fn lock_prepared<P: Prepared, E: From<anyhow::Error> + MovedHead>(
     &self,
     git_executor: &GitCommandExecutor,
     repository_path: &str,
-    prepared: P,
+    prepared: Result<P, E>,
     again: impl FnOnce() -> Result<P, E>,
   ) -> Result<(P, Option<RepositoryLock>), E> {
-    lock_prepared((self.lock_wait, self.held_lock), git_executor, repository_path, prepared, again)
+    match prepared {
+      Err(error) if self.computes_again(&error) => {
+        let lock = self.lock_wait.lock(git_executor, repository_path)?;
+        debug!("HEAD moved while the rewrite read it: computed once more under the lock");
+        Ok((again()?, Some(lock)))
+      }
+      prepared => lock_prepared((self.lock_wait, self.held_lock), git_executor, repository_path, prepared?, again),
+    }
   }
 
-  /// `lock_prepared_move` with the lock of these options
+  /// `lock_prepared_move` with the lock of these options; HEAD that moved between two reads of `prepared` is computed
+  /// once more under the lock, as `lock_prepared` does, after the files of an interrupted move followed
   ///
   /// # Errors
   /// As `lock_prepared_move`
@@ -723,7 +737,21 @@ impl<'a> RewriteOptions<'a> {
     prepared: Result<P>,
     again: impl FnOnce() -> Result<P>,
   ) -> Result<(P, Option<RepositoryLock>)> {
-    lock_prepared_move((self.lock_wait, self.held_lock), git_executor, repository_path, prepared, again)
+    match prepared {
+      Err(error) if self.computes_again(&error) => {
+        let lock = self.lock_wait.lock(git_executor, repository_path)?;
+        debug!("HEAD moved while the move read it: computed once more under the lock");
+        finish_pending_update(git_executor, repository_path)?;
+        Ok((again()?, Some(lock)))
+      }
+      prepared => lock_prepared_move((self.lock_wait, self.held_lock), git_executor, repository_path, prepared, again),
+    }
+  }
+
+  /// Whether `error` of a computation before the lock is computed once more under it: HEAD moved between two of its
+  /// reads, the request named no HEAD, and the caller holds no lock
+  fn computes_again(&self, error: &impl MovedHead) -> bool {
+    self.expect_head.is_none() && self.held_lock.is_none() && error.head_moved()
   }
 
   /// `ensure_expected_head` of `expect_head`, the branch read only for the error
@@ -808,6 +836,26 @@ pub trait Prepared {
 
   /// Delete the temporary refs of the objects it wrote: it is abandoned, or computed once more
   fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str);
+}
+
+/// The error of a rewrite core: whether it is `HeadMoved`, which a computation before the repository lock meets when
+/// another process moves HEAD between two of its reads (`RewriteOptions::lock_prepared` computes it once more under
+/// the lock then)
+pub trait MovedHead {
+  fn head_moved(&self) -> bool;
+}
+
+impl MovedHead for anyhow::Error {
+  fn head_moved(&self) -> bool {
+    self.downcast_ref::<HeadMoved>().is_some()
+  }
+}
+
+/// A refusal of a rewrite of git-ops is its own; `HeadMoved` travels in `Other`
+impl MovedHead for CopyCommitError {
+  fn head_moved(&self) -> bool {
+    matches!(self, Self::Other(error) if error.head_moved())
+  }
 }
 
 /// `Prepared` of a rewrite of git-ops whose new commits sit on temporary refs: its witness is HEAD at the tip they were

@@ -340,9 +340,9 @@ fn undo_is_refused_when_the_branch_moved() -> Result<()> {
   let later = repo.create_commit("Later", "c.txt", "c");
 
   // the moved branch is the typed `HeadMoved`, which an undo answers as `undo_stale`
-  let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash")
+  let error: anyhow::Error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash")
     .expect_err("the branch moved")
-    .into_anyhow();
+    .into();
   let moved = error.downcast_ref::<HeadMoved>().unwrap_or_else(|| panic!("not HeadMoved: {error:#}"));
   assert_eq!((moved.expected.as_str(), moved.actual.as_str()), (new_head.as_str(), later.as_str()));
   assert_eq!(repo.head(), later);
@@ -389,9 +389,9 @@ fn undo_is_refused_when_the_branch_moved_during_the_transaction() -> Result<()> 
     .to_string();
   move_the_branch_in_the_next_transaction(&repo, "refs/heads/master", &later)?;
 
-  let error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash")
+  let error: anyhow::Error = restore_branch_head(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo squash")
     .expect_err("the branch moved")
-    .into_anyhow();
+    .into();
   let moved = error.downcast_ref::<HeadMoved>().unwrap_or_else(|| panic!("not HeadMoved: {error:#}"));
   assert_eq!(
     (moved.branch.as_str(), moved.expected.as_str(), moved.actual.as_str()),
@@ -411,9 +411,9 @@ fn undo_whose_other_ref_moved_is_not_head_moved() -> Result<()> {
   let mut also = RefTransaction::new();
   also.update("refs/branch-deck/issue-groups", &previous_head, Some(&new_head));
 
-  let error = restore_branch_head_with(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo regroup", &also)
+  let error: anyhow::Error = restore_branch_head_with(repo.git_executor(), repo_path(&repo), &new_head, &previous_head, "undo regroup", &also)
     .expect_err("the side ref is elsewhere")
-    .into_anyhow();
+    .into();
   assert!(error.downcast_ref::<HeadMoved>().is_none(), "HeadMoved: {error:#}");
   assert!(format!("{error:#}").starts_with("Cannot move branch master back"), "{error:#}");
   assert_eq!(repo.head(), new_head);

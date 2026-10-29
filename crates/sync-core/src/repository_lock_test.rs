@@ -10,6 +10,7 @@ use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use domain_types::commit::CommitInfo;
 use domain_types::rewrite::{AutosquashScope, CommitReword, RewordText};
+use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
 use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::regroup::RegroupOptions;
@@ -23,6 +24,7 @@ use std::time::{Duration, Instant};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
+use test_utils::wrapped_git::WrappedGit;
 
 /// Commits of `alpha` and `beta`, a fixup of the first one, their virtual branches built by a sync (an unapply checks
 /// the copies of beta before the lock), and an uncommitted change of `a2.txt`; returns `[a1, b1, a2, fixup]`
@@ -55,114 +57,135 @@ fn hold(repo: &TestRepo) -> history_rewrite::repository_lock::RepositoryLock {
 }
 
 /// The error of each rewrite of the app, run with `options`; `None` for one that succeeded
-fn run_every_rewrite(repo: &TestRepo, [a1, b1, a2, fixup]: &[String; 4], options: &RewriteOptions) -> Vec<(&'static str, Option<String>)> {
-  let git = repo.git_executor();
-  let repository_path = path(repo);
+fn run_every_rewrite(repo: &TestRepo, commits: &[String; 4], options: &RewriteOptions) -> Vec<(&'static str, Option<String>)> {
+  every_rewrite(repo.git_executor(), repo, commits, options)
+    .into_iter()
+    .map(|(rewrite, run)| (rewrite, run()))
+    .collect()
+}
+
+/// A run of a rewrite of the app by `git` with `options`, which answers its error, `None` when it succeeded
+type Rewrite<'a> = Box<dyn FnOnce() -> Option<String> + 'a>;
+
+/// Each rewrite of the app, run by `git` with `options` when called
+fn every_rewrite<'a>(git: &'a GitCommandExecutor, repo: &'a TestRepo, [a1, b1, a2, fixup]: &'a [String; 4], options: &'a RewriteOptions) -> Vec<(&'static str, Rewrite<'a>)> {
   let error = |result: anyhow::Result<()>| result.err().map(|e| format!("{e:#}"));
   vec![
     (
       "squash",
-      error(
-        squash_commits_core(
-          git,
-          &SquashCommitsParams {
-            repository_path: repository_path.clone(),
-            commit_ids: vec![a1.clone(), a2.clone()],
-            message: "(alpha) A1 and A2".to_string(),
-          },
-          options,
+      Box::new(move || {
+        error(
+          squash_commits_core(
+            git,
+            &SquashCommitsParams {
+              repository_path: path(repo),
+              commit_ids: vec![a1.clone(), a2.clone()],
+              message: "(alpha) A1 and A2".to_string(),
+            },
+            options,
+          )
+          .map(drop),
         )
-        .map(drop),
-      ),
+      }),
     ),
     (
       "squash fixups",
-      error(
-        squash_fixup_commits_core(
-          git,
-          &SquashFixupsParams {
-            repository_path: repository_path.clone(),
-            expected_head: fixup.clone(),
-            scope: AutosquashScope::All,
-          },
-          options,
+      Box::new(move || {
+        error(
+          squash_fixup_commits_core(
+            git,
+            &SquashFixupsParams {
+              repository_path: path(repo),
+              expected_head: fixup.clone(),
+              scope: AutosquashScope::All,
+            },
+            options,
+          )
+          .map(drop),
         )
-        .map(drop),
-      ),
+      }),
     ),
     (
       "unapply",
-      error(
-        unapply_branch_core(
-          git,
-          UnapplyBranchParams {
-            repository_path: repository_path.clone(),
-            branch_name: "beta".to_string(),
-            original_commit_ids: Some(vec![b1.clone()]),
-          },
-          "test-user",
-          options,
+      Box::new(move || {
+        error(
+          unapply_branch_core(
+            git,
+            UnapplyBranchParams {
+              repository_path: path(repo),
+              branch_name: "beta".to_string(),
+              original_commit_ids: Some(vec![b1.clone()]),
+            },
+            "test-user",
+            options,
+          )
+          .map(drop),
         )
-        .map(drop),
-      ),
+      }),
     ),
     (
       "amend",
-      error(
-        amend_uncommitted_to_branch_core(
-          git,
-          AmendUncommittedToBranchParams {
-            repository_path: repository_path.clone(),
-            branch_name: "alpha".to_string(),
-            original_commit_id: a2.clone(),
-            files: vec!["a2.txt".to_string()],
-          },
-          options,
+      Box::new(move || {
+        error(
+          amend_uncommitted_to_branch_core(
+            git,
+            AmendUncommittedToBranchParams {
+              repository_path: path(repo),
+              branch_name: "alpha".to_string(),
+              original_commit_id: a2.clone(),
+              files: vec!["a2.txt".to_string()],
+            },
+            options,
+          )
+          .map(drop),
         )
-        .map(drop),
-      ),
+      }),
     ),
     (
       "reword",
-      error(
-        reword_request_core(
-          git,
-          &RewordRequest {
-            repository_path: repository_path.clone(),
-            rewords: vec![CommitReword {
-              commit: a2.clone(),
-              text: RewordText::Message("(alpha) A2 reworded".to_string()),
-            }],
-          },
-          // the reword is a regroup, whose options carry the same lock and HEAD
-          &RegroupOptions {
-            expect_head: options.expect_head.clone(),
-            lock_wait: options.lock_wait,
-            held_lock: options.held_lock,
-            ..RegroupOptions::default()
-          },
+      Box::new(move || {
+        error(
+          reword_request_core(
+            git,
+            &RewordRequest {
+              repository_path: path(repo),
+              rewords: vec![CommitReword {
+                commit: a2.clone(),
+                text: RewordText::Message("(alpha) A2 reworded".to_string()),
+              }],
+            },
+            // the reword is a regroup, whose options carry the same lock and HEAD
+            &RegroupOptions {
+              expect_head: options.expect_head.clone(),
+              lock_wait: options.lock_wait,
+              held_lock: options.held_lock,
+              ..RegroupOptions::default()
+            },
+          )
+          .map(drop),
         )
-        .map(drop),
-      ),
+      }),
     ),
     (
       "add issue reference",
-      error(
-        add_issue_reference_to_commits_core(
-          git,
-          AddIssueReferenceParams {
-            repository_path,
-            branch_name: "alpha".to_string(),
-            commits: vec![CommitInfo {
-              hash: a2.clone(),
-              message: "(alpha) A2".to_string(),
-            }],
-            issue_reference: "ABC-1".to_string(),
-          },
-          options,
+      Box::new(move || {
+        error(
+          add_issue_reference_to_commits_core(
+            git,
+            AddIssueReferenceParams {
+              repository_path: path(repo),
+              branch_name: "alpha".to_string(),
+              commits: vec![CommitInfo {
+                hash: a2.clone(),
+                message: "(alpha) A2".to_string(),
+              }],
+              issue_reference: "ABC-1".to_string(),
+            },
+            options,
+          )
+          .map(drop),
         )
-        .map(drop),
-      ),
+      }),
     ),
   ]
 }
@@ -298,6 +321,50 @@ fn every_rewrite_refuses_another_head_that_has_none_of_its_commits() {
   };
   reword_request_core(repo.git_executor(), &reword, &RegroupOptions::default()).unwrap();
   every_rewrite_refuses_head_moved(&repo, &commits, &commits[3]);
+}
+
+/// Another process that moves HEAD between two reads of a rewrite before the lock (after its history, before its guard
+/// reads HEAD; after the snapshot of a reword, before its history) makes a rewrite whose request named no HEAD compute
+/// once more under the lock, on that HEAD: it succeeds and keeps the commit of the other process. Squash fixups names
+/// the HEAD of its plan, which refuses it then (`HeadMoved`)
+#[test]
+fn a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_lock() {
+  const READ_HEAD: &str = "rev-parse HEAD --symbolic-full-name HEAD";
+  let moved_between = [
+    ("squash", READ_HEAD),
+    ("squash fixups", READ_HEAD),
+    ("unapply", READ_HEAD),
+    ("amend", READ_HEAD),
+    ("reword", "log --first-parent --boundary"),
+    ("add issue reference", READ_HEAD),
+  ];
+  for (rewrite, before) in moved_between {
+    let (repo, commits) = repo();
+    let wrapped = WrappedGit::new(&WrappedGit::commit_once_before(before, "g1.txt", "(gamma) G1"));
+    let options = RewriteOptions::default();
+    let (_, run) = every_rewrite(wrapped.executor(), &repo, &commits, &options)
+      .into_iter()
+      .find(|(name, _)| *name == rewrite)
+      .unwrap();
+    let error = run();
+    assert!(wrapped.marked("committed"), "{rewrite}: HEAD moved");
+    if rewrite == "squash fixups" {
+      let moved = HeadMoved {
+        branch: "master".to_string(),
+        expected: commits[3].clone(),
+        actual: repo.head(),
+      };
+      assert_eq!(error, Some(moved.to_string()), "{rewrite}");
+    } else {
+      assert_eq!(error, None, "{rewrite}");
+    }
+    // replayed by the rewrites of the commits below it
+    let subjects = repo.git(&["log", "--format=%s"]);
+    assert!(
+      subjects.lines().any(|subject| subject == "(gamma) G1"),
+      "{rewrite} keeps the commit of the other process: {subjects}"
+    );
+  }
 }
 
 /// Every rewrite of the app run with `expected` as the HEAD it expects, which HEAD is not: each is refused with

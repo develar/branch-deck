@@ -97,6 +97,36 @@ fn a_move_hunk_locks_only_the_witness_and_the_write() {
   wrapped.assert_before_the_lock("fast-import");
 }
 
+/// Another process that commits between the commits `bd move-hunk` lists and the history it reads (HEAD moved between
+/// two reads before the lock) makes the move compute once more under the lock, on that HEAD: it moves the change and
+/// keeps the commit of the other process; with `--expect-head` the moved HEAD is the answer (`head_moved`)
+#[cfg(unix)]
+#[test_log::test]
+fn a_head_moved_between_two_reads_of_a_move_computes_it_once_more_under_the_lock() {
+  let arm = test_utils::wrapped_git::WrappedGit::commit_once_before("log --first-parent --boundary", "g1.txt", "(gamma) G1");
+  let (repo, [a, _, b]) = incident();
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, &arm);
+  let (exit_code, output) = wrapped.run(&["move-hunk", &b, &a, ACP_HOST]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert!(wrapped.dir().join("committed").exists(), "HEAD moved");
+  assert_eq!(git(&repo, &["log", "-1", "--format=%s"]), "(gamma) G1");
+  assert_eq!(output["moved"]["to"], json!(short_id(&a)));
+  let under = wrapped.under_lock();
+  let under: Vec<&str> = under.iter().map(|args| bd_cli::fixture_test::subcommand(args)).collect();
+  assert!(
+    under.contains(&"log") && under.contains(&"update-ref"),
+    "the history read once more under the lock: {:#?}",
+    wrapped.commands()
+  );
+
+  let (repo, [a, _, b]) = incident();
+  let head = repo.head();
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, &arm);
+  let (exit_code, output) = wrapped.run(&["move-hunk", &b, &a, ACP_HOST, "--expect-head", short_id(&head)]);
+  assert_error(&output, exit_code, (3, "head_moved"));
+  assert_eq!(git(&repo, &["log", "-1", "--format=%s"]), "(gamma) G1");
+}
+
 fn patch_blocks(repo: &TestRepo, commit: &str, path: &str) -> Vec<serde_json::Value> {
   let (exit_code, commits) = run_in(repo, &["commits", commit, "--patch"]);
   assert_eq!(exit_code, 0, "{commits}");
