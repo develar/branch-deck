@@ -1,7 +1,8 @@
 // @spec spec/repository/onboarding.spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { branchTree, findBranchRow, unstackOauthFromMenuWaiting } from "../helpers/branch-helpers"
+import { branchTree, findBranchRow, releaseTheSyncOfTheUnstack, unstackOauthFromMenuWaiting } from "../helpers/branch-helpers"
+import { openPalette, palette } from "../helpers/command-palette-helpers"
 import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import type { FirstRowsIpc } from "../helpers/ipc-helpers"
 import { firstRowsAsks, recordIpcAtFirstRows } from "../helpers/ipc-helpers"
@@ -150,10 +151,19 @@ test.describe("The warm start", () => {
     const more = await unstackOauthFromMenuWaiting(page, "Unstacking oauth after the sync")
     expect(await branchTree(page)).toEqual(FRAME_TREE)
     await expect.poll(() => unstacks.length).toBe(1)
+    // the Unstack of its menu, which runs, says it as its row does: in the palette of the row
+    await findBranchRow(page, "oauth").focus()
+    await openPalette(page)
+    const unstack = palette(page)
+      .getByRole("group")
+      .filter({ hasText: /^oauth/ })
+      .getByRole("option", { name: /^Unstack from login/ })
+    await expect(unstack).toHaveAttribute("aria-disabled", "true")
+    await expect(unstack).toContainText("Unstacking oauth after the sync…")
+    await page.keyboard.press("Escape")
+    await expect(palette(page)).toHaveCount(0)
 
-    await repo.holdRemoteAnswers({ release: ["sync"] })
-    await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
-    await expect.poll(() => branchTree(page)).toContain("oauth@0")
+    await releaseTheSyncOfTheUnstack(page, repo)
     await expect(more).not.toHaveAttribute("aria-busy")
     // the first sync, then the one of the unstack: the press reached the backend once
     expect(await finishedSyncCount(page)).toBe(2)

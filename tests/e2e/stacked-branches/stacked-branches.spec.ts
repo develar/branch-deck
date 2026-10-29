@@ -13,6 +13,7 @@ import {
   getMoreButton,
   getPushButton,
   getStackChip,
+  releaseTheSyncOfTheUnstack,
   unstackOauthFromMenuWaiting,
   verifyCommitCount,
 } from "../helpers/branch-helpers"
@@ -569,9 +570,7 @@ test.describe("Stacked branches", () => {
     // its answer waits for the sync it asked, after the held one: no toast yet, nothing refused
     await expect(page.getByText(/^Unstacked oauth/)).toHaveCount(0)
 
-    await repo.holdRemoteAnswers({ release: ["sync"] })
-    await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
-    await expect.poll(() => branchTree(page)).toContain("oauth@0")
+    await releaseTheSyncOfTheUnstack(page, repo)
     await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot / })).toHaveCount(0)
     // the held sync and the one the rewrite asked
     expect(await finishedSyncCount(page)).toBe(syncs + 2)

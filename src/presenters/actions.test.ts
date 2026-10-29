@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ActionBlocker, ActionId, ActionState, Intent, Reason, RunningOperation } from "@/lib/bindings"
 import { ACTION_LOOKS, formatActionBlocker, getStartActionItems, presentAction } from "@/presenters/actions"
 import type { OperationNames, OperationWords } from "@/presenters/operations"
-import { presentOperationBusy } from "@/presenters/operations"
+import { presentOperationBusy, presentOperationLabel } from "@/presenters/operations"
 import { formatStackHold } from "@/presenters/reasons"
 import { disabled, enabled } from "@/test-support/actions"
 
@@ -126,30 +126,49 @@ describe("the actions Rust offers", () => {
   })
 
   it("names an operation this window started as its surface named it, from the names the caller passes", () => {
-    const operations = { u1: operation("u1", unstack, { kind: "rewriting" }), u2: operation("u2", { ...unstack, branchName: "auth" } as Intent, { kind: "queued", behind: "u1" }) }
+    const operations = {
+      u1: operation("u1", unstack, { kind: "rewriting" }),
+      u2: operation("u2", { ...unstack, branchName: "auth" } as Intent, { kind: "queued", behind: "u1" }),
+      u3: operation("u3", { ...unstack, branchName: "auth" } as Intent, { kind: "rewriting" }),
+    }
     const named: OperationNames = { u1: { label: "Unstacking oauth from auth" } }
     const item = (action: ActionState) => presentAction([action], action.id, { onSelect: () => {} }, { subject: "auth", operations, named })
     expect(item({ id: "unstack", availability: { kind: "running", op: "u1" } })?.description).toBe("Unstacking oauth from auth…")
     expect(item({ id: "unstack", availability: { kind: "queued", op: "u2", behind: "u1" } })?.description).toBe("Waits for Unstacking oauth from auth…")
     expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op: "u1" } } })?.description).toBe("Unstacking oauth from auth…")
     // the one it didn't start, as the view names it
-    expect(item({ id: "unstack", availability: { kind: "running", op: "u2" } })?.description).toBe("Unstacking auth…")
+    expect(item({ id: "unstack", availability: { kind: "running", op: "u3" } })?.description).toBe("Unstacking auth…")
   })
 
-  it("names the operation an item runs as, waits for or is busy behind as the busy state of its row does", () => {
+  it("says on an item that runs as an operation its busy state as its row does, and names the one an item waits for or is busy behind", () => {
+    const push: Intent = { kind: "push", subject: { kind: "branch", name: "auth" }, scope: { kind: "alone" }, expectRemote: null, force: false, restartRunning: false }
+    const holder = { tool: "bd", command: "bd pick", pid: 4242, held_for: 12 } as const
     const operations = {
       u1: operation("u1", unstack, { kind: "rewriting" }),
-      b1: operation("b1", { ...unstack, branchName: "auth" } as Intent, { kind: "rewriting" }, { kind: "otherProcess", tool: "bd", pid: 4242 }),
+      s1: operation("s1", unstack, { kind: "waitingForSync" }),
+      l1: operation("l1", unstack, { kind: "waitingForLock", holder }),
+      q1: operation("q1", { ...unstack, branchName: "auth" } as Intent, { kind: "queued", behind: "u1" }),
+      b1: operation("b1", push, { kind: "pushing" }, { kind: "otherProcess", tool: "bd", pid: 4242 }),
     }
     const words: OperationWords = { operations, named: { u1: { label: "Unstacking oauth from auth" } } }
     const item = (action: ActionState) => presentAction([action], action.id, { onSelect: () => {} }, { subject: "auth", ...words })
-    for (const op of ["u1", "b1"] as const) {
-      const row = presentOperationBusy(operations[op], words)
-      expect(item({ id: "unstack", availability: { kind: "running", op } })?.description).toBe(`${row}…`)
-      expect(item({ id: "rename", availability: { kind: "waits", op } })?.description).toBe(`Waits for ${row}…`)
-      expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op } } })?.description).toBe(`${row}…`)
+    const row = (op: keyof typeof operations) => `${presentOperationBusy(operations[op], words)}…`
+    // its own intent of this process runs or waits: the item says what the "⋯" of its row says
+    for (const op of ["u1", "s1", "l1"] as const) {
+      expect(item({ id: "unstack", availability: { kind: "running", op } })?.description).toBe(row(op))
     }
-    expect(presentOperationBusy(operations.b1, words)).toBe("bd: Unstacking auth")
+    expect(item({ id: "unstack", availability: { kind: "running", op: "s1" } })?.description).toBe("Unstacking oauth after the sync…")
+    expect(item({ id: "unstack", availability: { kind: "queued", op: "q1", behind: "u1" } })?.description).toBe(row("q1"))
+    expect(row("q1")).toBe("Waits for Unstacking oauth from auth…")
+    // a start that waits behind an operation, and an item an operation keeps busy, name it as its row does
+    for (const op of ["u1", "s1"] as const) {
+      const name = presentOperationLabel(operations[op], words.named)
+      expect(item({ id: "rename", availability: { kind: "waits", op } })?.description).toBe(`Waits for ${name}…`)
+      expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op } } })?.description).toBe(`${name}…`)
+    }
+    // an operation of another process only keeps an item busy (`with_operations`): named as its row
+    expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op: "b1" } } })?.description).toBe(row("b1"))
+    expect(row("b1")).toBe("bd: Pushing branch auth…")
   })
 })
 

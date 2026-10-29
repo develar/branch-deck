@@ -1,5 +1,6 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "@playwright/test"
+import type { TestRepositoryBuilder } from "./test-repository"
 
 /**
  * Find a branch row by branch name
@@ -27,6 +28,16 @@ export async function unstackOauthFromMenuWaiting(page: Page, busy: string | Reg
   // the tooltip of the menu item the click closed may still fade out
   await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: busy })).toBeVisible()
   return more
+}
+
+/**
+ * Releases the sync the session holds (`repo.holdRemoteAnswers({ hold: ["sync"] })`) that the unstack of oauth from login
+ * (`stacked_branches`) waits behind: its toast comes with the sync that shows oauth at the root
+ */
+export async function releaseTheSyncOfTheUnstack(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  await repo.holdRemoteAnswers({ release: ["sync"] })
+  await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
+  await expect.poll(() => branchTree(page)).toContain("oauth@0")
 }
 
 /**

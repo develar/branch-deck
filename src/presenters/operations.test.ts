@@ -77,7 +77,7 @@ describe("presentOperationBusy", () => {
     const named: OperationNames = { mine: { label: "Renaming auth to login from the row" }, agent: { label: "never shown" } }
     expect(presentOperationLabel(ofThisApp, named)).toBe("Renaming auth to login from the row")
     expect(presentOperationLabel(ofThisApp, {})).toBe("Renaming auth to login")
-    // the "⋯" of the row of a rewrite of `bd` says it as `bd`'s, as the item that waits behind it does
+    // the "⋯" of the row of a rewrite of `bd` says it as `bd`'s, as an item an operation of `bd` keeps busy names it
     expect(presentOperationLabel(ofAgent, named)).toBe("bd: Renaming auth to login")
     expect(presentOperationBusy(ofAgent, { operations: { agent: ofAgent }, named })).toBe("bd: Renaming auth to login")
   })

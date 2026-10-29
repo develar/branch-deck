@@ -170,12 +170,13 @@ export function presentOperationLabel(operation: RunningOperation, named: Operat
 }
 
 /**
- * The busy state of `operation` as every surface that shows it says it: whom it waits for while another holder has the
- * repository lock ("Waiting for `bd pick` (pid 4242, for 12 s)"), what it waits behind in the queue of the session
- * ("Waits for Unstacking oauth"), that it waits for a sync ("Unstacking oauth after the sync"), else its own
- * ("Unstacking tool-events"); each operation by its name (`presentOperationLabel`)
+ * The busy state of `operation` as every surface that shows it says it, the "⋯" of its row and the item that runs as
+ * it: whom it waits for while another holder has the repository lock ("Waiting for `bd pick` (pid 4242, for 12 s)"),
+ * what it waits behind in the queue of the session ("Waits for Unstacking oauth"), that it waits for a sync
+ * ("Unstacking oauth after the sync"), else its own ("Unstacking tool-events"); each operation by its name
+ * (`presentOperationLabel`), `operation` by `label` where its surface names it ("Restarting the Safe Push")
  */
-export function presentOperationBusy(operation: RunningOperation, words: OperationWords): string {
+export function presentOperationBusy(operation: RunningOperation, words: OperationWords, label?: string): string {
   const lockWait = presentOperationLockWait(operation)
   if (lockWait !== null) {
     return lockWait
@@ -184,9 +185,9 @@ export function presentOperationBusy(operation: RunningOperation, words: Operati
     const behind = words.operations[operation.step.behind]
     return `Waits for ${behind === undefined ? "another operation" : presentOperationLabel(behind, words.named)}`
   }
-  const label = presentOperationLabel(operation, words.named)
+  const name = label ?? presentOperationLabel(operation, words.named)
   // a rewrite asked on the rows of the frame of an earlier run, a push of a tip the running sync brings
-  return operation.step.kind === "waitingForSync" ? `${label} after the sync` : label
+  return operation.step.kind === "waitingForSync" ? `${name} after the sync` : name
 }
 
 /** What finds the rows of an operation in the table of the page: the branches with the commits it names, the open pull request of a row */

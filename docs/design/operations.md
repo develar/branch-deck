@@ -129,13 +129,16 @@ sync after it (`AfterRewrite`), which reads the result. Only the push waits for 
 Rust decides the state of every action of a subject with the operations laid over it (`RepositoryView.actions`,
 `Availability`): `running` and `queued` (its intent runs or waits: disabled, a spinner in place of its icon, a start
 joins it), `waits` (enabled, its start queues behind the operation named), `disabled` with `Busy` (a remote action
-behind the operation that holds what it needs) or any other reason. `presentAction` words them: the busy state of the
-operation ("Unstacking oauth…", "Waits for Moving 1 commit to docs…", whom it waits for while another holder has the
-repository lock), the words of a surface where it has its own (a restart: "Restarting the Safe Push…"); the busy state
-of an operation of this window is the one it gave it (`BlockerWords.named`, which the caller selects with the
-operations: `useOperationWords` while an item of it runs, waits or is busy, `getOperationWords` for a builder), of
-another process its row's ("bd: Pushing auth"), else the view's; one rule names it, for the items and the "⋯" of its
-row alike (`presentOperationLabel` of `src/presenters/operations.ts`). The commit menus are the page's and stay enabled: their move, squash and reword queue in the session. A surface
+behind the operation that holds what it needs) or any other reason. `presentAction` words them: an item that runs or
+waits as its operation says the busy state the "⋯" of its row says (`presentOperationBusy`: "Unstacking oauth…",
+"Unstacking oauth after the sync…", "Waits for Moving 1 commit to docs…", whom it waits for while another holder has
+the repository lock), the operation named by the words of its surface where it has its own (a restart: "Restarting the
+Safe Push…"); an item that waits behind an operation or that one keeps busy names it ("Waits for Unstacking oauth…",
+"bd: Pushing auth…"). The name of an operation of this window is the one it gave it (`BlockerWords.named`, which the
+caller selects with the operations: `useOperationWords` while an item of it runs, waits or is busy,
+`getOperationWords` for a builder), of another process its row's ("bd: Pushing auth"; such an operation only keeps an
+item busy, none runs or waits as it), else the view's; one rule names it, for the items and the "⋯" of its row alike
+(`presentOperationLabel` of `src/presenters/operations.ts`). The commit menus are the page's and stay enabled: their move, squash and reword queue in the session. A surface
 that renders a builder reads it through a selector cached by the states of the stores it reads, the view and the
 indicators among them (`useBranchMenu`, `menuSources`): a store read inside a builder that the React Compiler memoizes
 would show a stale menu ([Rendering Performance](rendering-performance.md)). A disabled submenu (Stack On ›) is an item

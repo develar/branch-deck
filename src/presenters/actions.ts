@@ -55,10 +55,9 @@ import { openPullRequestUrl } from "@/lib/pull-request"
 import { copyRobotFullPrompt, copyRobotPrompt } from "@/lib/robot-prompt-copy"
 import { cancelRobot, forgetStart, openUnknownStart, restartRobot } from "@/lib/robot-run"
 import { formatAskFirst } from "@/lib/stack"
-import { presentOperationLockWait } from "@/presenters/lock-wait"
 import { formatPendingFact, formatProblemsFailure, formatStepBlocker } from "@/presenters/next-step"
 import type { OperationWords } from "@/presenters/operations"
-import { presentOperationLabel } from "@/presenters/operations"
+import { presentOperationBusy, presentOperationLabel } from "@/presenters/operations"
 import { formatLanded, formatReason, formatRobotsLanded, formatStackHold } from "@/presenters/reasons"
 
 /** How an action looks on every surface: its label where no fact names it ("Push Branch (2)" does), its icon, its key */
@@ -267,15 +266,14 @@ export function isActionEnabled(actions: readonly ActionState[] | undefined, id:
 }
 
 /**
- * The words of an item whose intent runs or waits in the session: whom it waits for while another holder has the
- * repository lock, the operation it waits behind, else `running` (the words of the surface: "Restarting the Safe Push")
- * or its busy state
+ * The words of an item whose intent runs or waits in the session: the busy state of its operation as the "⋯" of its
+ * row says it (`presentOperationBusy`: whom it waits for while another holder has the repository lock, the operation it
+ * waits behind, that it waits for the sync), the operation named by `running` where the surface names it ("Restarting
+ * the Safe Push")
  */
 function runningWords(availability: Extract<Availability, { kind: "running" | "queued" }>, words: OperationWords, running?: string): string {
-  if (availability.kind === "queued") {
-    return `Waits for ${operationLabel(availability.behind, words)}…`
-  }
-  return `${presentOperationLockWait(words.operations[availability.op]) ?? running ?? operationLabel(availability.op, words)}…`
+  const operation = words.operations[availability.op]
+  return `${operation === undefined ? (running ?? "Another operation") : presentOperationBusy(operation, words, running)}…`
 }
 
 /** What a surface gives an action beside its look: what it runs, and what the facts name of it */

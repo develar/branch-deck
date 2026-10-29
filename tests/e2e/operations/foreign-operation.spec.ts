@@ -14,6 +14,9 @@ function safePushOf(branch: string): Intent {
   return { kind: "land", subject: { kind: "branch", name: branch }, mode: "rebaseAutosquash", profile: { kind: "default" } }
 }
 
+/** The tips of the stores of Branch Deck of a repository that has none */
+const NO_STORE_TIPS = { issueGroups: null, stackParents: null, parked: null } as const
+
 function toastWith(page: Page, text: string): Locator {
   return page.locator("[data-slot=toast]", { hasText: text })
 }
@@ -49,6 +52,26 @@ test.describe("Operations of another process of the repository", () => {
     await expectPushedToRemote(repo, ["ABC-123"])
     expect(await pushedBranches(repo)).toEqual(["ABC-123"])
     expect((await repo.getPatronusLog()).starts).toEqual([])
+  })
+
+  test("should show the rewrite bd runs on the ⋯ of its row as bd's, and free the row once it ended", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const more = findBranchRow(page, "JIRA-456").getByRole("button", { name: "More actions for JIRA-456" })
+    await expect(more).toBeVisible()
+    await expect(more).not.toHaveAttribute("aria-busy")
+    // an agent's `bd rename` records its rewrite in the operations registry, holding HEAD
+    const rename: Intent = { kind: "rewrite", rewrite: "rename", branchName: "JIRA-456", newName: "JIRA-456-login", witness: { head: "0".repeat(40), storeTips: NO_STORE_TIPS } }
+    await repo.setForeignOperation(rename, [{ kind: "head" }])
+    // the window watches the registry: the "⋯" of its row shows it busy, named as bd's
+    await expect(more).toHaveAttribute("aria-busy", "true")
+    await more.hover()
+    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "bd: Renaming JIRA-456 to JIRA-456-login…" })).toBeVisible()
+
+    // its record left the registry: the row is free again, its menu opens
+    await repo.setForeignOperation(null)
+    await expect(more).not.toHaveAttribute("aria-busy")
+    await more.click()
+    await expect(page.getByRole("menuitem", { name: /^Rename…/ })).toBeVisible()
   })
 
   test("should start the Safe Push of a branch once the operation of bd that held it ended", async ({ page, setupRepo, syncAndWaitForBranches }) => {

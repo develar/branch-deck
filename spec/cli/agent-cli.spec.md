@@ -297,18 +297,19 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 - A rewrite that writes (`bd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `squash`, `park`, `unpark`, `unapply`,
   `reapply`, `undo`, `move-hunk`), `bd update` and `bd pick` must be recorded in the operations registry of the
   repository before the command takes any lock, as the intent of the app's family (`rewrite`, `updateProject`,
-  `pick`), so the app's windows show it on its rows as `bd`'s ("bd: Renaming auth to login" on the "⋯" of its row and
-  in every item that waits for it or is busy behind it); its record must leave once the command ended, before
-  its `--sync`, or at the next admission once its process is gone. HEAD, which it holds, must make no other process
-  `busy`, nor the same rewrite of another process: the repository lock orders them, and a rewrite of the app meanwhile
-  is waited for. Two Unstacks of a branch in the app and `bd unstack` of it beside them must be one rewrite of the app
+  `pick`), so the app's windows show it on its rows as `bd`'s ("bd: Renaming auth to login" on the "⋯" of its row, the
+  name an item that an operation of `bd` keeps busy gives it too: "bd: Pushing branch auth…"; no item waits for it);
+  its record must leave once the command ended, before its `--sync`, or at the next admission once its process is
+  gone. HEAD, which it holds, must make no other process `busy`, nor the same rewrite of another process: the
+  repository lock orders them, and a rewrite of the app meanwhile is waited for. Two Unstacks of a branch in the app and `bd unstack` of it beside them must be one rewrite of the app
   and nothing more of `bd` (`invalid_plan` once it got the lock). A dry run, `bd update --status` and `bd check --fix`
   must record nothing.
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_triple_unstack_of_the_app_and_bd_is_one_rewrite_journaled_once_by_each`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_bd_killed_in_its_rewrite_leaves_a_record_the_app_drops_once_its_process_is_gone`)
   [@test] ../../crates/domain-policy/src/admission_test.rs (`a_rewrite_waits_for_the_rewrites_of_its_process_and_for_none_of_another`)
   [@test] ../../src/presenters/operations.test.ts (`names an operation by the one rule of its items: of another process as its row, of this window as it named it, else as the view`)
-  [@test] ../../src/presenters/actions.test.ts (`names the operation an item runs as, waits for or is busy behind as the busy state of its row does`)
+  [@test] ../../src/presenters/actions.test.ts (`says on an item that runs as an operation its busy state as its row does, and names the one an item waits for or is busy behind`)
+  [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should show the rewrite bd runs on the ⋯ of its row as bd's, and free the row once it ended`)
 - The run of such an operation must be journaled once it ended, in the journal of the operations of the repository
   (`$GIT_COMMON_DIR/branch-deck/journal.jsonl`, the app's operations in the same file) under the `operation_id` of the
   JSON: `tool: bd`, its pid, worktree and prefix, whether the worktree is a slot of the lease pool, the intent and its

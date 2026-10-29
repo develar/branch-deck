@@ -216,7 +216,8 @@ alert with the reason and the next step, never a raw Git error.
   that is no more) waits for it ("Waits for the first sync"), and the backend refuses such an intent there
   (`plan_changed`) whoever asks it, after a first sync that failed (or that git deferred) with the error of that sync,
   a push that waited for it too (as a rewrite does); a rewrite pressed then (Unstack) says
-  it waits ("Unstacking oauth after the sync") and runs on the table the sync committed, and a focus during that sync
+  it waits ("Unstacking oauth after the sync" on the "⋯" of its row and on its item wherever it shows, the command
+  palette too) and runs on the table the sync committed, and a focus during that sync
   is one check after it. A first sync that committed before the subscription answered ends in the window as any run
   does: the count of Sync, "Last synced just now", the fixups of its table. It ends once: a reload of the window, whose
   init script hands the page the same seed, catches up from it again, and the page of the window remembers that it saw
@@ -246,6 +247,7 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/app-settings/src/projects_test.rs (`the_selected_project_is_the_first_recent_one`)
   [@test] ../../src/model/store.test.ts (`shows the rows of the seed before anything answers, and catches up by the patch from it, the patches before the answer after it`, `keeps the seed when the session sent nothing since, and leaves a model of another project`, `ends the first sync once: a reload that installs the seed again after its end catches up from it and ends no run`, `ends the first sync in a reload of a window whose page went away as the table of that sync came`)
   [@test] ../../src/presenters/operations.test.ts (`says that an operation waits for the sync, behind another one, or what it does`)
+  [@test] ../../src/presenters/actions.test.ts (`says on an item that runs as an operation its busy state as its row does, and names the one an item waits for or is busy behind`)
 - While a sync runs and the page has no rows to show (the first sync of a session of a repository synced before: when
   the window opens it at start, or another session of it, under a prefix changed in a terminal or in Settings; a sync
   after one that failed or waited for git), the body is the loading table where the rows will

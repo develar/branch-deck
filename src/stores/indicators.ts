@@ -89,8 +89,8 @@ export function getOperationWords(): OperationWords {
 
 /**
  * The busy state of `operation` as its surfaces say it now (`presentOperationBusy` of `getOperationWords`): whom it
- * waits for while another holder has the repository lock, the operation it waits behind in the queue, else its own, each
- * by the name the items give it (`presentOperationLabel`)
+ * waits for while another holder has the repository lock, the operation it waits behind in the queue, that it waits for
+ * the sync, else its own, each by the name the items give it (`presentOperationLabel`)
  */
 export function operationBusyOf(operation: RunningOperation): string {
   return presentOperationBusy(operation, getOperationWords())
