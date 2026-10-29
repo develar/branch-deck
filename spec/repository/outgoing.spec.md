@@ -252,7 +252,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   is a step of another action (a Safe Push start, a merge request, a restart, [Patronus](../branch/patronus.spec.md))
   has none, and a push of several branches of a stack is one toast
   ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)). It is the toast of the pushes of the branch
-  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)): a later push of the branch, or of a
+  ([One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event)): a later push of the branch, or of a
   stack with it, takes its place, and its pull request action is the one the branch has now, "Create Pull Request…"
   becoming "Open Pull Request" once it has one.
   [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
@@ -354,7 +354,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   The restart goes to the push's repository, its robot and its Activity entry there, also after a switch. The "auth
   changed on the remote" toast of a push offers its push only while its repository is shown: after a switch it says
   what the remote has without the push (it offers it again on the way back), and it closes once the branch is gone;
-  a push of the branch takes its place ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)).
+  a push of the branch takes its place ([One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event)).
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
   a stage; the compact button of the row "45%" after the spinner, the label its accessible name), and its description on hover the last progress line of git, then what was sent so far and how fast,
   "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)), unless git's

@@ -47,7 +47,7 @@ function landedSinceMerge(repositoryPath: string, robot: PatronusRobot, branches
 }
 
 /**
- * The toast of a merge (docs/guidelines/ux-writing.md#one-toast-per-event), one toast from the merge to the landing:
+ * The toast of a merge (docs/contributing/ux-writing.md#one-toast-per-event), one toast from the merge to the landing:
  * - "auth merged into master" / "Safe Push" with Update Project, which fetches the baseline and updates onto it, then
  *   "Open in Patronus"; in a repository the main window doesn't show Fetch instead (Update Project updates the shown
  *   one), and only "Open in Patronus" once its baseline was fetched since the merge;

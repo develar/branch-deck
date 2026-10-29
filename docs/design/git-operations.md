@@ -82,7 +82,7 @@ runs the guards on the history it read and moves the branch with CAS. The `//!` 
 edges on `cargo metadata` (sync-core, update-core and trial-check reach no HTTP crate, sync-core and lease-pool no
 `file-diffs` or `code-symbols`, lease-pool and remote-facts no trial check and no update, repository-model none of
 the crates beside it; the two dashed edges stand in its `ALLOWED`, each with the stage that removes it); "Adding a git operation" in `AGENTS.md` is the checklist
-of a new one, and [Adding a Git Operation](../guidelines/adding-git-operation.md) says where it goes and which helpers
+of a new one, and [Adding a Git Operation](../contributing/adding-git-operation.md) says where it goes and which helpers
 it reuses.
 
 A rewrite of the checked out branch:

@@ -2071,7 +2071,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   toast, пока он открыт, и только запись Activity, когда его нет; старт subject'а занимает место toast'а его
   approvals. Новость не несёт действий: их считает `actions` над текущими фактами на каждом рендере, так что
   кнопка toast'а — действие текущего состояния объекта, не того, в котором он показан
-  ([One toast per event](../guidelines/ux-writing.md#one-toast-per-event)). Какой toast открыт, знает окно, не
+  ([One toast per event](../contributing/ux-writing.md#one-toast-per-event)). Какой toast открыт, знает окно, не
   сессия: правило ключа — в `news`, замена на месте — в презентере.
 - **Удаляется:** `branch-next-step.ts`, `landing-node.ts`, `safe-push-decision.ts`, правила `whole-stack.ts`,
   `parked.ts`, `push-summary.ts`; в `patronus.ts`: `canStartRobot`, `isStartBlocked`, `allowsPushMode`,
@@ -2289,7 +2289,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   другого репозитория, чем показывает главное окно, теряет действия над его веткой (ветка того же имени там — другая
   ветка): слияние предлагает Fetch вместо Update Project, approvals — без старта, робот — без шага ветки, remote,
   который сдвинулся, — без push. Activity хранит запись каждого состояния
-  ([One toast per event](../guidelines/ux-writing.md#one-toast-per-event)). Rust-версия держит зелёными:
+  ([One toast per event](../contributing/ux-writing.md#one-toast-per-event)). Rust-версия держит зелёными:
   `tests/e2e/update-project/landing-toast.spec.ts` (`should turn the toast of a merge into what the update landed, in
   place, when its Update Project is pressed`, `should turn the toast of a merge into what the update landed, in
   place, when the update starts from the header`, `should say in the toast of a merge what a sync found landed after
@@ -2625,7 +2625,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
 | 5. E2E через реальный Rust | каждая поверхность действия нажата и эффект утверждён в журнале fake или на экране; никаких routed-ответов политики; `data-view-version`, `waitForOperation`; `advanceBackendClock`; счётчик IPC на шаг (hover ничего не спрашивает) | `tests/e2e/**` | s0b и далее |
 | 6. Ограды | рёбра crates по `cargo metadata`; `lint:arch`; scan-тесты git на всём workspace; lint `routeCommand` мутирующей команды | `architecture_test.rs`, `scripts/lint-arch.mjs`, `tests/e2e` | s0a, s4, s8, s14 |
 | 7. Производительность | `perf:table` со счётчиками, бенч derive, бюджеты процессов, HTTP-бюджеты из счётчиков fakes, `perf:bd-rebuild`, `perf:monorepo` | `tests/perf`, `scripts/perf` | приёмка этапов |
-| 8. Платформы | `#[cfg]`-код по [Platform Checks](../guidelines/platform-checks.md): flock реестра, `notify`, пути `$GIT_COMMON_DIR` на Windows | Docker Linux, Parallels Windows | s5, s10 |
+| 8. Платформы | `#[cfg]`-код по [Platform Checks](../contributing/platform-checks.md): flock реестра, `notify`, пути `$GIT_COMMON_DIR` на Windows | Docker Linux, Parallels Windows | s5, s10 |
 | 9. Пути конкурентности | повтор, два подряд, во время sync, два окна, `bd` рядом на каждую строку [По областям](#по-областям); lock span каждого ядра; бюджеты C1–C14 | `*_test.rs` с барьерами в fakes, фикстуры `bd-cli`, `tests/e2e/**` с удержанием маршрутов | live, s4–s14 |
 
 ### Таблица сценариев
@@ -2857,4 +2857,4 @@ B3 (перерисованные строки) не измеряется: в pro
 - Связанные документы: [Landing Work into Master](landing.md), [Running Operations](operations.md),
   [Git Operations](git-operations.md), [Rendering Performance](rendering-performance.md),
   [Distributed Settings](distributed-settings.md), [E2E Testing](e2e-testing.md),
-  [Design Docs Guidelines](../guidelines/design-docs.md).
+  [Design Docs Guidelines](../contributing/design-docs.md).

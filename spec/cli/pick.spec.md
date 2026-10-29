@@ -280,4 +280,4 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
 ## References
 
 - [Git Operations](../../docs/design/git-operations.md): "Pick" and "Update project".
-- [Agent CLI guide](../../docs/guidelines/agent-cli.md): `bd pick`.
+- [Agent CLI guide](../../docs/contributing/agent-cli.md): `bd pick`.

@@ -11,7 +11,7 @@ clean = [
 ]
 
 # A run of this repository on another machine of the user: `bd-host run studio -- <command>`
-# (docs/guidelines/studio-runs.md, spec/cli/host.spec.md "The environment of a run and `[host]`"). A bd built before
+# (docs/contributing/studio-runs.md, spec/cli/host.spec.md "The environment of a run and `[host]`"). A bd built before
 # this table was allowed refuses the whole file and then applies no clean rule.
 [host]
 # What a run makes and brings back into the same paths here

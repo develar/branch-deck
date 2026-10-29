@@ -1,7 +1,7 @@
 //! `bd suggest`: a grouping of the commits ahead of the baseline into branches, as a plan for `bd group`, already
 //! checked. It reads the commits once (`CheckSession`), clusters them (`clustering.rs`), with stacked branches stacks
 //! each cluster on the clusters it needs, and checks the plan with a trial sync; a conflict stacks on or joins the
-//! commits it needs and clusters again. It writes git objects and the cache only (docs/guidelines/agent-cli.md)
+//! commits it needs and clusters again. It writes git objects and the cache only (docs/contributing/agent-cli.md)
 
 use crate::check_command::{CheckedBranch, checked_branches};
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};

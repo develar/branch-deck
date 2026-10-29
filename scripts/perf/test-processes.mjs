@@ -1,5 +1,5 @@
 // Counts the git processes of every Rust test, so the time of the suite is judged by what it costs and not by the load of
-// the machine it ran on (docs/guidelines/rust-tests.md): a test's time follows its git processes.
+// the machine it ran on (docs/contributing/rust-tests.md): a test's time follows its git processes.
 //
 //   pnpm perf:test-processes measure --out <dir> [-- <nextest arguments>]   e.g. -- -p sync-core, -- -E 'test(/push/)'
 //   pnpm perf:test-processes summarize <out> [--top 40]

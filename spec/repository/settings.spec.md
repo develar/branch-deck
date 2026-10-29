@@ -467,7 +467,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   answer), how Branch Deck and bd read the robots of Patronus: the switch "New Patronus API"
   (`appSettings.patronusNewApi`, off by default): the progress of a running robot in one request and its merge profile
   in the robot list, the old requests while Patronus has them off ([Patronus](../branch/patronus.spec.md)). `bd` reads
-  the setting from the settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
+  the setting from the settings file ([Agent CLI](../../docs/contributing/agent-cli.md)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
 - A last section, "Push" ("A push of the app or bd that adds more files is refused before it is sent ·

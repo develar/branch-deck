@@ -756,4 +756,4 @@ and one `write-tree`. Both give the same commit for the same tree.
 ## References
 
 - [Git Operations](../../docs/design/git-operations.md): "Lease" and "Pick".
-- [Agent CLI guide](../../docs/guidelines/agent-cli.md): `bd lease`.
+- [Agent CLI guide](../../docs/contributing/agent-cli.md): `bd lease`.

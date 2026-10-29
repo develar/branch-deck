@@ -175,6 +175,6 @@ rewrite.
 
 ## References
 
-- [Agent CLI](../../docs/guidelines/agent-cli.md) (`bd check`)
+- [Agent CLI](../../docs/contributing/agent-cli.md) (`bd check`)
 - [Commit Row](../commit/commit-row.spec.md) (the conflict view)
 - [Stack Parents](stack-parents.spec.md)

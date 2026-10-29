@@ -116,5 +116,5 @@ in the session wins over both.
 
 ## References
 
-- [Agent CLI guide](../../docs/guidelines/agent-cli.md): `bd workspace`.
+- [Agent CLI guide](../../docs/contributing/agent-cli.md): `bd workspace`.
 - [Git Operations](../../docs/design/git-operations.md): "Repository settings", "Lease".

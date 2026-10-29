@@ -419,4 +419,4 @@ alert with the reason and the next step, never a raw Git error.
 - The welcome card and the Ready to Sync card are stock `Card` islands; the alerts are `Alert`s
   ([UI Theme](../../docs/design/ui-theme.md)). A command is a `CommandLine`: monospace on `bg-muted`, scrolled, with a
   copy button.
-- Wording follows [UX Writing](../../docs/guidelines/ux-writing.md): "Cannot find Git", "Check Again", "Ready to Sync".
+- Wording follows [UX Writing](../../docs/contributing/ux-writing.md): "Cannot find Git", "Check Again", "Ready to Sync".

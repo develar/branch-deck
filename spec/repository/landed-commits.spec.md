@@ -200,7 +200,7 @@ by the next sync the same way.
   [@test] ../../src/lib/landed.test.ts (`leads with what landed, then how the branch was updated`)
   [@test] ../../src/lib/landed.test.ts (`keeps the fast-forward wording`)
 - The toast of the update, and the "already up to date" toast, take the place of the open toasts of the merges of its
-  repository, whose Update Project it did ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)):
+  repository, whose Update Project it did ([One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event)):
   in place of the newest, the others closed, one toast of the update whatever started it (the toast's Update Project,
   the header, a key). "auth merged into master" / Update Project becomes "auth landed in origin/master, squashed" /
   "Updated master: rebased 104 commits", with no action: the update is done, the island has the rest.

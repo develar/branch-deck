@@ -462,7 +462,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   Up to date says "master is already up to date with origin/master". Either takes the place of the open toasts of the
   merges of the repository, whose Update Project it did, and every surface of a running update shows it there: the
   Update Project of such a toast says "Updating…" while it runs
-  ([Patronus](../branch/patronus.spec.md#merged), [One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)).
+  ([Patronus](../branch/patronus.spec.md#merged), [One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event)).
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show a clean update, apply it and then be up to date`)
   [@test] ../../src/stores/update-project.test.ts (`takes the place of the toasts of the merges of its repository it brought in: what landed, or up to date`)
   [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should turn the toast of a merge into what the update landed, in place, when the update starts from the header`)

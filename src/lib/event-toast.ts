@@ -3,7 +3,7 @@ import { toast } from "@/components/ui/toast"
 import { ACTION_TOAST_TIMEOUT_MS, TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 
 /*
- * One toast per event of an object (docs/guidelines/ux-writing.md#one-toast-per-event): a toast is keyed by what it
+ * One toast per event of an object (docs/contributing/ux-writing.md#one-toast-per-event): a toast is keyed by what it
  * tells, the later states of the event replace it in place, and its actions are always those of the current state.
  * The robot that merged auth, then the update that landed it, is one toast that says "auth merged into master" with
  * Update Project, then "Updating…", then "auth landed in origin/master": never two toasts of one landing, never an

@@ -1,4 +1,4 @@
-//! `bd`, the agent command line of Branch Deck (docs/guidelines/agent-cli.md): `branch-deck cli <command>`.
+//! `bd`, the agent command line of Branch Deck (docs/contributing/agent-cli.md): `branch-deck cli <command>`.
 //! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;

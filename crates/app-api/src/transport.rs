@@ -251,7 +251,7 @@ pub trait Updater: Send + Sync {
   fn downloaded(&self) -> Option<String>;
 }
 
-/// The agent CLI of the app, `bd` (docs/guidelines/agent-cli.md): the app's is its own binary; the e2e server's a fixed
+/// The agent CLI of the app, `bd` (docs/contributing/agent-cli.md): the app's is its own binary; the e2e server's a fixed
 /// path that installs nothing
 pub trait AgentCliHost: Send + Sync {
   /// `bd install`: the `bd` command and the skills; the agent rules where it wrote them. Blocking: call within

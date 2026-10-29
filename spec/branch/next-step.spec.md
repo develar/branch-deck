@@ -528,7 +528,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   request it lands through; the header of a stack island has the node of the whole stack.
   [@test] ../../crates/domain-policy/src/landing_node_test.rs (`is_ready_to_land_once_patronus_judged_the_approvals_else_the_start_is_the_users_step`, `waits_for_others_the_reviewers_a_base_that_may_be_meant_and_is_the_users_step_otherwise`)
   [@test] ../../src/presenters/landing-node.test.ts (`words where a start lands it: ready with the branches it lands, the user's step while Patronus checks the approvals at the start`)
-- A quiet step is the state as its label (the [UX Writing](../../docs/guidelines/ux-writing.md#actions) exception): a
+- A quiet step is the state as its label (the [UX Writing](../../docs/contributing/ux-writing.md#actions) exception): a
   ghost `xs` button in `text-muted-foreground` (`destructive` for Changes Requested), the `ClockIcon` before "Awaiting
   …"; the label truncates to the slot; the hover gives the whole text, a line per missing group ("Awaiting Ilya
   Korennoy · IJPL Code Platform", "1 more approval · IJPL Code Platform" for a group that has an approval and needs
@@ -625,7 +625,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   `compactLabel` ("Retarget #7", "Awaiting Review", "Create Pull Request…" of the whole stack), every label of a step
   within the 10rem; a start that runs keeps the width the step had at rest ("Checking…", "Waiting…" for another holder
   of the repository lock, the spinner and "45%" of its push, "Starting…"; "Pushing 45%" and the branches it pushes in
-  its name and hover), so nothing moves under the pointer ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
+  its name and hover), so nothing moves under the pointer ([UX Writing](../../docs/contributing/ux-writing.md#actions)).
   The step of a start is the step of its operation in the view (`RepositoryView.operations`, `useLandRun`): every
   window of the repository shows it; the percent and whom a wait is for come on the channel of the window that asked.
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`fits every label of a step in its column, so none truncates`)
@@ -634,7 +634,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../src/presenters/next-step.test.ts (`row 5: retargets a pull request into a virtual branch, short in its column; 5′ opens one into another base, the retarget in the menu`, `rows 8 to 10: changes requested, Request Review…, the wait naming the people asked`)
 - Disabled, a step keeps the focus and the hover
   (`focusableWhenDisabled`), dimmed to `opacity-50`. A quiet step is muted, Changes Requested `text-destructive`.
-- Wording follows [UX Writing](../../docs/guidelines/ux-writing.md): Title Case for the steps, sentence case for the
+- Wording follows [UX Writing](../../docs/contributing/ux-writing.md): Title Case for the steps, sentence case for the
   reasons, people by their full name (the login without one).
 
 ## Testing / Local Run

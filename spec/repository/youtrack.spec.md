@@ -291,7 +291,7 @@ client takes a pasted token.
   "Marked ABC-1 Fixed", "Was Open", with Undo, the same intent back to the previous state, which sets it only while the
   issue is still Fixed ("ABC-1 is now Verified" otherwise), then "ABC-1 is Open again" in place of the toast it was
   pressed on (one toast of the issue, the event of the outcome `NewsKey::Issue`,
-  [One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)); YouTrack clears `resolved` itself. A failure is "Cannot mark ABC-1 fixed" or
+  [One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event)); YouTrack clears `resolved` itself. A failure is "Cannot mark ABC-1 fixed" or
   "Cannot undo the Fixed state of ABC-1" with YouTrack's reason (`notifyError`, so in Activity too).
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
   [@test] ../../crates/operations/src/issue_test.rs (`a_change_of_the_state_of_an_issue_is_its_one_effect_and_its_undo_the_same_intent`)

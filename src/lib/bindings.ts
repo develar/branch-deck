@@ -504,7 +504,7 @@ export type AgentCliCommand = {
 	powershell: boolean,
 };
 
-/**  What the "Install Agent CLI…" menu item installed: `bd install` (docs/guidelines/agent-cli.md) */
+/**  What the "Install Agent CLI…" menu item installed: `bd install` (docs/contributing/agent-cli.md) */
 export type AgentCliInstall = {
 	/**  The command the skills name: the `bd` symlink (macOS, Linux) or `bd.exe` next to the app (Windows) */
 	bd: string,

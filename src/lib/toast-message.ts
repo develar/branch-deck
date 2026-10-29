@@ -6,7 +6,7 @@ export interface ToastActionProps {
   onClick: () => void
 }
 
-/** A toast of what happened, in the words of docs/guidelines/ux-writing.md; an error goes through `notifyError` */
+/** A toast of what happened, in the words of docs/contributing/ux-writing.md; an error goes through `notifyError` */
 export interface ToastMessage {
   /** `info` for a precondition, nothing to do ("No commits to unapply"); `warning` for a part that failed */
   type?: "success" | "info" | "warning"

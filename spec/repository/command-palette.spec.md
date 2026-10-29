@@ -38,7 +38,7 @@ names and reasons.
 
 - Every place of the main window and every command of the header and of the app's menu in a few keys, without the
   mouse, and in sight when the palette opens.
-- The same names, keys and reasons as the menus: one builder per command ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
+- The same names, keys and reasons as the menus: one builder per command ([UX Writing](../../docs/contributing/ux-writing.md#actions)).
 - The focus back where it was when nothing runs, where the command puts it when one does.
 
 ## Non-goals

@@ -195,7 +195,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
   "dave requested your review" / "#104 Document the CLI", or "3 reviews requested" / "#1 … · #2 … · #3 …" (four of
   four named, from five on the first three and "2 more", `cutList`), with the action "Review", which opens the first
   one that still waits, for 10 s. The toast of one request is the toast of its pull request
-  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)): the review the user submits takes
+  ([One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event)): the review the user submits takes
   its place ("Approved #104"); a toast of several closes once none of them waits, and so does either while the main
   window shows another repository, where Review would open nothing.
   [@test] ../../src/lib/review-requests.test.ts (`tells one request by who asked, several in one notice`)
@@ -288,7 +288,7 @@ Safe Push it allows.
   [@test] ../../src/lib/review-requests.test.ts (`is old after a day of working time, the weekend skipped`, `says how long a request waits, or when the user was asked again`, `names who asked for the review when it is not the author`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`)
 - Three rows, then "Show N More" ("Show Less" back), "Show 1 More" too: the named exception to the cut rule of
-  [UX Writing](../../docs/guidelines/ux-writing.md), a fourth row would come and go with the polls. An unread request
+  [UX Writing](../../docs/contributing/ux-writing.md), a fourth row would come and go with the polls. An unread request
   is always shown, in the place of a read one while the rows are full: a poll never grows the list or inserts a row
   above the others. Rows fade in by opacity;
   only the first entrance of the card slides.

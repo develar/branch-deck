@@ -152,7 +152,7 @@ function renderToastText(text: React.ReactNode, part: "title" | "description", r
 }
 
 /**
- * An action that asks for more before it acts ends with "…" (docs/guidelines/ux-writing.md) and opens a dialog or a
+ * An action that asks for more before it acts ends with "…" (docs/contributing/ux-writing.md) and opens a dialog or a
  * popover: its toast closes when it is pressed, as the toasts lie above the dialogs (`z-[60]`) and would cover the
  * footer of the dialog it opened until they time out
  */

@@ -437,4 +437,4 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 - [Git Operations](../../docs/design/git-operations.md): "Resolve session" and "Update project".
 - [Update Project](../repository/update-project.spec.md): the app's update and the copied prompts.
-- [Agent CLI guide](../../docs/guidelines/agent-cli.md).
+- [Agent CLI guide](../../docs/contributing/agent-cli.md).

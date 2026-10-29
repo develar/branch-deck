@@ -1,5 +1,5 @@
 //! The agent CLI of the app (`AgentCliHost` of app-api): `bd` is this app's own binary, installed by `bd install`
-//! (`bd_cli::install`, docs/guidelines/agent-cli.md) and named by the prompts the app copies (`bd_core::bd_command`)
+//! (`bd_cli::install`, docs/contributing/agent-cli.md) and named by the prompts the app copies (`bd_core::bd_command`)
 
 use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, AgentRules};
 use app_api::transport::AgentCliHost;

@@ -132,7 +132,7 @@ unassigned commits, and every commit with its files and what ties it to the othe
 into branches from that, applies the grouping with one validated rewrite of the commit messages, syncs the virtual
 branches and writes their pull request text. It is the `cli` subcommand of the app binary
 (`branch-deck cli status`), or the binary symlinked as `bd`; on Windows a console `bd.exe` next to the app. Every output is one JSON object with a stable schema.
-How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli.md).
+How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-cli.md).
 
 ## Goals
 

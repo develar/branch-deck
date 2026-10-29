@@ -8,7 +8,7 @@ stack lands in one robot too; every pull request goes into master, holding what 
 feature by what it lands into master and in how many robots ([Landing Work into Master](docs/design/landing.md)).
 
 A desktop app (React 19 + Vite SPA in a Tauri v2 shell), a Rust workspace under `crates/`, and `bd`, the agent CLI
-([Agent CLI](docs/guidelines/agent-cli.md)). Use `pnpm` only: the version is `packageManager` in `package.json`,
+([Agent CLI](docs/contributing/agent-cli.md)). Use `pnpm` only: the version is `packageManager` in `package.json`,
 Node.js is `.node-version`; CI reads both through `voidzero-dev/setup-vp`.
 
 **A sync** ([Virtual Branches](docs/design/virtual-branches.md)): `CommitGrouper` groups the commits ahead of the
@@ -117,7 +117,7 @@ FLAKY and still fails the run, because a flaky test is a race to fix (locally no
 config (`[experimental] record = true` and `[record] enabled = true` in `~/.config/nextest/config.toml`),
 `cargo nextest run -R latest` runs only what failed; finish with a full run.
 
-**A test's time is its git processes** ([Fast Rust Tests](docs/guidelines/rust-tests.md)): a fixture repository is
+**A test's time is its git processes** ([Fast Rust Tests](docs/contributing/rust-tests.md)): a fixture repository is
 `TestRepo::new()` (one `git init`, its config appended by `append_config`), a commit `create_commit*` or `commit_with`
 (`add` and `commit`, the id from the summary, no `rev-parse HEAD`), a history of many commits `with_history` or
 `commit_history` (one `fast-import`); never a `git config` process per key, a sleep, or a wall-clock limit an
@@ -126,7 +126,7 @@ processes of every test, which the load of the machine does not change.
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
 `pnpm lint:backend` run as `bd-host run studio -- <command>` from the lease, on its working tree, committed or not
-([Studio Runs](docs/guidelines/studio-runs.md), `[host]` of `.branchdeck.toml`). This Mac runs several agents at once,
+([Studio Runs](docs/contributing/studio-runs.md), `[host]` of `.branchdeck.toml`). This Mac runs several agents at once,
 and under that load the suites take far longer and E2E fails on timeouts. What a command edits (`cargo fmt`,
 `pnpm e2e-up`, `UPDATE_BINDINGS=1`) comes back with `--apply`. Exit code 75: the Studio did not run it, run it here.
 
@@ -147,8 +147,8 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 | a rule of `domain-policy` (a file of the [rule index](#rule-index)) or what the view derives of it | `cargo nextest run -p domain-policy` (the table test of each rule beside it, `<rule>_test.rs`) and `cargo nextest run -p repository-model -E 'test(/derive|action_view|state/)'` (the parts of the view, `derive_budget_test.rs` its time); then the scenario table (the row above), and the page's presenter of what changed (`src/presenters/*.test.ts`) |
 | a `Reason` code (`domain_types::reason`), an action or a blocker of an action (`domain_types::actions`) | `UPDATE_REASON_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/reason/)'` writes `crates/domain-policy/reasons.json`, `UPDATE_ACTION_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/action_catalog/)'` `crates/domain-policy/actions.json`; `src/presenters/reasons.test.ts` and `actions.test.ts` word them code by code, so a code without words fails `pnpm test:unit` |
 | a spec, a doc or a test title | `pnpm lint:specs`: every `[@test]` link a line of its own, naming tests that exist |
-| `#[cfg]` or `cfg!` code | Linux and Windows too: [Platform Checks](docs/guidelines/platform-checks.md) (a check on the Mac compiles only its side) |
-| what the release app shows (a window that opens late, a "Loading…" frame) | [Real App Checks](docs/guidelines/real-app-checks.md) (`pnpm install-app`, Peekaboo) |
+| `#[cfg]` or `cfg!` code | Linux and Windows too: [Platform Checks](docs/contributing/platform-checks.md) (a check on the Mac compiles only its side) |
+| what the release app shows (a window that opens late, a "Loading…" frame) | [Real App Checks](docs/contributing/real-app-checks.md) (`pnpm install-app`, Peekaboo) |
 
 ### Quick Commands
 See `package.json` for the full list of scripts.
@@ -189,8 +189,8 @@ pnpm lint:arch            # the page acts on the code of an error, never on its 
 pnpm lint:e2e-pins        # the commands E2E tests answer in the page, pinned (crates/test-server/src/command_registry_test.rs)
 bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
-pnpm perf:test-processes measure|summarize|compare  # the git processes of every Rust test (docs/guidelines/rust-tests.md)
-cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
+pnpm perf:test-processes measure|summarize|compare  # the git processes of every Rust test (docs/contributing/rust-tests.md)
+cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/contributing/agent-cli.md)
 ```
 
 ### Debugging
@@ -262,9 +262,10 @@ Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part o
 - **Git**: a new git operation or a changed flow gets its section in [Git Operations](docs/design/git-operations.md);
   a new or changed hard rule also goes into "Git Operations" below.
 - **AGENTS.md** holds the rules an agent must not miss and pointers; the detail of a feature goes into its spec, of a
-  git flow into the design doc, of a one-off procedure into `docs/guidelines/`.
+  git flow into the design doc, of a one-off procedure into `docs/contributing/`, of a guide for a person who uses
+  Branch Deck into `docs/guide/`.
 - **Truth**: docs describe the code as it is. A doc that contradicts the code is a bug: fix the doc (or the code) in
-  the same change; never leave it for later. See [Design Docs Guidelines](docs/guidelines/design-docs.md).
+  the same change; never leave it for later. See [Design Docs Guidelines](docs/contributing/design-docs.md).
 
 ### E2E Tests
 How to write a Playwright test; the infrastructure (mock IPC, templates, sub-windows, snapshots) is in
@@ -536,7 +537,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   ([Symbol summaries](docs/design/git-operations.md#symbol-summaries)).
 
 ### Adding a git operation
-Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
+Read [Adding a Git Operation](docs/contributing/adding-git-operation.md) (the layers in detail, the helper table) before
 you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/update-core/`,
 `crates/trial-check/`, `crates/lease-pool/`, `crates/remote-facts/`, `crates/repository-model/`, `crates/operations/`,
 `crates/bd-*/` or `crates/app-api/`.
@@ -601,16 +602,16 @@ The checklist:
 - **Components**: `Tooltip` for simple text tooltips, `Popover` for rich content, `Kbd` for keyboard shortcuts,
   `showToast({ title, description, action })` from `@/lib/toast-message` for notifications; a toast of an event of
   an object (a robot, a push, a merge, a review) is `showEventToast` of `src/lib/event-toast.ts`, one per event, its
-  later states and their actions in place ([One toast per event](docs/guidelines/ux-writing.md#one-toast-per-event)),
+  later states and their actions in place ([One toast per event](docs/contributing/ux-writing.md#one-toast-per-event)),
   never a second toast of the same event. Every user-facing error
   goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity),
   which words it by its code (`describeError`: a held lock names its holder); a store decides by `error.code`
   (`canceled` toasts nothing), never by `error.message`.
-- **Wording** ([UX Writing](docs/guidelines/ux-writing.md)): a toast title says what happened ("Pushed feature-ui"),
+- **Wording** ([UX Writing](docs/contributing/ux-writing.md)): a toast title says what happened ("Pushed feature-ui"),
   never "Success"/"Error"; errors are "Cannot <verb> <object>" with the reason; a toast about an object opens it
   ("Open in Patronus"); Title Case for buttons, menu items and toast actions, sentence case for the rest; "…", "·",
   "canceled", no exclamation marks.
-- **Actions** ([UX Writing → Actions](docs/guidelines/ux-writing.md#actions)): one builder of `MenuItem`s (stable `id`) per
+- **Actions** ([UX Writing → Actions](docs/contributing/ux-writing.md#actions)): one builder of `MenuItem`s (stable `id`) per
   object, rendered by every surface; the same actions in every form; a key hint only where the key works; disabled
   with a reason, not hidden; one name per action ("Open Pull Request", "Restart Safe Push").
 - **React Compiler**: its Rust port `oxc-transform-react` (`react({ compiler })` in `vite.config.ts`, no Babel)
@@ -674,7 +675,7 @@ The checklist:
 - **A process** starts through `sync_utils::child_process::windowless_command`, git through `GitCommandExecutor`,
   never `Command::new`: the release app on Windows is a GUI program, and every console program it started got a
   console window of its own, a Windows Terminal window in front of the app for each git (`console_window_scan_test.rs`).
-- **Rust imports** ([Import Guidelines](docs/guidelines/imports.md)): never `pub use` re-exports (except for internal
+- **Rust imports** ([Import Guidelines](docs/contributing/imports.md)): never `pub use` re-exports (except for internal
   module organization); make modules public with `pub mod`; every import uses the full module path, so it shows where
   a type or function comes from:
   - ✅ `use git_executor::git_command_executor::GitCommandExecutor`
@@ -737,7 +738,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Zoom | `repository/zoom` | `src-tauri/src/zoom.rs` |
 
 The rows and the menus of the main window: `branch/branch-row`, `commit/commit-row` (start there). The `bd` commands:
-`cli/agent-cli` and [Agent CLI](docs/guidelines/agent-cli.md). The `branch-deck` agent skill is generated by
+`cli/agent-cli` and [Agent CLI](docs/contributing/agent-cli.md). The `branch-deck` agent skill is generated by
 `skill_text()` (`crates/bd-cli/src/agent_help.rs`) and installed by `bd install`; the repository has no skill file.
 
 ### Rule Index
@@ -797,16 +798,16 @@ Authority](docs/design/rust-domain-authority.md#индекс-правил).
 - [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and copied into virtual branches
 - [Specs](spec/) - Requirement specs in the air format (spec/<area>/<name>.spec.md, [@test] links); start with spec/commit/commit-row.spec.md
 
-### Guidelines
-- [Adding a Git Operation](docs/guidelines/adding-git-operation.md) - The layers of an operation and the helpers to reuse
-- [Agent CLI](docs/guidelines/agent-cli.md) - The `bd` commands, their JSON, error codes and exit codes
-- [Platform Checks](docs/guidelines/platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands
-- [Fast Rust Tests](docs/guidelines/rust-tests.md) - A test costs its git processes: the fixtures of one process per step, no sleeps or wall-clock limits, `pnpm perf:test-processes`
-- [Studio Runs](docs/guidelines/studio-runs.md) - `bd-host run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm host slot that the Studio lends to that run
-- [Real App Checks](docs/guidelines/real-app-checks.md) - The release app driven with Peekaboo: windows, input, frames, timings
-- [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
-- [UX Writing](docs/guidelines/ux-writing.md) - Toast titles and actions, "Cannot …" errors, Title Case and sentence case, punctuation
-- [Design Docs Guidelines](docs/guidelines/design-docs.md) - How to write design documents
+### Contributing
+- [Adding a Git Operation](docs/contributing/adding-git-operation.md) - The layers of an operation and the helpers to reuse
+- [Agent CLI](docs/contributing/agent-cli.md) - The `bd` commands, their JSON, error codes and exit codes
+- [Platform Checks](docs/contributing/platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands
+- [Fast Rust Tests](docs/contributing/rust-tests.md) - A test costs its git processes: the fixtures of one process per step, no sleeps or wall-clock limits, `pnpm perf:test-processes`
+- [Studio Runs](docs/contributing/studio-runs.md) - `bd-host run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm host slot that the Studio lends to that run
+- [Real App Checks](docs/contributing/real-app-checks.md) - The release app driven with Peekaboo: windows, input, frames, timings
+- [Import Guidelines](docs/contributing/imports.md) - No re-exports policy and proper import patterns
+- [UX Writing](docs/contributing/ux-writing.md) - Toast titles and actions, "Cannot …" errors, Title Case and sentence case, punctuation
+- [Design Docs Guidelines](docs/contributing/design-docs.md) - How to write design documents
 
 ### File Structure
 ```
@@ -863,7 +864,7 @@ crates/
 ├── cli-tools/       # The teamcity and youtrack CLIs of Settings → Tools: status, install and update through Homebrew; no git, no service
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
-├── bd-cli/          # `bd` agent CLI: the `Cli`, the dispatch, `bd schema`, the help texts, the process budgets (docs/guidelines/agent-cli.md)
+├── bd-cli/          # `bd` agent CLI: the `Cli`, the dispatch, `bd schema`, the help texts, the process budgets (docs/contributing/agent-cli.md)
 ├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries, the summaries of a check that `bd check` and `bd safe-push` print, the remote services of a command and the host of its reads of the facts (`services`), the record of its operation in the operations registry and its entry in the journal (`operation_record`)
 ├── bd-lease/        # `bd lease`: the worktrees of the lease pool; its tests run bd through the fixtures of bd-cli
 ├── bd-remote/       # The bd commands of the remote: status, push, safe-push, request-review, robot, the landed branches

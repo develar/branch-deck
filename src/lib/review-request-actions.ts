@@ -7,7 +7,7 @@ import { findAction, formatActionBlocker, presentAction } from "@/presenters/act
 import type { ReviewAction } from "@/stores/review-requests"
 
 /*
- * The actions of a pull request that waits for the user's review (docs/guidelines/ux-writing.md#actions): one list for
+ * The actions of a pull request that waits for the user's review (docs/contributing/ux-writing.md#actions): one list for
  * the menu of its row in Your Turn and the header of its review window, in the overview and in the review of its changes
  * alike.
  */

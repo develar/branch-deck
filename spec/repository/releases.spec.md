@@ -18,7 +18,7 @@ Date: 2026-10-21
 
 The release workflow builds the tagged version into the draft release of release-please. It publishes the release
 only after every platform succeeds. macOS releases require Developer ID Application signing and Apple notarization;
-the updater signatures remain separate. Setup and retry instructions: [Releases](../../docs/guidelines/releases.md).
+the updater signatures remain separate. Setup and retry instructions: [Releases](../../docs/contributing/releases.md).
 
 ## Requirements
 

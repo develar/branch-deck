@@ -201,4 +201,4 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
   behind it makes an update say so instead of looping.
 - Windows: no sign-in of `teamcity` starts (no `script`), the row shows its command; `youtrack` installs through scoop
   only, until winget has it. `the_package_manager_of_the_machine_installs_teamcity` is ignored: it installs for real, in
-  the check on Windows ([Platform Checks](../../docs/guidelines/platform-checks.md)).
+  the check on Windows ([Platform Checks](../../docs/contributing/platform-checks.md)).

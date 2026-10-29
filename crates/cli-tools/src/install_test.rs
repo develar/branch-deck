@@ -132,7 +132,7 @@ fn an_install_with_the_skill_brings_it_and_one_without_brings_none() {
   assert!(!fakes.log().iter().any(|line| line.starts_with("youtrack skill")), "{:?}", fakes.log());
 }
 
-/// The install of the machine's own package manager, for the platform checks (docs/guidelines/platform-checks.md):
+/// The install of the machine's own package manager, for the platform checks (docs/contributing/platform-checks.md):
 /// `cargo nextest run -p cli-tools --run-ignored only`, on a machine without `teamcity`
 #[test]
 #[ignore = "installs teamcity with the real package manager of the machine"]

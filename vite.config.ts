@@ -135,7 +135,7 @@ export default defineConfig({
   fmt: {
     semi: false,
     arrowParens: "avoid",
-    // docs/guidelines/imports.md: react, third-party packages, @/components/ui, other @/ modules
+    // docs/contributing/imports.md: react, third-party packages, @/components/ui, other @/ modules
     sortImports: {
       internalPattern: ["@/"],
       newlinesBetween: false,

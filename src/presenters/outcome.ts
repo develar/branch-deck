@@ -1,7 +1,7 @@
 // The page's words of how a start of a Safe Push, a Dry Run or a push into the target ended (`Outcome` of `execute`, its `LandResult`) and of
 // what refused it before its first effect (the `ApiError` of `execute`): the toast of the event of its robot and the
 // Activity entry, never a rule. The toast is the next state of the event of the subject's robots
-// (docs/guidelines/ux-writing.md#one-toast-per-event): it takes the place of the toast of the approvals it starts on
+// (docs/contributing/ux-writing.md#one-toast-per-event): it takes the place of the toast of the approvals it starts on
 // and of the robot it replaces; a refusal of the landing gate offers its fix and Start Anyway, a conflict with the
 // newest target Update Project, a start the facts changed under "Start Safe Push" again. A push of the copy into the
 // target (Push to master) is one toast too: what it pushed, then the update that follows it in place

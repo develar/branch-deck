@@ -1,4 +1,4 @@
-//! The pure core of `bd suggest` (docs/guidelines/agent-cli.md): the commits ahead of the baseline, described by their
+//! The pure core of `bd suggest` (docs/contributing/agent-cli.md): the commits ahead of the baseline, described by their
 //! prefix, issue keys, conventional scope, files and dependencies, clustered into branches. No git runs here;
 //! `suggest.rs` reads the input, and checks the result through the oracle of `cluster_with_repair`.
 //!

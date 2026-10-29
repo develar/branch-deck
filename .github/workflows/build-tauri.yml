@@ -120,7 +120,7 @@ jobs:
           for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
             APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY; do
             if [ -z "${!name}" ]; then
-              echo "::error::Missing repository secret $name; see docs/guidelines/releases.md"
+              echo "::error::Missing repository secret $name; see docs/contributing/releases.md"
               missing=true
             fi
           done

@@ -307,7 +307,7 @@ reports in it and closes it once merged.
   without a running or waiting check has no progress, as before its checks run. The answer is kept for 60 s per
   robot, as a build's is. The endpoint is behind the `robot.progress.enabled` flag of Patronus: a 404 means it is off
   for the user, then the builds are asked as above and the endpoint rests for 10 minutes. `bd robot` reads the setting
-  from the app's settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
+  from the app's settings file ([Agent CLI](../../docs/contributing/agent-cli.md)).
   [@test] ../../crates/patronus/src/actions_test.rs (`with_the_new_api_the_progress_of_a_running_robot_is_one_request_kept_for_a_minute`, `while_patronus_has_no_progress_of_robots_the_builds_are_asked_and_the_endpoint_rests`, `the_progress_patronus_folded_reads_as_the_one_from_the_builds`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
   [@test] ../../crates/bd-core/src/context_test.rs (`the_new_patronus_api_setting_of_the_app_is_read_from_its_settings_file`)
@@ -843,7 +843,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   lines). The toast and the entry are the outcome of `execute` in the page's words (`presentLandOutcome` of
   `src/presenters/outcome.ts`, the robot of `LandResult`). A failed start is an error toast "Cannot start the Safe Push
   of auth" with what Patronus said. It is the toast of the robot
-  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event), `showRobotEventToast`): its Cancel
+  ([One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event), `showRobotEventToast`): its Cancel
   only while the robot can be canceled, and its later states take its place (its failure, its merge, its cancel, a
   restart); it takes the place of the toast of the robot it restarts and of the approvals it starts on
   ([Review Requests](../repository/review-requests.spec.md#approval-news)).
@@ -995,7 +995,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/stores/patronus.test.ts (`does not tell a successful dry run or a robot first seen merged`)
 - With the window focused, a `success` toast says "auth merged into master" (the branch, or the subject of a Safe Push
   of a temporary ref) with the push mode ("Safe Push"), for 10 s; an issue key of the title ("IJPL-1 merged into
-  master") links to the tracker, as in the branch name ([Toasts](../../docs/guidelines/ux-writing.md#toasts)). Its
+  master") links to the tracker, as in the branch name ([Toasts](../../docs/contributing/ux-writing.md#toasts)). Its
   actions are below the text (the `robot` body of the toast): "Update Project", the primary one, which picks the merge
   up in one click (it fetches the baseline first, then updates onto it; the click is the consent, and a conflict, local
   changes or a lock say so as Update Project does), then "Open in Patronus", which opens the robot page and leaves the
@@ -1010,7 +1010,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/lib/landing-toast.test.ts (`offers Fetch once the main window shows another repository, and Update Project again on the way back`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and update the project on request`)
 - The toast of the merge is the toast of the landing, until the update lands it
-  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event), `showMergeToast` of
+  ([One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event), `showMergeToast` of
   `src/lib/landing-toast.ts`): it takes the place of the toast of the robot (its start), and while an update or a
   fetch of its repository runs, started from the toast, the header or a key, its Update Project is "Updating…"
   ("Fetching…"), disabled, and the toast stays. The outcome of that update takes its place, in place: what landed
@@ -1159,7 +1159,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran: its toast, while open, says in place that it failed`, `tells nothing of a robot told failing whose toast is gone: Activity says it failed`, `tells a robot whose problems didn't come without them`, `names the profile of a robot started without the approvals whose profile checks them all the same`)
 - The step of a failing or failed toast is the step of the robot as the stores have it, rendered again on every change
   of the robots, the branches, the running operations and the shown repository
-  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)), and a click runs the step shown
+  ([One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event)), and a click runs the step shown
   now: Cancel Safe Push leaves the toast once the robot finished or was canceled, a step that runs is disabled, a
   disabled one is not offered, and a robot of another repository than the shown one offers no step of a branch (the
   branch of the same name there is another one). A restart made here takes the place of the toast; one made elsewhere

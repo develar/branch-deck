@@ -108,7 +108,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   operation `presentActivity` of `src/presenters/activity.ts`). An operation is an entry per event it made: each branch
   it pushed (of a stack push each, of a whole stack its stack branch), each pull request it retargeted, the robot it
   started; a push that is a step of another action (a Safe Push start, a merge request) too, in the words its toast
-  would have. A toast whose later states replace it in place ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event):
+  would have. A toast whose later states replace it in place ([One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event):
   the merge, then the landing; the failure of a robot, then its restart) leaves an entry per state: Activity is the log
   of the events, the toasts are one per event.
   [@test] ../../src/presenters/activity.test.ts (`puts the operations of a journal in every project of its repository, and the page's entries in theirs, newest first`)
@@ -140,7 +140,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`)
 - A new review request ([Review Requests](review-requests.spec.md#new-requests)), one entry per request also when one
   toast told several: "dave requested your review on #104" / its title, kind `review`, with "Open Pull Request", the
-  name of the action everywhere ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
+  name of the action everywhere ([UX Writing](../../docs/contributing/ux-writing.md#actions)).
   [@test] ../../src/stores/review-requests.test.ts (`tells the requests the session tells new in one toast with Review, unread until opened, recorded in Activity`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
 - An approval of the user's pull request that made a branch ready ([Review Requests](review-requests.spec.md#approval-news)):

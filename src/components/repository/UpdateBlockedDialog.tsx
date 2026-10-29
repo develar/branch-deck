@@ -161,7 +161,7 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
   const ownFetchTime = useRepositoryStateField(project?.path, "lastFetchTime")
   const bd = useAgentCliCommand(check === null ? null : (project?.path ?? null))
   const bodyRef = useRef<HTMLDivElement>(null)
-  // the button says "Copied" in place, no toast (docs/guidelines/ux-writing.md)
+  // the button says "Copied" in place, no toast (docs/contributing/ux-writing.md)
   const { isCopied, copyToClipboard } = useCopyToClipboard()
   if (shown === null) {
     return null

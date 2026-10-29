@@ -44,7 +44,7 @@ export async function installAgentCli(openAgentSettings = true): Promise<AgentCl
   return result.data
 }
 
-/** Main window: the "Install Agent CLI…" menu item, `bd install` (docs/guidelines/agent-cli.md) */
+/** Main window: the "Install Agent CLI…" menu item, `bd install` (docs/contributing/agent-cli.md) */
 export function useInstallAgentCli(): void {
   useAppCommand("install_agent_cli", () => {
     void installAgentCli()

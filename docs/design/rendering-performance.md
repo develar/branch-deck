@@ -442,10 +442,10 @@ used to download and compile the main window's tree before its own page: 61 modu
   as it is on a loaded machine. WebKit does not stop a hidden page: the remote layer tree paints and commits while the
   window is hidden ("Should we suspend painting while not visible … Probably", `RemoteLayerTreeDrawingArea`), and no
   reason freezes the layer tree then; the presentation answers 15–80 ms after the ready, and the window is ordered in
-  after it, on the rows ([Real App Checks](../guidelines/real-app-checks.md#an-agents-check-copy)). Elsewhere the
+  after it, on the rows ([Real App Checks](../contributing/real-app-checks.md#an-agents-check-copy)). Elsewhere the
   webview tells no presentation and the window shows at once, with no earlier frame to show. WebKitGTK paints nothing
   while its view is not visible (`DrawingAreaCoordinatedGraphics::suspendPainting`). In the VM (2026-10-29, the check
-  copy of the release build, cold and warm, [Real App Checks](../guidelines/real-app-checks.md#linux-in-the-vm)) GTK
+  copy of the release build, cold and warm, [Real App Checks](../contributing/real-app-checks.md#linux-in-the-vm)) GTK
   creates the X window at the show (it realizes the window then, after its titlebar), 50–120 ms after the backend
   logs the show; its pixels are transparent with GTK's shadow until WebKit's first paint 107–275 ms later, and that
   paint is the whole page, the title row with the rows (of the frame on a warm start), never a canvas or a part of

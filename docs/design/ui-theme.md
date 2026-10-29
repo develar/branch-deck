@@ -353,7 +353,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - copy: through `copyText` (`src/lib/clipboard.ts`); a copy button says "Copied" in place (`CopyButton`, a labelled
     button in its label: "Copy Prompt for Agent"), a menu item copies without a toast.
 - **Toasts** show above an open dialog (the viewport is `z-[60]`, the dialog overlay `z-50`) and their text is
-  selectable; what they say is in [UX Writing](../guidelines/ux-writing.md).
+  selectable; what they say is in [UX Writing](../contributing/ux-writing.md).
 - **Anything that opens on hover or click is a button**: a help icon, a hash or a time with a popover, the AI toggle.
   Base UI triggers render a `button` by default; never a `span` trigger with `nativeButton={false}`, which the keyboard
   cannot reach.

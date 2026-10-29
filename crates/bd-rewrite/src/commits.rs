@@ -79,7 +79,7 @@ pub struct CommitsOutput {
   pub header: CommitsHeader,
   /// Oldest first, the order they are applied in
   pub commits: Vec<CommitEntry>,
-  /// `from` depends on `to`: its hunks touch lines `to` added (approximate, see docs/guidelines/agent-cli.md). Lock
+  /// `from` depends on `to`: its hunks touch lines `to` added (approximate, see docs/contributing/agent-cli.md). Lock
   /// files and generated files don't count without --include-generated
   pub dependencies: Vec<DependencyEdge>,
   /// For each pair of current branches, the files both change; without lock files and generated files unless

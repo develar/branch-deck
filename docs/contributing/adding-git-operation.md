@@ -62,7 +62,7 @@ modules by area; the layers are the
 - **bd** (usually `<op>_command.rs` in the crate of its area, e.g. `crates/bd-rewrite/src/`, and a variant of `Command`
   in `crates/bd-cli/src/lib.rs`): clap arguments, one JSON object with
   `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
-  `docs/guidelines/agent-cli.md`), a read-only command in `read_only!` (`agent_help.rs`); bd's own lock goes to the core
+  `docs/contributing/agent-cli.md`), a read-only command in `read_only!` (`agent_help.rs`); bd's own lock goes to the core
   as `held_lock` only when bd writes more under it. No git of its own.
 - **The app**: a read is one entry of the registry of app-api (`for_each_command!` in `crates/app-api/src/commands.rs`,
   the grammar in `registry.rs`) with its body in a family module (`crates/app-api/src/reads/`), `async fn(&AppContext,

@@ -512,7 +512,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   stacked or not, with stacked branches on or off, has the action "Create Pull Request…" under the same conditions as
   the menu, else "Open Pull Request" when the branch has a pull request, and stays 10 s; off GitHub it has no action.
   "Create Pull Request…" closes the toast as it opens the dialog: a toast lies above the dialogs and would cover its
-  footer ([UX Writing](../../docs/guidelines/ux-writing.md), an action with "…" of a toast).
+  footer ([UX Writing](../../docs/contributing/ux-writing.md), an action with "…" of a toast).
   The toast reads the branch after the push: the push that created the remote branch offers its pull request. It names
   no base, every branch has the same; an open pull request into a virtual branch whose retarget failed gets "Copy gh
   pr edit" instead ([Stacked Branches](stacked-branches.spec.md#pull-requests)). A push that is a step of another action has no toast

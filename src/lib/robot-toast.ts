@@ -12,7 +12,7 @@ import { getBranchRobot, getStackRobot, patronusStore } from "@/stores/patronus"
 import { getSelectedRepositoryPath, isSelectedRepository, repositoryStore } from "@/stores/repository"
 
 /*
- * The toast of a robot (docs/guidelines/ux-writing.md#one-toast-per-event): its start, restart and cancel, a required
+ * The toast of a robot (docs/contributing/ux-writing.md#one-toast-per-event): its start, restart and cancel, a required
  * check that failed while it runs, its failure, its merge (`src/lib/landing-toast.ts`) are the states of one toast of
  * the robot, and a newer robot of the same subject and push mode (a restart, a new start) replaces it. Its step is the
  * step of the robot as the stores have it, rendered again on every change: Cancel Safe Push leaves the toast once the

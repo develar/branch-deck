@@ -16,7 +16,7 @@ object cache (none with --no-cache); `bd check --build` runs its command in a te
 pub const READ_ONLY: &str = read_only!();
 
 /// `bd help agent`: the rules and the workflow of an agent that groups commits into virtual branches
-/// (docs/guidelines/agent-cli.md), a core of at most 10 KB: every rule that waits for the user stays here, the fields
+/// (docs/contributing/agent-cli.md), a core of at most 10 KB: every rule that waits for the user stays here, the fields
 /// of an output and the other refusals are in the `--help` of its command (`after_long_help`). The first line names the
 /// version (`version::VERSION`). `agent_help_test.rs` checks it against the commands and options
 pub const AGENT_HELP: &str = concat!(

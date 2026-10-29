@@ -1,4 +1,4 @@
-//! The agent CLI of the app, `bd` (docs/guidelines/agent-cli.md, spec/cli/agent-cli.spec.md): "Install Agent CLI…"
+//! The agent CLI of the app, `bd` (docs/contributing/agent-cli.md, spec/cli/agent-cli.spec.md): "Install Agent CLI…"
 //! (`install_agent_cli`, `bd install`), the `bd` command the copied prompts name (`agent_cli_command`) and the skills
 //! Settings → Agents shows (`agent_cli_status`). The install and the binary are the host's (`AgentCliHost`: the app's
 //! `bd_cli::install`, a fixed path in the e2e server); the rules of `bd workspace` where the install wrote none are the
@@ -12,7 +12,7 @@ use lease_pool::agent_workspace::agent_defaults;
 use std::sync::Arc;
 use tracing::instrument;
 
-/// What the "Install Agent CLI…" menu item installed: `bd install` (docs/guidelines/agent-cli.md)
+/// What the "Install Agent CLI…" menu item installed: `bd install` (docs/contributing/agent-cli.md)
 #[derive(Debug, serde::Serialize, specta::Type)]
 pub struct AgentCliInstall {
   /// The command the skills name: the `bd` symlink (macOS, Linux) or `bd.exe` next to the app (Windows)
