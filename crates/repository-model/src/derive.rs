@@ -873,11 +873,11 @@ impl<'a> LandingFacts<'a> {
   /// the branch has a row; of its whole stack, the stack branch as the sync left it, none for a stack without one. What
   /// the table refuses comes first: a subject that stays local (parked, built on parked, a whole stack with a parked
   /// member), and a branch the sync did not build for a restart that pushes it first
-  fn restart(&self, robot: &PatronusRobot, needs_review: bool) -> Option<RobotRestart> {
+  fn restart(&self, robot: &PatronusRobot, needs_review: bool, failing: bool) -> Option<RobotRestart> {
     let mode = robot.push_mode;
     let (action, refusal) = match (&robot.branch_name, &robot.stack_root) {
       (Some(name), _) => {
-        let action = restart_action(robot, self.table.tip_of(name), self.remote_of(name), needs_review)?;
+        let action = restart_action(robot, self.table.tip_of(name), self.remote_of(name), needs_review, failing)?;
         let refusal = self.table.branch(name).and_then(|branch| {
           // what merged Safe Pushes landed: the view derives without the landing report and the pull requests
           let landed = landed_reason(&self.landed_facts(&NO_LANDING), &landed_subject(self.table, self.remote, Of::Branch(&branch.name), None));
@@ -900,7 +900,7 @@ impl<'a> LandingFacts<'a> {
       (None, Some(root)) => {
         let stack = self.table.stack_branches.iter().find(|stack| stack.root == *root);
         let remote = self.remote.stacks.get(root).and_then(RemoteFact::branch);
-        let action = restart_action(robot, stack.and_then(|stack| stack.tip.as_deref()), remote, needs_review)?;
+        let action = restart_action(robot, stack.and_then(|stack| stack.tip.as_deref()), remote, needs_review, failing)?;
         let refusal = match stack {
           None => Some(Reason::NoStackBranch { root: root.clone() }),
           Some(stack) => {
@@ -1672,7 +1672,7 @@ pub fn wanted_readiness(state: &TableState, facts: &FactStore, prefix: &str, dem
 
 /// What the rules decide of `table` over the Patronus facts of `view` (module docs), written into it. `running_spans`:
 /// by branch, the first running robot that lands it; `needs_review`: by robot id, the robots that failed for missing
-/// approvals
+/// approvals; `failing`: the running robots a failed required check dooms
 pub(crate) fn decide_landing(
   view: &mut PatronusView,
   table: &BranchTable,
@@ -1680,6 +1680,7 @@ pub(crate) fn decide_landing(
   robots: &[PatronusRobot],
   running_spans: &HashMap<String, SpanView>,
   needs_review: &BTreeMap<String, bool>,
+  failing: &[String],
 ) {
   let (branches, stacks, restarts) = {
     let facts = LandingFacts::new(table, remote, view, robots, Some(running_spans));
@@ -1692,7 +1693,10 @@ pub(crate) fn decide_landing(
       .collect();
     let restarts: BTreeMap<String, RobotRestart> = robots
       .iter()
-      .filter_map(|robot| Some((robot.id.clone(), facts.restart(robot, needs_review.get(&robot.id).copied().unwrap_or(false))?)))
+      .filter_map(|robot| {
+        let needs_review = needs_review.get(&robot.id).copied().unwrap_or(false);
+        Some((robot.id.clone(), facts.restart(robot, needs_review, failing.contains(&robot.id))?))
+      })
       .collect();
     (branches, stacks, restarts)
   };

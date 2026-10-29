@@ -727,6 +727,11 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         let Some(restarted) = fake.find_listed(&id) else {
           return no_such_robot();
         };
+        // as Patronus: a running robot is restarted only once a cancel made it canceling
+        if restarted["status"] == "RUNNING" {
+          let description = format!("Safe Push {id} is still running");
+          return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "INVALID_INPUT", "description": description}))).into_response();
+        }
         let robot_id = format!("restarted-{count}");
         fake.list_started(&robot_id, &restarted, &restarted["pushMode"]).await;
         fake.answer(serde_json::json!({"robotId": robot_id}))

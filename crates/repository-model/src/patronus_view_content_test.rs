@@ -65,6 +65,7 @@ fn counted_view(repo: &TestRepo, table: &BranchTable, robots: &[PatronusRobot], 
     remote: &remote,
     robots,
     needs_review: &std::collections::BTreeMap::new(),
+    failing: &[],
   };
   let view = patronus_view(&git, repo.path_str(), &of, &matched, memo);
   let processes = git

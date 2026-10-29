@@ -108,8 +108,8 @@ impl Sources {
 const AUTH: &str = "refs/heads/user/virtual/auth";
 const AUTH_REMOTE: &str = "refs/remotes/origin/user/virtual/auth";
 
-/// A robot whose remote branch has the branch restarts alone: no push, no ref to witness; one of a branch that changed
-/// since is pushed first, the running one canceled before the push into its branch, the restart last; a push that
+/// A robot whose remote branch has the branch restarts alone: no push, no ref to witness, a running one a failed required
+/// check dooms canceled first; one of a branch that changed since is pushed first, the running one canceled before the push into its branch, the restart last; a push that
 /// drops commits of the remote the branch lacks refuses the restart, and so does what the view refuses it by
 #[test]
 fn a_restart_restarts_alone_while_the_remote_has_the_branch_and_pushes_first_a_branch_that_changed() {
@@ -122,6 +122,17 @@ fn a_restart_restarts_alone_while_the_remote_has_the_branch_and_pushes_first_a_b
     (&["auth".to_owned()][..], 0, 0)
   );
   assert_eq!((plain.subject, plain.mode), (Subject::branch("auth"), PatronusPushMode::RebaseAutosquash));
+  // a running robot a failed required check dooms, on the commit the remote has: canceled, then restarted, no push
+  let failing = robot_on("g", PatronusRobotStatus::Running, TIP);
+  let doomed = Sources::new(Some(TIP), true, vec![failing], RestartAction::Restart).planned("g").unwrap();
+  assert_eq!(
+    doomed.plan.effects,
+    [
+      PlannedEffect::CancelRobot { robot_id: "g".to_owned() },
+      PlannedEffect::RestartRobot { robot_id: "g".to_owned() },
+    ]
+  );
+  assert_eq!((doomed.witness.refs.len(), doomed.pushes.len()), (0, 0));
 
   let running = robot_on("r", PatronusRobotStatus::Running, "older");
   let changed = Sources::new(Some("older"), false, vec![running], RestartAction::PushAndRestart);
@@ -204,6 +215,19 @@ impl Fixture {
   }
 }
 
+/// Patronus canceled `r1` and restarted it, and the outcome of `started` names both: the restarted robot
+fn canceled_and_restarted(fixture: &Fixture, started: &crate::land_execute::Started) -> PatronusRobot {
+  assert_eq!(
+    (fixture.canceled(), fixture.fake.restarts.lock().unwrap().clone()),
+    (vec!["r1".to_owned()], vec!["r1".to_owned()])
+  );
+  let OperationResult::Robot(result) = &started.outcome.result else {
+    panic!("a restart answers a robot: {:?}", started.outcome.result)
+  };
+  assert_eq!((result.canceled.as_ref().map(|robot| robot.id.as_str()), result.already_finished), (Some("r1"), false));
+  result.robot.clone().expect("the restarted robot")
+}
+
 /// A restart that pushes first cancels the running robot of an older commit, pushes the commit it froze and restarts the
 /// robot after the push, so Patronus takes the pushed commit; the outcome names the new robot and the canceled one
 #[tokio::test(flavor = "multi_thread")]
@@ -220,16 +244,8 @@ async fn a_restart_that_pushes_first_cancels_the_running_robot_pushes_and_restar
   ];
   let (host, started) = fixture.run_restart(fixture.restart(effects)).await;
   assert_eq!(statuses(&started), [&EffectStatus::Done, &EffectStatus::Done, &EffectStatus::Done]);
-  assert_eq!(
-    (fixture.canceled(), fixture.fake.restarts.lock().unwrap().clone()),
-    (vec!["r1".to_owned()], vec!["r1".to_owned()])
-  );
+  let restarted = canceled_and_restarted(&fixture, &started);
   assert_eq!(fixture.remote_alpha(), Some(frozen));
-  let OperationResult::Robot(result) = &started.outcome.result else {
-    panic!("a restart answers a robot: {:?}", started.outcome.result)
-  };
-  let restarted = result.robot.clone().expect("the restarted robot");
-  assert_eq!((result.canceled.as_ref().map(|robot| robot.id.as_str()), result.already_finished), (Some("r1"), false));
   let told = host.told();
   assert_eq!(
     told[1..],
@@ -251,6 +267,23 @@ async fn a_restart_on_the_remote_branch_takes_no_lock() {
   assert_eq!(statuses(&started), [&EffectStatus::Done]);
   assert_eq!(fixture.fake.restarts.lock().unwrap().clone(), ["r1"]);
   assert_eq!(fixture.canceled(), [] as [String; 0]);
+}
+
+/// A restart of a running robot a failed required check dooms cancels it, then restarts it on the commit the remote has:
+/// no push, no witness, no repository lock; the outcome names the new robot and the canceled one
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_of_a_failing_robot_cancels_it_and_restarts_it_on_the_same_commit() {
+  let fixture = fixture().await;
+  let remote = fixture.remote_alpha();
+  let _held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "bd push auth").unwrap();
+  let effects = vec![
+    PlannedEffect::CancelRobot { robot_id: "r1".to_owned() },
+    PlannedEffect::RestartRobot { robot_id: "r1".to_owned() },
+  ];
+  let (_, started) = fixture.run_restart(fixture.restart(effects)).await;
+  assert_eq!(statuses(&started), [&EffectStatus::Done, &EffectStatus::Done]);
+  canceled_and_restarted(&fixture, &started);
+  assert_eq!(fixture.remote_alpha(), remote, "nothing was pushed");
 }
 
 /// A cancel of a robot that finished, as the facts of the session or its status since say, cancels nothing: the robot

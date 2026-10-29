@@ -4,9 +4,10 @@
 //!
 //! - The plan of a restart is the restart the view offers (`PatronusView.restarts` by robot id, one rule:
 //!   `domain_policy::holds::restart_action`, refused by `domain_policy::land::restart_refusal`): a plain restart while
-//!   the remote has the branch (`[RestartRobot]`), else its push first (`[Retarget, CancelRobot, Push, RestartRobot]`:
-//!   the pull request of the branch into a virtual branch goes into the target, a running robot is canceled before the
-//!   push into its branch). A push that drops commits of the remote the branch lacks refuses it (`DropsRemote`): the
+//!   the remote has the branch (`[RestartRobot]`; of a running robot a failed required check dooms
+//!   `[CancelRobot, RestartRobot]`: Patronus restarts the canceling robot, never a running one), else its push first
+//!   (`[Retarget, CancelRobot, Push, RestartRobot]`: the pull request of the branch into a virtual branch goes into the
+//!   target, a running robot is canceled before the push into its branch). A push that drops commits of the remote the branch lacks refuses it (`DropsRemote`): the
 //!   push button asks first. It runs as a start runs (`land_execute::run_planned`): the witness and the lock only for
 //!   the refs its push moves and leases, the restart last, skipped when its pushed branch moved since or a robot of its
 //!   subject started meanwhile.
@@ -33,7 +34,7 @@ use domain_types::landing::{PlannedEffect, Subject};
 use domain_types::operation::{
   EffectRecord, EffectStatus, Fingerprint, Intent, NewsKey, OperationId, OperationResult, OperationStep, Outcome, Plan, Resource, RobotResult, RunningMove,
 };
-use domain_types::patronus::PatronusRobot;
+use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequestBase, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::RestartAction;
@@ -102,7 +103,7 @@ where
 
 /// The plan of the restart of `robot_id` over `sources`, with what its run needs (module docs); `None` for a robot the
 /// user's robots lack, or one the view offers no restart of (`PatronusView.restarts`: a robot of a temporary ref, one
-/// that runs on the commit its branch has, a merged one)
+/// that runs on the commit its branch has while no required check of it failed, a merged one)
 #[must_use]
 pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Planned> {
   let robot = sources.robots.iter().find(|robot| robot.id == robot_id)?;
@@ -161,6 +162,9 @@ pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Plan
     refs.insert(format!("refs/heads/{}", pushed.full_name), tip);
     refs.insert(format!("refs/remotes/origin/{}", pushed.full_name), remote.and_then(|remote| remote.remote_tip.clone()));
     pushes.push(pushed);
+  } else if robot.status == PatronusRobotStatus::Running {
+    // a running robot a failed required check dooms: Patronus restarts no running robot, a canceling one it does
+    effects.push(PlannedEffect::CancelRobot { robot_id: robot_id.to_string() });
   }
   effects.push(PlannedEffect::RestartRobot { robot_id: robot_id.to_string() });
   let lands = match &subject {

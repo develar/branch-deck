@@ -351,7 +351,18 @@ function robotActionItem(robot: PatronusRobot, id: RobotAction["id"]): ActionIte
   const mode = formatPushMode(robot.pushMode)
   switch (id) {
     case "restart-robot":
-      return { label: formatRobotRestartLabel(robot), running: `Restarting the ${mode}`, onSelect: () => void restartRobot(robot) }
+      return {
+        label: formatRobotRestartLabel(robot),
+        // Rust offers the restart of a running robot only once a required check of it failed: it cancels it first
+        ...(robot.status === "running" && {
+          description:
+            robot.sourceRevision === null
+              ? "Cancels the run and starts it again on the remote branch"
+              : `Cancels the run on ${formatShortHash(robot.sourceRevision)} and starts it again on the remote branch`,
+        }),
+        running: `Restarting the ${mode}`,
+        onSelect: () => void restartRobot(robot),
+      }
     case "push-and-restart-robot": {
       // a running robot tests a commit the branch moved past: the restart cancels it first, the one push into its
       // branch; the push is part of the restart (its plan in Rust), its name is the restart's
@@ -393,7 +404,7 @@ export interface RobotItemsOf {
  * The actions of a robot as Rust offers them (`robot:<id>` of `RepositoryView.actions`, `domain_policy::actions`), one
  * list for every surface that shows it (the branch menu, the robot details, the robots indicator, a toast), in this
  * order: "Restart Safe Push" (it pushes first while the branch has work the remote lacks, also for a running robot,
- * which it cancels first), "Cancel Safe Push" while it runs, "Copy Prompt for Agent" and "Copy Prompt with CI Details"
+ * which it cancels first; of a running robot a failed required check dooms, it cancels it and starts it again), "Cancel Safe Push" while it runs, "Copy Prompt for Agent" and "Copy Prompt with CI Details"
  * for a failed or failing robot, "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. Rust
  * disables a restart and the prompts while Patronus didn't tell why the robot failed, a restart while the approvals the
  * step of its branch misses (`stepReason`) or what refuses it stands in its way. A restart and a cancel run in the

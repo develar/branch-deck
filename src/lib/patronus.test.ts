@@ -125,8 +125,10 @@ describe("formatRobotCommitNotice", () => {
     expect(notice(robot({ branchName: null, ...started }), unpushed, null)).toBe(changed)
   })
 
-  it("says quietly that a robot started on an earlier build of the same commits, nothing for the branch as it is", () => {
-    expect(notice(robot(started), testRemoteStatus({ remoteTip: started.sourceRevision }), null)).toBe("Started on an earlier build of the same commits.")
+  it("says quietly that a robot tests the same commits on an older baseline, nothing for the branch as it is", () => {
+    const rebuilt = testRemoteStatus({ remoteTip: started.sourceRevision })
+    expect(notice(robot(started), rebuilt, null)).toBe("Tests the same commits on an older master.")
+    expect(notice(robot({ ...started, status: "failure" }), rebuilt, null)).toBe("Tested the same commits on an older master.")
     expect(notice(robot({ sourceRevision: localTip }), unpushed, null)).toBeNull()
     expect(notice(robot({ sourceRevision: null }), unpushed, null)).toBeNull()
   })

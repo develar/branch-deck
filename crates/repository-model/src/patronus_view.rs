@@ -463,6 +463,7 @@ pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, o
     remote,
     robots,
     needs_review,
+    failing,
   } = *of;
   let by_id: HashMap<&str, &PatronusRobot> = robots.iter().map(|robot| (robot.id.as_str(), robot)).collect();
   let robot_of = |name: &str| matched.branches.get(name).and_then(|id| by_id.get(id.as_str()).copied());
@@ -547,7 +548,7 @@ pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, o
       view.stacks.insert(root.to_string(), facts);
     }
   }
-  decide_landing(&mut view, table, remote, robots, &hold_span_of, needs_review);
+  decide_landing(&mut view, table, remote, robots, &hold_span_of, needs_review, failing);
   view
 }
 

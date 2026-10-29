@@ -797,7 +797,7 @@ fn robot_facts<'a>(robot: &'a domain_types::patronus::PatronusRobot, restart: Op
 
 /// A failed robot restarts and copies its prompt once Patronus tells why it failed (a failed answer says so); its
 /// restart waits for the approvals its step still misses, then for what refuses a start; a running one cancels, and
-/// offers the prompt while a required check fails; a push and restart needs a subject to push
+/// offers the prompt and its restart while a required check fails; a push and restart needs a subject to push
 #[test]
 fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() {
   let failed = robot("r1", Some("auth"), PatronusRobotStatus::Failure, 1);
@@ -866,6 +866,22 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
       ..robot_facts(&running, Some(&push_and_restart))
     })),
     [PushAndRestartRobot, CancelRobot, CopyRobotPrompt, CopyRobotFullPrompt, OpenRobot, OpenRobotPullRequest]
+  );
+  // a failed required check dooms it on the commit the remote has: its restart (which cancels it first) comes first
+  let again_running = restart(RestartAction::Restart, None);
+  assert_eq!(
+    table(&robot_actions(&RobotFacts {
+      failing: true,
+      ..robot_facts(&running, Some(&again_running))
+    })),
+    [
+      (RestartRobot, None),
+      (CancelRobot, None),
+      (CopyRobotPrompt, None),
+      (CopyRobotFullPrompt, None),
+      (OpenRobot, None),
+      (OpenRobotPullRequest, None)
+    ]
   );
   assert_eq!(
     ids(&robot_actions(&RobotFacts {

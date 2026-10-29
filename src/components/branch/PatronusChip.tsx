@@ -1,20 +1,22 @@
 import { useState } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { CircleXIcon } from "lucide-react"
+import { ChevronDownIcon, CircleXIcon } from "lucide-react"
 import { useStore } from "zustand"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
+import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { PendingSection } from "@/components/shared/PendingSection"
 import { getRobotItems, robotProblemsReason, useRobotParts } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, PatronusRobotProgress } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
@@ -26,6 +28,8 @@ import { openPullRequestUrl } from "@/lib/pull-request"
 import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
+import type { RobotAction } from "@/presenters/actions"
+import { isRestart } from "@/presenters/actions"
 import { formatPendingFact } from "@/presenters/next-step"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
 import { patronusStore, useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotRestart } from "@/stores/patronus"
@@ -112,11 +116,10 @@ export interface PatronusRobotDetailsProps {
 }
 
 /**
- * The mode and the state, the name, the target, the profile, the commit and the times, the checks and the problems, a
- * notice when the branch changed since the robot took its commit (a quiet line when it was only rebuilt on a newer
- * baseline), then the actions of the robot as the branch menu names them (`getGatedRobotActions`: "Restart Safe Push",
- * which pushes a change not pushed yet first, "Cancel Safe Push", "Open in Patronus", "Open Pull Request #12").
- * The chip popover and the branch preview show it.
+ * The mode and the state with "Open in Patronus" as an icon, the name, the target, the profile, the commit and the
+ * times, the checks and the problems, a notice when the branch changed since the robot took its commit (a quiet line
+ * when it was only rebuilt on a newer baseline), then the actions of the robot as the branch menu names them
+ * (`RobotActionRows`). The chip popover and the branch preview show it.
  */
 export function PatronusRobotDetails({ branchName, robot, loadDetails }: PatronusRobotDetailsProps) {
   const needsReview = useRobotNeedsReview(robot.id)
@@ -137,6 +140,8 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const robotParts = useRobotParts(robot)
   // the details name it; a poll or the start may have named it before
   const profileName = details?.profileName ?? robot.profile?.name ?? null
+  const actions = getRobotItems(robot, robotParts)
+  const progress = robot.status === "running" && details?.progress != null ? formatProgress(details.progress) : null
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="patronus-details">
       <div className="flex flex-col gap-1">
@@ -148,6 +153,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
           <span className={cn("whitespace-nowrap", statusChipTextColors[chip.color])} data-testid="patronus-state">
             {chip.label}
           </span>
+          <RobotOpenButton actions={actions} />
         </div>
         <p className="leading-snug font-medium break-words" data-testid="patronus-name">
           {robot.name}
@@ -180,7 +186,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
             <dt className="text-muted-foreground">Started</dt>
             <dd className="text-muted-foreground" data-testid="patronus-started">
               {formatTimestamp(robot.startTime)}
-              {robot.status === "running" && <RobotTimingDetails robot={robot} remaining={details?.progress?.remainingSeconds == null} />}
+              {robot.status === "running" && <RobotTimingDetails robot={robot} remaining={details?.progress?.remainingSeconds == null} profileName={profileName} />}
             </dd>
           </>
         )}
@@ -190,12 +196,12 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
             <dd className="text-muted-foreground">{formatTimestamp(robot.finishTime)}</dd>
           </>
         )}
-        {robot.status === "running" && details?.progress != null && (
+        {/* the CI may tell nothing of it yet: no empty row */}
+        {progress !== null && (
           <>
             <dt className="text-muted-foreground">Progress</dt>
             <dd className="break-words tabular-nums" data-testid="patronus-progress">
-              {formatCheckProgress(details.progress)}
-              {details.progress.probablyHanging && <span className="text-warning">{" · probably hanging"}</span>}
+              {progress}
             </dd>
           </>
         )}
@@ -251,15 +257,104 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         </p>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
-        {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
-        {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
-        {getRobotItems(robot, robotParts).map(action => (
-          <RobotActionButton key={action.id} action={action} />
-        ))}
-      </div>
+      <RobotActionRows
+        actions={actions}
+        // the form is below the row: an open branch preview closes first (`SafePushButton`)
+        leading={needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined ? <SafePushButton branch={branch} variant="outline" /> : null}
+      />
     </div>
+  )
+}
+
+/** "Open in Patronus" of the actions of a robot as an icon beside its state: a click on its chip opens the robot too */
+export function RobotOpenButton({ actions }: { actions: readonly RobotAction[] }) {
+  const open = actions.find(action => action.id === "open-robot")
+  if (open === undefined) {
+    return null
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button variant="ghost" size="icon-xs" className="ml-auto text-muted-foreground" aria-label={open.label} data-action={open.id} onClick={() => open.onSelect(FROM_MENU)} />
+        }
+      >
+        {open.icon && <open.icon />}
+      </TooltipTrigger>
+      <TooltipContent>{open.label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * The actions of a robot below its details, named as in the branch menu (a bare "Cancel" reads like closing the
+ * popover), "Open in Patronus" aside (`RobotOpenButton`): what decides the robot first, its restart as the primary button
+ * (it pushes a change not pushed yet first, cancels a running robot first) and its cancel, after `leading`; then the
+ * prompt for an agent, its variant with the CI details in the menu of its split button, and the pull request it was
+ * started from
+ */
+export function RobotActionRows({ actions, leading = null }: { actions: readonly RobotAction[]; leading?: ReactNode }) {
+  const of = (id: RobotAction["id"]) => actions.find(action => action.id === id)
+  const restart = actions.find(isRestart)
+  const cancel = of("cancel-robot")
+  const prompt = of("copy-robot-prompt")
+  const fullPrompt = of("copy-robot-full-prompt")
+  const pullRequest = of("open-robot-pull-request")
+  const decides = leading !== null || restart !== undefined || cancel !== undefined
+  const more = prompt !== undefined || pullRequest !== undefined
+  if (!decides && !more) {
+    return null
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {decides && (
+        <div className="flex flex-wrap gap-2">
+          {leading}
+          {restart !== undefined && <RobotActionButton action={restart} variant="default" />}
+          {cancel !== undefined && <RobotActionButton action={cancel} />}
+        </div>
+      )}
+      {more && (
+        <div className="flex flex-wrap gap-2">
+          {prompt !== undefined && (fullPrompt === undefined ? <RobotActionButton action={prompt} /> : <PromptSplitButton prompt={prompt} fullPrompt={fullPrompt} />)}
+          {pullRequest !== undefined && <RobotActionButton action={pullRequest} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** "Copy Prompt for Agent" with a menu of "Copy Prompt with CI Details", which waits for what the prompt waits for */
+function PromptSplitButton({ prompt, fullPrompt }: { prompt: RobotAction; fullPrompt: RobotAction }) {
+  return (
+    <div className="flex" role="group" aria-label={prompt.label}>
+      <RobotActionButton action={prompt} className="rounded-r-none" />
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          disabled={fullPrompt.disabled}
+          render={<Button variant="outline" size="icon-xs" className="-ml-px rounded-l-none" aria-label="More Prompts" data-action="robot-prompts" />}
+        >
+          <ChevronDownIcon />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-auto min-w-36" finalFocus={false}>
+          <DropdownMenuItems groups={[[fullPrompt]]} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+/** The estimate of the CI with "probably hanging" in `warning`; null when it tells nothing */
+function formatProgress(progress: PatronusRobotProgress): ReactNode {
+  const text = formatCheckProgress(progress)
+  if (!progress.probablyHanging) {
+    return text === "" ? null : text
+  }
+  return (
+    <>
+      {text}
+      <span className="text-warning">{text === "" ? "Probably hanging" : " · probably hanging"}</span>
+    </>
   )
 }
 
@@ -280,7 +375,7 @@ function PullRequestLink({ pullRequest }: { pullRequest: { readonly number: numb
  * An action of the robot as an `outline` button; a disabled one says why on hover. `data-action` names it: a restart
  * that pushes first has the name of a restart
  */
-export function RobotActionButton({ action }: { action: MenuItem }) {
+export function RobotActionButton({ action, variant = "outline", className }: { action: MenuItem; variant?: "outline" | "default"; className?: string }) {
   // a restart or a cancel that runs in the session: the spinner in place of its icon (`with_operations`)
   const running = action.running === true
   const content = (
@@ -291,7 +386,15 @@ export function RobotActionButton({ action }: { action: MenuItem }) {
   )
   if (action.description === undefined) {
     return (
-      <Button variant="outline" size="xs" data-action={action.id} disabled={action.disabled} aria-busy={running || undefined} onClick={() => action.onSelect(FROM_MENU)}>
+      <Button
+        variant={variant}
+        size="xs"
+        data-action={action.id}
+        disabled={action.disabled}
+        aria-busy={running || undefined}
+        className={className}
+        onClick={() => action.onSelect(FROM_MENU)}
+      >
         {content}
       </Button>
     )
@@ -302,13 +405,13 @@ export function RobotActionButton({ action }: { action: MenuItem }) {
         render={
           // the hover says why; Base UI keeps the button focusable, so the dimming is ours
           <Button
-            variant="outline"
+            variant={variant}
             size="xs"
             data-action={action.id}
             disabled={action.disabled}
             aria-busy={running || undefined}
             focusableWhenDisabled
-            className={cn(action.disabled && "opacity-50")}
+            className={cn(action.disabled && "opacity-50", className)}
             onClick={() => action.onSelect(FROM_MENU)}
           />
         }
@@ -320,10 +423,13 @@ export function RobotActionButton({ action }: { action: MenuItem }) {
   )
 }
 
-/** " · usually ~40 min · about 22 min left" after the start time of a running robot; it ticks, so it is its own component */
-function RobotTimingDetails({ robot, remaining }: { robot: PatronusRobot; remaining: boolean }) {
+/**
+ * " · usually ~40 min · about 22 min left" after the start time of a running robot, without the profile the details name
+ * (`profileName`); it ticks, so it is its own component
+ */
+function RobotTimingDetails({ robot, remaining, profileName }: { robot: PatronusRobot; remaining: boolean; profileName: string | null }) {
   const timing = useRobotTiming(robot)
-  return ` · ${formatRobotTimingDetails(robot, timing, { remaining })}`
+  return ` · ${formatRobotTimingDetails(robot, timing, { remaining, profileName })}`
 }
 
 /** The robot of the branch in the branch preview, above the commits; nothing without one */

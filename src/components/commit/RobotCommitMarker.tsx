@@ -1,4 +1,4 @@
-import { RobotActionButton } from "@/components/branch/PatronusChip"
+import { RobotActionRows, RobotOpenButton } from "@/components/branch/PatronusChip"
 import { StatusChip } from "@/components/branch/StatusChip"
 import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -49,13 +49,17 @@ function RobotCommitDetails({ robot, change }: { robot: PatronusRobot; change: "
   // the robot of the whole stack tests the stack branch
   const what = robot.branchName === null && robot.stackRoot != null ? "stack" : "branch"
   const Icon = patronusChipIcons.running
+  const actions = getRobotItems(robot, robotParts)
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="robot-commit-details">
       <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-1 text-xs font-medium text-warning">
-          <Icon className="size-3.5" />
-          {`Not in ${mode}`}
-        </span>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-1 font-medium text-warning">
+            <Icon className="size-3.5" />
+            {`Not in ${mode}`}
+          </span>
+          <RobotOpenButton actions={actions} />
+        </div>
         <p className="leading-snug font-medium break-words" data-testid="robot-commit-title">
           {title}
         </p>
@@ -71,11 +75,7 @@ function RobotCommitDetails({ robot, change }: { robot: PatronusRobot; change: "
         )}
       </dl>
       <p className="text-xs text-muted-foreground">{`The result won't cover this commit. Restart ${mode} to test the current ${what}.`}</p>
-      <div className="flex flex-wrap gap-2">
-        {getRobotItems(robot, robotParts).map(action => (
-          <RobotActionButton key={action.id} action={action} />
-        ))}
-      </div>
+      <RobotActionRows actions={actions} />
     </div>
   )
 }

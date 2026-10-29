@@ -115,6 +115,15 @@ describe("getRobotActionItems", () => {
     expect(pushAndRestart).toMatchObject({ id: "push-and-restart-robot", description: "Pushes the whole air stack and starts it again on the pushed commit" })
   })
 
+  it("names what a restart of a running robot a failed required check dooms does: it cancels it, then starts it again", () => {
+    const failing = robot({ status: "running", finishTime: null, sourceRevision: "78ca3b88aa" })
+    const actions = getRobotActionItems(failing, { offered: enabled("restart-robot", "cancel-robot", "copy-robot-prompt", "copy-robot-full-prompt", "open-robot") })
+    expect(actions.map(it => it.label)).toEqual(["Restart Safe Push", "Cancel Safe Push", ...PROMPTS, "Open in Patronus"])
+    expect(actions[0]!.description).toBe("Cancels the run on 78ca3b88 and starts it again on the remote branch")
+    // a finished one is restarted as it is
+    expect(getRobotActionItems(robot({}), { offered: enabled("restart-robot") })[0]!.description).toBeUndefined()
+  })
+
   it("cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from", async () => {
     const runningRobot = robot({ status: "running", finishTime: null, pullRequest: { number: 12, url: "https://github.com/acme/monorepo/pull/12" } })
     const actions = getRobotActionItems(runningRobot, { offered: enabled("cancel-robot", "open-robot", "open-robot-pull-request") })

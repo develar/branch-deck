@@ -3765,9 +3765,13 @@ never the page's (`operations::robot`):
    by what the view refuses it by (`domain_policy::land::restart_refusal`: a parked subject first, a branch the sync did
    not build for a restart that pushes it, then a start of its subject that the robot itself does not refuse, then
    merged Safe Pushes that landed it whole), in the words of `start_refusal_text` ("Nothing was restarted: …"). A robot
-   of a temporary ref, a running one on the commit of its branch, a merged one have no plan.
+   of a temporary ref, a running one on the commit of its branch no required check of which failed, a merged one have
+   no plan.
 2. A plain restart (the remote has the branch) moves and leases no ref: no witness read, no lock, the restart through
-   the API, the new robot into the session. A restart of a branch with work its remote lacks pushes first, as a start
+   the API, the new robot into the session; of a running robot a failed required check dooms, the cancel first
+   (`[CancelRobot, RestartRobot]`): Patronus restarts a canceling robot, never a running one. The running robots that
+   are failing are an input of the Patronus view (`PatronusOf.failing`, hashed by `patronus_inputs`), so their answer
+   derives the restarts again. A restart of a branch with work its remote lacks pushes first, as a start
    pushes (`land_execute::run_planned`): the retarget of its pull request out of a virtual branch, the cancel of the
    running robot (the push into its branch would fail it at the end), the lock only for the witness and the freeze,
    the push after it, then the restart, skipped (`plan_changed`) when the pushed branch moved since. A push that drops

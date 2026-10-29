@@ -121,6 +121,7 @@ fn view_with(table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot]
     remote,
     robots,
     needs_review: &BTreeMap::new(),
+    failing: &[],
   };
   patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &mut ContentMemo::default())
 }
@@ -509,7 +510,8 @@ fn the_push_of_an_action_is_refused_by_an_unbuilt_or_dropping_branch_of_its_chai
 }
 
 /// The restart of a robot of the user: of a failed one, on the remote while it has the branch, with a push first while
-/// it lacks commits of it, refused while a robot lands an ancestor; none of one that failed for missing approvals
+/// it lacks commits of it, refused while a robot lands an ancestor; none of one that failed for missing approvals; of a
+/// running one only while a required check of it failed
 #[test]
 fn a_robot_offers_its_restart_with_why_it_cannot_start_now() {
   let table = chain();
@@ -536,7 +538,25 @@ fn a_robot_offers_its_restart_with_why_it_cannot_start_now() {
     remote: &RemoteFacts::default(),
     robots: std::slice::from_ref(&failed),
     needs_review: &needs_review,
+    failing: &[],
   };
   let view = patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &mut ContentMemo::default());
   assert!(view.restarts.is_empty());
+
+  // a running one on the commit of oauth only once a required check of it failed: its restart cancels it first
+  let doomed = running("r", "oauth", "vo1");
+  let remote = remote_of(&[("oauth", true)]);
+  assert!(view_with(&table, &remote, std::slice::from_ref(&doomed)).restarts.is_empty());
+  let matched = match_robots(&table, &remote, std::slice::from_ref(&doomed));
+  let failing = ["r".to_string()];
+  let of = PatronusOf {
+    table: &table,
+    remote: &remote,
+    robots: std::slice::from_ref(&doomed),
+    needs_review: &BTreeMap::new(),
+    failing: &failing,
+  };
+  let view = patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &mut ContentMemo::default());
+  let restart = view.restarts.get("r").cloned();
+  assert_eq!(restart.map(|restart| (restart.action, restart.refusal)), Some((RestartAction::Restart, None)));
 }

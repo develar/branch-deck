@@ -564,6 +564,31 @@ fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_land
   );
 }
 
+/// The running robots a failed required check dooms are part of what the Patronus view is derived of: their answer
+/// derives the view again, which offers their restart (`domain_policy::holds::restart_action`)
+#[test]
+fn an_answer_that_a_running_robot_is_failing_derives_the_patronus_view_again() {
+  let state = TableState::with_prefix("user");
+  let mut facts = FactStore::new();
+  let _ = facts.table.answer(at(1, 0, 1), Ok(Arc::new(chain())));
+  facts.apply(
+    at(2, 0, 2),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: listed(vec![robot("r", Some("auth"), PatronusRobotStatus::Running, 20)]),
+    },
+  );
+  let first = facts.begin_patronus(&state, Duration::from_secs(2)).expect("the first derivation");
+  assert_eq!(first.failing, [] as [String; 0]);
+  facts.patronus.answer(at(3, first.inputs, 3), Ok(PatronusView::default()));
+  assert!(facts.begin_patronus(&state, Duration::from_secs(3)).is_none(), "nothing changed since");
+
+  facts.apply(at(4, 0, 4), FactResult::Failing(Ok(vec!["r".to_owned()])));
+  let again = facts.begin_patronus(&state, Duration::from_secs(4)).expect("a derivation of the failing robot");
+  assert_eq!(again.failing, ["r"]);
+  assert_ne!(again.inputs, first.inputs);
+}
+
 /// The remote branches of a table as the session knows them: the remote status of its table state, which a push moved
 /// without a sync, over what the sync of the table knew; a branch the state has no status of keeps the table's
 #[test]

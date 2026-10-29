@@ -271,13 +271,19 @@ function formatEstimateBasis(robot: Pick<PatronusRobot, "pushMode">, basis: Esti
  * The timing after the start time in the details of a running robot, with what the estimate is of: "usually ~1 h 50
  * min for Large Scale Change · about 22 min left", the rough "usually ~40 min for Safe Push · 55 min, longer than
  * usual", and without history "running 18 min · no Safe Push finished in the last 30 days to estimate from"; without
- * the time left (`remaining: false`) while the estimate of the CI tells it
+ * the time left (`remaining: false`) while the estimate of the CI tells it, and without the profile the details name
+ * beside it (`profileName`): "usually ~1 h 50 min"
  */
-export function formatRobotTimingDetails(robot: Pick<PatronusRobot, "pushMode">, timing: RobotTiming, { remaining = true }: { remaining?: boolean } = {}): string {
+export function formatRobotTimingDetails(
+  robot: Pick<PatronusRobot, "pushMode">,
+  timing: RobotTiming,
+  { remaining = true, profileName = null }: { remaining?: boolean; profileName?: string | null } = {},
+): string {
   if (timing.expected === null || timing.basis === null) {
     return `running ${formatDuration(timing.elapsed)} · no ${formatPushMode(robot.pushMode)} finished in the last 30 days to estimate from`
   }
-  const usually = `usually ~${formatDuration(timing.expected)} ${formatEstimateBasis(robot, timing.basis)}`
+  const named = timing.basis.kind === "profile" && timing.basis.name !== null && timing.basis.name === profileName
+  const usually = named ? `usually ~${formatDuration(timing.expected)}` : `usually ~${formatDuration(timing.expected)} ${formatEstimateBasis(robot, timing.basis)}`
   // the estimate of the CI says the time left better
   if (!remaining) {
     return usually

@@ -176,13 +176,15 @@ fn taken_commit(source: Option<&str>, tip: Option<&str>, remote: Option<RemoteBr
 }
 
 /// Patronus restarts a failed or canceled robot on the newest commit of its branch, a canceling one too; a successful
-/// dry run only when the branch has a newer commit (`newer`) on the remote. A merged or a running robot is never
-/// restarted
-fn restarts(robot: &PatronusRobot, newer: Option<&str>) -> bool {
+/// dry run only when the branch has a newer commit (`newer`) on the remote. A running robot only while a required check
+/// of it failed (`failing`): it will fail, so its restart cancels it first and Patronus restarts the canceling one. A
+/// merged robot is never restarted
+fn restarts(robot: &PatronusRobot, newer: Option<&str>, failing: bool) -> bool {
   match robot.status {
     PatronusRobotStatus::Failure | PatronusRobotStatus::Canceled | PatronusRobotStatus::Canceling => true,
     PatronusRobotStatus::Success => robot.push_mode == PatronusPushMode::DryRun && newer.is_some_and(|newer| Some(newer) != robot.source_revision.as_deref()),
-    PatronusRobotStatus::Running | PatronusRobotStatus::Unknown => false,
+    PatronusRobotStatus::Running => failing,
+    PatronusRobotStatus::Unknown => false,
   }
 }
 
@@ -190,16 +192,17 @@ fn restarts(robot: &PatronusRobot, newer: Option<&str>) -> bool {
 /// temporary ref would test its old commit), never one that failed for missing approvals in a Space merge request
 /// (`needs_review` without a pull request: a new Safe Push with one is the way). `tip` and `remote` are of its subject
 /// as it is now. A subject with work its remote lacks is pushed first (`PushAndRestart`, also for a running robot,
-/// which the push cancels first), so the robot tests it as it is; else Patronus restarts it on the remote (`Restart`)
+/// which the push cancels first), so the robot tests it as it is; else Patronus restarts it on the remote (`Restart`),
+/// a running robot whose required check failed (`failing`) once its restart canceled it
 #[must_use]
-pub fn restart_action(robot: &PatronusRobot, tip: Option<&str>, remote: Option<RemoteBranch<'_>>, needs_review: bool) -> Option<RestartAction> {
+pub fn restart_action(robot: &PatronusRobot, tip: Option<&str>, remote: Option<RemoteBranch<'_>>, needs_review: bool, failing: bool) -> Option<RestartAction> {
   if (robot.branch_name.is_none() && robot.stack_root.is_none()) || (needs_review && robot.pull_request.is_none()) {
     return None;
   }
   let tip = tip.filter(|tip| !tip.is_empty());
   if taken_commit(robot.source_revision.as_deref(), tip, remote) == TakenCommit::ChangedLocally {
-    let restartable = restarts(robot, tip) || robot.status == PatronusRobotStatus::Running;
+    let restartable = restarts(robot, tip, failing) || robot.status == PatronusRobotStatus::Running;
     return (tip.is_some() && restartable).then_some(RestartAction::PushAndRestart);
   }
-  restarts(robot, remote.and_then(|remote| remote.tip)).then_some(RestartAction::Restart)
+  restarts(robot, remote.and_then(|remote| remote.tip), failing).then_some(RestartAction::Restart)
 }

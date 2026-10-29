@@ -441,13 +441,18 @@ async fn a_fake_of_the_state_only_lists_the_robots_a_start_and_a_restart_start_a
   );
   assert_eq!(fake.last_start()["mergeProfileId"], "lsc");
 
+  // as Patronus: a running robot is restarted once a cancel made it canceling
+  assert_eq!(service.cancel_robot("me", "started-1").await.unwrap().status, PatronusRobotStatus::Canceling);
   let restarted = service.restart_robot("me", "started-1").await.unwrap();
   assert_eq!(
     (restarted.id.as_str(), restarted.push_mode, restarted.branch_name.as_deref(), restarted.start_time),
     ("restarted-1", PatronusPushMode::DryRun, Some("IJPL-1"), 1_704_189_602)
   );
-  assert_eq!(service.cancel_robot("me", "started-1").await.unwrap().status, PatronusRobotStatus::Canceling);
   assert_eq!(service.robot_status("restarted-1").await.unwrap(), PatronusRobotStatus::Running);
+  assert_eq!(
+    service.restart_robot("me", "restarted-1").await.map(|robot| robot.id).unwrap_err(),
+    "Safe Push restarted-1 is still running"
+  );
   let listed: Vec<String> = fake
     .robots
     .lock()

@@ -790,13 +790,15 @@ impl FactStore {
     }
     let robots = listed_robots(self.robots.view());
     let needs_review = self.robots.view().needs_review.clone();
+    let failing = self.robots.view().failing.clone();
     let remote = session_remote(&table, state);
-    let inputs = patronus_inputs(self.table.fact().seq, &remote, &robots, &needs_review);
+    let inputs = patronus_inputs(self.table.fact().seq, &remote, &robots, &needs_review, &failing);
     self.patronus.begin(inputs, at).then_some(PatronusDerivation {
       table,
       remote,
       robots,
       needs_review,
+      failing,
       inputs,
     })
   }
@@ -1378,13 +1380,15 @@ pub fn derive_patronus(git_executor: &GitCommandExecutor, repository_path: &str,
 }
 
 /// What a Patronus view is derived of (`derive_patronus`): the table, the remote branches as the deriver knows them, the
-/// user's robots and, by robot id, those that failed for missing approvals
+/// user's robots, by robot id those that failed for missing approvals, and the running ones a failed required check
+/// dooms (their restart cancels them first)
 #[derive(Clone, Copy, Debug)]
 pub struct PatronusOf<'a> {
   pub table: &'a BranchTable,
   pub remote: &'a RemoteFacts,
   pub robots: &'a [PatronusRobot],
   pub needs_review: &'a BTreeMap<String, bool>,
+  pub failing: &'a [String],
 }
 
 /// A derivation of the Patronus view of a session that started (`FactStore::begin_patronus`): what it is of, owned for
@@ -1395,6 +1399,7 @@ pub struct PatronusDerivation {
   pub remote: RemoteFacts,
   pub robots: Vec<PatronusRobot>,
   pub needs_review: BTreeMap<String, bool>,
+  pub failing: Vec<String>,
   pub inputs: u64,
 }
 
@@ -1406,6 +1411,7 @@ impl PatronusDerivation {
       remote: &self.remote,
       robots: &self.robots,
       needs_review: &self.needs_review,
+      failing: &self.failing,
     }
   }
 }
@@ -1439,9 +1445,9 @@ pub fn listed_robots(robots: &RobotsView) -> Vec<PatronusRobot> {
 /// What the Patronus view of a session is of, as one hash: the table (by the observation that answered it), the remote
 /// branches the session knows, what the view reads of each robot and which robots failed for missing approvals
 #[must_use]
-pub fn patronus_inputs(table: u32, remote: &RemoteFacts, robots: &[PatronusRobot], needs_review: &BTreeMap<String, bool>) -> u64 {
+pub fn patronus_inputs(table: u32, remote: &RemoteFacts, robots: &[PatronusRobot], needs_review: &BTreeMap<String, bool>, failing: &[String]) -> u64 {
   let mut hasher = DefaultHasher::new();
-  (table, remote, needs_review).hash(&mut hasher);
+  (table, remote, needs_review, failing).hash(&mut hasher);
   for robot in robots {
     (
       &robot.id,

@@ -645,7 +645,7 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
     );
   }
   // what the rules decide over these facts, as the session's derivation writes it into the view
-  decide_landing(&mut view, &table, &session_remote(&table, &state), &robots, &HashMap::new(), &BTreeMap::new());
+  decide_landing(&mut view, &table, &session_remote(&table, &state), &robots, &HashMap::new(), &BTreeMap::new(), &[]);
   answer_patronus(&mut facts, 3, view, &table);
 
   let patch = View::new(1).diff(&state, &facts).unwrap();

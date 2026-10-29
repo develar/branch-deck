@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { availableRobots, failedFastTests, robot, setupRobots, setupRobotsWith } from "../helpers/patronus-helpers"
+import { availableRobots, failedFastTests, robot, setupRobotsWith } from "../helpers/patronus-helpers"
 import { hoverStatusChip } from "../helpers/review-status-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 
@@ -75,11 +75,20 @@ test.describe("Prompt for an agent of a failed Safe Push", () => {
     expect(prompt).not.toContain("Add session store")
   })
 
-  test("should offer both prompts in the details of the failed robot", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING, FAILED)
+  test("should offer both prompts in the details of the failed robot, the one with the CI details in the menu of its split button", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: failedFastTests("failed-robot") }, RUNNING, FAILED)
     const popover = await hoverStatusChip(page, findBranchRow(page, "ABC-123").getByTestId("patronus-chip"), "patronus-popover")
-    await expect(popover.getByRole("button", { name: "Copy Prompt with CI Details" })).toBeVisible()
     await popover.getByRole("button", { name: "Copy Prompt for Agent" }).click()
     await expect.poll(() => readClipboard(page)).toContain("Safe Push of `ABC-123` into `master` failed")
+    expect(await readClipboard(page)).not.toContain("## Failed builds")
+
+    await popover.getByRole("button", { name: "More Prompts" }).click()
+    await page.getByRole("menuitem", { name: "Copy Prompt with CI Details" }).click()
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Copied the prompt for ABC-123" })).toContainText("1 failed test")
+    expect(await readClipboard(page)).toContain("## Failed builds")
   })
 })

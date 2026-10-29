@@ -208,7 +208,9 @@ export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<Patronu
     return null
   }
   if (chip.commit === "rebased") {
-    return "Started on an earlier build of the same commits."
+    // every sync rebuilds the branch on the newer baseline: the robot has its commits on an older one
+    const tests = robot.status === "running" || robot.status === "canceling" ? "Tests" : "Tested"
+    return `${tests} the same commits on an older ${robot.targetBranch}.`
   }
   const now = localTip === undefined || localTip === "" ? "" : ` (now ${formatShortHash(localTip)})`
   // the robot of the whole stack tests the stack branch

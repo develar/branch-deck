@@ -396,9 +396,11 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/review-commit.test.ts (`takes the branch as it is for its own tip, and while nothing says otherwise`)
 - Its accessible name is the mode, then the state: "Safe Push: Failed"; for a running robot with its time, "Safe Push:
   Running, 18 minutes, about 22 minutes left" ("…, 14 hours, longer than usual").
-- Hovering the robot opens the details: the mode and the state, the name, the target branch, the commit, the start and
-  finish times, the cancellation reason, the notice about the commit (below) and the actions of the robot
-  ([below](#restart-and-cancel)). A click opens the robot page, leaves the details as they are
+- Hovering the robot opens the details: the mode and the state with "Open in Patronus" as an icon at its end, the name,
+  the target branch, the commit, the start and finish times, the cancellation reason, the notice about the commit
+  (below) and the actions of the robot ([below](#restart-and-cancel)) in two rows: what decides the robot, the restart
+  as the primary button and the cancel; then "Copy Prompt for Agent" as a split button whose menu has "Copy Prompt
+  with CI Details", and "Open Pull Request #12". A click opens the robot page, leaves the details as they are
   ([hover descriptions](../../docs/design/ui-theme.md)) and does not toggle the row.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
 - With the dot, the details say what changed and how to test the branch as it is: "Started on 3264f30f; the branch has
@@ -414,9 +416,10 @@ reports in it and closes it once merged.
   [@test] ../../src/lib/patronus.test.ts (`asks to cancel a running robot the remote moved past, and offers nothing for a robot of a temporary ref`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say when the branch changed since the robot started, and how to test the branch as it is`)
 - A branch only rebuilt on a newer baseline (the remote branch at the robot's commit, the branch up to date, other
-  hashes) gets no dot; the details say quietly "Started on an earlier build of the same commits."
-  [@test] ../../src/lib/patronus.test.ts (`says quietly that a robot started on an earlier build of the same commits, nothing for the branch as it is`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say only quietly that a robot started on an earlier build of the same commits`)
+  hashes) gets no dot; the details say quietly "Tests the same commits on an older master." ("Tested …" once it
+  finished).
+  [@test] ../../src/lib/patronus.test.ts (`says quietly that a robot tests the same commits on an older baseline, nothing for the branch as it is`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say only quietly that a robot tested the same commits on an older baseline`)
 
 ### Commits a running robot covers
 
@@ -480,9 +483,9 @@ reports in it and closes it once merged.
 - While the details of a running robot are open, they show the estimate of the CI in the row "Progress": the time left
   of the running check that ends last (its estimate minus its running time) and its name and percent, "about 9 min
   left · Unit Tests 93%"; "1 check queued" when checks wait in the queue; "Overtime 4 min" when every running check
-  ran past its estimate; "probably hanging" in `warning` when the CI says so. The time and the progress line of the row
+  ran past its estimate; "probably hanging" in `warning` when the CI says so; no row while the CI tells none of it. The time and the progress line of the row
   count down the time left it read meanwhile ("20m · ~9m left"), and the start line of the details keeps only the usual
-  time ("usually ~1 h 50 min for Large Scale Change"); once the details closed, the time and the line take the estimate
+  time ("usually ~1 h 50 min"); once the details closed, the time and the line take the estimate
   from history again. A running robot row of the landing overview shows the check and the queued checks too.
   [@test] ../../crates/patronus/src/actions_test.rs (`a_robot_ends_with_its_slowest_check_and_runs_over_when_every_check_did`)
   [@test] ../../src/lib/robot-eta.test.ts (`names the time left, the check the robot waits for, and the queued checks`, `counts down the time left it read while the details were open, for the slot`)
@@ -491,7 +494,8 @@ reports in it and closes it once merged.
   50 min for Large Scale Change · about 1 h 32 min left", "… without a merge profile …", the rough "… · usually ~40 min
   for Safe Push · 55 min, longer than usual", "… · running 18 min · no Safe Push finished in the last 30 days to
   estimate from". The slot doesn't name it. The details have the profile row when the profile is known, also before
-  the details answered; a robot row of the landing overview names it on hover of its time: "Safe Push · Large Scale
+  the details answered, and the start line names no profile that row names: "Today 14:02 · usually ~1 h 50 min · about
+  1 h 32 min left"; a robot row of the landing overview names it on hover of its time: "Safe Push · Large Scale
   Change".
   [@test] ../../src/lib/robot-eta.test.ts (`explains the estimate and what it is of in the details`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`, `should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it`)
@@ -1358,6 +1362,16 @@ explicit choice of the user, offered only where the approvals count in a pull re
   one rule of Rust (`domain_policy::holds::restart_action`, the view's `restarts` by robot id): a plain restart while
   the remote has the branch, a push first while the branch has work the remote lacks ("Push and Restart", also of a
   running robot, which the push cancels first); the page only presents it.
+- A running robot a required check of which failed ("Failing": it will fail) is restarted too, without waiting for the
+  rest of its checks: its restart cancels it, then Patronus restarts the canceling robot on the commit of the remote
+  branch, as Patronus restarts no running robot. The restart is offered first, before "Cancel Safe Push", in the
+  details, the branch menu and the landing overview; its hover says "Cancels the run on 78ca3b88 and starts it again on
+  the remote branch". A running robot no check of which failed has no restart: its cancel is the way.
+  [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
+  [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_robot_offers_its_restart_with_why_it_cannot_start_now`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`an_answer_that_a_running_robot_is_failing_derives_the_patronus_view_again`)
+  [@test] ../../src/presenters/robot-actions.test.ts (`names what a restart of a running robot a failed required check dooms does: it cancels it, then starts it again`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart it from its details: canceled first, then started again on the commit it tested`, `should restart it from the branch menu`)
 - A restart is a start: it waits where "Safe Push" waits (`domain_policy::land::restart_refusal`, the `refusal` of the
   view's restart), disabled with the same reason on every surface, for a blocked branch, and, for a Safe Push, while a robot lands an ancestor of the branch or a branch built
   on it lands the branch: two robots would land the same commits. A dry run pushes nothing into the target, so only the
@@ -1379,14 +1393,16 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - A restart and a cancel are intents of the engine (`RestartRobot`, `CancelRobot`; `operations::robot`), decided in
   Rust over the facts of the session, never the page's, and decided again by `execute` before the first effect: the
   plan of a restart is the restart the view offers, refused by the refusal of the view ("Nothing was restarted: …"); a
-  robot of a temporary ref, a running one on the commit of its branch and a merged one have none. A plain restart moves
-  no ref: no lock. A restart that pushes first retargets the pull request of the branch out of a virtual branch,
+  robot of a temporary ref, a running one on the commit of its branch no required check of which failed and a merged
+  one have none. A plain restart moves no ref: no lock; of a running robot it cancels it first (`[CancelRobot,
+  RestartRobot]`). A restart that pushes first retargets the pull request of the branch out of a virtual branch,
   cancels the running robot, pushes the branch (the lock only for the witness and the freeze) and restarts the robot
   after the push, skipped when the pushed branch moved since; a push that drops commits of the remote the branch lacks
   refuses it ("the remote branch of auth has 2 commits auth lacks"). A cancel of a robot that finished meanwhile (as
   the session or its status says) is answered as it ended, nothing canceled ("Safe Push already finished"); the
   robot a start or a restart replaces is canceled the same way, so the start or the push goes on.
-  [@test] ../../crates/operations/src/robot_test.rs (`a_restart_restarts_alone_while_the_remote_has_the_branch_and_pushes_first_a_branch_that_changed`, `a_restart_that_pushes_first_cancels_the_running_robot_pushes_and_restarts_it_on_the_pushed_commit`, `a_restart_on_the_remote_branch_takes_no_lock`, `a_cancel_of_a_robot_that_finished_is_as_it_ended_and_cancels_nothing`)
+  [@test] ../../crates/operations/src/robot_test.rs (`a_restart_restarts_alone_while_the_remote_has_the_branch_and_pushes_first_a_branch_that_changed`, `a_restart_that_pushes_first_cancels_the_running_robot_pushes_and_restarts_it_on_the_pushed_commit`, `a_restart_on_the_remote_branch_takes_no_lock`, `a_restart_of_a_failing_robot_cancels_it_and_restarts_it_on_the_same_commit`, `a_cancel_of_a_robot_that_finished_is_as_it_ended_and_cancels_nothing`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`a_fake_of_the_state_only_lists_the_robots_a_start_and_a_restart_start_and_cancels_them`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`, `a_cancel_of_a_robot_that_finished_is_answered_as_it_ended_and_a_start_goes_on`)
   [@test] ../../src/lib/robot-run.test.ts (`answers a robot that finished meanwhile as it ended: nothing was canceled`, `says what its plan refuses it by, and runs nothing`)
 - A restart or a cancel runs once per robot (an operation of the session, [Running Operations](../../docs/design/operations.md)):

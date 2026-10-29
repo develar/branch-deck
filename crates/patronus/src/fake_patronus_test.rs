@@ -125,8 +125,13 @@ async fn under_state_only_every_route_answers_only_the_state_set() {
   assert_eq!(started.json::<Value>().await.unwrap()["robotId"], json!("started-1"));
   assert_eq!(get(format!("{base}/robots/started-1")).await.1["status"], json!("RUNNING"));
   assert_eq!(get(format!("{base}/robots/started-1/status")).await.1["robotStatus"], json!("RUNNING"));
+  // as Patronus, the running robot is restarted only once a cancel made it canceling
+  let restart = || client.post(format!("{base}/robots/started-1/restart")).send();
+  assert_eq!(restart().await.unwrap().status(), 400);
   assert_eq!(client.put(format!("{base}/robots/started-1/cancel")).send().await.unwrap().status(), 200);
   assert_eq!(get(format!("{base}/robots/started-1/status")).await.1["robotStatus"], json!("CANCELING"));
+  let restarted = restart().await.unwrap().json::<Value>().await.unwrap();
+  assert!(restarted["robotId"].as_str().is_some_and(|id| id.starts_with("restarted-")), "{restarted}");
   // the routes without state
   assert_eq!(get(format!("{base}/robot-start-supported")).await.1["supported"], json!(true));
   let check = client

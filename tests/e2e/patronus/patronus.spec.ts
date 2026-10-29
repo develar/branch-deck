@@ -190,7 +190,7 @@ test.describe("Patronus chip", () => {
     await expect(details.getByRole("button", { name: "Restart Safe Push", exact: true })).toHaveAttribute("data-action", "restart-robot")
   })
 
-  test("should say only quietly that a robot started on an earlier build of the same commits", async ({ page, repo, syncAndWaitForBranches }) => {
+  test("should say only quietly that a robot tested the same commits on an older baseline", async ({ page, repo, syncAndWaitForBranches }) => {
     // the remote branch is an earlier build of the commits of the branch, which the sync rebuilt since, and the robot
     // ran on it; the app starts again, so its session lists the robots anew
     const earlier = await repo.pushInTerminal(virtualBranch("feature-api"), { earlierBuild: true })
@@ -203,7 +203,7 @@ test.describe("Patronus chip", () => {
     await expect(getChip(page, "feature-api")).toHaveAttribute("data-kind", "canceled")
     await expect(getChip(page, "feature-api").getByTestId("patronus-outdated-dot")).toHaveCount(0)
     const popover = await hoverChip(page, "feature-api")
-    await expect(popover.getByTestId("patronus-rebased")).toHaveText("Started on an earlier build of the same commits.")
+    await expect(popover.getByTestId("patronus-rebased")).toHaveText("Tested the same commits on an older master.")
     await expect(popover.getByTestId("patronus-outdated")).toHaveCount(0)
   })
 
@@ -322,8 +322,9 @@ baseTest.describe("Patronus robot timing", () => {
     const calls = await repo.getPatronusLog()
 
     let popover = await hoverChip(page, "JIRA-456")
-    await expect(popover.getByTestId("patronus-started")).toContainText("usually ~1 h 50 min for Large Scale Change · about 1 h 32 min left")
+    // the estimate is of the profile its row names: the start line doesn't name it again
     await expect(popover.getByTestId("patronus-profile-name")).toHaveText("Large Scale Change")
+    await expect(popover.getByTestId("patronus-started")).toHaveText(/ · usually ~1 h 50 min · about 1 h 32 min left$/)
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
     await page.mouse.move(0, 0)

@@ -25,6 +25,7 @@ import {
   setupRobotsWith,
   startRequest,
   setupApprovalsDismissedByPush,
+  willFail,
 } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
@@ -688,6 +689,46 @@ test.describe("Patronus actions", () => {
     await expect(restarted.getByRole("button", { name: "Open in Patronus" })).toHaveCount(1)
     const canceling = page.locator("[data-slot=toast]", { hasText: "Safe Push is canceling" })
     await expect(canceling.locator("[data-slot=toast-description]")).toHaveText("JIRA-456 → master")
+  })
+
+  test.describe("a running Safe Push whose required check failed", () => {
+    let repo: TestRepositoryBuilder
+
+    test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // JIRA-456 is on the remote as the robot took it, and a required check of the robot failed: it will fail
+      const details = { ...willFail(RUNNING.id), ...robotChecks(RUNNING.id, [["Bazel Build", "FAILURE"], ["Unit Tests", "RUNNING"], ...passedChecks(3)]) }
+      repo = await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: details })
+      const { "JIRA-456": pushed } = await pushedBefore(page, repo, ["JIRA-456"])
+      await repo.setPatronus(availableRobots({ ...RUNNING, sourceRevision: pushed! }))
+      await repo.closeSessions()
+      await page.reload()
+      await syncAndWaitForBranches()
+      await expect(chip(page, "JIRA-456")).toHaveText(/Failing$/)
+    })
+
+    /** Patronus canceled the robot, then restarted it; nothing was pushed or started */
+    async function expectCanceledAndRestarted(page: Page) {
+      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
+      expect(await patronusActions(repo)).toEqual({ cancels: [RUNNING.id], restarts: [RUNNING.id], starts: [] })
+      expect(await remotePushes(repo)).toEqual([])
+    }
+
+    test("should restart it from its details: canceled first, then started again on the commit it tested", async ({ page }) => {
+      const popover = await hoverStatusChip(page, chip(page, "JIRA-456"), "patronus-popover")
+      const restart = popover.getByRole("button", { name: "Restart Safe Push", exact: true })
+      await expect(restart).toHaveAttribute("data-action", "restart-robot")
+      await expect(popover.getByRole("button", { name: "Cancel Safe Push" })).toBeVisible()
+      // the details answered (the checks), and the CI tells no progress of it: no empty row
+      await expect(popover.getByTestId("patronus-checks")).toHaveText("1 failing (Bazel Build), 1 running, 3 passed")
+      await expect(popover.getByTestId("patronus-progress")).toHaveCount(0)
+      await runAndWaitForAnswer(page, "execute", () => restart.click())
+      await expectCanceledAndRestarted(page)
+    })
+
+    test("should restart it from the branch menu", async ({ page }) => {
+      await runAndWaitForAnswer(page, "execute", () => pushAndRestartFromMenu(page))
+      await expectCanceledAndRestarted(page)
+    })
   })
 
   test("should push and restart a failed robot whose branch changed since, from the branch preview, landing from the click", async ({

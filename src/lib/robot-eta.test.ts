@@ -167,6 +167,12 @@ describe("formatRobotProgress", () => {
     expect(formatRobotTimingDetails(running, getRobotTiming(start, null, NOW))).toBe("running 18 min · no Safe Push finished in the last 30 days to estimate from")
     // the estimate of the CI tells the time left
     expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW), { remaining: false })).toBe("usually ~1 h 50 min for Large Scale Change")
+    // the profile the details name beside it is not said again; another profile, or the push mode, is
+    expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW), { remaining: false, profileName: "Large Scale Change" })).toBe("usually ~1 h 50 min")
+    expect(formatRobotTimingDetails(running, getRobotTiming(start, lsc, NOW), { profileName: "Fast Tests" })).toBe(
+      "usually ~1 h 50 min for Large Scale Change · about 1 h 32 min left",
+    )
+    expect(formatRobotTimingDetails(running, getRobotTiming(start, rough(40), NOW), { profileName: "Safe Push" })).toBe("usually ~40 min for Safe Push · about 22 min left")
   })
 })
 
