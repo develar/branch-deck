@@ -462,12 +462,3 @@ export function useUnavailableJournals(repositoryPath: string | undefined): read
 export function useActivityRead(): boolean {
   return useStore(activityStore, state => state.log !== null)
 }
-
-/**
- * Whether the selected repository has a log, or a journal the last read could not read (Activity says why its log is
- * short): the header hides the Activity button otherwise
- */
-export function useHasActivity(): boolean {
-  const repositoryPath = useSelectedProjectPath()
-  return useStore(activityStore, state => state.items.some(entry => entry.repositoryPath === repositoryPath) || selectUnavailableJournals(state, repositoryPath).length > 0)
-}

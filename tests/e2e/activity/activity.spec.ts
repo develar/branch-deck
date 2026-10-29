@@ -28,8 +28,6 @@ import { waitForStorePersistence } from "../helpers/wait-helpers"
 
 testWithIssueLinks.describe("Activity", () => {
   testWithIssueLinks("should record the pushes with the remote commits a force push dropped, and show the branch", async ({ page, issueLinksRepo }) => {
-    // nothing happened yet: no button
-    await expect(activityButton(page)).toHaveCount(0)
     const row = findBranchRow(page, "ABC-123")
     await getPushButton(row).click()
     await expectNothingToPush(row)
@@ -235,10 +233,11 @@ testWithIssueLinks.describe("Activity", () => {
     const window = await openActivityWindow(page)
     await expect(activityEntry(window, "Pushed branch feature-auth")).toBeVisible()
     await window.getByTestId("activity-clear").click()
-    // the main window forgot it: no button, and the window says it
-    await expect(activityButton(page)).toHaveCount(0)
+    // the window says it, and the main window forgot it too: its button stays and opens the empty log
     await expect(window.getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
     await expect(window.getByTestId("activity-clear")).toBeDisabled()
+    await activityButton(page).click()
+    await expect(activityPanel(page).getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
   })
 })
 

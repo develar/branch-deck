@@ -76,7 +76,8 @@ export function ConfigurationHeader() {
                     </>
                   }
                 />
-                <ActivityButton />
+                {/* the log of the selected repository, empty or not */}
+                {hasSelectedProject && <ActivityButton />}
               </div>
             )}
             {pathValidation.valid && lastSyncTime && (

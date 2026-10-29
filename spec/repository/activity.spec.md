@@ -246,8 +246,8 @@ tells the present, its line of the last day opens Activity at its Robots.
 - "Clear Log" in the footer of the window forgets the whole log of the repository, whatever the filter shows (its
   tooltip says it): the journal of its repository empties (`clear_activity`, under `operations.lock`) and the entries
   of the page of it leave the journal of the page; the other repositories keep theirs. The window then says "Nothing
-  yet: what Branch Deck does in the repository shows here", Clear Log disabled, and the header button goes; a clear
-  that fails is an error toast in the window.
+  yet: what Branch Deck does in the repository shows here", Clear Log disabled, and the header button stays, opening
+  the empty log; a clear that fails is an error toast in the window.
   [@test] ../../crates/operations/src/journal_test.rs (`the_page_records_into_its_journal_and_clear_log_forgets_the_log_of_a_repository_in_both`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should clear the log of the repository`)
 
@@ -325,9 +325,12 @@ tells the present, its line of the last day opens Activity at its Robots.
 ## User Experience
 
 - The button is a ghost `icon-sm` `HistoryIcon` after the landing indicator, named "Activity" with the tooltip
-  "Activity" (an icon-only button, [UI Theme](../../docs/design/ui-theme.md)); it is hidden while the log of the
-  repository is empty. The header stays on one line from 960 px.
-  [@test] ../../tests/e2e/activity/activity.spec.ts (`should record an applied update, the button on the header line at the minimum window width`)
+  "Activity" (an icon-only button, [UI Theme](../../docs/design/ui-theme.md)). It is there whenever a repository is
+  selected, its log empty too, which it opens with "Nothing yet", as the menus and the palette do: the first entry
+  moves nothing in the header (a button that came with it narrowed the repository selector, which gives way to the
+  actions at the minimum width beside the traffic lights). The header stays on one line from 960 px.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should record an applied update, the button on the header line at the minimum window width`, `should clear the log of the repository`)
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls in place when the first entry of Activity comes, its button opening the empty log before`)
 - The side panel is an island (`Card`) on the canvas beside the islands of the main window, 8px from them, from the
   window edge and from the bottom, under the header: 24rem until its divider (the 8px gap) is dragged, at least 320 px,
   at most half the area. Its 40px header has "Activity", Open in Window (`AppWindowIcon`, `xs`) and Close; under it the

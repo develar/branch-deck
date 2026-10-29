@@ -290,8 +290,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   when the window opens a repository synced before ([Onboarding](onboarding.spec.md)).
 - The header must stay one line down to the minimum window width, 960 px (`min_inner_size`), its controls never
   overlapping: the repository selector gives way first, the branch count shows from
-  1024 px while the filter bar is hidden (from 8 branches on its "All 35" counts them), the time of the last sync from 768 px; Update, the landing indicator, Activity ([Activity](activity.spec.md)),
-  Sync and its settings never shrink.
+  1024 px while the filter bar is hidden (from 8 branches on its "All 35" counts them), the time of the last sync from 768 px; Update, the landing indicator, Activity ([Activity](activity.spec.md),
+  there with an empty log too), Sync and its settings never shrink.
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
 - The selector shows its path cut at a separator, never in a segment: the whole path where it fits, else as many of
   its last segments as fit behind one "…" (`…/scratch/demo`, then `…/demo`), at last the name alone, whose end a name

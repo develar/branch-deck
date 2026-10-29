@@ -1,12 +1,16 @@
 // @spec spec/repository/update-project.spec.md
 // @spec spec/repository/settings.spec.md
+// @spec spec/repository/activity.spec.md
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
+import { activityButton, activityEntry, openActivityWindow } from "../helpers/activity-helpers"
+import { pushFromRowMenu } from "../helpers/branch-helpers"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, headerBoxes, MIN_WINDOW } from "../helpers/header-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
+import { expectPushedToast } from "../helpers/push-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
-import { emitTauriEvent, finishedSyncCount, focusWindow, waitForSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { holdCommand, holdIntent } from "../helpers/wait-helpers"
 
@@ -163,6 +167,32 @@ test.describe("Repository selector", () => {
     await page.mouse.move(0, 0)
     await trigger.hover()
     await expect(page.getByRole("tooltip")).toHaveText(repo.path)
+  })
+})
+
+test.describe("Header beside the traffic lights", () => {
+  test("should keep its controls in place when the first entry of Activity comes, its button opening the empty log before", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // at the minimum width beside the traffic lights the repository selector gives way to the actions
+    await useTitleBar(page, TITLE_BARS.macos)
+    await page.setViewportSize(MIN_WINDOW)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const before = await headerBoxes(page, HEADER_CONTROLS)
+    const trigger = await boxOf(header(page).getByRole("combobox"))
+
+    // nothing happened yet: the button opens the log, which says so (the window: the panel has no room here)
+    const empty = await openActivityWindow(page, () => activityButton(page).click())
+    await expect(empty.getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
+
+    // the first entry: the push of feature-auth, which the main window reads once its journal changed
+    const read = nextAnswer(page, "read_activity")
+    await pushFromRowMenu(page, "feature-auth")
+    await expectPushedToast(page, "feature-auth")
+    await read
+    expect(await headerBoxes(page, HEADER_CONTROLS)).toEqual(before)
+    expect(await boxOf(header(page).getByRole("combobox"))).toEqual(trigger)
+    const window = await openActivityWindow(page, () => activityButton(page).click())
+    await expect(activityEntry(window, "Pushed branch feature-auth")).toBeVisible()
   })
 })
 
