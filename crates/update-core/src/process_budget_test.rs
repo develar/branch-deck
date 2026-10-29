@@ -13,7 +13,7 @@ use test_utils::process_budget::{assert_processes, counting};
 const UPDATE: &[(&str, u32)] = &[
   ("cat-file", 1),
   ("config", 1),
-  ("diff-tree", 1),
+  ("diff-tree", 2),
   ("for-each-ref", 1),
   ("log", 3),
   ("merge-base", 2),
@@ -37,9 +37,11 @@ fn with_fetch(processes: &[(&'static str, u32)]) -> Vec<(&'static str, u32)> {
 
 /// Update Project: the fetch, the check and the rebase of the local commit onto the upstream, the files following. The
 /// directories are read once at the start (one `rev-parse`): the guards, the lock, the pending moves and the index of
-/// the dry run take them from there. The check runs before the lock; under it, its witness (the guards, one `rev-parse`
-/// of HEAD and the upstream) costs one `rev-parse` and one `symbolic-ref` more. The record of what landed reads HEAD once
-/// more under the lock of the landed state (`record_update`), as it runs after the repository lock: one `rev-parse`
+/// the dry run take them from there. Before its replay the check pairs the local commit with the upstream commits by
+/// its author: no twin, and the sets of paths of both sides (`diff-tree --name-only`) differ, so no patch id. The check
+/// runs before the lock; under it, its witness (the guards, one `rev-parse` of HEAD and the upstream) costs one
+/// `rev-parse` and one `symbolic-ref` more. The record of what landed reads HEAD once more under the lock of the landed
+/// state (`record_update`), as it runs after the repository lock: one `rev-parse`
 #[test]
 fn an_update() {
   let fixture = setup();
@@ -89,8 +91,10 @@ fn an_update_after_its_fetch() {
 /// replay, the pairing reads the local commits (`log`) and the upstream commits by the local authors (`log`), compares
 /// the patch ids of both pairs by identity (`diff-tree -p` with `patch-id --stable`, none equal), replays them
 /// (`merge-tree --stdin`, one `rev-parse` of the upstream trees), and proves the one whose cherry-pick conflicts by its
-/// changed lines (`diff-tree -p -U0` with `patch-id --verbatim`, `diff-tree --raw`). The replay without the twins
-/// conflicts, so the pairing looks for the commits of the same patch (`rev-list --cherry-mark`, none here), and the
+/// changed lines (`diff-tree -p -U0` with `patch-id --verbatim`, `diff-tree --raw`). The commit left compares its set of
+/// paths with the upstream commits no twin took (`diff-tree --name-only`); the upstream change of the same file has
+/// another patch id (`diff-tree -p` with `patch-id --stable`). The replay without the twins conflicts, so the pairing
+/// looks for the commits of the same patch by other authors (`rev-list --cherry-mark`, none here), and the
 /// resolve by words stops at the real conflict (`var`, `merge-tree`, `check-attr`, `cat-file`): the first conflict,
 /// which needs no search. It is described by its merge (`merge-tree`), the commit (`log`) and the upstream commits that
 /// change its files (`log`); the outline of the whole branch is gone (one `log` less). A conflict moves nothing: no
@@ -117,12 +121,12 @@ fn a_conflicting_update_pairs_its_commits_once() {
       ("cat-file", 2),
       ("check-attr", 1),
       ("config", 1),
-      ("diff-tree", 3),
+      ("diff-tree", 5),
       ("for-each-ref", 1),
       ("log", 4),
       ("merge-base", 2),
       ("merge-tree", 3),
-      ("patch-id", 2),
+      ("patch-id", 3),
       ("remote", 1),
       ("replay", 1),
       ("rev-list", 2),

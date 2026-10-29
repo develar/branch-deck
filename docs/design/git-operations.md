@@ -1220,9 +1220,21 @@ Details:
      `patch-id --verbatim`, and one `diff-tree --stdin -r -z --raw --numstat`: the same changed lines, and the same
      paths, statuses and modes, with the same new object of each binary file (`-` counts) and gitlink.
 
-  No process without twins. When the replay conflicts, the pairing adds the local commits of the same patch id under
-  another key (an upstream that reworded them) once (`with_patch_identical`): one `rev-list --cherry-mark --no-merges
-  U...H`, then one `diff-tree --stdin -p` and one `patch-id --stable` of the marked commits that no twin took.
+  No process without twins. Then, before the replay too, the local commits that no twin proves are paired with the
+  upstream commits of their authors that no twin took, by the same patch id under another key (an upstream that
+  reworded them, landed them at another author time, or squashed a pull request of one commit;
+  `with_same_patch_by_authors`, the two make `pair_before_replay`). As git compares, the sets of changed paths come
+  first: one `diff-tree --stdin -r -z --name-only --no-renames` of both sides, then one `diff-tree --stdin -p` and one
+  `patch-id --stable` only for the commits whose set the other side has. The upstream commits are those the landed
+  report reads anyway (`--author=<email>`); on the IntelliJ monorepo the set of paths of the 117 commits of one author
+  in a day cost 0.09 s, of 731 in a week 0.17 s, of 2806 in three weeks 0.6–0.7 s (2026-10-29, load 50).
+
+  When the replay conflicts, the pairing adds the local commits of the same patch id by other authors once
+  (`with_patch_identical`): one `rev-list --cherry-mark --no-merges U...H`, then one `diff-tree --stdin -p` and one
+  `patch-id --stable` of the marked commits that no proof took. Only then: the walk computes the patch ids of every
+  upstream commit since the merge base, 1.5–5 s over a day of the monorepo (1500 commits) and 10–17 s over three
+  weeks (20,000), and the paths of the local commits as its pathspec still leave 7.5 s for 50 paths. A copy by another
+  author whose merge is clean therefore replays, as a change the upstream has without any proof does.
 
   A pair that no rung proves is a candidate: the key alone is no proof (an amend after the push, a robot that folded
   its fixups in, an independent fix of the same lines). The proven commits are left out as a drop does, one `replay`
@@ -1232,7 +1244,8 @@ Details:
   C), and each merge gives the result's tree. So the proven drops and the other local commits never take part in the
   check, and a fixup made after the push keeps the candidate's set out. A robot that autosquashes pushes the target
   with its fixups folded in; the target alone then adds other content than the upstream has, and a plain replay
-  conflicts. The candidates are tried only after a conflict, so a clean update costs only the pairing of its twins.
+  conflicts. The candidates are tried only after a conflict, so a clean update costs only the pairing before its
+  replay.
 
   Which commits landed, and where, takes three read-only `log` processes (the preview's are cached with its replay):
   the local commits (`HEAD ^U ^<previous tips>`) and the upstream commits since the merge base by the authors of the

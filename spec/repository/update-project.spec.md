@@ -221,11 +221,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/update-state.test.ts (`says that a rebase resolves conflicts of git by words: it is not clean to git`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should rebase an update whose conflict of git resolves by words, and say so`)
 - A local commit whose changes are already upstream is dropped and reported, not an error. A twin the baseline proves
-  it has is left out before the replay, so a clean merge never adds its change a second time. When the replay conflicts
+  it has, or the same patch of its author under another key, is left out before the replay, so a clean merge never
+  adds its change a second time. When the replay conflicts
   because a robot folded fixups into their target, the landed commits are left out if nothing local is lost
   ([Landed Commits](landed-commits.spec.md)).
   [@test] ../../crates/update-core/src/update_project_test.rs (`commit_already_upstream_is_dropped_and_reported`)
-  [@test] ../../crates/update-core/src/landed_test.rs (`a_twin_of_the_same_patch_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`)
+  [@test] ../../crates/update-core/src/landed_test.rs (`a_twin_of_the_same_patch_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`, `the_same_patch_under_another_key_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`)
 - Conflict and blocked are results: the branch, the index, the working tree and the reflog stay as they were.
 - Up to date must write no reflog entry.
   [@test] ../../crates/update-core/src/update_project_test.rs (`up_to_date_writes_no_reflog_entry`)

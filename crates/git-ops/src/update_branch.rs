@@ -9,7 +9,7 @@
 use crate::commit_utils::blob_id;
 use crate::commit_writer::{current_committer, write_notes_to_refs};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
-use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_twins, read_landed, with_patch_identical};
+use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed, with_patch_identical};
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
@@ -70,9 +70,10 @@ pub enum CheckPurpose {
   Apply,
 }
 
-/// Which local commits a check leaves out of its replay: the twins the upstream proves it has
-/// (`landed_pairing::pair_twins`), before any replay; when the replay conflicts, also the commits of the same patch id
-/// (`landed_pairing::with_patch_identical`), then, while it still conflicts, the candidates by identity, e.g. those a
+/// Which local commits a check leaves out of its replay: before any replay, those the upstream proves it has
+/// (`landed_pairing::pair_before_replay`: the twins, the same patch under another key by the same authors); when the
+/// replay conflicts, also the commits of the same patch id by other authors (`landed_pairing::with_patch_identical`),
+/// then, while it still conflicts, the candidates by identity, e.g. those a
 /// Safe Push robot pushed with their fixups folded in (the target alone then adds other content than the upstream has).
 /// A candidate is left out only if the result provably keeps its change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,8 +114,9 @@ pub struct UpdatePlan {
   landed_reads: Option<Arc<LandedReads>>,
 }
 
-/// What the pairing of a check left out (`landed_pairing::pair_twins`, after a conflict `pair_landed`): the local commits
-/// it keeps and the pairing. The check stores it; a resolve session replays it, without a pairing of its own
+/// What the pairing of a check left out (`landed_pairing::pair_before_replay`, after a conflict `pair_landed`): the
+/// local commits it keeps and the pairing. The check stores it; a resolve session replays it, without a pairing of its
+/// own
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplayPlan {
   /// The local commits the replay keeps, oldest first: the proven drops left out
@@ -513,9 +515,10 @@ impl ReplayOutcome {
 }
 
 /// Replay the local commits onto the upstream (a fast-forward needs no replay) and list the paths HEAD's tree changes.
-/// The twins the upstream proves it has are left out before the replay (`pair_twins`, `LandedLookup::ByKey`), as
-/// `git rebase` leaves out a commit of the same patch id: a clean merge of a twin onto other context can add its lines a
-/// second time. When the replay conflicts, the pairing adds the commits of the same patch id once (`ReplayPlan`): the
+/// The local commits the upstream proves it has are left out before the replay (`pair_before_replay`,
+/// `LandedLookup::ByKey`), as `git rebase` leaves out a commit of the same patch id: a clean merge of such a commit onto
+/// other context can add its lines a second time. When the replay conflicts, the pairing adds the commits of the same
+/// patch id by other authors once (`ReplayPlan`): the
 /// replay without the drops, then without the candidates too (`replay_without_landed`), then by words; the outcome
 /// keeps the plan
 fn replay_outcome(
@@ -548,13 +551,13 @@ fn replay_outcome(
       let twins = match landed {
         LandedLookup::ByKey { stacks } => {
           let reads = read_landed(git_executor, repo_path, landed_scope(plan))?;
-          let twins = pair_twins(git_executor, repo_path, &reads, stacks)?;
+          let twins = pair_before_replay(git_executor, repo_path, &reads, stacks)?;
           landed_reads = Some(Arc::new(reads));
           Some((twins, stacks))
         }
         LandedLookup::Off => None,
       };
-      // the twins the upstream proves it has are never replayed onto it
+      // the local commits the upstream proves it has are never replayed onto it
       let tried = twins.as_ref().map_or(0, |(twins, _)| twins.drops.len());
       let first = match &twins {
         Some((twins, _)) if tried > 0 => replay_skipping(git_executor, repo_path, upstream_head, &revs, &twins.local, &drop_ids(&twins.drops), env)?,
@@ -562,7 +565,7 @@ fn replay_outcome(
       };
       if let Some(new_head) = first {
         if tried > 0 {
-          info!(left_out = tried, "the update leaves out the twins the upstream proves it has");
+          info!(left_out = tried, "the update leaves out the local commits the upstream proves it has");
           replay_plan = twins.map(|(twins, _)| ReplayPlan::of(twins));
         }
         new_head
@@ -706,7 +709,7 @@ fn replay_by_words(
 }
 
 /// For a replay that conflicts: replay again without the drops of `plan`, which the upstream proves it has, unless the
-/// replay that conflicted already left out all of them (`tried`: the twins of `pair_twins` come first), then also
+/// replay that conflicted already left out all of them (`tried`: those of `pair_before_replay` come first), then also
 /// without each set of candidates in order (`LandedPairing::candidate_sets`). A set of candidates counts only if the
 /// result keeps the change of each candidate (`keeps_candidates`). So a commit amended after it was pushed, or a fixup
 /// made after, is never lost; its set fails and the update conflicts as before. `None` when nothing gives a clean result

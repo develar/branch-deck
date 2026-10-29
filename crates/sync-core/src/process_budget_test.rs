@@ -704,7 +704,9 @@ fn fetched_update() -> (TestRepo, TestRepo) {
   (upstream, clone)
 }
 
-/// The check of Update Project against the fetched upstream, as the app shows it before an update
+/// The check of Update Project against the fetched upstream, as the app shows it before an update. Before its replay it
+/// pairs the local commit with the upstream commits by its author: no twin, and the sets of paths of both sides
+/// (`diff-tree --name-only`) differ, so no patch id
 #[test]
 fn an_update_check() {
   let (_upstream, clone) = fetched_update();
@@ -716,7 +718,7 @@ fn an_update_check() {
     &[
       ("cat-file", 2),
       ("config", 1),
-      ("diff-tree", 1),
+      ("diff-tree", 2),
       ("for-each-ref", 1),
       ("hash-object", 1),
       ("log", 3),

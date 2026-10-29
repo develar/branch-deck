@@ -87,10 +87,14 @@ by the next sync the same way.
   `git rebase` compares); else a cherry-pick of the local commit onto the baseline commit's own parent that writes that
   commit's tree (`replayed`: twins that landed in another order, whose context lines differ); else the same changed
   lines without context, paths, statuses and modes, with the same new object of each binary file and gitlink
-  (`changed_lines`: a cherry-pick that conflicts on the line next to it). When the replay conflicts, the check also
-  pairs the local commits of the same patch id under another key (a reworded one), once. What no rung proves stays a
-  candidate.
-  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_of_the_same_patch_is_proven_by_its_patch_id_before_the_replay`, `the_same_patch_under_another_identity_is_proven_only_after_a_conflict`, `the_pairing_of_the_twins_runs_no_process_without_a_twin`)
+  (`changed_lines`: a cherry-pick that conflicts on the line next to it). Then, before the replay too, it pairs the
+  local commits of the same patch id under another key by the same author (`patch_id`: a reworded one, one landed at
+  another author time, the squash of a pull request of one commit), among the baseline commits of that author with the
+  same set of changed paths, as git compares. When the replay conflicts, the check also pairs the local commits of the
+  same patch id by another author, once: that walk of the whole baseline costs seconds in a monorepo. What no rung
+  proves stays a candidate.
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_of_the_same_patch_is_proven_by_its_patch_id_before_the_replay`, `the_same_patch_under_another_identity_of_its_author_is_proven_before_the_replay`, `the_same_patch_by_another_author_is_proven_only_after_a_conflict`)
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`the_pairing_of_the_twins_runs_no_process_without_a_twin`, `the_same_patch_of_the_author_is_looked_for_only_among_its_sets_of_paths`)
   [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_with_other_context_is_proven_by_its_replay`)
   [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`twins_landed_in_the_other_order_are_both_proven_by_their_replay`)
   [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_whose_cherry_pick_conflicts_is_proven_by_its_changed_lines`)
@@ -111,16 +115,18 @@ by the next sync the same way.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`, `a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
 - The check of a conflicting update pairs once: the session replays the plan of the check and pairs nothing again.
   [@test] ../../crates/update-core/src/process_budget_test.rs (`a_conflicting_update_pairs_its_commits_once`)
-- Detection costs three read-only `log` processes, one more for a proven commit of another author; the check inside a
-  sync reuses them for an unchanged state, and a failure never fails the check or the update.
+- Detection costs three read-only `log` processes, one more for a proven commit of another author, and one
+  `diff-tree --name-only` of the local commits and the baseline commits of their authors; the check inside a sync
+  reuses them for an unchanged state, and a failure never fails the check or the update.
 
 ### Update
 
-- The check replays without the proven twins ("The proof"), as `git rebase` leaves out a commit of the same patch id
-  and as a drop does (a run of kept commits per replay): a clean merge of a twin onto a baseline that changed the lines
-  around it would add its lines a second time.
-  [@test] ../../crates/update-core/src/landed_test.rs (`a_twin_of_the_same_patch_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`, `a_twin_on_other_context_is_left_out_of_a_clean_replay_by_its_replay`)
-- When the replay conflicts, the check replays again without the commits of the same patch id under another key too.
+- The check replays without the commits proven before the replay ("The proof": the twins and the same patch of their
+  author under another key), as `git rebase` leaves out a commit of the same patch id and as a drop does (a run of
+  kept commits per replay): a clean merge of such a commit onto a baseline that changed the lines around it would add
+  its lines a second time.
+  [@test] ../../crates/update-core/src/landed_test.rs (`a_twin_of_the_same_patch_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`, `a_twin_on_other_context_is_left_out_of_a_clean_replay_by_its_replay`, `the_same_patch_under_another_key_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`)
+- When the replay conflicts, the check replays again without the commits of the same patch id by another author too.
   If that conflicts too, it leaves out the candidates together with their fixups, then the candidates alone. Such a result counts only if it keeps the change of each candidate: the merge of the change
   from the candidate's parent to its last local fixup into the result gives the result's tree. So a robot that folded
   the fixups into their target no longer makes the update conflict, while a commit amended after the push, or a fixup
@@ -257,8 +263,15 @@ by the next sync the same way.
 - A fixup of a prefix branch is pushed without its marker (the virtual commit takes the subject without the `(prefix)`
   and the marker before it), so a robot can't fold it: it lands as a commit of its own and matches by key. Only the
   fixups of an issue or unassigned branch keep the marker and are folded.
-- Leaving the landed commits out is tried only when the plain replay conflicts, and the no-loss proof is strict: an
-  upstream commit that changed the landed lines again after the robot makes it fail, and the update conflicts.
+- Leaving the candidates out is tried only when the replay without the proven commits conflicts, and the no-loss
+  proof is strict: an upstream commit that changed the landed lines again after the robot makes it fail, and the
+  update conflicts.
+- A copy of the same patch by another author (a cherry-pick under another identity, a squash under another email) is
+  found only after a conflict, and a change the baseline has with no proof at all (a squash of several commits)
+  replays: a clean merge of either can still add its lines a second time. A walk of the patch ids of the whole
+  baseline before every replay, as `git rebase` does, costs 1.5–5 s over a day of the IntelliJ monorepo (1500
+  commits) and 10–17 s over three weeks (20,000), on every check of a sync; the paths of the local commits narrow it
+  to 0.6 s for one or two paths but leave 7.5 s for 50 (2026-10-29, load 30–50).
 - Two commits of one author in the same second with the same subject are one key.
 - The shared-element move of a row into the island (`ViewTransition`) is not done: the rows change on a later sync
   event than the report, and zustand updates are not transitions.

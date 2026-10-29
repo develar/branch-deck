@@ -56,8 +56,8 @@
 //! - `resolve_check`: the checks of a resolved file of a round
 //! - `word_replay`: the local commits replayed onto the upstream, each conflict resolved by words, all or nothing
 //! - `landed_pairing`: a local commit paired with the upstream commit that carries its change, by identity
-//!   (`CommitKey`, the walks by author), by patch id and by the ladder of proofs of an update that conflicts
-//!   (`pair_landed`); also for the landed report, the remote status, the robot commit map and the pick
+//!   (`CommitKey`, the walks by author), by patch id and by the ladder of proofs of an update, before its replay and
+//!   after a conflict (`pair_landed`); also for the landed report, the remote status, the robot commit map and the pick
 //! - `autosquash_targets`: the target of each fixup with git's autosquash rules, pure
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), the worktree following
 //! - `unapply`: the commits of a virtual branch out of the checked out branch, the files following, and its undo

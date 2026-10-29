@@ -161,8 +161,9 @@ flowchart TB
    (`landed_pairing::pair_twins`): the same patch id; a cherry-pick onto the upstream commit's own parent that writes
    its tree (`replayed`: twins that landed in another order, whose context lines differ); the same changed lines, paths
    and modes (`changed_lines`: a cherry-pick that conflicts on the line next to it). A proven twin is never replayed: a
-   clean merge of it onto other context can add its lines a second time. When the replay conflicts, the check also
-   pairs the commits of the same patch id under another key, once (`landed_pairing::pair_landed`). A proven commit
+   clean merge of it onto other context can add its lines a second time. Before the replay too, it pairs the commits of
+   the same patch id under another key by the same author (`landed_pairing::pair_before_replay`), and when the replay
+   conflicts, those by another author, once (`landed_pairing::pair_landed`). A proven commit
    landed as its upstream commit, also under a reworded message. When the replay conflicts because the robot folded
    fixups into their target, the update leaves the candidates out too if a `merge-tree` of each candidate's change
    proves nothing local is lost (see "Update project" in [Git Operations](git-operations.md)). Where the check

@@ -822,7 +822,9 @@ fn leased_repo() -> (TestRepo, tempfile::TempDir, bd_core::context::Environment,
 /// update of the lease onto the home branch without a fetch: the check of the update (a binary search of `replay`) and
 /// the start of a resolve session in the lease under the lock. The two commits have subjects of their own: with one
 /// subject they share an identity (`CommitKey`: the author, the second and the subject without the prefix) whenever they
-/// fall into the same second, and the update then proves the pair by its replay and its changed lines
+/// fall into the same second, and the update then proves the pair by its replay and its changed lines. Both change the
+/// readme alone, so before its replay the update compares their patch ids (`diff-tree --name-only` of both sides, then
+/// `diff-tree -p` with `patch-id --stable`): they differ
 #[test]
 fn a_lease_pick_that_conflicts() {
   let (repo, _home, environment, got) = leased_repo();
@@ -877,13 +879,14 @@ fn a_lease_pick_that_conflicts() {
       ("cat-file", 6),
       ("check-attr", 2),
       ("config", 1),
-      ("diff-tree", 2),
+      ("diff-tree", 4),
       ("fast-import", 1),
       ("for-each-ref", 1),
       ("hash-object", 1),
       ("log", 6),
       ("merge-base", 3),
       ("merge-tree", 3),
+      ("patch-id", 1),
       ("replay", 1),
       ("rev-list", 2),
       ("rev-parse", 4),

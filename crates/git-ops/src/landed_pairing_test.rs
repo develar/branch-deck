@@ -1,6 +1,6 @@
 use crate::landed_pairing::{
-  CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_landed, pair_twins, read_landed, walk_commits,
-  with_patch_identical,
+  CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_before_replay, pair_landed, pair_twins, read_landed,
+  walk_commits, with_patch_identical,
 };
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -61,16 +61,33 @@ fn sides() -> TestRepo {
   repo
 }
 
-/// The pairing of `local` with `upstream`: the twins, then the rest by their patch id (`pair_landed`), and the twins alone
-/// (`pair_twins`), the pairing before a replay
+/// The pairing of `local` with `upstream`: all of it, after a conflict too (`pair_landed`), and the pairing before a
+/// replay (`pair_before_replay`)
 fn pairings(repo: &TestRepo) -> (LandedPairing, LandedPairing) {
   in_scope(repo, |scope| {
     let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
-    let twins = pair_twins(repo.git_executor(), repo.path_str(), &reads, false).unwrap();
-    let all = with_patch_identical(repo.git_executor(), repo.path_str(), scope, &reads, twins.clone(), false).unwrap();
+    let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads, false).unwrap();
+    let all = with_patch_identical(repo.git_executor(), repo.path_str(), scope, &reads, before.clone(), false).unwrap();
     assert_eq!(all, pair_landed(repo.git_executor(), repo.path_str(), scope, false).unwrap());
-    (all, twins)
+    (all, before)
   })
+}
+
+/// A commit of `f.txt` with `changes` on `upstream` by another author, `Other <other@example.com>`
+fn commit_by_another_author(repo: &TestRepo, message: &str, changes: &[(usize, &str)]) -> String {
+  let git = |args: &[&str], stdin: &str| repo.git_executor().cmd(args, repo.path_str()).stdin(stdin.as_bytes()).text().unwrap();
+  let file = git(&["hash-object", "-w", "--stdin"], &numbered_lines(changes));
+  let binary = git(&["rev-parse", "upstream:bin.dat"], "");
+  let tree = git(&["mktree"], &format!("100644 blob {binary}\tbin.dat\n100644 blob {file}\tf.txt\n"));
+  let env = [("GIT_AUTHOR_NAME", "Other"), ("GIT_AUTHOR_EMAIL", "other@example.com")];
+  let commit = repo
+    .git_executor()
+    .cmd(&["commit-tree", &tree, "-p", "upstream", "-m", message], repo.path_str())
+    .env(&env)
+    .text()
+    .unwrap();
+  git(&["update-ref", "refs/heads/upstream", &commit], "");
+  commit
 }
 
 /// `f` of the scope of `local` onto `upstream`
@@ -204,20 +221,54 @@ fn a_twin_of_the_same_patch_is_proven_by_its_patch_id_before_the_replay() {
   let repo = sides();
   let local = repo.commit_history("refs/heads/local", &[change_line_5()]);
   let upstream = repo.commit_history("refs/heads/upstream", &[at("Change line 5", &[(5, "five")], 200)]);
-  let (all, twins) = pairings(&repo);
-  assert_eq!(twins.drops, [drop_of(&local[0], &upstream[0], LandedProof::PatchId)]);
-  assert_eq!(all, twins);
+  let (all, before) = pairings(&repo);
+  assert_eq!(before.drops, [drop_of(&local[0], &upstream[0], LandedProof::PatchId)]);
+  assert_eq!(all, before);
 }
 
-/// The same patch under another identity (the upstream reworded it) is no twin: only the rung after a conflict proves it
+/// The same patch under another identity of the same author (the upstream reworded it, at another time) is no twin, but
+/// its patch id proves it before the replay: the upstream commits of the author with its set of paths compare their
+/// patch ids, one with the set of another file does not
 #[test]
-fn the_same_patch_under_another_identity_is_proven_only_after_a_conflict() {
+fn the_same_patch_under_another_identity_of_its_author_is_proven_before_the_replay() {
   let repo = sides();
   let local = repo.commit_history("refs/heads/local", &[change_line_5()]);
-  let upstream = repo.commit_history("refs/heads/upstream", &[at("Fix line 5", &[(5, "five")], 300)]);
-  let (all, twins) = pairings(&repo);
+  let upstream = repo.commit_history(
+    "refs/heads/upstream",
+    &[HistoryCommit::new("Change bin", &[("bin.dat", "\0two")]).at(250), at("Fix line 5", &[(5, "five")], 300)],
+  );
+  let reads = in_scope(&repo, |scope| read_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
+  let twins = pair_twins(repo.git_executor(), repo.path_str(), &reads, false).unwrap();
   assert_eq!(twins, LandedPairing::unpaired(local.clone()));
-  assert_eq!(all.drops, [drop_of(&local[0], &upstream[0], LandedProof::PatchId)]);
+  let (all, before) = pairings(&repo);
+  assert_eq!(before.drops, [drop_of(&local[0], &upstream[1], LandedProof::PatchId)]);
+  assert_eq!(all, before);
+}
+
+/// The same patch by another author is left to the walk of the patch ids of the whole upstream, after a conflict: the
+/// pairing before the replay reads only the upstream commits of the local authors
+#[test]
+fn the_same_patch_by_another_author_is_proven_only_after_a_conflict() {
+  let repo = sides();
+  let local = repo.commit_history("refs/heads/local", &[change_line_5()]);
+  let upstream = commit_by_another_author(&repo, "Fix line 5", &[(5, "five")]);
+  let (all, before) = pairings(&repo);
+  assert_eq!(before, LandedPairing::unpaired(local.clone()));
+  assert_eq!(all.drops, [drop_of(&local[0], &upstream, LandedProof::PatchId)]);
+}
+
+/// Before the replay, a local commit compares its patch id only with the upstream commits of its author whose set of
+/// paths it has: one `diff-tree --name-only` of both sides, no patch id for another set
+#[test]
+fn the_same_patch_of_the_author_is_looked_for_only_among_its_sets_of_paths() {
+  let repo = sides();
+  repo.commit_history("refs/heads/local", &[change_line_5()]);
+  repo.commit_history("refs/heads/upstream", &[HistoryCommit::new("Change bin", &[("bin.dat", "\0two")]).at(250)]);
+  let reads = in_scope(&repo, |scope| read_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
+  let git = counting();
+  let before = pair_before_replay(&git, repo.path_str(), &reads, false).unwrap();
+  assert_eq!(before, LandedPairing::unpaired(vec![repo.rev_parse("local").unwrap()]));
+  assert_eq!(processes(&git), [("diff-tree".to_string(), 1)]);
 }
 
 /// The twins are paired before every replay: without a commit of the same identity, no process

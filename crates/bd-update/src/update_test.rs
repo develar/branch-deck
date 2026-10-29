@@ -89,14 +89,16 @@ fn update_rebases_the_local_commits_and_keeps_unrelated_local_changes() {
   assert_eq!((exit_code, &output["state"], output.get("undo_token")), (0, &json!("up_to_date"), None), "{output}");
 }
 
-/// A local commit whose replay leaves it without a change: the baseline made the same change, so the replay drops it as
-/// `git rebase` does, and `dropped` names it with the proof `empty`
+/// A local commit whose replay leaves it without a change: the baseline made the same change in commits of other
+/// patches (no proof pairs it), so the replay drops it as `git rebase` does, and `dropped` names it with the proof
+/// `empty`
 #[test_log::test]
 fn a_commit_that_the_replay_leaves_without_a_change_is_dropped_as_empty() {
   let (upstream, clone) = clone_of_upstream();
   let local = clone.create_commit("(auth) Add a", "a.txt", "a\n");
   clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  upstream.create_commit("Add a too", "a.txt", "a\n");
+  upstream.create_commit("Add a and more", "a.txt", "a\nmore\n");
+  upstream.create_commit("Drop more", "a.txt", "a\n");
   let (exit_code, output) = run_in(&clone, &["--full-ids", "update"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
@@ -106,34 +108,46 @@ fn a_commit_that_the_replay_leaves_without_a_change_is_dropped_as_empty() {
   );
 }
 
-/// A twin that the upstream changed around: the clean merge of the local commit would add its lines a second time, so
-/// the update leaves it out by its proof before the replay, and it landed as the twin (branch-deck#153)
-#[test_log::test]
-fn a_twin_whose_merge_adds_its_lines_again_is_dropped_by_its_proof() {
+/// The local `(auth) Add note` landed as `subject` at `time`, then the upstream changed around it: the clean merge of the
+/// local commit would add its lines a second time, so the update leaves it out by its patch id before the replay, and it
+/// landed as that upstream commit (branch-deck#153)
+fn assert_note_dropped_by_its_patch_id(subject: &str, time: i64) {
   let block = "for a {\n  x\n}\n";
   let added = format!("start\n{block}note\n{block}end\n");
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", &format!("start\n{block}end\n"))]);
   let local = clone.create_commit_with_timestamp("(auth) Add note", "f.txt", &added, Some(1_700_000_200));
-  let twin = upstream.create_commit_with_timestamp("Add note", "f.txt", &added, Some(1_700_000_200));
+  let landed = upstream.create_commit_with_timestamp(subject, "f.txt", &added, Some(time));
   let upstream_file = format!("start\nfor a {{\n  y\n}}\nnote\n{block}end\n");
   upstream.create_commit("Change the older block", "f.txt", &upstream_file);
   git(&clone, &["fetch", "-q", "origin"]);
 
   let (exit_code, output) = run_in(&clone, &["--full-ids", "update", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["landed"][0]["commits"][0]["upstream"], json!(twin), "{output}");
+  assert_eq!(output["landed"][0]["commits"][0]["upstream"], json!(landed), "{output}");
   let (exit_code, output) = run_in(&clone, &["--full-ids", "update"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["replayed"], &output["dropped"]),
     (
       &json!(0),
-      &json!([{ "commit": local, "subject": "(auth) Add note", "upstream": twin, "proof": "patch_id" }])
+      &json!([{ "commit": local, "subject": "(auth) Add note", "upstream": landed, "proof": "patch_id" }])
     ),
     "{output}"
   );
-  assert_eq!(output["landed"][0]["commits"][0]["upstream"], json!(twin), "{output}");
+  assert_eq!(output["landed"][0]["commits"][0]["upstream"], json!(landed), "{output}");
   assert_eq!(read(&clone, "f.txt"), upstream_file);
+}
+
+/// A twin: the same author, author time and subject
+#[test_log::test]
+fn a_twin_whose_merge_adds_its_lines_again_is_dropped_by_its_proof() {
+  assert_note_dropped_by_its_patch_id("Add note", 1_700_000_200);
+}
+
+/// The same patch under another key: a squash of its pull request, another subject and author time
+#[test_log::test]
+fn the_same_patch_under_another_key_whose_merge_adds_its_lines_again_is_dropped_by_its_patch_id() {
+  assert_note_dropped_by_its_patch_id("Add note (#30)", 1_700_000_900);
 }
 
 #[test_log::test]

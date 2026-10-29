@@ -221,9 +221,10 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   changed lines) must be left out of the replay, as `git rebase` leaves out a commit of the same patch id, and listed
   in `dropped` with that baseline commit and its `proof` (`patch_id`, `replayed`, `changed_lines`); it is in
   `landed`. The commits around it replay as runs, so a conflict after it still opens its round, and the session pairs
-  nothing again. A clean update leaves out a twin too, whose replay would add its change a second time.
+  nothing again. A clean update leaves out a twin too, and the same patch of its author under another key, whose
+  replay would add its change a second time.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_commit_the_upstream_has_with_the_same_patch_is_left_out`, `a_conflict_after_a_left_out_commit_opens_its_round`)
-  [@test] ../../crates/bd-update/src/update_test.rs (`a_twin_whose_merge_adds_its_lines_again_is_dropped_by_its_proof`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`a_twin_whose_merge_adds_its_lines_again_is_dropped_by_its_proof`, `the_same_patch_under_another_key_whose_merge_adds_its_lines_again_is_dropped_by_its_patch_id`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`)
 - A commit that the baseline likely has by its author, author time and subject only (a candidate) must never be
   skipped: that key is no proof. Its round, and the round of each of its fixups, must print `session.commit.landed_as`:
