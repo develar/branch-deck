@@ -1,31 +1,32 @@
-use bd_cli::fixture_test::{PREFIX, commit_all, commit_subjects, environment, git, numbered_lines, repo_with_baseline, repository, run_in, run_json, with_header, write};
+use bd_cli::fixture_test::{
+  PREFIX, commit_all, commit_subjects, environment, git, numbered_lines, repo_on_baseline, repo_with_baseline, repo_with_subjects, repository, run_in, run_json, with_header, write,
+};
 use bd_core::context::{Environment, app_settings_of};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::env_vars::EnvVars;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::HistoryCommit;
 
 /// Two prefixed commits, an issue-key commit and an unassigned one, at fixed times
 fn grouped_repo() -> (TestRepo, Vec<String>) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let mut ids = Vec::new();
-  write(&repo, "auth.rs", "fn login() {}\n");
-  ids.push(commit_all(&repo, "(auth) Add login", 1_700_000_100));
-  write(&repo, "crash.rs", "fix\n");
-  ids.push(commit_all(&repo, "ABC-12 Fix crash", 1_700_000_200));
-  write(&repo, "misc.txt", "misc\n");
-  ids.push(commit_all(&repo, "Tidy up", 1_700_000_300));
-  write(&repo, "auth.rs", "fn login() {}\nfn logout() {}\n");
-  ids.push(commit_all(&repo, "(auth) Add logout", 1_700_000_400));
-  (repo, ids)
+  let commits = [
+    HistoryCommit::new("(auth) Add login", &[("auth.rs", "fn login() {}\n")]).at(1_700_000_100),
+    HistoryCommit::new("ABC-12 Fix crash", &[("crash.rs", "fix\n")]).at(1_700_000_200),
+    HistoryCommit::new("Tidy up", &[("misc.txt", "misc\n")]).at(1_700_000_300),
+    HistoryCommit::new("(auth) Add logout", &[("auth.rs", "fn login() {}\nfn logout() {}\n")]).at(1_700_000_400),
+  ];
+  repo_on_baseline(&[("README.md", "readme\n")], &commits, ".")
 }
 
 /// With stacked branches on: a parent and its child, a branch with conflicting parents and one with a missing parent
 fn stacked_repo() -> (TestRepo, Vec<String>) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
-  let ids = commit_subjects(&repo, &["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "(ghost/oauth) Add oauth"]);
+  let (repo, ids) = repo_with_subjects(
+    &[("README.md", "readme\n")],
+    &["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "(ghost/oauth) Add oauth"],
+  );
+  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   (repo, ids)
 }
 
@@ -446,8 +447,7 @@ fn brief_status_keeps_the_stack_state() {
 
 #[test_log::test]
 fn issue_groups_in_status() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let ids = commit_subjects(&repo, &["ABC-1 Add parser", "ABC-2 Parse lists", "XYZ-3 Other"]);
+  let (repo, ids) = repo_with_subjects(&[("README.md", "readme\n")], &["ABC-1 Add parser", "ABC-2 Parse lists", "XYZ-3 Other"]);
   // the store as another tool may leave it: a stale key and a line that can't be used
   let (git_executor, path) = (repo.git_executor(), repo.path().to_str().unwrap());
   let blob = git_executor
@@ -504,9 +504,8 @@ fn plant_stack_parents(repo: &TestRepo, text: &str) {
 
 #[test_log::test]
 fn stored_parents_in_status() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
-  commit_subjects(&repo, &["(auth) Add auth", "ABC-1 Add login", "(auth/oauth) Add oauth"]);
+  let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add auth", "ABC-1 Add login", "(auth/oauth) Add oauth"]);
+  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   plant_stack_parents(&repo, "ABC-1\tauth\nghost\tauth\nnot a line\n");
 
   let (exit_code, output) = run_in(&repo, &["status"]);
@@ -573,9 +572,11 @@ fn a_sync_drops_the_stack_parent_of_an_integrated_branch() {
 /// commit, `blocked` while a member has a stack problem
 #[test_log::test]
 fn the_stack_branch_of_a_forking_stack_in_sync_and_status() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
-  commit_subjects(&repo, &["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs", "(auth/session) Add session"]);
+  let (repo, _) = repo_with_subjects(
+    &[("README.md", "readme\n")],
+    &["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs", "(auth/session) Add session"],
+  );
+  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
 
   let (_, status) = run_in(&repo, &["status"]);
   let stale = json!({

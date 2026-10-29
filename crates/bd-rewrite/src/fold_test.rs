@@ -1,25 +1,26 @@
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{
-  PREFIX, assert_dry_run, assert_error, assert_refused_during, assert_undo_restores, commit_all, commit_files, environment, git, hold_the_lock, repo_with_baseline, run_in,
+  PREFIX, assert_dry_run, assert_error, assert_refused_during, assert_undo_restores, environment, file_commits, git, hold_the_lock, repo_on_baseline, repo_with_commits, run_in,
   run_json, start_cherry_pick, write,
 };
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::history::HistoryCommit;
 
 /// `(auth) Add a`, `(ui) Add b`, a fixup of each, and an orphan fixup; returns the repository and the ids, oldest first
 fn repo_with_fixups() -> (TestRepo, Vec<String>) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let ids = commit_files(
-    &repo,
-    &[
+  let (repo, ids) = repo_on_baseline(
+    &[("README.md", "readme\n")],
+    &file_commits(&[
       ("(auth) Add a", "a.txt", "a\n"),
       ("(ui) Add b", "b.txt", "b\n"),
       ("fixup! (auth) Add a", "a.txt", "a\nfixed\n"),
       ("fixup! (ui) Add b", "b.txt", "b\nfixed\n"),
       ("fixup! Nothing like it", "c.txt", "c\n"),
-    ],
+    ]),
+    ".",
   );
   (repo, ids)
 }
@@ -121,13 +122,14 @@ fn a_cherry_pick_in_another_worktree_does_not_refuse_the_fold() {
 /// the commits it names, never a `git_error`
 #[test_log::test]
 fn a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "a.txt", "1\n");
-  let target = commit_all(&repo, "(auth) Add a", 1_700_000_000);
-  write(&repo, "a.txt", "2\n");
-  commit_all(&repo, "(ui) Change a", 1_700_000_100);
-  write(&repo, "a.txt", "3\n");
-  let fixup = commit_all(&repo, "fixup! (auth) Add a", 1_700_000_200);
+  let (repo, [target, _, fixup]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(auth) Add a", &[("a.txt", "1\n")]).at(1_700_000_000),
+      HistoryCommit::new("(ui) Change a", &[("a.txt", "2\n")]).at(1_700_000_100),
+      HistoryCommit::new("fixup! (auth) Add a", &[("a.txt", "3\n")]).at(1_700_000_200),
+    ],
+  );
   let head = repo.head();
 
   let (exit_code, output) = run_in(&repo, &["fold"]);

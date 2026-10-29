@@ -2,7 +2,7 @@ use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::beside_a_held_sync;
-use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_with_baseline, run_json};
+use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_on_baseline, repo_with_baseline, run_json};
 use bd_core::context::Environment;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
+use test_utils::history::HistoryCommit;
 
 /// A repository with a commit on master, the home directory its pool lives in and the global git config of bd
 pub(crate) struct Fixture {
@@ -41,8 +42,7 @@ impl Drop for Killed {
 
 impl Fixture {
   pub(crate) fn new() -> Self {
-    let repo = repo_with_baseline(&[("a.txt", "a\n")]);
-    repo.create_commit("Add b", "b.txt", "b\n");
+    let (repo, _) = repo_on_baseline(&[("a.txt", "a\n")], &[HistoryCommit::new("Add b", &[("b.txt", "b\n")])], ".");
     Self {
       repo,
       home: tempfile::tempdir().unwrap(),

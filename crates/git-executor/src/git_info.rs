@@ -41,23 +41,19 @@ impl GitInfo {
       return Ok(info);
     }
     let git_path = get_git_path().map_err(|e| with_hint(&e))?;
-    let info = Self::from_path(&git_path).map_err(|e| with_hint(&e))?;
-    info.validate_minimum_version().map_err(|e| with_hint(&e))?;
-    Ok(info)
+    checked(&git_path).map_err(|e| with_hint(&e))
   }
 
   /// Discover git for the command line, without the login-shell fallback of `discover`: `explicit_path` (the `BD_GIT`
   /// variable) if given, else `git` from `PATH`, else the Homebrew paths on macOS. The version is checked and an error
-  /// is formatted as in `discover`. A git found without `explicit_path` is kept for the process (`CLI_DISCOVERED`): the
-  /// tests run `bd` many times in one process
+  /// is formatted as in `discover`. A git found without `explicit_path` is kept for the process (`CLI_DISCOVERED`), and
+  /// each git answers its version once (`checked`): the tests run `bd` many times in one process
   pub fn discover_for_cli(explicit_path: Option<&str>) -> Result<Self, String> {
     /// The git of `discover_for_cli(None)`, once found
     static CLI_DISCOVERED: std::sync::OnceLock<GitInfo> = std::sync::OnceLock::new();
 
     if let Some(path) = explicit_path {
-      return Self::from_path(path)
-        .and_then(|info| info.validate_minimum_version().map(|()| info))
-        .map_err(|e| with_hint(&e));
+      return checked(path).map_err(|e| with_hint(&e));
     }
     if let Some(info) = CLI_DISCOVERED.get() {
       return Ok(info.clone());
@@ -65,7 +61,7 @@ impl GitInfo {
 
     let mut first_error = None;
     for path in std::iter::once("git").chain(HOMEBREW_PATHS) {
-      match Self::from_path(path).and_then(|info| info.validate_minimum_version().map(|()| info)) {
+      match checked(path) {
         Ok(info) => return Ok(CLI_DISCOVERED.get_or_init(|| info).clone()),
         Err(e) => {
           first_error.get_or_insert(e);
@@ -127,6 +123,27 @@ fn with_hint(summary: &str) -> String {
   format!("{summary}\n{UPGRADE_HINT}")
 }
 
+/// The git at `git_path` with its version, which meets `MIN_VERSION`: one `git version` of each git for the whole
+/// process, whoever asks (`discover` of the app's executor, `discover_for_cli` of `bd`); a failure is asked again. The
+/// tests run the executor of their fixtures and `bd` in one process, on one git (`Environment::git` of their
+/// environment)
+fn checked(git_path: &str) -> Result<GitInfo, String> {
+  static CHECKED: std::sync::Mutex<Vec<GitInfo>> = std::sync::Mutex::new(Vec::new());
+  let known = CHECKED
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .iter()
+    .find(|info| info.path == git_path)
+    .cloned();
+  if let Some(info) = known {
+    return Ok(info);
+  }
+  let info = GitInfo::from_path(git_path)?;
+  info.validate_minimum_version()?;
+  CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(info.clone());
+  Ok(info)
+}
+
 #[cfg(target_os = "macos")]
 const HOMEBREW_PATHS: [&str; 2] = [
   "/opt/homebrew/bin/git", // Apple Silicon
@@ -137,10 +154,7 @@ const HOMEBREW_PATHS: [&str; 0] = [];
 
 /// The first git of `HOMEBREW_PATHS` that meets `MIN_VERSION`, with the version its one `git version` answered
 fn homebrew_git() -> Option<GitInfo> {
-  HOMEBREW_PATHS
-    .iter()
-    .filter(|path| std::path::Path::new(path).exists())
-    .find_map(|path| GitInfo::from_path(path).ok().filter(|info| info.validate_minimum_version().is_ok()))
+  HOMEBREW_PATHS.iter().filter(|path| std::path::Path::new(path).exists()).find_map(|path| checked(path).ok())
 }
 
 /// Without a git of Homebrew (`homebrew_git`), the git of the login shell; `discover` runs it and validates its version
@@ -237,5 +251,26 @@ mod tests {
     let error = GitInfo::discover_for_cli(git.to_str()).unwrap_err();
     assert_discovery_error(&error, "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer");
     std::fs::remove_dir_all(git.parent().unwrap()).unwrap();
+  }
+
+  /// The tests run `bd` many times in one process beside the executor of their fixtures, on one git
+  #[cfg(unix)]
+  #[test]
+  fn a_git_answers_its_version_once_per_process_and_a_failure_is_asked_again() {
+    let git = fake_git("counted", "echo run >> \"$(dirname \"$0\")/runs\"; echo 'git version 2.60.0'");
+    let runs = || std::fs::read_to_string(git.with_file_name("runs")).unwrap_or_default().lines().count();
+    for _ in 0..3 {
+      assert_eq!(GitInfo::discover_for_cli(git.to_str()).unwrap().version, "2.60.0");
+    }
+    assert_eq!(runs(), 1);
+
+    let old = fake_git("counted-old", "echo run >> \"$(dirname \"$0\")/runs\"; echo 'git version 2.39.5'");
+    let old_runs = || std::fs::read_to_string(old.with_file_name("runs")).unwrap_or_default().lines().count();
+    for _ in 0..2 {
+      GitInfo::discover_for_cli(old.to_str()).unwrap_err();
+    }
+    assert_eq!(old_runs(), 2, "a git too old is asked again: an upgrade may have replaced it");
+    std::fs::remove_dir_all(git.parent().unwrap()).unwrap();
+    std::fs::remove_dir_all(old.parent().unwrap()).unwrap();
   }
 }

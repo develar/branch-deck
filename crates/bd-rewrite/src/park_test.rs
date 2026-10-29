@@ -1,7 +1,8 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{assert_error, commit_subjects, repo_with_baseline, run_in};
+use bd_cli::fixture_test::{assert_error, repo_with_subjects, run_in};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use test_utils::git_test_utils::append_config;
 
 fn status_branch(output: &Value, name: &str) -> Value {
   output["branches"]
@@ -15,9 +16,8 @@ fn status_branch(output: &Value, name: &str) -> Value {
 
 #[test_log::test]
 fn park_and_unpark_print_the_note_and_status_names_the_parked_branches() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  commit_subjects(&repo, &["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
+  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   let head = repo.head();
 
   let (exit_code, output) = run_in(&repo, &["park", "auth", "--note", "waits for the fix of IJPL-1"]);

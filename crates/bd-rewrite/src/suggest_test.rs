@@ -9,20 +9,16 @@ use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::HistoryCommit;
 
-/// Commit each `(subject, [(path, content)])` with increasing times
+/// Commit each `(subject, [(path, content)])` on master with increasing times, as `commit_all` of each: one history
 fn commits(repo: &TestRepo, commits: &[(&str, &[(&str, &str)])]) -> Vec<String> {
-  commits
-    .iter()
-    .enumerate()
-    .map(|(index, (subject, files))| {
-      for (path, content) in *files {
-        write(repo, path, content);
-      }
-      commit_all(repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100)
-    })
-    .collect()
+  let commits: Vec<HistoryCommit> = (0..)
+    .zip(commits)
+    .map(|(index, (subject, files))| HistoryCommit::new(*subject, files).at(1_700_000_000 + index * 100))
+    .collect();
+  repo.commit_history("refs/heads/master", &commits)
 }
 
 /// The clusters as `name: (change, commit_count, via)`
@@ -370,7 +366,7 @@ fn with_stacked_branches_a_branch_stacks_on_the_branch_it_needs() {
 /// A repository with stacked branches on and these commits
 fn stacked_repo(subjects: &[(&str, &[(&str, &str)])]) -> (TestRepo, Vec<String>) {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
+  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   let ids = commits(&repo, subjects);
   (repo, ids)
 }

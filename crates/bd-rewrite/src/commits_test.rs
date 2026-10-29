@@ -1,11 +1,14 @@
 use crate::commits::resolve_ids;
-use bd_cli::fixture_test::{MANAGER_TEST, commit_all, commit_override_of_overload, commit_subjects, git, numbered_lines, repo_with_baseline, run_in, write};
+use bd_cli::fixture_test::{
+  MANAGER_TEST, commit_all, commit_override_of_overload, git, numbered_lines, repo_on_baseline, repo_with_baseline, repo_with_commits, repo_with_subjects, run_in, write,
+};
 use domain_types::error::ErrorCode;
 use git_ops::revs::short_id;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::HistoryCommit;
 
 fn by_subject<'a>(output: &'a Value, subject: &str) -> &'a Value {
   output["commits"]
@@ -54,13 +57,14 @@ fn files_with_renames_binaries_and_deletions() {
 
 #[test_log::test]
 fn entries_groups_and_fixups() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "auth.rs", "fn login() {}\n");
-  let login = commit_all(&repo, "(auth) Add login\n\nWith a body.", 1_700_000_100);
-  write(&repo, "auth.rs", "fn login() { check() }\n");
-  let fixup = commit_all(&repo, "fixup! (auth) Add login", 1_700_000_200);
-  write(&repo, "other.rs", "x\n");
-  let orphan = commit_all(&repo, "squash! Nothing like this", 1_700_000_300);
+  let (repo, [login, fixup, orphan]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(auth) Add login\n\nWith a body.", &[("auth.rs", "fn login() {}\n")]).at(1_700_000_100),
+      HistoryCommit::new("fixup! (auth) Add login", &[("auth.rs", "fn login() { check() }\n")]).at(1_700_000_200),
+      HistoryCommit::new("squash! Nothing like this", &[("other.rs", "x\n")]).at(1_700_000_300),
+    ],
+  );
 
   let (exit_code, output) = run_in(&repo, &["commits"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -214,20 +218,18 @@ fn cached_output_equals_uncached() {
 
 /// A prefixed commit with its fixup, two issue commits where the newer depends on the older, and an unassigned one
 fn brief_repo() -> (TestRepo, Vec<String>) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n"), ("src/parser/p.rs", &numbered_lines(10))]);
-  let mut ids = Vec::new();
-  write(&repo, "src/auth/login.rs", "fn login() {}\n");
-  ids.push(commit_all(&repo, "(auth) Add login", 1_700_000_100));
-  write(&repo, "src/auth/login.rs", "fn login() { check() }\n");
-  ids.push(commit_all(&repo, "fixup! (auth) Add login", 1_700_000_200));
-  write(&repo, "src/parser/p.rs", numbered_lines(10).replace("line 5\n", "parse\n"));
-  write(&repo, "README.md", "readme\nparser\n");
-  ids.push(commit_all(&repo, "ABC-1 Add parser", 1_700_000_300));
-  write(&repo, "docs/notes.md", "notes\n");
-  ids.push(commit_all(&repo, "Tidy up", 1_700_000_400));
-  write(&repo, "src/parser/p.rs", numbered_lines(10).replace("line 5\n", "parse lists\n"));
-  ids.push(commit_all(&repo, "ABC-1 Parse lists", 1_700_000_500));
-  (repo, ids)
+  let commits = [
+    HistoryCommit::new("(auth) Add login", &[("src/auth/login.rs", "fn login() {}\n")]).at(1_700_000_100),
+    HistoryCommit::new("fixup! (auth) Add login", &[("src/auth/login.rs", "fn login() { check() }\n")]).at(1_700_000_200),
+    HistoryCommit::new(
+      "ABC-1 Add parser",
+      &[("src/parser/p.rs", &numbered_lines(10).replace("line 5\n", "parse\n")), ("README.md", "readme\nparser\n")],
+    )
+    .at(1_700_000_300),
+    HistoryCommit::new("Tidy up", &[("docs/notes.md", "notes\n")]).at(1_700_000_400),
+    HistoryCommit::new("ABC-1 Parse lists", &[("src/parser/p.rs", &numbered_lines(10).replace("line 5\n", "parse lists\n"))]).at(1_700_000_500),
+  ];
+  repo_on_baseline(&[("README.md", "readme\n"), ("src/parser/p.rs", &numbered_lines(10))], &commits, ".")
 }
 
 #[test_log::test]
@@ -277,12 +279,11 @@ fn brief_view_with_units_and_areas() {
 
 #[test_log::test]
 fn brief_keeps_a_prefix_that_says_more_than_the_group() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
-  commit_subjects(
-    &repo,
+  let (repo, _) = repo_with_subjects(
+    &[("README.md", "readme\n")],
     &["(auth) Add auth", "(auth/login) Add login", "(Foo Bar) Odd prefix", "(auth) ABC-1 Check the token"],
   );
+  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   let (exit_code, output) = run_in(&repo, &["commits", "--brief"]);
   assert_eq!(exit_code, 0, "{output}");
   let brief: Vec<(&Value, &Value, Option<&Value>)> = output["commits"]
@@ -348,11 +349,17 @@ fn an_ambiguous_id_is_invalid() {
 /// too, `off` none
 #[test_log::test]
 fn an_edge_by_symbols_names_the_symbol_and_joins_no_unit() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
-  let declares = commit_all(&repo, "(util) Add controlUrl", 1_700_000_100);
-  write(&repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
-  let uses = commit_all(&repo, "(flow) Start with controlUrl", 1_700_000_200);
+  let (repo, [declares, uses]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(util) Add controlUrl", &[("src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n")]).at(1_700_000_100),
+      HistoryCommit::new(
+        "(flow) Start with controlUrl",
+        &[("src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n")],
+      )
+      .at(1_700_000_200),
+    ],
+  );
 
   let (exit_code, output) = run_in(&repo, &["commits"]);
   assert_eq!(exit_code, 0, "{output}");

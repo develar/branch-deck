@@ -1,6 +1,6 @@
 #[cfg(unix)]
-use crate::fixture_test::{PREFIX, beside_a_held_sync};
-use crate::fixture_test::{commit_all, git, hold_the_lock, repo_with_baseline, run_in, write};
+use crate::fixture_test::{PREFIX, beside_a_held_sync, repo_with_commits, repo_with_login};
+use crate::fixture_test::{commit_all, git, hold_the_lock, run_in, write};
 #[cfg(unix)]
 use crate::remote_fixture_test::{remote_tip, repo_with_remote};
 use git_ops::revs::short_id;
@@ -8,14 +8,17 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 #[cfg(unix)]
 use test_utils::git_test_utils::TestRepo;
+use test_utils::history::HistoryCommit;
 
 #[test_log::test]
 fn syncs_and_reports_each_branch() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "auth.rs", "auth\n");
-  commit_all(&repo, "(auth) Add login", 1_700_000_100);
-  write(&repo, "misc.txt", "misc\n");
-  commit_all(&repo, "Tidy up", 1_700_000_200);
+  let (repo, _) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(auth) Add login", &[("auth.rs", "auth\n")]).at(1_700_000_100),
+      HistoryCommit::new("Tidy up", &[("misc.txt", "misc\n")]).at(1_700_000_200),
+    ],
+  );
 
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -43,15 +46,16 @@ fn syncs_and_reports_each_branch() {
 
 #[test_log::test]
 fn a_conflict_exits_with_1() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  // `b` changes a file `a` creates: on the baseline alone it conflicts
-  write(&repo, "shared.txt", "one\n");
-  commit_all(&repo, "(a) Add shared", 1_700_000_100);
-  write(&repo, "shared.txt", "two\n");
-  let conflicting = commit_all(&repo, "(b) Change shared", 1_700_000_200);
-  // not synced after the conflict
-  write(&repo, "other.txt", "other\n");
-  let blocked = commit_all(&repo, "(b) Add other", 1_700_000_300);
+  let (repo, [_, conflicting, blocked]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      // `b` changes a file `a` creates: on the baseline alone it conflicts
+      HistoryCommit::new("(a) Add shared", &[("shared.txt", "one\n")]).at(1_700_000_100),
+      HistoryCommit::new("(b) Change shared", &[("shared.txt", "two\n")]).at(1_700_000_200),
+      // not synced after the conflict
+      HistoryCommit::new("(b) Add other", &[("other.txt", "other\n")]).at(1_700_000_300),
+    ],
+  );
 
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 1, "{output}");
@@ -70,9 +74,7 @@ fn a_conflict_exits_with_1() {
 /// holds the repository lock
 #[test_log::test]
 fn syncs_while_another_process_holds_the_lock() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "auth.rs", "auth\n");
-  commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  let repo = repo_with_login();
   let _held = hold_the_lock(&repo);
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!((exit_code, &output["branches"][0]["state"]), (0, &json!("created")), "{output}");
@@ -82,11 +84,13 @@ fn syncs_while_another_process_holds_the_lock() {
 /// the id of the branch's commit
 #[cfg(unix)]
 fn repo_with_auth() -> (TestRepo, String) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "misc.txt", "misc\n");
-  commit_all(&repo, "Tidy up", 1_700_000_050);
-  write(&repo, "auth.rs", "auth\n");
-  let login = commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  let (repo, [_, login]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("Tidy up", &[("misc.txt", "misc\n")]).at(1_700_000_050),
+      HistoryCommit::new("(auth) Add login", &[("auth.rs", "auth\n")]).at(1_700_000_100),
+    ],
+  );
   (repo, login)
 }
 
@@ -197,9 +201,7 @@ fn a_push_beside_a_held_sync_does_not_wait_for_it() {
 
 #[test_log::test]
 fn waits_while_a_rebase_is_in_progress() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "auth.rs", "auth\n");
-  commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  let repo = repo_with_login();
   std::fs::create_dir_all(repo.path().join(".git/rebase-merge")).unwrap();
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("operation_in_progress")), "{output}");
@@ -208,11 +210,13 @@ fn waits_while_a_rebase_is_in_progress() {
 
 #[test_log::test]
 fn reports_the_commits_the_baseline_already_has() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "auth.rs", "auth\n");
-  let login = commit_all(&repo, "(auth) Add login", 1_700_000_100);
-  write(&repo, "ui.rs", "ui\n");
-  commit_all(&repo, "(ui) Add button", 1_700_000_200);
+  let (repo, [login, _]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(auth) Add login", &[("auth.rs", "auth\n")]).at(1_700_000_100),
+      HistoryCommit::new("(ui) Add button", &[("ui.rs", "ui\n")]).at(1_700_000_200),
+    ],
+  );
   // a robot rebased the commit onto the baseline without its prefix, keeping the author time
   git(&repo, &["switch", "--quiet", "--create", "robot", "refs/remotes/origin/master"]);
   write(&repo, "auth.rs", "auth\n");
@@ -237,9 +241,7 @@ fn reports_the_commits_the_baseline_already_has() {
 /// copies the commit again instead of keeping the copy without the hunk
 #[test_log::test]
 fn a_stale_note_rebuilds_the_branch() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "auth.rs", "auth\n");
-  commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  let repo = repo_with_login();
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
   let tip = git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]);
@@ -260,9 +262,7 @@ fn a_stale_note_rebuilds_the_branch() {
 /// `--no-cache` trusts no mapping note: a copy with another tree, behind a note that looks right, is copied again
 #[test_log::test]
 fn no_cache_verifies_each_note() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "auth.rs", "auth\n");
-  commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  let repo = repo_with_login();
   run_in(&repo, &["sync"]);
   let copy = git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]);
 
@@ -317,11 +317,13 @@ fn a_branch_that_is_not_built_is_exit_1() {
 /// builds `b` and says what it resolved; `bd status` and `bd commits` tell it from the mapping note; `bd check` agrees
 #[test_log::test]
 fn a_conflict_that_its_words_resolve_builds_and_says_so() {
-  let repo = repo_with_baseline(&[("Call.kt", "call(a, b, c)\nend\n")]);
-  write(&repo, "Call.kt", "call(A, b, c)\nend\n");
-  commit_all(&repo, "(a) Change the first argument", 1_700_000_100);
-  write(&repo, "Call.kt", "call(A, b, C)\nend\n");
-  let resolved = commit_all(&repo, "(b) Change the third argument", 1_700_000_200);
+  let (repo, [_, resolved]) = repo_with_commits(
+    &[("Call.kt", "call(a, b, c)\nend\n")],
+    &[
+      HistoryCommit::new("(a) Change the first argument", &[("Call.kt", "call(A, b, c)\nend\n")]).at(1_700_000_100),
+      HistoryCommit::new("(b) Change the third argument", &[("Call.kt", "call(A, b, C)\nend\n")]).at(1_700_000_200),
+    ],
+  );
 
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");

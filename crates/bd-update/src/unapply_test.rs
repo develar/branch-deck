@@ -1,12 +1,11 @@
-use bd_cli::fixture_test::{assert_covered, assert_error, commit_subjects, environment, git, repo_with_baseline, run_in, run_json};
+use bd_cli::fixture_test::{assert_covered, assert_error, commit_subjects, environment, git, repo_with_subjects, run_in, run_json};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use test_utils::git_test_utils::TestRepo;
 
 /// `(docs) Add f0`, `(other) Add f1`, `(docs) Add f2` ahead of `origin/master`, synced by `bd sync`
 fn synced_repo() -> (TestRepo, Vec<String>) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let commits = commit_subjects(&repo, &["(docs) Add f0", "(other) Add f1", "(docs) Add f2"]);
+  let (repo, commits) = repo_with_subjects(&[("README.md", "readme\n")], &["(docs) Add f0", "(other) Add f1", "(docs) Add f2"]);
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
   (repo, commits)

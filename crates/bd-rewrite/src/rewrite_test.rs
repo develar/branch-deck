@@ -1,24 +1,20 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, subcommand};
-use bd_cli::fixture_test::{assert_refused_during, commit_all, git, hold_the_lock, repo_with_baseline, run_in, start_cherry_pick, sync_statuses, with_header, write};
+use bd_cli::fixture_test::{LockSpanGit, repo_with_commits, subcommand};
+use bd_cli::fixture_test::{assert_refused_during, commit_all, git, hold_the_lock, repo_on_baseline, run_in, start_cherry_pick, sync_statuses, with_header, write};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::history::HistoryCommit;
 
 /// Commits with these subjects ahead of `origin/master`; returns their ids
 fn repo_with(subjects: &[&str]) -> (TestRepo, Vec<String>) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let ids = subjects
-    .iter()
-    .enumerate()
-    .map(|(index, subject)| {
-      write(&repo, &format!("file{index}.txt"), *subject);
-      commit_all(&repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100)
-    })
+  let commits: Vec<HistoryCommit> = (0..)
+    .zip(subjects)
+    .map(|(index, subject)| HistoryCommit::new(*subject, &[(&format!("file{index}.txt"), *subject)]).at(1_700_000_000 + index * 100))
     .collect();
-  (repo, ids)
+  repo_on_baseline(&[("README.md", "readme\n")], &commits, ".")
 }
 
 /// The commits ahead of the baseline, oldest first
@@ -359,11 +355,13 @@ fn group_writes_descriptions_and_syncs() {
 
 #[test_log::test]
 fn a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "shared.txt", "one\n");
-  commit_all(&repo, "(a) Add shared", 1_700_000_100);
-  write(&repo, "shared.txt", "two\n");
-  let change = commit_all(&repo, "Change shared", 1_700_000_200);
+  let (repo, [_, change]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(a) Add shared", &[("shared.txt", "one\n")]).at(1_700_000_100),
+      HistoryCommit::new("Change shared", &[("shared.txt", "two\n")]).at(1_700_000_200),
+    ],
+  );
 
   let (exit_code, output) = group(&repo, &json!({ "branches": { "b": [short_id(&change)] } }), &["--sync"]);
   assert_eq!(exit_code, 1, "{output}");

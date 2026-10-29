@@ -1,11 +1,12 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, hold_the_lock, subcommand};
+use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, hold_the_lock, repo_with_commits, subcommand};
 use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
 use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
+use test_utils::history::HistoryCommit;
 
 fn read(repo: &TestRepo, file: &str) -> String {
   std::fs::read_to_string(repo.path().join(file)).unwrap()
@@ -164,8 +165,7 @@ fn expect_head_refuses_a_pick_onto_another_head() {
 
 #[test_log::test]
 fn a_worktree_on_a_newer_baseline_is_refused() {
-  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
-  repo.create_commit("(own) Other", "own.txt", "own\n");
+  let (repo, _) = repo_with_commits(&[("a.txt", "a\n")], &[HistoryCommit::new("(own) Other", &[("own.txt", "own\n")])]);
   let lane = TestWorktree::detached(&repo);
   lane.git(&["checkout", "-q", "--detach", "origin/master"]);
   let upstream = lane.commit("Upstream", "up.txt", "up\n");
@@ -458,9 +458,13 @@ fn another_writer_takes_the_lock_while_a_pick_replays() {
 #[cfg(unix)]
 #[test_log::test]
 fn a_pick_beside_a_held_sync_does_not_wait_for_it() {
-  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
-  // a commit of no branch below the target's own: its sync merges `own` onto the baseline
-  repo.create_commit("Tidy up", "misc.txt", "misc\n");
+  let (repo, _) = repo_with_commits(
+    &[("a.txt", "a\n")],
+    &[
+      // a commit of no branch below the target's own: its sync merges `own` onto the baseline
+      HistoryCommit::new("Tidy up", &[("misc.txt", "misc\n")]),
+    ],
+  );
   let lane = lane_onto_a_moved_target(&repo);
   beside_a_held_sync(&repo, || {
     let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);

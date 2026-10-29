@@ -165,6 +165,16 @@ impl HistoryStream {
     }
   }
 
+  /// Points `reference` at the commit `index` of `commit` (its index in the ids of `write`), as an `update-ref` of it
+  /// between two commits moves a baseline
+  ///
+  /// # Panics
+  /// When the stream has no such commit, or left it out as one that changed nothing
+  pub fn reset_at(&mut self, reference: &str, index: usize) {
+    let mark = self.marks.get(index).copied().flatten().unwrap_or_else(|| panic!("no commit {index} in the stream"));
+    let _ = writeln!(self.stream, "reset {reference}\nfrom :{mark}\n");
+  }
+
   /// A root commit on `reference` of its one file `file` with `content`, as `commit-tree` writes a store of Branch Deck
   pub fn root_commit(&mut self, reference: &str, message: &str, file: &str, content: &str) {
     let mark = self.next_mark;

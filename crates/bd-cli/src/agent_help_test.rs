@@ -1,10 +1,11 @@
 use crate::Cli;
 use crate::agent_help::{AGENT_HELP, PUSH_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
 use crate::fixture_test::writable_state;
-use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
+use crate::fixture_test::{git, repo_with_commits, run_in, write};
 use clap::CommandFactory;
 use domain_types::error::ErrorCode;
 use std::collections::{BTreeMap, BTreeSet};
+use test_utils::history::HistoryCommit;
 
 /// Options `bd help agent` leaves to `--help` (paging, tuning, rare variants), as `<command> --<option>`, or
 /// `--<option>` for a global one; `--verbose` is named by its short form `-v`
@@ -346,12 +347,13 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
   assert!(AGENT_HELP.contains(READ_ONLY));
   assert!(Cli::command().render_long_help().to_string().contains(READ_ONLY));
 
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "shared.txt", "one\n");
-  let first = commit_all(&repo, "(a) Add shared", 1_700_000_100);
-  write(&repo, "shared.txt", "two\n");
-  write(&repo, "other.txt", "other\n");
-  let change = commit_all(&repo, "ABC-1 Change shared", 1_700_000_200);
+  let (repo, [first, change]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(a) Add shared", &[("shared.txt", "one\n")]).at(1_700_000_100),
+      HistoryCommit::new("ABC-1 Change shared", &[("shared.txt", "two\n"), ("other.txt", "other\n")]).at(1_700_000_200),
+    ],
+  );
   // staged and untracked work, which must stay as it is
   write(&repo, "staged.txt", "staged\n");
   git(&repo, &["add", "staged.txt"]);

@@ -1,25 +1,26 @@
-use bd_cli::fixture_test::{PREFIX, commit_all, commit_files, git, repo_with_baseline, run_in, write};
+use bd_cli::fixture_test::{PREFIX, commit_all, file_commits, git, repo_on_baseline, repo_with_commits, run_in, write};
 use bd_cli::fixture_test::{assert_covered, assert_dry_run, assert_error, assert_refused_during, assert_undo_restores, environment, hold_the_lock, run_json, start_cherry_pick};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::history::HistoryCommit;
 
 /// The case of the report that asked for `bd squash`: `(lenses) Add lenses` and two commits that only change what it
 /// added, a commit of `ui` between them and one after them, and a branch `docs` after them; returns the repository and
 /// the ids, oldest first
 fn repo_with_lenses() -> (TestRepo, Vec<String>) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let ids = commit_files(
-    &repo,
-    &[
+  let (repo, ids) = repo_on_baseline(
+    &[("README.md", "readme\n")],
+    &file_commits(&[
       ("(lenses) Add lenses\n\nThe lenses of the duplicates", "lenses.txt", "lenses\n"),
       ("(ui) Add b", "b.txt", "b\n"),
       ("(lenses) Rename the lens", "lenses.txt", "lens\n"),
       ("(lenses) Fix the lens", "lenses.txt", "lens fixed\n"),
       ("(ui) Add c", "c.txt", "c\n"),
       ("(docs) Add d", "d.txt", "d\n"),
-    ],
+    ]),
+    ".",
   );
   (repo, ids)
 }
@@ -156,9 +157,7 @@ fn squash_is_refused_by_a_conflict_or_an_empty_result_another_head_or_the_lock()
 
 #[test_log::test]
 fn squash_refuses_a_result_without_changes() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "x.txt", "x\n");
-  let added = commit_all(&repo, "(x) Add x", 1_700_000_000);
+  let (repo, [added]) = repo_with_commits(&[("README.md", "readme\n")], &[HistoryCommit::new("(x) Add x", &[("x.txt", "x\n")]).at(1_700_000_000)]);
   std::fs::remove_file(repo.path().join("x.txt")).unwrap();
   let removed = commit_all(&repo, "(x) Remove x", 1_700_000_100);
 

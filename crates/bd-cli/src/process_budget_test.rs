@@ -3,7 +3,8 @@
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
 use crate::fixture_test::{
-  EMPTY_GLOBAL_CONFIG, PREFIX, canonical, commit_all, commit_subjects, context_with_the_config_prefix, environment, git, make_lease_idle, repo_with_baseline, run_in, write,
+  EMPTY_GLOBAL_CONFIG, PREFIX, canonical, commit_all, commit_subjects, context_with_the_config_prefix, environment, git, make_lease_idle, repo_with_baseline, repo_with_subjects,
+  run_in, write,
 };
 use crate::remote_fixture_test::{
   AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, repo_with_remote, robot as robot_json, stack_remote_moved_back, their_fix_on_auth,
@@ -41,7 +42,7 @@ use lease_pool::lease::{GetStep, Pool, canonical_path};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
-use test_utils::git_test_utils::{TestRepo, TestWorktree};
+use test_utils::git_test_utils::{TestRepo, TestWorktree, append_config};
 
 /// The context `bd --prefix test-user` resolves in `repo`; its executor counts every process of the command
 fn context(repo: &TestRepo) -> RepoContext {
@@ -76,8 +77,7 @@ fn assert_git_processes(git: &GitCommandExecutor, expected: &[(&str, u32)]) {
 
 /// Three commits of two branches, each adding its own file `f<n>.txt`
 fn repo_with_branches() -> TestRepo {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  commit_subjects(&repo, &["(auth) Add a", "(ui) Add b", "(auth) Add c"]);
+  let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a", "(ui) Add b", "(auth) Add c"]);
   repo
 }
 
@@ -256,9 +256,8 @@ fn a_status() {
 /// process of its own
 #[test]
 fn a_status_of_a_forking_stack() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
-  commit_subjects(&repo, &["(auth) Add a", "(auth/login) Add b", "(auth/session) Add c"]);
+  let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a", "(auth/login) Add b", "(auth/session) Add c"]);
+  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   sync(&context(&repo)).unwrap();
   let context = context(&repo);
   let output = status(&context, &StatusArgs::default(), &environment(repo.path())).unwrap();
@@ -413,8 +412,7 @@ fn a_push_beside_a_robot_started_before_a_restack() {
 /// under the lock
 #[test]
 fn a_fold() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  commit_subjects(&repo, &["(auth) Add a", "(ui) Add b", "fixup! (auth) Add a"]);
+  let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a", "(ui) Add b", "fixup! (auth) Add a"]);
   let context = context(&repo);
   let args = FoldArgs {
     branch: None,
@@ -447,8 +445,7 @@ fn a_fold() {
 /// and one `fast-import`) before the move, under the lock with the witness of HEAD
 #[test]
 fn a_squash() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let ids = commit_subjects(&repo, &["(auth) Add a", "(ui) Add b", "(auth) Fix a", "(docs) Add d"]);
+  let (repo, ids) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a", "(ui) Add b", "(auth) Fix a", "(docs) Add d"]);
   sync(&context(&repo)).unwrap();
   let context = context(&repo);
   let args = SquashArgs {
@@ -482,8 +479,10 @@ fn a_squash() {
 /// then under the lock the witness of the snapshot's refs and one ref transaction
 #[test]
 fn a_reword() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let ids = commit_subjects(&repo, &["(auth) Add a with a subject that is far too long", "(ui) Add b", "(auth) Add c"]);
+  let (repo, ids) = repo_with_subjects(
+    &[("README.md", "readme\n")],
+    &["(auth) Add a with a subject that is far too long", "(ui) Add b", "(auth) Add c"],
+  );
   let context = context(&repo);
   let args = RewordArgs {
     commit: Some(ids[0].clone()),
@@ -631,8 +630,8 @@ fn a_review_plan_of_a_range() {
 /// `bd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the
 /// file: its context, which counted its processes
 fn move_hunk_context(between: usize) -> RepoContext {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let first = commit_subjects(&repo, &["(auth) Add a"])[0].clone();
+  let (repo, ids) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a"]);
+  let first = ids[0].clone();
   for index in 0..between {
     commit_subjects(&repo, &[&format!("(other) Add o{index}")]);
   }
@@ -1285,8 +1284,7 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
 /// and the copy, one `cat-file` of their blobs)
 #[test]
 fn a_pick_into_a_branch_the_target_has() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  commit_subjects(&repo, &["(own) Add c"]);
+  let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(own) Add c"]);
   let lane = TestWorktree::detached(&repo);
   lane.commit("(own) Change c", "f0.txt", "changed\n");
   let (context, output) = pick_from(&repo, lane, |args| args.dry_run = true);

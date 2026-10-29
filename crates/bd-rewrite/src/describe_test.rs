@@ -1,21 +1,12 @@
-use bd_cli::fixture_test::{PREFIX, commit_all, environment, git, repo_with_baseline, run_in, write};
+use bd_cli::fixture_test::{PREFIX, environment, git, repo_with_login, run_in};
 use bd_cli::run_with;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::ffi::OsString;
-use test_utils::git_test_utils::TestRepo;
-
-/// One branch, `auth`
-fn repo_with_auth() -> TestRepo {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "auth.rs", "auth\n");
-  commit_all(&repo, "(auth) Add login", 1_700_000_100);
-  repo
-}
 
 #[test_log::test]
 fn sets_prints_and_clears_a_description() {
-  let repo = repo_with_auth();
+  let repo = repo_with_login();
 
   let (exit_code, output) = run_in(&repo, &["describe", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -53,7 +44,7 @@ fn sets_prints_and_clears_a_description() {
 
 #[test_log::test]
 fn describe_errors() {
-  let repo = repo_with_auth();
+  let repo = repo_with_login();
 
   let (exit_code, output) = run_in(&repo, &["describe", "missing", "--title", "X"]);
   assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("unknown_branch")));
@@ -68,7 +59,7 @@ fn describe_errors() {
 /// UTF8`), and reads stdout with a legacy code page: bd reads both and prints only ASCII
 #[test_log::test]
 fn a_body_from_windows_powershell_is_read_and_printed_as_ascii() {
-  let repo = repo_with_auth();
+  let repo = repo_with_login();
   let body = tempfile::NamedTempFile::new().unwrap();
   let utf16: Vec<u8> = [0xFF, 0xFE].into_iter().chain("Größe 🦀\r\n".encode_utf16().flat_map(u16::to_le_bytes)).collect();
   std::fs::write(body.path(), utf16).unwrap();

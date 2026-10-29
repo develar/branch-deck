@@ -53,7 +53,8 @@ use std::time::Duration;
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::SpaceRepository;
 use sync_core::sync::{SyncOptions, sync_branches};
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::HistoryCommit;
 use trial_check::landing_gate::landing_needs_of;
 
 /// The groups of the cases and their test functions here
@@ -740,47 +741,60 @@ fn add_robots(space: &Space, environment: &mut Environment, given: &Given) {
 
 /// The commits of the case on the baseline, as `commit_subjects` makes them (`f<i>.txt` with the subject), and what
 /// `conflicts`, `landingNeeds` and `stackBranch` add
-fn commit_given(space: &Space, given: &Given) {
-  let repo = &space.repo;
-  if given.stacks() {
-    repo.set_config("branchdeck.stacks", "true").unwrap();
-  }
+/// The repository of the case: its commits on the baseline, 100 s apart, in the first history of its `Space`, but for a
+/// dangling reference (`given.dangling`), whose commits move the baseline: those after it go in one more history
+fn space_of(given: &Given) -> Space {
+  let mut commits = Vec::new();
   let mut time = 1_700_000_000;
-  let mut commit = |subject: &str| {
-    commit_all(repo, subject, time);
+  let mut commit = |subject: &str, files: &[(&str, &str)]| {
+    commits.push(HistoryCommit::new(subject, files).at(time));
     time += 100;
   };
+  // the commit of the conflict goes before a dangling reference, every other after it
   if given.conflicts.is_some() {
-    write(repo, "config.txt", "a\n");
-    commit("Add config");
-  }
-  match given.dangling {
-    Some(Dangling::Removed) => drop(commit_dangling_reference(repo)),
-    Some(Dangling::Changed) => drop(commit_changed_declaration(repo)),
-    None => {}
+    commit("Add config", &[("config.txt", "a\n")]);
   }
   if given.landing_needs.is_some() {
-    write(repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
-    commit("(codec) Add controlUrl");
+    commit("(codec) Add controlUrl", &[("src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n")]);
   }
   let mut conflicted = false;
   for (index, subject) in given.commits.iter().enumerate() {
-    write(repo, &format!("f{index}.txt"), subject);
+    let file = format!("f{index}.txt");
     if !conflicted && given.conflicts.as_deref() == Some(Given::group_of(subject).0) {
-      write(repo, "config.txt", "b\n");
       conflicted = true;
+      commit(subject, &[(&file, subject), ("config.txt", "b\n")]);
+    } else {
+      commit(subject, &[(&file, subject)]);
     }
-    commit(subject);
   }
   if given.landing_needs.is_some() {
-    write(repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
-    commit(&format!("({}) Start with controlUrl", given.branch));
+    commit(
+      &format!("({}) Start with controlUrl", given.branch),
+      &[("src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n")],
+    );
   }
   if given.stack_branch == Some(StackBranch::NotBuilt) {
     let last = given.commits.last().map(|subject| Given::group_of(subject).0).unwrap();
-    write(repo, "loop.txt", "loop\n");
-    commit(&format!("({last}/{last}) Loop"));
+    commit(&format!("({last}/{last}) Loop"), &[("loop.txt", "loop\n")]);
   }
+  let after = if given.dangling.is_some() {
+    commits.split_off(usize::from(given.conflicts.is_some()))
+  } else {
+    Vec::new()
+  };
+  let space = Space::with_history(&commits);
+  if given.stacks() {
+    append_config(space.repo.path(), &[("branchdeck.stacks", "true")]);
+  }
+  match given.dangling {
+    Some(Dangling::Removed) => drop(commit_dangling_reference(&space.repo)),
+    Some(Dangling::Changed) => drop(commit_changed_declaration(&space.repo)),
+    None => {}
+  }
+  if !after.is_empty() {
+    space.repo.commit_history("refs/heads/master", &after);
+  }
+  space
 }
 
 /// A Safe Push landed every commit of the branch, and the baseline with them was fetched: origin/master has them rebuilt
@@ -826,17 +840,15 @@ fn bd_ok(environment: &Environment, args: &[&str]) {
 impl Situation {
   fn of(given: &Given) -> Self {
     given.check_mapped();
-    let space = Space::new(&[]);
-    commit_given(&space, given);
-    if given.route == Some(GivenRoute::Push) {
-      git(&space.repo, &["config", "branchdeck.landing", "push"]);
-    }
-    if given.route == Some(GivenRoute::PullRequest) {
-      git(&space.repo, &["config", "branchdeck.landing", "pull-request"]);
+    let space = space_of(given);
+    match given.route {
+      Some(GivenRoute::Push) => append_config(space.repo.path(), &[("branchdeck.landing", "push")]),
+      Some(GivenRoute::PullRequest) => append_config(space.repo.path(), &[("branchdeck.landing", "pull-request")]),
+      None => {}
     }
     if given.permission.is_some() || given.route == Some(GivenRoute::PullRequest) {
       // GitHub's facts count for the repository `origin` pushes to
-      git(&space.repo, &["config", "remote.origin.pushurl", "https://github.com/acme/monorepo.git"]);
+      append_config(space.repo.path(), &[("remote.origin.pushurl", "https://github.com/acme/monorepo.git")]);
     }
     let branch = given.branch.as_str();
     let mut pull_requests: Vec<Value> = given.pull_request.iter().map(|pull_request| pull_request_of(pull_request, branch)).collect();

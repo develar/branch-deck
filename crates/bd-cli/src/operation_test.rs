@@ -1,4 +1,4 @@
-use crate::fixture_test::{PREFIX, environment, repo_with_baseline, run_operation};
+use crate::fixture_test::{PREFIX, environment, repo_with_baseline, repo_with_commits, run_operation};
 use crate::remote_fixture_test::Space;
 use crate::{Out, operation_name, parse};
 use clap::CommandFactory;
@@ -8,15 +8,20 @@ use domain_types::operation::{EffectStatus, Intent};
 use domain_types::rewrite::RewriteIntent;
 use operations::registry_file::ProcessRegistry;
 use test_utils::captured_log::CapturedLog;
+use test_utils::history::HistoryCommit;
 
 /// A sync builds its branches on the blocking pool and detects the integration on another thread: the lines of every
 /// thread name the operation, whose id the JSON carries. The subscriber is global, so it sees every thread (nextest runs
 /// a process per test).
 #[test]
 fn every_log_line_of_a_command_names_its_operation_whose_id_its_json_carries() {
-  let repo = repo_with_baseline(&[("a.txt", "a")]);
-  repo.create_commit_with_files("(auth) Add login", &[("login.txt", "login")]);
-  repo.create_commit_with_files("(ui) Add button", &[("button.txt", "button")]);
+  let (repo, _) = repo_with_commits(
+    &[("a.txt", "a")],
+    &[
+      HistoryCommit::new("(auth) Add login", &[("login.txt", "login")]),
+      HistoryCommit::new("(ui) Add button", &[("button.txt", "button")]),
+    ],
+  );
   let captured = CapturedLog::install(false);
   let (exit_code, output, operation_id) = run_operation(&environment(repo.path()), &["--prefix", PREFIX, "sync"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -105,9 +110,13 @@ fn a_rewrite_is_journaled_under_the_operation_id_of_its_json() {
 /// first), with its ref move; its dry run, which builds the squash and drops it, is no operation
 #[test]
 fn a_squash_is_journaled_as_the_squash_of_its_commits() {
-  let repo = repo_with_baseline(&[("a.txt", "a")]);
-  let target = repo.create_commit_with_files("(auth) Add login", &[("login.txt", "login")]);
-  let folded = repo.create_commit_with_files("(auth) Fix login", &[("login.txt", "login fixed")]);
+  let (repo, [target, folded]) = repo_with_commits(
+    &[("a.txt", "a")],
+    &[
+      HistoryCommit::new("(auth) Add login", &[("login.txt", "login")]),
+      HistoryCommit::new("(auth) Fix login", &[("login.txt", "login fixed")]),
+    ],
+  );
   let environment = environment(repo.path());
   let squash = |dry_run: bool| {
     let mut args = vec!["--prefix", PREFIX, "squash", &target[..8], &folded[..8]];

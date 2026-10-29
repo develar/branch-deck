@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::{
   ACP_AGENT, ACP_HOST, LEDGER, LEDGER_TEST, MANAGER_TEST, PREFIX, assert_covered, branch, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference,
-  commit_override_of_overload, environment, git, repo_with_baseline, run_in, run_json, with_header, write,
+  commit_override_of_overload, environment, file_commits, git, repo_on_baseline, repo_with_baseline, repo_with_commits, run_in, run_json, with_header, write,
 };
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -9,24 +9,20 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::HistoryCommit;
 
 /// `<mode>|<repository>|<plan file>` of `bd_check_in_a_child`
 const CHILD_ENV: &str = "BD_CHECK_STDIN_CHILD";
 
 /// `(a)` creates a file and changes it; `(c)` is unrelated
 fn repo() -> (TestRepo, Vec<String>) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let mut ids = Vec::new();
-  for (subject, path, content) in [
+  let commits = file_commits(&[
     ("(a) Add shared", "shared.txt", "one\n"),
     ("(a) Change shared", "shared.txt", "two\n"),
     ("(c) Add other", "other.txt", "x\n"),
-  ] {
-    write(&repo, path, content);
-    ids.push(commit_all(&repo, subject, 1_700_000_000 + i64::try_from(ids.len()).unwrap() * 100));
-  }
-  (repo, ids)
+  ]);
+  repo_on_baseline(&[("README.md", "readme\n")], &commits, ".")
 }
 
 fn check(repo: &TestRepo, plan: &Value, extra: &[&str]) -> (i32, Value) {
@@ -56,7 +52,7 @@ fn dangling_reference_in_two_files(repo: &TestRepo) -> (String, String) {
 /// A repository with stacked branches on
 fn stacked_repo() -> TestRepo {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
+  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   repo
 }
 
@@ -432,10 +428,17 @@ fn a_move_hunk_fix_that_breaks_another_branch_is_not_offered() {
 /// A use that no commit here changes: only possible, a warning, exit 0
 #[test_log::test]
 fn a_possible_dangling_reference_is_a_warning_and_exit_0() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n");
-  write(&repo, "src/flow/Start.kt", "package flow\n\nfun start() = 1\n");
-  let base = commit_all(&repo, "Add util", 1_700_000_050);
+  let (repo, [base]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[HistoryCommit::new(
+      "Add util",
+      &[
+        ("src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n"),
+        ("src/flow/Start.kt", "package flow\n\nfun start() = 1\n"),
+      ],
+    )
+    .at(1_700_000_050)],
+  );
   git(&repo, &["update-ref", "refs/remotes/origin/master", &base]);
   let removed_by = {
     write(&repo, "src/util/Util.kt", "package util\n");

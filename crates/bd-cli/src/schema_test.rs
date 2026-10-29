@@ -1,6 +1,7 @@
-use crate::fixture_test::{assert_covered, commit_all, environment, repo_with_baseline, run_in, run_json, write};
+use crate::fixture_test::{assert_covered, commit_all, environment, repo_with_commits, run_in, run_json, write};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
+use test_utils::history::HistoryCommit;
 
 #[test_log::test]
 fn schema_lists_every_output() {
@@ -89,13 +90,14 @@ fn schema_lists_every_output() {
 /// The real outputs use only properties the schema declares
 #[test_log::test]
 fn outputs_match_schema() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  write(&repo, "a.txt", "a\n");
-  commit_all(&repo, "(feature) Add a", 1_700_000_100);
-  write(&repo, "a.txt", "a\nb\n");
-  commit_all(&repo, "fixup! (feature) Add a", 1_700_000_200);
-  write(&repo, "b.txt", "b\n");
-  commit_all(&repo, "PROJ-1 Add b", 1_700_000_300);
+  let (repo, _) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(feature) Add a", &[("a.txt", "a\n")]).at(1_700_000_100),
+      HistoryCommit::new("fixup! (feature) Add a", &[("a.txt", "a\nb\n")]).at(1_700_000_200),
+      HistoryCommit::new("PROJ-1 Add b", &[("b.txt", "b\n")]).at(1_700_000_300),
+    ],
+  );
 
   let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   let (_, status) = run_in(&repo, &["status", "--stats"]);

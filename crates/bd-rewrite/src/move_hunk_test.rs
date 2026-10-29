@@ -1,11 +1,12 @@
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{
   ACP_AGENT, ACP_HOST, ACP_PROTOCOL, acp_host, assert_error, assert_undo_restores, commit_all, commit_dangling_reference, environment, git, hold_the_lock, numbered_lines,
-  repo_with_baseline, run_in, run_json, sync_statuses, write,
+  repo_with_baseline, repo_with_commits, run_in, run_json, sync_statuses, write,
 };
 use git_ops::revs::short_id;
 use serde_json::json;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::history::HistoryCommit;
 
 /// The incident of `commit_dangling_reference`, with an unrelated commit of `docs` between the two and a second file in
 /// the fix, so that the fix's commit keeps a change: commit A of `fake-agent` moves `CONTROL_URL_ENV` into
@@ -141,9 +142,7 @@ fn block_id(block: &serde_json::Value) -> &str {
 
 #[test_log::test]
 fn the_block_id_is_the_one_of_bd_commits_patch() {
-  let repo = repo_with_baseline(&[("f.txt", &numbered_lines(40))]);
-  write(&repo, "a.txt", "a\n");
-  let a = commit_all(&repo, "(a) Add a", 1_700_000_100);
+  let (repo, [a]) = repo_with_commits(&[("f.txt", &numbered_lines(40))], &[HistoryCommit::new("(a) Add a", &[("a.txt", "a\n")]).at(1_700_000_100)]);
   let changed = numbered_lines(40)
     .replace("line 2\n", "two\n")
     .replace("line 20\n", "twenty\n")
@@ -190,9 +189,7 @@ fn the_block_id_is_the_one_of_bd_commits_patch() {
 
 #[test_log::test]
 fn a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse() {
-  let repo = repo_with_baseline(&[("f.txt", &numbered_lines(20))]);
-  write(&repo, "a.txt", "a\n");
-  let a = commit_all(&repo, "(a) Add a", 1_700_000_100);
+  let (repo, [a]) = repo_with_commits(&[("f.txt", &numbered_lines(20))], &[HistoryCommit::new("(a) Add a", &[("a.txt", "a\n")]).at(1_700_000_100)]);
   write(&repo, "f.txt", numbered_lines(20).replace("line 10\n", "ten\n"));
   commit_all(&repo, "(x) Change line 10", 1_700_000_200);
   write(&repo, "f.txt", numbered_lines(20).replace("line 10\n", "TEN\n"));

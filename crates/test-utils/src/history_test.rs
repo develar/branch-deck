@@ -11,7 +11,8 @@ fn a_message_is_cleaned_as_git_commit_m_cleans_it() {
 
 /// The history of a fixture is one `fast-import` and one `read-tree`, whatever the number of its commits, and its
 /// commits are those `add` and `commit` write: the same ids at the same times, of the test user or of another one, the
-/// files of HEAD in the working tree with a clean status, a commit that changes nothing left out
+/// files of HEAD in the working tree with a clean status, a commit that changes nothing left out, another ref at the
+/// root or at a commit of the stream
 #[test]
 fn a_history_is_two_processes_and_the_commits_of_git_commit() {
   let commits = [
@@ -30,6 +31,7 @@ fn a_history_is_two_processes_and_the_commits_of_git_commit() {
       history.commit(commit);
     }
     history.reset_to_root("refs/remotes/origin/master");
+    history.reset_at("refs/heads/login", 1);
     history.write(written.path()).unwrap()
   });
   assert_eq!(processes, ["fast-import", "read-tree"]);
@@ -65,6 +67,7 @@ fn a_history_is_two_processes_and_the_commits_of_git_commit() {
   }
   assert_eq!(ids, expected);
   assert_eq!(written.git(&["rev-parse", "refs/remotes/origin/master"]), ids[0].clone().unwrap());
+  assert_eq!(written.git(&["rev-parse", "refs/heads/login"]), ids[1].clone().unwrap(), "a ref at a commit of the stream");
   assert_eq!(written.git(&["status", "--porcelain"]), "");
   assert_eq!(std::fs::read_to_string(written.path().join("src/login.txt")).unwrap(), "login\n");
   assert!(!written.path().join("src/a.txt").exists());

@@ -2,25 +2,29 @@
 
 use crate::run_with;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
+use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::short_id;
 use history_rewrite::repository_lock::{RepositoryLock, lock_repository_as_another_process};
 use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::fmt::Write;
 use std::path::Path;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::{HistoryCommit, HistoryStream};
 
 pub const PREFIX: &str = "test-user";
 
 /// The global git config of bd in a test (`Environment::git_config_global`), empty
 pub const EMPTY_GLOBAL_CONFIG: &str = "/dev/null";
 
-/// No app settings and no global git config, git from `PATH`, started in `cwd`
+/// No app settings and no global git config, the git of the fixtures, started in `cwd`
 pub fn environment(cwd: &Path) -> Environment {
   Environment {
     cwd: cwd.to_path_buf(),
     settings: domain_types::settings::AppSettings::default(),
-    git: None,
+    // the git the fixtures run (`GitCommandExecutor`'s, Homebrew's first on macOS, where `PATH` may name an older one):
+    // bd and its test run one git, which answers its version once per test process
+    git: Some(fixture_git()),
     // an empty global config, as CI has: the developer's `branchdeck.branchPrefix` never gives a test its prefix (git
     // for Windows reads `/dev/null` as `nul`)
     git_config_global: Some(std::path::PathBuf::from(EMPTY_GLOBAL_CONFIG)),
@@ -46,7 +50,11 @@ pub fn environment(cwd: &Path) -> Environment {
   }
 }
 
-/// Run `bd` and parse its single JSON line
+/// The path of the git the executor of the fixtures discovered
+fn fixture_git() -> String {
+  GitCommandExecutor::new().get_info().expect("a git for the tests").path.clone()
+}
+
 /// The context of `bd` without `--prefix` in `repo`, whose config sets `branchdeck.branchPrefix` to `PREFIX`
 pub fn context_with_the_config_prefix(repo: &TestRepo) -> RepoContext {
   repo.set_config("branchdeck.branchPrefix", PREFIX).unwrap();
@@ -61,6 +69,7 @@ pub fn context_with_the_config_prefix(repo: &TestRepo) -> RepoContext {
   context
 }
 
+/// Run `bd` and parse its single JSON line
 pub fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let (exit_code, value, _) = run_operation(environment, args);
   (exit_code, value)
@@ -399,11 +408,55 @@ pub fn subcommand(args: &str) -> &str {
 
 /// A repository whose `origin/master` is its first commit, so every later commit is ahead of the baseline
 pub fn repo_with_baseline(files: &[(&str, &str)]) -> TestRepo {
+  repo_on_baseline(files, &[], ".").0
+}
+
+/// A repository whose first commit, `Initial commit` of `files`, is `origin/master`, then `commits` on master, and whose
+/// `origin` is at `url` (`.` for the repository itself): one history (`test_utils::history`: one `fast-import`, one
+/// `read-tree`, the baseline a `reset_to_root` of its stream) and the remote appended to the config, three processes
+/// for any number of commits. The ids of `commits`
+pub fn repo_on_baseline(files: &[(&str, &str)], commits: &[HistoryCommit], url: &str) -> (TestRepo, Vec<String>) {
   let repo = TestRepo::new();
-  let initial = repo.create_commit_with_files("Initial commit", files);
-  git(&repo, &["remote", "add", "origin", "."]);
-  git(&repo, &["update-ref", "refs/remotes/origin/master", &initial]);
+  let mut history = HistoryStream::new("refs/heads/master");
+  history.commit(&HistoryCommit::new("Initial commit", files));
+  history.reset_to_root("refs/remotes/origin/master");
+  for commit in commits {
+    history.commit(commit);
+  }
+  let ids = history.write(repo.path()).unwrap_or_else(|e| panic!("cannot write the history: {e:#}"));
+  append_config(repo.path(), &[("remote.origin.url", url), ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")]);
+  let ids = ids.into_iter().skip(1).map(|id| id.expect("every commit of a history changes a file")).collect();
+  (repo, ids)
+}
+
+/// `repo_on_baseline` of the repository itself as `origin` with a known number of commits, whose ids a test names:
+/// `let (repo, [login, _]) = repo_with_commits(&[("README.md", "readme\n")], [HistoryCommit::new(…), …])`
+pub fn repo_with_commits<const N: usize>(files: &[(&str, &str)], commits: &[HistoryCommit; N]) -> (TestRepo, [String; N]) {
+  let (repo, ids) = repo_on_baseline(files, commits, ".");
+  let ids = ids.try_into().unwrap_or_else(|ids: Vec<String>| panic!("{} ids of {N} commits", ids.len()));
+  (repo, ids)
+}
+
+/// One branch, `auth`: `(auth) Add login` of `auth.rs` ahead of the baseline
+pub fn repo_with_login() -> TestRepo {
+  let (repo, _) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[HistoryCommit::new("(auth) Add login", &[("auth.rs", "auth\n")]).at(1_700_000_100)],
+  );
   repo
+}
+
+/// The commits `commit_subjects` writes for `subjects`, for a history (`repo_on_baseline`)
+pub fn subject_commits(subjects: &[&str]) -> Vec<HistoryCommit> {
+  (0..)
+    .zip(subjects)
+    .map(|(index, subject)| HistoryCommit::new(*subject, &[(&format!("f{index}.txt"), *subject)]).at(1_700_000_000 + index * 100))
+    .collect()
+}
+
+/// `repo_with_baseline` of `files` with the commits of `subjects` (`commit_subjects`) in the same history: their ids
+pub fn repo_with_subjects(files: &[(&str, &str)], subjects: &[&str]) -> (TestRepo, Vec<String>) {
+  repo_on_baseline(files, &subject_commits(subjects), ".")
 }
 
 pub fn git(repo: &TestRepo, args: &[&str]) -> String {
@@ -435,20 +488,16 @@ pub fn assert_dry_run(output: &Value, head: &str) {
   );
 }
 
-/// One commit per subject, each adding its own file, 100 s apart; returns their ids
-/// Commits `(message, file, content)` one by one, each with its file written, `commit_all` 100 s apart; returns the ids,
-/// oldest first
-pub fn commit_files(repo: &TestRepo, commits: &[(&str, &str, &str)]) -> Vec<String> {
-  commits
-    .iter()
-    .zip(0..)
-    .map(|(&(message, file, content), index)| {
-      write(repo, file, content);
-      commit_all(repo, message, 1_700_000_000 + index * 100)
-    })
+/// The commits `(message, file, content)`, each writing its file, 100 s apart from `1_700_000_000`, for a history
+/// (`repo_on_baseline`)
+pub fn file_commits(commits: &[(&str, &str, &str)]) -> Vec<HistoryCommit> {
+  (0..)
+    .zip(commits)
+    .map(|(index, &(message, file, content))| HistoryCommit::new(message, &[(file, content)]).at(1_700_000_000 + index * 100))
     .collect()
 }
 
+/// One commit per subject, each adding its own file `f<index>.txt`, 100 s apart, by `commit_all`; returns their ids
 pub fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
   let mut ids = Vec::new();
   for (index, subject) in subjects.iter().enumerate() {
@@ -493,23 +542,33 @@ pub const MANAGER_TEST: &str = "impl/testSrc/p/ManagerTest.kt";
 pub fn commit_override_of_overload(repo: &TestRepo) -> (String, String) {
   let manager =
     |overload: &str| format!("package p\n\nopen class Manager {{\n  internal open fun buttons(window: Window): Buttons = Buttons()\n{overload}}}\n\nclass Window\nclass Buttons\n");
-  write(repo, "impl/BUILD.bazel", "");
-  write(repo, "impl/src/p/Manager.kt", manager(""));
-  let base = commit_all(repo, "Add the manager", 1_700_000_050);
-  git(repo, &["update-ref", "refs/remotes/origin/master", &base]);
-  write(
+  let test = "package p\n\nclass ManagerTest {\n  fun create(buttons: Buttons): Manager = object : Manager() {\n    override fun buttons(window: Window): Buttons = buttons\n\n    override fun buttons(paneId: String): Buttons = buttons\n  }\n}\n";
+  on_a_new_baseline(
     repo,
-    "impl/src/p/Manager.kt",
-    manager("\n  internal open fun buttons(paneId: String): Buttons = Buttons()\n"),
-  );
-  let declares = commit_all(repo, "(abc) Add the pane overload", 1_700_000_100);
-  write(
-    repo,
-    MANAGER_TEST,
-    "package p\n\nclass ManagerTest {\n  fun create(buttons: Buttons): Manager = object : Manager() {\n    override fun buttons(window: Window): Buttons = buttons\n\n    override fun buttons(paneId: String): Buttons = buttons\n  }\n}\n",
-  );
-  let overrides = commit_all(repo, "(xyz) Test the manager", 1_700_000_200);
-  (declares, overrides)
+    HistoryCommit::new("Add the manager", &[("impl/BUILD.bazel", ""), ("impl/src/p/Manager.kt", &manager(""))]),
+    [
+      HistoryCommit::new(
+        "(abc) Add the pane overload",
+        &[("impl/src/p/Manager.kt", &manager("\n  internal open fun buttons(paneId: String): Buttons = Buttons()\n"))],
+      ),
+      HistoryCommit::new("(xyz) Test the manager", &[(MANAGER_TEST, test)]),
+    ],
+  )
+  .into()
+}
+
+/// `base` and then `commits` on master of `repo`, 100 s apart from `1_700_000_050` (`commit_all`), `origin/master`
+/// moved to `base`: one history (`HistoryStream::reset_at`). The ids of `commits`
+fn on_a_new_baseline<const N: usize>(repo: &TestRepo, base: HistoryCommit, commits: [HistoryCommit; N]) -> [String; N] {
+  let mut history = HistoryStream::on_branch("refs/heads/master");
+  let base = history.commit(&base.at(1_700_000_050));
+  history.reset_at("refs/remotes/origin/master", base);
+  for (commit, time) in commits.into_iter().zip((1_700_000_100..).step_by(100)) {
+    history.commit(&commit.at(time));
+  }
+  let ids = history.write(repo.path()).unwrap_or_else(|e| panic!("cannot write the history: {e:#}"));
+  let ids: Vec<String> = ids.into_iter().skip(1).map(|id| id.expect("a commit of a continued history")).collect();
+  ids.try_into().unwrap_or_else(|ids: Vec<String>| panic!("{} ids of {N} commits", ids.len()))
 }
 
 pub const LEDGER_TEST: &str = "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt";
@@ -526,43 +585,36 @@ pub fn commit_changed_declaration(repo: &TestRepo) -> (String, String) {
 /// `commit_changed_declaration` with `cleanup` changed to `header` instead
 pub fn commit_changed_member(repo: &TestRepo, header: &str) -> (String, String) {
   let ledger = |header: &str| format!("package bridge\n\nclass AcpOwnershipLedger {{\n  {header} {{\n  }}\n}}\n");
-  write(repo, LEDGER, ledger("fun cleanup()"));
-  write(
+  let test = "package contract\n\nimport bridge.AcpOwnershipLedger\n\nclass AcpJourneyLifecycleTest {\n  fun cleans() {\n    val ledger = AcpOwnershipLedger()\n    ledger.cleanup()\n  }\n}\n";
+  on_a_new_baseline(
     repo,
-    LEDGER_TEST,
-    "package contract\n\nimport bridge.AcpOwnershipLedger\n\nclass AcpJourneyLifecycleTest {\n  fun cleans() {\n    val ledger = AcpOwnershipLedger()\n    ledger.cleanup()\n  }\n}\n",
-  );
-  let base = commit_all(repo, "Add the ledger", 1_700_000_050);
-  git(repo, &["update-ref", "refs/remotes/origin/master", &base]);
-  git(repo, &["rm", "-q", "--", LEDGER_TEST]);
-  let deleted_by = commit_all(repo, "(journey) IJAI-4182 The journey support goes with its tests", 1_700_000_100);
-  write(repo, LEDGER, ledger(header));
-  let changed_by = commit_all(repo, "(suspend) IJAI-4185 The cleanups may suspend", 1_700_000_200);
-  (deleted_by, changed_by)
+    HistoryCommit::new("Add the ledger", &[(LEDGER, &ledger("fun cleanup()")), (LEDGER_TEST, test)]),
+    [
+      HistoryCommit::new("(journey) IJAI-4182 The journey support goes with its tests", &[]).deleting(&[LEDGER_TEST]),
+      HistoryCommit::new("(suspend) IJAI-4185 The cleanups may suspend", &[(LEDGER, &ledger(header))]),
+    ],
+  )
+  .into()
 }
 
 /// The Safe Push failure of 2026-10-16 in `repo` (from `repo_with_baseline`): the baseline gets a Java class with a
 /// constant and a Kotlin file that uses it; `(fake-agent)` moves the constant into a new class, and `(lane-document)`
 /// changes the use. Returns `(the commit that moves it, the commit that changes the use)`
 pub fn commit_dangling_reference(repo: &TestRepo) -> (String, String) {
-  write(
+  let agent = "package acp;\n\npublic final class AcpScenarioAgent {\n  public static final String CONTROL_URL_ENV = \"AIR_CONTROL_URL\";\n}\n";
+  let protocol = "package acp;\n\npublic final class AcpControlProtocol {\n  public static final String CONTROL_URL_ENV = \"AIR_CONTROL_URL\";\n}\n";
+  on_a_new_baseline(
     repo,
-    ACP_AGENT,
-    "package acp;\n\npublic final class AcpScenarioAgent {\n  public static final String CONTROL_URL_ENV = \"AIR_CONTROL_URL\";\n}\n",
-  );
-  write(repo, ACP_HOST, acp_host("AcpScenarioAgent"));
-  let base = commit_all(repo, "Add the scenario agent", 1_700_000_050);
-  git(repo, &["update-ref", "refs/remotes/origin/master", &base]);
-  write(repo, ACP_AGENT, "package acp;\n\npublic final class AcpScenarioAgent {\n}\n");
-  write(
-    repo,
-    ACP_PROTOCOL,
-    "package acp;\n\npublic final class AcpControlProtocol {\n  public static final String CONTROL_URL_ENV = \"AIR_CONTROL_URL\";\n}\n",
-  );
-  let removed_by = commit_all(repo, "(fake-agent) IJAI-3880 Move the control constants", 1_700_000_100);
-  write(repo, ACP_HOST, acp_host("AcpControlProtocol"));
-  let fixed_by = commit_all(repo, "(lane-document) IJAI-3878 Use the control protocol", 1_700_000_200);
-  (removed_by, fixed_by)
+    HistoryCommit::new("Add the scenario agent", &[(ACP_AGENT, agent), (ACP_HOST, &acp_host("AcpScenarioAgent"))]),
+    [
+      HistoryCommit::new(
+        "(fake-agent) IJAI-3880 Move the control constants",
+        &[(ACP_AGENT, "package acp;\n\npublic final class AcpScenarioAgent {\n}\n"), (ACP_PROTOCOL, protocol)],
+      ),
+      HistoryCommit::new("(lane-document) IJAI-3878 Use the control protocol", &[(ACP_HOST, &acp_host("AcpControlProtocol"))]),
+    ],
+  )
+  .into()
 }
 
 /// The object or array schema behind a `$ref` into `$defs` or the non-null alternative of an `anyOf` (an `Option`)

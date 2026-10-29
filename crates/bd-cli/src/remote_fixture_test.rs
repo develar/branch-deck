@@ -2,7 +2,7 @@
 //! with a branch to land (`Space`), a fake GitHub with pull requests, and a repository with a remote (named `_test`
 //! so the worktree safety scan treats it as test code)
 
-use crate::fixture_test::{PREFIX, assert_covered, commit_all, commit_subjects, environment, git, repo_with_baseline, run_in, run_json, write};
+use crate::fixture_test::{PREFIX, assert_covered, commit_all, environment, git, repo_on_baseline, run_in, run_json, subject_commits, write};
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake as start_fake_github};
 use github::token::TokenSources;
@@ -13,9 +13,13 @@ use std::sync::atomic::Ordering;
 use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 use tempfile::TempDir;
 use test_utils::fake_executable::{fake_executable, shell_path};
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, git_command};
+use test_utils::git_test_utils::{TestRepo, append_config, disable_background_maintenance, git_command};
+use test_utils::history::HistoryCommit;
 use tokio::runtime::Runtime;
 pub const AUTH: &str = "test-user/virtual/auth";
+
+/// The push URL of `origin` of a `Space`: the monorepo on Space, which its fake `ssh` serves from the bare repository
+const SPACE_URL: &str = "ssh://git@git.jetbrains.team/ij/ultimate.git";
 
 /// A repository whose `origin` is on Space (`ssh://git@git.jetbrains.team/ij/ultimate.git`), served by a local bare
 /// repository through a fake `ssh`, and a Patronus that answers for it
@@ -30,8 +34,14 @@ pub struct Space {
 }
 
 impl Space {
+  /// A `Space` with the commits of `subjects` (`commit_subjects`)
   pub fn new(subjects: &[&str]) -> Self {
-    let (repo, remote) = repo_with_remote(subjects);
+    Self::with_history(&subject_commits(subjects))
+  }
+
+  /// A `Space` whose repository has `commits` on its baseline, in its first history (`repo_on_baseline`)
+  pub fn with_history(commits: &[HistoryCommit]) -> Self {
+    let (repo, remote) = repo_with_remote_at(commits, |_| SPACE_URL.to_string());
     let home = tempfile::tempdir().unwrap();
     // git runs `<ssh> [options] git@git.jetbrains.team "git-receive-pack '/ij/ultimate.git'"`: serve the bare repository
     let ssh = fake_executable(
@@ -42,8 +52,7 @@ impl Space {
         shell_path(remote.path())
       ),
     );
-    git(&repo, &["config", "core.sshCommand", &shell_path(&ssh)]);
-    git(&repo, &["remote", "set-url", "origin", "ssh://git@git.jetbrains.team/ij/ultimate.git"]);
+    append_config(repo.path(), &[("core.sshCommand", &shell_path(&ssh))]);
 
     let token = home.path().join(".patronus/code.jetbrains.team-identity-token.json");
     std::fs::create_dir_all(token.parent().unwrap()).unwrap();
@@ -188,7 +197,7 @@ pub fn pull_request_json(approvers: &[&str]) -> Value {
 /// The branches are reviewed on GitHub (`acme/monorepo`), through the fake GitHub at `github_url`, asked with the token
 /// `t`; the robot of the comment on pull request #7 is listed
 pub fn reviewed_on_github(space: &Space, github_url: &str) -> Environment {
-  git(&space.repo, &["config", "branchdeck.githubRepository", "acme/monorepo"]);
+  append_config(space.repo.path(), &[("branchdeck.githubRepository", "acme/monorepo")]);
   let mut started = robot("from-comment", "RUNNING", "other", "0000");
   started["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
   space.set_robots(vec![started]);
@@ -215,7 +224,7 @@ pub const STACK: &str = "test-user/stack/auth";
 /// auth with login and session built on it: a stack that forks, whose stack branch has the commits of all three
 pub fn forking_stack() -> Space {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  append_config(space.repo.path(), &[("branchdeck.stacks", "true")]);
   space
 }
 
@@ -256,12 +265,16 @@ pub fn stack_robot(id: &str, status: &str, revision: &str) -> Value {
 
 /// A repository whose `origin` is a local bare repository, with the commits of `subjects`
 pub fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo_with_remote_at(&subject_commits(subjects), |remote| remote.to_str().unwrap().to_string())
+}
+
+/// A repository with `commits` on its baseline (`repo_on_baseline`), whose `origin` is at the URL `url` gives for the
+/// path of a new bare repository: one history and one `git init --bare`
+fn repo_with_remote_at(commits: &[HistoryCommit], url: impl FnOnce(&std::path::Path) -> String) -> (TestRepo, TempDir) {
   let remote = tempfile::tempdir().unwrap();
+  let (repo, _) = repo_on_baseline(&[("README.md", "readme\n")], commits, &url(remote.path()));
   git(&repo, &["init", "--bare", "-q", remote.path().to_str().unwrap()]);
   disable_background_maintenance(remote.path());
-  git(&repo, &["remote", "set-url", "origin", remote.path().to_str().unwrap()]);
-  commit_subjects(&repo, subjects);
   (repo, remote)
 }
 
