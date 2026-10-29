@@ -369,18 +369,33 @@ fn a_cancelled_git_is_killed() {
 #[test]
 fn a_stopped_git_ends_every_process_it_started() {
   let dir = tempfile::tempdir().unwrap();
-  // the shell adds a line to `beats` every 50 ms, for 30 s at most; it is canceled at its first line
-  let script = "i=0; while [ $i -lt 600 ]; do echo $i >> beats; printf 'beat\\n' >&2; sleep 0.05; i=$((i+1)); done";
-  let result = run_until_reported(script, dir.path());
+  // the shell writes its Windows pid, then adds a line to `beats` every 50 ms, for 120 s at least; it is canceled at its
+  // first line, when the test knows the shell and its start
+  let script = "cat /proc/$$/winpid > winpid; i=0; while [ $i -lt 2400 ]; do echo $i >> beats; printf 'beat\\n' >&2; sleep 0.05; i=$((i+1)); done";
+  let shell = Cell::new(None);
+  let stop = ProgressStop {
+    idle_timeout: None,
+    is_cancelled: &|| shell.get().is_some(),
+  };
+  let mut on_line = |_: &str| {
+    if shell.get().is_none() {
+      let pid: u32 = std::fs::read_to_string(dir.path().join("winpid")).unwrap().trim().parse().unwrap();
+      shell.set(Some((pid, sync_utils::process_scan::process_started(pid))));
+    }
+  };
+  let result = run_until(script, dir.path(), &mut on_line, &stop, &Instant::now);
   assert_eq!(stopped(&result), Some(StoppedCommand::Cancelled), "{result:?}");
-  let beats = || std::fs::read_to_string(dir.path().join("beats")).map_or(0, |text| text.lines().count());
-  // a beat may be on its way while the processes end
-  std::thread::sleep(Duration::from_millis(200));
-  let at_the_stop = beats();
-  assert!(at_the_stop > 0, "the shell never ran");
-  // a shell that still ran would add about ten
-  std::thread::sleep(Duration::from_millis(500));
-  assert_eq!(beats(), at_the_stop, "a process of the stopped git still runs");
+  let (pid, started) = shell.get().expect("the shell reported a line");
+  assert!(started.is_some(), "the shell runs at its first line");
+  // the end of a job is asynchronous: the shell goes soon after the stop, and before its own end only by the stop. The
+  // wait is for that state, with a limit no run reaches
+  let limit = Instant::now() + Duration::from_secs(60);
+  while sync_utils::process_scan::is_running(pid, started) {
+    assert!(Instant::now() < limit, "a process of the stopped git still runs");
+    std::thread::sleep(Duration::from_millis(10));
+  }
+  let beats = std::fs::read_to_string(dir.path().join("beats")).map_or(0, |text| text.lines().count());
+  assert!(beats > 0, "the shell never ran");
 }
 
 /// Runs `script` as a git alias in `dir` with `input` on stdin, killed after `timeout` measured on `now`
