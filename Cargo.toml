@@ -99,7 +99,7 @@ tokio-stream = "0.1"
 
 # The watch of the operations registry of a repository by the app's sessions (`operations::registry_watch`): FSEvents,
 # inotify, ReadDirectoryChangesW
-notify = "8.2.0"
+notify = "8.2.1"
 
 # The remote runs of `bd-host` (docs/design/host-runs.md): TLS 1.3 on the provider the app links through reqwest
 # (`aws-lc-rs`), so no second provider comes in; the self-signed certificate of each end; Ctrl+C of a run
