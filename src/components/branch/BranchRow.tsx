@@ -28,6 +28,7 @@ import { moveDrop } from "@/lib/branch-drop"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
+import { countRender } from "@/lib/render-counts"
 import { stackProblemOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
@@ -114,6 +115,7 @@ export const BranchRow = memo(function BranchRow({
   onToggleExpanded,
   setExpanded,
 }: BranchRowProps) {
+  countRender(`row:${name}`)
   const branch = useBranch(name)
   const parked = useParkedState(name)
   // the node of a branch whose robot runs has the ring of the Safe Push slot

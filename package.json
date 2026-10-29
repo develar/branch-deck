@@ -29,6 +29,7 @@
     "perf:monorepo": "node scripts/perf/monorepo.mjs",
     "perf:test-processes": "node scripts/perf/test-processes.mjs",
     "perf:diff": "playwright test -c playwright.perf.config.ts diff-review",
+    "perf:eager-js": "node scripts/perf/eager-js.mjs",
     "perf:table": "playwright test -c playwright.perf.config.ts branch-table",
     "screenshots:readme": "playwright test -c playwright.screenshots.config.ts",
     "lint": "pnpm run \"/^lint:.*/\"",

@@ -84,7 +84,8 @@ DEBUG_E2E=1 pnpm e2e      # With the mock server's debug log and every page cons
 E2E_PORT=3031 pnpm e2e    # On another port when another checkout's mock server holds 3030
 pnpm test-server:dev      # Optional: the E2E mock server with auto-restart (needs watchexec); `pnpm e2e` reuses it
 pnpm perf:diff            # The diff review performance test (playwright.perf.config.ts)
-pnpm perf:table           # The branch view at 141 rows: layout, sync, IPC (ui-theme.md#branch-columns); --project=webkit
+pnpm perf:table           # The branch view at 141 rows: layout, sync, renders, IPC (ui-theme.md#branch-columns); --project=webkit
+pnpm perf:eager-js        # The JS every window loads before its page, by package and module (B13, rendering-performance.md#loading)
 pnpm screenshots:readme   # The README images in docs/screenshots (tests/screenshots, the readme_showcase template)
 
 pnpm lint                 # Every lint:* script

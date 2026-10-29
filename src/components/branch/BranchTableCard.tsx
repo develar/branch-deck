@@ -28,6 +28,7 @@ import { FILTER_BAR_MIN_BRANCHES } from "@/lib/branch-filter"
 import { pruneSelection } from "@/lib/branch-selection"
 import { copyText, isCopyKey } from "@/lib/clipboard"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
+import { countRender } from "@/lib/render-counts"
 import { collapsedLanes, isStackRoot, sideStackSizes, stackSizes } from "@/lib/stack-collapse"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { describeSyncStep } from "@/lib/sync-step"
@@ -59,6 +60,7 @@ const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreview
  * clears.
  */
 export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
+  countRender("table")
   const visible = useFilteredBranches()
   // without a filter, a collapsed stack shows as its root alone and a collapsed island as its header
   const { table, tableAll, islands } = useShownBranchTables(visible)

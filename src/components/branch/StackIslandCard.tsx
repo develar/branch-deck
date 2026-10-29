@@ -29,6 +29,7 @@ import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushMode } from "@/lib/patronus"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
+import { countRender } from "@/lib/render-counts"
 import { formatRobotProgress } from "@/lib/robot-eta"
 import type { StackIsland } from "@/lib/stack-collapse"
 import type { StackStateChip } from "@/lib/stack-state"
@@ -112,6 +113,7 @@ export interface StackIslandCardProps {
  */
 export function StackIslandCard({ island, filtered, landing, children }: StackIslandCardProps) {
   const { root } = island
+  countRender(`island:${root}`)
   const summary = useIslandSummary(root)
   if (summary === null) {
     return null

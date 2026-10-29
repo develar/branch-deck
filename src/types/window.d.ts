@@ -17,6 +17,11 @@ declare global {
      * window by the start of the app (`src-tauri/src/warm_start.rs`); none without a frame (`adoptCachedModel`)
      */
     __BD_MODEL__?: CachedModel
+    /**
+     * The renders of the page by key, an empty map an init script of a test sets before the page loads (`countRender`
+     * of src/lib/render-counts.ts); absent in the app
+     */
+    __bdRenderCounts?: Map<string, number>
   }
 
   interface WindowEventMap {

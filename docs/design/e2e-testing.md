@@ -349,6 +349,16 @@ Mock implementation:
   the app's own timers, `set_setting` and `check_for_updates`, as they fire wherever a step is): the hover of a row
   reads no fact, its menu invokes nothing, the popover of its robot one `set_demand`
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
+- **Render counter**: beside the IPC, a test counts what the page renders. `countRender(key)` (`src/lib/render-counts.ts`)
+  in the render body of a branch row (`row:<name>`), of the branch table card (`table`) and of the card of a stack
+  island (`island:<root>`) adds one to the key in `window.__bdRenderCounts`, a map an init script of the test sets
+  before the page loads (`recordRenders` of `tests/e2e/helpers/render-helpers.ts`; `resetRenders` clears it,
+  `renderCounts` reads it). The app's module takes the map as it loads, so a page without the script counts nothing,
+  at the cost of one comparison per render, and the build the tests run is the build of the app: no profiling build
+  of React, whose `Profiler` reports nothing in production. It counts the calls of the component's function, a render
+  whose output React keeps included, so it says what a patch woke. `pnpm perf:table` reads it for a sync that changes
+  nothing and for a sync of one more commit on one branch (`resyncRows`, `oneBranchSyncRows`,
+  [Rendering Performance](rendering-performance.md#the-main-thread-of-a-sync)).
 - **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
   `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` per repository that stands still, so no
   session of a test goes away by itself until the test moves it, `repo.advanceBackendClock`), and runs the app's

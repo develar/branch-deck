@@ -378,6 +378,19 @@ each at a load of 9 to 13, the container 111.5 and 125.6 ms, the flag 6.25 and 7
 1.76–2.03 ms against 0.37–0.40 inside the container (the tree of s0a: 2.39 and 1.71 ms). The tree of s0a and this one
 in turns come with the final measurements of s15.
 
+Since s15-2 `perf:table` also says where the task time of a sync goes and what a sync renders. The main thread of
+each sync has the layouts and the style recalcs of the page beside its script and task time, with their time
+(`firstSyncLayouts`, `firstSyncLayoutMs`, `firstSyncStyles`, `firstSyncStyleMs`, the same of the resync; `LayoutCount`,
+`LayoutDuration`, `RecalcStyleCount` and `RecalcStyleDuration` of the same CDP metrics): a layout or a recalc that a
+script forces, a read of a size, counts in its script time too, and the task time beyond the three is mostly paint, the
+commit to the compositor and the browser's own work. The renders come from the render counter of the page
+(`countRender`, [E2E Testing](e2e-testing.md), "Render counter"), in every engine: `resyncRows`, the branch rows a
+sync that changes nothing renders, and `oneBranchSyncRows`, those of a sync that found one more commit on one branch,
+with the renders of the table card and of the island cards in that sync. In its first runs (2026-10-29, on the Mac
+Studio at a load of 7 to 32, which says nothing of the times) a sync of one more commit on `feature-050` rendered that
+row alone, in Chromium and in WebKit, and neither the table nor an island (B3: one row); a sync that changes nothing
+rendered all 141 rows, as the status of each went from `Created` to `Unchanged` (B5).
+
 ### The IPC of the branch view
 
 `pnpm perf:table` counts the IPC of the page on the same template too, in every engine, from the counters of the Tauri
@@ -511,8 +524,8 @@ used to download and compile the main window's tree before its own page: 61 modu
   window loads the app (`loaded`), a reused one only renders.
 
 The eager part, which every window loads before its page (B13 of [Rust as the Domain
-Authority](rust-domain-authority.md#бюджеты-производительности); `pnpm build`, the entry and the modulepreloads of
-`dist/index.html`), is the entry and 15 modulepreloads: 801,652 bytes (261,332 gzipped) after s13 against 797,568
+Authority](rust-domain-authority.md#бюджеты-производительности); the entry and the modulepreloads of `dist/index.html`,
+`pnpm perf:eager-js` below), is the entry and 15 modulepreloads: 801,652 bytes (261,332 gzipped) after s13 against 797,568
 (258,780) on master `5879479e5` before it, 0.5 % more. s13 removed the reads of the start (1.8 KB of
 `stores/repository.ts`, `lib/branch-prefix.ts` and `repositorySettings.ts`) and added the seed (1.2 KB of
 `model/store.ts`) and the lazy roots of the popups of a row (3.1 KB: `useLazyRoot`, `popover`, `tooltip`), so the goal
@@ -524,6 +537,17 @@ of the outcome toasts import `lib/patronus.ts`, which imports `stores/branch-syn
 in the main route moves nothing (rolldown warns `INEFFECTIVE_DYNAMIC_IMPORT`). That graph is the lever of B13. Before
 its first render the main window loads 67 files, 1,773,561 bytes with the chunk of its page and what that imports
 (1,767,354 on master).
+
+`pnpm perf:eager-js` (`scripts/perf/eager-js.mjs`) measures it. It builds the page into `tests/results/perf/eager-js/`
+with source maps that no file names (`vp build --sourcemap hidden`, so the bytes are those of `pnpm build`), or reads
+the build `--dist` names, and prints the entry and the modulepreloads of its `index.html` with their bytes and gzip,
+the total beside the budget of B13 (719,284 bytes, the tree of s0a), and from the source maps the bytes of each
+package, of each module of the page (`--top`) and of the bundler's own code, which no map names: the imports and
+exports between the chunks, the list of their dependencies and the preload helper. `tests/results/perf/eager-js.json`
+keeps the report. On 2026-10-29, after s15-1: 806,609 bytes (263,474 gzipped), 87,325 over the budget; packages
+597,403 (react-dom 207,039, Base UI 117,799 with its utils, react-router 93,761, zod 87,825), the modules of the page
+182,841 (`model/store.ts` 15,528, `stores/branch-sync.ts` 11,329, the presenters of Activity and of the outcomes
+12,981), the bundler's code 26,365.
 
 `preloadInterFont` (`vite.config.ts`) adds a `<link rel="preload">` for the upright InterVariable face to the built
 `index.html`. Without it the browser finds the font only after the CSS applies, and a window paints first in the
