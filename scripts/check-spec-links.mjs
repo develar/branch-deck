@@ -185,9 +185,7 @@ export function checkSpecTargets(root, glob = globSync) {
 /** The problem of an AGENTS.md under `root` over its budget, or none */
 export function checkAgentsBudget(root) {
   const bytes = statSync(join(root, "AGENTS.md")).size
-  return bytes > AGENTS_BUDGET
-    ? [`AGENTS.md: ${bytes} bytes, over its budget of ${AGENTS_BUDGET}: one line per rule there, the detail in the doc it links`]
-    : []
+  return bytes > AGENTS_BUDGET ? [`AGENTS.md: ${bytes} bytes, over its budget of ${AGENTS_BUDGET}: one line per rule there, the detail in the doc it links`] : []
 }
 
 if (import.meta.main) {
