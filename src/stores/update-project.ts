@@ -9,15 +9,14 @@ import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { ApiError, Intent, OperationEvent, OperationId, OperationStep, Outcome, UpdateCheck, UpdateProjectResult } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { EventToastState } from "@/lib/event-toast"
 import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { appliedUpdateToast } from "@/lib/landed"
-import { executeIntent } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
 import type { TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
 import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-progress"
+import { cancelIntent, executeIntent } from "@/model/intents"
 import { nextRunNumber, whenSessionViewAt } from "@/model/store"
 import { canceledBeforeStart, presentLockWait } from "@/presenters/lock-wait"
 import { presentRunningLabel } from "@/presenters/operations"
@@ -188,7 +187,7 @@ function stepRun(repositoryPath: string, op: OperationId, step: OperationStep): 
     if (step.kind !== "waitingForLock") {
       return { ...running, run: moved }
     }
-    const stop = () => void commands.cancelOperation({ op }).catch(() => {})
+    const stop = () => void cancelIntent(op)
     return { ...running, run: { ...moved, lockWait: { waitingFor: presentLockWait(step.holder), stop } } }
   })
 }

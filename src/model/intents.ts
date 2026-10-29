@@ -1,6 +1,7 @@
-// The run of an intent Rust plans and runs (docs/design/rust-domain-authority.md, "Планирование и исполнение
-// операций"): `prepare` answers its plan in the session of the repository, `execute` runs that plan on its fingerprint;
-// the session admits it (a second click joins it, one that needs what another holds waits for it), shows its steps in
+// The intents of a repository as the page runs them (docs/design/rust-domain-authority.md, "Планирование и исполнение
+// операций"): `prepare` answers its plan in the session of the repository, `execute` runs that plan on its fingerprint,
+// `cancel_operation` stops a run; the page calls the engine only here (`intent-call` of `scripts/lint-arch.mjs`). The
+// session admits a run (a second click joins it, one that needs what another holds waits for it), shows its steps in
 // the view of every window and the moves of its rows. The page decides nothing of it: it words the plan's refusal and
 // the outcome. A start of a Safe Push or a Dry Run asks its confirmations first (`startPlanned` of `useSafePush.ts`);
 // the intents run here ask none. A rewrite names the table it was asked on in its intent and plans itself in the
@@ -80,6 +81,15 @@ export async function executePlan(repositoryPath: string, plan: Plan, onEvent: (
   }
   await whenSessionViewAt(repositoryPath, executed.data.versionAfter)
   return { kind: "ran", plan, outcome: executed.data }
+}
+
+/**
+ * Stops the operation `op` of the session (`cancel_operation`): a wait for another holder of the repository lock ends
+ * with nothing changed, and no effect starts after it; an effect that runs (a push that sends) goes to its end. Resolves
+ * whether the session still had it; an IPC failure (the window closes) answers false
+ */
+export function cancelIntent(op: OperationId): Promise<boolean> {
+  return commands.cancelOperation({ op }).catch(() => false)
 }
 
 /** How a run of a rewrite went (`executeRewrite`) */

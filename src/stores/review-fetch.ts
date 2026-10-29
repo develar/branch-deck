@@ -2,11 +2,10 @@ import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { OperationEvent, OperationId, ReviewRange, ReviewRequest } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { diffSubjectId } from "@/lib/commit-files"
 import { logError } from "@/lib/errors"
-import { failedEffect } from "@/lib/run-intent"
+import { cancelIntent, executeIntent, failedEffect } from "@/model/intents"
 import { dropFilesOf } from "@/stores/commit-files"
 import { dropFileDiffsOf } from "@/stores/file-diffs"
 
@@ -89,7 +88,7 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
     }
   }
   const params = { repositoryPath, intent: { kind: "fetchReview", number: request.number } as const, fingerprint: "" }
-  void invokeCommand(() => commands.execute(params, events)).then(result => {
+  void invokeCommand(() => executeIntent(params, events)).then(result => {
     // stopped by a newer fetch or by the close: nothing to show
     if (latestKey !== key) {
       return
@@ -113,7 +112,7 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
 function forget(key: string, cancel: boolean): void {
   const fetch = reviewFetchStore.getState().fetches[key]
   if (cancel && fetch?.status === "fetching" && latestOp !== null) {
-    void commands.cancelOperation({ op: latestOp }).catch(() => {})
+    void cancelIntent(latestOp)
   }
   if (fetch?.status === "fetched") {
     const { base, head } = fetch.range

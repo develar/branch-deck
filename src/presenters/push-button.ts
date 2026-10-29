@@ -13,13 +13,14 @@ import { formatPushStackLabel, formatPushWithChildrenLabel } from "@/lib/stack"
 import { cutList } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { getRowPart } from "@/model/store"
+import type { SessionOperations } from "@/presenters/actions"
 import { ACTION_LOOKS, findAction, formatActionBlocker } from "@/presenters/actions"
 import type { PendingFact } from "@/presenters/next-step"
 import { formatPendingFact } from "@/presenters/next-step"
 import { getBranchesGitHubRepository, getPullRequestRetarget } from "@/presenters/pull-request-url"
 import { formatStackPushLine } from "@/presenters/push"
 import type { Branch, BranchSyncState, PushOrders } from "@/stores/branch-sync"
-import { branchSyncStore, pushOrdersIn } from "@/stores/branch-sync"
+import { NO_OPERATIONS, pushOrdersIn } from "@/stores/branch-sync"
 import { isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 
@@ -131,6 +132,8 @@ export interface PushButtonContext {
   retargets?: readonly PushRetarget[]
   /** What the actions of the description run */
   runs?: PushButtonRuns
+  /** The operations of the session, whose words a push busy behind one says; none: "Another operation" */
+  operations?: SessionOperations
 }
 
 /**
@@ -218,9 +221,10 @@ export function getPushButtonState(
     landedIn = null,
     retargets = [],
     runs = NO_RUNS,
+    operations = NO_OPERATIONS,
   }: PushButtonContext = {},
 ): PushButtonState {
-  const words = { subject: branch.name, statusText: branch.statusText }
+  const words = { subject: branch.name, statusText: branch.statusText, operations }
   // the children of a branch a merged Safe Push landed push without it; parked, held, unbuilt branches keep theirs
   const children = childrenEnabled && landedIn === null ? childrenActionOf(branch.name, unpushedChildren, runs) : null
   // a running push keeps its progress until it finished
@@ -388,15 +392,16 @@ export function isLandingPushAvailable(branchName: string): boolean {
 }
 
 /**
- * The push button of the branch as the stores have it now, for the surfaces that list it as a menu item (the branch
- * menu, the branch preview, the review): its label ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)") and what a
- * click pushes, as the button renders it, its other pushes running `runs`
+ * The push button of the branch in `state`, the view as the caller read it (`branchSyncStore.getState()` of a menu built
+ * on open), for the surfaces that list it as a menu item (the branch menu, the branch preview, the review): its label
+ * ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)") and what a click pushes, as the button renders
+ * it, its other pushes running `runs`
  */
-export function getPushButtonNow(branch: Branch, isPushing: boolean, runs: PushButtonRuns): PushButtonState {
-  const unpushedParent = unpushedParentIn(branchSyncStore.getState(), branch.name)
+export function getPushButtonNow(branch: Branch, isPushing: boolean, runs: PushButtonRuns, state: BranchSyncState): PushButtonState {
+  const unpushedParent = unpushedParentIn(state, branch.name)
   const retargets = getPushRetargets(retargetCandidates(branch.name, unpushedParent))
   const actions = getRowPart(branch.name, "actions")
-  return getPushButtonState(branch, { isPushing, blocker: pushBlockerOf(actions), unpushedParent, retargets, runs })
+  return getPushButtonState(branch, { isPushing, blocker: pushBlockerOf(actions), unpushedParent, retargets, runs, operations: state.operations })
 }
 
 /** The branches whose pull requests the push button may retarget: those of its stack push, root first, else the branch */

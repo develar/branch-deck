@@ -1,4 +1,5 @@
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
+import { cancelIntent } from "@/model/intents"
 import { presentStopWaiting } from "@/presenters/lock-wait"
 import { useSurfaceOperation } from "@/stores/indicators"
 
@@ -7,7 +8,7 @@ import { useSurfaceOperation } from "@/stores/indicators"
  * nothing otherwise. For a surface whose own label already says whom it waits for (an inline form, a button)
  */
 export function StopWaitingButton({ surface }: { surface: string }) {
-  const item = presentStopWaiting(useSurfaceOperation(surface))
+  const item = presentStopWaiting(useSurfaceOperation(surface), cancelIntent)
   return item === null ? null : <MenuItemButton item={item} variant="outline" data-testid="stop-waiting" />
 }
 
@@ -20,7 +21,7 @@ export function StopWaitingButton({ surface }: { surface: string }) {
  */
 export function LockWaitNotice({ surface }: { surface: string }) {
   const operation = useSurfaceOperation(surface)
-  const item = presentStopWaiting(operation)
+  const item = presentStopWaiting(operation, cancelIntent)
   if (item === null) {
     return null
   }

@@ -4,8 +4,11 @@ import { getCommitHash } from "@/lib/commit"
 import type { MenuItem } from "@/lib/menu"
 import { getFilesOfCommit } from "@/stores/commit-files"
 
-/** Why a commit of a row can't be reviewed: a selection of several, a commit without files; null when it can */
-export function commitReviewBlocker(commits: readonly CommitUnion[]): string | null {
+/**
+ * Why the commits the user selected in a row can't be reviewed, a selection of the page and no action of a subject Rust
+ * offers: a selection of several, a commit without files; null when it can
+ */
+export function unreviewableSelection(commits: readonly CommitUnion[]): string | null {
   if (commits.length !== 1) {
     return "Review one commit at a time"
   }
@@ -18,7 +21,7 @@ export function commitReviewBlocker(commits: readonly CommitUnion[]): string | n
  * disabled with the reason for several commits or one without files
  */
 export function getCommitReviewMenuItems(commits: readonly CommitUnion[], review: (commit: CommitUnion) => void): MenuItem[] {
-  const blocker = commitReviewBlocker(commits)
+  const blocker = unreviewableSelection(commits)
   const commit = commits[0]!
   return [
     {

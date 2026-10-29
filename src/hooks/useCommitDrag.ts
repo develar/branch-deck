@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/toast"
 import type { BranchDrop, BranchDropFacts } from "@/lib/branch-drop"
 import { getRowPart } from "@/model/store"
 import { actionBlocker } from "@/presenters/actions"
-import { branchSyncStore, getBranch, getBranchCommits, getParkedState, getStackDescendants, isStacksEnabled, resolveCommits } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchCommits, getParkedState, getSessionOperations, getStackDescendants, isStacksEnabled, resolveCommits } from "@/stores/branch-sync"
 import type { CommitDrag } from "@/stores/commit-move"
 import { clearHoverRefusal, commitMoveStore, endCommitDrag, isDroppableOn, setDragOrigin, setHoverRefusal, useDroppableDrag } from "@/stores/commit-move"
 import { indicatorsStore } from "@/stores/indicators"
@@ -65,7 +65,7 @@ export function getBranchDropFacts(): BranchDropFacts {
   return {
     branch: getBranch,
     parked: getParkedState,
-    blocker: (name, id) => actionBlocker(getRowPart(name, "actions"), id, { subject: name, statusText: getBranch(name)?.statusText ?? "" }),
+    blocker: (name, id) => actionBlocker(getRowPart(name, "actions"), id, { subject: name, statusText: getBranch(name)?.statusText ?? "", operations: getSessionOperations() }),
     descendants: getStackDescendants,
     stacksEnabled: isStacksEnabled(),
   }

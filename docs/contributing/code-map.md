@@ -119,7 +119,7 @@ src/
 │   ├── command-palette/ # The command palette of the main window (⌘K)
 │   └── settings/    # The pages of the Settings window and their rows
 ├── hooks/           # React hooks (useX.ts)
-├── model/           # The window's side of its repository session: the view and the patches it applies (store.ts, patch.ts), the parts of a row (`useRowPart`)
+├── model/           # The window's side of its repository session: the view and the patches it applies (store.ts, patch.ts), the parts of a row (`useRowPart`), the intents it runs (intents.ts: `prepare`, `execute`, `cancel_operation`, the only calls of the engine)
 ├── presenters/      # The words, icons and menu items of what Rust decided: next-step.ts, landing-node.ts, land.ts, actions.ts, reasons.ts; no rule
 ├── stores/          # zustand stores; settings/ holds persisted, cross-window settings
 ├── lib/             # Utilities and the generated bindings.ts

@@ -3,7 +3,7 @@
 // nothing.
 import type { LandingKey, News } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { failedEffects, runFailure, runIntent } from "@/lib/run-intent"
+import { failedEffects, runFailure, runIntent } from "@/model/intents"
 
 /**
  * Closes the pull requests `landing` landed all of in the session of `repositoryPath`, its repository; each close that

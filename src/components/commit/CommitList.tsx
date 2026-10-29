@@ -14,7 +14,7 @@ import { RobotCommitMarker } from "@/components/commit/RobotCommitMarker"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
-import { commitReviewBlocker, getCommitReviewMenuItems } from "@/hooks/useCommitReviewActions"
+import { getCommitReviewMenuItems, unreviewableSelection } from "@/hooks/useCommitReviewActions"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { getRewordMenuItem, REWORD_SURFACE, rewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
@@ -203,7 +203,7 @@ export function CommitList<T extends CommitUnion>({
     if (index === -1) {
       return false
     }
-    if (path === null && commitReviewBlocker([commits[index]!]) !== null) {
+    if (path === null && unreviewableSelection([commits[index]!]) !== null) {
       openPreview(hash)
       return false
     }

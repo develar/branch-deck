@@ -9,6 +9,7 @@ import { useOrphanedStackPullRequest } from "@/hooks/useOrphanedStackPullRequest
 import { getCloseStackPullRequestItem } from "@/hooks/useWholeStackActions"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
+import { useBranchSync } from "@/stores/branch-sync"
 import { useStackPullRequest } from "@/stores/pull-requests"
 
 /**
@@ -48,7 +49,14 @@ export function ClosePullRequestButton({
   className?: string
 }) {
   const closePreview = useContext(ClosePreviewContext)
-  const item = getCloseStackPullRequestItem(root, number, orphaned, useRowPart(stackReadinessKey(root), "actions"), closePreview ?? undefined)
+  const item = getCloseStackPullRequestItem(
+    root,
+    number,
+    orphaned,
+    useRowPart(stackReadinessKey(root), "actions"),
+    useBranchSync(state => state.operations),
+    closePreview ?? undefined,
+  )
   if (item === null) {
     return null
   }

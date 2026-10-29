@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ApiError, EffectRecord, Intent, Outcome, PatronusRobot, Plan, Reason } from "@/lib/bindings"
 import { cancelRobot, restartRobot } from "@/lib/robot-run"
-import type { IntentRun } from "@/lib/run-intent"
+import type { IntentRun } from "@/model/intents"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { resetToasts, toasts } from "@/test-support/toast-mock"
 
@@ -23,8 +23,8 @@ const { engine } = vi.hoisted(() => ({
 
 vi.mock("@/components/ui/toast", async () => (await import("@/test-support/toast-mock")).toastModule)
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
-vi.mock("@/lib/run-intent", async importOriginal => ({
-  ...(await importOriginal<typeof import("@/lib/run-intent")>()),
+vi.mock("@/model/intents", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/model/intents")>()),
   runIntent: async (repositoryPath: string, intent: Intent) => {
     engine.asked.push(`${intent.kind} ${"robotId" in intent ? intent.robotId : ""} in ${repositoryPath}`)
     return engine.run

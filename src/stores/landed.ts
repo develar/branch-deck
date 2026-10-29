@@ -1,14 +1,9 @@
 import { useMemo } from "react"
-import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { LandedBranch, LandedCommit, OperationEvent } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
-import { invokeCommand } from "@/lib/command"
-import { notifyError } from "@/lib/errors"
+import type { LandedBranch, LandedCommit } from "@/lib/bindings"
 import { mergeLandedReport } from "@/lib/landed"
 import { recordLanded } from "@/stores/activity"
-import { clearNewlyArchived } from "@/stores/archived-branches"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { updateRepositoryState, useRepositoryStateField } from "@/stores/settings/repositoryState"
 
@@ -59,16 +54,12 @@ export function addLandedUpdate(repositoryPath: string, found: readonly LandedBr
   })
 }
 
-/** The user has seen the report: cleared for the app, other windows and `bd`, with the "New" marks of the archive */
-export async function dismissLanded(repositoryPath: string): Promise<void> {
-  clearNewlyArchived()
+/**
+ * The user dismissed the report of `repositoryPath`: this window shows none of it at once (`dismissLanded` of
+ * `src/lib/landed-run.ts` clears it for the other windows and `bd`)
+ */
+export function clearLandedReport(repositoryPath: string): void {
   landedStore.setState(state => (state.repositoryPath === repositoryPath ? { landed: empty, seenAt: null } : state))
-  // an operation of the session (`Intent::DismissLanded`), which writes the report under its lock for every window and `bd`
-  const intent = { kind: "dismissLanded" } as const
-  const result = await invokeCommand(() => commands.execute({ repositoryPath, intent, fingerprint: "", accepted: [] }, new Channel<OperationEvent>()))
-  if (result.status !== "ok") {
-    notifyError("Cannot dismiss the landed commits", result.error)
-  }
 }
 
 function isWindowFocused(): boolean {

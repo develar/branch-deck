@@ -13,18 +13,19 @@ import type { ToastActionProps } from "@/lib/toast-message"
 import { getRowPart } from "@/model/store"
 import { findAction } from "@/presenters/actions"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getOpenPullRequest } from "@/stores/branch-sync"
+import { getOpenPullRequest } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getPatronusGitHubRepository } from "@/stores/patronus"
 import { getGitHubRepository, getPullRequest } from "@/stores/pull-requests"
 
 /**
- * The base of every pull request of a virtual branch, stacked or not: the baseline as the remote names it (`master`).
- * The pull request holds everything the Safe Push of the branch lands, the commits of the branches it is built on too,
- * so its approvals are the ones Patronus counts ([Landing](docs/design/landing.md)).
+ * The base of every pull request of a virtual branch, stacked or not: the baseline `baselineBranch` of the view (the
+ * caller's) as the remote names it (`master`). The pull request holds everything the Safe Push of the branch lands, the
+ * commits of the branches it is built on too, so its approvals are the ones Patronus counts
+ * ([Landing](docs/design/landing.md)).
  */
-export function getPullRequestBase(): string {
-  return baselineOnRemote(branchSyncStore.getState().baselineBranch ?? "")
+export function pullRequestBaseOf(baselineBranch: string | null): string {
+  return baselineOnRemote(baselineBranch ?? "")
 }
 
 /**

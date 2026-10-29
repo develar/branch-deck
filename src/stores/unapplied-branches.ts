@@ -90,7 +90,8 @@ export async function loadUnappliedCommits(name: string): Promise<void> {
   if (branch === undefined || branch.commits !== undefined || branch.isLoadingCommits) {
     return
   }
+  const repositoryPath = getSelectedProject()?.path ?? ""
   update(name, () => ({ isLoadingCommits: true, loadError: undefined }))
-  const result = await commands.getUnappliedBranchCommits(getSelectedProject()?.path ?? "", name)
+  const result = await commands.getUnappliedBranchCommits(repositoryPath, name)
   update(name, () => (result.status === "ok" ? { commits: result.data, isLoadingCommits: false } : { loadError: result.error.message, isLoadingCommits: false }))
 }

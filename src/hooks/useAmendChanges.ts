@@ -17,8 +17,9 @@ interface UncommittedChangesState {
 }
 
 async function loadUncommittedChanges(): Promise<UncommittedChangesState> {
+  const repositoryPath = getSelectedProject()?.path ?? ""
   try {
-    const result = await commands.getUncommittedChanges({ repositoryPath: getSelectedProject()?.path ?? "" })
+    const result = await commands.getUncommittedChanges({ repositoryPath })
     return result.status === "ok" ? { diffData: result.data, diffLoading: false, diffError: null } : { diffData: null, diffLoading: false, diffError: result.error.message }
   } catch (error) {
     return { diffData: null, diffLoading: false, diffError: error instanceof Error ? error.message : "Failed to load uncommitted changes" }

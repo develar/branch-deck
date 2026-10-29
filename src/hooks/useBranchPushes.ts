@@ -6,12 +6,16 @@ import { useShallow } from "zustand/react/shallow"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { pushBranch, pushStack, pushWithChildren } from "@/lib/push-run"
+import type { PushProgress } from "@/lib/transfer-progress"
+import { lockWaitProgress } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
+import { cancelIntent } from "@/model/intents"
 import { useRowPart } from "@/model/store"
+import { presentOperationLockWait } from "@/presenters/lock-wait"
 import type { PushButtonRuns, PushButtonState, PushRetarget, UnpushedChildren, UnpushedParent } from "@/presenters/push-button"
 import { childrenPushEnabled, getPushButtonState, getPushRetargets, landingPushes, parentOf, pushBlockerOf, retargetCandidates } from "@/presenters/push-button"
 import type { Branch, ChildrenPushOrder } from "@/stores/branch-sync"
-import { pushOrdersIn, useBranchSync, useBranchSyncField, useIsStackBranchPushing } from "@/stores/branch-sync"
+import { NO_OPERATIONS, pushOperationIn, pushOrdersIn, useBranchSync, useBranchSyncField, useIsStackBranchPushing, useOperationPushProgress } from "@/stores/branch-sync"
 import { usePatronusAvailable } from "@/stores/patronus"
 import { pullRequestsStore, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
 import { useLandRun } from "@/stores/safe-push"
@@ -31,6 +35,27 @@ export function pushRunsOf(name: string): PushButtonRuns {
   return { alone: () => void pushBranch(name), stack: () => void pushStack(name), children: () => void pushWithChildren(name) }
 }
 
+/**
+ * How far the running push of the branch in the selected repository is, as the channel of the window that runs it
+ * tells it (`useOperationPushProgress`); while its operation waits for another holder of the repository lock, whom for
+ * (its step in the view, so every window says it), with Stop Waiting (`cancelIntent`: nothing pushed). Null before git
+ * reports a stage and when no push runs
+ */
+export function useBranchPushProgress(name: string): PushProgress | null {
+  const op = useBranchSyncField("operations", operations => pushOperationIn(operations, name)?.id ?? null)
+  const waitingFor = useBranchSyncField("operations", operations => presentOperationLockWait(pushOperationIn(operations, name)))
+  const progress = useOperationPushProgress(op)
+  if (op === null || waitingFor === null) {
+    return progress
+  }
+  return lockWaitProgress(waitingFor, () => void cancelIntent(op))
+}
+
+/** How far the running push of the stack branch of the whole stack of `root` is (`useBranchPushProgress`) */
+export function useStackBranchPushProgress(root: string): PushProgress | null {
+  return useBranchPushProgress(stackReadinessKey(root))
+}
+
 /** The push button of a branch row and of the branch preview */
 export function usePushButton(branch: Branch, isPushing: boolean): PushButtonState {
   const unpushedParent = useUnpushedParent(branch)
@@ -38,6 +63,9 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
   const landedIn = useLandedIn(branch.name)
   const actions = useRowPart(branch.name, "actions")
   const retargets = usePushRetargets(retargetCandidates(branch.name, unpushedParent))
+  // the operations of the session only while the push is busy behind one, whose words its button says
+  const busy = pushBlockerOf(actions)?.code === "busy"
+  const operations = useBranchSyncField("operations", operations => (busy ? operations : NO_OPERATIONS))
   return useMemo(() => {
     const runs = pushRunsOf(branch.name)
     return getPushButtonState(branch, {
@@ -49,8 +77,9 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
       landedIn,
       retargets,
       runs,
+      operations,
     })
-  }, [branch, isPushing, actions, unpushedParent, unpushedChildren, landedIn, retargets])
+  }, [branch, isPushing, actions, unpushedParent, unpushedChildren, landedIn, retargets, operations])
 }
 
 /** The pull requests into a virtual branch a push of `names` retargets first (`getPushRetargets`), from the stores */

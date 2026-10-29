@@ -14,8 +14,9 @@ import { useWindowFocus } from "@/hooks/useWindowFocus"
 import type { LandedBranch, LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { landedBranchName, landedCommitter, landedCountLabel, sharedCommitter } from "@/lib/landed"
+import { dismissLanded } from "@/lib/landed-run"
 import { useBaselineStatus } from "@/stores/branch-sync"
-import { dismissLanded, markLandedSeen, useLandedIsland } from "@/stores/landed"
+import { markLandedSeen, useLandedIsland } from "@/stores/landed"
 import { useSelectedProjectPath } from "@/stores/repository"
 
 /**

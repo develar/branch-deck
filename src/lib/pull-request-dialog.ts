@@ -11,7 +11,7 @@ import type { MenuItem } from "@/lib/menu"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { joinNames } from "@/lib/text"
 import { formatWholeStackStart } from "@/lib/whole-stack"
-import { formatNewPullRequestBlocker, getBranchesGitHubRepository, getPullRequestBase } from "@/presenters/pull-request-url"
+import { formatNewPullRequestBlocker, getBranchesGitHubRepository, pullRequestBaseOf } from "@/presenters/pull-request-url"
 import { formatReasonOrNull } from "@/presenters/reasons"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { getBranch, getStackAncestors, getStackNotBuilt } from "@/stores/branch-sync"
@@ -71,6 +71,8 @@ export interface CreatePullRequestContext {
 /** The facts of the main window a context is built of, read by hooks (the dialog) or from the stores (the link) */
 export interface CreatePullRequestFacts {
   readonly repositoryPath: string
+  /** The baseline of the view (`BranchSyncState.baselineBranch`): the base of the pull request on the remote */
+  readonly baselineBranch: string | null
   readonly pullRequest: PullRequest | undefined
   readonly availability: PullRequestAvailability | null
   readonly patronusAvailable: boolean
@@ -90,7 +92,7 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
     label: branch.name,
     wholeStack: null,
     head,
-    base: getPullRequestBase(),
+    base: pullRequestBaseOf(facts.baselineBranch),
     stackAncestors: ancestors.map(it => getFullBranchName(it.name)),
     includes,
     includesText: includes === null ? null : formatPullRequestIncludes(branch.name, includes),
@@ -107,6 +109,8 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
 /** The facts of the main window the context of the whole stack's pull request is built of */
 export interface StackPullRequestFacts {
   readonly repositoryPath: string
+  /** The baseline of the view (`BranchSyncState.baselineBranch`): the base of the pull request on the remote */
+  readonly baselineBranch: string | null
   readonly pullRequest: PullRequest | undefined
   readonly availability: PullRequestAvailability | null
   readonly branchOf: (name: string) => Branch | undefined
@@ -146,7 +150,7 @@ export function toStackPullRequestContext(root: string, stack: StackBranch | und
       })),
     },
     head: getFullStackBranchName(root),
-    base: getPullRequestBase(),
+    base: pullRequestBaseOf(facts.baselineBranch),
     stackAncestors: [],
     includes: null,
     includesText: names.length === 0 ? null : `Holds the commits of every branch of the stack: ${joinNames(names)}: ${formatBranchesAndCommits(names.length, commitCount)}`,

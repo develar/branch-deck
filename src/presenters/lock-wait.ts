@@ -3,7 +3,6 @@
 // its Stop Waiting, the toast of a wait so stopped, and who holds the lock a command was refused by
 // (`ErrorDetails.locked`, `describeError`).
 import type { LockHolderInfo, OperationId, RunningOperation } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import type { ToastMessage } from "@/lib/toast-message"
 
@@ -58,10 +57,10 @@ export function waitingOf(operation: RunningOperation | undefined): WaitingOpera
 /**
  * Stop Waiting of an operation of the session while it waits for another holder of the repository lock: the one item
  * every surface that shows the waiting operation renders (the "⋯" of its row, the surface that started it), which stops
- * it (`cancel_operation`): it then changes nothing and says so ("Canceled squashing 2 commits before it started"); null
- * while it waits for nobody
+ * it by its id (`stop`: `cancelIntent` of `src/model/intents.ts`): it then changes nothing and says so ("Canceled
+ * squashing 2 commits before it started"); null while it waits for nobody
  */
-export function presentStopWaiting(operation: WaitingOperation | undefined): MenuItem | null {
+export function presentStopWaiting(operation: WaitingOperation | undefined, stop: (op: OperationId) => Promise<unknown>): MenuItem | null {
   const op = operation?.op ?? null
   if (op === null || operation?.lockWait == null) {
     return null
@@ -70,7 +69,7 @@ export function presentStopWaiting(operation: WaitingOperation | undefined): Men
     id: "stop-waiting",
     label: "Stop Waiting",
     description: `${operation.lockWait}; stop and change nothing`,
-    onSelect: () => void commands.cancelOperation({ op }).catch(() => {}),
+    onSelect: () => void stop(op),
   }
 }
 

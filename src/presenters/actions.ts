@@ -60,7 +60,6 @@ import { presentOperationLockWait } from "@/presenters/lock-wait"
 import { formatPendingFact, formatProblemsFailure, formatStepBlocker } from "@/presenters/next-step"
 import { presentOtherProcess } from "@/presenters/operations"
 import { formatLanded, formatReason, formatRobotsLanded, formatStackHold } from "@/presenters/reasons"
-import { branchSyncStore } from "@/stores/branch-sync"
 import { operationLabelOf } from "@/stores/indicators"
 
 /** How an action looks on every surface: its label where no fact names it ("Push Branch (2)" does), its icon, its key */
@@ -136,7 +135,15 @@ export interface BlockerWords {
    * blocker of its start without review): the step words its own reasons by its kind
    */
   readonly step?: string | null
+  /**
+   * The operations of the session as the caller selected them (`RepositoryView.operations`, `BranchSyncState.operations`):
+   * the busy words of the one an item runs as or waits for
+   */
+  readonly operations: SessionOperations
 }
+
+/** The operations of the session by id, as the view has them (`RepositoryView.operations`) */
+export type SessionOperations = Readonly<Record<OperationId, RunningOperation>>
 
 /** Why Push with Children of `name` pushes nothing beyond the branch itself */
 function nothingBeyondWords(name: string, why: NothingBeyond): string {
@@ -191,17 +198,12 @@ const SYNC_WAIT = "Wait for the sync to finish"
 /** The words of a remote action on the cached frame of an earlier run, which waits for the first sync of this one */
 const FIRST_SYNC_WAIT = "Waits for the first sync"
 
-/** The operation `op` of the session of the repository the main window shows (`RepositoryView.operations`) */
-function operationOf(op: OperationId): RunningOperation | undefined {
-  return branchSyncStore.getState().operations[op]
-}
-
 /**
- * The busy state of the operation `op` as an item that waits for it says it: of another process as its row says it
- * ("bd: Pushing auth"), of this app as its window named it ("Unstacking oauth")
+ * The busy state of the operation `op` among `operations` as an item that waits for it says it: of another process as
+ * its row says it ("bd: Pushing auth"), of this app as its window named it ("Unstacking oauth")
  */
-function operationLabel(op: OperationId): string {
-  const operation = operationOf(op)
+function operationLabel(op: OperationId, operations: SessionOperations): string {
+  const operation = operations[op]
   if (operation === undefined) {
     return "Another operation"
   }
@@ -238,7 +240,7 @@ const BLOCKERS = {
   targetUnread: () => "Reading the branch Patronus pushes into…",
   noTarget: () => "Patronus pushes into a branch of origin: the baseline is none",
   otherBase: ({ number, base, target }) => `#${number} merges into ${base}: Patronus would merge it there, not into ${target}`,
-  busy: ({ op }) => `${operationLabel(op)}…`,
+  busy: ({ op }, _id, words) => `${operationLabel(op, words.operations)}…`,
 } satisfies BlockerFormatters as BlockerFormatters
 
 /** The page's words of why the action `id` can't run now */
@@ -267,7 +269,7 @@ export function actionBlocker(actions: readonly ActionState[] | undefined, id: A
     return undefined
   }
   const { availability } = action
-  return isStartable(availability) ? null : availability.kind === "disabled" ? formatActionBlocker(id, availability.reason, words) : runningWords(availability)
+  return isStartable(availability) ? null : availability.kind === "disabled" ? formatActionBlocker(id, availability.reason, words) : runningWords(availability, words.operations)
 }
 
 /** The subject offers the action `id` and a start of it goes to the session now */
@@ -281,12 +283,11 @@ export function isActionEnabled(actions: readonly ActionState[] | undefined, id:
  * repository lock, the operation it waits behind, else `running` (the words of the surface: "Restarting the Safe Push")
  * or its busy state
  */
-function runningWords(availability: Extract<Availability, { kind: "running" | "queued" }>, running?: string): string {
+function runningWords(availability: Extract<Availability, { kind: "running" | "queued" }>, operations: SessionOperations, running?: string): string {
   if (availability.kind === "queued") {
-    return `Waits for ${operationLabel(availability.behind)}…`
+    return `Waits for ${operationLabel(availability.behind, operations)}…`
   }
-  const operation = operationOf(availability.op)
-  return `${presentOperationLockWait(operation) ?? running ?? operationLabel(availability.op)}…`
+  return `${presentOperationLockWait(operations[availability.op]) ?? running ?? operationLabel(availability.op, operations)}…`
 }
 
 /** What a surface gives an action beside its look: what it runs, and what the facts name of it */
@@ -323,9 +324,9 @@ export function presentAction(actions: readonly ActionState[] | undefined, id: A
     availability.kind === "disabled"
       ? formatActionBlocker(id, availability.reason, words)
       : runs
-        ? runningWords(availability, item.running)
+        ? runningWords(availability, words.operations, item.running)
         : availability.kind === "waits"
-          ? `Waits for ${operationLabel(availability.op)}…`
+          ? `Waits for ${operationLabel(availability.op, words.operations)}…`
           : item.description
   return {
     id,
@@ -409,11 +410,11 @@ export interface RobotItemsOf {
  * disables a restart and the prompts while Patronus didn't tell why the robot failed, a restart while the approvals the
  * step of its branch misses (`stepReason`) or what refuses it stands in its way. A restart and a cancel run in the
  * session (`restartRobot`, `cancelRobot`): Rust lays them over the actions of the robot, so the item of the one that runs
- * is running on every surface and the other waits for it.
+ * is running on every surface and the other waits for it, in the words of the `operations` of the session.
  */
-export function getRobotActionItems(robot: PatronusRobot, of: RobotItemsOf = {}): RobotAction[] {
+export function getRobotActionItems(robot: PatronusRobot, operations: SessionOperations, of: RobotItemsOf = {}): RobotAction[] {
   const actions = (of.offered === undefined ? getRowPart(`robot:${robot.id}`, "actions") : of.offered) ?? []
-  const words = { subject: robot.branchName ?? robot.stackRoot ?? "", step: of.stepReason ?? null }
+  const words = { subject: robot.branchName ?? robot.stackRoot ?? "", step: of.stepReason ?? null, operations }
   return actions.flatMap(action => {
     const id = action.id as RobotAction["id"]
     const item = presentAction(actions, id, robotActionItem(robot, id), words)
@@ -432,7 +433,7 @@ export interface StartAction extends MenuItem {
  * Request #7") where its robot would be, and "Forget This Start", which lets the subject start again while Patronus may
  * still run the robot it sent; none for an operation that runs
  */
-export function getStartActionItems(operation: RunningOperation, offered: readonly ActionState[] | undefined): StartAction[] {
+export function getStartActionItems(operation: RunningOperation, offered: readonly ActionState[] | undefined, operations: SessionOperations): StartAction[] {
   const actions = offered ?? []
   const subject = operation.intent.kind === "land" ? (operation.intent.subject.kind === "branch" ? operation.intent.subject.name : operation.intent.subject.root) : ""
   const step = operation.step.kind === "startUnknown" ? operation.step : null
@@ -449,7 +450,7 @@ export function getStartActionItems(operation: RunningOperation, offered: readon
             description: `Lets ${subject} start again. Patronus may still run the start that was sent: its robot shows once Patronus lists it`,
             onSelect: () => void forgetStart(operation),
           }
-    const presented = presentAction(actions, id, item, { subject })
+    const presented = presentAction(actions, id, item, { subject, operations })
     return presented === null ? [] : [presented as StartAction]
   })
 }

@@ -4,7 +4,7 @@ import { sameStringRecord } from "@/lib/record"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { getRowPart } from "@/model/store"
 import { actionBlocker } from "@/presenters/actions"
-import { structureIn } from "@/stores/branch-sync"
+import { getSessionOperations, structureIn } from "@/stores/branch-sync"
 import type { Branch, BranchSyncState } from "@/stores/branch-sync"
 import type { BranchReviewGroup, BranchReviewWindowData } from "@/types/sub-window"
 
@@ -100,10 +100,11 @@ export function requestAction(
 /**
  * Why the branch `branch` can't be reviewed now, as Rust decides its Review Changes (`domain_policy::actions`: no
  * commits, its build blocked or failed; its virtual branch must be built on its parents); null when it can. `actions`:
- * the actions of the branch a component subscribed to (`useRowPart`)
+ * the actions of the branch a component subscribed to (`useRowPart`); the words of an operation that runs it are of the
+ * operations of the session now
  */
 export function reviewBlockerOf(branch: Pick<Branch, "name" | "statusText">, actions: readonly ActionState[] | undefined = getRowPart(branch.name, "actions")): string | null {
-  return actionBlocker(actions, "review-changes", { subject: branch.name, statusText: branch.statusText }) ?? null
+  return actionBlocker(actions, "review-changes", { subject: branch.name, statusText: branch.statusText, operations: getSessionOperations() }) ?? null
 }
 
 /** A contiguous part of the chain: the indexes of its first and last segment */

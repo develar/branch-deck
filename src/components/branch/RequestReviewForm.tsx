@@ -53,7 +53,8 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
 
   // as Rust offers the request (a draft asks nobody)
   const actions = useRowPart(branch.name, "actions")
-  const blocker = actionBlocker(actions, "request-review", { subject: branch.name }) ?? null
+  const operations = useBranchSync(state => state.operations)
+  const blocker = actionBlocker(actions, "request-review", { subject: branch.name, operations }) ?? null
   // the reviewers see the commits: the request pushes the work the remote lacks first (a step of its plan, not of the
   // user); the warnings read Rust's push action of the remote status (an unknown one is no push)
   const pushes = branch.remoteStatus != null && branch.remoteStatus.action.kind !== "upToDate"

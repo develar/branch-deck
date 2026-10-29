@@ -28,6 +28,7 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions } from "@/lib/review-request-actions"
+import { useBranchSync } from "@/stores/branch-sync"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
 import { reviewFetchKey, startReviewFetch, useReviewFetch } from "@/stores/review-fetch"
@@ -196,11 +197,13 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     }
   }
 
+  const operations = useBranchSync(state => state.operations)
   const actions = getReviewRequestActions(
     request,
     {
       reviewedCommit,
       actions: host.actions,
+      operations,
       busy: host.busy,
       onReview: () => showTab("changes"),
       onApprove: () => {

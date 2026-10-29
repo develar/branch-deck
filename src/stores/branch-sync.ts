@@ -36,19 +36,16 @@ import type {
   WholeStackView,
   WordResolutionSummary,
 } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
 import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
 import type { SyncDeferral } from "@/lib/sync-deferred"
 import type { PushProgress } from "@/lib/transfer-progress"
-import { lockWaitProgress } from "@/lib/transfer-progress"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { requestSessionSync } from "@/model/store"
 import type { BranchStructure, TableRows } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE } from "@/model/structure"
-import { presentOperationLockWait } from "@/presenters/lock-wait"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
 /** Commit augmented with its sync outcome. */
@@ -302,6 +299,9 @@ export interface BranchSyncState {
   route: LandingRoute | null
 }
 
+/** No operation of the session: before a view has any, and for a selector of a surface that names none */
+export const NO_OPERATIONS: BranchSyncState["operations"] = {}
+
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
  * `nextSteps`, `actions`, `attention`), its operations and its route
@@ -314,7 +314,7 @@ export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequest
   nextSteps: {},
   actions: {},
   attention: {},
-  operations: {},
+  operations: NO_OPERATIONS,
   route: null,
 }
 
@@ -1094,6 +1094,14 @@ function isRefOf(ref: string, name: string): boolean {
 }
 
 /**
+ * The operations of the session as the view has them now (`RepositoryView.operations`), for the items built on demand
+ * (a menu, a toast, a drop target): the busy words of the action an item runs as or waits for (`BlockerWords.operations`)
+ */
+export function getSessionOperations(): BranchSyncState["operations"] {
+  return branchSyncStore.getState().operations
+}
+
+/**
  * The operation of the session that pushes `name` now, as the view has it (`RepositoryView.operations`): a push of it
  * (`Push`, from its admission on, its waits for another push, a sync and the lock included), or another operation in
  * the push step of its plan (a pull request, a review request, a restart that pushes first); a start of a Safe Push
@@ -1154,25 +1162,12 @@ export function useIsStackBranchPushing(root: string): boolean {
   return useIsBranchPushing(stackReadinessKey(root))
 }
 
-/** How far the running push of the stack branch of the whole stack of `root` is (`useBranchPushProgress`) */
-export function useStackBranchPushProgress(root: string): PushProgress | null {
-  return useBranchPushProgress(stackReadinessKey(root))
-}
-
 /**
- * How far the running push of the branch in the selected repository is, as the channel of the window that runs it
- * tells it; while its operation waits for another holder of the repository lock, whom for (its step in the view, so
- * every window says it), with Stop Waiting (`cancel_operation`: nothing pushed). Null before git reports a stage and
- * when no push runs
+ * How far the push of the operation `op` is, as the channel of the window that runs it tells it
+ * (`setOperationPushProgress`); null before git reports a stage and without one
  */
-export function useBranchPushProgress(name: string): PushProgress | null {
-  const op = useBranchSyncField("operations", operations => pushOperationIn(operations, name)?.id ?? null)
-  const waitingFor = useBranchSyncField("operations", operations => presentOperationLockWait(pushOperationIn(operations, name)))
-  const progress = useStore(pushProgressStore, state => (op === null ? undefined : state[op]) ?? null)
-  if (op === null || waitingFor === null) {
-    return progress
-  }
-  return lockWaitProgress(waitingFor, () => void commands.cancelOperation({ op }))
+export function useOperationPushProgress(op: OperationId | null): PushProgress | null {
+  return useStore(pushProgressStore, state => (op === null ? undefined : state[op]) ?? null)
 }
 
 /**

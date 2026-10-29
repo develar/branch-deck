@@ -11,8 +11,8 @@
 // from the click to the answer). The page decides nothing of it: it words the failure and the outcome.
 import type { ApiError, OperationEvent, Outcome, RewriteIntent, RewriteResult, TableWitness, UndoToken } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { executeRewrite } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
+import { executeRewrite } from "@/model/intents"
 import { getSessionWitness } from "@/model/store"
 import { actionOfLabel, canceledBeforeStart } from "@/presenters/lock-wait"
 import { presentRewrite } from "@/presenters/rewrite"

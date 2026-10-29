@@ -5,6 +5,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { MenuItem } from "@/lib/menu"
+import { cancelIntent } from "@/model/intents"
 import { presentStopWaiting } from "@/presenters/lock-wait"
 import { useIndicatorClaim, useSurfaceBusy, useSurfaceOperation } from "@/stores/indicators"
 
@@ -61,7 +62,7 @@ export function MenuItemButton({
 }: MenuItemButtonProps) {
   useIndicatorClaim(surface)
   const busy = useSurfaceBusy(surface)
-  const stopWaiting = presentStopWaiting(useSurfaceOperation(surface))
+  const stopWaiting = presentStopWaiting(useSurfaceOperation(surface), cancelIntent)
   const running = pending || busy !== null
   const key = item.kbds?.at(-1)
   const kbd = key !== undefined && <Kbd className={cn(variant === "default" && PRIMARY_KBD_CLASS_NAME, narrow !== undefined && "hidden @4xl:inline-flex")}>{key.toUpperCase()}</Kbd>

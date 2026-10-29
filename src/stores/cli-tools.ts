@@ -4,7 +4,7 @@ import { createStore } from "zustand/vanilla"
 import type { CliTool, CliToolAction, CliToolProgress, CliToolStatus, SignInEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getErrorCode, notifyError } from "@/lib/errors"
-import { cancelSignIn, openSignInPage, signedInTitle } from "@/lib/sign-in-run"
+import { cancelSignIn, invokeSignIn, openSignInPage, signedInTitle } from "@/lib/sign-in-run"
 import { showToast } from "@/lib/toast-message"
 
 /*
@@ -139,8 +139,7 @@ export async function signInYoutrackWithApp(url: string): Promise<void> {
     return
   }
   setRunning(tool, { action: "signIn", line: "Starting…", url: null })
-  const events = new Channel<SignInEvent>()
-  events.onmessage = event => {
+  const onEvent = (event: SignInEvent) => {
     const page = cliToolsStore.getState().running[tool]?.url ?? null
     if (event.kind === "browser") {
       setRunning(tool, { action: "signIn", line: "Waiting for the browser…", url: event.url })
@@ -151,7 +150,7 @@ export async function signInYoutrackWithApp(url: string): Promise<void> {
     }
   }
   try {
-    const result = await commands.signIn({ provider: "youTrackCli", url }, events)
+    const result = await invokeSignIn({ provider: "youTrackCli", url }, onEvent)
     if (result.status === "ok") {
       showToast({ title: signedInTitle(result.data) })
     } else if (getErrorCode(result.error) !== "canceled") {

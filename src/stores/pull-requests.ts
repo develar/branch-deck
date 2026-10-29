@@ -7,7 +7,7 @@ import { isRulesUnknown, rulesAnswerOf } from "@/lib/branch-rules"
 import { commandFailure } from "@/lib/errors"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
-import { runFailure, runIntent } from "@/lib/run-intent"
+import { runFailure, runIntent } from "@/model/intents"
 import { refreshSessionFacts } from "@/model/store"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 

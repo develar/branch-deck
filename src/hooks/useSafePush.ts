@@ -15,11 +15,11 @@ import { formatPushMode, openRobot } from "@/lib/patronus"
 import { openPullRequest, openPullRequestUrl } from "@/lib/pull-request"
 import { pushForAction, pushWholeStack } from "@/lib/push-run"
 import { showRobotEventToast } from "@/lib/robot-toast"
-import { executeIntent } from "@/lib/run-intent"
 import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
+import { executeIntent } from "@/model/intents"
 import { getRowPart } from "@/model/store"
 import { getRobotActionItems } from "@/presenters/actions"
 import type { LandPrompt } from "@/presenters/land"
@@ -34,6 +34,7 @@ import {
   getBranch,
   getLandingRoute,
   getLands,
+  getSessionOperations,
   getStackBranch,
   getStackBranchOf,
   getStackIslandRoots,
@@ -470,6 +471,9 @@ function currentStepOf(branchName: string): BranchNextStep | undefined {
  * the popover at the slot of the branch (a hidden row revealed first), or says why it can't start.
  */
 export async function requestSafePush(branchName: string, request: SafePushRequest): Promise<void> {
+  // the start is planned and run in the repository of the click: what it reads meanwhile decides on it, and it starts
+  // there
+  const repositoryPath = getSelectedRepositoryPath()
   const root = stackRootOfReadinessKey(branchName)
   if (root !== null && !isForkingRoot(branchSyncStore.getState(), root)) {
     // a straight chain has no stack branch: the Safe Push of its last branch lands the whole stack, at the header of its
@@ -536,9 +540,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     openSafePushPopover(ask)
     return
   }
-  // the start is planned and run in the repository of the click: what it reads meanwhile decides on it, and it starts
-  // there; its button says "Checking…" while it waits for its plan
-  const repositoryPath = getSelectedRepositoryPath()
+  // its button says "Checking…" while it waits for its plan
   setLandAsking(branchName, mode, repositoryPath)
   const release = mode === "rebaseAutosquash" ? demandReviewReadiness(branchName) : () => {}
   let read: SafePushRead | null
@@ -776,7 +778,7 @@ function tellOutcome(outcome: Outcome, plan: Plan, repositoryPath: string, prese
         title: toast.title,
         description: toast.description,
         stepLast: true,
-        stepOf: current => getRobotActionItems(current).find(action => action.id === "cancel-robot") ?? null,
+        stepOf: current => getRobotActionItems(current, getSessionOperations()).find(action => action.id === "cancel-robot") ?? null,
       })
       return true
     case "commented":

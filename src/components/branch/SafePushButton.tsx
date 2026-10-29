@@ -19,6 +19,7 @@ import { stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import { getStartActionItems } from "@/presenters/actions"
 import type { Branch } from "@/stores/branch-sync"
+import { NO_OPERATIONS, useBranchSync } from "@/stores/branch-sync"
 import type { SafePushPlacement } from "@/stores/safe-push"
 import { stopStart, useLandProgress, useLandRun } from "@/stores/safe-push"
 
@@ -104,7 +105,9 @@ export function SafePushButton({
   // a start whose answer was lost: its actions beside the slot, as Rust offers them
   const lost = starting?.lost ?? null
   const lostOffered = useRowPart(lost === null ? "" : `op:${lost.id}`, "actions")
-  const lostItems = lost === null ? [] : getStartActionItems(lost, lostOffered)
+  // the operations of the session, whose words its items may name: only beside a lost start, so a row renders for nothing else
+  const operations = useBranchSync(state => (lost === null ? NO_OPERATIONS : state.operations))
+  const lostItems = lost === null ? [] : getStartActionItems(lost, lostOffered, operations)
   const label =
     starting === null
       ? (item?.label ?? "Safe Push")

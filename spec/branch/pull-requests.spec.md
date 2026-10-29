@@ -5,7 +5,7 @@ style: plain-1
 targets:
   - ../../crates/domain-types/src/pull_request.rs
   - ../../crates/operations/src/pull_request.rs
-  - ../../src/lib/run-intent.ts
+  - ../../src/model/intents.ts
   - ../../crates/github/src/client.rs
   - ../../crates/github/src/service.rs
   - ../../crates/github/src/token.rs

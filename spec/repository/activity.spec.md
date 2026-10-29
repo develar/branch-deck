@@ -55,7 +55,8 @@ targets:
   - ../../src/lib/review-requests.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/landed.ts
-  - ../../src/lib/run-intent.ts
+  - ../../src/lib/landed-run.ts
+  - ../../src/model/intents.ts
   - ../../src/lib/remote-status.ts
 ---
 
@@ -229,7 +230,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_answers_after_the_bound_shows_once_it_answered`, `a_read_asked_while_one_runs_shows_the_journal_as_it_is_after_that_one`, `the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_written_yet_is_empty`)
   [@test] ../../crates/app-settings/src/journals_test.rs (`the_recent_projects_have_the_journals_remembered_for_them_and_one_opened_before_has_none`, `no_recent_projects_have_no_journals`)
   [@test] ../../crates/app-settings/src/file_test.rs (`the_activity_log_of_a_file_of_before_is_dropped_by_the_load_and_the_next_save`)
-  [@test] ../../src/lib/run-intent.test.ts (`runs the plan Rust prepared on its fingerprint, then waits for the view of what it changed; Activity reads the journal it ended in`)
+  [@test] ../../src/model/intents.test.ts (`runs the plan Rust prepared on its fingerprint, then waits for the view of what it changed; Activity reads the journal it ended in`)
 - The operations of the agents, whose worktree is a slot of the lease pool of the repository (`leaseSlot` of the entry,
   by `leases.json` when it ended), are entries as any other, marked "Agent" (its worktree in the tooltip), and show
   only behind the Agents chip (Window).

@@ -345,7 +345,7 @@ start by itself: Forget This Start (`Intent::ForgetStart`) is the user's word th
 An operation that ended, of any process, is an entry of the journal of its repository ([Git Operations](git-operations.md),
 "Journal"), which Activity shows ([Activity](../../spec/repository/activity.spec.md)): the page records no operation of
 the remote itself; the main window reads the log again after each `execute` it ran (`executeIntent` of
-`src/lib/run-intent.ts`), and it and the Activity window when the watch of the registry sees the journal change
+`src/model/intents.ts`, the one module of the page that calls the engine), and it and the Activity window when the watch of the registry sees the journal change
 (`activity-changed`, an operation of the app or of an agent), and each words the entries as their toasts had them
 (`presentActivity` of `src/presenters/activity.ts`).
 
@@ -366,7 +366,7 @@ and back. The other operations pass, as a sync does: the node keeps the state th
   `WaitingForSync`, `WaitingForLock`, `Pushing`): `pushOperationIn` says which branches a running push holds (its
   spinner on their push buttons, a stack branch under `stack:<root>`), `useStackPush` what a push of a stack started
   from a row sends ("Pushing 3 branches 45%", `isStackPushing` for the menus), and the window that runs it shows how
-  far it is (`operationPushProgress` of `run-intent.ts`, the percent by operation in `pushProgressStore`); whom a wait
+  far it is (`operationPushProgress` of `src/model/intents.ts`, the percent by operation in `pushProgressStore`); whom a wait
   for the repository lock is for comes from its step in the view in every window (`useBranchPushProgress`,
   `presentOperationLockWait`), with Stop Waiting (`cancel_operation`). A push never
   holds its row (its menu stays open, its button shows the percent). A push inside another operation (the creation of

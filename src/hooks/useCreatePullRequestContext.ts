@@ -5,7 +5,7 @@ import type { CreatePullRequestContext } from "@/lib/pull-request-dialog"
 import { toCreatePullRequestContext, toStackPullRequestContext } from "@/lib/pull-request-dialog"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { getBranch, getStackBranch, useBranchSync, useStackBranch } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranch, useBranchSync, useStackBranch } from "@/stores/branch-sync"
 import { isPatronusAvailable, usePatronusAvailable } from "@/stores/patronus"
 import { getPullRequest, getPullRequestAvailability, getStackPullRequest, usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
@@ -19,6 +19,7 @@ export function useCreatePullRequestContext(branch: Branch): CreatePullRequestCo
   const nextStep = useBranchNextStep(branch.name)
   return toCreatePullRequestContext(branch, {
     repositoryPath: useSelectedProjectPath() ?? "",
+    baselineBranch: useBranchSync(state => state.baselineBranch),
     pullRequest: usePullRequest(branch.name),
     availability: usePullRequestAvailability(),
     patronusAvailable,
@@ -34,6 +35,7 @@ export function useCreatePullRequestContext(branch: Branch): CreatePullRequestCo
 export function getCreatePullRequestContext(branch: Branch): CreatePullRequestContext {
   return toCreatePullRequestContext(branch, {
     repositoryPath: getSelectedProject()?.path ?? "",
+    baselineBranch: branchSyncStore.getState().baselineBranch,
     pullRequest: getPullRequest(branch.name),
     availability: getPullRequestAvailability(),
     patronusAvailable: isPatronusAvailable(),
@@ -55,6 +57,7 @@ export function useStackPullRequestContext(root: string): CreatePullRequestConte
   const patronusAvailable = available && stack?.state === "Built"
   return toStackPullRequestContext(root, stack, {
     repositoryPath: useSelectedProjectPath() ?? "",
+    baselineBranch: useBranchSync(state => state.baselineBranch),
     pullRequest: useStackPullRequest(root),
     availability: usePullRequestAvailability(),
     branchOf: name => branches[name],
@@ -68,6 +71,7 @@ export function getStackPullRequestContext(root: string): CreatePullRequestConte
   const stack = getStackBranch(root)
   return toStackPullRequestContext(root, stack, {
     repositoryPath: getSelectedProject()?.path ?? "",
+    baselineBranch: branchSyncStore.getState().baselineBranch,
     pullRequest: getStackPullRequest(root),
     availability: getPullRequestAvailability(),
     branchOf: getBranch,

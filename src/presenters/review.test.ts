@@ -37,19 +37,19 @@ describe("the Request Review… item", () => {
   it("asks the chosen code owners on the open pull request", () => {
     const candidates = [ilya, { ...ilya, login: "bob", fullName: "Bob", preselected: false }]
     setRequest(pullRequest({ candidates }), enabled("request-review")[0]!)
-    expect(getRequestReviewItem("auth")).toMatchObject({ id: "request-review", label: "Request Review…", description: "Ask Ilya Korennoy to review #1078" })
-    expect(getRequestReviewItem("auth")?.disabled).toBeUndefined()
+    expect(getRequestReviewItem("auth", {})).toMatchObject({ id: "request-review", label: "Request Review…", description: "Ask Ilya Korennoy to review #1078" })
+    expect(getRequestReviewItem("auth", {})?.disabled).toBeUndefined()
     setRequest(pullRequest(), enabled("request-review")[0]!)
-    expect(getRequestReviewItem("auth")).toMatchObject({ description: "Ask for a review of #1078" })
+    expect(getRequestReviewItem("auth", {})).toMatchObject({ description: "Ask for a review of #1078" })
   })
 
   it("is disabled with the reason Rust gives for a draft: work the remote lacks is pushed by the request", () => {
     setRequest(pullRequest({ draft: true, candidates: [ilya] }), disabled("request-review", { code: "draft", number: 1078 }))
-    expect(getRequestReviewItem("auth")).toMatchObject({ disabled: true, description: "#1078 is a draft: mark it ready for review on GitHub first" })
+    expect(getRequestReviewItem("auth", {})).toMatchObject({ disabled: true, description: "#1078 is a draft: mark it ready for review on GitHub first" })
   })
 
   it("is not there without an open pull request", () => {
-    expect(getRequestReviewItem("auth")).toBeNull()
+    expect(getRequestReviewItem("auth", {})).toBeNull()
   })
 })
 

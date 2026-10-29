@@ -12,7 +12,6 @@ vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 vi.mock("@/lib/bindings", () => ({ commands: {} }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/branch-sync", () => ({
-  branchSyncStore: { getState: () => ({ baselineBranch: "origin/master" }) },
   getBranch: (name: string) => branches[name],
   // the ancestors as the view places them, by the effective base of each
   getStackAncestors: (name: string) => {
@@ -30,6 +29,7 @@ vi.mock("@/stores/repository", () => ({ getFullBranchName: (name: string) => `us
 
 const FACTS: CreatePullRequestFacts = {
   repositoryPath: "/repo",
+  baselineBranch: "origin/master",
   pullRequest: undefined,
   availability: null,
   patronusAvailable: false,

@@ -11,11 +11,12 @@ import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
+import type { SessionOperations } from "@/presenters/actions"
 import { presentAction } from "@/presenters/actions"
 import type { BranchNextStep, StepContext } from "@/presenters/next-step"
 import { presentNextStep } from "@/presenters/next-step"
 import type { StackBranch } from "@/stores/branch-sync"
-import { getStackBranch, getWholeStack, useStackBranch, useWholeStack } from "@/stores/branch-sync"
+import { getSessionOperations, getStackBranch, getWholeStack, NO_OPERATIONS, useBranchSyncField, useStackBranch, useWholeStack } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getStackLanding, useStackLanding } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
@@ -72,7 +73,13 @@ export function wholeStackRestOf(root: string): WholeStackRest {
  * whole stack (`actions`, `stack:<root>` of `RepositoryView.actions`: of a stack that forks on GitHub without a live
  * pull request of it, disabled while the sync didn't build it and once all of it landed); null while it doesn't
  */
-function stackPullRequestItemOf(root: string, actions: readonly ActionState[] | undefined, stack: StackBranch | undefined, target: string): MenuItem | null {
+function stackPullRequestItemOf(
+  root: string,
+  actions: readonly ActionState[] | undefined,
+  stack: StackBranch | undefined,
+  target: string,
+  operations: SessionOperations,
+): MenuItem | null {
   const members = stack?.members.length ?? 0
   return presentAction(
     actions,
@@ -81,13 +88,13 @@ function stackPullRequestItemOf(root: string, actions: readonly ActionState[] | 
       description: `The pull request of ${formatWholeStack(root)} into ${target}: the commits of ${formatBranchCount(members)}, which one Safe Push lands`,
       onSelect: () => openStackPullRequestDialog(root),
     },
-    { subject: root },
+    { subject: root, operations },
   )
 }
 
 /** "Create Pull Request of the Stack…" of `root` now (`stackPullRequestItemOf`), for the menus */
 export function getCreateStackPullRequestItem(root: string): MenuItem | null {
-  return stackPullRequestItemOf(root, getRowPart(stackReadinessKey(root), "actions"), getStackBranch(root), getReadinessTarget())
+  return stackPullRequestItemOf(root, getRowPart(stackReadinessKey(root), "actions"), getStackBranch(root), getReadinessTarget(), getSessionOperations())
 }
 
 /** What the words of the step of a whole stack read beside those of a branch (`StepInputs`): what its start lands, its pull request */
@@ -105,7 +112,7 @@ interface StackInputs extends StepInputs {
 function stackContextOf(root: string, inputs: StackInputs, forStart: boolean, byPush: boolean): StepContext {
   const key = stackReadinessKey(root)
   const rest = wholeStackRestIn(inputs.rest, inputs.stack)
-  const create = stackPullRequestItemOf(root, inputs.actions, inputs.stack, inputs.target)
+  const create = stackPullRequestItemOf(root, inputs.actions, inputs.stack, inputs.target, inputs.operations)
   return {
     subject: formatWholeStack(root),
     target: inputs.target,
@@ -162,6 +169,8 @@ export function useStackNextStep(root: string): StackNextStep | null {
     rest: useStackLanding(forks ? root : "").rest,
     stack: useStackBranch(forks ? root : ""),
     actions: useRowPart(key, "actions"),
+    // the words of its Create Pull Request of the Stack… while it runs: of a stack that forks
+    operations: useBranchSyncField("operations", operations => (forks ? operations : NO_OPERATIONS)),
   }
   const leaf = whole?.kind === "chain" ? whole.leaf : null
   const leafStep = useBranchNextStep(leaf ?? "")

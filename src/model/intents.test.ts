@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { Intent, Plan, Version } from "@/lib/bindings"
-import { runFailure, runIntent } from "@/lib/run-intent"
+import { runFailure, runIntent } from "@/model/intents"
 
 const { engine } = vi.hoisted(() => ({
   engine: {

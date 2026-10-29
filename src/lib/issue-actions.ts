@@ -4,7 +4,7 @@ import type { RunningOperation, YouTrackIssue, YouTrackStateChange } from "@/lib
 import { notifyError } from "@/lib/errors"
 import { showEventToast, toastKeys } from "@/lib/event-toast"
 import type { MenuItem } from "@/lib/menu"
-import { runFailure, runIntent } from "@/lib/run-intent"
+import { runFailure, runIntent } from "@/model/intents"
 import { sessionRepositoryPath } from "@/model/store"
 import { FIXED_STATE, loadIssue } from "@/stores/youtrack-issues"
 

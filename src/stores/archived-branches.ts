@@ -277,10 +277,11 @@ export async function loadCommitsForBranch(branchName: string): Promise<void> {
     return
   }
 
+  // the prefix is Rust's, resolved for the repository
+  const repositoryPath = getSelectedRepositoryPath()
   updateArchivedBranch(branchName, it => ({ ...it, isLoadingCommits: true, loadError: undefined }))
   try {
-    // the prefix is Rust's, resolved for the repository
-    const result = await commands.getArchivedBranchCommits(getSelectedRepositoryPath(), branchName)
+    const result = await commands.getArchivedBranchCommits(repositoryPath, branchName)
     if (result.status === "ok") {
       updateArchivedBranch(branchName, it => ({ ...it, commits: result.data, hasLoadedCommits: true }))
     } else {

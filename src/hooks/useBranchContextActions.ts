@@ -41,6 +41,7 @@ import {
   getIssueGroups,
   getParkedState,
   getPushOrders,
+  getSessionOperations,
   getStackAncestors,
   getStackBranch,
   getStackChildren,
@@ -67,9 +68,9 @@ export function actionsOf(key: string): readonly ActionState[] | undefined {
   return getRowPart(key, "actions")
 }
 
-/** What the words of a blocker of the branch read of its row */
+/** What the words of a blocker of the branch read of its row, and the operations of the session now */
 function wordsOf(branch: Branch, step?: string | null): BlockerWords {
-  return { subject: branch.name, statusText: branch.statusText, ...(step !== undefined && { step }) }
+  return { subject: branch.name, statusText: branch.statusText, operations: getSessionOperations(), ...(step !== undefined && { step }) }
 }
 
 /** The item of the action `id` of the branch as Rust offers it (`presentAction`); null while it doesn't */
@@ -119,7 +120,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const nextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP
   const robot = getBranchRobot(branch.name)
   // its pull request is the branch's one, which "Open Pull Request" already opens
-  const robotActions = robot === undefined ? [] : getRobotActionItems(robot).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
+  const robotActions =
+    robot === undefined
+      ? []
+      : getRobotActionItems(robot, getSessionOperations()).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
   const landingActions = present(
     // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
     nextStep.landingFix,
@@ -157,7 +161,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       }),
       pullRequest === undefined ? null : openPullRequestItemOf(pullRequest),
       // the row's step when it is the one (a group nobody of it can approve says so), else the action's item
-      nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItem(branch.name),
+      nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItem(branch.name, getSessionOperations()),
       // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
       findAction(actionsOf(branch.name), "retarget-pull-request") === undefined ? null : nextStep.retarget,
       getCreatePullRequestItem(branch),
@@ -264,7 +268,7 @@ function getParkMenuItems(branch: Branch): MenuItem[] {
  */
 function getPushMenuItems(branch: Branch): MenuItem[] {
   const isPushing = isBranchPushing(branch.name) || isStackPushing(branch.name)
-  const button = getPushButtonNow(branch, isPushing, pushRunsOf(branch.name))
+  const button = getPushButtonNow(branch, isPushing, pushRunsOf(branch.name), branchSyncStore.getState())
   const push = branchItem(branch, "push", { label: button.text, onSelect: () => pushFromButton(branch.name, "row") })
   if (push === null) {
     return []

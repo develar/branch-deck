@@ -120,7 +120,7 @@ targets:
   - ../../crates/sync-core/src/baseline_fetch.rs
   - ../../crates/operations/src/update.rs
   - ../../src/lib/robot-run.ts
-  - ../../src/lib/run-intent.ts
+  - ../../src/model/intents.ts
   - ../../src/presenters/actions.ts
   - ../../src/components/ui/toast.tsx
   - ../../src/lib/event-toast.ts

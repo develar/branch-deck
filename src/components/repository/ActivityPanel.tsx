@@ -10,10 +10,10 @@ import { openActivityInWindow } from "@/hooks/useActivityPanel"
 import type { ActivityWindowState } from "@/lib/activity-window"
 import { buildActivityState, subscribeActivityState } from "@/lib/activity-window-link"
 import { notifyError } from "@/lib/errors"
+import { dismissLanded } from "@/lib/landed-run"
 import { canUndoActivity, undoActivity, useActivityOf, useUnavailableJournals } from "@/stores/activity"
 import { closeActivityPanel, useActivityPanelOpen } from "@/stores/activity-panel"
 import { requestReveal } from "@/stores/commit-move"
-import { dismissLanded } from "@/stores/landed"
 import { getSelectedProject } from "@/stores/repository"
 
 /** What the panel shows besides the log, as JSON too: a change of a store that changes nothing of it renders nothing */

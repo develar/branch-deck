@@ -8,6 +8,7 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 import type { Account, SignIn, SignInDone, SignInEvent, SignInProvider } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
+import type { CommandResult } from "@/lib/command"
 import { getErrorCode, notifyError } from "@/lib/errors"
 import { showToast } from "@/lib/toast-message"
 import { formatYouTrackHost } from "@/lib/youtrack"
@@ -44,6 +45,17 @@ export function signedInTitle(done: SignInDone): string {
 }
 
 /**
+ * `sign_in` of `request`, its events to `onEvent`: the one call of the command, for the sign-ins of the accounts
+ * (`runSignIn`) and the one of the `youtrack` CLI with the app's YouTrack (`signInYoutrackWithApp` of
+ * `src/stores/cli-tools.ts`), which shows its events on the row of the tool
+ */
+export function invokeSignIn(request: SignIn, onEvent: (event: SignInEvent) => void): Promise<CommandResult<SignInDone>> {
+  const events = new Channel<SignInEvent>()
+  events.onmessage = onEvent
+  return commands.signIn(request, events)
+}
+
+/**
  * Signs in by `request`, one run of each provider in this window: its phase follows the events of its channel, then
  * the toast of how it ended; a cancel says nothing (the code `canceled`, never its words), a failure "Cannot sign in to
  * GitHub" with the reason. Resolves to how it ended, null when it did not
@@ -54,14 +66,12 @@ export async function runSignIn(request: SignIn): Promise<SignInDone | null> {
     return null
   }
   setSignInPhase(provider, { phase: "waiting" })
-  const events = new Channel<SignInEvent>()
-  events.onmessage = event => {
+  const result = await invokeSignIn(request, event => {
     setSignInPhase(provider, phaseOf(event, Date.now()))
     if (event.kind === "browser") {
       void openSignInPage(event.url)
     }
-  }
-  const result = await commands.signIn(request, events)
+  })
   setSignInPhase(provider, IDLE_SIGN_IN)
   if (result.status === "error") {
     if (getErrorCode(result.error) !== "canceled") {

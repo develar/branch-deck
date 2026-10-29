@@ -1,13 +1,7 @@
 // @spec spec/branch/patronus.spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { LockHolderInfo, OperationStep, RunningOperation } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { actionOfLabel, canceledBeforeStart, presentLockHolder, presentLockWait, presentOperationLockWait, presentStopWaiting } from "@/presenters/lock-wait"
-
-vi.mock("@/lib/bindings", async importOriginal => {
-  const original = await importOriginal<typeof import("@/lib/bindings")>()
-  return { ...original, commands: { ...original.commands, cancelOperation: vi.fn(async () => ({ status: "ok", data: true })) } }
-})
 
 const BD_PICK: LockHolderInfo = { tool: "bd", command: "bd pick --follow", pid: 4242, held_for: 12 }
 
@@ -46,15 +40,16 @@ describe("presentLockWait", () => {
 describe("presentStopWaiting", () => {
   it("offers Stop Waiting of an operation of the session only while it waits for a holder, and stops it by its id", () => {
     const waiting = "Waiting for `bd pick --follow` (pid 4242, for 12 s)"
-    expect(presentStopWaiting(undefined)).toBeNull()
-    expect(presentStopWaiting({ op: "op-1", lockWait: null })).toBeNull()
+    const cancel = vi.fn(async (_op: string) => true)
+    expect(presentStopWaiting(undefined, cancel)).toBeNull()
+    expect(presentStopWaiting({ op: "op-1", lockWait: null }, cancel)).toBeNull()
     // the channel has not named the operation yet: nothing to stop
-    expect(presentStopWaiting({ op: null, lockWait: waiting })).toBeNull()
+    expect(presentStopWaiting({ op: null, lockWait: waiting }, cancel)).toBeNull()
 
-    const stop = presentStopWaiting({ op: "op-1", lockWait: waiting })!
+    const stop = presentStopWaiting({ op: "op-1", lockWait: waiting }, cancel)!
     expect(stop).toMatchObject({ id: "stop-waiting", label: "Stop Waiting", description: `${waiting}; stop and change nothing` })
     stop.onSelect({ surface: null })
-    expect(vi.mocked(commands.cancelOperation)).toHaveBeenCalledExactlyOnceWith({ op: "op-1" })
+    expect(cancel).toHaveBeenCalledExactlyOnceWith("op-1")
   })
 })
 

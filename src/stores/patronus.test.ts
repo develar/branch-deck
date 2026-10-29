@@ -147,8 +147,8 @@ vi.mock("@/stores/pull-requests", () => ({
   getStackPullRequest: (root: string) => notices.stackPullRequests[root],
 }))
 
-vi.mock("@/lib/run-intent", async importOriginal => ({
-  ...(await importOriginal<typeof import("@/lib/run-intent")>()),
+vi.mock("@/model/intents", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/model/intents")>()),
   // the closes of a merged robot: Rust plans them in the session of the robot's repository, with their comments
   runIntent: async (repositoryPath: string, intent: { kind: string; landing: { by: string; robotId?: string } }) => {
     notices.closed.push(`${repositoryPath} ${intent.kind} ${intent.landing.robotId}`)
@@ -240,6 +240,7 @@ vi.mock("@/stores/branch-sync", () => ({
     subscribe: () => () => {},
   },
   getBranch: (name: string) => branches.current[name],
+  getSessionOperations: () => ({}),
   getStackBranch: (root: string) => branches.stacks[root],
   whenSynced: () => branches.synced,
   // the structure Rust sent: the branches built on `name`, parents first, by the parent each was placed on, and those

@@ -18,6 +18,7 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
 import { openPullRequest } from "@/lib/pull-request"
+import { cancelIntent } from "@/model/intents"
 import { useRowPart } from "@/model/store"
 import { presentStopWaiting, waitingOf } from "@/presenters/lock-wait"
 import { firstPushPending, firstPushWait } from "@/presenters/push-button"
@@ -108,7 +109,7 @@ export function BranchPreviewMenu({ name }: { name: string }) {
     <MoreActionsMenu
       name={name}
       busy={busy}
-      stopWaiting={presentStopWaiting(waitingOf(operation))}
+      stopWaiting={presentStopWaiting(waitingOf(operation), cancelIntent)}
       menu={<BranchMenuItems name={name} setExpanded={expandRow} Items={PreviewMenuItems} />}
     />
   )

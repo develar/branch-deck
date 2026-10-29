@@ -6,7 +6,7 @@ import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CompactPushLabel, PushProgressDescription } from "@/components/branch/BranchPushButton"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import type { ChildrenPush } from "@/hooks/useBranchPushes"
-import { useStackBranchPushAlone } from "@/hooks/useBranchPushes"
+import { useBranchPushProgress, useStackBranchPushAlone, useStackBranchPushProgress } from "@/hooks/useBranchPushes"
 import { formatBranchCount } from "@/lib/branch"
 import { pushWithChildren } from "@/lib/push-run"
 import { formatAskFirst, formatPushWithChildrenLabel, stackPushSubject } from "@/lib/stack"
@@ -18,7 +18,7 @@ import { actionBlocker } from "@/presenters/actions"
 import { formatStackPushLine } from "@/presenters/push"
 import { formatPushHoldReason } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useBranchSync, useIsStackBranchPushing, useStackBranch, useStackBranchPushProgress, useStackPush } from "@/stores/branch-sync"
+import { useBranchSync, useIsStackBranchPushing, useStackBranch, useStackPush } from "@/stores/branch-sync"
 import { usePushHold } from "@/stores/patronus"
 import { useLandRun } from "@/stores/safe-push"
 
@@ -73,6 +73,7 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
   const hold = usePushHold(root)
   // Push with Children of the root as Rust offers it (`domain_policy::actions`)
   const rootActions = useRowPart(root, "actions")
+  const operations = useBranchSync(state => state.operations)
   const stack = useStackBranch(root)
   const { children } = push
   const withStackBranch = children?.stackBranch?.kind === "along" && stack !== undefined
@@ -83,7 +84,7 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
     if (held) {
       blocker = hold === null || hold.kind === "landed" ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
     } else {
-      blocker = actionBlocker(rootActions, "push-with-children", { subject: root }) ?? (children?.offers === true ? null : NOTHING_TO_PUSH)
+      blocker = actionBlocker(rootActions, "push-with-children", { subject: root, operations }) ?? (children?.offers === true ? null : NOTHING_TO_PUSH)
     }
   }
   let label = "Push with Children"

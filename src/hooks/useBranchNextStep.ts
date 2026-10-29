@@ -18,7 +18,7 @@ import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
-import type { RobotAction } from "@/presenters/actions"
+import type { RobotAction, SessionOperations } from "@/presenters/actions"
 import { getRobotActionItems, isRestart } from "@/presenters/actions"
 import type { BranchNextStep, NextStepActions, NextStepBusy, StepContext } from "@/presenters/next-step"
 import { formatPendingFact, formatProblemsFailure, presentNextStep } from "@/presenters/next-step"
@@ -26,7 +26,7 @@ import { CREATE_PULL_REQUEST_LABEL } from "@/presenters/pull-request-url"
 import { getRequestReviewItem } from "@/presenters/review"
 import { recordApproval } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, useBranchSyncEntry, useBranchSyncField } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getSessionOperations, NO_OPERATIONS, useBranchSyncEntry, useBranchSyncField } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { operationBusyOf } from "@/stores/indicators"
 import { getRobot, getRobotProblemsFailure, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
@@ -88,6 +88,8 @@ export interface StepInputs {
   /** The open pull request of the subject, while the step asks for a review of it */
   readonly pullRequest: PullRequestView | undefined
   readonly repositoryPath: string | null
+  /** The operations of the session, whose words the items of that robot and of that pull request name; none while the step names neither */
+  readonly operations: SessionOperations
 }
 
 /** The robot the step of a subject restarts (rows 2 and 3, or a restart disabled while Patronus didn't tell why it failed) */
@@ -113,6 +115,7 @@ export function useStepInputs(key: string, step: NextStep | undefined): StepInpu
     robotActions: useRowPart(robotId === null ? "" : `robot:${robotId}`, "actions"),
     pullRequest: useBranchSyncEntry("openPullRequests", key, pullRequest => (review ? pullRequest : undefined)),
     repositoryPath: useSelectedProjectPath() ?? null,
+    operations: useBranchSyncField("operations", operations => (robotId === null && !review ? NO_OPERATIONS : operations)),
   }
 }
 
@@ -127,6 +130,7 @@ export function getStepInputs(key: string, step: NextStep | undefined): StepInpu
     robotActions: robotId === null ? undefined : getRowPart(`robot:${robotId}`, "actions"),
     pullRequest: asksReview(step) ? branchSyncStore.getState().openPullRequests[key] : undefined,
     repositoryPath: getSelectedProject()?.path ?? null,
+    operations: getSessionOperations(),
   }
 }
 
@@ -169,8 +173,8 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),
     updateProject: () => void runUpdateProject(),
-    restart: robot === undefined ? null : (getRobotActionItems(robot, { offered: inputs.robotActions }).find(isRestart) ?? null),
-    requestReview: inputs.pullRequest === undefined ? null : getRequestReviewItem(key),
+    restart: robot === undefined ? null : (getRobotActionItems(robot, inputs.operations, { offered: inputs.robotActions }).find(isRestart) ?? null),
+    requestReview: inputs.pullRequest === undefined ? null : getRequestReviewItem(key, inputs.operations),
   }
 }
 
@@ -292,16 +296,26 @@ export function announceApproval(news: ApprovalNews, pullRequest: PullRequest | 
 export interface RobotParts {
   readonly actions: readonly ActionState[] | undefined
   readonly landing: NextStepView | undefined
+  /** The operations of the session, whose words a restart or a cancel that runs names */
+  readonly operations: SessionOperations
 }
 
 /** `RobotParts` of `robot` now */
 function robotPartsOf(robot: PatronusRobot): RobotParts {
-  return { actions: getRowPart(`robot:${robot.id}`, "actions"), landing: robot.branchName === null ? undefined : getRowPart(robot.branchName, "landing") }
+  return {
+    actions: getRowPart(`robot:${robot.id}`, "actions"),
+    landing: robot.branchName === null ? undefined : getRowPart(robot.branchName, "landing"),
+    operations: getSessionOperations(),
+  }
 }
 
 /** `RobotParts` of `robot`, re-rendering when one changes; none without a robot */
 export function useRobotParts(robot: PatronusRobot | null | undefined): RobotParts {
-  return { actions: useRowPart(robot == null ? "" : `robot:${robot.id}`, "actions"), landing: useRowPart(robot?.branchName ?? "", "landing") }
+  return {
+    actions: useRowPart(robot == null ? "" : `robot:${robot.id}`, "actions"),
+    landing: useRowPart(robot?.branchName ?? "", "landing"),
+    operations: useBranchSyncField("operations", operations => (robot == null ? NO_OPERATIONS : operations)),
+  }
 }
 
 /**
@@ -312,5 +326,5 @@ export function useRobotParts(robot: PatronusRobot | null | undefined): RobotPar
  */
 export function getRobotItems(robot: PatronusRobot, parts: RobotParts = robotPartsOf(robot)): RobotAction[] {
   const step = robot.branchName === null || parts.landing === undefined ? null : getBranchNextStep(robot.branchName)
-  return getRobotActionItems(robot, { stepReason: step?.safePushBlocker ?? null, offered: parts.actions })
+  return getRobotActionItems(robot, parts.operations, { stepReason: step?.safePushBlocker ?? null, offered: parts.actions })
 }

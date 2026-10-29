@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ApiError, OperationEvent, Outcome, RewriteIntent, Version } from "@/lib/bindings"
 import type { RunningOperation } from "@/lib/bindings"
 import { runRewriteIntent, undoRewrite } from "@/lib/rewrite-run"
+import { cancelIntent } from "@/model/intents"
 import { presentStopWaiting, waitingOf } from "@/presenters/lock-wait"
 import { indicatorsStore, operationBusyOf } from "@/stores/indicators"
 
@@ -117,7 +118,7 @@ describe("runRewriteIntent", () => {
     await vi.waitFor(() => expect(indicatorsStore.getState().runs.dialog?.op).toBe("op-1"))
     const shown = engine.operations["op-1"] as RunningOperation
     expect(operationBusyOf(shown)).toBe("Waiting for `bd pick --follow` (pid 4242, for 12 s)")
-    presentStopWaiting(waitingOf(shown))!.onSelect!({ surface: null })
+    presentStopWaiting(waitingOf(shown), cancelIntent)!.onSelect!({ surface: null })
     await vi.waitFor(() => expect(engine.calls).toContain("cancel op-1"))
     engine.error = { code: "canceled", message: "The wait for the repository lock was stopped; nothing changed", details: null, retry: "no", operation_id: "op-1" }
     proceed()

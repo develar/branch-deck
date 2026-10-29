@@ -10,12 +10,12 @@ import { ConfigRow } from "@/components/settings/ConfigRow"
 import { ReadFailure } from "@/components/settings/SettingRow"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { LoadingLine } from "@/components/shared/LoadingLine"
+import { writeRepositoryConfig } from "@/hooks/useConfigWrite"
 import type { RepositoryConfigRead } from "@/hooks/useRepositoryConfig"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
 import type { ConfigSetting, RepositoryConfig, RepositoryConfigChange } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
-import { logError, notifyError } from "@/lib/errors"
+import { logError } from "@/lib/errors"
 import {
   SYMBOL_MODES,
   describeAppPrefixSource,
@@ -91,23 +91,7 @@ function ConfigRows({ path, config, showWritten }: { path: string; config: Repos
   const write = (change: RepositoryConfigChange): Promise<boolean> => {
     const title = writeErrorTitle(change, config.stacks.fallbackValue, path)
     setWriting(change.key)
-    return commands
-      .setRepositoryConfig({ repositoryPath: path, change })
-      .then(
-        result => {
-          if (result.status === "error") {
-            notifyError(title, result.error)
-            return false
-          }
-          showWritten(result.data)
-          return true
-        },
-        (error: unknown) => {
-          notifyError(title, error)
-          return false
-        },
-      )
-      .finally(() => setWriting(null))
+    return writeRepositoryConfig(path, change, undefined, title, showWritten).finally(() => setWriting(null))
   }
 
   /** The typed value as the backend takes it: trimmed, the prefix without its trailing slash; empty unsets */

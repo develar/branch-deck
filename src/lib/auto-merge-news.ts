@@ -4,8 +4,8 @@
 import type { News } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { showEventToast, toastKeys } from "@/lib/event-toast"
-import { failedEffects, runFailure, runIntent } from "@/lib/run-intent"
 import { formatReadinessSubject } from "@/lib/whole-stack"
+import { failedEffects, runFailure, runIntent } from "@/model/intents"
 import { runUpdateProjectOf } from "@/stores/update-project"
 
 /** The pull requests GitHub merged by their auto-merge, which the session told: their number, subject and target */

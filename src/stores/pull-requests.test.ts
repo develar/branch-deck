@@ -25,7 +25,7 @@ const { session } = vi.hoisted(() => ({
 }))
 
 // the retarget is an intent of the engine: what reaches it is the test
-vi.mock("@/lib/run-intent", () => ({
+vi.mock("@/model/intents", () => ({
   runIntent: async (repositoryPath: string, intent: { kind: string; number: number }) => {
     session.writes.push(`${intent.kind} #${intent.number} in ${repositoryPath}`)
     return { kind: "ran" }

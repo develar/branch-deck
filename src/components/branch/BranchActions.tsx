@@ -11,6 +11,7 @@ import { useBranchMenu } from "@/hooks/useBranchContextActions"
 import { useChildrenPush, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/useBranchPushes"
 import { useRowOperation, useUnclaimedOperation } from "@/hooks/useRowOperation"
 import type { MenuItemGroups } from "@/lib/menu"
+import { cancelIntent } from "@/model/intents"
 import { presentStopWaiting, waitingOf } from "@/presenters/lock-wait"
 import { firstPushPending, isFirstPushInLanding } from "@/presenters/push-button"
 import type { Branch } from "@/stores/branch-sync"
@@ -83,7 +84,7 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
           name={branch.name}
           disabled={processing}
           busy={unclaimedBusy}
-          stopWaiting={presentStopWaiting(waitingOf(unclaimed))}
+          stopWaiting={presentStopWaiting(waitingOf(unclaimed), cancelIntent)}
           menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />}
         />
       </ColumnTrack>

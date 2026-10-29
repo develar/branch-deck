@@ -12,10 +12,10 @@ import { commandFailure } from "@/lib/errors"
 import type { CompareFields } from "@/lib/pull-request"
 import { getCompareUrl } from "@/lib/pull-request"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/pull-request-dialog"
-import type { IntentRun } from "@/lib/run-intent"
-import { runFailure, runIntent } from "@/lib/run-intent"
 import type { ToastMessage } from "@/lib/toast-message"
 import { formatReadinessSubject, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import type { IntentRun } from "@/model/intents"
+import { runFailure, runIntent } from "@/model/intents"
 import { openNewPullRequest } from "@/presenters/pull-request-url"
 
 /** The subject of the row `key`: a branch, or the whole stack of a root (`stackReadinessKey`) */

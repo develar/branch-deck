@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { STARTUP_MODULES, findProblems, lintArchitecture } from "./lint-arch.mjs"
+import { APP_COMMAND_CALLERS, STARTUP_MODULES, findProblems, lintArchitecture, readRegistry } from "./lint-arch.mjs"
 
 /** The rules each line of `source` breaks, by line */
 function rulesOf(source) {
@@ -120,19 +120,24 @@ test("a timer of a store or a hook is a poll, of its test or another module not"
   assert.deepEqual(rules("src/lib/example.ts"), [])
 })
 
-test("an allowlist entry needs its reason and a finding to hold", t => {
+test("an allowlist entry needs its reason and a finding to hold, and only a timer of the UI takes one", t => {
   const root = mkdtempSync(join(tmpdir(), "lint-arch-"))
   t.after(() => rmSync(root, { recursive: true, force: true }))
-  mkdirSync(join(root, "src"))
-  writeFileSync(join(root, "src/a.ts"), 'if (error.message === "x") {}\n')
-  writeFileSync(join(root, "src/b.ts"), "export const b = 1\n")
+  mkdirSync(join(root, "src/stores"), { recursive: true })
+  writeFileSync(join(root, "src/stores/a.ts"), "const timer = setTimeout(hide, 2000)\n")
+  writeFileSync(join(root, "src/b.ts"), 'if (error.message === "x") {}\n')
+  const problems = allowlist => lintArchitecture(root, allowlist, {})
 
-  assert.deepEqual(lintArchitecture(root, []), ['src/a.ts:1: message-control: if (error.message === "x") {}'])
-  assert.deepEqual(lintArchitecture(root, [{ file: "src/a.ts", rule: "message-control", reason: "the words of a third-party library, which has no code" }]), [])
-  assert.deepEqual(lintArchitecture(root, [{ file: "src/a.ts", rule: "message-control", reason: " " }]), ["ALLOWLIST: src/a.ts (message-control) gives no reason"])
-  assert.deepEqual(lintArchitecture(root, [{ file: "src/b.ts", rule: "message-control", reason: "gone" }]), [
-    'src/a.ts:1: message-control: if (error.message === "x") {}',
-    "ALLOWLIST: src/b.ts (message-control) matches nothing: remove it",
+  const word = 'src/b.ts:1: message-control: if (error.message === "x") {}'
+  const timer = "src/stores/a.ts:1: poll-timer: const timer = setTimeout(hide, 2000)"
+  assert.deepEqual(problems([]), [word, timer])
+  assert.deepEqual(problems([{ file: "src/stores/a.ts", rule: "poll-timer", reason: "the Copied state for 2 s: no request" }]), [word])
+  assert.deepEqual(problems([{ file: "src/stores/a.ts", rule: "poll-timer", reason: " " }]), [word, "ALLOWLIST: src/stores/a.ts (poll-timer) gives no reason"])
+  assert.deepEqual(problems([{ file: "src/stores/b.ts", rule: "poll-timer", reason: "gone" }]), [word, timer, "ALLOWLIST: src/stores/b.ts (poll-timer) matches nothing: remove it"])
+  // the words of an error, a rule of the domain: no exception
+  assert.deepEqual(problems([{ file: "src/b.ts", rule: "message-control", reason: "the words of a third-party library" }]), [
+    timer,
+    "ALLOWLIST: src/b.ts (message-control): the rule takes no exception, only a timer of the UI does (poll-timer)",
   ])
 })
 
@@ -198,7 +203,8 @@ test("a read of the start of the main window is refused: a command of its start 
     "// commands.getSnapshot() at start",
     "type Commands = typeof commands",
   ].join("\n")
-  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  // the registry decides who calls a command (`intent-call`, its own test): none here
+  const rules = file => findProblems(file, source, { registry: new Map() }).map(problem => `${problem.line} ${problem.rule}`)
   for (const file of STARTUP_MODULES) {
     assert.deepEqual(rules(file), ["1 startup-read", "2 startup-read", "3 startup-read"])
   }
@@ -207,4 +213,150 @@ test("a read of the start of the main window is refused: a command of its start 
   assert.deepEqual(rules("src/components/settings/BranchPrefixSetting.tsx"), ["3 startup-read"])
   assert.deepEqual(rules("src/stores/repository.test.ts"), [])
   assert.deepEqual(rules("tests/e2e/example.spec.ts"), [])
+})
+
+/** A registry of four commands, by the names the bindings give them (`readRegistry`) */
+const REGISTRY = new Map([
+  ["execute", { name: "execute", class: "engine" }],
+  ["cancelOperation", { name: "cancel_operation", class: "engine" }],
+  ["signIn", { name: "sign_in", class: "app" }],
+  ["getSnapshot", { name: "get_snapshot", class: "read" }],
+])
+const CALLERS = { sign_in: "src/lib/sign-in-run.ts" }
+
+test("the engine is called only from the intents, a command of the app only from its module", () => {
+  const source = [
+    "const executed = await commands.execute(params, events)",
+    "void commands.cancelOperation({ op }).catch(() => {})",
+    "const result = await commands",
+    "  .signIn(request, events)",
+    // a read, a name the registry lacks, a command in a comment or a string
+    "const view = await commands.getSnapshot({ repositoryPath })",
+    "const count = commands.length",
+    "// commands.execute(params) in a comment",
+    'const words = "commands.execute"',
+  ].join("\n")
+  const rules = file => findProblems(file, source, { registry: REGISTRY, callers: CALLERS }).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("src/stores/example.ts"), ["1 intent-call", "2 intent-call", "4 intent-call"])
+  assert.deepEqual(rules("src/model/intents.ts"), ["4 intent-call"])
+  assert.deepEqual(rules("src/lib/sign-in-run.ts"), ["1 intent-call", "2 intent-call"])
+  // a test mocks what it calls; an e2e test calls no binding
+  assert.deepEqual(rules("src/stores/example.test.ts"), [])
+  assert.deepEqual(rules("tests/e2e/example.spec.ts"), [])
+})
+
+test("an entry of the callers of the app commands names a command of the app that its module calls", t => {
+  const root = mkdtempSync(join(tmpdir(), "lint-arch-"))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, "crates/app-api"), { recursive: true })
+  mkdirSync(join(root, "src/lib"), { recursive: true })
+  const table = [
+    { name: "sign_in", class: "app" },
+    { name: "sign_out", class: "app" },
+    { name: "get_snapshot", class: "read" },
+  ]
+  writeFileSync(join(root, "crates/app-api/commands.json"), JSON.stringify(table))
+  writeFileSync(join(root, "src/lib/sign-in-run.ts"), "await commands.signIn(request, events)\n")
+  writeFileSync(join(root, "src/lib/accounts.ts"), "await commands.signOut(account)\n")
+
+  assert.deepEqual(readRegistry(root).get("signOut"), { name: "sign_out", class: "app" })
+  assert.deepEqual(lintArchitecture(root, [], { sign_in: "src/lib/sign-in-run.ts", sign_out: "src/lib/accounts.ts" }), [])
+  // a second caller, a command no module is named for
+  assert.deepEqual(lintArchitecture(root, [], { sign_in: "src/lib/accounts.ts" }), [
+    "src/lib/accounts.ts:1: intent-call: await commands.signOut(account)",
+    "src/lib/sign-in-run.ts:1: intent-call: await commands.signIn(request, events)",
+    "APP_COMMAND_CALLERS: sign_in is not called in src/lib/accounts.ts: name the module that calls it, or remove it",
+  ])
+  // a stale entry: a read, a command the registry lost
+  assert.deepEqual(
+    lintArchitecture(root, [], { sign_in: "src/lib/sign-in-run.ts", sign_out: "src/lib/accounts.ts", get_snapshot: "src/lib/accounts.ts", sync: "src/lib/accounts.ts" }),
+    [
+      "APP_COMMAND_CALLERS: get_snapshot is no app(…) command of crates/app-api/commands.json: remove it",
+      "APP_COMMAND_CALLERS: sync is no app(…) command of crates/app-api/commands.json: remove it",
+    ],
+  )
+})
+
+test("every command of the app of this repository has its one module, every entry its command", () => {
+  const registry = readRegistry(join(import.meta.dirname, ".."))
+  const app = [...registry.values()].filter(command => command.class === "app").map(command => command.name)
+  assert.ok(app.includes("sign_in"))
+  const byName = (a, b) => a.localeCompare(b)
+  assert.deepEqual(Object.keys(APP_COMMAND_CALLERS).toSorted(byName), app.toSorted(byName))
+})
+
+test("a presenter reads no store: the caller passes what it selected of the view", () => {
+  const source = [
+    "const operation = branchSyncStore.getState().operations[op]",
+    "const { baselineBranch } = branchSyncStore",
+    "  .getState()",
+    // a part the caller passed, a getter of the model
+    "const operation = words.operations[op]",
+    'const actions = getRowPart(name, "actions")',
+  ].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("src/presenters/example.ts"), ["1 presenter-state", "3 presenter-state"])
+  assert.deepEqual(rules("src/presenters/example.test.ts"), [])
+  assert.deepEqual(rules("src/hooks/useExample.ts"), [])
+})
+
+test("an async function reads the selected project before its first await, the operand of the await included", () => {
+  const source = [
+    "export async function load(name: string): Promise<{ readonly commits: number }> {",
+    "  const repositoryPath = getSelectedRepositoryPath()",
+    "  const result = await commands.getCommits(repositoryPath, getFullBranchName(name))",
+    "  const prefix = getEffectiveBranchPrefix()",
+    "  return { commits: vcsRequestFactory.count(result), path: repositoryStore.getState().selected }",
+    "}",
+    "const run = async () => {",
+    "  if (later) {",
+    "    await later()",
+    "    return",
+    "  }",
+    "  open(getSelectedProject()?.path)",
+    "}",
+    "const read = async (key: string) => show(await ask(key), getDiffRepositoryPath())",
+    "function now() {",
+    "  return getFullStackBranchName(getSelectedProject()?.name ?? '')",
+    "}",
+  ].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("src/stores/example.ts"), [
+    "3 late-project-read",
+    "4 late-project-read",
+    "5 late-project-read",
+    "5 late-project-read",
+    "12 late-project-read",
+    "14 late-project-read",
+  ])
+  assert.deepEqual(rules("src/stores/example.test.ts"), [])
+  assert.deepEqual(rules("tests/e2e/example.spec.ts"), [])
+})
+
+test("the first await of an async function is its own: of a nested function or in a string it is none", () => {
+  const source = [
+    "async function start(): Promise<void> {",
+    "  const later = async () => {",
+    "    await wait()",
+    "  }",
+    '  notify("await the answer")',
+    "  const path = getSelectedRepositoryPath()",
+    "  await later()",
+    "}",
+    "const store = {",
+    "  async refresh() {",
+    "    const path = getSelectedRepositoryPath()",
+    "    await read(path)",
+    "    return getSelectedProject()",
+    "  },",
+    "}",
+    "export const ask = async function (key: string) {",
+    "  await key",
+    "  return getFullBranchName(key)",
+    "}",
+  ].join("\n")
+  assert.deepEqual(
+    findProblems("src/stores/example.ts", source).map(problem => `${problem.line} ${problem.rule}`),
+    ["13 late-project-read", "18 late-project-read"],
+  )
 })

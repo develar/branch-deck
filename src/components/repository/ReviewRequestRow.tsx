@@ -26,6 +26,7 @@ import type { ReviewSource } from "@/lib/pull-request-review"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
 import { useRowPart } from "@/model/store"
+import type { SessionOperations } from "@/presenters/actions"
 import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import type { ReviewAction } from "@/stores/review-requests"
@@ -73,6 +74,7 @@ function requestMenu(
   repositoryPath: string,
   source: ReviewSource,
   actions: readonly ActionState[] | undefined,
+  operations: SessionOperations,
   busy: ReviewAction | undefined,
   extra: Pick<ReviewRequestRowProps, "onShowBranch" | "onRemoveFromReviews">,
 ): MenuItemGroups {
@@ -81,6 +83,7 @@ function requestMenu(
     {
       reviewedCommit: { id: null, reason: "" },
       actions,
+      operations,
       busy,
       onReview: () => openReviewRequest(repositoryPath, request.number, undefined, source),
       onApprove: () => openReviewRequest(repositoryPath, request.number, "approve", source),
@@ -118,6 +121,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
 }: ReviewRequestRowProps) {
   const actions = usePullRequestActions(request.number)
   const busy = useReviewAction(request.number)
+  const operations = useBranchSync(state => state.operations)
   const onClick = (event: MouseEvent) => {
     if (isMac ? event.metaKey : event.ctrlKey) {
       openRequestOnGitHub(request)
@@ -199,7 +203,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItems groups={requestMenu(request, repositoryPath, source, actions, busy, { onShowBranch, onRemoveFromReviews })} />
+        <ContextMenuItems groups={requestMenu(request, repositoryPath, source, actions, operations, busy, { onShowBranch, onRemoveFromReviews })} />
       </ContextMenuContent>
     </ContextMenu>
   )

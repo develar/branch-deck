@@ -5,8 +5,8 @@ import { tellLandedNews } from "@/lib/landed-closes"
 const asked: { repositoryPath: string; intent: Intent }[] = []
 const errors: string[] = []
 
-vi.mock("@/lib/run-intent", async importOriginal => ({
-  ...(await importOriginal<typeof import("@/lib/run-intent")>()),
+vi.mock("@/model/intents", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/model/intents")>()),
   runIntent: async (repositoryPath: string, intent: Intent) => {
     asked.push({ repositoryPath, intent })
     const failed = {

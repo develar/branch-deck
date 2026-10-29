@@ -17,6 +17,7 @@ targets:
   - ../../src/lib/landing-toast.ts
   - ../../src/lib/event-toast.ts
   - ../../src/stores/landed.ts
+  - ../../src/lib/landed-run.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/components/repository/LandedCard.tsx

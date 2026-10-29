@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ActionBlocker, DroppedCommit, HoldKind } from "@/lib/bindings"
+import type { ActionBlocker, DroppedCommit, HoldKind, RunningOperation } from "@/lib/bindings"
 import type { PushButtonContext } from "@/presenters/push-button"
 import { getPushButtonState, isFirstPushInLanding } from "@/presenters/push-button"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import { branchSyncStore } from "@/stores/branch-sync"
 import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 function commits(count: number): DroppedCommit[] {
@@ -313,20 +312,17 @@ describe("getPushButtonState", () => {
       tooltip: "2 commits to push, none of them yours.",
     })
     // an operation of another process holds what the push needs: its words, before Rust is asked
-    branchSyncStore.setState({
-      operations: {
-        bd: {
-          id: "bd",
-          intent: { kind: "land", subject: { kind: "branch", name: "login" }, mode: "rebaseAutosquash", profile: { kind: "default" } },
-          resources: [{ kind: "ref", name: "user/virtual/login" }],
-          step: { kind: "starting" },
-          origin: { kind: "otherProcess", tool: "bd", pid: 4242 },
-          moves: [],
-        },
+    const operations = {
+      bd: {
+        id: "bd",
+        intent: { kind: "land", subject: { kind: "branch", name: "login" }, mode: "rebaseAutosquash", profile: { kind: "default" } },
+        resources: [{ kind: "ref", name: "user/virtual/login" }],
+        step: { kind: "starting" },
+        origin: { kind: "otherProcess", tool: "bd", pid: 4242 },
+        moves: [],
       },
-    })
-    expect(state({ commitsAhead: 2, action: PUSH }, { blocker: { code: "busy", op: "bd" } })).toMatchObject({ disabled: true, tooltip: "bd: Safe Push of login…" })
-    branchSyncStore.setState({ operations: {} })
+    } as const satisfies Record<string, RunningOperation>
+    expect(state({ commitsAhead: 2, action: PUSH }, { blocker: { code: "busy", op: "bd" }, operations })).toMatchObject({ disabled: true, tooltip: "bd: Safe Push of login…" })
   })
 
   it("offers the push of the branch alone before Push with Children for a branch in the middle of a stack", () => {

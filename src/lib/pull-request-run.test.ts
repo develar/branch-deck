@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ApiError, EffectRecord, Intent, Outcome, Plan, PullRequest, RunningOperation } from "@/lib/bindings"
 import type { CreatePullRequestContext } from "@/lib/pull-request-dialog"
 import { continueOnGitHub, pullRequestOperationIn, requestReview, submitPullRequest } from "@/lib/pull-request-run"
-import type { IntentRun } from "@/lib/run-intent"
+import type { IntentRun } from "@/model/intents"
 
 const { engine } = vi.hoisted(() => {
   const engine = {
@@ -22,7 +22,7 @@ const { engine } = vi.hoisted(() => {
   return { engine }
 })
 
-vi.mock("@/lib/run-intent", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/run-intent")>()), runIntent: engine.runIntent }))
+vi.mock("@/model/intents", async importOriginal => ({ ...(await importOriginal<typeof import("@/model/intents")>()), runIntent: engine.runIntent }))
 vi.mock("@/presenters/pull-request-url", () => ({ openNewPullRequest: (url: string) => engine.said.push(`open ${url}`) }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))

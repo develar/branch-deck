@@ -57,8 +57,8 @@ vi.mock("@/lib/bindings", async importOriginal => ({
  * skips the start with the reason Rust words), and the comment the bot accepts (`safePushResult`: the robot the user's
  * robots list, or an Error the bot's reason)
  */
-vi.mock("@/lib/run-intent", async importOriginal => ({
-  ...(await importOriginal<typeof import("@/lib/run-intent")>()),
+vi.mock("@/model/intents", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/model/intents")>()),
   runIntent: async (repositoryPath: string, intent: Intent, onEvent: (event: OperationEvent) => void = () => {}) => {
     if (intent.kind !== "submitReview") {
       throw new Error(`no ${intent.kind} here`)

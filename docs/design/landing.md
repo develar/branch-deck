@@ -191,8 +191,8 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
 
 ### Every pull request goes into master
 
-The base of every pull request of a virtual branch is the baseline as the remote names it: `getPullRequestBase` of
-`src/presenters/pull-request-url.ts` (no branch to ask: it is the same for all), `pull_request.base` of `bd push` and the
+The base of every pull request of a virtual branch is the baseline as the remote names it: `pullRequestBaseOf` of
+`src/presenters/pull-request-url.ts`, of the baseline of the view (no branch to ask: it is the same for all), `pull_request.base` of `bd push` and the
 `--create-pull-request` of `bd safe-push`. A stacked branch's pull request holds the commits of the branches it is
 built on, which `Create pull request` says under its title ("Includes the commits of auth and login, which oauth is
 built on: 3 branches · 12 commits", `formatPullRequestIncludes`), and its text names them under the items of its own commits ("Built on auth, then login", `pull_request_text`). A child pushed

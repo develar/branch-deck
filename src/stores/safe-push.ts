@@ -1,8 +1,8 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { OperationId, OperationStep, PatronusPushMode, RunningOperation, TransferProgress } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { stackReadinessKey } from "@/lib/whole-stack"
+import { cancelIntent } from "@/model/intents"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
 import type { OtherProcessRun } from "@/presenters/operations"
 import { presentOtherProcess } from "@/presenters/operations"
@@ -191,5 +191,5 @@ export function setLandProgress(op: OperationId, progress: TransferProgress | nu
  * or started, and no effect starts after it; a push that sends goes to its end
  */
 export async function stopStart(op: OperationId): Promise<void> {
-  await commands.cancelOperation({ op })
+  await cancelIntent(op)
 }
