@@ -2,7 +2,6 @@ import { cloneElement, createContext, createElement, isValidElement, use, useEff
 import type { ReactElement, ReactNode, Ref } from "react"
 import { flushSync } from "react-dom"
 import { mergeProps } from "@base-ui/react/merge-props"
-import { markPointedOver, pointerMoved } from "@/lib/pointer-moves"
 
 /**
  * What the user did first on the plain trigger: the pointer came over it (there), or the focus came into it; and where
@@ -12,8 +11,6 @@ interface Intent {
   kind: "pointer" | "focus"
   x: number
   y: number
-  /** The pointer moved to come over it, not the trigger under a still pointer (`pointerMoved`) */
-  moved: boolean
   parent: Node
   next: Node | null
 }
@@ -23,7 +20,6 @@ interface ArmEvent {
   currentTarget: EventTarget & Element
   clientX?: number
   clientY?: number
-  nativeEvent?: Event
 }
 
 /** The handlers of a plain trigger that mount its root: the pointer over it, or the focus in it */
@@ -93,7 +89,7 @@ export function useLazyRoot(lazy: boolean, wanted = false): LazyRoot {
     if (armed || parent === null) {
       return
     }
-    const intent = { kind, x: event.clientX ?? 0, y: event.clientY ?? 0, moved: pointerMoved(event.nativeEvent), parent, next: event.currentTarget.nextSibling }
+    const intent = { kind, x: event.clientX ?? 0, y: event.clientY ?? 0, parent, next: event.currentTarget.nextSibling }
     flushSync(() => {
       setPending(intent)
       setArmed(true)
@@ -117,16 +113,13 @@ function triggerIn({ parent, next }: Intent): HTMLElement | null {
 /**
  * The pointer as Base UI expects it on a trigger it just got: `mouseenter` on the element (its listener unblocks the
  * hover), then a `mousemove` that bubbles to React (its handler starts the delay, after which the popup opens). The
- * pointer moved over the trigger as it moved over the plain one; for a trigger that came under a still pointer (WebKit
- * tells its enter at once) it did not: the open at the end of the delay is canceled, and the next move over the
- * trigger opens it (`hoverOpensOnMove`)
+ * plain trigger and the one of the root are one control (`useControlRef`): the pointer moved over the trigger as it
+ * moved over the plain one; for a trigger that came under a still pointer (WebKit tells its enter at once) it did not,
+ * the open at the end of the delay is canceled, and the next move over the trigger opens it (`hoverOpensOnMove`)
  */
 function replayPointer(element: HTMLElement, intent: Intent) {
   if (!element.isConnected) {
     return
-  }
-  if (intent.moved) {
-    markPointedOver(element)
   }
   const init = { clientX: intent.x, clientY: intent.y, view: window }
   element.dispatchEvent(new MouseEvent("mouseenter", init))

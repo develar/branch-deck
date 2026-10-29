@@ -143,7 +143,8 @@ export function SafePushButton({
   // it waits for another holder of the repository lock: Stop Waiting beside it, the hover says whom for
   const stopWaiting = waiting !== null && starting?.op != null && elsewhere === null ? stopStartItem(starting.op, waiting) : null
   const button = (
-    <Tooltip lazy>
+    // the actions beside it (a lost answer, Stop Waiting) render its root anew in a span: one control for the hover
+    <Tooltip lazy controlKey={`safe-push:${placement}:${key}`}>
       <TooltipTrigger
         render={
           <Button

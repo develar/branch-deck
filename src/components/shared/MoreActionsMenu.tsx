@@ -5,9 +5,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/compon
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { useControlRef } from "@/hooks/useControlKey"
 import { useLazyRoot } from "@/hooks/useLazyRoot"
 import type { MenuItem } from "@/lib/menu"
-import { CONTROL_KEY } from "@/lib/pointer-moves"
 
 export interface MoreActionsMenuProps {
   /** The object of the actions, for the accessible name: "More actions for feature-auth" */
@@ -36,8 +36,9 @@ export interface MoreActionsMenuProps {
  */
 export function MoreActionsMenu({ name, menu, disabled = false, busy = null, stopWaiting = null }: MoreActionsMenuProps) {
   const root = useLazyRoot(true)
-  // each state renders another button in the place of the last: one control for the hover (`CONTROL_KEY`)
-  const control = { [CONTROL_KEY]: `more-actions:${name}` }
+  // each state renders its roots anew, another button in the place of the last: one control for the hover
+  const controlKey = `more-actions:${name}`
+  const plainRef = useControlRef<HTMLButtonElement>(undefined, controlKey)
   if (!root.armed) {
     // the button of the branch below that the state renders, closed: a menu unless an action runs without Stop Waiting
     const menuTrigger = busy === null || stopWaiting !== null
@@ -47,11 +48,12 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
         size="icon-xs"
         className="text-muted-foreground"
         aria-label={`More actions for ${name}`}
-        {...control}
+
         aria-haspopup={menuTrigger ? "menu" : undefined}
         aria-expanded={menuTrigger ? "false" : undefined}
         aria-busy={busy === null ? undefined : true}
         data-slot="tooltip-trigger"
+        ref={plainRef}
         disabled={busy === null ? disabled : !menuTrigger}
         focusableWhenDisabled={!menuTrigger}
         {...root.armProps}
@@ -63,14 +65,10 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
   if (busy !== null && stopWaiting !== null) {
     // the action waits for another holder of the repository lock: the hover says whom for, a click offers Stop Waiting
     return (
-      <DropdownMenu>
-        <Tooltip>
+      <DropdownMenu controlKey={controlKey}>
+        <Tooltip controlKey={controlKey}>
           <TooltipTrigger
-            render={
-              <DropdownMenuTrigger
-                render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} {...control} aria-busy />}
-              />
-            }
+            render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} aria-busy />} />}
           >
             <Spinner />
           </TooltipTrigger>
@@ -85,7 +83,7 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
   if (busy !== null) {
     // no menu while it runs; the hover says what runs (Base UI keeps a disabled button hoverable here, the dimming is off)
     return (
-      <Tooltip>
+      <Tooltip controlKey={controlKey}>
         <TooltipTrigger
           render={
             <Button
@@ -93,7 +91,7 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
               size="icon-xs"
               className="text-muted-foreground"
               aria-label={`More actions for ${name}`}
-              {...control}
+
               aria-busy
               disabled
               focusableWhenDisabled
@@ -107,14 +105,11 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
     )
   }
   return (
-    <DropdownMenu>
-      <Tooltip>
+    <DropdownMenu controlKey={controlKey}>
+      <Tooltip controlKey={controlKey}>
         <TooltipTrigger
           render={
-            <DropdownMenuTrigger
-              disabled={disabled}
-              render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} {...control} />}
-            />
+            <DropdownMenuTrigger disabled={disabled} render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} />} />
           }
         >
           <EllipsisIcon />

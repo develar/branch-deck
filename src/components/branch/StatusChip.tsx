@@ -21,6 +21,8 @@ export interface StatusChipProps {
   onOpenChange?: (open: boolean) => void
   /** Overrides of the trigger's look: the Safe Push slot of the row is a button among the buttons of the Actions cell */
   className?: string
+  /** The control a chip rendered anew in its place stays for the hover (`controlKey` of `Popover`) */
+  controlKey?: string
 }
 
 /**
@@ -29,10 +31,10 @@ export interface StatusChipProps {
  * (`HoverDescription`); a chip without an item opens them on a click. A click does not toggle the row. No chip has an
  * outline: the icon and the hue tell the state; the focus ring follows the `rounded-2xl` of buttons and badges.
  */
-export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange, className }: StatusChipProps) {
+export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange, className, controlKey }: StatusChipProps) {
   const Root = onActivate === undefined ? Popover : HoverDescription
   return (
-    <Root lazy onOpenChange={onOpenChange}>
+    <Root lazy controlKey={controlKey} onOpenChange={onOpenChange}>
       <PopoverTrigger
         openOnHover
         delay={300}

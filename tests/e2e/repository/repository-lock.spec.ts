@@ -79,35 +79,39 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await verifyCommitCount(findBranchRow(page, ISSUE), 2)
   })
 
-  test("should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
-    const moves = await recordRewrites(page, "move")
-    await repo.holdRepositoryLock(true)
-    await moveParserToDocsFromMenu(page)
+  test(
+    "should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+      const moves = await recordRewrites(page, "move")
+      await repo.holdRepositoryLock(true)
+      await moveParserToDocsFromMenu(page)
 
-    // a start from a menu shows on the "⋯" of its row: the spinner, whom it waits for on hover, Stop Waiting on a click
-    const more = getMoreButton(findBranchRow(page, ISSUE))
-    await expect(more).toHaveAttribute("aria-busy", "true")
-    await more.hover()
-    await expect(page.getByRole("tooltip")).toHaveText(WAITING)
-    expect(moves).toHaveLength(1)
-    const cancels = await recordCommand(page, "cancel_operation")
-    await more.click()
-    await page.getByRole("menuitem", { name: "Stop Waiting" }).click()
-    await expect(page.getByText("Canceled moving 1 commit to docs before it started")).toBeVisible()
-    // the stop is the cancel of the operation of the session
-    expect(cancels).toHaveLength(1)
-    await expect(more).not.toHaveAttribute("aria-busy", "true")
-    await verifyCommitCount(findBranchRow(page, "docs"), 1)
-    await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+      // a start from a menu shows on the "⋯" of its row: the spinner, whom it waits for on hover, Stop Waiting on a click
+      const more = getMoreButton(findBranchRow(page, ISSUE))
+      await expect(more).toHaveAttribute("aria-busy", "true")
+      await more.hover()
+      await expect(page.getByRole("tooltip")).toHaveText(WAITING)
+      expect(moves).toHaveLength(1)
+      const cancels = await recordCommand(page, "cancel_operation")
+      await more.click()
+      await page.getByRole("menuitem", { name: "Stop Waiting" }).click()
+      await expect(page.getByText("Canceled moving 1 commit to docs before it started")).toBeVisible()
+      // the stop is the cancel of the operation of the session
+      expect(cancels).toHaveLength(1)
+      await expect(more).not.toHaveAttribute("aria-busy", "true")
+      await verifyCommitCount(findBranchRow(page, "docs"), 1)
+      await verifyCommitCount(findBranchRow(page, ISSUE), 3)
 
-    // the same move once the holder is done: it runs at once
-    await repo.holdRepositoryLock(false)
-    await moveParserToDocsFromMenu(page)
-    await verifyCommitCount(findBranchRow(page, "docs"), 2)
-    await verifyCommitCount(findBranchRow(page, ISSUE), 2)
-    expect(moves).toHaveLength(2)
-  })
+      // the same move once the holder is done: it runs at once
+      await repo.holdRepositoryLock(false)
+      await moveParserToDocsFromMenu(page)
+      await verifyCommitCount(findBranchRow(page, "docs"), 2)
+      await verifyCommitCount(findBranchRow(page, ISSUE), 2)
+      expect(moves).toHaveLength(2)
+    },
+  )
 
   test("should say whom a push waits for in the hover of its button, whose Stop Waiting pushes nothing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")

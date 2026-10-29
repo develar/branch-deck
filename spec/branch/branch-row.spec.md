@@ -545,9 +545,14 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   a new branch on top, a sync that reorders, a scroll, a badge before it that left) stays closed when the delay of its
   hover runs out, and the next move over the trigger opens it after that delay. WebKit tells at once that the pointer
   is over an element that came under it: the description of session's push opened so, Push session Only in it.
-  Another element is the same control only by its identity, never by its place: a control that renders itself anew as
-  another element names itself by `data-control-key`, its action and its subject (`more-actions:<branch>`: the "⋯" of
-  a row whose move waits for the lock says whom for, its tooltip open from "Moving…" on).
+  Another element is the same control only by its identity, never by its place (`registerControl`): a root of
+  `src/components/ui` names its trigger by its own key, so a trigger that renders as another element in the same root
+  (a text or a badge by the state, the plain trigger of a lazy root and the one it mounts) keeps the hover; a control
+  that renders its root anew names it by its action and its subject (`controlKey`: `more-actions:<branch>`, the "⋯" of
+  a row whose move waits for the lock says whom for, its tooltip open from "Moving…" on; the robot of a row as it
+  ends; the Safe Push of the slot as Stop Waiting comes beside it). The buttons of the actions (`MenuItemButton`, the
+  step of the slot, the actions of a robot) keep one root whether they have a reason to say or not, so their element
+  stays as their action is enabled, disabled or runs.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no hover card or tooltip of a trigger that came under a still pointer, and open it at the next move`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no tooltip of a stack chip that slid into the place of a fixup badge under a still pointer, and open it at the next move`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no submenu of the row menu whose item came under a still pointer, and open it at the next move`)

@@ -73,7 +73,8 @@ export interface RobotStatusChipProps {
   className?: string
   /**
    * The robot of a branch row: hovered or focused, the stack graph draws the path to the root and the landing span
-   * (`data-stack-path`, `stack-view.ts`)
+   * (`data-stack-path`, `stack-view.ts`); the chip of the running robot and of the finished one are one control for the
+   * hover (`controlKey`), as the robot ends under the pointer
    */
   stackPath?: boolean
   /** The icon, the text and the dots */
@@ -102,6 +103,7 @@ export function RobotStatusChip({ branchName, robot, chip, label, className, sta
       onActivate={() => openRobot(robot)}
       onOpenChange={setOpen}
       className={className}
+      controlKey={stackPath ? `row-robot:${branchName}` : undefined}
     >
       {children}
     </StatusChip>
@@ -384,23 +386,10 @@ export function RobotActionButton({ action, variant = "outline", className }: { 
       {action.label}
     </>
   )
-  if (action.description === undefined) {
-    return (
-      <Button
-        variant={variant}
-        size="xs"
-        data-action={action.id}
-        disabled={action.disabled}
-        aria-busy={running || undefined}
-        className={className}
-        onClick={() => action.onSelect(FROM_MENU)}
-      >
-        {content}
-      </Button>
-    )
-  }
+  // one root whether there is a reason to say or not: the button keeps its node, its focus and its hover as its reason
+  // comes and goes (spec/branch/branch-row.spec.md, Hover and click)
   return (
-    <Tooltip>
+    <Tooltip disabled={action.description === undefined}>
       <TooltipTrigger
         render={
           // the hover says why; Base UI keeps the button focusable, so the dimming is ours

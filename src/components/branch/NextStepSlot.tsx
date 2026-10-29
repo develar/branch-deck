@@ -219,11 +219,10 @@ export function StepButton({ action, tone, showKeys }: { action: MenuItem; tone:
   const isDisabled = action.disabled === true
   const button = stepButton(action, tone, () => action.onSelect(FROM_MENU))
   const keys = isDisabled || !showKeys ? [] : (action.kbds ?? [])
-  if (action.description === undefined && keys.length === 0) {
-    return button
-  }
+  // one root whether there is something to say or not: the button keeps its node, its focus and its hover as its
+  // reason comes and goes (spec/branch/branch-row.spec.md, Hover and click)
   return (
-    <Tooltip lazy>
+    <Tooltip lazy disabled={action.description === undefined && keys.length === 0}>
       <TooltipTrigger render={button} />
       <TooltipContent className="whitespace-pre-line" data-testid="next-step-hover">
         {action.description}

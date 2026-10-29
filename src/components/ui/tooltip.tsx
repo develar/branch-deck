@@ -3,13 +3,14 @@
 // open while hovered and swallowed the click); `lazy` on `Tooltip`: the root mounts at the first hover or focus of its
 // trigger, a plain element until then (`useLazyRoot`), for the many tooltips of a table row; it closes when its view of
 // the main window hides (`useCloseWhenViewHides`), and its hover opens it only with a move of the pointer
-// (`hoverOpensOnMove`)
+// (`hoverOpensOnMove`); `controlKey` on `Tooltip`, the trigger named as the control of its root (`useControlRef`)
 "use client"
 
 import { use } from "react"
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 import { cn } from "cn"
 import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
+import { ControlKeyContext, useControlKey, useControlRef } from "@/hooks/useControlKey"
 import { childNodes, LazyRootContext, PlainTrigger, useLazyRoot } from "@/hooks/useLazyRoot"
 import { hoverOpensOnMove } from "@/lib/pointer-moves"
 
@@ -24,36 +25,48 @@ const CLOSED_TOOLTIP_TRIGGER = { "data-slot": "tooltip-trigger" }
 /**
  * `lazy`: the root mounts at the first hover or focus of its trigger, or while `open` (`useLazyRoot`); until then the
  * trigger is a plain element and the content is not rendered. Open when its view of the main window hides, it closes;
- * its hover opens it only with a move of the pointer, not a trigger that came under a still one
+ * its hover opens it only with a move of the pointer, not a trigger that came under a still one. `controlKey`: the
+ * action and its subject of a control that renders this root anew, else the root is its own control
  */
-function Tooltip({ disableHoverablePopup = true, lazy = false, open, onOpenChange, ...props }: Omit<TooltipPrimitive.Root.Props, "actionsRef"> & { lazy?: boolean }) {
+function Tooltip({
+  disableHoverablePopup = true,
+  lazy = false,
+  controlKey,
+  open,
+  onOpenChange,
+  ...props
+}: Omit<TooltipPrimitive.Root.Props, "actionsRef"> & { lazy?: boolean; controlKey?: string }) {
   const root = useLazyRoot(lazy, open === true || props.defaultOpen === true)
   const closing = useCloseWhenViewHides(open, hoverOpensOnMove(onOpenChange))
+  const key = useControlKey(controlKey)
   return (
     // every root sets the context, so a trigger in its content never reads the root of an outer tooltip
     <LazyRootContext value={lazy ? root : null}>
-      {root.armed ? (
-        <TooltipPrimitive.Root
-          data-slot="tooltip"
-          disableHoverablePopup={disableHoverablePopup}
-          open={open}
-          {...props}
-          actionsRef={closing.actionsRef}
-          onOpenChange={closing.onOpenChange}
-        />
-      ) : (
-        childNodes(props.children)
-      )}
+      <ControlKeyContext value={key}>
+        {root.armed ? (
+          <TooltipPrimitive.Root
+            data-slot="tooltip"
+            disableHoverablePopup={disableHoverablePopup}
+            open={open}
+            {...props}
+            actionsRef={closing.actionsRef}
+            onOpenChange={closing.onOpenChange}
+          />
+        ) : (
+          childNodes(props.children)
+        )}
+      </ControlKeyContext>
     </LazyRootContext>
   )
 }
 
 function TooltipTrigger({ ref, ...props }: TooltipPrimitive.Trigger.Props) {
   const lazy = use(LazyRootContext)
+  const controlRef = useControlRef(ref)
   if (lazy !== null && !lazy.armed) {
-    return <PlainTrigger root={lazy} trigger={props} closed={CLOSED_TOOLTIP_TRIGGER} baseUiOnly={TOOLTIP_TRIGGER_ONLY} ref={ref} />
+    return <PlainTrigger root={lazy} trigger={props} closed={CLOSED_TOOLTIP_TRIGGER} baseUiOnly={TOOLTIP_TRIGGER_ONLY} ref={controlRef} />
   }
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} ref={ref} />
+  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} ref={controlRef} />
 }
 
 function TooltipContent({

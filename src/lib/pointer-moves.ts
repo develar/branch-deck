@@ -9,20 +9,20 @@
  * A move is the task of the events at a new position of the pointer, the out, the over, the enter and the move of each
  * family; the events of a later task at the same position are none. Each family has its position: Chromium gives the
  * pointer events fractions of a pixel, the mouse events whole ones. The elements the last move went over are pointed
- * until the pointer leaves them. Another element is never the same control by its place: a badge that left a row
- * slid the chip after it under the pointer. A control that renders itself anew as another element in its place names
- * itself by `data-control-key`, its action and its subject ("⋯" of a row, from "Moving…" to "Waiting for …" with its
- * tooltip open): the key the last move went over points its new element. The trigger that a lazy root mounts in the
- * place of its plain one is the same control too (`markPointedOver`): WebKit sends its over and enter only in a later
- * task, and the move of that task to its parent.
+ * until the pointer leaves them, and so is the element an out of that move went to (React makes the enter of its
+ * element from it, which a lazy root mounts its trigger at, in the place of the plain one).
+ *
+ * Another element is never the same control by its place: a badge that left a row slid the chip after it under the
+ * pointer. It is the same control by its key (`registerControl`): every root of `src/components/ui` names its trigger
+ * by its own key, so a trigger that renders as another element in the same root (a badge or a text by the state, the
+ * plain trigger of a lazy root and the one it mounts) keeps the hover; a control that renders a root anew names it by
+ * its action and its subject (`controlKey`: "⋯" of a row, from "Moving…" to "Waiting for …", its tooltip open). The
+ * keys the last move went over point every element of theirs.
  *
  * A trigger whose open came before a move hears the next move over it as the pointer that enters it (a `mouseenter`):
  * a tooltip of a warm group (another closed just before) opens at the enter only, and the pointer that moves inside the
  * trigger enters it no more.
  */
-
-/** The attribute that names a control across its renders: its action and its subject, as `more-actions:auth` */
-export const CONTROL_KEY = "data-control-key"
 
 interface Position {
   x: number
@@ -39,6 +39,25 @@ let pointed = new WeakSet<Element>()
 let pointedKeys = new Set<string>()
 // the triggers whose open by the hover was canceled: the next move over one enters it (`hoverOpensOnMove`)
 const refused = new WeakSet<Element>()
+// the keys of the control each element is (`registerControl`)
+const controlKeys = new WeakMap<Element, Set<string>>()
+
+/** Points `target` and the elements around it, with the keys of their controls; `event` the move that went there */
+function point(target: Element | null, event: MouseEvent): void {
+  for (let element: Element | null = target; element !== null; element = element.parentElement) {
+    pointed.add(element)
+    for (const key of controlKeys.get(element) ?? []) {
+      pointedKeys.add(key)
+    }
+    if (refused.has(element)) {
+      refused.delete(element)
+      const trigger = element
+      const init = { clientX: event.clientX, clientY: event.clientY, view: window }
+      // after the event of the move, as the pointer that came over the trigger
+      queueMicrotask(() => trigger.dispatchEvent(new MouseEvent("mouseenter", init)))
+    }
+  }
+}
 
 function track(event: Event): void {
   if (!(event instanceof MouseEvent) || !event.isTrusted) {
@@ -62,26 +81,33 @@ function track(event: Event): void {
   if (event.type === "mouseleave" || event.type === "pointerleave") {
     if (target !== null) {
       pointed.delete(target)
-      const key = target.getAttribute(CONTROL_KEY)
-      if (key !== null) {
+      for (const key of controlKeys.get(target) ?? []) {
         pointedKeys.delete(key)
       }
     }
-  } else if (moving && !event.type.endsWith("out")) {
-    for (let element: Element | null = target; element !== null; element = element.parentElement) {
-      pointed.add(element)
-      const key = element.getAttribute(CONTROL_KEY)
-      if (key !== null) {
-        pointedKeys.add(key)
-      }
-      if (refused.has(element)) {
-        refused.delete(element)
-        const trigger = element
-        const init = { clientX: event.clientX, clientY: event.clientY, view: window }
-        // after the event of the move, as the pointer that came over the trigger
-        queueMicrotask(() => trigger.dispatchEvent(new MouseEvent("mouseenter", init)))
-      }
+  } else if (moving) {
+    if (!event.type.endsWith("out")) {
+      point(target, event)
+    } else if (event.relatedTarget instanceof Element) {
+      point(event.relatedTarget, event)
     }
+  }
+}
+
+/**
+ * Names `element` the control `key` (a root of `src/components/ui` its trigger, `useControlRef`): a move over one of the
+ * elements of a key points the others too. Returns the cleanup of the name
+ */
+export function registerControl(element: Element, key: string): () => void {
+  let keys = controlKeys.get(element)
+  if (keys === undefined) {
+    keys = new Set()
+    controlKeys.set(element, keys)
+  }
+  keys.add(key)
+  const named = keys
+  return () => {
+    named.delete(key)
   }
 }
 
@@ -104,17 +130,19 @@ export function pointerMoved(event: Event | undefined): boolean {
 }
 
 /**
- * The pointer moved over the element and has not left it, or over the control it renders anew (its `CONTROL_KEY`).
+ * The pointer moved over the element and has not left it, or over another element of its control (`registerControl`).
  * Content that moved under the pointer is neither
  */
 export function pointerMovedOver(element: Element): boolean {
-  const key = element.getAttribute(CONTROL_KEY)
-  return pointed.has(element) || (key !== null && pointedKeys.has(key))
-}
-
-/** The pointer moved over the element: it took the place of one the pointer moved over (`useLazyRoot`) */
-export function markPointedOver(element: Element): void {
-  pointed.add(element)
+  if (pointed.has(element)) {
+    return true
+  }
+  for (const key of controlKeys.get(element) ?? []) {
+    if (pointedKeys.has(key)) {
+      return true
+    }
+  }
+  return false
 }
 
 /** What a Base UI root tells of a change of its open: the reason, the event and its trigger, and the cancel of it */

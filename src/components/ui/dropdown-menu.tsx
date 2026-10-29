@@ -1,23 +1,32 @@
 // local customisation: `DropdownMenu` closes when its view of the main window hides (`useCloseWhenViewHides`); its hover
-// (a menu of the menubar, a submenu) opens it only with a move of the pointer (`hoverOpensOnMove`)
+// (a menu of the menubar, a submenu) opens it only with a move of the pointer (`hoverOpensOnMove`); `controlKey` on
+// `DropdownMenu`, the trigger named as the control of its root (`useControlRef`)
 import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { cn } from "cn"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
+import { ControlKeyContext, useControlKey, useControlRef } from "@/hooks/useControlKey"
 import { hoverOpensOnMove } from "@/lib/pointer-moves"
 
-function DropdownMenu({ open, onOpenChange, ...props }: Omit<MenuPrimitive.Root.Props, "actionsRef">) {
+/** `controlKey`: the action and its subject of a control that renders this root anew, else the root is its own control */
+function DropdownMenu({ controlKey, open, onOpenChange, ...props }: Omit<MenuPrimitive.Root.Props, "actionsRef"> & { controlKey?: string }) {
   const closing = useCloseWhenViewHides(open, hoverOpensOnMove(onOpenChange))
-  return <MenuPrimitive.Root data-slot="dropdown-menu" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
+  const key = useControlKey(controlKey)
+  return (
+    <ControlKeyContext value={key}>
+      <MenuPrimitive.Root data-slot="dropdown-menu" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
+    </ControlKeyContext>
+  )
 }
 
 function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
   return <MenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
 }
 
-function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
-  return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
+function DropdownMenuTrigger({ ref, ...props }: MenuPrimitive.Trigger.Props) {
+  const controlRef = useControlRef(ref)
+  return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} ref={controlRef} />
 }
 
 function DropdownMenuContent({

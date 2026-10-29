@@ -2,11 +2,13 @@
 // `PopoverSectionTitle` (the one head of a section of every popover: help, Activity days, Robots groups), `lazy` on
 // `Popover`: the root mounts at the first hover or focus of its trigger, a plain element until then (`useLazyRoot`), and
 // the roots in `PopoverContent` mount with their triggers (`EagerRootsContext`); a popover closes when its view of the
-// main window hides (`useCloseWhenViewHides`), and its hover opens it only with a move of the pointer (`hoverOpensOnMove`)
+// main window hides (`useCloseWhenViewHides`), and its hover opens it only with a move of the pointer (`hoverOpensOnMove`);
+// `controlKey` on `Popover`, the trigger named as the control of its root (`useControlRef`)
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
 import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
+import { ControlKeyContext, useControlKey, useControlRef } from "@/hooks/useControlKey"
 import { childNodes, EagerRootsContext, LazyRootContext, PlainTrigger, useLazyRoot } from "@/hooks/useLazyRoot"
 import { hoverOpensOnMove } from "@/lib/pointer-moves"
 
@@ -17,25 +19,30 @@ const POPOVER_TRIGGER_ONLY = ["openOnHover", "delay", "closeDelay", "handle", "p
  * `lazy`: the root mounts at the first hover or focus of its trigger, or while `open` (`useLazyRoot`); until then the
  * trigger is a plain element with the ARIA of a closed popover trigger and the content is not rendered. Open when its
  * view of the main window hides, it closes; its hover (`openOnHover`) opens it only with a move of the pointer, not a
- * trigger that came under a still one
+ * trigger that came under a still one. `controlKey`: the action and its subject of a control that renders this root
+ * anew, else the root is its own control
  */
-function Popover({ lazy = false, open, onOpenChange, ...props }: Omit<PopoverPrimitive.Root.Props, "actionsRef"> & { lazy?: boolean }) {
+function Popover({ lazy = false, controlKey, open, onOpenChange, ...props }: Omit<PopoverPrimitive.Root.Props, "actionsRef"> & { lazy?: boolean; controlKey?: string }) {
   const root = useLazyRoot(lazy, open === true || props.defaultOpen === true)
   const closing = useCloseWhenViewHides(open, hoverOpensOnMove(onOpenChange))
+  const key = useControlKey(controlKey)
   return (
     // every root sets the context, so a trigger in its content never reads the root of an outer popover
     <LazyRootContext value={lazy ? root : null}>
-      {root.armed ? (
-        <PopoverPrimitive.Root data-slot="popover" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
-      ) : (
-        childNodes(props.children)
-      )}
+      <ControlKeyContext value={key}>
+        {root.armed ? (
+          <PopoverPrimitive.Root data-slot="popover" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
+        ) : (
+          childNodes(props.children)
+        )}
+      </ControlKeyContext>
     </LazyRootContext>
   )
 }
 
 function PopoverTrigger({ ref, ...props }: PopoverPrimitive.Trigger.Props) {
   const lazy = React.use(LazyRootContext)
+  const controlRef = useControlRef(ref)
   if (lazy !== null && !lazy.armed) {
     // a trigger rendered as another element than a button is one for assistive technology, as Base UI makes it
     const closed = {
@@ -44,9 +51,9 @@ function PopoverTrigger({ ref, ...props }: PopoverPrimitive.Trigger.Props) {
       "aria-expanded": "false",
       role: props.nativeButton === false ? "button" : undefined,
     }
-    return <PlainTrigger root={lazy} trigger={props} closed={closed} baseUiOnly={POPOVER_TRIGGER_ONLY} ref={ref} />
+    return <PlainTrigger root={lazy} trigger={props} closed={closed} baseUiOnly={POPOVER_TRIGGER_ONLY} ref={controlRef} />
   }
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} ref={ref} />
+  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} ref={controlRef} />
 }
 
 function PopoverContent({

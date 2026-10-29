@@ -95,19 +95,10 @@ export function MenuItemButton({
     )
   // the busy state is the label: no reason to hover for; an icon left alone is named by its hover
   const description = item.description ?? (narrow === "label" ? item.label : undefined)
-  if (stopWaiting !== null) {
-    return (
-      <span className="inline-flex items-center gap-1">
-        {button}
-        <MenuItemButton item={stopWaiting} variant="outline" size={size} data-testid="stop-waiting" />
-      </span>
-    )
-  }
-  if (description === undefined || busy !== null) {
-    return button
-  }
-  return (
-    <Tooltip>
+  // one root whether there is a reason to say or not: the button keeps its node, its focus and its hover as its action
+  // is enabled, disabled or runs (spec/branch/branch-row.spec.md, Hover and click), the focus a form gives back to it too
+  const described = (
+    <Tooltip disabled={description === undefined || busy !== null}>
       {/* a span: a disabled button gets no pointer events */}
       <TooltipTrigger render={<span className="inline-flex" />}>{button}</TooltipTrigger>
       <TooltipContent className="flex max-w-xs items-center gap-2">
@@ -115,5 +106,14 @@ export function MenuItemButton({
         {item.description === undefined && key !== undefined && <Kbd>{key.toUpperCase()}</Kbd>}
       </TooltipContent>
     </Tooltip>
+  )
+  if (stopWaiting === null) {
+    return described
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      {described}
+      <MenuItemButton item={stopWaiting} variant="outline" size={size} data-testid="stop-waiting" />
+    </span>
   )
 }
