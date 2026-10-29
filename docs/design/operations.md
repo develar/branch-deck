@@ -215,7 +215,10 @@ answer names the patch that removed its row. The view shows it on every surface 
 sync (`RepositoryView.operations`, the actions Rust lays it over); the surface that started it shows its spinner from
 the click until the answer (`startIndicator`); the page queues nothing. A failure is an error toast in the words of the rewrite (`presentRewrite`) or
 the title its caller gives, a stopped wait an info toast. The toast closes and the Activity entry (naming the operation)
-says "undone" only once the undo undid it (`recordRewrite`); after a failed or stopped one both keep their Undo.
+says "undone" only once the undo undid it (`recordRewrite`); after a failed or stopped one both keep their Undo. Both
+offer it only while the session does (`RepositoryView.undo`, `followUndo` of `src/model/store.ts`): the Undo of the
+last rewrite of the process that has one, while HEAD is the head it left; a second rewrite, an undo, or a commit, an
+update or a rewrite of `bd` that a sync read takes it back, since its token could only fail as `undo_stale` then.
 
 The inline forms run `withRowProgress` around their action, an operation that tells its outcome itself (rename,
 ungroup, park, amend, add issue reference, unapply, squash fixups, the deletes, the close of the stack's pull request):

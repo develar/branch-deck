@@ -1,10 +1,11 @@
 // @spec spec/branch/move-commits.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
+import { activityButton, activityEntry, activityPanel } from "../helpers/activity-helpers"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getMoreButton, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, dropAt, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
-import { finishedSyncCount, pressSyncHeld, runAndWaitForSync } from "../helpers/sync-helpers"
+import { finishedSyncCount, pressSyncHeld, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
@@ -66,6 +67,29 @@ async function expectUndoneOnce(page: Page, moved: Locator, undos: RewriteCall[]
   await verifyCommitCount(findBranchRow(page, ISSUE), 3)
   await expect(moved).toHaveCount(0)
   expect(undos).toHaveLength(1)
+}
+
+/** Renames docs to documentation through Rename… of its context menu, and waits for the sync */
+async function renameDocs(page: Page): Promise<void> {
+  await openContextMenu(page, findBranchRow(page, "docs"))
+  await clickContextMenuItem(page, "Rename…")
+  const renameInput = page.getByTestId("inline-rename-input").locator('input[type="text"]')
+  await expect(renameInput).toHaveValue("docs")
+  await runAndWaitForSync(page, () => submitInlineForm(renameInput, "documentation"))
+}
+
+/** The toast of a rewrite and its entry in Activity, each with the Undo of the rewrite */
+interface UndoSurfaces {
+  readonly toast: Locator
+  readonly entry: Locator
+}
+
+/** The toast still tells the rewrite, without its Undo, and its entry has none, undone or not */
+async function expectUndoTakenBack({ toast, entry }: UndoSurfaces): Promise<void> {
+  await expect(toast).toBeVisible()
+  await expect(toast.getByRole("button", { name: "Undo" })).toHaveCount(0)
+  await expect(entry.getByTestId("activity-undo")).toHaveCount(0)
+  await expect(entry.getByTestId("activity-undone")).toHaveCount(0)
 }
 
 async function branchOrder(page: Page): Promise<string[]> {
@@ -143,11 +167,7 @@ test.describe("Move commits", () => {
   })
 
   test("should rename a branch and name an issue branch", async ({ page }) => {
-    await openContextMenu(page, findBranchRow(page, "docs"))
-    await clickContextMenuItem(page, "Rename…")
-    const renameInput = page.getByTestId("inline-rename-input").locator('input[type="text"]')
-    await expect(renameInput).toHaveValue("docs")
-    await runAndWaitForSync(page, () => submitInlineForm(renameInput, "documentation"))
+    await renameDocs(page)
     await verifyCommitCount(findBranchRow(page, "documentation"), 1)
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
 
@@ -159,6 +179,43 @@ test.describe("Move commits", () => {
     await verifyCommitCount(parserRow, 3)
     await expect(parserRow.getByTestId("branch-issue-key")).toHaveText(ISSUE)
     await expect(findBranchRow(page, ISSUE)).toHaveCount(0)
+  })
+
+  /** The move of "Add parser" to docs, its toast and its entry in the side panel of Activity, both with their Undo */
+  async function movedWithUndoInActivity(page: Page): Promise<UndoSurfaces> {
+    await activityButton(page).click()
+    await moveParserToDocs(page)
+    const toast = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to docs" })
+    const entry = activityEntry(activityPanel(page), "Moved 1 commit to docs")
+    await expect(toast.getByRole("button", { name: "Undo" })).toBeVisible()
+    await expect(entry.getByTestId("activity-undo")).toBeVisible()
+    return { toast, entry }
+  }
+
+  test("should take the Undo of a move back from its toast and Activity once a rename ran after it, whose own Undo works", async ({ page }) => {
+    const moved = await movedWithUndoInActivity(page)
+
+    // a rename of docs moves HEAD on: the Undo of the move could only fail now, the rename's takes its place
+    await renameDocs(page)
+    const renamed = page.locator("[data-slot=toast]", { hasText: "Renamed docs to documentation (2 commits)" })
+    await expect(renamed.getByRole("button", { name: "Undo" })).toBeVisible()
+    await expectUndoTakenBack(moved)
+    await expect(activityEntry(activityPanel(page), "Renamed docs to documentation (2 commits)").getByTestId("activity-undo")).toBeVisible()
+
+    await runAndWaitForSync(page, () => renamed.getByRole("button", { name: "Undo" }).click())
+    await verifyCommitCount(findBranchRow(page, "docs"), 2)
+    await expect(findBranchRow(page, "documentation")).toHaveCount(0)
+  })
+
+  test("should take the Undo of a move back from its toast and Activity once a sync read a commit made outside the app", async ({ page }) => {
+    const moved = await movedWithUndoInActivity(page)
+
+    // a commit in the IDE: the session knows nothing of it until a sync reads it
+    await repo.commit("Note the parser", { "parser.md": "parser\n" }, 1704182460)
+    await expect(moved.toast.getByRole("button", { name: "Undo" })).toBeVisible()
+    await syncFromMenu(page)
+    await expectUndoTakenBack(moved)
+    await verifyCommitCount(findBranchRow(page, "docs"), 2)
   })
 
   test("should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid", async ({ page }) => {

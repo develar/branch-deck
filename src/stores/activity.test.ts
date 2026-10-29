@@ -17,6 +17,7 @@ import {
   selectActivity,
   selectUnavailableJournals,
   undoActivity,
+  undoGoneReason,
   UNDO_WINDOW_MS,
   withUndo,
 } from "@/stores/activity"
@@ -130,13 +131,14 @@ describe("activity", () => {
       { id: "e1", repositoryPath: "/a", time: 0, kind: "push", title: "Pushed branch auth" },
       { id: "e2", repositoryPath: "/a", time: 0, kind: "rewrite", title: "Squashed 2 commits" },
     ] as const
-    expect(withUndo([kept, rewritten], { e2: { until: 10, undone: true } })).toEqual([kept, { ...rewritten, undo: { until: 10, undone: true } }])
+    expect(withUndo([kept, rewritten], { e2: { until: 10, undone: true, withdrawn: false } })).toEqual([kept, { ...rewritten, undo: { until: 10, undone: true } }])
+    expect(withUndo([rewritten], { e2: { until: 10, undone: false, withdrawn: true } })).toEqual([{ ...rewritten, undo: { until: 10, withdrawn: true } }])
   })
 
   it("offers the Undo of a rewrite for the window of its toast, once", async () => {
     vi.useFakeTimers({ now: 1_000_000 })
     const undo = vi.fn(async () => true)
-    const runFromToast = recordRewrite("/a", "Squashed 2 commits", undo)
+    const { undo: runFromToast } = recordRewrite("/a", "Squashed 2 commits", undo)
     await vi.waitFor(() => expect(entries()[0]?.undo).toBeDefined())
     const entry = entries()[0]!
     expect(entry.undo).toEqual({ until: 1_000_000 + UNDO_WINDOW_MS })
@@ -157,15 +159,45 @@ describe("activity", () => {
     const moved = entries()[0]!
     vi.advanceTimersByTime(UNDO_WINDOW_MS)
     expect(canUndoActivity(moved)).toBe(false)
+    expect(undoGoneReason(moved)).toBe("its time ran out")
     undoActivity(moved)
     expect(undo).toHaveBeenCalledTimes(1)
     expect(entries()[0]!.undo?.undone).toBeUndefined()
   })
 
+  it("withdraws the Undo of a rewrite the session no longer offers, as after its window, but not while its undo runs", async () => {
+    const undo = vi.fn(async () => true)
+    const moved = recordRewrite("/a", "Moved 1 commit to search", undo)
+    await vi.waitFor(() => expect(entries()[0]?.undo).toBeDefined())
+    expect(canUndoActivity(entries()[0]!)).toBe(true)
+    // HEAD moved since: a commit, another rewrite
+    moved.withdraw()
+    const entry = entries()[0]!
+    expect(entry.undo?.withdrawn).toBe(true)
+    expect(canUndoActivity(entry)).toBe(false)
+    // a press of the Activity window that came late says why
+    expect(undoGoneReason(entry)).toBe("the branch moved since")
+    undoActivity(entry)
+    moved.undo()
+    expect(undo).not.toHaveBeenCalled()
+
+    // its own undo may be what took it back: the end of the undo decides
+    let finish!: (undone: boolean) => void
+    const running = vi.fn(() => new Promise<boolean>(resolve => (finish = resolve)))
+    const squashed = recordRewrite("/a", "Squashed 2 commits", running)
+    await vi.waitFor(() => expect(entries()[0]?.title).toBe("Squashed 2 commits"))
+    await vi.waitFor(() => expect(entries()[0]?.undo).toBeDefined())
+    squashed.undo()
+    squashed.withdraw()
+    finish(true)
+    await vi.waitFor(() => expect(entries()[0]!.undo?.undone).toBe(true))
+    expect(entries()[0]!.undo?.withdrawn).toBeUndefined()
+  })
+
   it("marks a rewrite undone from its toast once its undo undid it", async () => {
     let finish!: (undone: boolean) => void
     const undo = vi.fn(() => new Promise<boolean>(resolve => (finish = resolve)))
-    recordRewrite("/a", "Squashed 2 fixups", undo)()
+    recordRewrite("/a", "Squashed 2 fixups", undo).undo()
     expect(undo).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(entries()[0]?.undo).toBeDefined())
     // the undo may wait for another rewrite in the queue: the entry is not undone before it ran
@@ -176,7 +208,7 @@ describe("activity", () => {
 
   it("keeps the Undo of a rewrite whose undo failed, in its toast and in Activity: a second press runs it again", async () => {
     const undo = vi.fn(async () => false)
-    const runFromToast = recordRewrite("/a", "Moved 1 commit to search", undo)
+    const { undo: runFromToast } = recordRewrite("/a", "Moved 1 commit to search", undo)
     await vi.waitFor(() => expect(entries()[0]?.undo).toBeDefined())
     runFromToast()
     await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))

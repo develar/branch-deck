@@ -40,6 +40,9 @@ targets:
   - ../../src/components/repository/LandedCard.tsx
   - ../../src/components/branch/DroppedCommitList.tsx
   - ../../src/lib/undo-toast.ts
+  - ../../src/model/store.ts
+  - ../../crates/repository-model/src/table.rs
+  - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/errors.ts
   - ../../crates/app-api/src/operation.rs
   - ../../crates/domain-types/src/error.rs
@@ -89,7 +92,8 @@ tells the present, its line of the last day opens Activity at its Robots.
 
 - No history of the repository (that is `git reflog`): only what this app and `bd` did, as the app says it.
 - No sync and no fetch of their own in the log: they change nothing the user asked for, a failure is an error entry.
-- No Undo after the toast's window or after a restart: the rewrite it would revert may be pushed or rewritten again.
+- No Undo after the toast's window, once HEAD moved since or after a restart: the rewrite it would revert may be pushed
+  or rewritten again, and its undo moves the refs back only from where the rewrite left them.
 
 ## Requirements
 
@@ -208,6 +212,19 @@ tells the present, its line of the last day opens Activity at its Robots.
   [@test] ../../src/stores/activity.test.ts (`offers the Undo of a rewrite for the window of its toast, once`, `marks a rewrite undone from its toast once its undo undid it`, `keeps the Undo of a rewrite whose undo failed, in its toast and in Activity: a second press runs it again`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should offer the Undo of a squash while the toast's lasts, in the window`, `should offer the Undo of a squash while the toast's lasts, in the panel`)
+- The Undo is the session's (`RepositoryView.undo`): it offers the Undo of the last rewrite of this process that has
+  one, while HEAD is still the head that rewrite left, as the rewrites of this process and the syncs after it saw HEAD.
+  A second rewrite takes its place (its own Undo, or none after an amend that moved HEAD), an undo leaves none, and a
+  commit, an update or a rewrite of `bd` takes it back once a sync read the HEAD it left; a sync that started before
+  the rewrite ended read HEAD before it and changes nothing. Then the Undo goes from the toast, which still tells what
+  was done until its time ends, and from the entry, as after the window; a press of the Activity window that came late
+  is refused with "Cannot undo …: the branch moved since". An Undo pressed before is not taken back while it runs: its
+  end decides. A window that shows another repository leaves the Undo as it is: its undo checks the refs itself.
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take the Undo of a move back from its toast and Activity once a rename ran after it, whose own Undo works`, `should take the Undo of a move back from its toast and Activity once a sync read a commit made outside the app`)
+  [@test] ../../src/stores/activity.test.ts (`withdraws the Undo of a rewrite the session no longer offers, as after its window, but not while its undo runs`)
+  [@test] ../../src/model/store.test.ts (`follows the Undo the session offers of a rewrite: withdrawn once a patch takes it back, by no view of another repository`)
+  [@test] ../../crates/repository-model/src/table_test.rs (`the_undo_of_the_last_rewrite_is_offered_while_head_is_the_head_it_left`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`the_session_offers_the_undo_of_the_last_rewrite_while_head_is_the_head_it_left`)
 - The undo itself lives in the main window, by the id of the entry, not in the journal: after a restart no entry has
   an Undo.
   [@test] ../../src/stores/activity.test.ts (`has no Undo for a rewrite of an earlier session`)
@@ -297,7 +314,8 @@ tells the present, its line of the last day opens Activity at its Robots.
   [@test] ../../src/stores/activity.test.ts (`gives the Activity window the Undo of the main window's rewrites by entry id`)
 - What the window does runs in the main window, which refuses a request of a repository it no longer shows: a branch
   name brings the main window to the front and reveals the row (`requestReveal`), the window stays; Undo runs the undo
-  of this session's rewrite (`canUndoActivity`: "Cannot undo …: its time ran out" past the window); Dismiss and Clear
+  of this session's rewrite (`canUndoActivity`: "Cannot undo …: its time ran out" past the window, "…: the branch moved
+  since" once the session took it back); Dismiss and Clear
   Log. A refusal is an error toast in the window.
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should record the pushes with the remote commits a force push dropped, and show the branch`, `should offer the Undo of a squash while the toast's lasts, in the window`)
 - The chips All, Robots (Patronus), Pushes, Updates (an update and what it landed), Reviews, Rewrites and Errors, with

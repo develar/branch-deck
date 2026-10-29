@@ -30,9 +30,11 @@
 //! resolved again on HEAD as it is now and its core runs once more, on what the other process left (`resolve_and_run`,
 //! at most three runs, none after a Stop Waiting); any other failure is the core's answer. The operation ends once
 //! it asked the sync that shows what it changed (`SyncReason::AfterRewrite`), not when that sync ends, with what the
-//! core answered and its undo (`Outcome::undo`); the request answers once that sync ended, with the version of its last
-//! patch (`Outcome::version_after`), which the toast of the window waits for. An undo names no table: its token moves
-//! each ref back with compare-and-swap.
+//! core answered and its undo (`Outcome::undo`), which the session offers from then on, on the head it left, in the
+//! place of the one before (`TableState::offer_undo`, the `undo` part of the view: the toast and the Activity entry
+//! offer their Undo while it is theirs); the request answers once that sync ended, with the version of its last patch
+//! (`Outcome::version_after`, that of the offer without it), which the toast of the window waits for. An undo names no
+//! table: its token moves each ref back with compare-and-swap, and the session offers no Undo after it.
 
 use crate::engine::{Hosts, outcome_of, run, runs_only_in_bd};
 use crate::events::EventSink;
@@ -238,8 +240,10 @@ pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: Rew
   .await;
   let sync = asked.into_inner().unwrap_or_else(PoisonError::into_inner);
   if let (Ok(outcome), Some(sync)) = (&mut answer, sync) {
-    // a sync that failed or was deferred shows nothing new: the toast comes at once
-    outcome.version_after = sync.wait().await.ok().map(|answer| answer.version);
+    // a sync that failed or was deferred shows nothing new: the toast comes with the patch of the offer of its Undo
+    if let Ok(answer) = sync.wait().await {
+      outcome.version_after = Some(answer.version);
+    }
   }
   answer
 }
@@ -957,9 +961,11 @@ fn kept(path: &str, branch_name: &str) -> DeleteArchivedBranchParams {
 }
 
 /// The end of the rewrite `resolved` of the operation of `guard` planned as `plan`, whose core answered `ran` on HEAD
-/// `expect_head`: the link of HEAD it moved, for the rewrites queued behind it (`TableState::record_rewrite`), then the
-/// sync that shows what it changed, asked and not waited for (a delete: the table drops the branch at once); its outcome
-/// and the ticket of that sync
+/// `expect_head`: the link of HEAD it moved, for the rewrites queued behind it (`TableState::record_rewrite`), and the
+/// Undo the session offers after it (`TableState::offer_undo`: its own, on the head it left; none after an undo), then
+/// the sync that shows what it changed, asked and not waited for (a delete: the table drops the branch at once); its
+/// outcome, whose `version_after` is the patch of that offer until its sync answers a later one, and the ticket of that
+/// sync
 async fn finish(
   sessions: &Sessions,
   key: &SessionKey,
@@ -969,17 +975,30 @@ async fn finish(
   expect_head: Option<String>,
   ran: Ran,
 ) -> (Outcome, Option<SyncTicket>) {
-  if let (Some(from), Some(to)) = (expect_head, ran.result.head())
-    && from != to
-  {
-    let link = RewriteLink {
+  let left = ran.result.head().map(str::to_owned).or_else(|| expect_head.clone());
+  let link = match (expect_head, ran.result.head()) {
+    (Some(from), Some(to)) if from != to => Some(RewriteLink {
       from,
       to: to.to_owned(),
       rewritten: ran.result.rewritten(),
       appends: matches!(ran.result, RewriteResult::Picked(_) | RewriteResult::Reapplied(_)),
-    };
-    drop(sessions.apply(key, move |state| state.record_rewrite(link)));
-  }
+    }),
+    _ => None,
+  };
+  let offer = ran.undo.is_some().then(|| guard.id().clone()).zip(left);
+  let undone = matches!(resolved, RewriteIntent::Undo { .. });
+  let offered = sessions.apply(key, move |state| {
+    if let Some(link) = link {
+      state.record_rewrite(link);
+    }
+    if undone {
+      state.withdraw_undo();
+    }
+    if let Some((op, head)) = offer {
+      state.offer_undo(op, head);
+    }
+  });
+  let offered = offered.version().await;
   let rewrite = PlannedEffect::Rewrite {
     commits: if named_commits_of(resolved).is_empty() {
       planned_commits(plan)
@@ -997,7 +1016,7 @@ async fn finish(
       let sync = ran.result.changes().then(|| sessions.sync(key, SyncReason::AfterRewrite));
       let status = if sync.is_some() { EffectStatus::Done } else { EffectStatus::Skipped { reason: None } };
       effects.push(EffectRecord::new(PlannedEffect::Sync, status));
-      (None, sync)
+      (offered, sync)
     }
   };
   let outcome = Outcome {

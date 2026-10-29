@@ -245,6 +245,7 @@ impl Derived {
       actions: &self.actions,
       attention: &self.attention,
       operations: state.operations().iter().collect(),
+      undo: state.offered_undo(),
       reviews: &self.reviews,
       patronus: facts.patronus.part(),
       route: &self.route,

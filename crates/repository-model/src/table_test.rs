@@ -1,11 +1,13 @@
-use crate::table::{RemoteSubject, TableState};
+use crate::table::{RemoteSubject, RewriteLink, TableState};
 use domain_types::commit::{Commit, SubjectParts};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::branches_grouped;
+use domain_types::operation::OperationId;
 use domain_types::session::{BranchStatus, CommitSync, SyncState, SyncStep};
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate, StackProblem, StackProblemView};
 use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 use test_utils::sync_fixtures::integrated_branch_info;
 
 pub(crate) fn commit(id: &str) -> Commit {
@@ -601,4 +603,56 @@ fn the_header_takes_the_review_experiments_of_each_grouping() {
   state.begin_sync();
   state.apply(grouping_with(false));
   assert!(!state.header().review_experimental);
+}
+
+/// A grouping of no branch that read HEAD at `head`
+fn grouping_at(head: &str) -> SyncEvent {
+  let mut grouping = grouping(Vec::new());
+  if let SyncEvent::BranchesGrouped { head: read, .. } = &mut grouping {
+    head.clone_into(read);
+  }
+  grouping
+}
+
+/// HEAD moved by a rewrite of this process from `from` to `to`
+fn moved_head(from: &str, to: &str) -> RewriteLink {
+  RewriteLink {
+    from: from.to_owned(),
+    to: to.to_owned(),
+    rewritten: BTreeMap::new(),
+    appends: false,
+  }
+}
+
+/// The session offers the Undo of the last rewrite of this process with one, while HEAD is the head it left. A run of a
+/// sync that started before the offer read HEAD before the rewrite moved it, and keeps it; a run that started after it
+/// keeps it on that head and takes it back on another (a commit, an update, a rewrite of `bd`), also when that run fails
+/// later. The next offer, a rewrite of this process that leaves HEAD elsewhere (an amend, which has no undo) and an undo
+/// take it back
+#[test]
+fn the_undo_of_the_last_rewrite_is_offered_while_head_is_the_head_it_left() {
+  let op = |id: &str| OperationId(id.to_owned());
+  let mut state = TableState::new();
+  // a run in flight as the rewrite ends
+  state.begin_sync();
+  state.offer_undo(op("move"), "b".to_owned());
+  assert_eq!(state.offered_undo(), Some(&op("move")));
+  state.apply(grouping_at("a"));
+  state.finish_sync(Ok(()));
+  assert_eq!(state.offered_undo(), Some(&op("move")), "a run that started before the offer says nothing of it");
+  run_sync(&mut state, vec![grouping_at("b")]);
+  assert_eq!(state.offered_undo(), Some(&op("move")), "the sync of the rewrite, on the head it left");
+  state.begin_sync();
+  state.apply(grouping_at("c"));
+  state.finish_sync(Err(ApiError::new(ErrorCode::Internal, "the sync failed")));
+  assert_eq!(state.offered_undo(), None, "a commit made elsewhere, which a run read");
+
+  state.offer_undo(op("squash"), "d".to_owned());
+  state.offer_undo(op("reword"), "e".to_owned());
+  assert_eq!(state.offered_undo(), Some(&op("reword")), "the Undo of the next rewrite in the place of the one before");
+  state.record_rewrite(moved_head("e", "f"));
+  assert_eq!(state.offered_undo(), None, "an amend moved HEAD");
+  state.offer_undo(op("park"), "f".to_owned());
+  state.withdraw_undo();
+  assert_eq!(state.offered_undo(), None, "an undo leaves nothing to undo");
 }

@@ -85,6 +85,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
     actions: {},
     attention: {},
     operations: {},
+    undo: null,
     sections: { unassigned: [], archived: { names: [], newlyArchived: [], integration: {} }, unapplied: [], landed: { baseline: null, landing: [], landed: [] } },
     reviews: { head: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 }, sections: [], checkedAt: 0 },
     patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} } },

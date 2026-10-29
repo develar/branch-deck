@@ -49,7 +49,7 @@ async function runStackOperation(
     successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`),
     () => undoRegroup(repositoryPath, undo.token, "Cannot undo the change", "Undoing the change"),
     undefined,
-    done.outcome.op,
+    done.outcome,
   )
   return true
 }

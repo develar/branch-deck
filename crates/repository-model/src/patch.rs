@@ -122,6 +122,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     removed_attention,
     operations,
     removed_operations,
+    undo,
     unassigned,
     archived,
     unapplied,
@@ -162,6 +163,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   apply_keyed(&mut view.actions, actions, &removed_actions);
   apply_keyed(&mut view.attention, attention, &removed_attention);
   apply_keyed(&mut view.operations, operations, &removed_operations);
+  set_if_some(&mut view.undo, undo);
   set_if_some(&mut view.reviews, reviews);
   set_if_some(&mut view.route, route);
   let sections = &mut view.sections;
@@ -249,6 +251,7 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     removed_attention: _,
     operations,
     removed_operations,
+    undo,
     unassigned,
     archived,
     unapplied,
@@ -270,6 +273,7 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     removed_stacks: removed_stacks.clone(),
     operations: operations.clone(),
     removed_operations: removed_operations.clone(),
+    undo: undo.clone(),
     unassigned: unassigned.clone(),
     archived: archived.clone(),
     unapplied: unapplied.clone(),
@@ -415,6 +419,7 @@ pub(crate) struct Now<'a> {
   pub(crate) attention: &'a BTreeMap<String, RobotAttention>,
   /// In the order they were admitted
   pub(crate) operations: Vec<&'a RunningOperation>,
+  pub(crate) undo: Option<&'a OperationId>,
   pub(crate) reviews: &'a ReviewsView,
   pub(crate) patronus: &'a PatronusPart,
   pub(crate) route: &'a LandingRoute,
@@ -476,6 +481,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
     removed_attention,
     operations,
     removed_operations,
+    undo: (last.undo.as_ref() != now.undo).then(|| now.undo.cloned()),
     unassigned: changed_commits(&last.sections.unassigned, &now.sections.unassigned),
     archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
     unapplied: changed(&last.sections.unapplied, &now.sections.unapplied),
@@ -509,6 +515,7 @@ pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
     actions: &to.actions,
     attention: &to.attention,
     operations: to.operations.values().collect(),
+    undo: to.undo.as_ref(),
     reviews: &to.reviews,
     patronus: &to.patronus,
     route: &to.route,

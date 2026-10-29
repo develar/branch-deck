@@ -42,8 +42,9 @@ vi.mock("@/stores/branch-sync", () => ({
   getBranchesOfCommits: () => ["auth"],
 }))
 vi.mock("@/stores/commit-move", () => ({ requestReveal: () => {} }))
-// the rewrites run in the engine: the window holds no session view in this test, the table it shows is at HEAD
-vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {}, getSessionWitness: () => WITNESS }))
+// the rewrites run in the engine: the window holds no session view in this test, the table it shows is at HEAD, and
+// nothing takes the Undo of a rewrite back
+vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {}, getSessionWitness: () => WITNESS, followUndo: () => () => {} }))
 vi.mock("@/stores/stack-collapse", () => ({ forgetCollapsedStack: () => {}, renameCollapsedStack: () => {} }))
 vi.mock("@/lib/bindings", async importOriginal => {
   const original = await importOriginal<typeof import("@/lib/bindings")>()

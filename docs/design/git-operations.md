@@ -540,12 +540,19 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    could not follow, its `git reset -q` advice kept), answers its own failure. A Stop Waiting that came once the wait
    had taken the lock runs no core after it and does not resolve the rewrite again, whose syncs would come first
    (`canceled`): the next wait would take the free lock without a look at it.
-5. **The end**: the operation asks the sync that shows what it changed (`SyncReason::AfterRewrite`, the effect `Sync`;
-   none when the core changed nothing) and ends: it does not wait for that sync, a rewrite queued behind it runs beside
-   it, and the sync of the one after joins its chain as one follow-up. Its request answers once that sync ended, with
-   the version of its last patch (`Outcome::version_after`), so the toast of the window that asked shows beside what it
-   changed; a request that joined it answers as it ended. A delete asks no sync: the table drops the branch at once
-   (`version_after`). Its outcome has what the core answered (`OperationResult::Rewrite`, `RewriteResult` by
+5. **The end**: the session records the link of HEAD the rewrite moved (`TableState::record_rewrite`) and the Undo it
+   offers now (`TableState::offer_undo`, the `undo` part of the view): of this rewrite when its outcome has an undo, on
+   the head it left, in the place of the one before; none after an undo. The offer goes once HEAD is seen elsewhere: a
+   rewrite of this process that leaves it elsewhere, or the grouping of a run of a sync numbered after the offer that
+   read another HEAD (a commit, an update, a rewrite of `bd`); a run that started before it read HEAD before the
+   rewrite moved it. The toast and the Activity entry of the rewrite offer their Undo while it is theirs, since its
+   token could only fail as `undo_stale` after that. Then the operation asks the sync that shows what it changed
+   (`SyncReason::AfterRewrite`, the effect `Sync`; none when the core changed nothing) and ends: it does not wait for
+   that sync, a rewrite queued behind it runs beside it, and the sync of the one after joins its chain as one
+   follow-up. Its request answers once that sync ended, with the version of its last patch (`Outcome::version_after`),
+   so the toast of the window that asked shows beside what it changed; without that sync, or after one that failed, the
+   version of the patch of the offer, so the toast shows with its Undo; a request that joined it answers as it ended.
+   A delete asks no sync: the table drops the branch at once (`version_after`). Its outcome has what the core answered (`OperationResult::Rewrite`, `RewriteResult` by
    kind), its undo and its git processes: those of its core (with the witness the core reads under the lock) and the
    one `for-each-ref` of the operation's witness (`a_rewrite_costs_its_core_and_one_read_of_its_witness` in
    `crates/operations/src/process_budget_test.rs`); the undo reads no witness of the operation.

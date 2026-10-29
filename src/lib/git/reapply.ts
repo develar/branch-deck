@@ -30,7 +30,7 @@ export async function reapplyBranch(name: string): Promise<boolean> {
     `Reapplied ${branch.branch}`,
     () => undoReapply(repositoryPath, branch.branch, undo),
     `${formatCommitCount(answer.reapplied.length)} back on top of HEAD`,
-    done.outcome.op,
+    done.outcome,
   )
   return true
 }

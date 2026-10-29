@@ -5475,6 +5475,13 @@ export type RepositoryView = {
 	attention: { [key in string]: RobotAttention },
 	/**  The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them */
 	operations: { [key in OperationId]: RunningOperation },
+	/**
+	 *  The rewrite of this process whose Undo the session offers, by the operation its outcome named (`Outcome::undo`):
+	 *  the last one that had one, while HEAD is still the head it left, as the rewrites of this process and the syncs
+	 *  after it saw HEAD; none once HEAD moved (another rewrite or an undo, a commit, an update, a rewrite of `bd`) and
+	 *  before the first. The toast and the Activity entry of a rewrite offer its Undo while it is this one
+	 */
+	undo: OperationId | null,
 	sections: TableSections,
 	/**
 	 *  Every open pull request of the repository the user takes part in beside the requests by name, by section, as
@@ -7216,6 +7223,8 @@ export type TableChanges = {
 	removedAttention?: string[],
 	operations?: { [key in OperationId]: RunningOperation },
 	removedOperations?: OperationId[],
+	/**  The rewrite whose Undo the session offers now, `null` for none; absent when it did not change */
+	undo?: OperationId | null,
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,

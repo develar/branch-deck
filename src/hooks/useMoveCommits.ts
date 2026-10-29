@@ -61,13 +61,7 @@ async function runMove(repositoryPath: string, rewrite: RewriteIntent, sources: 
   const target = moved.target ?? null
   requestReveal(target === null ? null : { branchName: target, commitIds: movedIds(moved) })
   const { title, description } = describeDoneMove(moved, target, count)
-  const toastId = showUndoToast(
-    repositoryPath,
-    title,
-    () => undoRegroup(repositoryPath, done.undo?.token, "Cannot undo the move", "Undoing the move"),
-    description,
-    done.outcome.op,
-  )
+  const toastId = showUndoToast(repositoryPath, title, () => undoRegroup(repositoryPath, done.undo?.token, "Cannot undo the move", "Undoing the move"), description, done.outcome)
   void offerUnstackAfterMove(toastId, stacked, target)
   return true
 }

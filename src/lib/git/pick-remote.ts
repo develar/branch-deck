@@ -40,7 +40,7 @@ export async function pickRemoteCommits(branchName: string, expectedRemote?: str
     `Picked the remote commits of ${branchName}`,
     () => undoPick(repositoryPath, branchName, undo),
     `${formatCommitCount(answer.picked.length)} into ${branchName} · its push drops nothing now`,
-    done.outcome.op,
+    done.outcome,
   )
   return true
 }
