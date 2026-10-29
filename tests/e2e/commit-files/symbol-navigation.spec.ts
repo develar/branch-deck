@@ -319,6 +319,9 @@ test.describe("Find Usages", () => {
     await page.keyboard.press("Alt+F7")
     await expect(usages).toBeVisible()
     await page.keyboard.press("Escape")
+    // closed before the menu opens the next one: the close gives the focus back to the view, also after the next list
+    // took it when its exit ends late (under load)
+    await expect(chooser).toBeHidden()
 
     // the item of the menu of the code; ↓ to the usage outside the review, Enter opens its file
     const again = await pointOf(code, "src/Uses.kt", "helper")
