@@ -10,7 +10,9 @@
 //!    (`replayed`) or changes the same lines (`changed_lines`);
 //! 4. the twin of `bd update`: a commit of the same identity whose change, with the fixups of the commit, holds every
 //!    changed line of the commit (`interdiffs`, `local_only` empty), as a conflict resolution or a robot's autosquash
-//!    leaves it;
+//!    leaves it; or one that lacks only lines the commit removes and the parent of the twin no longer had, as the
+//!    resolution of a commit that removes lines another commit had rewritten or removed already leaves it (the branch
+//!    loses nothing: the line is gone);
 //! 5. the mapping note of a sync (`v-commit-v1`): its virtual copy, which a robot rebased and landed, is on the branch
 //!    or proven there by the same rungs.
 //!
@@ -20,8 +22,11 @@
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_utils::get_commits_info;
-use git_ops::landed_pairing::{LandedPairing, LandedProof, LandedReads, interdiffs, pair_by_patch_id, pair_twins, present_by_patch_id, read_local, read_upstream};
+use git_ops::landed_pairing::{
+  LandedCandidate, LandedPairing, LandedProof, LandedReads, PathLines, full_interdiffs, interdiffs, pair_by_patch_id, pair_twins, present_by_patch_id, read_local, read_upstream,
+};
 use git_ops::lease_slot::{UnlandedCommit, commits_beyond_branch, commits_since, unlanded_commits};
+use git_ops::object_texts::read_texts;
 use git_ops::pick::pick_dry_run;
 use git_ops::revs::{is_ancestor, merge_base, ref_exists, resolve_commit};
 use history_rewrite::stack::stacks_enabled;
@@ -35,6 +40,8 @@ use tracing::debug;
 const CANDIDATE_LIMIT: usize = 500;
 /// How many unlanded commits an answer names
 pub const UNLANDED_LIMIT: usize = 20;
+/// The largest file of the parent of a twin that the check of its removed lines reads; a larger one proves nothing
+const REMOVED_BEFORE_MAX_BYTES: usize = 8 << 20;
 
 /// Who asks whether the work of a lease landed
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +67,9 @@ pub enum Proof {
   ChangedLines,
   /// A commit of the branch of its identity has every line it changes, with its fixups (the twin of `bd update`)
   Twin,
+  /// A commit of the branch of its identity has every line it adds, with its fixups; the lines it removes and the twin
+  /// does not were gone from the parent of the twin already
+  TwinRemovedBefore,
   /// Its virtual copy (`v-commit-v1`) landed on the branch
   Note { virtual_commit: String },
 }
@@ -320,7 +330,8 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
 
 /// The local commits a pairing proves landed: its drops with their proof, then each candidate whose upstream commit
 /// holds every changed line of the candidate and its fixups (`interdiffs`, `local_only` empty), with its fixups: the
-/// twin rule of `bd update` (`LandedTwin::is_same` of update-core)
+/// twin rule of `bd update` (`LandedTwin::is_same` of update-core); then each candidate whose twin lacks only removals
+/// that its parent no longer had (`removed_before`)
 fn landed_by_pairing(git_executor: &GitCommandExecutor, slot: &str, pairing: &LandedPairing) -> Result<Vec<(String, Proof)>> {
   let mut landed: Vec<(String, Proof)> = pairing.drops.iter().map(|drop| (drop.commit.clone(), Proof::of(drop.proof))).collect();
   let pairs: Vec<(Vec<&str>, &str)> = pairing
@@ -328,10 +339,52 @@ fn landed_by_pairing(git_executor: &GitCommandExecutor, slot: &str, pairing: &La
     .iter()
     .map(|candidate| (candidate.unit().collect(), candidate.upstream.as_str()))
     .collect();
+  let mut removals = Vec::new();
   for (candidate, interdiff) in pairing.candidates.iter().zip(interdiffs(git_executor, slot, &pairs)?) {
     if interdiff.local_only.is_empty() {
       landed.extend(candidate.unit().map(|commit| (commit.to_string(), Proof::Twin)));
+    } else if only_removals(&interdiff.local_only) {
+      removals.push(candidate);
     }
   }
+  for candidate in removed_before(git_executor, slot, &removals)? {
+    landed.extend(candidate.unit().map(|commit| (commit.to_string(), Proof::TwinRemovedBefore)));
+  }
   Ok(landed)
+}
+
+/// Whether every line one side of an interdiff has and the other lacks is a removed line: no added line, no mode, no
+/// binary file
+fn only_removals(lines: &[PathLines]) -> bool {
+  lines.iter().all(|path| path.lines.iter().all(|line| line.starts_with('-')))
+}
+
+/// The `candidates` whose twin lacks only lines that the candidate and its fixups remove and that the file of the parent
+/// of the twin does not hold at all: the whole interdiff (`full_interdiffs`, no cut), then the files of the parents in
+/// one `cat-file --batch`. A file that is gone there, binary or larger than `REMOVED_BEFORE_MAX_BYTES` proves nothing
+fn removed_before<'a>(git_executor: &GitCommandExecutor, slot: &str, candidates: &[&'a LandedCandidate]) -> Result<Vec<&'a LandedCandidate>> {
+  if candidates.is_empty() {
+    return Ok(Vec::new());
+  }
+  let pairs: Vec<(Vec<&str>, &str)> = candidates.iter().map(|candidate| (candidate.unit().collect(), candidate.upstream.as_str())).collect();
+  let interdiffs = full_interdiffs(git_executor, slot, &pairs)?;
+  let names: Vec<String> = candidates
+    .iter()
+    .zip(&interdiffs)
+    .flat_map(|(candidate, interdiff)| interdiff.local_only.iter().map(|path| format!("{}^:{}", candidate.upstream, path.path)))
+    .collect();
+  let mut texts = read_texts(git_executor, slot, &names, REMOVED_BEFORE_MAX_BYTES)?.into_iter();
+  let mut proven = Vec::new();
+  for (candidate, interdiff) in candidates.iter().zip(&interdiffs) {
+    let mut gone = only_removals(&interdiff.local_only);
+    for path in &interdiff.local_only {
+      let text = texts.next().flatten();
+      // by `\n` alone: a line of the patch keeps its `\r`
+      gone &= text.is_some_and(|text| path.lines.iter().all(|line| !text.split('\n').any(|held| Some(held) == line.strip_prefix('-'))));
+    }
+    if gone {
+      proven.push(*candidate);
+    }
+  }
+  Ok(proven)
 }

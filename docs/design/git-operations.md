@@ -1922,7 +1922,12 @@ the commits the one before left:
    lines (`changed_lines`);
 4. the twin of `bd update`: a pair of the same identity whose branch commit has every changed line of the commit and
    its fixups (`interdiffs`, `local_only` empty; `LandedTwin::is_same` of update-core, which lease-pool may not depend
-   on): a conflict resolution, a robot's autosquash;
+   on): a conflict resolution, a robot's autosquash. Or one whose twin lacks only removals that the file of the twin's
+   parent holds in no line (`full_interdiffs`, no cut, and one `cat-file --batch` of the files there): in the idea-1
+   pool of 2026-10-29 the two commits of a dead lease removed `Duration::from_secs(1800)` and asserts that master had
+   rewritten (`from_mins(30)`) or removed before the robot landed them, so their twins differed in removed lines only,
+   and the user's look at the subjects found them landed. The twin rule of `bd update` stays as it is: there a drop
+   loses the lines, here a lease that keeps them is the only loss;
 5. the mapping note of a sync (`v-commit-v1`, not stale by its source tree, `mapped_virtual`): the virtual copy on the
    branch, or proven there by the patch id or the rungs above, the copy a resolve by words made of the commit.
 

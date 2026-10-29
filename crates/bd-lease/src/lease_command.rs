@@ -845,6 +845,10 @@ pub enum LandedProofOutput {
   /// A commit of the branch of its identity has every line it changes with its fixups: the twin of `bd update`, a
   /// conflict resolution or an autosquash
   Twin,
+  /// A commit of the branch of its identity has every line it adds with its fixups, and the lines it removes and the
+  /// twin does not were gone from the twin's parent already: the resolution of a removal of lines that another commit had
+  /// rewritten
+  TwinRemovedBefore,
   /// Its virtual copy landed on the branch
   Note,
 }
@@ -861,6 +865,7 @@ pub(crate) fn landed_output(landed: &[LandedCommit]) -> Vec<LandedCommitOutput> 
         Proof::Replayed => LandedProofOutput::Replayed,
         Proof::ChangedLines => LandedProofOutput::ChangedLines,
         Proof::Twin => LandedProofOutput::Twin,
+        Proof::TwinRemovedBefore => LandedProofOutput::TwinRemovedBefore,
         Proof::Note { .. } => LandedProofOutput::Note,
       },
       virtual_commit: match &commit.proof {

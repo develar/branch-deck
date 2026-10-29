@@ -801,6 +801,16 @@ type NetLines = BTreeMap<String, Vec<(String, i64)>>;
 /// (`-U0`) of each side, the local commits summed in order (a line that one adds and a later one removes cancels), then
 /// compared as multisets per path. No `log -S`: only the two patches. One `diff-tree --stdin -p -U0`, none without pairs
 pub fn interdiffs(git_executor: &GitCommandExecutor, repo_path: &str, pairs: &[(Vec<&str>, &str)]) -> Result<Vec<Interdiff>> {
+  interdiffs_cut(git_executor, repo_path, pairs, (MAX_INTERDIFF_PATHS, MAX_REPORTED_LINES))
+}
+
+/// `interdiffs` with every path and every line of each side: what a check reads line by line, not what a person reads
+pub fn full_interdiffs(git_executor: &GitCommandExecutor, repo_path: &str, pairs: &[(Vec<&str>, &str)]) -> Result<Vec<Interdiff>> {
+  interdiffs_cut(git_executor, repo_path, pairs, (usize::MAX, usize::MAX))
+}
+
+/// `interdiffs` with at most `limits` (paths, lines of a path) per side
+fn interdiffs_cut(git_executor: &GitCommandExecutor, repo_path: &str, pairs: &[(Vec<&str>, &str)], limits: (usize, usize)) -> Result<Vec<Interdiff>> {
   if pairs.is_empty() {
     return Ok(Vec::new());
   }
@@ -829,8 +839,8 @@ pub fn interdiffs(git_executor: &GitCommandExecutor, repo_path: &str, pairs: &[(
       .map(|(local, upstream)| {
         let (local, upstream) = (side(local), side(&[upstream]));
         Interdiff {
-          local_only: only_in(&local, &upstream),
-          upstream_only: only_in(&upstream, &local),
+          local_only: only_in(&local, &upstream, limits),
+          upstream_only: only_in(&upstream, &local, limits),
         }
       })
       .collect(),
@@ -850,9 +860,9 @@ fn add_line(entries: &mut Vec<(String, i64)>, line: &str) {
   }
 }
 
-/// The net lines of `one` that `other` lacks, as `+<line>` and `-<line>`: the first `MAX_INTERDIFF_PATHS` paths, each
-/// with its first `MAX_REPORTED_LINES` lines
-fn only_in(one: &NetLines, other: &NetLines) -> Vec<PathLines> {
+/// The net lines of `one` that `other` lacks, as `+<line>` and `-<line>`: the first `max_paths` paths, each with its
+/// first `max_lines` lines
+fn only_in(one: &NetLines, other: &NetLines, (max_paths, max_lines): (usize, usize)) -> Vec<PathLines> {
   let mut paths = Vec::new();
   for (path, entries) in one {
     let theirs = other.get(path);
@@ -864,12 +874,12 @@ fn only_in(one: &NetLines, other: &NetLines) -> Vec<PathLines> {
         Some(text) if *net < 0 => format!("-{text}"),
         _ => key.clone(),
       })
-      .take(MAX_REPORTED_LINES)
+      .take(max_lines)
       .collect();
     if !lines.is_empty() {
       paths.push(PathLines { path: path.clone(), lines });
     }
-    if paths.len() == MAX_INTERDIFF_PATHS {
+    if paths.len() == max_paths {
       break;
     }
   }

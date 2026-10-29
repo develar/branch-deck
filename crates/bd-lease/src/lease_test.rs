@@ -607,6 +607,39 @@ fn a_return_finds_a_commit_that_landed_with_a_conflict_resolution() {
   );
 }
 
+/// A commit of the slot removes a line that master rewrote meanwhile, and the robot's resolution removed the rewritten
+/// one: its twin lacks the removal of the old line, which the twin's parent no longer had, so nothing is lost. A commit
+/// whose twin lacks the removal of a line the parent of the twin still holds is unlanded
+#[test_log::test]
+fn a_return_finds_a_commit_whose_twin_lacks_only_a_removal_master_made_before() {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit_with_files("Add f and h", &[("f.txt", "a\nx\nz\n"), ("h.txt", "dup\nk\ndup\n")]);
+  let path = path_of(&fixture.get(&[]));
+  std::fs::write(Path::new(&path).join("g.txt"), "g\n").unwrap();
+  slot_git(&path, &["add", "g.txt"]);
+  let commit = commit_content(&path, "(lane) Drop x, add g", "f.txt", "a\nz\n");
+  let kept = commit_content(&path, "(lane) Drop a dup", "h.txt", "k\ndup\n");
+  fixture.repo.create_commit("(peer) Rewrite x", "f.txt", "a\ny\nz\n");
+  // the resolution: the rewritten line goes, g comes
+  std::fs::write(fixture.repo.path().join("f.txt"), "a\nz\n").unwrap();
+  std::fs::write(fixture.repo.path().join("g.txt"), "g\n").unwrap();
+  git(&fixture.repo, &["add", "f.txt", "g.txt"]);
+  git(&fixture.repo, &["commit", "-q", "-C", &commit]);
+  // a later change where the line was, so the pick of the commit onto master conflicts and proves nothing
+  fixture.repo.create_commit("(peer) Add w", "f.txt", "a\nw\nz\n");
+  // a twin of the second without its removal, while its parent still holds the line
+  std::fs::write(fixture.repo.path().join("other.txt"), "other\n").unwrap();
+  git(&fixture.repo, &["add", "other.txt"]);
+  git(&fixture.repo, &["commit", "-q", "-C", &kept]);
+
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "unlanded_commits"));
+  assert_eq!(output["error"]["commits"], json!([kept]), "{output}");
+  slot_git(&path, &["reset", "-q", "--hard", "HEAD^"]);
+  let returned = fixture.give_back(&path);
+  assert_eq!(proofs(&returned["landed"]), vec![(commit, "twin_removed_before".to_string())], "{returned}");
+}
+
 /// A commit of the slot landed by its virtual copy: the sync resolved it by words into another change (its mapping
 /// note, `v-commit-v1`), and the robot cherry-picked that copy onto master. Nothing of the commit itself is on master,
 /// so only the note proves it
