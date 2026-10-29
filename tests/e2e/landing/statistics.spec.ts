@@ -2,14 +2,14 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { findBranchRow } from "../helpers/branch-helpers"
+import { findBranchRow, getMoreButton, getPushButton } from "../helpers/branch-helpers"
 import { DAY_ROBOTS, ROBOTS_NOW, availableRobots, failedFastTests, setupRobots, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { openLandingOverview } from "../helpers/review-status-helpers"
 import { emitTauriEvent, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { HistoryRobotFixture, TestRepositoryBuilder } from "../helpers/test-repository"
 import { openMainMenuView, TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
-import { waitForStorePersistence } from "../helpers/wait-helpers"
+import { recordCommand, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const HOUR = 3600
 const DAY = 86_400
@@ -216,6 +216,87 @@ test.describe("Landing view", () => {
     await page.keyboard.press("Enter")
     await expectStatisticsShown(page)
   })
+
+  test(
+    "should close the popups of the branches as the view hides, open none by itself as it shows, and leave the focus on no hidden control",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // auth and session stacked, neither pushed: Push Stack (2 branches) on session, Push session Only in its description
+      await setupRepo("stacked_branches")
+      await syncAndWaitForBranches()
+      const executes = await recordCommand(page, "execute")
+      const session = findBranchRow(page, "session")
+      const push = getPushButton(session)
+      const status = findBranchRow(page, "auth").getByTestId("branch-status")
+      // the tooltip of auth's status (the focused switcher has its own)
+      const tooltip = page.getByRole("tooltip").filter({ hasText: "The branch isn't on the remote yet: the push creates it." })
+      const description = page.getByTestId("push-description")
+      const heading = landingView(page).getByRole("heading", { level: 1 })
+      // the pointer over the canvas, below the tables
+      const pointAtCanvas = () => page.mouse.move(640, 700)
+      const switchAndBack = async () => {
+        await emitTauriEvent(page, "show_landing")
+        await expect(heading).toBeVisible()
+        await pointAtCanvas()
+        await emitTauriEvent(page, "show_branches")
+        await expect(session).toBeVisible()
+      }
+      await waitForTauriListener(page, "show_landing")
+
+      // the first focus of session's push button and the first hover of auth's status mount their roots (`useLazyRoot`):
+      // its tooltip open at the first show of Landing, the focus on the push button (a Tab or a click put it there)
+      await push.focus()
+      await status.hover()
+      await expect(tooltip).toBeVisible()
+      // ⌘3: the focus leaves the hidden push button for the heading of the view loaded now (WebKit kept the focus on the
+      // button, and P pushed session)
+      await emitTauriEvent(page, "show_landing")
+      await page.keyboard.press("p")
+      await expect(heading).toBeFocused()
+      // ⌘1 with the pointer over the canvas: the tooltip closed, the push button has its focus back, nothing pushed
+      await pointAtCanvas()
+      await emitTauriEvent(page, "show_branches")
+      await expect(push).toBeFocused()
+      await expect(tooltip).toHaveCount(0)
+      expect(executes).toEqual([])
+      // the hover opens it again
+      await status.hover()
+      await expect(tooltip).toBeVisible()
+      await pointAtCanvas()
+      await expect(tooltip).toHaveCount(0)
+
+      // ⌘3 and ⌘1, the focus on the switcher: the push button takes no focus back, and the status opens no tooltip with
+      // the pointer elsewhere, which no move closed (the show ran their first focus and hover again)
+      const switcher = page.getByTestId("main-view-branches")
+      await switcher.focus()
+      await switchAndBack()
+      await expect(switcher).toBeFocused()
+      await push.hover()
+      await expect(description).toContainText("Push session Only")
+      await expect(tooltip).toHaveCount(0)
+      await pointAtCanvas()
+      await expect(description).toHaveCount(0)
+
+      // the description of the push, a hover card
+      await push.hover()
+      await expect(description).toContainText("Push session Only")
+      await switchAndBack()
+      await expect(description).toHaveCount(0)
+      await push.hover()
+      await expect(description).toBeVisible()
+
+      // the "⋯" menu and the right-click menu
+      await getMoreButton(session).click()
+      await expect(page.getByRole("menu")).toBeVisible()
+      await switchAndBack()
+      await expect(page.getByRole("menu")).toHaveCount(0)
+      await session.click({ button: "right" })
+      await expect(page.getByRole("menu")).toBeVisible()
+      await switchAndBack()
+      await expect(page.getByRole("menu")).toHaveCount(0)
+      expect(executes).toEqual([])
+    },
+  )
 
   test("should read nothing while the view is hidden, and ask again on Refresh", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupHistory(page, setupRepo, syncAndWaitForBranches)

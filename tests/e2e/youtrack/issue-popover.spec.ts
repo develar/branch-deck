@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
 import type { YouTrackFixture } from "../helpers/youtrack-helpers"
@@ -60,6 +60,24 @@ test.describe("YouTrack issue popover", () => {
       { query: "State Fixed", issues: ["JIRA-456"] },
       { query: "State Open", issues: ["JIRA-456"] },
     ])
+  })
+
+  test("should close as the view of its link hides", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setUp(page, setupRepo, syncAndWaitForBranches, OPEN_ISSUES)
+    const link = issueKeyLink(page, "JIRA-456")
+    const popover = page.getByTestId("issue-popover")
+    await link.hover()
+    await expect(popover).toHaveAttribute("data-issue-key", "JIRA-456")
+    // ⌘3 with the pointer at rest: the link hides under it, the popover would stay over Landing
+    await waitForTauriListener(page, "show_landing")
+    await emitTauriEvent(page, "show_landing")
+    await expect(page.getByTestId("landing-view")).toBeVisible()
+    await expect(popover).toHaveCount(0)
+    // ⌘1: the link shows it again on hover
+    await emitTauriEvent(page, "show_branches")
+    await page.mouse.move(640, 700)
+    await link.hover()
+    await expect(popover).toHaveAttribute("data-issue-key", "JIRA-456")
   })
 
   test("should open on the keyboard focus, and mark the issue of a branch fixed from its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {

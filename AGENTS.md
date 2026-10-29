@@ -213,6 +213,11 @@ Mistakes agents made here; each cost a session.
   `useStore`, is memoized on its arguments and shows a stale value. The value must come out of a selector, or be an
   argument the hook selected: `useStepInputs` beside `useRowPart(name, "landing")` (`src/hooks/useBranchNextStep.ts`);
   a menu builder likewise (`useBranchMenu`, `src/hooks/useBranchContextActions.ts`).
+- **The effects of a kept view run again**: a view of the main window (React's `Activity`, `KeepMounted` in
+  `IndexPage`) destroys the effects of its components as it hides and runs them again as it shows, state and refs kept.
+  An effect that acts once (a replay, a focus) marks it in a ref, as `useLazyRoot` does; a popup root closes as its view
+  hides (`useCloseWhenViewHides`). WebKit, the engine of the app, keeps the focus on a hidden element until a later
+  layout: test the focus and the popups in `pnpm e2e:webkit` too (`{ tag: "@webkit" }`).
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
   caret at 0 and the text lands at the start.
 - **zsh does not word-split `$args`**: `args="--no-default-features --features=x"; cargo build $args` passes one
@@ -608,9 +613,10 @@ The checklist:
   the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt the files.
   `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3 API and
   pnpm dlx resolves zod 4.
-- **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `chart`, `checkbox`, `input`, `popover`, `spinner`, `tabs`,
-  `textarea`, `tooltip`, `toast` in `src/components/ui/` carry a `// local customisation: …` header naming the edits. After
-  `add --overwrite` (e.g. a style switch), re-apply them; `git diff HEAD -- src/components/ui` shows what was lost.
+- **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `chart`, `checkbox`, `context-menu`,
+  `dropdown-menu`, `input`, `popover`, `select`, `spinner`, `tabs`, `textarea`, `tooltip`, `toast` in
+  `src/components/ui/` carry a `// local customisation: …` header naming the edits. After `add --overwrite` (e.g. a
+  style switch), re-apply them; `git diff HEAD -- src/components/ui` shows what was lost.
 - **Toolchain** (Vite+, `vite-plus`, the `vp` CLI): one pinned toolchain of Vite 8, Vitest, Oxlint and Oxfmt,
   configured in `vite.config.ts` (`lint`, `fmt`); Tailwind CSS v4 through `@tailwindcss/vite`, its theme tokens in
   `src/index.css`. Oxlint is type-aware through tsgolint (TypeScript 7, the Go compiler, strict, checked with `tsc` on

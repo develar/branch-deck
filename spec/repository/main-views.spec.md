@@ -5,6 +5,13 @@ style: plain-1
 targets:
   - ../../src/stores/main-view.ts
   - ../../src/pages/IndexPage.tsx
+  - ../../src/hooks/useCloseWhenViewHides.ts
+  - ../../src/hooks/useLazyRoot.ts
+  - ../../src/components/ui/tooltip.tsx
+  - ../../src/components/ui/popover.tsx
+  - ../../src/components/ui/dropdown-menu.tsx
+  - ../../src/components/ui/context-menu.tsx
+  - ../../src/components/ui/select.tsx
   - ../../src/components/repository/MainViewSwitcher.tsx
   - ../../src/components/ui/toggle-group.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
@@ -82,6 +89,19 @@ nothing from the work: the view changes only when the user changes it, and the b
   that leaves the focus inside the view that hides moves it to the heading of the other, a click on the switcher keeps
   it there. Every start shows the branches.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from the native View menu and Show Statistics, and give the branches back as they were`)
+- A focus the switch hid, in the view or in one of its popups, moves to the heading of the view that shows, or nowhere
+  until the heading of a view loaded for its first show takes it: WebKit drops the focus of a hidden element only at a
+  later layout, and until then the keys of the window went to it (P to the row of a hidden push button, which pushed).
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should close the popups of the branches as the view hides, open none by itself as it shows, and leave the focus on no hidden control`)
+- A view that hides closes its popups, and one that shows again opens none: a hidden view keeps its state but runs no
+  effect, so a tooltip, a hover card, a popover, a menu or a select open at the switch would come back open with the
+  pointer elsewhere, its trigger never told the pointer left, until a click elsewhere; the roots of
+  `src/components/ui` close as their view hides (`useCloseWhenViewHides`). The first hover or focus of a lazy trigger
+  replays once (`useLazyRoot`), not as its view shows again: else the trigger of every popup hovered before opened it
+  by itself, and a push button focused before took the focus from where the user had put it. The issue popover of a
+  link the switch hid closes as the link hides. The dialogs and the inline forms stay as they were.
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should close the popups of the branches as the view hides, open none by itself as it shows, and leave the focus on no hidden control`)
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should close as the view of its link hides`)
 
 ### Landing
 

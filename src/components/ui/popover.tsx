@@ -1,10 +1,12 @@
 // local customisation: `anchor`, `collisionPadding` and `collisionAvoidance` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal and its `container` (the issue popover inside another popup, a dialog or the toasts),
 // `PopoverSectionTitle` (the one head of a section of every popover: help, Activity days, Robots groups), `lazy` on
 // `Popover`: the root mounts at the first hover or focus of its trigger, a plain element until then (`useLazyRoot`), and
-// the roots in `PopoverContent` mount with their triggers (`EagerRootsContext`)
+// the roots in `PopoverContent` mount with their triggers (`EagerRootsContext`); a popover closes when its view of the
+// main window hides (`useCloseWhenViewHides`)
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
+import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
 import { childNodes, EagerRootsContext, LazyRootContext, PlainTrigger, useLazyRoot } from "@/hooks/useLazyRoot"
 
 /** The props of a popover trigger that only Base UI reads: a plain trigger leaves them out */
@@ -12,13 +14,21 @@ const POPOVER_TRIGGER_ONLY = ["openOnHover", "delay", "closeDelay", "handle", "p
 
 /**
  * `lazy`: the root mounts at the first hover or focus of its trigger, or while `open` (`useLazyRoot`); until then the
- * trigger is a plain element with the ARIA of a closed popover trigger and the content is not rendered
+ * trigger is a plain element with the ARIA of a closed popover trigger and the content is not rendered. Open when its
+ * view of the main window hides, it closes
  */
-function Popover({ lazy = false, ...props }: PopoverPrimitive.Root.Props & { lazy?: boolean }) {
-  const root = useLazyRoot(lazy, props.open === true || props.defaultOpen === true)
+function Popover({ lazy = false, open, onOpenChange, ...props }: Omit<PopoverPrimitive.Root.Props, "actionsRef"> & { lazy?: boolean }) {
+  const root = useLazyRoot(lazy, open === true || props.defaultOpen === true)
+  const closing = useCloseWhenViewHides(open, onOpenChange)
   return (
     // every root sets the context, so a trigger in its content never reads the root of an outer popover
-    <LazyRootContext value={lazy ? root : null}>{root.armed ? <PopoverPrimitive.Root data-slot="popover" {...props} /> : childNodes(props.children)}</LazyRootContext>
+    <LazyRootContext value={lazy ? root : null}>
+      {root.armed ? (
+        <PopoverPrimitive.Root data-slot="popover" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
+      ) : (
+        childNodes(props.children)
+      )}
+    </LazyRootContext>
   )
 }
 

@@ -1,10 +1,13 @@
+// local customisation: `DropdownMenu` closes when its view of the main window hides (`useCloseWhenViewHides`)
 import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { cn } from "cn"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
+import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
 
-function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
-  return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+function DropdownMenu({ open, onOpenChange, ...props }: Omit<MenuPrimitive.Root.Props, "actionsRef">) {
+  const closing = useCloseWhenViewHides(open, onOpenChange)
+  return <MenuPrimitive.Root data-slot="dropdown-menu" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
 }
 
 function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {

@@ -529,10 +529,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The tooltips, popovers and the "⋯" menu of a row must mount at the first hover or focus of their trigger, not with the
   row (`useLazyRoot`, [Rendering Performance](../../docs/design/rendering-performance.md) Key Decision 7): until then
   the trigger has the same look, name and ARIA; one hover opens its popup after the delay it always had, the focus stays
-  on the trigger, a key or a press acts on it as before, and nothing asks the backend. In the content of a popover (the
+  on the trigger, a key or a press acts on it as before, and nothing asks the backend. That first hover or focus
+  replays once: the branches that show again open no popup of a row and give no trigger the focus
+  ([Main Views](../repository/main-views.spec.md)). In the content of a popover (the
   robot's details, the landing overview, the Safe Push popover) the roots mount with their triggers, so a press in a
   popup a hover opened keeps it open.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open the popups of a row from its first hover or focus, and the branch menu only from the row`)
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should close the popups of the branches as the view hides, open none by itself as it shows, and leave the focus on no hidden control`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it`)
 - Space over a row must open the [branch preview](branch-preview.spec.md).

@@ -1,12 +1,14 @@
 // local customisation: `role="tooltip"` on the popup; `disableHoverablePopup` by default: a text tooltip closes when the
 // pointer leaves its trigger and never blocks what is under it (a tooltip over the submit of the form above it stayed
 // open while hovered and swallowed the click); `lazy` on `Tooltip`: the root mounts at the first hover or focus of its
-// trigger, a plain element until then (`useLazyRoot`), for the many tooltips of a table row
+// trigger, a plain element until then (`useLazyRoot`), for the many tooltips of a table row; it closes when its view of
+// the main window hides (`useCloseWhenViewHides`)
 "use client"
 
 import { use } from "react"
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 import { cn } from "cn"
+import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
 import { childNodes, LazyRootContext, PlainTrigger, useLazyRoot } from "@/hooks/useLazyRoot"
 
 function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
@@ -19,14 +21,26 @@ const CLOSED_TOOLTIP_TRIGGER = { "data-slot": "tooltip-trigger" }
 
 /**
  * `lazy`: the root mounts at the first hover or focus of its trigger, or while `open` (`useLazyRoot`); until then the
- * trigger is a plain element and the content is not rendered
+ * trigger is a plain element and the content is not rendered. Open when its view of the main window hides, it closes
  */
-function Tooltip({ disableHoverablePopup = true, lazy = false, ...props }: TooltipPrimitive.Root.Props & { lazy?: boolean }) {
-  const root = useLazyRoot(lazy, props.open === true || props.defaultOpen === true)
+function Tooltip({ disableHoverablePopup = true, lazy = false, open, onOpenChange, ...props }: Omit<TooltipPrimitive.Root.Props, "actionsRef"> & { lazy?: boolean }) {
+  const root = useLazyRoot(lazy, open === true || props.defaultOpen === true)
+  const closing = useCloseWhenViewHides(open, onOpenChange)
   return (
     // every root sets the context, so a trigger in its content never reads the root of an outer tooltip
     <LazyRootContext value={lazy ? root : null}>
-      {root.armed ? <TooltipPrimitive.Root data-slot="tooltip" disableHoverablePopup={disableHoverablePopup} {...props} /> : childNodes(props.children)}
+      {root.armed ? (
+        <TooltipPrimitive.Root
+          data-slot="tooltip"
+          disableHoverablePopup={disableHoverablePopup}
+          open={open}
+          {...props}
+          actionsRef={closing.actionsRef}
+          onOpenChange={closing.onOpenChange}
+        />
+      ) : (
+        childNodes(props.children)
+      )}
     </LazyRootContext>
   )
 }

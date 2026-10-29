@@ -1,4 +1,4 @@
-import { cloneElement, createContext, createElement, isValidElement, use, useEffect, useLayoutEffect, useState } from "react"
+import { cloneElement, createContext, createElement, isValidElement, use, useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { ReactElement, ReactNode, Ref } from "react"
 import { flushSync } from "react-dom"
 import { mergeProps } from "@base-ui/react/merge-props"
@@ -46,6 +46,10 @@ export interface LazyRoot {
  * hover as if it had seen the pointer come. The root stays mounted from then on, and while `wanted` (open from code: a
  * confirm, a request) it mounts without an intent. Nothing here asks the backend: a hover costs no IPC.
  *
+ * The intent replays once: a view of the main window that shows again (React's `Activity`, `IndexPage`) runs the
+ * effects of its components again, and the first hover of every trigger opened its popup with the pointer elsewhere,
+ * which no pointer leave closed then, and the first focus took the focus back from where the user had put it.
+ *
  * `lazy` false is the plain root, mounted with its trigger, as is every root in the content of a popover
  * (`EagerRootsContext`).
  */
@@ -54,6 +58,8 @@ export function useLazyRoot(lazy: boolean, wanted = false): LazyRoot {
   const [armedState, setArmed] = useState(!lazy || eager)
   // what the plain trigger saw, replayed on the trigger of the root once it is mounted
   const [pending, setPending] = useState<Intent | null>(null)
+  // the intent replayed: the effects that run again for it (the view shows again) replay nothing
+  const replayed = useRef<Intent | null>(null)
   if (wanted && !armedState) {
     setArmed(true)
   }
@@ -61,13 +67,15 @@ export function useLazyRoot(lazy: boolean, wanted = false): LazyRoot {
 
   // the focus first: the element that had it left with the plain trigger
   useLayoutEffect(() => {
-    if (pending?.kind === "focus") {
+    if (pending?.kind === "focus" && replayed.current !== pending) {
+      replayed.current = pending
       triggerIn(pending)?.focus({ preventScroll: true })
     }
   }, [pending])
   // the effects of the trigger ran before this one (children first): Base UI listens on it now
   useEffect(() => {
-    if (pending?.kind === "pointer") {
+    if (pending?.kind === "pointer" && replayed.current !== pending) {
+      replayed.current = pending
       const element = triggerIn(pending)
       if (element !== null) {
         // outside the effect, so a plain trigger nested in it may mount its own root at once

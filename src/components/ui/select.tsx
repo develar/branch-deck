@@ -1,11 +1,16 @@
+// local customisation: `Select` closes when its view of the main window hides (`useCloseWhenViewHides`)
 "use client"
 
 import * as React from "react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "cn"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
+import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
 
-const Select = SelectPrimitive.Root
+function Select<Value, Multiple extends boolean | undefined = false>({ open, onOpenChange, ...props }: Omit<SelectPrimitive.Root.Props<Value, Multiple>, "actionsRef">) {
+  const closing = useCloseWhenViewHides(open, onOpenChange)
+  return <SelectPrimitive.Root<Value, Multiple> open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return <SelectPrimitive.Group data-slot="select-group" className={cn("scroll-my-1.5 p-1", className)} {...props} />

@@ -14,6 +14,7 @@ import { useActivityWindowLink } from "@/hooks/useActivityWindowLink"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
 import { useBranchReviewLink } from "@/hooks/useBranchReviewLink"
+import { KeptViewContext } from "@/hooks/useCloseWhenViewHides"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useRepositoryConfigChanges } from "@/hooks/useRepositoryConfigChanges"
@@ -59,7 +60,10 @@ const ACTIVITY_PANEL_WIDTH = "24rem"
  * The views keep what the user left (`spec/repository/main-views.spec.md`): both stay mounted (React's `Activity`, here
  * `KeepMounted`), so the rows, their forms and their selection live on; the scroll position and the focused element of
  * the branches are kept at the switch and given back on the return, as `display: none` drops the focus. The focus moves
- * into a view only when it was inside the one that hid, so a click on the switcher keeps it on the switcher.
+ * into a view only when it was inside the one that hid, so a click on the switcher keeps it on the switcher. WebKit
+ * drops the focus of a hidden element only at a later layout, so until then the keys of the window went to it (P to the
+ * row of a hidden push button): a focus the switch hid (in the view or in one of its popups, which close with it) goes
+ * to the heading of the view that shows, or nowhere until the heading of a view loaded for its first show takes it.
  */
 function useKeptViewPlace() {
   const view = useMainView()
@@ -93,15 +97,25 @@ function useKeptViewPlace() {
       isFirst.current = false
       return
     }
+    const active = document.activeElement
+    // laid out now: an element of the view that hid has no box
+    const hidden = active instanceof HTMLElement && active !== document.body && active.getClientRects().length === 0 ? active : null
     if (view === "branches") {
       if (branches.current !== null) {
         branches.current.scrollTop = kept.current.scrollTop
       }
       if (kept.current.moveFocus && kept.current.element?.isConnected === true) {
         kept.current.element.focus({ preventScroll: true })
+      } else {
+        hidden?.blur()
       }
-    } else if (kept.current.moveFocus) {
-      ;(view === "reviews" ? reviewsHeading : landingHeading).current?.focus({ preventScroll: true })
+    } else if (kept.current.moveFocus || hidden !== null) {
+      const heading = (view === "reviews" ? reviewsHeading : landingHeading).current
+      if (heading === null) {
+        hidden?.blur()
+      } else {
+        heading.focus({ preventScroll: true })
+      }
     }
   }, [view])
   return { view, branches, reviews, reviewsHeading, landing, landingHeading }
@@ -174,35 +188,41 @@ export function IndexPage() {
           <ResizablePanel id="main" minSize={`${MIN_ISLANDS_WIDTH}px`}>
             {/* each view in its own scroller, both kept mounted (`useKeptViewPlace`) */}
             <KeepMounted mode={view === "branches" ? "visible" : "hidden"}>
-              <main ref={branches} className="h-full overflow-y-auto" data-testid="branches-view">
-                <Container className="pb-2">
-                  <BranchCreator />
-                </Container>
-                {/* after the content, out of its gaps: its room at the end moves no row */}
-                <DragTargetBar />
-              </main>
+              <KeptViewContext value="branches">
+                <main ref={branches} className="h-full overflow-y-auto" data-testid="branches-view">
+                  <Container className="pb-2">
+                    <BranchCreator />
+                  </Container>
+                  {/* after the content, out of its gaps: its room at the end moves no row */}
+                  <DragTargetBar />
+                </main>
+              </KeptViewContext>
             </KeepMounted>
             <KeepMounted mode={view === "reviews" ? "visible" : "hidden"}>
-              <main ref={reviews} className="h-full overflow-y-auto">
-                <Container className="pb-2">
-                  {isReviewsLoaded && (
-                    <Suspense fallback={null}>
-                      <ReviewsView visible={view === "reviews"} headingRef={reviewsHeading} />
-                    </Suspense>
-                  )}
-                </Container>
-              </main>
+              <KeptViewContext value="reviews">
+                <main ref={reviews} className="h-full overflow-y-auto">
+                  <Container className="pb-2">
+                    {isReviewsLoaded && (
+                      <Suspense fallback={null}>
+                        <ReviewsView visible={view === "reviews"} headingRef={reviewsHeading} />
+                      </Suspense>
+                    )}
+                  </Container>
+                </main>
+              </KeptViewContext>
             </KeepMounted>
             <KeepMounted mode={view === "landing" ? "visible" : "hidden"}>
-              <main ref={landing} className="h-full overflow-y-auto">
-                <Container className="pb-2">
-                  {isLandingLoaded && (
-                    <Suspense fallback={null}>
-                      <LandingView visible={view === "landing"} headingRef={landingHeading} />
-                    </Suspense>
-                  )}
-                </Container>
-              </main>
+              <KeptViewContext value="landing">
+                <main ref={landing} className="h-full overflow-y-auto">
+                  <Container className="pb-2">
+                    {isLandingLoaded && (
+                      <Suspense fallback={null}>
+                        <LandingView visible={view === "landing"} headingRef={landingHeading} />
+                      </Suspense>
+                    )}
+                  </Container>
+                </main>
+              </KeptViewContext>
             </KeepMounted>
           </ResizablePanel>
           {isActivityPanelShown && (
