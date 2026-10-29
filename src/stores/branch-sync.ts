@@ -45,11 +45,11 @@ import type { SyncDeferral } from "@/lib/sync-deferred"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { lockWaitProgress } from "@/lib/transfer-progress"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
-import { nextRunNumber, requestSessionSync } from "@/model/store"
+import { requestSessionSync } from "@/model/store"
 import type { BranchStructure, TableRows } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE } from "@/model/structure"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
-import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
+import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
 /** Commit augmented with its sync outcome. */
 export interface SyncedCommit extends Commit {
@@ -463,14 +463,6 @@ export function useBranchSyncEntry<F extends EntryField, T>(field: F, key: strin
   return useSyncExternalStore(subscribe, read, read)
 }
 
-/** Branch names in display order; re-renders only when the set or order of branches changes. */
-export function useBranchOrder(): string[] {
-  return useStore(
-    branchSyncStore,
-    useShallow(state => state.branchOrder),
-  )
-}
-
 /**
  * A row of the branch table:
  * - a branch, `depth` levels in: under its issue (the issue branch, or an issue row) and under the branches it stacks on;
@@ -828,14 +820,6 @@ export function getPushOrders(name: string): PushOrders {
   return pushOrdersIn(branchSyncStore.getState(), name)
 }
 
-/** Why the sync didn't build the stack branch of the stack of `root` that forks, re-rendering when it changes; null for one it built or another stack */
-export function useForkingStackNotBuilt(root: string): Reason | null {
-  return useBranchSyncEntry("branches", root, branch => {
-    const whole = (branch?.structure ?? ROOT_STRUCTURE).wholeStack
-    return whole?.kind === "forking" ? (whole.notBuilt ?? null) : null
-  })
-}
-
 /** The open pull request of `subject` (a branch, `stackReadinessKey(root)`) as Rust reads it; undefined without one */
 export function getOpenPullRequest(subject: string): PullRequestView | undefined {
   return branchSyncStore.getState().openPullRequests[subject]
@@ -916,11 +900,6 @@ export function getIssueGroups(): Readonly<Record<string, string>> {
 /** The stack parents of the last grouping: child -> parent */
 export function useStackParents(): Readonly<Record<string, string>> {
   return useBranchSyncField("stackParents", parents => parents)
-}
-
-/** Whether issue groups put commits into the branch `name` */
-export function hasIssueGroup(name: string): boolean {
-  return Object.values(getIssueGroups()).includes(name)
 }
 
 /** The branch table rows, all of them: newest first, the branches of an issue nested under it, stacks as a graph. */
@@ -1030,11 +1009,6 @@ export function useFoundCommits(ids: readonly string[]): Commit[] | null {
   )
 }
 
-/** The commits of `ids` as the last sync left them, in their order; null when one of them is gone */
-export function findCommits(ids: readonly string[]): Commit[] | null {
-  return findCommitsIn(branchSyncStore.getState(), ids)
-}
-
 /**
  * The commits as the last sync left them, in their order; null when one of them is gone. A commit whose id a rewrite
  * changed since is found by what that rewrite kept, when exactly one commit of the table has it: a content rewrite (an
@@ -1051,15 +1025,6 @@ export function resolveCommits(commits: readonly Commit[]): Commit[] | null {
   const byMessage = uniqueBy(all, messageKey)
   const found = commits.map(commit => byId.get(commit.originalHash) ?? byContent.get(contentKey(commit)) ?? byMessage.get(messageKey(commit)) ?? undefined)
   return found.every(commit => commit !== undefined) ? found : null
-}
-
-/**
- * The commits a rewrite of `repositoryPath` acts on when its turn comes: as the last sync left them (`resolveCommits`)
- * while the table shows that repository, so a rewrite that waited in the queue sends the ids the rewrites before it
- * gave them; else, or when one of them is gone, by the ids they had
- */
-export function resolveCommitsOf<T extends Commit>(repositoryPath: string, commits: readonly T[]): readonly Commit[] {
-  return (isSelectedRepository(repositoryPath) ? resolveCommits(commits) : null) ?? commits
 }
 
 /** The commits by `key`; null for a key that two commits share, which finds none */
@@ -1104,11 +1069,6 @@ export function useBranch(name: string): Branch | undefined {
 /** The commit the local virtual branch points to; undefined before the sync created it. Not re-rendered by other changes of the branch. */
 export function useBranchTip(name: string): string | undefined {
   return useBranchSyncEntry("branches", name, branch => branch?.commits[0]?.hash)
-}
-
-/** The commit the remote branch points to; null when it is not on the remote or its status is not loaded yet */
-export function useBranchRemoteTip(name: string): string | null {
-  return useBranchSyncEntry("branches", name, branch => branch?.remoteStatus?.remoteTip ?? null)
 }
 
 /** The remote status of the branch, null until loaded; re-rendered only when a new status replaces it */
@@ -1392,15 +1352,6 @@ export function whenSynced(): Promise<void> {
       }
     })
   })
-}
-
-/**
- * `syncBranches` after a rewrite, telling `onStart` the run that serves it (`groupedRun` tells when the branches are its
- * own): an update waits for its own sync this way, and shows how far it is (`selectSyncFraction`)
- */
-export async function requestSync(onStart: (run: number) => void = () => {}): Promise<void> {
-  onStart(nextRunNumber())
-  await requestSessionSync("afterRewrite")
 }
 
 /**

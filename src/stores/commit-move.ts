@@ -122,10 +122,6 @@ export function useIsBranchSelected(name: string): boolean {
   return useStore(commitMoveStore, state => state.selectedBranches.includes(name))
 }
 
-export function useSelectedBranches(): readonly string[] {
-  return useStore(commitMoveStore, state => state.selectedBranches)
-}
-
 export function getSelectedBranches(): readonly string[] {
   return commitMoveStore.getState().selectedBranches
 }

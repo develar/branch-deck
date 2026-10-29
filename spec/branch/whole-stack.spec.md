@@ -277,7 +277,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   while it has work its remote lacks (the push step of `RestartRobot`, a running robot canceled first), only while the sync built it;
   cancel, the prompts, Patronus, its pull request. Once merged Safe Pushes landed every branch of the stack, its restart
   is refused, with or without the push, of a Dry Run too, with the reason its Safe Push Whole Stack says ("Landed in
-  master with deploy and side-test", `getStackLandedReason`), on every surface that lists the actions (the "⋯" of the
+  master with deploy and side-test", `reasons::stack_landed` of `domain_policy`), on every surface that lists the actions (the "⋯" of the
   island, "Whole Stack ›" of the menus of its branches); the header offers no step, and the landing overview lists the stack in
   master without its robot.
   [@test] ../../src/presenters/robot-actions.test.ts (`names what a restart of a robot of a branch changed since does: it cancels a running one, then pushes`)
@@ -345,7 +345,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   `stack:<root>`; its popover at the header's slot of the island, else at an anchor of the root's slot, also from the
   root's preview, which closes; its stack branch pushed first), else "Create Pull Request of the Stack…" (disabled
   with the reason while the sync didn't build the stack branch, `WholeStackView.forking.notBuilt`, and once every branch of the
-  stack landed, `getStackLandedReason`), Push with Children (the
+  stack landed, `reasons::stack_landed`), Push with Children (the
   island's; the root's menu has it beside its push), "Review Whole Stack" ([Branch Review](branch-review.spec.md#opening))
   and the actions of its robot. An open "⋯" of the island follows what the list reads: the pull requests that load
   after the sync change its items while it is open (`getStackIslandMenuNow`).

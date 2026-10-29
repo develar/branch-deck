@@ -6,7 +6,6 @@ import type {
   Fact,
   FactState,
   LandedPullRequest,
-  LandingRefusal,
   PatronusAvailability,
   PatronusPart,
   PatronusRobot,
@@ -26,7 +25,7 @@ import { closeLanded } from "@/lib/landed-closes"
 import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
-import { formatLandedWholeReason, formatMergedRobotTitle, formatPushMode, isHoldingRobot, isLandedWhole, isRobotActive } from "@/lib/patronus"
+import { formatMergedRobotTitle, formatPushMode, isHoldingRobot, isLandedWhole, isRobotActive } from "@/lib/patronus"
 import { withoutKeys } from "@/lib/record"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
@@ -37,7 +36,6 @@ import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { describeLandedCloses } from "@/presenters/news"
 import { recordRobotNews } from "@/stores/activity"
-import type { BranchSyncState } from "@/stores/branch-sync"
 import { branchSyncStore, getStackAncestors, structureIn, whenSynced } from "@/stores/branch-sync"
 import { getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
@@ -92,8 +90,6 @@ export interface RepositoryPatronus {
    * without an earlier view
    */
   readonly viewState: FactState
-  /** How the landing needs of the view stand (`PatronusPart.landingNeeds`): `loading` while Rust computes them */
-  readonly landingNeedsState: FactState
   /**
    * By robot id, the failed robots whose problems Patronus didn't give (`loadReviewProblems` failed), with why: why they
    * failed stays unknown, so the step of the branch offers no restart (`UnavailableFact`); asked again after the next
@@ -126,7 +122,6 @@ const EMPTY: RepositoryPatronus = {
   failing: {},
   view: null,
   viewState: { kind: "loading" },
-  landingNeedsState: { kind: "loading" },
   problemsFailed: {},
 }
 
@@ -350,15 +345,6 @@ export function getStackPushHold(root: string): PushHold | null {
 }
 
 /**
- * The nearest ancestor of a stacked branch whose robot lands it, or that a running robot of a side branch lands; never
- * the branch's own robot, which its Safe Push replaces: a Safe Push of the branch waits for it; null for a root and while
- * none runs
- */
-export function useLandingAncestor(branchName: string): LandingAncestor | null {
-  return useRepositoryFacts().ancestors.get(branchName) ?? null
-}
-
-/**
  * The branch built on this one, or the whole stack, whose running robot lands it: its row says so, and a Safe Push of
  * the branch waits for it; null while none runs
  */
@@ -394,11 +380,6 @@ export function useLandedBy(branchName: string): LandedBy | null {
   return useRepositoryFacts().landed.get(branchName) ?? null
 }
 
-/** Every branch a merged Safe Push landed (`useLandedBy`), branch → who landed it; the same map while none changes */
-export function useLandedBranches(): ReadonlyMap<string, LandedBy> {
-  return useRepositoryFacts().landed
-}
-
 /** Non-hook variant of `useLandedBy`, for menus built on open and the next step */
 export function getLandedBy(branchName: string): LandedBy | null {
   return currentFacts().landed.get(branchName) ?? null
@@ -411,23 +392,6 @@ export function getLandedBy(branchName: string): LandedBy | null {
  */
 export function getLandingBranchCount(branchName: string): number {
   return structureIn(branchSyncStore.getState(), branchName).ancestors.filter(ancestor => !isLandedWhole(getLandedBy(ancestor))).length + 1
-}
-
-/**
- * Why the whole stack of `root` has nothing left to push or land: merged Safe Pushes landed every branch of it whole
- * (`formatLandedWholeReason`), "Merged by Patronus" of its own robot, else "Landed in master with oauth and the whole
- * auth stack"; null while one of them is left, and for a stack that doesn't fork
- */
-export function getStackLandedReason(root: string): string | null {
-  return stackLandedIn(currentFacts().landed, branchSyncStore.getState(), root)
-}
-
-function stackLandedIn(landed: ReadonlyMap<string, LandedBy>, state: BranchSyncState, root: string): string | null {
-  const members = state.stackBranches[root]?.members ?? []
-  return formatLandedWholeReason(
-    members.map(name => landed.get(name)),
-    root,
-  )
 }
 
 const NO_BRANCH_LANDING: BranchLanding = { hold: null, start: null, dryRun: null, replaces: null, push: null }
@@ -509,8 +473,9 @@ export function useRepositoryViewCurrent(): boolean {
 
 /**
  * Resolves once the view of the session is of the robots, the remote branches and the table as the sync leaves them
- * (the session derives it again after a sync, a change of the robots and a push): a push and a start decide on its
- * holds after it. Nothing changed: at once; another repository selected meanwhile: at once
+ * (the session derives it again after a sync, a change of the robots and a push). Nothing changed: at once; another
+ * repository selected meanwhile: at once. A seam of the unit tests, which wait for the view they answered: a push and a
+ * start decide on the view in Rust
  */
 export async function whenRepositoryViewCurrent(): Promise<void> {
   await whenSynced()
@@ -530,36 +495,6 @@ export async function whenRepositoryViewCurrent(): Promise<void> {
       }
     })
   })
-}
-
-/**
- * What the Safe Push of the branch needs of a branch outside what it lands, as the session computes it after a sync
- * (`landingNeeds` of its view): the refusals the landing gate of its start would give, empty when it needs nothing;
- * null while unknown (not computed yet, or the computation failed), which is never "nothing"
- */
-export function useLandingNeeds(branchName: string): readonly LandingRefusal[] | null {
-  const key = useRepositoryKey()
-  return useStore(patronusStore, state => landingNeedsIn(state.repositories[key], branchName))
-}
-
-/** Non-hook variant of `useLandingNeeds`, for menus built on open and the next step */
-export function getLandingNeeds(branchName: string): readonly LandingRefusal[] | null {
-  return landingNeedsIn(currentRepository(), branchName)
-}
-
-function landingNeedsIn(repository: RepositoryPatronus | undefined, branchName: string): readonly LandingRefusal[] | null {
-  const needs = repository?.view?.branches[branchName]?.landingNeeds
-  return needs?.state === "known" ? needs.refusals : null
-}
-
-/**
- * Rust computes what the Safe Push of the branch needs now (the landing needs of the view `loading`, its needs
- * unknown): its step waits for the answer, a second or two after the view (`PendingFact` `landingNeeds`); a failed
- * computation waits for nothing
- */
-export function isLandingNeedsPending(branchName: string): boolean {
-  const repository = currentRepository()
-  return repository?.view != null && repository.landingNeedsState.kind === "loading" && landingNeedsIn(repository, branchName) === null
 }
 
 /**
@@ -680,12 +615,6 @@ export function useFailingRobots(): Readonly<Record<string, true>> {
 export function useRepositoryRobots(): Readonly<Record<string, PatronusRobot>> | undefined {
   const key = useRepositoryKey()
   return useStore(patronusStore, state => state.repositories[key]?.robots)
-}
-
-/** The GitHub repository the branches are reviewed in (see `RepositoryPatronus.githubRepository`) */
-export function usePatronusGitHubRepository(): string | null {
-  const key = useRepositoryKey()
-  return useStore(patronusStore, state => state.repositories[key]?.githubRepository ?? null)
 }
 
 /** Non-hook variant of `usePatronusGitHubRepository`, for menus built on open */
@@ -836,18 +765,6 @@ export function applySessionFacts(repositoryPath: string, view: RepositoryView, 
   }
 }
 
-/** The merge profiles of the selected repository (`PatronusState.profiles`); null before its session's first view */
-export function getStartProfiles(): Fact<PatronusStartOptions> | null {
-  const key = currentKey()
-  return key === null ? null : (patronusStore.getState().profiles[key] ?? null)
-}
-
-/** `getStartProfiles` for a component */
-export function useStartProfiles(): Fact<PatronusStartOptions> | null {
-  const key = repositoryKey(useSelectedProjectPath() ?? "", useEffectiveBranchPrefix())
-  return useStore(patronusStore, state => state.profiles[key] ?? null)
-}
-
 /**
  * Asks the session for the merge profiles when it has none, the last read failed, is a minute old or of another
  * baseline (`domain_policy::refresh::profiles_due`); resolves once they are in the store, at once when they are current
@@ -861,8 +778,8 @@ export async function askStartProfiles(): Promise<void> {
 
 /**
  * The Patronus view of the session of `repositoryPath` (`patronus` of its view): what the robots land, landed and hold
- * of the table, the robot of each row and the landing needs, as Rust derives them, with how they stand; the page only
- * stores them. The patch keeps every branch and stack it doesn't name as the same object, so a row that reads one
+ * of the table, the robot of each row and the landing needs, as Rust derives them, with how the view stands; the page
+ * only stores them. The patch keeps every branch and stack it doesn't name as the same object, so a row that reads one
  * doesn't render again. Nothing is stored for a session Patronus has not answered yet
  */
 function applyPatronusPart(repositoryPath: string, part: PatronusPart): void {
@@ -873,10 +790,10 @@ function applyPatronusPart(repositoryPath: string, part: PatronusPart): void {
   }
   const derived = part.state.kind !== "loading" && part.state.kind !== "unavailable"
   const view = derived ? part.view : null
-  if (entry !== undefined && entry.view === view && entry.viewState === part.state && entry.landingNeedsState === part.landingNeeds) {
+  if (entry !== undefined && entry.view === view && entry.viewState === part.state) {
     return
   }
-  update(key, () => ({ view, viewState: part.state, landingNeedsState: part.landingNeeds }))
+  update(key, () => ({ view, viewState: part.state }))
 }
 
 /**
@@ -1009,11 +926,6 @@ export function usePatronusAvailable(): boolean {
   })
 }
 
-/** What Patronus answered for the selected repository: whether it is on Space, logged in, failing; null before */
-export function getPatronusAvailability(): PatronusAvailability | null {
-  return currentRepository()?.availability ?? null
-}
-
 /** Non-hook variant of `usePatronusAvailable`, for menus built on open */
 export function isPatronusAvailable(): boolean {
   const key = currentKey()
@@ -1031,22 +943,9 @@ export function usePatronusOffered(): boolean {
 }
 
 /**
- * Patronus answered a list of the robots of the selected repository once: a failure after it (an error, offline) leaves
- * the steps on the robots it listed, as a failed refresh of GitHub keeps the last listing
- */
-export function hasPatronusListed(): boolean {
-  return currentRepository()?.listed ?? false
-}
-
-/**
  * Why Rust didn't derive the view of the robots of the selected repository, while no earlier view stands for it
  * (`unavailable`): what they hold, land and need is unknown, so no start is decided on "none"; null once a view is in
  */
-export function getPatronusViewFailure(): string | null {
-  return viewFailureIn(currentRepository())
-}
-
-/** `getPatronusViewFailure` of the selected repository, for a component */
 export function usePatronusViewFailure(): string | null {
   const key = useRepositoryKey()
   return useStore(patronusStore, state => viewFailureIn(state.repositories[key]))
@@ -1061,12 +960,6 @@ function viewFailureIn(entry: RepositoryPatronus | undefined): string | null {
 export function usePatronusPending(): boolean {
   const key = useRepositoryKey()
   return useStore(patronusStore, state => isPendingEntry(state.repositories[key]))
-}
-
-/** Patronus answered whether the selected repository is on Space: before that, nothing says how its branches land */
-export function isPatronusKnown(): boolean {
-  const key = currentKey()
-  return key !== null && patronusStore.getState().repositories[key]?.availability?.status !== undefined
 }
 
 /**
@@ -1100,17 +993,6 @@ export function watchRobot(robot: PatronusRobot, label: string): void {
   storeRobot(key, robot)
   update(key, entry => ({ watched: { ...entry.watched, [robot.id]: label } }))
   watchRobotInDemand(robot.id)
-}
-
-/**
- * Adds or replaces a robot the user just started, restarted or canceled, in the repository of `key` (by default the
- * selected one: a start that ran on after a switch stores its robot where it started); the command gave it to the
- * session too, which polls it while it runs
- */
-export function upsertPatronusRobot(robot: PatronusRobot, key: string | null = currentKey()): void {
-  if (key !== null) {
-    storeRobot(key, robot)
-  }
 }
 
 /** Forgets the data (tests) */

@@ -47,8 +47,3 @@ export function useCommitBodyBlocks(message: string): readonly CommitBodyBlock[]
   }, [message])
   return kept ?? (answered?.of === message ? answered.blocks : undefined)
 }
-
-/** Forgets the kept blocks (tests) */
-export function resetCommitBodyBlocks(): void {
-  blocksOf.clear()
-}

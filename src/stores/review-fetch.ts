@@ -128,10 +128,3 @@ function dropRangeOf(bases: readonly string[], head: string): void {
   dropFilesOf(ids)
   dropFileDiffsOf(ids)
 }
-
-/** Forgets every fetch (tests) */
-export function resetReviewFetches(): void {
-  latestKey = null
-  latestOp = null
-  reviewFetchStore.setState({ fetches: {} })
-}

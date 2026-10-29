@@ -610,7 +610,10 @@ The checklist:
   the one writer in Rust (`set_setting` → `SettingsService` of `crates/app-settings/`), applying every window's changes
   by version; no window and no Rust code writes `settings.json` beside it, and a rule on a setting (a default, the
   branch prefix) is Rust's ([Distributed Settings](docs/design/distributed-settings.md)). Debounce user inputs where
-  appropriate (`p-debounce`).
+  appropriate (`p-debounce`). An export of `src/stores` or `src/hooks` that no page code calls is deleted with the tests
+  of it alone; the seams of the unit tests stay, which no page code calls by design: `reset…` of a store (`resetPatronus`,
+  `resetPullRequests`, `resetReviewReadiness`, `resetReviewRequests`, `resetRobotDetails`: the state of its module
+  between tests) and `whenRepositoryViewCurrent` (a test waits for the view it answered).
 - **Base UI**: compose with the `render` prop (`<TooltipTrigger render={<Button />} />`), not `asChild`. Base UI emits
   `data-open`/`data-closed`; set `data-state` manually where E2E tests read it.
 - **shadcn workflow**: components are generated into `src/components/ui/` (`components.json`, style `base-rhea`). Run

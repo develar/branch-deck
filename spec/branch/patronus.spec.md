@@ -1532,7 +1532,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   the answer comes, and when the repository can't tell (it lacks the robot's commit: started on another machine,
   pruned), the stack as it is now holds, the number of commits not named. A push decides on its holds after the answer
   for the branches as the sync leaves them: the push of a branch alone on the view Rust derives of the robots it asked
-  for the push (`operations::push`), a stack push of the page on the view as it is now (`whenRepositoryViewCurrent`). Not looked for: a commit moved out of the robot's
+  for the push (`operations::push`), a push of a stack too (`push_plan`). Not looked for: a commit moved out of the robot's
   branch into a branch that is no ancestor of it, as the landing of a merged robot doesn't.
   [@test] ../../crates/repository-model/src/patronus_view_content_test.rs (`a_root_restacked_below_a_running_robot_is_told_by_content_once`)
   [@test] ../../src/stores/patronus.test.ts (`holds only the ancestors the view says the commit of a running Safe Push has, and counts their commits`)
@@ -1541,7 +1541,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_span_of_a_running_robot_after_a_restack`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has`)
   [@test] ../../src/presenters/reasons.test.ts (`says why a held branch offers no push: its own Safe Push, one that lands it with the commits it counts`, `says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
-  [@test] ../../src/lib/patronus.test.ts (`holds pushes with a running Safe Push only: a dry run or a cancel holds nothing`, `says why a group of branches has nothing left once every one of them landed whole: who landed them, in the order they merged`)
+  [@test] ../../src/lib/patronus.test.ts (`holds pushes with a running Safe Push only: a dry run or a cancel holds nothing`)
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_branch_is_held_by_what_landed_it_whole_then_its_own_safe_push_then_one_that_lands_it`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `a_dry_run_lands_nothing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`)
   [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not once the robot no longer runs`, `holds every branch the whole-stack Safe Push lands`, `holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them`)

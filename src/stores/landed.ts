@@ -117,11 +117,6 @@ export function useLandedIsland(): readonly LandedBranch[] {
   return useMemo(() => (hiddenUntil === 0 ? report : report.filter(branch => branch.landedAt > hiddenUntil)), [report, hiddenUntil])
 }
 
-/** Whether the undismissed report still has one of the commits: their chips show until Dismiss */
-export function useIsUndismissed(commitIds: ReadonlySet<string>): boolean {
-  return useOwnState(state => state.landed.some(branch => branch.commits.some(commit => commitIds.has(commit.id))), false)
-}
-
 /** What the fetched baseline already has, for the Update button */
 export function useLanding(): readonly LandedBranch[] {
   return useOwnState(state => state.landing, empty)

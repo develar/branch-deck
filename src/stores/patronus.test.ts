@@ -4,7 +4,6 @@ import type {
   FactState,
   GetRobotCommitMapParams,
   LandedPullRequest,
-  LandingRefusal,
   News,
   PatronusAvailability,
   PatronusPart,
@@ -27,15 +26,10 @@ import {
   getRobot,
   getLandedBy,
   getLandingBranchCount,
-  getLandingNeeds,
   getLandingSpan,
-  isLandingNeedsPending,
   getPushHold,
   getStackLanding,
-  getStackLandedReason,
   isPatronusPending,
-  getPatronusViewFailure,
-  hasPatronusListed,
   isRobotProblemsPending,
   patronusStore,
   resetPatronus,
@@ -261,7 +255,6 @@ vi.mock("@/stores/branch-sync", () => ({
   useStackBranch: () => undefined,
   useBranchSync: () => undefined,
   useBranchTip: () => undefined,
-  useBranchRemoteTip: () => null,
 }))
 
 function robot(patch: Partial<PatronusRobot> = {}): PatronusRobot {
@@ -617,7 +610,7 @@ describe("holds", () => {
     await answerView({ branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true) } })
     // the Safe Push of login landed auth and login: session is left, so is the stack branch, which carries it
     expect(getPushHold("auth")).toMatchObject({ kind: "landed", branch: "login" })
-    expect([getStackLandedReason("auth"), formatStackHold(getStackLanding("auth").hold)]).toEqual([null, null])
+    expect(formatStackHold(getStackLanding("auth").hold)).toBeNull()
 
     // session landed with its own: nothing of the stack is left
     patronus.list = available(login, robot({ id: "session-robot", branchName: "session", sourceRevision: "session-tip", status: "success", finishTime: 300 }))
@@ -629,7 +622,6 @@ describe("holds", () => {
       branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true), session: landedWhole(bySession, true) },
       stacks: { auth: stackFacts({ landing: { hold: stackLanded } }) },
     })
-    expect(getStackLandedReason("auth")).toBe("Landed in master with login and session")
     expect(formatStackHold(getStackLanding("auth").hold)).toBe("Landed in master with login and session: nothing of it is left to push")
   })
 
@@ -644,32 +636,6 @@ describe("holds", () => {
     await answerView({ branches: { login: branchFacts({ robotId: "ide" }) } })
     expect(getBranchRobot("login")).toBe(patronusStore.getState().repositories["/repo\nuser"]?.robots.ide)
     expect(getBranchRobot("auth")).toBeUndefined()
-  })
-
-  it("waits for the landing needs Rust computes after the view, unknown until then, and never for a computation that failed", async () => {
-    branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: null } }
-    patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-old" }))
-    patronus.landingNeeds = { kind: "loading" }
-    await list()
-    // not computed yet: unknown, never "nothing", and the step waits
-    expect([getLandingNeeds("auth"), isLandingNeedsPending("auth")]).toEqual([null, true])
-    const refusal: LandingRefusal = {
-      kind: "missingDeclaration",
-      branch: "auth",
-      identifier: "controlUrl",
-      file: "src/b/Use.kt",
-      line: 3,
-      usedBy: { id: "a2543083", subject: "Start with controlUrl", branch: "auth" },
-      declaredBy: { id: "ecebf000", subject: "Add controlUrl", branch: "util" },
-      fix: { kind: "restack", branch: "auth", onto: "util" },
-    }
-    patronus.landingNeeds = { kind: "fresh" }
-    await answerView({ branches: { auth: branchFacts({ landingNeeds: { state: "known", refusals: [refusal] } }) } })
-    expect([getLandingNeeds("auth"), isLandingNeedsPending("auth")]).toEqual([[refusal], false])
-    // a computation that failed for the inputs of the view leaves them unknown, and nothing waits
-    patronus.landingNeeds = { kind: "unavailable", reason: internalError("the trial failed") }
-    await answerView({})
-    expect([getLandingNeeds("auth"), isLandingNeedsPending("auth")]).toEqual([null, false])
   })
 
   it("keeps the facts of a branch as the same objects when a patch of the view changes only another branch", async () => {
@@ -970,23 +936,24 @@ describe("facts without an answer", () => {
     patronus.viewFailure = "the table is gone"
     await list()
     // no view ever derived: what the robots hold is unknown, which is no "none"
+    const entry = () => patronusStore.getState().repositories["/repo\nuser"]
     expect(isPatronusPending()).toBe(false)
-    expect(hasPatronusListed()).toBe(true)
-    expect(getPatronusViewFailure()).toBe("the table is gone")
+    expect(entry()?.listed).toBe(true)
+    expect(entry()?.viewState).toMatchObject({ kind: "unavailable", reason: { message: "the table is gone" } })
 
     // the session derives it again after the next answer of Patronus
     patronus.viewFailure = null
     await list()
-    expect(getPatronusViewFailure()).toBeNull()
-    const view = patronusStore.getState().repositories["/repo\nuser"]?.view
+    expect(entry()?.viewState.kind).toBe("fresh")
+    const view = entry()?.view
     expect(view).not.toBeNull()
 
     // a later failure keeps that view, stale: its holds and landing ancestors stay
     patronus.viewFailure = "the table is gone"
     patronus.list = available(robot({ id: "r2" }))
     await list()
-    expect(patronusStore.getState().repositories["/repo\nuser"]?.view).toBe(view)
-    expect(getPatronusViewFailure()).toBeNull()
+    expect(entry()?.view).toBe(view)
+    expect(entry()?.viewState.kind).toBe("stale")
   })
 
   it("waits for why a failed robot failed until its problems come, and no longer once Patronus didn't give them", async () => {

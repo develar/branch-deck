@@ -214,11 +214,6 @@ function askStartOptions(branchName: string): Promise<unknown> {
   return Promise.all([askStartProfiles(), readLastRobotProfile(branchName)])
 }
 
-/** Forgets the profiles of the robots read (tests) */
-export function resetStartOptions(): void {
-  profileReads.clear()
-}
-
 // ---- the read ----
 
 /** The start `request` asks of `branchName` (a branch, or the key of a whole stack) as the contract names it (`Land`) */

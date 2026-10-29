@@ -7,7 +7,6 @@ export const getRepositorySwitchReason = (path: string) => (path === "/repo" ? n
 export const getEffectiveBranchPrefix = () => "user"
 export const useSelectedProject = () => ({ path: "/repo" })
 export const useSelectedProjectPath = () => "/repo"
-export const useSelectedProjectField = () => undefined
 export const useSelectedRepositoryState = () => undefined
 export const useEffectiveBranchPrefix = () => "user"
 export const getFullBranchName = (name: string) => `user/virtual/${name}`

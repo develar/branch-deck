@@ -3,7 +3,6 @@ import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
 import type { ApiError } from "@/lib/bindings"
 import { getErrorDetails, notifyError } from "@/lib/errors"
-import { VcsRequestFactory } from "@/lib/git/vcs-request"
 import { repositoryName } from "@/lib/repository-config"
 import { getRecentProjects, setRecentProjects, useRecentProjects } from "@/stores/settings/repositorySettings"
 import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
@@ -110,11 +109,6 @@ export function useSelectedRepositoryState<K extends keyof RepositoryStateEntry>
   return useRepositoryStateField(useSelectedProjectPath(), field)
 }
 
-/** One field of the selected repository's metadata; re-renders only when it changes */
-export function useSelectedProjectField<K extends keyof ProjectMetadata>(field: K): ProjectMetadata[K] | undefined {
-  return useRecentProjects(projects => projects[0]?.[field])
-}
-
 // ---- the branch prefix and the session ----
 
 /**
@@ -171,8 +165,6 @@ export function getFullBranchName(branchName: string): string {
 export function getFullStackBranchName(root: string): string {
   return `${getEffectiveBranchPrefix()}/stack/${root}`
 }
-
-export const vcsRequestFactory = new VcsRequestFactory(() => getSelectedProject()?.path ?? "")
 
 // ---- actions ----
 

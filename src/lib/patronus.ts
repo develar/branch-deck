@@ -6,7 +6,6 @@ import { formatShortHash } from "@/lib/hash"
 import { shellWord } from "@/lib/prompt-text"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
-import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { formatWholeStack, formatWholeStackStart } from "@/lib/whole-stack"
 import type { RemoteStatus } from "@/stores/branch-sync"
@@ -348,24 +347,6 @@ export function formatLandedWith(landed: LandedBy): string | null {
  */
 export function formatLandedReason(landed: Pick<LandedBy, "branch" | "robot" | "wholeStack" | "own">): string {
   return landed.own === true ? "Merged by Patronus" : `Landed in ${landed.robot.targetBranch} with ${formatLandingSubject(landed)}`
-}
-
-/**
- * Why a group of branches has nothing left to push or land once merged Safe Pushes landed every one of them whole
- * (`isLandedWhole` of each; the whole stack of `root`, a branch and the branches built on it): "Merged by Patronus"
- * while the robot of the whole stack of `root` landed them all, else "Landed in master with oauth and the whole air
- * stack", each robot named once, in the order they merged. Null while one of them is left, and for no branch.
- */
-export function formatLandedWholeReason(landed: readonly (LandedBy | null | undefined)[], root: string): string | null {
-  if (landed.length === 0 || !landed.every(isLandedWhole)) {
-    return null
-  }
-  const all = landed as readonly LandedBy[]
-  if (all.every(it => it.wholeStack === true && it.branch === root)) {
-    return "Merged by Patronus"
-  }
-  const robots = [...new Map(all.map(it => [it.robot.id, it] as const)).values()].sort((a, b) => (a.robot.finishTime ?? 0) - (b.robot.finishTime ?? 0))
-  return `Landed in ${robots[0]!.robot.targetBranch} with ${joinNames([...new Set(robots.map(formatLandingSubject))])}`
 }
 
 /**

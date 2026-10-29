@@ -198,10 +198,6 @@ export function clearNewlyArchived(): void {
   }
 }
 
-export function updateFromIntegrationInfo(info: BranchIntegrationInfo): void {
-  updateFromIntegrationInfos([info])
-}
-
 /**
  * Applies the integration info of several branches in one store update, sorted once. The sync reports every archived
  * branch again (most from its cache): a record whose fields stay the same is kept, so its row does not re-render.

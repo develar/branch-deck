@@ -130,7 +130,7 @@ flowchart LR
    subject: `useBranch`, `useRowPart`) wakes only when its entry is another object, `useBranchSyncField(field, select)`
    (the operations of the session, the baseline) only when its field is, and `select` gets that part alone, so it
    reads nothing it is not woken for (`src/stores/branch-sync.ts`: one listener of the store compares the parts). The selected project is read by field
-   (`useSelectedProjectPath`, `useSelectedProjectField`); `useSelectedProject` re-renders on every change of the
+   (`useSelectedProjectPath`); `useSelectedProject` re-renders on every change of the
    metadata. A menu a component renders comes from a selector cached by the states of the stores its builder reads
    (`getBranchMenuNow` and `useBranchMenu`, `getStackIslandMenuNow` of the "⋯" of an island header, `menuSources`),
    or takes the state it marks as a parameter

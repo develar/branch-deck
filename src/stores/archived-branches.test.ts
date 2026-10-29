@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import {
-  archivedBranchesStore,
-  clearNewlyArchived,
-  settleArchivedPlaceholders,
-  updateFromArchivedNames,
-  updateFromIntegrationInfo,
-  updateFromIntegrationInfos,
-} from "@/stores/archived-branches"
+import { archivedBranchesStore, clearNewlyArchived, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 
 vi.mock("@/lib/bindings", () => ({ commands: {} }))
 vi.mock("@/stores/repository", async () => (await import("@/stores/test-store-mocks")).repositoryMock)
@@ -36,7 +29,7 @@ describe("archived branches", () => {
     const detected = "user/archived/2026-10-14/a"
     const failed = "user/archived/2026-10-14/b"
     updateFromArchivedNames([detected, failed], [])
-    updateFromIntegrationInfo({ name: detected, summary: "", status: { kind: "notIntegrated", totalCommitCount: 2, integratedCount: 0, orphanedCount: 2, integratedAt: null } })
+    updateFromIntegrationInfos([{ name: detected, summary: "", status: { kind: "notIntegrated", totalCommitCount: 2, integratedCount: 0, orphanedCount: 2, integratedAt: null } }])
 
     settleArchivedPlaceholders()
     const { branches } = archivedBranchesStore.getState()
@@ -44,7 +37,7 @@ describe("archived branches", () => {
     expect(branches[failed]?.type).toBe("unknown")
 
     // a later result still lands
-    updateFromIntegrationInfo({ name: failed, summary: "", status: { kind: "partial", missing: 1 } })
+    updateFromIntegrationInfos([{ name: failed, summary: "", status: { kind: "partial", missing: 1 } }])
     expect(archivedBranchesStore.getState().branches[failed]?.type).toBe("not-integrated")
   })
 
@@ -52,10 +45,10 @@ describe("archived branches", () => {
     const name = "user/archived/2026-10-14/a"
     updateFromArchivedNames([name], [name])
     const commit = { id: "0123456789abcdef", author: "Jane Doe", committer: "Safe Push Robot", time: 1_760_000_000 }
-    updateFromIntegrationInfo({ name, summary: "", status: { kind: "integrated", integratedAt: commit.time, confidence: "High", commitCount: 2, commit } })
+    updateFromIntegrationInfos([{ name, summary: "", status: { kind: "integrated", integratedAt: commit.time, confidence: "High", commitCount: 2, commit } }])
     expect(archivedBranchesStore.getState().branches[name]).toMatchObject({ type: "integrated", integratedAt: commit.time, integrationCommit: commit })
 
-    updateFromIntegrationInfo({ name, summary: "", status: { kind: "integrated", integratedAt: null, confidence: "High", commitCount: 2, commit: null } })
+    updateFromIntegrationInfos([{ name, summary: "", status: { kind: "integrated", integratedAt: null, confidence: "High", commitCount: 2, commit: null } }])
     expect(archivedBranchesStore.getState().branches[name]?.integrationCommit).toBeUndefined()
   })
 

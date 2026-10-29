@@ -193,8 +193,3 @@ export function setLandProgress(op: OperationId, progress: TransferProgress | nu
 export async function stopStart(op: OperationId): Promise<void> {
   await commands.cancelOperation({ op })
 }
-
-/** Forgets every ask and start (tests) */
-export function resetSafePush(): void {
-  safePushStore.setState({ ask: null, asking: {}, progress: {} })
-}

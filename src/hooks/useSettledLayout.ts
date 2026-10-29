@@ -112,8 +112,3 @@ export function useSettledStackLine(root: string): { linesRef: RefObject<HTMLDiv
 export function settledTracks(tracks: Partial<Record<ColumnKey, number>>): Record<string, number> {
   return Object.fromEntries(Object.entries(tracks).flatMap(([key, width]) => (width === undefined || width <= 0 ? [] : [[key, width]])))
 }
-
-/** Forgets which repositories settled (tests) */
-export function resetSettledLayout(): void {
-  settledStore.setState({}, true)
-}

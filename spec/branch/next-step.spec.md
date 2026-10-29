@@ -284,7 +284,6 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_1_prime_needs_a_branch_outside_what_the_safe_push_lands_and_keeps_the_start`)
   [@test] ../../src/presenters/next-step.test.ts (`row 1′: names the branch the build needs and runs the fix, or opens the Safe Push`)
   [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say on the row which branch its Safe Push needs before any press, and stack it on that branch from the slot`, `should stack the branch on the branch its Safe Push needs from the menu of a branch built on it`)
-  [@test] ../../src/stores/patronus.test.ts (`waits for the landing needs Rust computes after the view, unknown until then, and never for a computation that failed`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
   [@test] ../../crates/repository-model/src/facts_test.rs (`the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_branch_that_uses_a_name_of_a_branch_outside_it_needs_that_branch_and_so_does_a_branch_built_on_it`, `the_needs_of_a_branch_are_the_refusals_of_its_start`, `a_landed_declaration_is_needed_by_nobody`, `a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
@@ -310,8 +309,9 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   answer of the readiness of the branch as it is), never the step a later answer turns into another: an unknown pull
   request is no "no pull request", an unanswered readiness no "approved". A reason of the branch (row 1, a robot of a
   branch below, a block, a parked branch, an operation on the row) outranks it; so does a known landing need (row
-  1′). The landing needs are such a fact too (`isLandingNeedsPending`: the session's check after the sync hasn't
-  answered for the view the rows read, its `landingNeeds` `loading`; "Checking what JIRA-456 needs to land…"): measured
+  1′). The landing needs are such a fact too (`Needs::Computing` of `domain_policy::next_step`: the session's check
+  after the sync hasn't answered for the view the rows read, its `landingNeeds` `loading`; "Checking what JIRA-456
+  needs to land…"): measured
   on 2026-10-24, they come 0.2 s after the rows on the monorepo with a warm cache and 0.7 to 1.2 s cold (9 branches),
   0.1 to 0.2 s in the e2e fixtures, so the Safe Push waits for them as for the other facts instead of offering a start
   whose gate may refuse it after the press.
@@ -352,9 +352,9 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   command of the hint for a terminal ("Run ./safePush.cmd once to log in to Patronus: the command goes to the
   clipboard, for a terminal"); Patronus failing (`error`) before it listed the robots once makes it "Refresh
   Patronus", which asks it again; the GitHub mirror is unknown then too, so no start goes as if the repository were
-  only on Space. An error after a list leaves the steps on the robots it listed (`hasPatronusListed`), as a failed
+  only on Space. An error after a list leaves the steps on the robots it listed (`Stale`, `PatronusStanding`), as a failed
   refresh of GitHub keeps the last listing; the landing overview says the error. A view of the robots the session
-  couldn't derive while no earlier one stands for it (`unavailable`, `getPatronusViewFailure`) is no "nothing holds
+  couldn't derive while no earlier one stands for it (`unavailable`, the failure of `PatronusStanding`) is no "nothing holds
   it": "Refresh Patronus", "Patronus didn't tell what its robots hold and land (…)"; over an earlier view the steps
   stand on that one (`stale` with why), its holds, landing ancestors and needs stale until the next answer, and the
   session derives it again after the next answer of Patronus (the refresh asks one), a sync or a push, never by itself. Safe Push and Dry Run of "⋯" are disabled with the hint,

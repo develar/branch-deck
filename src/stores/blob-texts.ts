@@ -1,4 +1,3 @@
-import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { commands } from "@/lib/bindings"
 import type { BlobRequest, BlobText } from "@/lib/bindings"
@@ -22,10 +21,6 @@ export const MAX_BLOB_TEXT_LENGTH = 64 * 1024 * 1024
 export const BLOB_TEXT_BATCH = 64
 
 export const blobTextsStore = createStore<BlobTextsState>(() => ({ byId: new Map() }))
-
-export function useBlobText(id: string | null): BlobTextEntry | undefined {
-  return useStore(blobTextsStore, state => (id === null ? undefined : state.byId.get(id)))
-}
 
 /**
  * How urgent a read is: the texts of the files on screen go out at once; the texts nobody looks at yet (Find, the files

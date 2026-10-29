@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
-import type { LandedBy, RobotRestartAction, SafePushSlotInput } from "@/lib/patronus"
+import type { RobotRestartAction, SafePushSlotInput } from "@/lib/patronus"
 import {
   describeRobot,
   formatLandedReason,
-  formatLandedWholeReason,
   formatLandedWith,
   formatRobotSubject,
   formatMergedRobotTitle,
@@ -259,7 +258,7 @@ describe("getRowRobot", () => {
   })
 })
 
-describe("formatLandedWholeReason", () => {
+describe("formatLandedWith", () => {
   it("names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left", () => {
     const piece = robot({ id: "oauth", branchName: "oauth", status: "success", finishTime: 200 })
     const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", status: "success", finishTime: 300 })
@@ -271,22 +270,5 @@ describe("formatLandedWholeReason", () => {
     expect(formatLandedWith({ branch: "oauth", robot: piece, own: true, after: ["new"] })).toBe("Landed · 1 commit after it")
     expect(formatLandedReason({ branch: "oauth", robot: piece })).toBe("Landed in master with oauth")
     expect(formatLandedReason({ branch: "oauth", robot: piece, own: true })).toBe("Merged by Patronus")
-  })
-
-  it("says why a group of branches has nothing left once every one of them landed whole: who landed them, in the order they merged", () => {
-    const piece = robot({ id: "oauth", branchName: "oauth", status: "success", finishTime: 200 })
-    const side = robot({ id: "session", branchName: "session", status: "success", finishTime: 100 })
-    const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", status: "success", finishTime: 300 })
-    const by = (landing: PatronusRobot, branch: string, patch: Partial<LandedBy> = {}): LandedBy => ({ branch, robot: landing, after: [], ...patch })
-    // session merged first, then oauth: each named once, in that order
-    expect(formatLandedWholeReason([by(piece, "oauth"), by(piece, "oauth"), by(piece, "oauth", { own: true }), by(side, "session", { own: true })], "auth")).toBe(
-      "Landed in master with session and oauth",
-    )
-    // the robot of the whole stack alone: its own merge
-    expect(formatLandedWholeReason([by(whole, "auth", { wholeStack: true }), by(whole, "auth", { wholeStack: true })], "auth")).toBe("Merged by Patronus")
-    // a branch left, one with commits after the landed ones, or no branch: nothing to say
-    expect(formatLandedWholeReason([by(piece, "oauth"), undefined], "auth")).toBeNull()
-    expect(formatLandedWholeReason([by(piece, "oauth"), by(piece, "oauth", { after: ["new"] })], "auth")).toBeNull()
-    expect(formatLandedWholeReason([], "auth")).toBeNull()
   })
 })

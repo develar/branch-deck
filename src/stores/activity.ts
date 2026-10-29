@@ -11,7 +11,7 @@ import { describeRequestActivity } from "@/lib/review-requests"
 import { describeUpdateState } from "@/lib/update-state"
 import { isMainWindow, windowLabel } from "@/lib/window-label"
 import { presentActivity } from "@/presenters/activity"
-import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
+import { getSelectedProject } from "@/stores/repository"
 
 /*
  * Activity: what Branch Deck did in a repository, newest first, read from the journals (spec/repository/activity.spec.md).
@@ -430,11 +430,6 @@ export function useActivityOf(repositoryPath: string | undefined): readonly Acti
     useShallow((state: ActivityState) => selectActivity(state, repositoryPath)),
   )
   return entries.length === 0 ? noEntries : entries
-}
-
-/** The log of the selected repository, newest first */
-export function useActivity(): readonly ActivityEntry[] {
-  return useActivityOf(useSelectedProjectPath())
 }
 
 const noJournals: readonly string[] = []
