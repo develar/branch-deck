@@ -7,7 +7,7 @@ use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::land_intent;
 use domain_types::landing::PlannedEffect;
-use domain_types::operation::{EffectStatus, Fingerprint, Intent, OperationResult, OperationStep, Outcome, Resource, RunningOperation};
+use domain_types::operation::{EffectStatus, Fingerprint, Intent, OperationId, OperationResult, OperationStep, Outcome, Resource, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
 use domain_types::repository_view::PatronusView;
 use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind};
@@ -182,6 +182,43 @@ impl Fixture {
       .filter(|line| line.starts_with("branch-deck:"))
       .count()
   }
+
+  /// The rewrite whose Undo the view of the session offers now
+  async fn offered_undo(&self) -> Option<OperationId> {
+    self.registry.sessions().get_snapshot(&self.key).await.unwrap().undo
+  }
+}
+
+/// The session offers the Undo of the last rewrite of this process, on the head it left, in the view its outcome
+/// answers, which the toast of the window waits for: the next rewrite offers its own in its place, a commit of another
+/// process takes it back once a sync read it, and an undo leaves none
+#[tokio::test(flavor = "multi_thread")]
+async fn the_session_offers_the_undo_of_the_last_rewrite_while_head_is_the_head_it_left() {
+  let fixture = fixture(true).await;
+  assert_eq!(fixture.offered_undo().await, None, "no rewrite yet");
+  let beta = fixture.commit("(alpha/beta) Beta");
+  let moved = fixture.rewrite(&move_to(std::slice::from_ref(&beta), "gamma", &fixture.witness().await)).await.unwrap();
+  assert!(moved.version_after.is_some(), "{moved:?}");
+  assert_eq!(fixture.offered_undo().await.as_ref(), Some(&moved.op));
+
+  let alpha = fixture.commit("(alpha) Alpha");
+  let reworded = fixture.rewrite(&reword(&alpha, "(alpha) Alpha, reworded", &fixture.witness().await)).await.unwrap();
+  assert_eq!(
+    fixture.offered_undo().await.as_ref(),
+    Some(&reworded.op),
+    "the Undo of the second in the place of the first's"
+  );
+
+  // a commit of another process, which the sync of a focus reads
+  fixture.repo.create_commit("(delta) Delta", "delta.txt", "delta\n");
+  fixture.synced().await;
+  assert_eq!(fixture.offered_undo().await, None, "HEAD moved since the reword");
+
+  let delta = fixture.commit("(delta) Delta");
+  let moved = fixture.rewrite(&move_to(&[delta], "gamma", &fixture.witness().await)).await.unwrap();
+  assert_eq!(fixture.offered_undo().await.as_ref(), Some(&moved.op));
+  fixture.rewrite(&RewriteIntent::Undo { token: moved.undo.unwrap() }).await.unwrap();
+  assert_eq!(fixture.offered_undo().await, None, "an undo leaves nothing to undo");
 }
 
 /// Three clicks of Unstack of one branch (from two windows too) while the first waits for the lock another process

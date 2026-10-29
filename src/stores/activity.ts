@@ -53,9 +53,9 @@ export interface ActivityEntry {
   readonly details?: ActivityDetails
   /**
    * The Undo of a rewrite of this session: it works until `until` (ms), as the toast's; `undone` once the user undid it,
-   * from the toast or from Activity
+   * from the toast or from Activity; `withdrawn` once the session no longer offered it, HEAD moved since
    */
-  readonly undo?: { readonly until: number; readonly undone?: boolean }
+  readonly undo?: { readonly until: number; readonly undone?: boolean; readonly withdrawn?: boolean }
   /** The operation of the entry: the id of its lines in the app's log (an error a command named, an operation of the remote) */
   readonly operationId?: string
   /** The operation of an agent: its worktree is a slot of the lease pool of the repository */
@@ -66,6 +66,8 @@ export interface ActivityEntry {
 export interface UndoState {
   readonly until: number
   readonly undone: boolean
+  /** The session no longer offers it: HEAD moved since (another rewrite or an undo, a commit, an update, a rewrite of `bd`) */
+  readonly withdrawn: boolean
 }
 
 interface ActivityState {
@@ -89,7 +91,7 @@ let gitHubRepository: GitHubRepository | null = null
 export function withUndo(entries: readonly ActivityEntry[], undo: Readonly<Record<string, UndoState>>): ActivityEntry[] {
   return entries.map(entry => {
     const state = undo[entry.id]
-    return state === undefined ? entry : { ...entry, undo: { until: state.until, ...(state.undone && { undone: true }) } }
+    return state === undefined ? entry : { ...entry, undo: { until: state.until, ...(state.undone && { undone: true }), ...(state.withdrawn && { withdrawn: true }) } }
   })
 }
 
@@ -207,15 +209,27 @@ export async function recordActivity(repositoryPath: string, input: PageInput): 
 /** The undo functions of this session's rewrites, by entry id, while their window lasts */
 const undoActions = new Map<string, () => void>()
 
+/** The Undo of a rewrite `recordRewrite` recorded */
+export interface RecordedRewrite {
+  /** Runs the undo: whichever Undo comes first, the toast's or the one in Activity; a second one while it runs joins it */
+  readonly undo: () => void
+  /**
+   * The session no longer offers the Undo (HEAD moved since): it goes from the entry, as after its window, and runs no
+   * more; nothing while it runs, whose end decides
+   */
+  readonly withdraw: () => void
+}
+
 /**
  * A history rewrite of `repositoryPath` with an Undo (squash, fixups, move, rename, stack, unstack, ungroup). Returns
- * the undo to run from the toast: whichever Undo comes first, the toast's or the one in Activity, runs `undo`, and a
- * second one while it runs joins it. `undo` resolves to whether it undid the rewrite: only then is the entry marked
- * undone and its Undo gone; an undo that failed (an error toast said why) is offered again, in its window.
+ * its Undo, which the toast runs and withdraws: whichever Undo comes first, the toast's or the one in Activity, runs
+ * `undo`, and a second one while it runs joins it. `undo` resolves to whether it undid the rewrite: only then is the
+ * entry marked undone and its Undo gone; an undo that failed (an error toast said why) is offered again, in its window,
+ * until it is withdrawn.
  */
-export function recordRewrite(repositoryPath: string, title: string, undo: () => Promise<boolean>, description?: string, operationId?: string): () => void {
+export function recordRewrite(repositoryPath: string, title: string, undo: () => Promise<boolean>, description?: string, operationId?: string): RecordedRewrite {
   const until = Date.now() + UNDO_WINDOW_MS
-  let state: "offered" | "running" | "done" = "offered"
+  let state: "offered" | "running" | "done" | "withdrawn" = "offered"
   let entryId: string | null = null
   const run = () => {
     if (state !== "offered") {
@@ -231,7 +245,17 @@ export function recordRewrite(repositoryPath: string, title: string, undo: () =>
     state = undone ? "done" : "offered"
     if (undone && entryId !== null) {
       undoActions.delete(entryId)
-      setUndo(entryId, { until, undone: true })
+      setUndo(entryId, { until, undone: true, withdrawn: false })
+    }
+  }
+  const withdraw = () => {
+    if (state !== "offered") {
+      return
+    }
+    state = "withdrawn"
+    if (entryId !== null) {
+      undoActions.delete(entryId)
+      setUndo(entryId, { until, undone: false, withdrawn: true })
     }
   }
   void recordActivity(repositoryPath, { kind: "rewrite", title, description, operationId }).then(id => {
@@ -239,15 +263,15 @@ export function recordRewrite(repositoryPath: string, title: string, undo: () =>
       return
     }
     entryId = id
-    if (state === "done") {
-      setUndo(id, { until, undone: true })
+    if (state === "done" || state === "withdrawn") {
+      setUndo(id, { until, undone: state === "done", withdrawn: state === "withdrawn" })
       return
     }
     undoActions.set(id, run)
-    setUndo(id, { until, undone: false })
+    setUndo(id, { until, undone: false, withdrawn: false })
     setTimeout(() => undoActions.delete(id), Math.max(0, until - Date.now()))
   })
-  return run
+  return { undo: run, withdraw }
 }
 
 /**
@@ -255,7 +279,12 @@ export function recordRewrite(repositoryPath: string, title: string, undo: () =>
  * the undo itself, asks the main window, which checks `canUndoActivity`
  */
 export function isUndoOpen(entry: ActivityEntry, now: number = Date.now()): boolean {
-  return entry.undo !== undefined && entry.undo.undone !== true && now < entry.undo.until
+  return entry.undo !== undefined && entry.undo.undone !== true && entry.undo.withdrawn !== true && now < entry.undo.until
+}
+
+/** Why the Undo of the entry no longer works, for the refusal of a press that came late: HEAD moved, or its window passed */
+export function undoGoneReason(entry: ActivityEntry | undefined): string {
+  return entry?.undo?.withdrawn === true ? "the branch moved since" : "its time ran out"
 }
 
 /** Whether the Undo of the entry still works: in its window, not used yet, in the session that did the rewrite */

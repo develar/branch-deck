@@ -83,6 +83,8 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     actions,
     attention,
     operations,
+    // null: the session offers no Undo now
+    undo: changes.undo === undefined ? view.undo : changes.undo,
     sections: {
       unassigned: changes.unassigned ?? sections.unassigned,
       unapplied: changes.unapplied ?? sections.unapplied,

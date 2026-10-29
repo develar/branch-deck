@@ -244,7 +244,8 @@ indicator could cancel a robot but not restart it.
 - A success or info toast of nothing that follows: `showToast({ title, description, action })` from
   `src/lib/toast-message.ts` (`type: "info"` for a precondition), or `toast.add` from `@/components/ui/toast` for a
   custom one (a loading toast, a custom body).
-- A history rewrite with an Undo: `showUndoToast(title, undo)` from `src/lib/undo-toast.ts`.
+- A history rewrite with an Undo: `showUndoToast(title, undo)` from `src/lib/undo-toast.ts`, whose Undo lasts while the
+  session offers it (`RepositoryView.undo`).
 - A rewrite (a regroup, a squash, a reword, an amend, an unapply, a reapply, a pick, a delete, an undo):
   `runRewriteIntent(spec, rewrite, failureTitle)` from `src/lib/rewrite-run.ts` (the rewrite of the engine), its toast
   with Undo after the sync, or of what it did after the patch of a delete.

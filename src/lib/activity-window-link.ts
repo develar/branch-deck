@@ -6,7 +6,7 @@ import { dismissLanded } from "@/lib/landed-run"
 import { formatPushMode } from "@/lib/patronus"
 import { repositoryName } from "@/lib/repository-config"
 import { createWindowLink } from "@/lib/sub-window-link"
-import { activityStore, canUndoActivity, clearActivity, selectActivity, undoActivity } from "@/stores/activity"
+import { activityStore, canUndoActivity, clearActivity, selectActivity, undoActivity, undoGoneReason } from "@/stores/activity"
 import type { ActivityEntry } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -132,7 +132,7 @@ export const runActivityRequest = link.serve<ActivityWindowRequest, ActivityWind
   if ("undo" in request) {
     const entry = activityStore.getState().items.find(it => it.id === request.undo)
     if (entry === undefined || !canUndoActivity(entry)) {
-      return refuse(`Cannot undo ${entry?.title ?? "the change"}`, "its time ran out")
+      return refuse(`Cannot undo ${entry?.title ?? "the change"}`, undoGoneReason(entry))
     }
     undoActivity(entry)
     return true

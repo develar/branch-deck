@@ -11,7 +11,7 @@ import type { ActivityWindowState } from "@/lib/activity-window"
 import { buildActivityState, subscribeActivityState } from "@/lib/activity-window-link"
 import { notifyError } from "@/lib/errors"
 import { dismissLanded } from "@/lib/landed-run"
-import { canUndoActivity, undoActivity, useActivityOf, useUnavailableJournals } from "@/stores/activity"
+import { canUndoActivity, undoActivity, undoGoneReason, useActivityOf, useUnavailableJournals } from "@/stores/activity"
 import { closeActivityPanel, useActivityPanelOpen } from "@/stores/activity-panel"
 import { requestReveal } from "@/stores/commit-move"
 import { getSelectedProject } from "@/stores/repository"
@@ -82,7 +82,7 @@ export function ActivityPanel() {
       if (canUndoActivity(entry)) {
         undoActivity(entry)
       } else {
-        notifyError(`Cannot undo ${entry.title}`, "its time ran out")
+        notifyError(`Cannot undo ${entry.title}`, undoGoneReason(entry))
       }
     },
     onDismiss: () => void dismissLanded(repositoryPath),

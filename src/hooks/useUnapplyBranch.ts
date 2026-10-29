@@ -42,7 +42,7 @@ export async function unapplyBranch(branch: Branch, options: UnapplyOptions = {}
     `Unapplied ${branch.name}`,
     () => undoUnapply(repositoryPath, branch.name, undo),
     `Removed ${formatCommitCount(answer.commitsRemoved.length)} from HEAD · kept in ${answer.unappliedBranchName}`,
-    done.outcome.op,
+    done.outcome,
   )
   return true
 }

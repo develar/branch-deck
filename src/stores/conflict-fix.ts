@@ -155,7 +155,7 @@ export async function applyConflictFix(component: FixComponent): Promise<void> {
     void requestConflictFix(true)
     return
   }
-  showUndoToast(repositoryPath, fixTitle(component), () => undoRegroup(repositoryPath, token, "Cannot undo the fix", "Undoing the fix"), description, done.outcome.op)
+  showUndoToast(repositoryPath, fixTitle(component), () => undoRegroup(repositoryPath, token, "Cannot undo the fix", "Undoing the fix"), description, done.outcome)
 }
 
 /** Reveals the first branch `component` fills with the commits it moved there, as the regroup `moved` reports them */

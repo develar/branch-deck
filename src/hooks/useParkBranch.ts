@@ -75,7 +75,7 @@ function parkedOf(done: RewriteDone | null): ParkResult | null {
  */
 function offerUndo(repositoryPath: string, title: string, rewrite: RewriteIntent, done: RewriteDone): void {
   const { phrase } = presentRewrite(rewrite)
-  showUndoToast(repositoryPath, title, () => undoRegroup(repositoryPath, done.undo?.token, `Cannot undo ${phrase}`, `Undoing ${phrase}`), undefined, done.outcome.op)
+  showUndoToast(repositoryPath, title, () => undoRegroup(repositoryPath, done.undo?.token, `Cannot undo ${phrase}`, `Undoing ${phrase}`), undefined, done.outcome)
 }
 
 function parkSpec(repositoryPath: string, options: ParkOptions): RewriteRunSpec {

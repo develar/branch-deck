@@ -43,7 +43,7 @@ export function showSquashedToast(repositoryPath: string, title: string, done: R
     showToast({ title })
     return
   }
-  showUndoToast(repositoryPath, title, () => undoSquash(repositoryPath, token), undefined, done.outcome.op)
+  showUndoToast(repositoryPath, title, () => undoSquash(repositoryPath, token), undefined, done.outcome)
 }
 
 /** The Undo of a squash in `repositoryPath`, the repository it was made in: a rewrite of its own, queued as any */

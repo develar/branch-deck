@@ -39,6 +39,7 @@ import type {
   FactRefreshReason,
   News,
   NextStepView,
+  Outcome,
   RepositoryView,
   StackBranchUpdate,
   SyncAnswer,
@@ -143,6 +144,36 @@ function notifyViewListeners(): void {
 /** The repository of the session the window holds; null without one */
 export function sessionRepositoryPath(): string | null {
   return session?.repositoryPath ?? null
+}
+
+/**
+ * Calls `withdrawn` once the session of `repositoryPath` no longer offers the Undo of the rewrite that ended with
+ * `outcome` (`RepositoryView.undo`: of the last rewrite of this process with an Undo, while HEAD is still the head it
+ * left), looking after every change of the view; returns the stop. The view has the offer from the version the outcome
+ * answered (`versionAfter`), which the window reached before it showed the outcome; one without it (a request that
+ * joined the rewrite) waits until the view showed the offer. A view of another repository says nothing of it: the
+ * undo's token moves each ref back with compare-and-swap
+ */
+export function followUndo(repositoryPath: string, outcome: Pick<Outcome, "op" | "versionAfter">, withdrawn: () => void): () => void {
+  let offered = outcome.versionAfter !== null
+  const stop = () => {
+    viewListeners.delete(check)
+  }
+  const check = () => {
+    const view = session?.repositoryPath === repositoryPath ? session.view : null
+    if (view === null) {
+      return
+    }
+    if (view.undo === outcome.op) {
+      offered = true
+    } else if (offered) {
+      stop()
+      withdrawn()
+    }
+  }
+  viewListeners.add(check)
+  check()
+  return stop
 }
 
 /** The table of a view before its first grouping: no HEAD, no stores */
@@ -648,8 +679,8 @@ function changesTable(previous: RepositoryView | null, changes: TableChanges | n
   if (changes === null) {
     return true
   }
-  // the operations that run are no part of the table
-  const { sync: _sync, branches, operations: _operations, removedOperations: _removedOperations, ...parts } = changes
+  // the operations that run and the Undo the session offers are no part of the table
+  const { sync: _sync, branches, operations: _operations, removedOperations: _removedOperations, undo: _undo, ...parts } = changes
   if (Object.values(parts).some(part => !isEmptyPart(part))) {
     return true
   }

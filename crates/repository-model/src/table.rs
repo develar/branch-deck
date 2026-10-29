@@ -30,7 +30,11 @@
 //! repository (`Origin::OtherProcess`, an agent's `bd safe-push`), as the operations registry of the repository has them
 //! (`operations::registry_watch`): each read of it replaces them all (`OperationPatch::Foreign`), and the ones of this
 //! process stay as they are. It keeps the rewrites of this process that moved HEAD too (`rewrites`, `RewriteLink`), which a
-//! rewrite asked on the table before one of them names its commits through (`operations::rewrite`).
+//! rewrite asked on the table before one of them names its commits through (`operations::rewrite`), and the Undo it
+//! offers (`undo`, the `undo` part of the view): of the last rewrite of this process that has one, while HEAD is still
+//! the head it left. A rewrite of this process that moves HEAD elsewhere, an undo, or a run of a sync that started after
+//! the offer and read another HEAD (a commit, an update, a rewrite of `bd`) takes it back; a run that started before it
+//! read HEAD before the rewrite moved it, and says nothing of it.
 
 use crate::derive;
 use crate::facts::{Seq, Sequence};
@@ -101,6 +105,19 @@ pub struct TableState {
   /// (`record_rewrite`): a rewrite asked on the table before one of them names its commits through them
   /// (`operations::rewrite`); no part of the table either
   rewrites: Vec<RewriteLink>,
+  /// The Undo the session offers (`offer_undo`); no part of the table either, so no sync restores one
+  undo: Option<UndoOffer>,
+}
+
+/// The Undo of a rewrite of this process that the session offers (`TableState::offer_undo`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UndoOffer {
+  /// The operation of the rewrite, which its outcome names
+  op: OperationId,
+  /// HEAD as the rewrite left it
+  head: String,
+  /// The number of the offer, from the counter of the runs: a run numbered before it read HEAD before the rewrite moved it
+  since: Seq,
 }
 
 /// How many rewrites that moved HEAD a session keeps (`TableState::rewrites`)
@@ -278,12 +295,40 @@ impl TableState {
     &self.rewrites
   }
 
-  /// A rewrite of this process moved HEAD as `link` says: the oldest one beyond `REWRITE_LINKS` is forgotten
+  /// A rewrite of this process moved HEAD as `link` says: the oldest one beyond `REWRITE_LINKS` is forgotten, and the
+  /// Undo of a rewrite that left HEAD elsewhere is no longer offered
   pub fn record_rewrite(&mut self, link: RewriteLink) {
+    self.saw_head(&link.to);
     if self.rewrites.len() == REWRITE_LINKS {
       self.rewrites.remove(0);
     }
     self.rewrites.push(link);
+  }
+
+  /// The rewrite `op` of this process left HEAD at `head` and has an undo (`Outcome::undo`): the session offers its Undo
+  /// in the place of the one it offered before, until HEAD moves away from `head`
+  pub fn offer_undo(&mut self, op: OperationId, head: String) {
+    let since = self.sequence.next();
+    self.undo = Some(UndoOffer { op, head, since });
+  }
+
+  /// An undo of this process ran: there is nothing to undo after it
+  pub fn withdraw_undo(&mut self) {
+    self.undo = None;
+  }
+
+  /// The rewrite whose Undo the session offers (the `undo` part of the view)
+  #[must_use]
+  pub fn offered_undo(&self) -> Option<&OperationId> {
+    self.undo.as_ref().map(|offer| &offer.op)
+  }
+
+  /// HEAD is at `head`, as a rewrite of this process left it or a run that started after the offer read it: the Undo of
+  /// a rewrite that left HEAD elsewhere is no longer offered
+  fn saw_head(&mut self, head: &str) {
+    if self.undo.as_ref().is_some_and(|offer| offer.head != head) {
+      self.undo = None;
+    }
   }
 
   /// The names of the branches in the order of the table
@@ -413,6 +458,9 @@ impl TableState {
         review_experimental,
       } => {
         self.set_step(SyncStep::Building);
+        if self.undo.as_ref().is_some_and(|offer| offer.since < self.run) {
+          self.saw_head(&head);
+        }
         let header = &mut self.parts.header;
         header.landing = *landing;
         header.baseline_branch = baseline_branch;

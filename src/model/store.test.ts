@@ -7,7 +7,17 @@ import type { AuthStatus, Fact, RunningOperation, StackBranchUpdate, TableChange
 import { toRemoteStatus } from "@/lib/remote-status"
 import { resetDemand } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
-import { adoptCachedModel, closeSession, openSession, requestSessionSync, resubscribeSession, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
+import {
+  adoptCachedModel,
+  closeSession,
+  followUndo,
+  openSession,
+  requestSessionSync,
+  resubscribeSession,
+  setSessionWindowFocus,
+  whenSessionReady,
+  whenSessionViewAt,
+} from "@/model/store"
 import { authStore } from "@/stores/auth"
 import { branchSyncStore, getBranch, getStackBranch, whenSynced } from "@/stores/branch-sync"
 import { emptyView, fakeCommit, fakeHead, fakeRemoteStatus, fakeSessions, grouping, OCTOCAT_AUTH } from "@/test-support/fake-sessions"
@@ -189,6 +199,38 @@ describe("the view of the session", () => {
     expect(fakeSessions.subscriptions.map(it => it.repositoryPath)).toEqual(["/other"])
     fakeSessions.send("/repo", grouping("a", "b"))
     expect(branchSyncStore.getState().branchOrder).toEqual([])
+  })
+
+  it("follows the Undo the session offers of a rewrite: withdrawn once a patch takes it back, by no view of another repository", async () => {
+    await open()
+    const shown = await send({ undo: "op1" })
+    // the outcome of the rewrite answered the version of the view that has its offer
+    const withdrawn = vi.fn()
+    const stop = followUndo("/repo", { op: "op1", versionAfter: shown }, withdrawn)
+    await send(grouping("a"))
+    expect(withdrawn).not.toHaveBeenCalled()
+    // the next rewrite offers its own: the first one's goes, once
+    await send({ undo: "op2" })
+    expect(withdrawn).toHaveBeenCalledTimes(1)
+    await send({ undo: null })
+    expect(withdrawn).toHaveBeenCalledTimes(1)
+    stop()
+
+    // an outcome without that version (a request that joined the rewrite) waits until the view showed its offer
+    const joined = vi.fn()
+    followUndo("/repo", { op: "op3", versionAfter: null }, joined)
+    await send(grouping("a", "b"))
+    expect(joined).not.toHaveBeenCalled()
+    await send({ undo: "op3" })
+    expect(joined).not.toHaveBeenCalled()
+    await send({ undo: null })
+    expect(joined).toHaveBeenCalledTimes(1)
+
+    // the view of another repository says nothing of it
+    const elsewhere = vi.fn()
+    followUndo("/elsewhere", { op: "op9", versionAfter: shown }, elsewhere)
+    await send({ undo: "op4" })
+    expect(elsewhere).not.toHaveBeenCalled()
   })
 
   it("keeps the subscription of a second window independent of the first's: its own view, its own count of the runs", async () => {
