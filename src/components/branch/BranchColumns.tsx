@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { saveSettledLayout, settledTracks, useLayoutSettled, useSettledLayout } from "@/hooks/useSettledLayout"
 import type { BranchTrack, BranchTrackGroup } from "@/lib/branch-columns"
 import { ColumnRegistry, TRACK_CONTENT_CLASS, TRACK_ITEM_CLASS } from "@/lib/branch-columns"
+import { useBranchSync } from "@/stores/branch-sync"
 import { useSelectedProjectPath } from "@/stores/repository"
 
 const ColumnRegistryContext = createContext<ColumnRegistry | null>(null)
@@ -12,7 +13,8 @@ const ColumnRegistryContext = createContext<ColumnRegistry | null>(null)
  * The branch view: the table and its stack islands, one card after the other, whose columns line up
  * (`ColumnRegistry`): the widths of the tracks are CSS variables of this element. Until the facts of the remote are in,
  * the tracks are at least as wide as once they were in the last time (`useSettledLayout`); then the view keeps its
- * widths for the next start. `data-wide` while the view has the room for the words of a row (`WIDE_REM`)
+ * widths for the next start. A running sync moves no column: while it runs a track only widens. `data-wide` while the
+ * view has the room for the words of a row (`WIDE_REM`)
  */
 export function BranchColumnsRoot({ children }: { children: ReactNode }) {
   const [registry] = useState(() => new ColumnRegistry())
@@ -33,15 +35,16 @@ export function BranchColumnsRoot({ children }: { children: ReactNode }) {
   )
 }
 
-/** The floors of the tracks while the facts of the remote come, and what they settle at once they are in */
+/** The floors of the tracks while the facts of the remote come, the hold while a sync runs, and what they settle at */
 function useSettledColumns(registry: ColumnRegistry): void {
   const path = useSelectedProjectPath()
   const settled = useLayoutSettled()
+  const syncing = useBranchSync(state => state.isSyncing)
   const floors = useSettledLayout()?.tracks ?? null
-  // before the first paint: the first frame stands where the settled one will
+  // before the first paint: the first frame stands where the settled one will, the end of a run where the run did
   useLayoutEffect(() => {
-    registry.setFloors(settled ? null : floors)
-  }, [registry, settled, floors])
+    registry.setLayout(settled ? null : floors, syncing)
+  }, [registry, settled, floors, syncing])
   useEffect(() => {
     if (!settled || path === undefined) {
       return

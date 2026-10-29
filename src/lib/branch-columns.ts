@@ -65,16 +65,20 @@ type Key = ColumnKey
 
 /**
  * The widths of the tracks of one branch view, written as CSS variables on its root; while the facts of a start are not
- * all in, at least the widths the view had once they were in the last time (`setFloors`), so a late answer that fills a
- * track the way it did before moves no column. The root itself is measured too: `data-wide` while it is at least
- * `WIDE_REM` wide, changed only when its width crosses that, so a resize inside either side restyles nothing
+ * all in, at least the widths the view had once they were in the last time (the floors of `setLayout`), so a late
+ * answer that fills a track the way it did before moves no column; while a sync runs a track only widens (`held`), as a
+ * write restyles every row of the view. The root itself is measured too: `data-wide` while it is at least `WIDE_REM`
+ * wide, changed only when its width crosses that, so a resize inside either side restyles nothing
  */
 export class ColumnRegistry {
   private readonly items = new Map<Element, { key: Key; width: number }>()
   private readonly written = new Map<string, string>()
+  /** The width of each track as the root has it now, what a held track is at least */
+  private shown: ReadonlyMap<Key, number> = new Map()
   private root: HTMLElement | null = null
   private scheduled = false
   private floors: Readonly<Partial<Record<Key, number>>> | null = null
+  private held = false
   private wide: boolean | null = null
   private readonly observer: ResizeObserver | null =
     typeof ResizeObserver === "undefined"
@@ -105,6 +109,7 @@ export class ColumnRegistry {
     }
     this.root = root
     this.written.clear()
+    this.shown = new Map()
     this.wide = null
     // its first report comes before the first paint, as the items' do: the first frame has the words where they fit
     // (the content box, as a container query compares)
@@ -115,21 +120,25 @@ export class ColumnRegistry {
   }
 
   /**
-   * The least width of each track from now on, null for none: the settled layout of the last start (`useSettledLayout`).
-   * The floors go once the content that settles the view is in, in the commit that renders it: its widths are read from
-   * the items as laid out then, not from the observer, whose report of that content comes a frame later, so the drop
-   * moves no item for a frame
+   * How the tracks follow their content from now on. `floors`: the least width of each track, null for none, the
+   * settled layout of the last start (`useSettledLayout`). `held`: a track only widens, never narrower than the root
+   * has it, while a sync runs, as the texts of a run ("syncing 3/7…") change the widths of the items, and each width
+   * written restyles every row of the view. As the floors go or the hold ends, the view follows its content once, in
+   * the commit that renders what ends them: the widths are read from the items as laid out then, not from the observer,
+   * whose report of that content comes a frame later, so the drop moves no item for a frame
    */
-  setFloors(floors: Readonly<Partial<Record<Key, number>>> | null): void {
-    if (this.floors !== floors) {
-      if (floors === null) {
-        for (const [element, item] of this.items) {
-          item.width = element.getBoundingClientRect().width
-        }
-      }
-      this.floors = floors
-      this.write()
+  setLayout(floors: Readonly<Partial<Record<Key, number>>> | null, held: boolean): void {
+    if (this.floors === floors && this.held === held) {
+      return
     }
+    if ((this.floors !== null && floors === null) || (this.held && !held)) {
+      for (const [element, item] of this.items) {
+        item.width = element.getBoundingClientRect().width
+      }
+    }
+    this.floors = floors
+    this.held = held
+    this.write()
   }
 
   /**
@@ -187,6 +196,17 @@ export class ColumnRegistry {
     for (const { key, width } of this.items.values()) {
       widths.set(key, Math.max(widths.get(key) ?? 0, width))
     }
+    if (this.held) {
+      for (const [key, width] of this.shown) {
+        widths.set(key, Math.max(widths.get(key) ?? 0, width))
+      }
+    }
+    // nothing measured yet (the items of the first commit, before the observer's first report, which comes before the
+    // first paint): a track without its variable is as wide as 0px, and the zeros would restyle every row for none
+    if (this.written.size === 0 && ![...widths.values()].some(width => width > 0)) {
+      return
+    }
+    this.shown = widths
     for (const track of BRANCH_TRACKS) {
       const width = widths.get(track) ?? 0
       this.set(root, `--bd-track-${track}`, `${width}px`)

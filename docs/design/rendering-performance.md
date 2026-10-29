@@ -424,6 +424,45 @@ records, `branchOf` of 141 branches), the selectors over the whole store that ea
 indicator, `getLandingUnitsNow`; Push with Children of each row, `useUnpushedChildren`; the counts of the filter chips)
 and the 141 statuses (`PERF_PROFILE=1` writes the profile of a resync beside that of the first sync).
 
+Since s15-5 the column registry writes the widths of the columns less often. The first sync had cost more task time than
+the tree of s0a while its script was less (784 / 769 ms against 616 / 646 ms in [Итог
+s14](rust-domain-authority.md#итог-s14)): the mock of s0a sent the events of a sync at its end, so its page rendered the
+rows once, and this one renders the progress of the run, 40 to 70 patches. A trace of the first sync in each tree
+(Chromium, the events of the page summed by name, self time, on an M5 Max) said where the rest went: style recalcs 98 ms
+against 61–64 ms, layout 27 against 12–13 ms, paint and the compositor's update (`Paint`,
+`PaintArtifactCompositor::Update`, compositing inputs, prepaint) 66 against 15–18 ms. Of the style, six recalcs restyled
+the whole view (about 6,700 elements, 12–17 ms each), each after a write of the track variables on the root of the view,
+which every element inherits: the rows as they mounted, the zeros the registry wrote before its first measurement, the
+widths measured, the state narrowing as the last rows of the run ended ("syncing 0/1…" to "created"), the steps the end
+of the run brought and the robots; the tree of s0a restyled it four times. The recalcs of the progress itself touch one
+to seventeen elements a frame; a frame of the progress costs about 2 ms beyond its script (the layout of the table 0.35,
+paint 0.65, the compositor's update 0.34, compositing inputs 0.3, the hit test of the hover 0.2 ms), which the tree of
+s0a, rendering no progress, did not pay.
+
+Now the registry writes nothing before its first measurement, and while a sync runs a track only widens ([Branch
+columns](ui-theme.md#branch-columns), "A running sync moves no column"): the narrowing of the run waits for its end,
+whose commit brings the steps of the rows too, so the first sync restyles the whole view four times, as the tree of s0a
+did. On the Mac Studio in turns, the tree of s0a, the stage before the step and the step, `PERF_RUNS=5 pnpm perf:table
+--project=chromium` and, for the counts, a throwaway copy of the attribution in each tree (five runs, medians; its hooks
+add to the task of each):
+
+| 2026-10-30, load 5.5–10.5 | first sync, script / task | style recalcs | layouts |
+|---|---|---|---|
+| the tree of s0a `66938306` | 404 / 662, 421 / 680 ms | 35 in 105 ms, 36 in 110 ms | 13 in 22 ms, 12 in 23 ms |
+| before the step | 248 / 708, 247 / 700 ms | 107 in 148 ms, 107 in 170 ms | 67 in 55 ms, 70 in 59 ms |
+| the step | 252 / 621, 233 / 629 ms | 108 in 105 ms, 106 in 131 ms | 69 in 57 ms, 66 in 52 ms |
+
+A turn before them at a load of 11 to 17 measured 413 / 670, 286 / 783 and 238 / 589 ms. These turns measured a first
+form of the step, which also held the columns of a first start until its view settled; the late facts in WebKit showed
+that hold lasting a moment past the facts, so it went, and the form that stayed restyles the whole view the same four
+times: 230 / 589 ms against 403 / 652 ms of the tree of s0a in a turn at a load of 14 to 35, and 238 / 620 against 408 /
+658 ms in one at 54 to 15 (the tree of s0a first, under the higher load). The first sync costs 10–12 % less task time
+than before the step and 6–8 % less than the tree of s0a in the same turns, its script 38–45 % less; the page asks what
+it asked (3 commands until its rows, nothing on a hover or a menu, one `set_demand` for a popover), and the patches stay
+the session's, one per 16 ms as the run goes, none coalesced (B15). The style recalcs cost about what they cost in the
+tree of s0a; what that tree is still spared is the layout and the paint of the progress, 40 to 70 frames. The tree of
+s0a measured 616 / 646 ms in Итог s14 and 652 to 680 ms in these turns: the final comparison comes with Итог s15.
+
 ### The IPC of the branch view
 
 `pnpm perf:table` counts the IPC of the page on the same template too, in every engine, from the counters of the Tauri

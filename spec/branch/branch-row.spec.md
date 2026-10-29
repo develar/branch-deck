@@ -182,6 +182,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should line up the columns of the table, the island and its header, whatever each card shows`)
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`keeps the Actions column at its buttons: no place is held for a push, a step or a copy that no row shows`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
+- A running sync must move no column: while a sync runs a column only widens, as the texts of the run ("syncing 3/7…")
+  change what its items show; once the sync ended, the column follows what its rows show, in the frame that renders
+  the end ([Branch columns](../../docs/design/ui-theme.md#branch-columns), "A running sync moves no column").
+  [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`holds the width of a column while a sync runs, and follows what the rows show once it ended`)
+  [@test] ../../src/lib/branch-columns.test.ts (`only widens a track while held, and follows the items as laid out once the hold ends`, `writes no track before the observer measured an item, then every track at once`, `keeps a track at its floor until the floors go, then at what its items show`)
 - A long name or subject must truncate, not wrap: the row stays one line high.
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
 - A subject with less than 6rem of free width must drop out instead of truncating to a letter or two.

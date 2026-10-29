@@ -457,12 +457,12 @@ shows.
   wide as they are, as buttons don't truncate: capped, they lay over the "⋯" of the row, which took their clicks.
 - **Late facts move no column**: the answers of the remote come after the first rows (the pull request chips, the
   steps, the robots), so until they are in ([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer))
-  each track is at least as wide as once they were in the last time (`ColumnRegistry.setFloors`, the `tracks` of
-  `settledLayout` in the repository state, `useSettledLayout`): a start or a switch back stands where the settled view
+  each track is at least as wide as once they were in the last time (the floors of `ColumnRegistry.setLayout`, the
+  `tracks` of `settledLayout` in the repository state, `useSettledLayout`): a start or a switch back stands where the settled view
   of the last time stood, and the answers fill the places they had. The widths are kept as laid out, fractions too: a
   floor rounded up stands a fraction wider than the content it holds the place of, and a track rounded up moves its
   neighbours by that fraction a frame after the content, when the report of the observer comes. The floors go in the
-  commit that renders the settling answer, the items read as laid out then (`setFloors(null)`), not as the observer
+  commit that renders the settling answer, the items read as laid out then (`setLayout(null, …)`), not as the observer
   last reported them, so their drop moves nothing for a frame either. Once they are in, the floors go: the view follows
   its content (a track that has less to show than the last time narrows then, once) and keeps its widths for the next
   start. A repository's first start has no floors; within a window a repository settles once, so a late fact after it
@@ -472,6 +472,17 @@ shows.
   sections of the branch preview a muted line (`PendingSection`) and its footer push, like the push of the review
   window's title bar, its place, disabled with why ([Branch Preview](../../spec/branch/branch-preview.spec.md)), and the
   unassigned commits card renders with the rows (no lazy chunk: one came seconds later under load and moved the table).
+- **A running sync moves no column**: while a sync runs a track only widens (`held` of `ColumnRegistry.setLayout`,
+  from `isSyncing`), as the texts of a run ("syncing 3/7…" to "created") change the widths of the items, and each
+  width the root writes restyles every element of the view, as its variables are inherited. The view follows its
+  content once, as the sync ends, the items read as laid out in that commit: the commit of the end of a run brings the
+  steps of its rows too, so the narrowing of the run and the widening of the steps are one write. Before the
+  observer's first report the registry writes nothing: a track without its variable is as wide as 0px, and a write of
+  the zeros was one more restyle of every row. In Chromium the first sync of `pnpm perf:table` (141 rows, about 6,700
+  elements) restyled the whole view six times, 12–17 ms each on an M5 Max: the rows as they mounted, the zeros, the
+  widths measured, the state narrowing as the last rows of the run ended ("syncing 0/1…" to "created"), the steps of
+  the end of the run and the robots; it restyles it four times now, as often as the tree of s0a did, whose rows
+  mounted once at the end of the sync ([Rendering Performance](rendering-performance.md#the-main-thread-of-a-sync)).
 - **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
   Push with Children of a row the widest it gets while it pushes (`⟳ 100% with children`, invisible in its cell),
   the Safe Push of a slot its width at rest while its start runs, so

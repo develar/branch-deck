@@ -1,9 +1,16 @@
 // @spec spec/branch/branch-row.spec.md
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { pressSyncHeld, releaseHeldSync, waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { waitForStorePersistence } from "../helpers/wait-helpers"
+
+/** The width of a track as the root of the branch view has it (`--bd-track-<track>`), in px */
+async function trackWidth(page: Page, track: string): Promise<number> {
+  return Number.parseFloat(await page.getByTestId("branch-view").evaluate((view, name) => (view as HTMLElement).style.getPropertyValue(name), `--bd-track-${track}`))
+}
 
 // https://github.com/develar/branch-deck/issues/72
 test.describe("Branch table column widths", () => {
@@ -89,6 +96,43 @@ test.describe("Branch table column widths", () => {
       })
     }, labels)
     expect(truncated).toEqual([])
+  })
+
+  test("holds the width of a column while a sync runs, and follows what the rows show once it ended", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const running = robot("JIRA-456", "running-robot")
+    const repo = await setupRepo("issue_links", { patronus: availableRobots(running) })
+    await syncAndWaitForBranches()
+    const row = findBranchRow(page, "JIRA-456")
+    const chip = row.getByTestId("patronus-chip")
+    await expect(chip).toHaveAttribute("data-kind", "running")
+    // the view settled (its widths kept for the next start): no late fact moves a column from now on
+    await waitForStorePersistence(page, "repositoryState", states =>
+      Object.values(states as Record<string, { settledLayout?: { tracks: Record<string, number> } }>).some(state => (state.settledLayout?.tracks["state"] ?? 0) > 0),
+    )
+    // the running robot is the widest state of the view
+    const content = row.locator("[data-track=state] > div")
+    const runningWidth = await trackWidth(page, "state")
+    expect((await content.boundingBox())!.width).toBeCloseTo(runningWidth, 1)
+
+    // the robot fails while a sync runs: its chip is narrower, the column keeps its width
+    const syncs = await pressSyncHeld(page, repo)
+    await repo.setPatronus(availableRobots({ ...running, status: "failure", finishTime: 1704189000 }))
+    await expect
+      .poll(async () => {
+        // the session polls a running robot once a minute of its clock
+        await repo.advanceBackendClock(61_000)
+        return chip.getAttribute("data-kind")
+      })
+      .toBe("failed")
+    const failedWidth = (await content.boundingBox())!.width
+    expect(failedWidth).toBeLessThan(runningWidth)
+    expect(await trackWidth(page, "state")).toBe(runningWidth)
+
+    // the sync ended: the column follows its widest state once
+    await releaseHeldSync(page, repo, syncs)
+    await expect.poll(() => trackWidth(page, "state")).toBeLessThan(runningWidth)
+    const widest = Math.max(...(await page.locator("[data-track=state] > div").evaluateAll(items => items.map(item => item.getBoundingClientRect().width))))
+    expect(await trackWidth(page, "state")).toBeCloseTo(widest, 1)
   })
 
   test("drops a subject that has no room to be read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
