@@ -3,7 +3,6 @@ import type { SetDemandParams } from "@/lib/bindings"
 import {
   DEMAND_SEND_INTERVAL_MS,
   demandReviewReadiness,
-  needBranch,
   resetDemand,
   setDemandFocused,
   setDemandSubscription,
@@ -37,7 +36,7 @@ describe("the demand of the window", () => {
     const releaseRow = showBranch("ui")
     const releaseOther = showBranch("auth")
     const releaseSecond = showBranch("ui")
-    needBranch("auth")
+    demandReviewReadiness("auth")
     await vi.runAllTimersAsync()
     expect(sent).toEqual([])
 

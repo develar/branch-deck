@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Landed, Reason } from "@/lib/bindings"
 import { testRobot } from "@/lib/test-robot"
-import { formatLanded, formatLandedWhole, formatLandingReason, formatPushHoldReason, formatReason, formatStackHold, startCheck } from "@/presenters/reasons"
+import { formatLanded, formatLandedWhole, formatPushHoldReason, formatReason, formatStackHold, startCheck } from "@/presenters/reasons"
 
 /** Every code Rust gives, with an example (`reason_catalog_test.rs` writes it) */
 const CATALOG = Object.values(import.meta.glob<Reason[]>("/crates/domain-policy/reasons.json", { eager: true, import: "default" }))[0]!
@@ -99,7 +99,6 @@ describe("formatPushHoldReason", () => {
     expect(formatPushHoldReason("auth", { kind: "span", branch: "oauth", robot: oauth })).toBe("A Safe Push of oauth is running: it lands auth with it")
     // once the number of its commits the robot lands is told, the reason names it, as `bd` does
     expect(formatPushHoldReason("auth", { kind: "span", branch: "oauth", robot: oauth, commits: 2 })).toBe("A Safe Push of oauth is running: it lands 2 commits of auth with it")
-    expect(formatLandingReason("auth", { branch: "oauth", robot: oauth, commits: 1 })).toBe("A Safe Push of oauth is running: it lands 1 commit of auth with it")
   })
 
   it("says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge", () => {

@@ -1,8 +1,8 @@
 /**
  * What this window shows and needs of the session of its repository (docs/design/rust-domain-authority.md, "Demand"):
  * the one thing the page tells Rust of itself (`set_demand`, by the window's subscription), which the session asks its
- * facts by. A surface holds a part while it shows it (`showBranch`, `showStack`, `needBranch`, `previewBranch`,
- * `showReviews`, `showReviewWindowPullRequest`, `showRobotDetails`): each answers its release and is counted, so two surfaces of one branch hold it
+ * facts by. A surface holds a part while it shows it (`showBranch`, `previewBranch`, `showReviews`,
+ * `showReviewWindowPullRequest`, `showRobotDetails`, the review readiness below): each answers its release and is counted, so two surfaces of one branch hold it
  * once; a watched robot of no branch is held for the life of the window (`watchRobotInDemand`). The focus of the window
  * and whether the machine is online come with them.
  *
@@ -62,16 +62,6 @@ function hold(part: Part, name: string): () => void {
 /** The row of the branch is on the screen until the returned function is called */
 export function showBranch(branchName: string): () => void {
   return hold("visibleBranches", branchName)
-}
-
-/** The island of the whole stack of `root` is on the screen until the returned function is called */
-export function showStack(root: string): () => void {
-  return hold("visibleStacks", root)
-}
-
-/** A surface needs the facts of the branch now (the Safe Push popover, the "Create pull request" dialog) until the returned function is called */
-export function needBranch(branchName: string): () => void {
-  return hold("needed", branchName)
 }
 
 /** A surface shows the details of the robot until the returned function is called */

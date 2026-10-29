@@ -4417,7 +4417,7 @@ on a test clock with scripted sources; `session_test.rs` pins the order of the a
 
 A window tells its session what it shows and needs (`set_demand { subscription, demand }`, at most four times a second
 and only a change, `src/model/demand.ts`): `Demand { focused, online, visibleBranches, visibleStacks, needed,
-robotDetails, watchedRobots }`, each list held by the surfaces that show it (`needBranch`, `showRobotDetails`, the rows
+robotDetails, watchedRobots }`, each list held by the surfaces that show it (`demandReviewReadiness`, `showRobotDetails`, the rows
 whose step waits for the readiness). Of the visible subjects the session asks the readiness only of those whose own next
 step waits for it (`derive::wanted_readiness`, `domain_policy::readiness::wanted`, computed before each update of the
 asks: whether a step waits for the readiness never depends on its answer). The session keeps the demand of each

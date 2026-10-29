@@ -2,11 +2,11 @@
 // code, so a code Rust gives is one the page words (`crates/domain-policy/reasons.json`, `reasons.test.ts`). The field a
 // reason is read from adds the words of its context: a hold of a stack branch says "nothing of it is left to push"
 // (`formatStackHold`), a start check carries the reason of a disabled action (`startCheck`).
-import type { HoldKind, Landed, PatronusPushMode, PatronusRobot, Reason, RobotOf } from "@/lib/bindings"
+import type { HoldKind, Landed, PatronusPushMode, Reason, RobotOf } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import { formatParkedBlocker } from "@/lib/parked"
-import type { LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
+import type { PushHold } from "@/lib/patronus"
 import { formatLandingSubject, formatPushMode } from "@/lib/patronus"
 import { joinNames } from "@/lib/text"
 import { formatStackBranchConflict, formatWholeStack } from "@/lib/whole-stack"
@@ -25,22 +25,8 @@ export function formatReasonOrNull(reason: Reason | null | undefined, statusText
   return reason == null ? null : formatReason(reason, statusText)
 }
 
-/** "A Safe Push of auth is running: wait until it merges": a start waits for a robot that lands a part of what it lands */
-export function formatLandingWait(landing: LandingAncestor): string {
-  return landingWait(landing, landing.robot.pushMode)
-}
-
 function landingWait(landing: { readonly branch: string; readonly wholeStack?: boolean }, mode: PatronusPushMode): string {
   return `A ${formatPushMode(mode)} of ${formatLandingSubject(landing)} is running: wait until it merges`
-}
-
-/**
- * Why a branch can't start while a robot of a branch built on it runs: "A Safe Push of oauth is running: it lands 2
- * commits of auth with it", "A Safe Push of the whole air stack is running: it lands 1 commit of auth with it"; the
- * branch alone while the number is not told yet, as `bd` says it
- */
-export function formatLandingReason(branchName: string, landing: LandingDescendant): string {
-  return landingReason(branchName, landing, landing.robot.pushMode, landing.commits)
 }
 
 function landingReason(branchName: string, by: { readonly branch: string; readonly wholeStack?: boolean }, mode: PatronusPushMode, commits: number | undefined): string {
@@ -107,14 +93,6 @@ function holdWords(branchName: string, hold: HoldWords): string {
  */
 export function formatPushHoldReason(branchName: string, hold: PushHold): string {
   return holdWords(branchName, { ...hold, mode: hold.robot.pushMode, target: hold.robot.targetBranch })
-}
-
-/**
- * "A Safe Push of the whole air stack is running: wait until it merges, or restart it on the current stack": why the
- * stack branch of the whole stack is not pushed while its own robot runs, a push into it would fail the robot at the end
- */
-export function formatStackPushHoldReason(root: string, robot: Pick<PatronusRobot, "pushMode">): string {
-  return stackHeldWords(root, robot.pushMode)
 }
 
 function stackHeldWords(root: string, mode: PatronusPushMode): string {
