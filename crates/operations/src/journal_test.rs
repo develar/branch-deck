@@ -406,13 +406,34 @@ fn shown(log: &domain_types::activity::ActivityLog) -> Vec<(bool, Vec<String>)> 
     .collect()
 }
 
-/// A journal at a pipe in `directory`, as on a disk that hangs: a read of it waits until the test writes to it
+/// A journal at a pipe in `directory`, as on a disk that hangs: a read of it waits until the test answers it
+/// (`answer_hung_read`)
 #[cfg(unix)]
 fn journal_on_a_hung_disk(directory: &std::path::Path) -> std::path::PathBuf {
   let pipe = directory.join("journal.jsonl");
   let made = sync_utils::child_process::windowless_command("mkfifo").arg(&pipe).status().unwrap();
   assert!(made.success());
   pipe
+}
+
+/// The writer of the pipe of a journal on a disk that hangs, once a read of it waits for the disk
+#[cfg(unix)]
+fn hung_disk_writer(pipe: &std::path::Path) -> std::fs::File {
+  std::fs::OpenOptions::new().write(true).open(pipe).unwrap()
+}
+
+/// More than a pipe holds: 8 KiB of a FIFO on macOS, 64 KiB on Linux
+#[cfg(unix)]
+const MORE_THAN_A_PIPE_HOLDS: usize = 1 << 17;
+
+/// Answers `text` to the read that waits for the disk of `disk`, the writer of its pipe, which closes then. A read that
+/// waits in its open of a pipe misses a writer that opens and closes before the read runs again (macOS: about 1 in 200
+/// such answers, and the read waits for the next writer), so the writer stays until the read took a part of what it
+/// writes: after `text`, a line the journal skips, longer than a pipe holds
+#[cfg(unix)]
+fn answer_hung_read(disk: std::fs::File, text: &str) {
+  let mut disk = disk;
+  std::io::Write::write_all(&mut disk, format!("{text}\n{}\n", " ".repeat(MORE_THAN_A_PIPE_HOLDS)).as_bytes()).unwrap();
 }
 
 /// A journal that does not answer within the bound (a disk that hangs or is slow: here a pipe the test writes to late)
@@ -441,15 +462,15 @@ async fn a_journal_that_answers_after_the_bound_shows_once_it_answered() {
   let common = tempfile::tempdir().unwrap();
   let registry = ProcessRegistry::of(common.path());
   finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
-  std::fs::write(&pipe, std::fs::read_to_string(journal_path_in(registry.dir())).unwrap()).unwrap();
+  answer_hung_read(hung_disk_writer(&pipe), &std::fs::read_to_string(journal_path_in(registry.dir())).unwrap());
   heard.recv().await.unwrap();
   let log = read_activity(&projects, app_data.path(), Duration::from_millis(50), &late).await;
   assert_eq!(shown(&log), [(true, vec!["pushed".to_string()])]);
   // the reads that still wait for a writer end with one each, so the runtime of the test can stop: the second answers
   // no entries, which the windows hear, then the third begins
-  drop(std::fs::OpenOptions::new().write(true).open(&pipe).unwrap());
+  answer_hung_read(hung_disk_writer(&pipe), "");
   heard.recv().await.unwrap();
-  drop(std::fs::OpenOptions::new().write(true).open(&pipe).unwrap());
+  answer_hung_read(hung_disk_writer(&pipe), "");
 }
 
 /// A read of Activity asked while a read of the journal runs (a slow disk: here a pipe the test writes to late) never
@@ -473,9 +494,7 @@ async fn a_read_asked_while_one_runs_shows_the_journal_as_it_is_after_that_one()
   let log = read_activity(&projects, app_data.path(), Duration::from_millis(50), &unheard()).await;
   assert_eq!(shown(&log), [(false, Vec::new())]);
   let pipe = path.clone();
-  let disk = tokio::task::spawn_blocking(move || std::fs::OpenOptions::new().write(true).open(&pipe).unwrap())
-    .await
-    .unwrap();
+  let disk = tokio::task::spawn_blocking(move || hung_disk_writer(&pipe)).await.unwrap();
   // the operation of bd ends: its entry is in the journal, and the window reads again while the first read waits
   let written = directory.path().join("written");
   std::fs::copy(journal_path_in(registry.dir()), &written).unwrap();
@@ -486,7 +505,6 @@ async fn a_read_asked_while_one_runs_shows_the_journal_as_it_is_after_that_one()
   assert!(again.as_mut().poll(&mut context).is_pending());
 
   // the disk answers the first read with the journal it opened, before the entry of bd
-  std::io::Write::write_all(&mut &disk, before.as_bytes()).unwrap();
-  drop(disk);
+  answer_hung_read(disk, &before);
   assert_eq!(shown(&again.await), [(true, vec!["pushed".to_string(), "landed".to_string()])]);
 }

@@ -44,6 +44,12 @@ state and never for time, and a change that adds processes to many tests is meas
 - **No sleep to wait**: wait for the state (a file a fake writes, a channel, `held`/`go` marks of a wrapped git as in
   `update_held_in_its_replay`). A wait of the code under test is a value of the test's environment
   (`Environment::lock_timeout` of the bd tests is 200 ms, the app's 10 s).
+- **A FIFO releases a waiting reader only while its writer stays**: on macOS a reader that waits in its `open` of a FIFO
+  misses a writer that opens and closes before the reader runs again, and waits for the next writer (about 1 in 200
+  such releases on a loaded machine; the test hangs until nextest kills it). A test that holds a read on a FIFO, as a
+  disk that hangs, keeps the writer open until the reader took a part of what it writes: `answer_hung_read` of
+  `crates/operations/src/journal_test.rs` writes past what a pipe holds, and `during_fast_import` of a wrapped git
+  keeps its writer until git read the stream.
 - **Commit times are the fixture's**: commits that must fall into different seconds, or a rewrite that must have a
   later committer time, get their dates (`create_commit_with_timestamp`, `GIT_COMMITTER_DATE` of the rewrite's git)
   instead of a wait for the clock. Two commits of one author with one subject share a `CommitKey` only within one
