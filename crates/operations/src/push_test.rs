@@ -765,11 +765,7 @@ async fn a_push_of_a_stack_runs_the_processes_of_the_core_push() {
 
   let fixture = fixture(true).await;
   let git = GitCommandExecutor::new().with_process_stats("test");
-  let services = Counted { git: git.clone() };
-  let outcome = fixture
-    .execute_on(&scoped("beta", PushScope::WithAncestors), Vec::new(), &services, Arc::new(NoEvents))
-    .await;
-  assert_done(&outcome);
+  fixture.push_stack_with(git.clone()).await;
   assert_eq!(
     git.process_stats().unwrap().counts(),
     PROCESSES_OF_A_STACK_PUSH.map(|(name, count)| (name.to_string(), count))
@@ -788,6 +784,15 @@ const PROCESSES_OF_A_STACK_PUSH: [(&str, u32); 7] = [
   ("reflog", 1),
   ("rev-parse", 1),
 ];
+
+impl Fixture {
+  /// The push of `beta` with what it is built on, run by the engine with `git`: everything it planned pushed
+  async fn push_stack_with(&self, git: GitCommandExecutor) {
+    let services = Counted { git };
+    let outcome = self.execute_on(&scoped("beta", PushScope::WithAncestors), Vec::new(), &services, Arc::new(NoEvents)).await;
+    assert_done(&outcome);
+  }
+}
 
 /// `OFFLINE` with the git of the test: what the run of the engine starts is counted
 struct Counted {
@@ -1029,6 +1034,18 @@ async fn a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze() {
   let (first, ()) = Box::pin(tokio::time::timeout(Duration::from_mins(1), async { tokio::join!(first, others) })).await.unwrap();
   assert_done(&first);
   assert_eq!(fixture.remote_tip("alpha"), frozen);
+}
+
+/// What a push runs under the repository lock (C1): only the full witness and the freeze of its commits and leases, one
+/// `for-each-ref`; the size check, the network push and the remote statuses after it (docs/design/git-operations.md,
+/// "Lock spans")
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_locks_only_the_witness_and_the_freeze() {
+  let fixture = fixture(true).await;
+  let span = test_utils::lock_span::LockSpan::new(&fixture.repo.path().join(".git"));
+  fixture.push_stack_with(span.executor().clone()).await;
+  span.assert_span(&["for-each-ref"], &["push"]);
 }
 
 /// The push of an unapplied branch reads no robots (C3): no Safe Push runs on one. The push of a virtual branch reads

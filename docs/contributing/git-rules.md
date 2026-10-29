@@ -174,7 +174,9 @@ the app and `bd` processes rewrite the same branch. Before the file lock, the op
 each other in its line (a fair queue per lock file, `repository_lock.rs`, without a bound), so `locked` names only
 another process; `try_lock_repository` waits for nobody, `lock_as_another_process` is for tests and the E2E server. A sync never waits for it:
 neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release; only its drop of
-store lines takes it, while it is free (`drop_store_lines`), and skips the drop when it is held. A fetch never runs under it ([Regroup](../design/git-operations.md#regroup-rename-restack)).
+store lines takes it, while it is free (`drop_store_lines`), and skips the drop when it is held. A fetch never runs under it ([Regroup](../design/git-operations.md#regroup-rename-restack);
+what each core runs under it and the test that pins it: [Lock spans](../design/git-operations.md#lock-spans), the
+two exceptions left: the sync of `bd push` and `bd safe-push` and the round of `bd update --continue` under it).
 
 ## Operations registry
 

@@ -1318,16 +1318,24 @@ fn a_round_that_resolves_by_words_is_named_in_the_next_round_the_status_and_the_
   assert_eq!(read(clone.path().join("shared.txt").to_str().unwrap()), "one\nALPHA beta GAMMA\nthree\n");
 }
 
+/// `bd update` of `clone` (its round on `shared.txt`), the copy resolved, then `bd update --continue` under the git that
+/// logs the state of the lock: the wrapper, the exit code and the output of the continue
+#[cfg(unix)]
+fn continue_logged(clone: &TestRepo) -> (bd_cli::fixture_test::LockSpanGit, i32, Value) {
+  let (_, round) = run_in(clone, &["update"]);
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(clone, "");
+  let (exit_code, done) = wrapped.run(&["update", "--continue"]);
+  (wrapped, exit_code, done)
+}
+
 /// The finish of a session releases the repository lock once the branch, the files and the session refs moved: what
 /// the update landed is a report, read and written (landed.json) without the lock, as on the clean path of an update
 #[cfg(unix)]
 #[test_log::test]
 fn the_landed_report_of_a_finished_session_runs_after_the_lock() {
   let (upstream, clone) = conflicting_clone();
-  let (_, round) = run_in(&clone, &["update"]);
-  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
-  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&clone, "");
-  let (exit_code, done) = wrapped.run(&["update", "--continue"]);
+  let (wrapped, exit_code, done) = continue_logged(&clone);
   assert_eq!((exit_code, &done["replayed"]), (0, &json!(1)), "{done}");
   assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
   let commands = wrapped.commands();
@@ -1343,4 +1351,63 @@ fn the_landed_report_of_a_finished_session_runs_after_the_lock() {
     "the landed report: {commands:#?}"
   );
   assert!(report.iter().all(|(locked, _)| !*locked), "nothing after the finish under the lock: {commands:#?}");
+}
+
+/// The subcommands of the last run of `wrapped` under the repository lock, sorted, each once
+#[cfg(unix)]
+fn under_the_lock(wrapped: &bd_cli::fixture_test::LockSpanGit) -> Vec<String> {
+  let mut under: Vec<String> = wrapped.under_lock().iter().map(|args| bd_cli::fixture_test::subcommand(args).to_string()).collect();
+  under.sort_unstable();
+  under.dedup();
+  under
+}
+
+/// What `bd update --continue` runs under the repository lock, as it is: the read of the session and of the copies, the
+/// commit of the round, the replay of the rest and the finish (its exact check, the move of the branch and the files,
+/// the session refs); only the landed report after it. The one core of bd that computes under the lock
+/// (docs/design/git-operations.md, "Lock spans")
+#[cfg(unix)]
+#[test_log::test]
+fn a_continue_of_a_resolve_session_holds_the_lock_for_its_round_and_its_finish() {
+  let (upstream, clone) = conflicting_clone();
+  // a commit above the conflict: the continue replays it
+  clone.create_commit("(auth) Add more", "more.txt", "more\n");
+  let (wrapped, exit_code, done) = continue_logged(&clone);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~2"]), upstream.head());
+  let round_and_finish = [
+    "cat-file",
+    "config",
+    "diff-tree",
+    "fast-import",
+    "read-tree",
+    "replay",
+    "rev-parse",
+    "symbolic-ref",
+    "update-index",
+    "update-ref",
+  ];
+  assert_eq!(under_the_lock(&wrapped), round_and_finish, "{:#?}", wrapped.commands());
+  let replays = wrapped.locked_runs("replay");
+  assert!(
+    !replays.is_empty() && replays.iter().all(|locked| *locked),
+    "the replay of the rest under the lock: {:#?}",
+    wrapped.commands()
+  );
+}
+
+/// `bd update --abort` holds the repository lock for the read of the session and its delete: the compare-and-swap of
+/// the session ref and the sweep of stale temporary refs (docs/design/git-operations.md, "Lock spans")
+#[cfg(unix)]
+#[test_log::test]
+fn an_abort_of_a_resolve_session_locks_only_the_read_of_the_session_and_its_delete() {
+  let (_upstream, clone) = conflicting_clone();
+  let head = clone.head();
+  let (_, round) = run_in(&clone, &["update"]);
+  assert!(round["session"].is_object(), "{round}");
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&clone, "");
+  let (exit_code, aborted) = wrapped.run(&["update", "--abort"]);
+  assert_eq!(exit_code, 0, "{aborted}");
+  assert_eq!(clone.head(), head);
+  assert_eq!(under_the_lock(&wrapped), ["cat-file", "for-each-ref", "update-ref"], "{:#?}", wrapped.commands());
 }

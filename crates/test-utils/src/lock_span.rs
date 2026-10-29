@@ -96,6 +96,18 @@ impl LockSpan {
     }
   }
 
+  /// Asserts that exactly `under` ran under the lock (`commands_under_the_lock`) and each of `after` started after it
+  ///
+  /// # Panics
+  /// When another set ran under the lock, or one of `after` did not start after it
+  pub fn assert_span(&self, under: &[&str], after: &[&str]) {
+    assert_eq!(self.commands_under_the_lock(), under, "{:#?}", self.commands());
+    let later = self.commands_after_the_lock();
+    for subcommand in after {
+      assert!(later.iter().any(|command| command == subcommand), "{subcommand} after the lock: {:#?}", self.commands());
+    }
+  }
+
   /// The subcommands that started after the last command under the lock, in order
   #[must_use]
   pub fn commands_after_the_lock(&self) -> Vec<String> {

@@ -361,3 +361,23 @@ fn a_restack_on_top_of_a_plan_keeps_the_parent_the_plan_gives() {
   assert_eq!(paths, ["a/p", "p/c"]);
   assert_applies(&repo, &fix);
 }
+
+/// The apply of a fix is a regroup (`regroup_planned`, as a move): the snapshot, its fingerprint, the plan and the new
+/// commits before the repository lock; under it only the witness of the refs it read and the compare-and-swap
+/// transaction (docs/design/git-operations.md, "Lock spans")
+#[cfg(unix)]
+#[test]
+fn a_conflict_fix_locks_only_the_witness_and_the_write() {
+  let (repo, _) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+  let fix = find_fix(&repo, FixBudget::default());
+  let span = test_utils::lock_span::LockSpan::new(&repo.path().join(".git"));
+  let params = crate::conflict_fix::ApplyConflictFixParams {
+    repository_path: repo.path_str().to_string(),
+    fingerprint: fix.fingerprint.clone(),
+    plan: fix.components[0].plan.clone(),
+  };
+  let applied = crate::conflict_fix::apply_conflict_fix_core(span.executor(), &params, history_rewrite::repository_lock::LockWait::default()).unwrap();
+  assert!(matches!(applied, domain_types::rewrite::AppliedConflictFix::Applied { .. }), "{applied:?}");
+  assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-ref"], "{:#?}", span.commands());
+  span.assert_before_the_lock(&["fast-import"]);
+}

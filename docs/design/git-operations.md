@@ -269,6 +269,61 @@ written, except by Update Project and the finish of its resolve session (their o
    refused by the same view of the robots (`patronus_view`) on both sides, whatever the page checked before ("App
    stack push").
 
+### Lock spans
+
+Every core that takes the repository lock (`$GIT_COMMON_DIR/branch-deck.lock`, see "Regroup, rename, restack") holds
+it only for the witness of what it read and its write: what it computes on the oids it read (the snapshot or the
+history, merge-tree, `replay`, the dry run of the files on a copy of the index, the `fast-import` of the new objects, a
+trial, the landed report) runs before the lock or after it. One test per core pins the span: the subcommands that
+start between the first and the last command under the lock, sorted, each once. A core runs on
+`test_utils::lock_span::LockSpan`, a `bd` command on `bd_cli::fixture_test::LockSpanGit`: the same shim, a git that
+logs `locked` while the holder record `branch-deck.lock.holder` exists (a lock writes it before the file lock counts as
+taken and deletes it before the release), then runs the real git.
+
+| Core (entry) | Under the lock | Test |
+| --- | --- | --- |
+| Move (`move_commits_to_branch_core`: `regroup_planned`) | `for-each-ref` (HEAD, its branch, the stores), `update-ref` | `a_move_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/regroup_test.rs`) |
+| Conflict fix (`apply_conflict_fix_core`: `regroup_planned`, the fingerprint before the lock) | `for-each-ref`, `update-ref` | `a_conflict_fix_locks_only_the_witness_and_the_write` (`crates/trial-check/src/conflict_fix_test.rs`) |
+| `bd group` (`regroup_commits_core`) | `for-each-ref`, `update-ref` | `a_group_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
+| Rename (`rename_branch_core`) | `for-each-ref`, `update-ref` | `a_rename_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
+| Reword of the app and `bd reword` (`reword_request_core`) | `for-each-ref`, `update-ref` | `a_reword_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
+| Restack, unstack (`restack_branch_core`) | `for-each-ref`, `update-ref` | `a_restack_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
+| Undo of a regroup (`undo_regroup_core`) | `for-each-ref`, `update-ref`; of the stores alone `update-ref` (its CAS the witness) | `an_undo_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
+| Park, unpark (`park_core`, `unpark_core`) | `update-ref` (its CAS the witness) | `a_park_and_an_unpark_lock_only_the_write` (`regroup_test.rs`) |
+| The drop of the lines of integrated branches in a sync (`drop_store_lines`, only while the lock is free) | `cat-file` (the store), `var`, `fast-import`, `update-ref` | `a_drop_of_store_lines_locks_only_its_read_and_its_write` (`regroup_test.rs`) |
+| Squash and its undo (`squash_commits_core`, `restore_branch_head_core`) | `for-each-ref`, `update-ref` | `a_squash_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/squash_test.rs`) |
+| Fold, `bd fold` (`squash_fixup_commits_core`) | `for-each-ref`, `update-ref` | `a_fold_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/autosquash_test.rs`) |
+| Amend (`amend_uncommitted_to_branch_core`) | `for-each-ref`, `update-index`, `update-ref` | `an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write` (`crates/sync-core/src/repository_lock_test.rs`) |
+| Add issue reference (`add_issue_reference_to_commits_core`) | `for-each-ref`, `update-ref` | the same test |
+| `bd move-hunk` (`move_hunk_core`) | `for-each-ref`, `update-ref` | `a_move_hunk_locks_only_the_witness_and_the_write` (`crates/bd-rewrite/src/move_hunk_test.rs`) |
+| Unapply and its undo (`unapply_branch_core`, `undo_unapply_core`) | `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` (`MOVE_UNDER_THE_LOCK`) | `an_unapply_and_its_undo_lock_only_the_witness_and_the_move` (`crates/sync-core/src/unapply_branch_test.rs`) |
+| Reapply and its undo (`reapply_branch_core`, `undo_reapply_core`) | the same five | `a_reapply_and_its_undo_lock_only_the_witness_and_the_move` (`crates/sync-core/src/reapply_branch_test.rs`) |
+| Update Project of the app (`update_project_core`, after its fetch) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref` (the witness, the local changes, the move) | `the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move` (`crates/update-core/src/update_project_test.rs`) |
+| `bd update` (`update_and_resolve`, an update that applies) | the same five | `the_check_of_an_update_runs_before_the_lock` (`crates/bd-update/src/update_test.rs`) |
+| Undo of an update (`undo_update_core`) | `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `the_undo_of_an_update_locks_only_the_witness_and_the_move` (`update_project_test.rs`) |
+| The start of a resolve session (`prepare_session_start`, `PreparedStart::start`) | `fast-import`, `log`, `rev-parse`, `symbolic-ref`, `update-ref` (the mark and the witness, the state with the session ref, the copies) | `the_start_of_a_resolve_session_locks_only_the_witness_and_its_write` (`update_project_test.rs`) |
+| `bd update --continue` (`continue_resolve`; a `--dry-run` takes no lock) | `cat-file`, `config`, `diff-tree`, `fast-import`, `read-tree`, `replay`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`: the whole round and the finish, an exception (below) | `a_continue_of_a_resolve_session_holds_the_lock_for_its_round_and_its_finish`, `the_landed_report_of_a_finished_session_runs_after_the_lock` (`crates/bd-update/src/resolve_test.rs`) |
+| `bd update --abort` (`abort_resolve`) | `cat-file`, `for-each-ref`, `update-ref` (the session, its CAS delete, the sweep of stale temporary refs) | `an_abort_of_a_resolve_session_locks_only_the_read_of_the_session_and_its_delete` (`resolve_test.rs`) |
+| `bd pick --from --follow` (`pick_core`) | `cat-file` 1, `hash-object` 1, `read-tree` 2, `rev-parse` 8, `symbolic-ref` 6, `update-index` 4, `update-ref` 4 (the witness of both worktrees, the local changes on the paths the moves write, the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
+| `bd pick --remote` and the app's Pick Remote Commits (`pick_remote_commits_core`), the undo of a pick (`undo_pick_core`, the app's through `undo_pick_remote_commits_core`) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`; the undo `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move` (`pick_test.rs`) |
+| The app's push (`operations::push::execute_push`: a branch, a stack, up to a commit, an unapplied branch) | `for-each-ref` (the full witness and the freeze of the commits and the leases) | `a_push_locks_only_the_witness_and_the_freeze`, `a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze` (`crates/operations/src/push_test.rs`) |
+| A start of the app and of `bd safe-push` (`operations::land_execute::execute`) | `for-each-ref` (the full witness and the freeze of its push) | `a_start_locks_only_the_witness_and_the_freeze`, `a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan` (`crates/operations/src/land_execute_test.rs`) |
+| `bd push` (its sync, `bd-core` `sync_command`, then the witness and the freeze) | `cat-file`, `config`, `fast-import`, `for-each-ref`, `log`, `merge-base`, `notes`, `remote`, `rev-list`, `show-ref`, `symbolic-ref`, `update-ref`, `var`: the sync, an exception (below) | `a_push_of_bd_locks_its_sync_and_the_freeze_and_pushes_after_it`, `the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_outside_the_repository_lock` (`crates/bd-remote/src/push_test.rs`) |
+| `bd safe-push` (its sync, then the start above) | the sync of `bd push`; the reads of Patronus and GitHub, the trial and the start after it | `a_safe_push_frees_the_repository_lock_after_its_sync` (`crates/bd-remote/src/safe_push_test.rs`) |
+
+**Two exceptions remain**, each pinned as it is, and no change adds a computation under them: the sync inside
+`bd push` and `bd safe-push`, with its merges and copies, before the witness and the freeze of their push; and
+`bd update --continue`, which holds the lock from its read of the session to the end of its finish (the commit of the
+round, the replay of the rest, the exact check of the finish and the move). Both are in "Follow-ups".
+
+**Without the lock:** every sync (the app's, `bd sync`, the `--sync` of a `bd` rewrite after its release:
+`a_rewrite_beside_a_running_sync_does_not_wait_for_it` in `crates/bd-cli/src/sync_test.rs`,
+`the_sync_of_a_rewrite_runs_after_the_lock` in `crates/bd-rewrite/src/rewrite_test.rs`) but its drop of store lines
+(above), a fetch (`fetch.lock`), every
+network push and every request to a remote service (`crates/git-executor/src/concurrency_scan_test.rs`), the restart
+of a robot on its remote branch (`a_restart_on_the_remote_branch_takes_no_lock`), the delete of an unapplied branch
+(its CAS), and the dry runs.
+
 ### Minimum Git version
 
 | Feature | Since | Used for |
@@ -4969,6 +5024,9 @@ pnpm perf:monorepo compare <work>/before <work>/after
 - **Mapping notes** live on the default notes ref (`refs/notes/commits`), so they show up in the user's `git log`.
   Moving them to a private ref needs a migration that reads both refs.
 - **Resolve notes across rewrites**: a store keyed by the landed key, if the app shows "resolved by an agent".
+- **The two lock spans left** ("Lock spans"): the sync of `bd push` and `bd safe-push` under the lock, and
+  `bd update --continue`, whose round and finish run under it. Each would compute on the oids it read and hold the lock
+  only for the witness and the write, as the start of a resolve session does (`prepare_session_start`).
 - **SSH stalls**: the low-speed limits apply to HTTP only. A dead SSH connection is bounded only by the user's
   `ServerAliveInterval`.
 

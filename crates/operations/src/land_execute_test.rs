@@ -285,6 +285,22 @@ async fn a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of
   assert!(free_while_pushing.load(Ordering::SeqCst), "the push sends without the lock");
 }
 
+/// What a start runs under the repository lock: only the full witness and the freeze of the commits and the leases of
+/// its push, one `for-each-ref`; the cancel, the network push and the start after it (docs/design/git-operations.md,
+/// "Lock spans")
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_locks_only_the_witness_and_the_freeze() {
+  let mut fixture = fixture().await;
+  let span = test_utils::lock_span::LockSpan::new(&fixture.repo.path().join(".git"));
+  fixture.services.git = span.executor().clone();
+  let host = Fixture::host(fixture.planned(replace_and_start()));
+  let steps = Steps::new(Arc::new(|_| {}), Arc::new(|_: &TransferProgress| {}), Arc::new(AtomicBool::new(false)));
+  let started = fixture.run(&host, &steps).await.unwrap();
+  assert_eq!(statuses(&started), [&EffectStatus::Done, &EffectStatus::Done, &EffectStatus::Done]);
+  span.assert_span(&["for-each-ref"], &["push"]);
+}
+
 /// The first effect of a start into a pull request of a virtual branch is its retarget into the target (D11): GitHub gets
 /// the new base before the push sends, and the robot starts after both; a retarget GitHub refuses of the pull request
 /// the start goes from stops it before anything is pushed

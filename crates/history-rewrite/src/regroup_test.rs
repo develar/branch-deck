@@ -5,12 +5,12 @@
 
 use crate::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
 use crate::parked::{PARKED, PARKED_DROP_MESSAGE, PARKED_REF, ParkLine, park_core, unpark_core};
-use crate::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, restack_branch_core, undo_regroup_core};
+use crate::regroup::{RegroupError, RegroupOptions, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::reword::{RewordRequest, reword_request_core};
-use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE, STACK_PARENTS_REF};
+use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE, STACK_PARENTS_REF, drop_integrated_stack_parents};
 use crate::store_lines::LineStore;
-use domain_types::rewrite::{CommitReword, RewordText};
+use domain_types::rewrite::{CommitReword, RegroupPlan, RewordText};
 use git_ops::commit_writer::write_store_updates;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -61,6 +61,19 @@ fn a_move_locks_only_the_witness_and_the_write() {
   params.expect_head = Some(repo.head());
   let moved = move_commits_to_branch_core(span.executor(), &params, LockWait::default()).unwrap();
   assert_eq!(moved.commits.len(), 1);
+  assert_eq!(subjects(&repo).last().map(String::as_str), Some("(gamma) Alpha 1"));
+  assert_span(&span, &WITNESS_AND_WRITE);
+}
+
+/// A plan of `bd group` (`regroup_commits_core`, through the same `regroup_accepted` as a move)
+#[test]
+fn a_group_locks_only_the_witness_and_the_write() {
+  let (repo, commits, span) = stacked();
+  let plan = RegroupPlan {
+    branches: BTreeMap::from([("gamma".to_owned(), vec![commits[0].clone()])]),
+    ..RegroupPlan::default()
+  };
+  regroup_commits_core(span.executor(), repo.path_str(), &plan, &on_head(&repo)).unwrap();
   assert_eq!(subjects(&repo).last().map(String::as_str), Some("(gamma) Alpha 1"));
   assert_span(&span, &WITNESS_AND_WRITE);
 }
@@ -120,6 +133,19 @@ fn an_undo_locks_only_the_witness_and_the_write() {
   undo_regroup_core(span.executor(), repo.path_str(), &UndoToken::of(&restacked).unwrap(), LockWait::default()).unwrap();
   assert_eq!(repo.rev_parse(STACK_PARENTS_REF).ok(), None);
   assert_eq!(span.commands_under_the_lock(), ["update-ref"], "{:#?}", span.commands());
+}
+
+/// The drop of the lines of integrated branches, which a sync runs only while the lock is free (`drop_store_lines`):
+/// under it only the read of the store (`cat-file`) and its write, the store commit (`var`, `fast-import`) and its
+/// compare-and-swap move
+#[test]
+fn a_drop_of_store_lines_locks_only_its_read_and_its_write() {
+  let (repo, _, _) = stacked();
+  restack_branch_core(repo.git_executor(), repo.path_str(), "beta", Some("alpha"), &on_head(&repo)).unwrap();
+  let span = LockSpan::new(&repo.path().join(".git"));
+  drop_integrated_stack_parents(span.executor(), repo.path_str(), &["beta"]);
+  assert_eq!(STACK_PARENTS.read(repo.git_executor(), repo.path_str()).unwrap().entries, BTreeMap::new());
+  assert_eq!(span.commands_under_the_lock(), ["cat-file", "fast-import", "update-ref", "var"], "{:#?}", span.commands());
 }
 
 /// A park and an unpark write the one store they read: the store commit before the lock, under it only its move, whose
