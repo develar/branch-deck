@@ -129,6 +129,10 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 - The confirmation popover reads the plan again and lists each target with its fixups, then the orphans under
   "Won't be squashed: no target in this range"; Squash runs it, Cancel, Escape or a click outside closes it. Nothing
   closes it while the squash runs (as the squash dialog): it closes when the squash is done or failed.
+- Its title "Squash N fixups" ("Squash 1 fixup") must say in the number of the fixups what the squash does: "It is
+  folded into its target, as with rebase --autosquash. Your files are not touched." for one, "Each one is folded…"
+  for more; "No fixups to squash" has no such sentence.
+  [@test] ../../src/lib/autosquash.test.ts (`says what the squash does in the number of its fixups, one as one`)
 - The menu of a fixup commit with a target offers "Squash into “X”", which squashes that fixup only.
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
 - Success shows "Squashed N fixups" with Undo, as for a squash of selected commits (the rewrite `undo` of its

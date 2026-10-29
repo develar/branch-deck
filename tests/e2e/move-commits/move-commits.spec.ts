@@ -6,6 +6,7 @@ import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-he
 import { clickContextMenuItem, clickGroupIntoBranchButton, dropAt, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
 import { recordRewrites } from "../helpers/wait-helpers"
 
@@ -104,12 +105,17 @@ test.describe("Move commits", () => {
     await runAndWaitForSync(page, () => clickContextMenuItem(page, `Move Back to ${ISSUE}`))
     await expect(findBranchRow(page, "lexer")).toHaveCount(0)
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+    // a move back that only removed a prefix says so once, in the title
+    const removed = page.getByRole("dialog", { name: "Removed the prefix of 1 commit", exact: true })
+    await expect(removed).toHaveAccessibleDescription("")
+    await closeToast(removed)
 
     await expandBranch(page, findBranchRow(page, "docs"))
     await openContextMenu(page, getBranchCommitRow(page, "docs", "Update documentation"))
     await runAndWaitForSync(page, () => clickContextMenuItem(page, "Move to Unassigned"))
     await expect(getUnassignedCommitRow(page, "Update documentation")).toBeVisible()
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
+    await expect(removed).toHaveAccessibleDescription("")
   })
 
   test("should rename a branch and name an issue branch", async ({ page }) => {

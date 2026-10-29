@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { squashFixups, squashFixupsSurface } from "@/hooks/useSquashFixups"
-import { formatFixupCount, getAutosquashScope, getFixupMarker, getListFixups, getOrphanSubject } from "@/lib/autosquash"
+import { describeSquashFixups, formatFixupCount, getAutosquashScope, getFixupMarker, getListFixups, getOrphanSubject } from "@/lib/autosquash"
 import type { ListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -65,11 +65,12 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
   const fixups: ListFixups = getListFixups(plan, branch)
   // closes the popover after a failure too: the plan it shows is stale
   const squash = () => void withRowProgress(key, () => squashFixups(getAutosquashScope(branch), { surface }))
+  const description = describeSquashFixups(fixups.count)
   return (
     <>
       <div className="flex flex-col gap-1">
         <PopoverTitle className="text-sm">{fixups.count === 0 ? "No fixups to squash" : `Squash ${formatFixupCount(fixups.count)}`}</PopoverTitle>
-        <PopoverDescription className="text-xs">Each one is folded into its target, as with rebase --autosquash. Your files are not touched.</PopoverDescription>
+        {description !== null && <PopoverDescription className="text-xs">{description}</PopoverDescription>}
       </div>
 
       {fixups.groups.length > 0 && (

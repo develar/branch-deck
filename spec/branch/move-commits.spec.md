@@ -318,6 +318,11 @@ Renaming and ungrouping a branch are moves of all its commits.
   once the sync the rewrite asked showed it: the operation ends with the request of that sync (a rewrite behind it runs
   meanwhile), and its answer comes once the sync ended, with the version of its last patch (`Outcome.versionAfter`).
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_undo`)
+- A move back (Ungroup, Move to Unassigned) must be "Removed the prefix of N commits" when it only removed prefixes,
+  else "Moved N commits back". The description never says what the title says: an Ungroup of a branch of one commit
+  is "Removed the prefix of 1 commit" alone.
+  [@test] ../../src/lib/move-summary.test.ts (`titles the toast of a move with what it did and describes only the rest, never the title again`)
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a split commit back to its issue and a prefix commit to the unassigned commits`)
 - Undo of a move, a rename and a restack must move HEAD and the issue groups back in one ref transaction with
   compare-and-swap, under the repository lock (the rewrite `undo` with the token of the outcome, `Outcome.undo`), in
   the repository the move was made in: a move, a rename, a restack, a reword and a conflict fix name the repository of

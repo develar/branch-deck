@@ -1,7 +1,7 @@
 // @spec spec/branch/move-commits.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { MoveChange, MoveCommitsResult } from "@/lib/bindings"
-import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
+import { countMoved, describeDoneMove, describeMove, formatKeys } from "@/lib/move-summary"
 
 function result(changes: MoveChange[], groupedIssues: string[] = [], ungroupedIssues: string[] = []): MoveCommitsResult {
   return {
@@ -30,5 +30,19 @@ describe("move summary", () => {
     expect(describeMove(result(["Regrouped"], [], ["IJPL-1"]), null, true)).toBe("IJPL-1 is back in its issue branch, without a rewrite")
     expect(describeMove(result(["PrefixRemoved", "PrefixRemoved"]), "ABC-1", false)).toBe("removes the prefix of 2 commits")
     expect(describeMove(result(["Unchanged"]), "maps", false)).toBeUndefined()
+  })
+
+  it("titles the toast of a move with what it did and describes only the rest, never the title again", () => {
+    // Ungroup of a branch of one commit: the removal of its prefix is the title alone
+    expect(describeDoneMove(result(["PrefixRemoved"]), null, 1)).toEqual({ title: "Removed the prefix of 1 commit", description: undefined })
+    expect(describeDoneMove(result(["PrefixRemoved", "PrefixRemoved", "Unchanged"]), null, 2)).toEqual({ title: "Removed the prefix of 2 commits", description: undefined })
+    expect(describeDoneMove(result(["Regrouped", "PrefixRemoved"], [], ["IJPL-1"]), null, 2)).toEqual({
+      title: "Moved 2 commits back",
+      description: "IJPL-1 is back in its issue branch, without a rewrite; removed the prefix of 1 commit",
+    })
+    expect(describeDoneMove(result(["Prefixed", "PrefixRemoved"]), "maps", 2)).toEqual({
+      title: "Moved 2 commits to maps",
+      description: "1 commit got the prefix (maps); removed the prefix of 1 commit",
+    })
   })
 })

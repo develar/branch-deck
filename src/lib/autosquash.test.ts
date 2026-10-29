@@ -1,6 +1,6 @@
 // @spec spec/commit/fixups.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { describeFixupTarget, formatSquashFixupsLabel, getFixupTarget, getListFixups } from "@/lib/autosquash"
+import { describeFixupTarget, describeSquashFixups, formatSquashFixupsLabel, getFixupTarget, getListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
 import { testSubject } from "@/test-support/subject-parts"
 
@@ -49,5 +49,13 @@ describe("formatSquashFixupsLabel", () => {
   it("names the squash of the fixups alike on the button and in the branch menu, which open the confirmation", () => {
     expect(formatSquashFixupsLabel(1)).toBe("Squash 1 Fixup…")
     expect(formatSquashFixupsLabel(3)).toBe("Squash 3 Fixups…")
+  })
+})
+
+describe("describeSquashFixups", () => {
+  it("says what the squash does in the number of its fixups, one as one", () => {
+    expect(describeSquashFixups(1)).toBe("It is folded into its target, as with rebase --autosquash. Your files are not touched.")
+    expect(describeSquashFixups(3)).toBe("Each one is folded into its target, as with rebase --autosquash. Your files are not touched.")
+    expect(describeSquashFixups(0)).toBeNull()
   })
 })

@@ -2,8 +2,7 @@ import { toast } from "@/components/ui/toast"
 import { offerUnstackAfterMove, undoRegroup } from "@/hooks/useStackActions"
 import type { Commit, MoveCommitsResult, RewriteIntent } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
-import { formatCommitCount } from "@/lib/commit"
-import { capitalize, countMoved, describeMove } from "@/lib/move-summary"
+import { countMoved, describeDoneMove } from "@/lib/move-summary"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { branchSyncStore, getBranchesOfCommits } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -61,12 +60,12 @@ async function runMove(repositoryPath: string, rewrite: RewriteIntent, sources: 
   }
   const target = moved.target ?? null
   requestReveal(target === null ? null : { branchName: target, commitIds: movedIds(moved) })
-  const description = describeMove(moved, target, true)
+  const { title, description } = describeDoneMove(moved, target, count)
   const toastId = showUndoToast(
     repositoryPath,
-    moveTitle(moved, target, count),
+    title,
     () => undoRegroup(repositoryPath, done.undo?.token, "Cannot undo the move", "Undoing the move"),
-    description === undefined ? undefined : capitalize(description),
+    description,
     done.outcome.op,
   )
   void offerUnstackAfterMove(toastId, stacked, target)
@@ -78,14 +77,6 @@ function stackedBranchesOfMove(sources: readonly string[], targetBranch: string 
   const { branches } = branchSyncStore.getState()
   const names = [...new Set([...(targetBranch === null ? [] : [targetBranch]), ...sources])]
   return names.filter(name => (branches[name]?.stack?.declaredParent ?? null) !== null)
-}
-
-function moveTitle(result: MoveCommitsResult, target: string | null, count: number): string {
-  if (target !== null) {
-    return `Moved ${formatCommitCount(count)} to ${target}`
-  }
-  const onlyPrefixes = result.commits.every(commit => commit.change === "PrefixRemoved" || commit.change === "Unchanged")
-  return onlyPrefixes ? `Removed the prefix of ${formatCommitCount(count)}` : `Moved ${formatCommitCount(count)} back`
 }
 
 /** The ids of the commits a move changed, after it */

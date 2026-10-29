@@ -60,6 +60,18 @@ export function formatSquashFixupsLabel(count: number): string {
   return count === 1 ? "Squash 1 Fixup…" : `Squash ${count} Fixups…`
 }
 
+/**
+ * What the squash of `count` fixups does, under the title of its confirmation: one fixup reads as one; null without a
+ * fixup to squash, whose title says so
+ */
+export function describeSquashFixups(count: number): string | null {
+  if (count === 0) {
+    return null
+  }
+  const folded = count === 1 ? "It is folded into its target" : "Each one is folded into its target"
+  return `${folded}, as with rebase --autosquash. Your files are not touched.`
+}
+
 /** "1 fixup", "3 fixups" */
 export function formatFixupCount(count: number): string {
   return count === 1 ? "1 fixup" : `${count} fixups`
