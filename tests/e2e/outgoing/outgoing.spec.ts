@@ -1,15 +1,32 @@
 // @spec spec/repository/outgoing.spec.md
+import type { Locator, Page } from "@playwright/test"
+import type { BranchReviewRequest } from "../../../src/types/sub-window"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getPushButton } from "../helpers/branch-helpers"
 import { confirmForcePush, expectPushedToast, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
+import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
-import { syncFromMenu } from "../helpers/sync-helpers"
-import type { RemoteCommit } from "../helpers/test-repository"
+import { getEmittedEvents } from "../helpers/sub-window-helpers"
+import { emitTauriEvent, pressSyncHeld, releaseHeldSync, syncFromMenu } from "../helpers/sync-helpers"
+import type { RemoteCommit, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
 import { recordCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
+
+/**
+ * The push of JIRA-456 pressed while a sync of the session runs, held until the test releases it (`pressSyncHeld`): the
+ * push waits in the session for that sync, its button busy. The row
+ */
+async function pushDuringHeldSync(page: Page, repo: TestRepositoryBuilder): Promise<Locator> {
+  await pressSyncHeld(page, repo)
+  const row = findBranchRow(page, "JIRA-456")
+  const button = getPushButton(row)
+  await button.click()
+  await expect(button).toHaveAttribute("aria-busy", "true")
+  return row
+}
 
 test.describe("Push progress", () => {
   test("should show the percent on the push button and git's last line on hover while the push runs", async ({ page, issueLinksRepo }) => {
@@ -237,6 +254,55 @@ test.describe("Push button", () => {
     // the backend refuses both: what they would push is not what the rows show
     await expect(page.getByText("Nothing was pushed: JIRA-456 is not synced (a merge conflict)")).toBeVisible()
     await expect(page.getByText("Nothing was pushed: ABC-123 is not synced (a merge conflict)")).toBeVisible()
+  })
+
+  test("should push a branch pressed again during a sync once after it, in one toast", async ({ page, issueLinksRepo }) => {
+    const pushes = await recordCommand(page, "execute")
+    const row = await pushDuringHeldSync(page, issueLinksRepo)
+    expect(pushes).toHaveLength(1)
+    // P on the row asks for the same push while the first waits for the sync: the push of the row runs, so the press
+    // starts no second one
+    await row.focus()
+    await page.keyboard.press("p")
+    await expect(getPushButton(row)).toHaveAttribute("aria-busy", "true")
+
+    await issueLinksRepo.holdRemoteAnswers({ release: ["sync"] })
+    await expectPushedToast(page, "JIRA-456")
+    expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
+    expect(pushes).toHaveLength(1)
+    await expectNothingToPush(row)
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
+  })
+
+  test("should push a branch in its repository when another repository opens while its push sends", async ({ page, issueLinksRepo, syncAndWaitForBranches }) => {
+    await addRecentProject(page)
+    await syncAndWaitForBranches()
+    const held = await holdRemotePushes(issueLinksRepo)
+    const row = findBranchRow(page, "JIRA-456")
+    await getPushButton(row).click()
+    await held.arrived()
+    // the window opens another repository while the push sends: the push goes on in its own
+    await switchRepository(page, OTHER_REPOSITORY)
+    await held.release()
+    await expect.poll(() => remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
+    await expect(pushedToast(page, "JIRA-456")).toBeVisible()
+    await expect(page.getByText("Cannot push branch JIRA-456")).toHaveCount(0)
+    // back in it, the row has the status the push left in its session
+    await switchRepository(page, issueLinksRepo.path)
+    await expectNothingToPush(row)
+  })
+
+  test("should push a branch a review window asks for during a sync once that sync ended, in the main window", async ({ page, issueLinksRepo }) => {
+    const previousCount = await pressSyncHeld(page, issueLinksRepo)
+    // the review window of JIRA-456 asks the main window for the push of its menu: the main window runs it on the
+    // table of the sync that runs, once that sync ended
+    const request = { id: "window", repositoryPath: issueLinksRepo.path, branchName: "JIRA-456", menuItemId: "push" } satisfies BranchReviewRequest
+    await emitTauriEvent(page, "branch-review/request", request)
+    await releaseHeldSync(page, issueLinksRepo, previousCount)
+    await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "window", ok: true }])
+    await expectPushedToast(page, "JIRA-456")
+    expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
+    await expectNothingToPush(findBranchRow(page, "JIRA-456"))
   })
 
   test("should describe a disabled push on hover", async ({ page }) => {

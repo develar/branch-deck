@@ -126,6 +126,29 @@ export async function waitForSyncComplete(page: Page, previousCount: number, tim
 }
 
 /**
+ * Presses Sync while the syncs of the session are held until `releaseHeldSync` (`sync` of the held answers): the sync
+ * runs, its button busy, while the test acts. The count of the finished syncs before it
+ */
+export async function pressSyncHeld(page: Page, repo: TestRepositoryBuilder): Promise<number> {
+  const previousCount = await finishedSyncCount(page)
+  await repo.holdRemoteAnswers({ hold: ["sync"] })
+  const syncButton = page.getByTestId("sync-button")
+  await syncButton.click()
+  await expect(syncButton).toHaveAttribute("aria-busy", "true")
+  return previousCount
+}
+
+/**
+ * Releases the sync `pressSyncHeld` held and waits for its end: it is the one sync since `previousCount`, so what the
+ * test did meanwhile ran no sync of its own
+ */
+export async function releaseHeldSync(page: Page, repo: TestRepositoryBuilder, previousCount: number): Promise<void> {
+  await repo.holdRemoteAnswers({ release: ["sync"] })
+  await waitForSyncComplete(page, previousCount)
+  expect(await finishedSyncCount(page)).toBe(previousCount + 1)
+}
+
+/**
  * Runs an action that runs a command and then the sync of its result (a move, a rename, an undo), and waits for that
  * sync to finish: what the assertions after it read comes with the sync, and under load the command and the sync
  * together take longer than one assertion waits.

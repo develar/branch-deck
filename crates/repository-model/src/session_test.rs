@@ -387,6 +387,28 @@ async fn a_focus_during_a_run_is_one_check_after_it() {
   assert_eq!(*host.checks.lock().unwrap() - checks_after_open, 2);
 }
 
+/// Each session syncs on its own scheduler (a window that opens another repository while the sync of the first one
+/// runs): held in its run, the sync of /repo makes the sync of /other wait for nothing, and ends once let go
+#[tokio::test]
+async fn the_sync_of_another_session_ends_while_the_sync_of_one_is_held() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, key, gate, _window, _view) = gated_window(&host).await;
+  let held = sessions.sync(&key, SyncReason::Manual);
+  while host.runs() == 0 {
+    tokio::task::yield_now().await;
+  }
+  host.push(auth_built(), Ok(report(false, &[])));
+  let other = self::key("/other");
+  sessions.subscribe(&other, Box::new(Window::default())).await.unwrap();
+  assert_eq!(outcome(sessions.sync(&other, SyncReason::Open)).await, Ok(SyncOutcome::Synced));
+  assert_eq!(snapshot(&sessions, &other).await.branches["auth"].sync.status, BranchStatus::Created);
+  assert!(matches!(snapshot(&sessions, &key).await.sync, SyncState::Running { .. }), "the sync of /repo is still held");
+
+  gate.notify_one();
+  assert_eq!(outcome(held).await, Ok(SyncOutcome::Synced));
+  assert_eq!(host.runs(), 2);
+}
+
 /// A run whose report asks for a retry runs once more, its unbuilt branches `Syncing` meanwhile; a second ask is not
 /// retried
 #[tokio::test]

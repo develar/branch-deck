@@ -1,8 +1,19 @@
 // @spec spec/branch/move-commits.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getMoreButton, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
+import {
+  expandBranch,
+  expectNothingToPush,
+  findBranchRow,
+  getBranchCommitRow,
+  getBranchDetailsRow,
+  getMoreButton,
+  getPushButton,
+  verifyCommitCount,
+} from "../helpers/branch-helpers"
+import { expectPushedToast, remotePushes } from "../helpers/push-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
+import { runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, recordRewrites } from "../helpers/wait-helpers"
 
@@ -181,5 +192,29 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     // nothing was pushed: the button offers the same push
     await expect(push).toBeEnabled()
     await repo.holdRepositoryLock(false)
+  })
+
+  test("should sync while another process holds the repository lock, and push once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+    // an agent's `bd push` holds the lock (its sync and its freeze) after a commit behind the app's back
+    await repo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
+    await repo.holdRepositoryLock(true)
+    // the sync of the app takes no lock: it ends while the other process holds it, and brings the commit into the row
+    await runAndWaitForSync(page, () => syncFromMenu(page))
+    const row = findBranchRow(page, "JIRA-456")
+    const push = getPushButton(row)
+    await expect(push).toHaveAccessibleName("Push Branch (4)")
+    // the push meets the lock where it writes: it waits for the holder, nothing sent
+    await push.click()
+    await expect(push).toHaveAttribute("aria-busy", "true")
+    await push.hover()
+    await expect(page.getByTestId("push-description").getByTestId("push-progress")).toContainText(WAITING)
+    expect(await remotePushes(repo)).toEqual([])
+
+    await repo.holdRepositoryLock(false)
+    await expectPushedToast(page, "JIRA-456")
+    expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
+    await expectNothingToPush(row)
   })
 })

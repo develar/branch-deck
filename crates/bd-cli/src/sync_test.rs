@@ -1,6 +1,8 @@
 #[cfg(unix)]
-use crate::fixture_test::LockSpanGit;
+use crate::fixture_test::{LockSpanGit, PREFIX};
 use crate::fixture_test::{commit_all, git, hold_the_lock, repo_with_baseline, run_in, write};
+#[cfg(unix)]
+use crate::remote_fixture_test::{remote_tip, repo_with_remote};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -164,6 +166,41 @@ fn the_apps_squash_beside_a_held_sync_never_waits_for_it() {
     assert!(squashed.is_ok(), "the squash waits for no holder while the sync is held: {squashed:?}");
   });
   assert_eq!(git(&repo, &["log", "-2", "--format=%s"]), "(auth) Add login\nTidy up");
+}
+
+/// The virtual branch of auth in `repo`
+#[cfg(unix)]
+fn auth_tip(repo: &TestRepo) -> String {
+  git(repo, &["rev-parse", &format!("refs/heads/{PREFIX}/virtual/auth")])
+}
+
+/// Two agents' `bd sync` at once, the first held in its merges: the second builds auth and ends; the first then ends too,
+/// on the same build, which its compare-and-swap leaves as the second wrote it
+#[cfg(unix)]
+#[test_log::test]
+fn a_sync_beside_a_held_sync_ends_and_both_leave_one_build() {
+  let (repo, _) = repo_with_auth();
+  let mut built = String::new();
+  beside_a_held_sync(&repo, || {
+    let (exit_code, output) = run_in(&repo, &["sync"]);
+    assert_eq!((exit_code, &output["branches"][0]["state"]), (0, &json!("created")), "{output}");
+    built = auth_tip(&repo);
+  });
+  assert_eq!(auth_tip(&repo), built);
+}
+
+/// An agent's `bd push`, beside another agent's `bd sync` held in its merges: the sync holds no lock, so the push syncs,
+/// pushes and ends while that sync is still held; the remote has the build both syncs leave
+#[cfg(unix)]
+#[test_log::test]
+fn a_push_beside_a_held_sync_does_not_wait_for_it() {
+  // a commit before it, so each sync merges the branch's commit onto the baseline
+  let (repo, remote) = repo_with_remote(&["Tidy up", "(auth) Add login"]);
+  beside_a_held_sync(&repo, || {
+    let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+    assert_eq!(exit_code, 0, "the push does not wait for the sync: {output}");
+  });
+  assert_eq!(remote_tip(&remote, &format!("{PREFIX}/virtual/auth")), auth_tip(&repo));
 }
 
 #[test_log::test]

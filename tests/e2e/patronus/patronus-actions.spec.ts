@@ -1,6 +1,7 @@
 // @spec spec/branch/patronus.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusProfile, PatronusReviewRequirement, PatronusRobot, PullRequest } from "../../../src/lib/bindings"
+import type { BranchReviewRequest } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import {
   expandBranch,
@@ -46,8 +47,8 @@ import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSaf
 import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { nextAnswer, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
+import { getEmittedEvents, getOpenedSubWindows } from "../helpers/sub-window-helpers"
+import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdIntent, recordCommand, recordRewrites } from "../helpers/wait-helpers"
 
@@ -569,6 +570,87 @@ test.describe("Patronus actions", () => {
     expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
     await expect(toastWith(page, "Safe Push started")).toBeVisible()
+    await expect(toastWith(page, "Cannot start")).toHaveCount(0)
+  })
+
+  test("should queue a Safe Push pressed while the push of its branch waits for a sync, and start it once after them, the sync ending once", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const previousCount = await pressSyncHeld(page, repo)
+    const row = findBranchRow(page, "JIRA-456")
+    await row.focus()
+    await page.keyboard.press("p")
+    await expect(getPushButton(row)).toHaveAttribute("aria-busy", "true")
+    // S and Enter while the push waits for the sync: the start needs the ref the push writes, so it waits behind it
+    await page.keyboard.press("s")
+    await expect(popoverStart(page)).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(getLandingNode(row)).toHaveAttribute("data-kind", "landing")
+    expect((await repo.getPatronusLog()).starts).toEqual([])
+
+    await releaseHeldSync(page, repo, previousCount)
+    // the push went on the table the sync left, the start after it on what the push left: one push, one start
+    await expectJiraStarted(page, repo)
+    expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
+    await expect(toastWith(page, "Cannot start")).toHaveCount(0)
+  })
+
+  /** The slot of JIRA-456 starts its Safe Push, which waits at Patronus until the test releases its `start`: its slot */
+  async function startHeldAtPatronus(page: Page, repo: TestRepositoryBuilder): Promise<Locator> {
+    await repo.holdRemoteAnswers({ hold: ["start"] })
+    const slot = slotSafePush(page, "JIRA-456")
+    await slot.click()
+    await expect.poll(async () => (await repo.getArrivedAnswers()).includes("start")).toBe(true)
+    await expect(slot).toHaveText("Starting…")
+    await expect(slot).toHaveAttribute("aria-busy", "true")
+    return slot
+  }
+
+  /** The start Patronus held is released: Patronus got one start of JIRA-456, told in one toast */
+  async function expectStartedOnce(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+    await repo.holdRemoteAnswers({ release: ["start"] })
+    await expectJiraStarted(page, repo)
+    await expect(toastWith(page, "Safe Push started")).toHaveCount(1)
+    await expect(toastWith(page, "Cannot start")).toHaveCount(0)
+  }
+
+  test("should start a Safe Push asked again while its start waits at Patronus once: one start, one toast", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const slot = await startHeldAtPatronus(page, repo)
+    // the slot and S of the row offer the same start while it runs: a click and the key start no second one
+    await slot.click({ force: true })
+    await findBranchRow(page, "JIRA-456").focus()
+    await page.keyboard.press("s")
+    await expect(safePushPopover(page)).toHaveCount(0)
+    await expectStartedOnce(page, repo)
+  })
+
+  test("should start once the Safe Push a review window asks for while the row's own start waits at Patronus: the request joins it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    await startHeldAtPatronus(page, repo)
+    // the review window of JIRA-456 asks the main window for the same start: its request is that start, no second one
+    await emitTauriEvent(page, "branch-review/request", { id: "window", repositoryPath: repo.path, branchName: "JIRA-456", menuItemId: "safe-push" } satisfies BranchReviewRequest)
+    await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "window", ok: true }])
+    await expectStartedOnce(page, repo)
+  })
+
+  test("should start a Safe Push pressed during a sync at once, on the table of the last sync, the sync ending once", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const previousCount = await pressSyncHeld(page, repo)
+    // the start needs nothing the sync writes: it pushes and starts while the sync runs
+    await runAndWaitForAnswer(page, "execute", () => slotSafePush(page, "JIRA-456").click())
+    await expectJiraStarted(page, repo)
+    await expectPushedToRemote(repo, ["JIRA-456"])
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+
+    await releaseHeldSync(page, repo, previousCount)
     await expect(toastWith(page, "Cannot start")).toHaveCount(0)
   })
 
@@ -1110,10 +1192,33 @@ test.describe("Patronus actions", () => {
       expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
     }
 
-    test("should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    /** JIRA-456 with the open pull request #7, its branch on the remote: nothing to push, the start is the comment alone */
+    async function setupCommentStart(
+      page: Page,
+      setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+      syncAndWaitForBranches: () => Promise<unknown>,
+    ): Promise<TestRepositoryBuilder> {
       const repo = await setupGitHubWith(page, setupRepo, syncAndWaitForBranches, {}, pullRequest("JIRA-456", 7))
-      // nothing to push: the start is the comment alone
       await pushedBefore(page, repo, ["JIRA-456"])
+      return repo
+    }
+
+    /**
+     * S and Enter start the Safe Push of #7: one comment; `meanwhile` runs once it is posted, then the robot the bot
+     * started is listed and the start finds it
+     */
+    async function startFromCommentOnce(page: Page, repo: TestRepositoryBuilder, meanwhile: () => Promise<void> = () => Promise.resolve()): Promise<void> {
+      const answered = nextAnswer(page, "execute")
+      await openSafePushWithKey(page, "JIRA-456")
+      await startWithEnter(page, repo)
+      await meanwhile()
+      await skipReplyWait(repo, answered, robotOfComment())
+      await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
+      expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+    }
+
+    test("should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupCommentStart(page, setupRepo, syncAndWaitForBranches)
       // the 👍 comes, the fake Patronus lists the robot only later
       await startAcceptedWithoutRobot(page, repo)
       await expectHeldUntilListed(page, repo)
@@ -1139,6 +1244,41 @@ test.describe("Patronus actions", () => {
       await expect(slotSafePush(page, "JIRA-456")).toHaveAttribute("aria-busy", "true")
       // the look in the background went on in the repository of the start
       await expectHeldUntilListed(page, repo)
+    })
+
+    test("should push another branch while a start Patronus accepted looks for its robot, and go on holding the start", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupCommentStart(page, setupRepo, syncAndWaitForBranches)
+      await startAcceptedWithoutRobot(page, repo)
+      // the start holds what it lands of JIRA-456 only: the push of ABC-123 goes beside it
+      await runAndWaitForAnswer(page, "execute", () => pushFromRowMenu(page, "ABC-123"))
+      await expectPushedToRemote(repo, ["ABC-123"])
+      await expect(slotSafePush(page, "JIRA-456")).toHaveText("Starting…")
+      await expectHeldUntilListed(page, repo)
+    })
+
+    test("should comment once for a start pressed during a sync, the sync ending once", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupCommentStart(page, setupRepo, syncAndWaitForBranches)
+      const previousCount = await pressSyncHeld(page, repo)
+      // the start needs nothing the sync writes: its comment goes while the sync runs
+      await startFromCommentOnce(page, repo, () => releaseHeldSync(page, repo, previousCount))
+    })
+
+    test("should post no comment while bd runs the Safe Push of the branch, and comment once after it ended", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupCommentStart(page, setupRepo, syncAndWaitForBranches)
+      // an agent's `bd safe-push JIRA-456` of another process holds what the start of #7 lands
+      await repo.setForeignOperation({ kind: "land", subject: { kind: "branch", name: "JIRA-456" }, mode: "rebaseAutosquash", profile: { kind: "default" } })
+      const slot = slotSafePush(page, "JIRA-456")
+      await expect(slot).toHaveText("bd: Safe Push of JIRA-456…")
+      await findBranchRow(page, "JIRA-456").focus()
+      await page.keyboard.press("s")
+      await expect(toastWith(page, "Safe Push of JIRA-456 can't start")).toBeVisible()
+      await expect(safePushPopover(page)).toHaveCount(0)
+      expect(await comments(repo)).toEqual([])
+
+      // its record left the registry: the start of #7 comments once
+      await repo.setForeignOperation(null)
+      await expect(slot).not.toHaveAttribute("aria-busy", "true")
+      await startFromCommentOnce(page, repo)
     })
 
     test("should say why Patronus refused the comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
