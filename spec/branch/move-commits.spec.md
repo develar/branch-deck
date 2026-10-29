@@ -333,6 +333,12 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`renaming_a_parent_renames_it_in_its_children`, `undo_refuses_a_bad_token_and_a_moved_head`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid`)
   [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_that_brings_the_old_head_back`)
+- An Undo pressed during a sync must go to the session at once, never refused: it answers with the sync it asked, after
+  the running one, its toast kept until then. The same Undo asked three times (its toast, Activity, the Activity window)
+  is one undo with one outcome; an Undo that waited for the lock of another process that committed on top meanwhile is
+  stale (`undo_stale`) and writes nothing.
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should undo a move pressed during a held sync once that sync ended, without a refusal, one sync for the undo`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_triple_undo_is_one_undo_with_one_outcome`, `an_undo_waiting_for_the_lock_of_another_process_that_commits_on_top_is_stale_and_writes_nothing`)
 - After the toast shows, the trial build of the stacked branches of the move runs, the target first, then the source
   branches ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)). The first one that builds
   alone now gives the toast a second action: "Unstack from IJPL-257337" for the target, which the toast names, and

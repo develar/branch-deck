@@ -587,6 +587,9 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_a_demanded_branch_at_once_in_its_own_call_while_the_batch_is_in_flight`)
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_the_shown_rows_before_the_hidden_awaiting_ones_at_most_four_in_parallel`, `answers_the_cache_before_the_queue`)
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_repository_change_during_a_batch_does_not_wait_for_it`)
+- A sync must hold back no ask of the readiness: a demand told while it runs is asked at once, and its end asks a
+  subject again only for new inputs (a tip it moved).
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_demand_during_a_sync_is_asked_at_once_and_the_end_of_the_sync_asks_it_once_more_only_for_new_inputs`)
   [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`the_kept_answers_come_from_the_cache_without_asking_patronus`)
   [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_new_reviews`, `a_needed_subject_is_unavailable_while_patronus_does_not_answer_for_the_repository`)
   [@test] ../../crates/domain-policy/src/refresh_test.rs (`a_demanded_readiness_is_asked_at_once_then_the_shown_ones_then_the_hidden_that_wait_for_an_approval`)

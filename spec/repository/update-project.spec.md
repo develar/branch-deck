@@ -444,6 +444,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should let a rewrite run during the fetch of an update, which checks and applies after it`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run an update pressed during a rewrite after it, waiting for it in the queue of the session`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run a rewrite pressed during the check of an update after it, on what the update left`)
+- Update pressed during a sync must go to the session at once, never refused: it fetches, checks and moves, and answers
+  with the sync it asked, after the running one; no sync of its own besides that one.
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should run an update pressed during a held sync at once, its result once that sync ended, one sync for the update`)
 - Once git reports a stage of the fetch, its percent of the whole fetch moves the progress of the update, and the
   tooltip shows the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's
   `GitStandardProgressAnalyzer` does (counting 5 %, compressing 10 %, receiving or unpacking 80 %, resolving deltas

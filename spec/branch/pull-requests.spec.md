@@ -442,11 +442,13 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   (`RepositoryView.operations`, [Running Operations](../../docs/design/operations.md)): each holds the head of its
   subject, so a second submit of the same joins the first, another text (or a push of the branch) waits for it and is
   decided again (GitHub then finds the pull request it opened); a creation asked while the push of its branch sends
-  waits for that push and runs on what it left, nothing more to push; the dialog waits from the click on and while the
+  waits for that push and runs on what it left, nothing more to push; one asked during a sync waits for the table of
+  that sync, then pushes and creates once; the dialog waits from the click on and while the
   operation runs, the review window for its own request. So is "Request Review…": its button shows the spinner, a
   second click joins it.
   [@test] ../../crates/operations/src/pull_request_test.rs (`a_review_request_waits_for_a_retarget_of_its_pull_request_only_when_its_push_retargets_it`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should create the pull request asked for while the push of its branch sends, on what that push left`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should create the pull request asked for during a held sync once that sync ended, its push first, the sync ending once`)
   [@test] ../../src/lib/pull-request-run.test.ts (`is the running operation of its row while the session runs it`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except_the_author`, `without_the_assignee_and_reviewers_only_the_pull_request_is_created`, `a_refused_list_of_reviewers_is_asked_one_by_one_and_who_github_refuses_is_a_warning`, `an_assignee_github_leaves_out_or_refuses_is_a_warning_of_the_created_pull_request`, `a_rejected_token_writes_nothing`, `a_title_of_several_lines_is_refused_before_github_is_asked`)
 - The creation, "Continue on GitHub" and "Request Review…" belong to the repository they were asked in (the dialog of

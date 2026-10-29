@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, hold_the_lock, subcommand};
+use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, hold_the_lock, subcommand};
 use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
 use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
 use pretty_assertions::assert_eq;
@@ -450,6 +450,22 @@ fn another_writer_takes_the_lock_while_a_pick_replays() {
   let lane = lane_onto_a_moved_target(&repo);
   let (_wrapped, exit_code, output) = pick_held_in_its_replays(&repo, &lane, 1, |_| drop(hold_the_lock(&repo)));
   assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  assert_eq!(read(&repo, "b.txt"), "b\n");
+}
+
+/// A pick beside another agent's `bd sync` of the target held in its merges: a sync takes no repository lock, so the
+/// pick checks, moves both worktrees and ends while that sync is still held, which then ends too
+#[cfg(unix)]
+#[test_log::test]
+fn a_pick_beside_a_held_sync_does_not_wait_for_it() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  // a commit of no branch below the target's own: its sync merges `own` onto the baseline
+  repo.create_commit("Tidy up", "misc.txt", "misc\n");
+  let lane = lane_onto_a_moved_target(&repo);
+  beside_a_held_sync(&repo, || {
+    let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+    assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "the pick does not wait for the sync: {output}");
+  });
   assert_eq!(read(&repo, "b.txt"), "b\n");
 }
 

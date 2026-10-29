@@ -205,7 +205,8 @@ impl Services {
 }
 
 /// A core's failure in the words of its context chain, as a test reads it, with the code of a moved ref as
-/// `app_api::api_error` gives it (the engine runs a rewrite again only after one: `resolve_and_run`)
+/// `app_api::api_error` gives it (the engine runs a rewrite again only after one: `resolve_and_run`), and of an undo as
+/// `app_api::undo_error` gives it (a moved ref makes the token stale)
 impl RewriteHost for Services {
   fn rewrite_error(&self, error: anyhow::Error) -> ApiError {
     let moved = error
@@ -217,7 +218,7 @@ impl RewriteHost for Services {
   }
 
   fn undo_error(&self, error: anyhow::Error) -> ApiError {
-    ApiError::internal(format!("{error:#}")).in_undo()
+    self.rewrite_error(error).in_undo()
   }
 }
 

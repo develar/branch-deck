@@ -192,6 +192,9 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
   (a conflict, local changes in the way, every commit present) must answer without the lock.
   [@test] ../../crates/bd-update/src/pick_test.rs (`the_check_of_a_pick_runs_before_the_lock`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`another_writer_takes_the_lock_while_a_pick_replays`)
+- A pick must never wait for a sync: another agent's `bd sync` of the target, held in its merges, takes no repository
+  lock, so the pick checks, moves both worktrees and ends meanwhile.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_beside_a_held_sync_does_not_wait_for_it`)
 - A target or a source that moved between the check and the lock must make the pick check again without the lock and
   land on the new tip, the source following there; after two such checks the third must run under the lock.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_commit_on_the_target_during_the_replay_of_a_pick_is_kept_and_the_pick_checks_again`)

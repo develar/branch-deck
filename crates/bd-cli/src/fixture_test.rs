@@ -273,6 +273,27 @@ pub fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
   run_json(&environment(repo.path()), &all_args)
 }
 
+/// Runs `during` while an agent's `bd sync` of `repo` is held in its first merge, asserts the sync is still held after
+/// it, then lets the sync go on and asserts it ended; the sync must merge (a commit of no branch below the branch's)
+#[cfg(unix)]
+pub fn beside_a_held_sync(repo: &TestRepo, during: impl FnOnce()) {
+  // the first merge of the sync waits until the test lets it go
+  let wrapped = LockSpanGit::new(repo, "*\" merge-tree \"*) touch '{dir}/held'; while [ ! -f '{dir}/go' ]; do sleep 0.01; done;;");
+  let (held, go) = (wrapped.dir().join("held"), wrapped.dir().join("go"));
+  std::thread::scope(|scope| {
+    let sync = scope.spawn(|| wrapped.run(&["sync"]));
+    while !held.exists() && !sync.is_finished() {
+      std::thread::yield_now();
+    }
+    assert!(held.exists(), "the sync reached its merge");
+    during();
+    assert!(!sync.is_finished(), "the sync is still held at its merge");
+    std::fs::write(&go, "").unwrap();
+    let (exit_code, output) = sync.join().unwrap();
+    assert_eq!(exit_code, 0, "{output}");
+  });
+}
+
 /// bd with a git wrapper that logs every command with the state of the repository lock when it started: `locked` while
 /// the holder record of `$GIT_COMMON_DIR/branch-deck.lock` exists (a holder writes it once it has the lock and deletes
 /// it before the release), so a test reads the lock span of a command. `arms` are `case " $* " in` arms that run before

@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use crate::fixture_test::{LockSpanGit, PREFIX};
+use crate::fixture_test::{PREFIX, beside_a_held_sync};
 use crate::fixture_test::{commit_all, git, hold_the_lock, repo_with_baseline, run_in, write};
 #[cfg(unix)]
 use crate::remote_fixture_test::{remote_tip, repo_with_remote};
@@ -88,27 +88,6 @@ fn repo_with_auth() -> (TestRepo, String) {
   write(&repo, "auth.rs", "auth\n");
   let login = commit_all(&repo, "(auth) Add login", 1_700_000_100);
   (repo, login)
-}
-
-/// Runs `during` while an agent's `bd sync` of `repo` is held in its first merge, asserts the sync is still held after
-/// it, then lets the sync go on and asserts it ended
-#[cfg(unix)]
-fn beside_a_held_sync(repo: &TestRepo, during: impl FnOnce()) {
-  // the first merge of the sync waits until the test lets it go
-  let wrapped = LockSpanGit::new(repo, "*\" merge-tree \"*) touch '{dir}/held'; while [ ! -f '{dir}/go' ]; do sleep 0.01; done;;");
-  let (held, go) = (wrapped.dir().join("held"), wrapped.dir().join("go"));
-  std::thread::scope(|scope| {
-    let sync = scope.spawn(|| wrapped.run(&["sync"]));
-    while !held.exists() && !sync.is_finished() {
-      std::thread::yield_now();
-    }
-    assert!(held.exists(), "the sync reached its merge");
-    during();
-    assert!(!sync.is_finished(), "the sync is still held at its merge");
-    std::fs::write(&go, "").unwrap();
-    let (exit_code, output) = sync.join().unwrap();
-    assert_eq!(exit_code, 0, "{output}");
-  });
 }
 
 /// An agent's `bd sync`, held in its merges, beside the user's regroup (the app's Move takes the same lock): the regroup

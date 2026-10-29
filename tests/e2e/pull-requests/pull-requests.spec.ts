@@ -28,7 +28,7 @@ import {
 } from "../helpers/review-status-helpers"
 import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, pressSyncHeld, releaseHeldSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand } from "../helpers/wait-helpers"
 
@@ -80,6 +80,27 @@ async function openDialogAfterPush(page: Page): Promise<Locator> {
   await pushFromRowMenu(page, "feature-auth")
   await pushedToast(page, "feature-auth").getByRole("button", { name: "Create Pull Request…" }).click()
   return createPullRequestDialog(page)
+}
+
+/** Creates the pull request of feature-auth from the menu of its row, with the text its dialog starts with */
+async function createFromRowMenu(page: Page, row: Locator): Promise<void> {
+  await row.click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Create Pull Request…" }).click()
+  const title = createPullRequestDialog(page).getByTestId("create-pull-request-title")
+  await expect(title).toHaveValue(AUTH_TITLE)
+  await title.press("ControlOrMeta+Enter")
+}
+
+/** feature-auth was pushed once, then its pull request created once, with the text its dialog starts with */
+async function expectPushedThenCreated(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #900" })).toBeVisible()
+  expect(await remotePushes(repo)).toEqual([["feature-auth"]])
+  expect(gitHubWrites(await repo.getGitHubLog())[0]).toEqual([
+    "POST",
+    repoPath("pulls"),
+    { title: AUTH_TITLE, body: AUTH_BODY, head: "user-name/virtual/feature-auth", base: "master" },
+  ])
+  await expect(page.locator("[data-slot=toast]", { hasText: "Cannot create" })).toHaveCount(0)
 }
 
 function getChip(page: Page, branchName: string): Locator {
@@ -317,23 +338,26 @@ test.describe("Pull request chip", () => {
 
     // Create while the push sends: the session admits the creation behind the push of the branch (its node waits for
     // GitHub from then on)
-    await row.click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Create Pull Request…" }).click()
-    const dialog = createPullRequestDialog(page)
-    const title = dialog.getByTestId("create-pull-request-title")
-    await expect(title).toHaveValue(AUTH_TITLE)
-    await title.press("ControlOrMeta+Enter")
+    await createFromRowMenu(page, row)
     await expect(getLandingNode(row)).toHaveAttribute("data-kind", "waiting")
     await held.release()
     // decided again on what the push left: one push, then the pull request
-    await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #900" })).toBeVisible()
-    expect(await remotePushes(repo)).toEqual([["feature-auth"]])
-    expect(gitHubWrites(await repo.getGitHubLog())[0]).toEqual([
-      "POST",
-      repoPath("pulls"),
-      { title: AUTH_TITLE, body: AUTH_BODY, head: "user-name/virtual/feature-auth", base: "master" },
-    ])
-    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot create" })).toHaveCount(0)
+    await expectPushedThenCreated(page, repo)
+  })
+
+  test("should create the pull request asked for during a held sync once that sync ended, its push first, the sync ending once", async ({ page, repo }) => {
+    const executions = await recordCommand(page, "execute")
+    const syncs = await pressSyncHeld(page, repo)
+    // Create during the sync: the dialog opens and the creation goes to the session at once, never refused
+    await createFromRowMenu(page, findBranchRow(page, "feature-auth"))
+    await expect.poll(() => executions.length).toBe(1)
+    // its push waits for the table of the sync: nothing pushed, nothing created yet
+    expect(await remotePushes(repo)).toEqual([])
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([])
+
+    await releaseHeldSync(page, repo, syncs)
+    await expectPushedThenCreated(page, repo)
+    expect(executions).toHaveLength(1)
   })
 
   test("should say whom GitHub refused, and keep the dialog when GitHub creates nothing", async ({ page, repo }) => {

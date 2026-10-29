@@ -154,33 +154,61 @@ async fn a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_u
   assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "HEAD is back");
 }
 
+impl Fixture {
+  /// `rewrite` asked three times while the first waits for the lock another process holds: the second and the third
+  /// join the first (its record counts them), and the lock is released then; the three answers
+  async fn three_times(&self, rewrite: &RewriteIntent) -> [Outcome; 3] {
+    let held = self.lock();
+    let release = async {
+      let operations = self.until(|operations| waits_with(1)(operations) && operations[0].joined == 2).await;
+      assert_eq!(operations[0].intent, Intent::Rewrite(Box::new(rewrite.clone())));
+      drop(held);
+    };
+    let (first, second, third, ()) = within_a_minute(Box::pin(async {
+      tokio::join!(self.rewrite(rewrite), self.rewrite(rewrite), self.rewrite(rewrite), release)
+    }))
+    .await;
+    let answers = [first.unwrap(), second.unwrap(), third.unwrap()];
+    assert_eq!([&answers[1].op, &answers[2].op], [&answers[0].op, &answers[0].op], "one operation");
+    answers
+  }
+
+  /// How often a rewrite of Branch Deck moved HEAD (its reflog message)
+  fn head_moves(&self) -> usize {
+    self
+      .repo
+      .git(&["reflog", "--format=%gs", "HEAD"])
+      .lines()
+      .filter(|line| line.starts_with("branch-deck:"))
+      .count()
+  }
+}
+
 /// Three clicks of Unstack of one branch (from two windows too) while the first waits for the lock another process
 /// holds are one rewrite: the second and the third join the first (its record counts them), all three get its outcome,
 /// and HEAD moves once
 #[tokio::test(flavor = "multi_thread")]
 async fn a_triple_unstack_is_one_rewrite_with_one_outcome() {
   let fixture = fixture(true).await;
-  let held = fixture.lock();
-  let unstack = unstack(&fixture.witness().await);
-  let release = async {
-    let operations = fixture.until(|operations| waits_with(1)(operations) && operations[0].joined == 2).await;
-    assert_eq!(operations[0].intent, Intent::Rewrite(Box::new(unstack.clone())));
-    drop(held);
-  };
-  let (first, second, third, ()) = within_a_minute(Box::pin(async {
-    tokio::join!(fixture.rewrite(&unstack), fixture.rewrite(&unstack), fixture.rewrite(&unstack), release)
-  }))
-  .await;
-  let (first, second, third) = (first.unwrap(), second.unwrap(), third.unwrap());
-  assert_eq!([&second.op, &third.op], [&first.op, &first.op], "one rewrite");
+  fixture.three_times(&unstack(&fixture.witness().await)).await;
   assert_eq!(fixture.subjects(), ["(beta) Beta", "(alpha) Alpha"]);
-  let rewrites = fixture
-    .repo
-    .git(&["reflog", "--format=%gs", "HEAD"])
-    .lines()
-    .filter(|line| line.starts_with("branch-deck:"))
-    .count();
-  assert_eq!(rewrites, 1, "HEAD moved once");
+  assert_eq!(fixture.head_moves(), 1, "HEAD moved once");
+}
+
+/// The Undo of a move pressed three times while it waits for the lock another process holds (its toast, its entry in
+/// Activity and in the Activity window, which the main window runs) is one undo: the second and the third join the
+/// first, all three answer that it undid, and HEAD moves back once
+#[tokio::test(flavor = "multi_thread")]
+async fn a_triple_undo_is_one_undo_with_one_outcome() {
+  let fixture = fixture(true).await;
+  let (beta, head) = (fixture.commit("(alpha/beta) Beta"), fixture.repo.rev_parse("HEAD").unwrap());
+  let moved = fixture.rewrite(&move_to(std::slice::from_ref(&beta), "gamma", &fixture.witness().await)).await.unwrap();
+  let answers = fixture.three_times(&RewriteIntent::Undo { token: moved.undo.unwrap() }).await;
+  for answer in answers {
+    assert_eq!(answer.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
+  }
+  assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "HEAD is back");
+  assert_eq!(fixture.head_moves(), 2, "the move and one undo");
 }
 
 /// The operations of the view once `count` of them are in it, the first waiting for the lock of the agent and the
@@ -323,6 +351,25 @@ async fn an_undo_during_a_rewrite_waits_behind_it_and_runs_after_it() {
   assert_eq!(undone.unwrap().result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
   assert_eq!(fixture.repo.git(&["for-each-ref", "refs/branch-deck/parked"]), "", "the store is back to none");
   assert_eq!(fixture.subjects(), ["(beta) Beta", "(alpha) Alpha"]);
+}
+
+/// The Undo of a move that waits for the lock another process holds while that process commits on top (`bd`, the commit
+/// of an agent) is stale: the move is no longer the last change of HEAD, so the undo answers `undo_stale`, writes
+/// nothing and leaves the view, never run again on the new HEAD as a rewrite is
+#[tokio::test(flavor = "multi_thread")]
+async fn an_undo_waiting_for_the_lock_of_another_process_that_commits_on_top_is_stale_and_writes_nothing() {
+  let fixture = fixture(true).await;
+  let beta = fixture.commit("(alpha/beta) Beta");
+  let moved = fixture.rewrite(&move_to(std::slice::from_ref(&beta), "gamma", &fixture.witness().await)).await.unwrap();
+  let undo = RewriteIntent::Undo { token: moved.undo.unwrap() };
+  let refused = fixture
+    .while_another_process_moves_head(&undo, commit_on_top("(alpha) Alpha 2", "alpha2.txt"))
+    .await
+    .unwrap_err();
+  assert_eq!(refused.code, ErrorCode::UndoStale, "{refused:?}");
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha 2", "(gamma) Beta", "(alpha) Alpha"], "nothing was written");
+  assert_eq!(fixture.head_moves(), 1, "only the move");
+  assert_eq!(fixture.operations().await, Vec::new());
 }
 
 /// A push clicked while a rewrite waits for the lock waits behind it in the queue of the session (`Queued`), holding no

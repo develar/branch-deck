@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getMoreButton, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, dropAt, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
-import { finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
+import { finishedSyncCount, pressSyncHeld, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
@@ -42,6 +42,30 @@ async function dropDuringMove(page: Page, row: Locator, target = "docs"): Promis
   await startDrag(page, row)
   await expect(findBranchRow(page, target)).toHaveAttribute("data-drop-target", "ready")
   await dropOn(page, findBranchRow(page, target))
+}
+
+/** Moves "Add parser" to docs: its toast, with the Undo, and the undos the page sends from now on */
+async function movedWithUndo(page: Page): Promise<{ moved: Locator; undos: RewriteCall[] }> {
+  await moveParserToDocs(page)
+  const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to docs" })
+  await expect(moved).toBeVisible()
+  return { moved, undos: await recordRewrites(page, "undo") }
+}
+
+/** Presses the Undo of `moved` while something holds it back: it reaches the session, no refusal, the toast stays */
+async function pressUndoThatWaits(page: Page, moved: Locator, undos: RewriteCall[]): Promise<void> {
+  await moved.getByRole("button", { name: "Undo" }).click()
+  await expect.poll(() => undos.length).toBe(1)
+  await expect(page.locator("[data-slot=toast]", { hasText: "Cannot undo the move" })).toHaveCount(0)
+  await expect(moved).toBeVisible()
+}
+
+/** The move was undone once: "Add parser" is back in the issue branch, and its toast closed */
+async function expectUndoneOnce(page: Page, moved: Locator, undos: RewriteCall[]): Promise<void> {
+  await verifyCommitCount(findBranchRow(page, "docs"), 1)
+  await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+  await expect(moved).toHaveCount(0)
+  expect(undos).toHaveLength(1)
 }
 
 async function branchOrder(page: Page): Promise<string[]> {
@@ -138,13 +162,9 @@ test.describe("Move commits", () => {
   })
 
   test("should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid", async ({ page }) => {
-    await moveParserToDocs(page)
-    const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to docs" })
-    await expect(moved).toBeVisible()
-
+    const { moved, undos } = await movedWithUndo(page)
     // a park of the issue branch waits for the repository lock another process holds
     const parks = await recordRewrites(page, "park")
-    const undos = await recordRewrites(page, "undo")
     await repo.holdRepositoryLock(true)
     await startDrag(page, findBranchRow(page, ISSUE))
     await dropAt(page, page.getByTestId("drag-target-bar").getByTestId("park-drop-zone"))
@@ -152,19 +172,27 @@ test.describe("Move commits", () => {
     expect(parks).toHaveLength(1)
 
     // the Undo reaches the session and waits behind the park: no refusal, the toast stays with its Undo, nothing undone
-    await moved.getByRole("button", { name: "Undo" }).click()
-    await expect.poll(() => undos.length).toBe(1)
-    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot undo the move" })).toHaveCount(0)
-    await expect(moved).toBeVisible()
+    await pressUndoThatWaits(page, moved, undos)
     await verifyCommitCount(findBranchRow(page, "docs"), 2)
 
     // the holder is done: the park runs, then the undo, which closes the toast
     await repo.holdRepositoryLock(false)
     await expect(page.locator("[data-slot=toast]", { hasText: "Parked ABC-123" })).toBeVisible()
-    await expect(moved).toHaveCount(0)
-    await verifyCommitCount(findBranchRow(page, "docs"), 1)
-    await verifyCommitCount(findBranchRow(page, ISSUE), 3)
-    expect(undos).toHaveLength(1)
+    await expectUndoneOnce(page, moved, undos)
+  })
+
+  test("should undo a move pressed during a held sync once that sync ended, without a refusal, one sync for the undo", async ({ page }) => {
+    const { moved, undos } = await movedWithUndo(page)
+    const syncs = await pressSyncHeld(page, repo)
+    // the Undo goes to the session at once, never refused; its answer waits for the sync it asked, after the held one,
+    // so the toast stays with its Undo
+    await pressUndoThatWaits(page, moved, undos)
+
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await expectUndoneOnce(page, moved, undos)
+    // the held sync and the one the undo asked
+    await expect.poll(() => finishedSyncCount(page)).toBe(syncs + 2)
+    await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot / })).toHaveCount(0)
   })
 
   test("should drag the selection onto a branch, but not onto its own branch", async ({ page }) => {

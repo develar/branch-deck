@@ -807,6 +807,39 @@ async fn a_change_of_the_table_asks_the_problems_of_a_failed_robot_it_matched_an
   assert_eq!(session.calls(), vec![Call::Problems("matched".to_owned())]);
 }
 
+/// The session of another repository (the main window switched, or a review window of it) while a list of the first is
+/// held
+fn other_session() -> SessionKey {
+  SessionKey {
+    worktree: "/other".to_owned(),
+    prefix: "user".to_owned(),
+  }
+}
+
+/// Another repository is another session with reads of its own: while the list of the first is held, the second lists
+/// its robots and asks why its failed robot failed at once, and the first asks the problems of none of them
+#[tokio::test]
+async fn another_repository_lists_and_asks_its_problems_while_the_list_of_the_first_is_held() {
+  let session = Harness::watched().await;
+  session.calls();
+  session.hold_lists(true);
+  let refresh = session.ask_refresh(FactRefreshReason::Manual).await;
+  assert_eq!(session.calls(), vec![full(false)]);
+  session.hold_lists(false);
+  let failed = told(RobotsDigest {
+    problems: vec![problems("failed-there", ReadState::Never)],
+    ..RobotsDigest::default()
+  });
+  for kind in [SessionEventKind::Watched(true), committed(), failed] {
+    session.events.send(SessionEvent { key: other_session(), kind }).unwrap();
+  }
+  settle().await;
+  assert_eq!(session.calls(), vec![full(true), Call::Problems("failed-there".to_owned())]);
+  session.release().await;
+  refresh.await.unwrap();
+  assert_eq!(session.calls(), vec![]);
+}
+
 impl Harness {
   async fn refresh_family(&self, family: FactFamily, reason: FactRefreshReason) -> Option<Version> {
     let (reply, answer) = oneshot::channel();
@@ -1159,15 +1192,27 @@ async fn a_repository_change_during_a_batch_does_not_wait_for_it() {
   let shown: Vec<ReadinessSubject> = ["a", "b", "c", "d"].iter().map(|key| readiness_subject(key, ReadinessPriority::Shown, 1)).collect();
   session.send(readiness_told(shown)).await;
   assert_eq!(session.readiness_calls().len(), 4);
-  let other = SessionKey {
-    worktree: "/other".to_owned(),
-    prefix: "user".to_owned(),
-  };
   for kind in [SessionEventKind::Watched(true), readiness_told(vec![readiness_subject("x", ReadinessPriority::Shown, 1)])] {
-    session.events.send(SessionEvent { key: other.clone(), kind }).unwrap();
+    session.events.send(SessionEvent { key: other_session(), kind }).unwrap();
   }
   settle().await;
   assert_eq!(session.readiness_calls(), calls_of(&["x"], false));
+}
+
+/// A demand told while a sync runs (the popover of Safe Push opened meanwhile) is asked at once, never after that sync:
+/// the end of the sync on the same inputs asks it not again, a tip the sync moved (new inputs) once more
+#[tokio::test]
+async fn a_demand_during_a_sync_is_asked_at_once_and_the_end_of_the_sync_asks_it_once_more_only_for_new_inputs() {
+  let session = Harness::watched().await;
+  let demanded = |inputs| readiness_told(vec![readiness_subject("popover", ReadinessPriority::Demanded, inputs)]);
+  session.send(demanded(1)).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["popover"], false));
+  session.send(committed()).await;
+  session.send(demanded(1)).await;
+  assert_eq!(session.readiness_calls(), []);
+  session.send(committed()).await;
+  session.send(demanded(2)).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["popover"], false));
 }
 
 impl Harness {

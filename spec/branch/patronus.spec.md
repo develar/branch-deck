@@ -1305,6 +1305,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/lib/patronus.test.ts (`names a robot that failed for missing approvals "Needs review"`)
   [@test] ../../crates/repository-model/src/facts_test.rs (`the_problems_of_a_failed_robot_of_the_table_are_asked_until_known`)
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`an_idle_poll_asks_one_request_and_problems_only_for_changed_robots`, `a_change_of_the_table_asks_the_problems_of_a_failed_robot_it_matched_anew`)
+- The reads of the robots and of their problems must be of the session of the repository: another repository lists
+  its robots and asks why its failed robot failed while a list of the first is held.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`another_repository_lists_and_asks_its_problems_while_the_list_of_the_first_is_held`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the pull request a robot that failed for missing approvals was started from, from its details`)
 

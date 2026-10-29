@@ -5,7 +5,7 @@ import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/bran
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
-import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, holdIntent, recordCommand, recordRewrites, routeCommandError } from "../helpers/wait-helpers"
 
@@ -225,6 +225,29 @@ test.describe("Update Project", () => {
     // a park meanwhile waits behind the update in the queue of the session, never refused
     await expectParkWaiting(page, "Waits for Updating the project…")
     await expectUpdatedAndParked(page, repo)
+  })
+
+  test("should run an update pressed during a held sync at once, its result once that sync ended, one sync for the update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const executions = await recordCommand(page, "execute")
+    const syncs = await pressSyncHeld(page, repo)
+
+    // Update during the sync goes to the session at once, never refused; it answers with the sync it asked, after the
+    // held one
+    const answered = nextAnswer(page, "execute")
+    await updateButton(page).click()
+    await expect.poll(() => executions.length).toBe(1)
+    await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toHaveCount(0)
+
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await answered
+    await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    await expect(updateButton(page)).toHaveAttribute("data-status", "upToDate")
+    await verifyCommitCount(findBranchRow(page, "feature-auth"), 1)
+    expect(await finishedSyncCount(page)).toBe(syncs + 2)
+    expect(executions.map(call => (call.intent as { kind: string }).kind)).toEqual(["updateProject"])
+    await expect(page.getByText(/^Cannot /)).toHaveCount(0)
   })
 
   test("should say whom an update waits for after its check, whose Stop Waiting changes nothing but the fetch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
