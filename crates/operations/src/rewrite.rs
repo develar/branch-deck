@@ -796,7 +796,6 @@ impl Core {
       RewriteIntent::SquashFixups { scope, .. } => {
         let params = SquashFixupsParams {
           repository_path: path.to_owned(),
-          expected_head: self.expect_head.clone().unwrap_or_default(),
           scope: scope.clone(),
         };
         let result = squash_fixup_commits_core(git, &params, &options).map_err(failed)?;

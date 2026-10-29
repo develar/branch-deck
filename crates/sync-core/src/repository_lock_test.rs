@@ -68,7 +68,7 @@ fn run_every_rewrite(repo: &TestRepo, commits: &[String; 4], options: &RewriteOp
 type Rewrite<'a> = Box<dyn FnOnce() -> Option<String> + 'a>;
 
 /// Each rewrite of the app, run by `git` with `options` when called
-fn every_rewrite<'a>(git: &'a GitCommandExecutor, repo: &'a TestRepo, [a1, b1, a2, fixup]: &'a [String; 4], options: &'a RewriteOptions) -> Vec<(&'static str, Rewrite<'a>)> {
+fn every_rewrite<'a>(git: &'a GitCommandExecutor, repo: &'a TestRepo, [a1, b1, a2, _]: &'a [String; 4], options: &'a RewriteOptions) -> Vec<(&'static str, Rewrite<'a>)> {
   let error = |result: anyhow::Result<()>| result.err().map(|e| format!("{e:#}"));
   vec![
     (
@@ -96,7 +96,6 @@ fn every_rewrite<'a>(git: &'a GitCommandExecutor, repo: &'a TestRepo, [a1, b1, a
             git,
             &SquashFixupsParams {
               repository_path: path(repo),
-              expected_head: fixup.clone(),
               scope: AutosquashScope::All,
             },
             options,
@@ -296,7 +295,6 @@ fn every_rewrite_refuses_another_head_than_the_expected_one() {
     repo.git_executor(),
     &SquashFixupsParams {
       repository_path: path(&repo),
-      expected_head: commits[3].clone(),
       scope: AutosquashScope::All,
     },
     &options,
@@ -325,8 +323,7 @@ fn every_rewrite_refuses_another_head_that_has_none_of_its_commits() {
 
 /// Another process that moves HEAD between two reads of a rewrite before the lock (after its history, before its guard
 /// reads HEAD; after the snapshot of a reword, before its history) makes a rewrite whose request named no HEAD compute
-/// once more under the lock, on that HEAD: it succeeds and keeps the commit of the other process. Squash fixups names
-/// the HEAD of its plan, which refuses it then (`HeadMoved`)
+/// once more under the lock, on that HEAD: it succeeds and keeps the commit of the other process
 #[test]
 fn a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_lock() {
   const READ_HEAD: &str = "rev-parse HEAD --symbolic-full-name HEAD";
@@ -348,16 +345,7 @@ fn a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_l
       .unwrap();
     let error = run();
     assert!(wrapped.marked("committed"), "{rewrite}: HEAD moved");
-    if rewrite == "squash fixups" {
-      let moved = HeadMoved {
-        branch: "master".to_string(),
-        expected: commits[3].clone(),
-        actual: repo.head(),
-      };
-      assert_eq!(error, Some(moved.to_string()), "{rewrite}");
-    } else {
-      assert_eq!(error, None, "{rewrite}");
-    }
+    assert_eq!(error, None, "{rewrite}");
     // replayed by the rewrites of the commits below it
     let subjects = repo.git(&["log", "--format=%s"]);
     assert!(
@@ -435,7 +423,7 @@ fn an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write() {
 /// `RepositoryLocked` stays an error of its own type through a core that returns `anyhow`, so `bd` names it `locked`
 #[test]
 fn the_lock_error_keeps_its_type() {
-  let (repo, [_, _, _, fixup]) = repo();
+  let (repo, _) = repo();
   let _held = hold(&repo);
   let options = RewriteOptions {
     lock_wait: LockWait::Bounded(Duration::from_millis(100)),
@@ -443,7 +431,6 @@ fn the_lock_error_keeps_its_type() {
   };
   let params = SquashFixupsParams {
     repository_path: path(&repo),
-    expected_head: fixup,
     scope: AutosquashScope::All,
   };
 

@@ -6513,8 +6513,12 @@ export type SquashFixupsResult = {
 };
 
 export type SquashedTarget = {
+	/**  The target before the squash */
 	target: string,
+	subject: string,
 	newId: string,
+	/**  The fixups folded into it, oldest first */
+	fixups: string[],
 };
 
 export type StackBlock = {

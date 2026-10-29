@@ -3,7 +3,7 @@
 //! `prepare_squash` with a group per target.
 
 use crate::commit_grouper::GroupingInputs;
-use crate::repository_lock::{Prepared, RewriteOptions, Witness, lock_prepared};
+use crate::repository_lock::{Prepared, RewriteOptions, Witness};
 use crate::snapshot::{CommitsAhead, read_grouping_inputs};
 use anyhow::{Result, anyhow, bail};
 use domain_types::commit::{Commit, SubjectParts};
@@ -166,14 +166,31 @@ pub struct GetAutosquashPlanParams {
   pub repository_path: String,
 }
 
+/// What `squash_fixup_commits_core` squashes; the HEAD it expects, if any, is the one of its `RewriteOptions`
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct SquashFixupsParams {
   pub repository_path: String,
-  /// HEAD of the plan the user confirmed; the squash is refused if the branch moved since
-  pub expected_head: String,
   pub scope: AutosquashScope,
+}
+
+/// The scope has nothing to squash: no fixup, or only fixups without a target in the range (`orphans`)
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("No fixup commits to squash{}", without_target(.orphans))]
+pub struct NothingToSquash {
+  /// HEAD the plan was made on
+  pub head: String,
+  /// The fixups of the scope without a target, oldest first
+  pub orphans: Vec<OrphanFixup>,
+}
+
+/// ": 2 without a target in this range", empty without orphans
+fn without_target(orphans: &[OrphanFixup]) -> String {
+  match orphans.len() {
+    0 => String::new(),
+    count => format!(": {count} without a target in this range"),
+  }
 }
 
 /// The commits ahead of the baseline (oldest first), HEAD, the stack setting and the issue groups, as the sync reads them
@@ -199,18 +216,19 @@ pub fn get_autosquash_plan_with_branches(git_executor: &GitCommandExecutor, repo
 }
 
 /// Squashes the fixups of `scope` into their targets in one history rewrite that keeps HEAD's tree, so the index and
-/// the working tree are not touched. The plan is computed again and must be for `expected_head` (and
-/// `options.expect_head`): HEAD, the commits the plan is made of and the history the rewrite replays must all end at
-/// it, else the error is `HeadMoved`. The plan and the new commits come before the repository lock; under it only the
-/// witness of HEAD and the compare-and-swap move of the branch (`RewriteOptions::lock_prepared`)
+/// the working tree are not touched, and answers what it squashed. The plan is computed again, on HEAD as the core
+/// reads it, which must be `options.expect_head` when the request names one (the app: the HEAD its rewrite resolved;
+/// `bd fold --expect-head`): HEAD, the commits the plan is made of and the history the rewrite replays must all end at
+/// it, else the error is `HeadMoved`, which a request that named no HEAD computes once more under the lock. A scope with
+/// nothing to squash is `NothingToSquash`. The plan and the new commits come before the repository lock; under it only
+/// the witness of HEAD and the compare-and-swap move of the branch (`RewriteOptions::lock_prepared`)
 #[instrument(skip(git_executor, options))]
 pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<SquashFixupsResult> {
   let repo_path = &params.repository_path;
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let prepare = || prepare_fold(git_executor, params, options);
-  // the request names the HEAD of its plan (`expected_head`): another one is its answer, never computed once more
-  let (prepared, _lock) = lock_prepared((options.lock_wait, options.held_lock), git_executor, repo_path, prepare()?, prepare)?;
+  let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, prepare(), prepare)?;
   let PreparedFold { rewrite, groups, orphans } = prepared;
   rewrite.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
 
@@ -218,7 +236,9 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
     .iter()
     .map(|group| SquashedTarget {
       target: group.target.clone(),
+      subject: group.target_subject.clone(),
       new_id: rewrite.replacement_of(&group.target).unwrap_or_else(|| rewrite.new_head()).to_string(),
+      fixups: group.folded.iter().map(|fixup| fixup.commit_id.clone()).collect(),
     })
     .collect();
   let squashed_count = groups.iter().map(|group| group.folded.len()).sum::<usize>();
@@ -249,32 +269,33 @@ impl Prepared for PreparedFold {
   }
 }
 
-/// The plan of `params` on the HEAD it expects, and the squashed commits written on temporary refs (`prepare_squash`):
-/// the branch is not moved
+/// The plan of `params` on HEAD as it reads it, the one `options` expects, and the squashed commits written on temporary
+/// refs (`prepare_squash`): the branch is not moved
 fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<PreparedFold> {
   let repo_path = &params.repository_path;
   let (head, commits, grouping) = read_range(git_executor, repo_path)?;
   options.ensure_head(git_executor, repo_path, &head)?;
+  // three reads, each of which must end at that HEAD: a commit between them would give a plan for one head and a
+  // rewrite of another
   let head_moved = |actual: &str| {
     anyhow::Error::new(HeadMoved {
       branch: checked_out_branch(git_executor, repo_path).unwrap_or_else(|_| "HEAD".to_string()),
-      expected: params.expected_head.clone(),
+      expected: head.clone(),
       actual: actual.to_string(),
     })
   };
-  let read_heads = [Some(head.as_str()), commits.last().map(|commit| commit.id.as_str())];
-  if let Some(actual) = read_heads.into_iter().flatten().find(|actual| *actual != params.expected_head) {
-    return Err(head_moved(actual));
+  if let Some(newest) = commits.last().filter(|newest| newest.id != head) {
+    return Err(head_moved(&newest.id));
   }
-  let plan = plan_autosquash(head, &commits, &grouping);
+  let plan = plan_autosquash(head.clone(), &commits, &grouping);
   let (groups, orphans) = select_scope(plan, &params.scope)?;
-  // down to the oldest target: the history the squash replays, which must end at the expected head too
+  // down to the oldest target: the history the squash replays, which must end at that HEAD too
   let rewritten: Vec<&str> = groups
     .iter()
     .flat_map(|group| std::iter::once(group.target.as_str()).chain(group.folded.iter().map(|fixup| fixup.commit_id.as_str())))
     .collect();
   let history = History::read_to_with_notes(git_executor, repo_path, &rewritten)?;
-  if let Some(actual) = history.head().filter(|actual| *actual != params.expected_head) {
+  if let Some(actual) = history.head().filter(|actual| *actual != head) {
     return Err(head_moved(actual));
   }
 
@@ -315,9 +336,9 @@ const fn is_utf8(encoding: &str) -> bool {
   encoding.eq_ignore_ascii_case("utf-8") || encoding.eq_ignore_ascii_case("utf8")
 }
 
-/// The groups and orphans of `scope`; refused if nothing would be squashed
+/// The groups and orphans of `scope`; refused if nothing would be squashed (`NothingToSquash`)
 fn select_scope(plan: AutosquashPlan, scope: &AutosquashScope) -> Result<(Vec<PlannedGroup>, Vec<OrphanFixup>)> {
-  let AutosquashPlan { groups, orphans, .. } = plan;
+  let AutosquashPlan { head, groups, orphans } = plan;
   let (groups, orphans): (Vec<PlannedGroup>, Vec<OrphanFixup>) = match scope {
     AutosquashScope::All => (groups, orphans),
     AutosquashScope::Branch(name) => (
@@ -343,10 +364,7 @@ fn select_scope(plan: AutosquashPlan, scope: &AutosquashScope) -> Result<(Vec<Pl
     }
   };
   if groups.is_empty() {
-    if orphans.is_empty() {
-      bail!("No fixup commits to squash");
-    }
-    bail!("No fixup commits to squash: {} without a target in this range", orphans.len());
+    return Err(anyhow::Error::new(NothingToSquash { head, orphans }));
   }
   Ok((groups, orphans))
 }

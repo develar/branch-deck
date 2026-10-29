@@ -103,8 +103,10 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`a_fold_locks_only_the_witness_and_the_write`)
 - `bd fold` runs the same squash ([Agent CLI](../cli/agent-cli.spec.md)): it passes its lock timeout and
   `--expect-head` to the squash, which takes the lock and refuses another HEAD, so `bd fold` fails with `locked` or
-  `head_moved` and changes nothing.
-  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`)
+  `head_moved` and changes nothing. Without `--expect-head` the squash names no HEAD: it folds the fixups of HEAD as it
+  reads it, once more under the lock when HEAD moved meanwhile, and answers what it folded (each target with its
+  subject, its new id and its fixups, and the orphans), which `bd fold` prints.
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`, `a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it`)
 - A fixup that conflicts with the commits between it and its target or after it, or that leaves its target or a later
   commit empty, refuses the squash as the squash of a selection does ([Squash Commits](squash.spec.md)):
   `squash_conflict` with the commits and files it names, `squash_empty`; the commits after the folded ones keep their

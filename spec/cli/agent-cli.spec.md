@@ -569,12 +569,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   `--dry-run`, and a detached HEAD `detached_head` (exit 4).
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
-- A rewrite without `--expect-head` (`bd group`, `bd reword`, `bd squash`, `bd unapply`, `bd move-hunk`) whose HEAD
-  another process moves between two of its reads before the lock must compute once more under the lock, on that HEAD,
-  and keep the commits of the other process, never answer `head_moved`; with `--expect-head` the moved HEAD is
-  `head_moved`, and `bd fold` answers it for the HEAD of its plan.
+- A rewrite without `--expect-head` (`bd group`, `bd reword`, `bd squash`, `bd fold`, `bd unapply`, `bd move-hunk`) whose
+  HEAD another process moves between two of its reads before the lock must compute once more under the lock, on that
+  HEAD, and keep the commits of the other process, never answer `head_moved`; with `--expect-head` the moved HEAD is
+  `head_moved`.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_lock`)
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`a_head_moved_between_two_reads_of_a_move_computes_it_once_more_under_the_lock`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it`)
   [@test] ../../crates/history-rewrite/src/repository_lock_test.rs (`a_head_moved_between_two_reads_before_the_lock_is_computed_once_more_under_it_unless_the_request_named_its_head`)
 - The output must list every commit's resulting group with its new id, the new HEAD and an undo token;
   `--dry-run` must write nothing and print the changed subjects (`changes`: the old and the new subject, `moved` with
@@ -670,9 +671,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   commits ahead of the baseline is `unknown_branch`; `--dry-run` must write nothing; nothing to fold is no rewrite and
   no token.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_of_one_branch_and_a_dry_run`)
-- `--expect-head` must refuse with `head_moved` on another HEAD, and the fold must check that HEAD, the planned
-  commits and the history it rewrites all end at the planned head; a held lock is `locked`.
-  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
+- Without `--expect-head` the fold must fold the fixups of HEAD as its squash finds it, also when another process moved
+  HEAD after bd read its plan, and print what that squash folded: the targets with their fixups, the orphans, the head
+  it folded from and an undo token back to it; a HEAD without fixups of the scope there is nothing to fold.
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`squashes_interleaved_groups_in_one_rewrite`, `squashes_only_the_fixups_of_one_branch_or_one_fixup`)
+- `--expect-head` must refuse with `head_moved` on another HEAD, also one another process moved it to after the plan,
+  and the fold must check that HEAD, the planned commits and the history it rewrites all end at the planned head; a
+  held lock is `locked`.
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`, `a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it`)
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
 - A rebase, merge, cherry-pick or revert in progress in this worktree must be `operation_in_progress` (exit 4) for the
   fold and its dry run, moving nothing; one in another worktree refuses nothing, since git keeps that state per

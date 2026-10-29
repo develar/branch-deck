@@ -1,7 +1,8 @@
 //! `bd fold`: fold the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
 //! (`history_rewrite::autosquash`, spec/commit/fixups.spec.md), recorded in the operations registry; its core takes the
-//! repository lock after it computed the squash, for the witness of HEAD and the move only. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo`
-//! takes it back
+//! repository lock after it computed the squash, for the witness of HEAD and the move only, and folds the fixups of HEAD
+//! as it finds it there unless `--expect-head` names one. One rewrite that keeps HEAD's tree, so the index and the
+//! working tree stay as they are; `bd undo` takes it back
 
 use crate::squash_command::{head_undo_token, squash_error};
 use bd_core::context::RepoContext;
@@ -13,7 +14,7 @@ use domain_types::operation::Intent;
 use domain_types::rewrite::{AutosquashScope, RewriteIntent};
 use git_ops::revs::{DetachedHead, current_branch};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
-use history_rewrite::autosquash::{PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
+use history_rewrite::autosquash::{NothingToSquash, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions, ensure_expected_head};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -71,7 +72,8 @@ pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliErr
   recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || folded(context, args))
 }
 
-/// `fold`, recorded unless a dry run
+/// `fold`, recorded unless a dry run. The plan of the command answers a dry run and nothing to fold; a fold prints what
+/// its core folded, on HEAD as the core found it
 fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError> {
   let current_branch = ensure_guards(context)?;
   let (plan, branches) = get_autosquash_plan_with_branches(&context.git, &context.repository)?;
@@ -85,32 +87,68 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
   // before it took the lock
   ensure_expected_head(args.expect_head.as_deref(), &plan.head, || current_branch).map_err(|moved| head_moved(&moved))?;
   let in_scope = |branch: &Option<String>| args.branch.as_ref().is_none_or(|name| branch.as_ref() == Some(name));
-  let groups: Vec<&PlannedGroup> = plan.groups.iter().filter(|group| in_scope(&group.branch)).collect();
+  let groups: Vec<Folded<'_>> = plan
+    .groups
+    .iter()
+    .filter(|group| in_scope(&group.branch))
+    .map(|group| Folded {
+      target: &group.target,
+      subject: &group.target_subject,
+      new_id: None,
+      fixups: group.folded.iter().map(|fixup| fixup.commit_id.as_str()).collect(),
+    })
+    .collect();
   let orphans: Vec<&str> = plan
     .orphans
     .iter()
     .filter(|orphan| in_scope(&orphan.branch))
     .map(|orphan| orphan.commit_id.as_str())
     .collect();
-  let previous_head = plan.head.clone();
   if args.dry_run || groups.is_empty() {
-    return Ok(fold_output(context, args.dry_run, &previous_head, &previous_head, &groups, &orphans, |_| None));
+    return Ok(fold_output(context, args.dry_run, (&plan.head, &plan.head), &groups, &orphans));
   }
 
-  let scope = args.branch.clone().map_or(AutosquashScope::All, AutosquashScope::Branch);
   let params = SquashFixupsParams {
     repository_path: context.repository.clone(),
-    expected_head: plan.head.clone(),
-    scope,
+    scope: args.branch.clone().map_or(AutosquashScope::All, AutosquashScope::Branch),
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
-  let result = squash_fixup_commits_core(&context.git, &params, &options).map_err(squash_error)?;
-  let new_id = |target: &str| result.squashed.iter().find(|squashed| squashed.target == target).map(|squashed| squashed.new_id.clone());
-  Ok(fold_output(context, false, &result.previous_head, &result.new_head, &groups, &orphans, new_id))
+  let result = match squash_fixup_commits_core(&context.git, &params, &options) {
+    Ok(result) => result,
+    // another process folded them on the HEAD the core read: nothing to fold there, no rewrite
+    Err(error) => {
+      let Some(nothing) = error.downcast_ref::<NothingToSquash>() else {
+        return Err(squash_error(error));
+      };
+      let orphans: Vec<&str> = nothing.orphans.iter().map(|orphan| orphan.commit_id.as_str()).collect();
+      return Ok(fold_output(context, false, (&nothing.head, &nothing.head), &[], &orphans));
+    }
+  };
+  let folded: Vec<Folded<'_>> = result
+    .squashed
+    .iter()
+    .map(|squashed| Folded {
+      target: &squashed.target,
+      subject: &squashed.subject,
+      new_id: Some(&squashed.new_id),
+      fixups: squashed.fixups.iter().map(String::as_str).collect(),
+    })
+    .collect();
+  let orphans: Vec<&str> = result.orphans.iter().map(|orphan| orphan.commit_id.as_str()).collect();
+  Ok(fold_output(context, false, (&result.previous_head, &result.new_head), &folded, &orphans))
+}
+
+/// A target and the fixups folded into it, oldest first, as the plan of the command or the core names them; `new_id`
+/// once folded
+struct Folded<'a> {
+  target: &'a str,
+  subject: &'a str,
+  new_id: Option<&'a str>,
+  fixups: Vec<&'a str>,
 }
 
 /// The guards of a rewrite of the checked out branch, with their codes, before the plan is read; returns the branch
@@ -123,20 +161,10 @@ fn head_moved(moved: &HeadMoved) -> CliError {
   CliError::new(ErrorCode::HeadMoved, moved.to_string())
 }
 
-fn fold_output(
-  context: &RepoContext,
-  dry_run: bool,
-  previous_head: &str,
-  new_head: &str,
-  groups: &[&PlannedGroup],
-  orphans: &[&str],
-  new_id: impl Fn(&str) -> Option<String>,
-) -> FoldOutput {
-  let new_ids: Vec<Option<String>> = groups.iter().map(|group| new_id(&group.target)).collect();
-  let ids = groups
+fn fold_output(context: &RepoContext, dry_run: bool, (previous_head, new_head): (&str, &str), folded: &[Folded<'_>], orphans: &[&str]) -> FoldOutput {
+  let ids = folded
     .iter()
-    .flat_map(|group| std::iter::once(group.target.as_str()).chain(group.folded.iter().map(|fixup| fixup.commit_id.as_str())))
-    .chain(new_ids.iter().flatten().map(String::as_str))
+    .flat_map(|group| std::iter::once(group.target).chain(group.new_id).chain(group.fixups.iter().copied()))
     .chain(orphans.iter().copied())
     .chain([previous_head, new_head]);
   let short = context.short_ids(ids);
@@ -148,14 +176,13 @@ fn fold_output(
     dry_run,
     previous_head: short.get(previous_head).to_string(),
     new_head: short.get(new_head).to_string(),
-    folded: groups
+    folded: folded
       .iter()
-      .zip(&new_ids)
-      .map(|(group, new_id)| FoldedTarget {
-        commit: short.get(&group.target).to_string(),
-        subject: group.target_subject.clone(),
-        new_id: new_id.as_deref().map(|id| short.get(id).to_string()),
-        fixups: group.folded.iter().map(|fixup| short.get(&fixup.commit_id).to_string()).collect(),
+      .map(|group| FoldedTarget {
+        commit: short.get(group.target).to_string(),
+        subject: group.subject.to_string(),
+        new_id: group.new_id.map(|id| short.get(id).to_string()),
+        fixups: group.fixups.iter().map(|fixup| short.get(fixup).to_string()).collect(),
       })
       .collect(),
     orphans: orphans.iter().map(|id| short.get(id).to_string()).collect(),
