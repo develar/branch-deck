@@ -2,6 +2,7 @@ use crate::facts::FactResult;
 use crate::facts::FactStore;
 use crate::patch::{PatchRejected, apply_patch, diff_views};
 use crate::review_request_facts::review_request_facts_test::at;
+use crate::state::patch_bytes_test::json_bytes;
 use crate::state::{Joined, View, new_epoch};
 use crate::table::table_test::{grouped, grouping, remote_status, run_sync, sync_events};
 use crate::table::{OperationPatch, TableState};
@@ -213,11 +214,6 @@ fn a_grouping_that_reads_the_notes_of_the_copies_resends_no_commit() {
   let patch = view.diff(&state, &FactStore::new()).unwrap();
   assert_eq!(patch.changes.branches.keys().collect::<Vec<_>>(), ["ui"], "{patch:#?}");
   assert!(patch.changes.branches["ui"].commits.is_some());
-}
-
-/// The bytes of the JSON a window gets of each item
-fn json_bytes<T: serde::Serialize>(items: &[T]) -> usize {
-  items.iter().map(|item| serde_json::to_string(item).unwrap().len()).sum()
 }
 
 /// The events of one sync of `repo` and its report

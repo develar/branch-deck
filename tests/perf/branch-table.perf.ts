@@ -49,8 +49,9 @@
 // - hoverIpc: the commands a rest of the pointer on a branch row invokes (the review read ahead);
 // - menuIpc: the commands the menu of that row invokes, opened by a right click (the one menu of the table);
 // - popoverIpc: the commands the popover of its robot invokes, opened by a hover of its chip.
-// The patches and the bytes of a sync on the Rust side, without the page:
-//   cargo nextest run -p test-server --run-ignored only -E 'test(/patch_bytes/)' --no-capture
+// The bytes of the patches of the view on the Rust side, without the page, are budgets of their own (the first patch,
+// one robot that fails, one readiness answer; crates/repository-model/src/patch_bytes_test.rs prints them):
+//   cargo nextest run -p repository-model -E 'test(/patch_bytes/)' --no-capture
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"

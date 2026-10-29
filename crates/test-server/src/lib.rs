@@ -96,9 +96,6 @@ mod test_support;
 mod session_routes_test;
 
 #[cfg(test)]
-mod patch_bytes_test;
-
-#[cfg(test)]
 mod templates_test;
 
 #[cfg(test)]

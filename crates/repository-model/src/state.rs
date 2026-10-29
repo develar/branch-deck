@@ -308,3 +308,7 @@ pub fn new_epoch() -> u32 {
 #[cfg(test)]
 #[path = "state_test.rs"]
 mod state_test;
+
+#[cfg(test)]
+#[path = "patch_bytes_test.rs"]
+mod patch_bytes_test;

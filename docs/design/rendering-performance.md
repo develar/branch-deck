@@ -52,9 +52,8 @@ flowchart LR
   `repository_model::derive`, the fields it lacks left out); the page splits the order into the rows of each section by
   it (`rowsOf`, `src/model/structure.ts`), never a second list of the same names on the wire. So the first sync of
   `branch_table_large` sends fewer bytes in its patches than its events had, and a sync that changes nothing sends the
-  state of its run only (`the_patches_of_a_large_table_cost_less_than_its_events` in `state_test.rs` checks both,
-  `patch_bytes_test.rs` measures them through the channel). Late events of a
-  run that ended are dropped by its run id; a session opened again starts another epoch.
+  state of its run only (`the_patches_of_a_large_table_cost_less_than_its_events` in `state_test.rs` checks both). Late
+  events of a run that ended are dropped by its run id; a session opened again starts another epoch.
 - **Applying in the page.** `src/model/store.ts` subscribes the main window to the session of the selected repository
   (`subscribe_view`, by path, the prefix Rust's) and applies each patch whose base is the version it holds
   (`applyViewPatch`, `src/model/patch.ts`, as `repository_model::patch` does): one of another epoch, or after a gap,
@@ -360,6 +359,13 @@ qualified ref name, by which the rules look up the tip of every row, is checked 
 one allocation; the actions of a branch are sized once. In a release build on the Mac Studio, three runs at a load of
 3.8 to 5.7: 0.60–0.67 ms per flush and 1.32–1.53 ms for the whole first patch, within B10.
 
+The bytes of the patches are budgets too (s16-3), on the same session of 141 rows with every fact answered, as the
+channel carries them in JSON: the first patch, the snapshot a window subscribes to, at most 560 KB (509 235 bytes: the
+actions 143 KB, the branches 111 KB, the landing decisions 77 KB, the next steps 72 KB, the facts 68 KB), the patch of
+one robot that fails at most 3.4 KB and that of one readiness answer at most 2.7 KB (3 075 and 2 460 bytes: the fact
+and the parts of its one row), and a flush that changes nothing sends no patch.
+[@test] ../../crates/repository-model/src/patch_bytes_test.rs (`the_patches_of_the_view_of_141_rows_stay_within_their_bytes`)
+
 WebKit, the engine of the app, lost one thing on the way: a layout of the view after its width changed (`relayoutMs`,
 what each frame of a resize of the window costs) takes 110.91 ms against 6.68 ms in the tree of s0a. The cause is the
 container of the view, `@container/branch-view` on `BranchColumnsRoot` (`src/components/branch/BranchColumns.tsx`,
@@ -383,9 +389,9 @@ most one per 16 ms of the run, so their number follows how long the sync took. T
 left out (`withoutAppTimers` of ipc-helpers.ts, as the E2E test of these numbers): the debounced writes of the settings
 (`set_setting`: the settled layout of the view, the record of the sync) and the check for updates after the start
 (`check_for_updates`), which fire wherever a run is; the rows before 2026-10-25 count them (3 `set_setting` in the
-first sync of Chromium and 2 in the hover of WebKit once s6 landed). What the session sends, its patches and their bytes
-without the page, prints an ignored test of the mock server (`patch_bytes_test.rs`):
-`cargo nextest run -p test-server --run-ignored only -E 'test(/patch_bytes/)' --no-capture`.
+first sync of Chromium and 2 in the hover of WebKit once s6 landed). The bytes of the patches without the page are the
+budgets of `patch_bytes_test.rs` (above), which prints them:
+`cargo nextest run -p repository-model -E 'test(/patch_bytes/)' --no-capture`.
 
 | 141 rows, robots on ten | first sync: messages / invokes | sync that changes nothing: bytes | hover / menu / popover |
 |---|---|---|---|
@@ -403,8 +409,8 @@ A sync on the `SyncEvent` channel sent every branch again, changed or not: one `
 `remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
 carries only the parts of a branch that changed (`TableState`, [Git Operations](git-operations.md#session-facts)):
 a sync that changes nothing sends the state of the run and the build and copies of each branch, no commit, 24 KB in
-5 patches by the mock server's own count (`patch_bytes_test.rs`: the first sync 46 patches, 195 KB, the snapshot
-177 KB). The facts of the remote services come in the patches of the session too (`facts`: the robots, the pull
+5 patches by the mock server's own count (on 2026-10-24, by an ignored test of the mock server since replaced with the
+budgets of `patch_bytes_test.rs`: the first sync 46 patches, 195 KB, the snapshot 177 KB). The facts of the remote services come in the patches of the session too (`facts`: the robots, the pull
 requests, the readiness, the review requests, the details of a robot): no store asks them and none polls on a timer of
 its own (`poll-timer` of `pnpm lint:arch`), so the first sync invokes only `sync` and two `set_demand` (11 or 12
 commands on master `20d2b938`, the reads of the facts and of the view of the robots; since s8 the page tells the rows
