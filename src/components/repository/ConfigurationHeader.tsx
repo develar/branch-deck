@@ -80,9 +80,15 @@ export function ConfigurationHeader() {
               </div>
             )}
             {pathValidation.valid && lastSyncTime && (
-              // stays as it is while a sync runs, so nothing moves: the spinner of Sync next to it says the sync
-              <span className="hidden text-xs whitespace-nowrap text-muted-foreground @3xl:inline" data-testid="last-sync-time">
-                <LastSyncTime lastSyncTime={lastSyncTime} />
+              // stays as it is while a sync runs, so nothing moves: the spinner of Sync next to it says the sync. In the
+              // room of its widest text, its digits of one width, so its aging moves nothing either: the repository
+              // selector, which gives way on a narrow window, keeps its width from "just now" to "59 minutes ago".
+              // The widest text is a pseudo-element under the shown one, so it is no text of the page; `formatRelativeTime`
+              // says at most two digits of minutes. Each is one run of text, as one rounds to 1/64 px apart from two
+              <span className="hidden text-xs whitespace-nowrap text-muted-foreground tabular-nums after:invisible after:col-start-1 after:row-start-1 after:content-['Last_synced_00_minutes_ago'] @3xl:grid">
+                <span className="col-start-1 row-start-1 justify-self-end" data-testid="last-sync-time">
+                  <LastSyncTime lastSyncTime={lastSyncTime} />
+                </span>
               </span>
             )}
             {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}
@@ -123,18 +129,12 @@ export function ConfigurationHeader() {
 function LastSyncTime({ lastSyncTime }: { lastSyncTime: number }) {
   const checkedAt = useBranchSync(state => state.inputsCheckedAt)
   if (checkedAt === null || !readsLater(checkedAt, lastSyncTime)) {
-    return (
-      <>
-        {"Last synced "}
-        <RelativeTime time={lastSyncTime} />
-      </>
-    )
+    return <RelativeTime time={lastSyncTime} prefix="Last synced " />
   }
   return (
     <Tooltip>
       <TooltipTrigger render={<span />}>
-        {"Checked "}
-        <RelativeTime time={checkedAt} />
+        <RelativeTime time={checkedAt} prefix="Checked " />
       </TooltipTrigger>
       <TooltipContent>
         {"Nothing a sync reads changed since the last sync, "}

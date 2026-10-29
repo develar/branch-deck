@@ -24,6 +24,7 @@ targets:
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/repository/SyncButton.tsx
   - ../../src/components/repository/RepositorySelector.tsx
+  - ../../src/lib/home-path.ts
   - ../../src-tauri/src/lib.rs
   - ../../src/components/shared/RelativeTime.tsx
   - ../../src/hooks/useNow.ts
@@ -288,10 +289,20 @@ The header shows whether an update would apply cleanly, from a check that every 
   last sync next to Sync. It is hidden for a local baseline and before the first sync of the repository, which runs
   when the window opens a repository synced before ([Onboarding](onboarding.spec.md)).
 - The header must stay one line down to the minimum window width, 960 px (`min_inner_size`), its controls never
-  overlapping: the repository selector gives way first (its path clipped from the start), the branch count shows from
+  overlapping: the repository selector gives way first, the branch count shows from
   1024 px while the filter bar is hidden (from 8 branches on its "All 35" counts them), the time of the last sync from 768 px; Update, the landing indicator, Activity ([Activity](activity.spec.md)),
   Sync and its settings never shrink.
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
+- The selector shows its path cut at a separator, never in a segment: the whole path where it fits, else as many of
+  its last segments as fit behind one "…" (`…/scratch/demo`, then `…/demo`), at last the name alone, whose end a name
+  wider than the room cuts (`pathForms`; each form measured in the font of the trigger, the one shown picked on every
+  resize of its room). A cut path is whole in the tooltip of the trigger, its lines broken after a separator.
+  [@test] ../../src/lib/home-path.test.ts (`cuts a path only at its separators, dropping whole leading segments behind one …, the name alone last`, `keeps a path without a segment to drop whole, and drops no trailing separator into a form`)
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should cut the path at its separators behind one …, more of it as the room grows`)
+- The time of the last sync takes the room of its widest text, "Last synced 00 minutes ago" in digits of one width,
+  so its aging ("just now", "1 minute ago", "Checked just now") moves nothing: the selector, which gives way to it at
+  the minimum width beside the traffic lights, keeps its width as the time ages.
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its width while the time of the last sync ages, the whole path in its tooltip`)
 - While a sync runs, Sync shows its spinner, the one indicator of the sync, and its tooltip names the step,
   "Syncing branches…", without the shortcut, which does nothing then; the time of the last sync stays as it is, so
   nothing in the header moves. Before the first sync there is no time.
@@ -308,9 +319,9 @@ The header shows whether an update would apply cleanly, from a check that every 
 - Sync has the tooltip "Sync branches ⌘R" (`Ctrl+R` off macOS) and its settings (auto-sync on focus) next to it; the
   menu item and ⌘R do what the button does, nothing while it is disabled for a reason. A
   failed sync turns it `destructive` with the error in its tooltip; with the page alert, the error shows twice at most.
-  The repository selector has a tooltip only without a repository ("Select a Git repository to manage branches") or
-  for its error.
-  [@test] ../../tests/e2e/repository/header.spec.ts (`should name the shortcut of Sync and keep the selected repository without a tooltip`)
+  The repository selector has a tooltip only without a repository ("Select a Git repository to manage branches"),
+  for its error, and on its trigger for a path it shows cut; its folder button has none.
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should name the shortcut of Sync and keep the folder button of the selected repository without a tooltip`)
 - It shows the state, never a count:
   - up to date: muted, no state icon, tooltip "Up to date with origin/master";
   - clean: a `success` check, tooltip "Rebases cleanly onto origin/master" ("Fast-forwards to origin/master");

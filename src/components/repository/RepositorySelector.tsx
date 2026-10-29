@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { cn } from "cn"
 import { FolderSearchIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FieldGroup } from "@/components/layout/FieldGroup"
-import { resolveHomeDir, tildePath } from "@/lib/home-path"
+import { pathForms, resolveHomeDir, tildePath } from "@/lib/home-path"
 import { formatRelativeTime } from "@/lib/time"
 import { browseRepository, selectProject, useRepository } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
@@ -63,22 +63,21 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
   }
 
   const hasError = !!pathValidation.error
+  // the path the trigger shows is cut to its room: then its tooltip says it whole
+  const [isPathCut, setPathCut] = useState(false)
+  const shownPath = value === null ? null : tildePath(value, homeDir)
   return (
     // the selected path explains itself: the tooltip only invites to choose one or says why it fails
     <Tooltip disabled={value !== null && !hasError}>
       {/* gives way first on a narrow window */}
       <TooltipTrigger render={<FieldGroup className="min-w-0" />}>
         <Select items={items} value={value} onValueChange={onValueChange} disabled={disabled}>
-          <SelectTrigger size="sm" className="w-3xs min-w-0 border-input bg-background" aria-invalid={hasError || undefined}>
-            <SelectValue>
-              {(selected: string | null) => (
-                // rtl clips the start, the project name stays; bdi keeps the path itself left to right
-                <span dir="rtl" className="truncate">
-                  <bdi>{items.find(item => item.value === selected)?.label ?? "Select repository…"}</bdi>
-                </span>
-              )}
-            </SelectValue>
-          </SelectTrigger>
+          <Tooltip disabled={shownPath === null || hasError || !isPathCut}>
+            <TooltipTrigger render={<SelectTrigger size="sm" className="w-3xs min-w-0 border-input bg-background" aria-invalid={hasError || undefined} />}>
+              <SelectValue>{() => (shownPath === null ? "Select repository…" : <FittedPath path={shownPath} onCut={setPathCut} />)}</SelectValue>
+            </TooltipTrigger>
+            <TooltipContent>{shownPath !== null && <WrappedPath path={shownPath} />}</TooltipContent>
+          </Tooltip>
           <SelectContent alignItemWithTrigger={false} className="w-auto min-w-(--anchor-width)">
             {items.map(item => (
               <SelectItem key={item.value} value={item.value}>
@@ -161,6 +160,77 @@ function formatPathWithTruncation(path: string, homeDir: string, maxLength: numb
     i--
   }
   return result
+}
+
+/**
+ * The path in its room, cut at a separator (`pathForms`): the whole path where it fits, else as many of its last
+ * segments as fit behind "…", at last the name alone, which its end cuts. The forms are measured in the font of the
+ * trigger, once and again when a font loads, by a probe that lives only while it measures (no form stays in the page);
+ * the room on every resize, so a room that moves picks another form, never a cut in a segment
+ */
+function FittedPath({ path, onCut }: { path: string; onCut: (isCut: boolean) => void }) {
+  const forms = useMemo(() => pathForms(path), [path])
+  const roomRef = useRef<HTMLSpanElement>(null)
+  const [shown, setShown] = useState(0)
+  useLayoutEffect(() => {
+    const room = roomRef.current
+    if (room === null) {
+      return
+    }
+    let widths: number[] = []
+    const measure = () => {
+      const probe = document.createElement("span")
+      probe.style.cssText = "position: absolute; visibility: hidden; white-space: pre; width: max-content"
+      room.append(probe)
+      widths = forms.map(form => {
+        probe.textContent = form
+        return probe.getBoundingClientRect().width
+      })
+      probe.remove()
+    }
+    const fit = () => {
+      const roomWidth = room.getBoundingClientRect().width
+      const index = widths.findIndex(width => width <= roomWidth)
+      setShown(index === -1 ? forms.length - 1 : index)
+    }
+    const refit = () => {
+      measure()
+      fit()
+    }
+    // before the first paint
+    refit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(room)
+    document.fonts.addEventListener("loadingdone", refit)
+    return () => {
+      observer.disconnect()
+      document.fonts.removeEventListener("loadingdone", refit)
+    }
+  }, [forms])
+  const isCut = shown > 0
+  useLayoutEffect(() => onCut(isCut), [isCut, onCut])
+  return (
+    <span ref={roomRef} className="relative min-w-0 flex-1 overflow-hidden">
+      <span className="block truncate" data-testid="repository-path">
+        {forms[shown] ?? path}
+      </span>
+    </span>
+  )
+}
+
+/** A whole path over lines: a line breaks after a separator (`<wbr>`), in a segment only where one is wider than a line */
+function WrappedPath({ path }: { path: string }) {
+  const parts = path.split(/(?<=[/\\])/)
+  return (
+    <span className="wrap-break-word">
+      {parts.map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 && <wbr />}
+          {part}
+        </Fragment>
+      ))}
+    </span>
+  )
 }
 
 /** How many branches the last sync of the repository at `path` had and when it ran; nothing for one never synced */

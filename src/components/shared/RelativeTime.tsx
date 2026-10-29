@@ -7,10 +7,13 @@ import { formatRelativeTime } from "@/lib/time"
  */
 export function RelativeTime({
   time,
+  prefix = "",
 }: {
   /** Milliseconds since the epoch */
   time: number
+  /** Words before the time in the same text node, "Last synced ": one run of text, measured as one */
+  prefix?: string
 }) {
   const now = useNow(RELATIVE_TIME_TICK_MS)
-  return formatRelativeTime(time, now)
+  return prefix + formatRelativeTime(time, now)
 }

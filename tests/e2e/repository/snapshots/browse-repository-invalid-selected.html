@@ -4,12 +4,12 @@
       <header class="@container flex h-10 shrink-0 items-center gap-4 select-none pl-2 pr-2" data-testid="configuration-header" data-title-bar="native">
         <div class="flex min-w-0 flex-1 items-center gap-3 has-data-[main-menu=expanded]:*:not-data-main-menu:invisible">
           <div class="relative inline-flex items-center *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none *:focus-visible:z-10 min-w-0" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-            <button aria-expanded="false" aria-haspopup="listbox" aria-invalid="true" class="flex items-center justify-between gap-1.5 rounded-2xl border px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] duration-200 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 w-3xs min-w-0 border-input bg-background" data-size="sm" data-slot="select-trigger" id="base-ui-[ID]" role="combobox" tabindex="0" type="button">
+            <button aria-expanded="false" aria-haspopup="listbox" aria-invalid="true" class="flex items-center justify-between gap-1.5 rounded-2xl border px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] duration-200 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 w-3xs min-w-0 border-input bg-background" data-size="sm" data-slot="tooltip-trigger" data-trigger-disabled="" id="base-ui-[ID]" role="combobox" tabindex="0" type="button">
               <span class="flex flex-1 text-left" data-slot="select-value">
-                <span class="truncate" dir="rtl">
-                  <bdi>
-                    …/[REPO_ID]
-                  </bdi>
+                <span class="relative min-w-0 flex-1 overflow-hidden">
+                  <span class="block truncate" data-testid="repository-path">
+                    [REPO_ID]
+                  </span>
                 </span>
               </span>
               <svg aria-hidden="true" class="lucide lucide-chevron-down pointer-events-none size-4 text-muted-foreground" />

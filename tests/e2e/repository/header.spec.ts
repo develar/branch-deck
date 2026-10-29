@@ -6,7 +6,8 @@ import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, headerBoxes, MIN_WINDOW } from "../helpers/header-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
-import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, focusWindow, waitForSyncComplete } from "../helpers/sync-helpers"
+import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { holdCommand, holdIntent } from "../helpers/wait-helpers"
 
 // The `behind_upstream` template: the header has every control, the Update button (a clean update) and the outgoing
@@ -83,7 +84,7 @@ test.describe("Header", () => {
     await expect(lastSync).toHaveText("Last synced just now")
   })
 
-  test("should name the shortcut of Sync and keep the selected repository without a tooltip", async ({ page }) => {
+  test("should name the shortcut of Sync and keep the folder button of the selected repository without a tooltip", async ({ page }) => {
     // the click of the sync before closed the tooltip; it opens on the next hover
     await page.mouse.move(0, 0)
     await page.getByTestId("sync-button").hover()
@@ -101,6 +102,67 @@ test.describe("Header", () => {
     await expect(page.getByRole("tooltip")).toHaveText(/^Settings(⌘,|Ctrl\+,)$/)
     await button.click()
     await expectSettingsOpened(page, {})
+  })
+})
+
+test.describe("Repository selector", () => {
+  /** The path the trigger shows, which must be a form of `path`: a tail of it from a separator behind "…" */
+  async function expectFormOf(page: Page, path: string): Promise<string> {
+    const shown = header(page).getByTestId("repository-path")
+    const text = (await shown.textContent())!
+    expect(text.startsWith("…/") && path.endsWith(text.slice(1)), `"${text}" is a tail of ${path} behind …`).toBe(true)
+    // it fits its room: no character is cut off
+    expect(await shown.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    return text
+  }
+
+  test("should cut the path at its separators behind one …, more of it as the room grows", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("NO_REPO", { prepopulateStore: false })
+    // a path of short segments that the folder dialog picks: no repository, so the selector shows it with its error
+    const path = "/Users/ann/projects/notes.local/scratch/demo"
+    await repo.setDialogPick(path)
+    await page.getByTestId("browse-repository-button").click()
+    const shown = header(page).getByTestId("repository-path")
+    await expect(shown).toHaveText(/^…\//)
+    const wide = await expectFormOf(page, path)
+
+    // a narrower window drops whole leading segments, and a wider one brings them back
+    await page.setViewportSize({ width: 350, height: MIN_WINDOW.height })
+    await expect.poll(async () => (await shown.textContent())!.length).toBeLessThan(wide.length)
+    const narrow = await expectFormOf(page, path)
+    expect(wide.endsWith(narrow.slice(1))).toBe(true)
+    await page.setViewportSize(MIN_WINDOW)
+    await expect(shown).toHaveText(wide)
+  })
+
+  test("should keep its width while the time of the last sync ages, the whole path in its tooltip", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // beside the traffic lights at the minimum width the selector gives way to the actions: a wider time took its room
+    await useTitleBar(page, TITLE_BARS.macos)
+    await page.setViewportSize(MIN_WINDOW)
+    const repo = await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    const trigger = header(page).getByRole("combobox")
+    const lastSync = header(page).getByTestId("last-sync-time")
+    await expect(lastSync).toHaveText("Last synced just now")
+    const before = await boxOf(trigger)
+    expect(before.width, "the selector is narrower than its 16rem").toBeLessThan(256)
+
+    for (const [forward, text] of [
+      ["01:15", "Last synced 1 minute ago"],
+      ["10:00", "Last synced 11 minutes ago"],
+    ] as const) {
+      await page.clock.fastForward(forward)
+      await expect(lastSync).toHaveText(text)
+      expect(await boxOf(trigger), text).toEqual(before)
+    }
+    expect((await focusWindow(page))?.outcome).toBe("unchanged")
+    await expect(lastSync).toHaveText("Checked just now")
+    expect(await boxOf(trigger)).toEqual(before)
+
+    // the path of the template is longer than the room: the trigger cuts it, its tooltip says it whole
+    await page.mouse.move(0, 0)
+    await trigger.hover()
+    await expect(page.getByRole("tooltip")).toHaveText(repo.path)
   })
 })
 

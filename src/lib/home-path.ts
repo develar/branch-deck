@@ -10,6 +10,31 @@ export function tildePath(path: string, homeDir: string): string {
   return rest.length === 0 || rest.startsWith("/") || rest.startsWith("\\") ? `~${rest}` : path
 }
 
+/**
+ * The forms of a path from the whole to the shortest, each cut at a separator, never in a segment: `~/scratch/demo`,
+ * `…/demo`, then the name alone, `demo`, for a room too narrow for `…/demo`. A cut drops more than the one character
+ * of "…": `…/scratch/demo` would only trade `~` for it
+ */
+export function pathForms(path: string): string[] {
+  const forms = [path]
+  const trimmed = path.replace(/[/\\]+$/, "")
+  for (let index = 2; index < trimmed.length; index++) {
+    // the last separator of a run: `/srv//demo` gives `…/demo`
+    if (isSeparator(trimmed[index]) && !isSeparator(trimmed[index + 1])) {
+      forms.push(`…${trimmed.slice(index)}`)
+    }
+  }
+  const nameStart = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\")) + 1
+  if (nameStart > 0 && nameStart < trimmed.length) {
+    forms.push(trimmed.slice(nameStart))
+  }
+  return forms
+}
+
+function isSeparator(char: string | undefined): boolean {
+  return char === "/" || char === "\\"
+}
+
 /** The user's home directory, `""` when Tauri can't tell it */
 export async function resolveHomeDir(): Promise<string> {
   try {
