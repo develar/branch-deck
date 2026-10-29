@@ -46,10 +46,10 @@
 //! as its row shows it, and nothing else holds the subject), which the view derives with every patch over the rows as
 //! they are, so the landing overview, Attention and the Dock badge list what the view says.
 
+use crate::action_view::{FrameReads, reads_cached_frame};
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline, remote_fact};
 use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::table::{TableParts, TableState};
-use domain_policy::actions::on_cached_frame;
 use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, branch_attention, stack_attention};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, is_pushing, push_blocker, restart_action, stack_branch_hold};
@@ -1599,7 +1599,7 @@ pub fn attention_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, R
   let parts = &state.parts;
   let view = &facts.patronus.part().view;
   let robots = facts.robots.view();
-  let cached = on_cached_frame(state.cached(), [&robots.head.state]);
+  let cached = reads_cached_frame(state, facts, FrameReads::Robots);
   let robot_of = |id: Option<&String>| robots.robots.get(id?.as_str());
   let active = |of: Option<&RobotOf>| of.and_then(|of| robots.robots.get(&of.robot_id)).is_some_and(is_active);
   let attention = |robot: &PatronusRobot| RobotAttention { robot_id: robot.id.clone() };

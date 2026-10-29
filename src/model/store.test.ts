@@ -2,13 +2,14 @@
 // applies the patches of the session it subscribed to, and asks a sync of it
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
+import { commands } from "@/lib/bindings"
 import type { RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
 import { toRemoteStatus } from "@/lib/remote-status"
 import { resetDemand } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
 import { adoptCachedModel, closeSession, openSession, requestSessionSync, resubscribeSession, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
 import { branchSyncStore, getBranch, getStackBranch, whenSynced } from "@/stores/branch-sync"
-import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
+import { emptyView, fakeCommit, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
 
 const { toasts, archived, syncRecords, answers } = vi.hoisted(() => ({
   toasts: [] as { type?: string; title: string; description?: string }[],
@@ -217,17 +218,32 @@ describe("the warm start", () => {
     const seed = seedOf("a")
     fakeSessions.seed("/repo", seed)
     fakeSessions.holdSubscriptions = true
+    const plans = vi.spyOn(commands, "getAutosquashPlan")
     adoptCachedModel({ repositoryPath: "/repo", view: seed })
     expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a"], cached: true, syncedRepositoryPath: null, viewVersion: seed.version })
     expect(fakeSessions.subscribeCalls).toEqual([{ repositoryPath: "/repo", have: seed.version }])
+    // the frame of an earlier run: no plan of its fixups, whose HEAD git may have moved since
+    expect(plans).not.toHaveBeenCalled()
+    archived.settled = 0
 
     // the first sync commits before the subscription answers: its patch waits for the catch-up, which it is part of
-    const committed = fakeSessions.send("/repo", { ...grouping("a", "b"), cached: false })
+    const changes = grouping("a", "b")
+    const fixup = fakeCommit("b")
+    const committed = fakeSessions.send("/repo", {
+      ...changes,
+      branches: { ...changes.branches, b: { ...changes.branches!.b, commits: [{ ...fixup, subjectParts: { ...fixup.subjectParts, autosquash: "fixup!" } }] } },
+      cached: false,
+    })
     expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
     fakeSessions.releaseSubscriptions()
     await whenSessionReady()
     expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a", "b"], cached: false, syncedRepositoryPath: "/repo", viewVersion: committed.next })
     expect(fakeSessions.snapshotCalls).toEqual([])
+    // the window never saw the run, idle on both sides of the catch-up: it ended all the same, and the window handles its end
+    expect(branchSyncStore.getState().syncCount).toBe(1)
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastSyncTime: expect.any(Number), lastBranchCount: 2 }) }])
+    expect(archived.settled).toBe(1)
+    expect(plans).toHaveBeenCalledWith({ repositoryPath: "/repo" })
   })
 
   it("keeps the seed when the session sent nothing since, and leaves a model of another project", async () => {

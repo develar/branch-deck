@@ -167,7 +167,8 @@ written, except by Update Project and the finish of its resolve session (their o
    fast-forward, not the exact old value of a transaction: a notes ref moved back to an ancestor of the `from` commit
    meanwhile would be moved forward again. The notes of a sync and of the detection are only a cache, so their lost
    write fails nothing (`write_cache_notes`): it runs once more, from the tip the other writer left (its notes kept),
-   and a second loss is a warning; a later sync writes them, as it does for the carried notes of a squash
+   and a second loss is a warning; a later sync writes them, as it does for the carried notes of a squash. Only an
+   identity git cannot form fails it (`NoIdentity`, step 5), which no later sync gets past either
    (`a_sync_that_loses_the_notes_ref_to_another_writer_writes_again_and_finishes`,
    `a_detection_write_that_loses_its_ref_runs_again_and_never_fails`). The mapping notes a rewrite carries to its new
    commits (`write_commits_with_notes`) go once more too, the same stream from the tip the other writer left (the
@@ -240,7 +241,10 @@ written, except by Update Project and the finish of its resolve session (their o
    - Signatures are stripped because they would no longer be valid.
    - The current user is `git var GIT_COMMITTER_IDENT` (`current_committer`, also for the notes commits); a git that
      cannot form it fails the write with `NoIdentity` before anything is written, the code `no_identity` of the app
-     and of `bd`, which the page shows as the alert with the two `git config --global` commands.
+     and of `bd`, which the page shows as the alert with the two `git config --global` commands. The notes of a sync
+     and of its detection fail it the same way (`write_cache_notes` passes `NoIdentity` on): without them every sync
+     would copy its commits again, and the alert would never come
+     (`a_sync_whose_notes_git_cannot_sign_fails_with_no_identity`).
 6. **Batch**: one process per operation phase, not one per item. **An operation reads a repository fact once** and
    passes it down: the baseline and its upstream come from `read_baseline` (`symbolic-ref`, `remote` and one
    `for-each-ref`, as `read_baseline_listing` reads them for a sync), never from `detect_baseline_branch` and then
@@ -4253,8 +4257,8 @@ the facts within the last 5 s may be lost.
 **The seed**: the host reads the frame when the session opens (`SessionHost::frame`, `SessionEnvironment::frame`: the
 app's in the object cache of the repository, the E2E server's in the memory of a test repository once its test built
 one, `POST /repositories/{id}/warm-start/build`), unless the opener hands it the frame it read
-(`Sessions::open_seeded`: the start of the app), and the session seeds from it only under the same key and schema
-(`CachedSession::seeds`). The table is `cached` (`RepositoryView.cached`) until a sync of this process commits, the
+(`Sessions::open_seeded`: the start of the app, with the key it resolved now), and the session seeds from it only under
+the same key and schema (`CachedSession::seeds`). The table is `cached` (`RepositoryView.cached`) until a sync of this process commits, the
 structure of each row and the order of the stack branches derived again, each commit with its identity. Each fact of
 the frame that stood is `Cached` until an answer of this process, and a failure of that first read leaves what a
 failure without an answer leaves (`Unavailable`, the value gone: the robots, the pull requests and the review requests
@@ -4274,9 +4278,12 @@ subscription of a window that holds nothing.
 
 **A rewrite on the frame**: what a window named on the seeded table is of no HEAD this process read, so a rewrite
 pressed meanwhile is admitted, waits for the first sync to commit (`WaitingForSync`), then resolves what it named by
-the keys the frame kept ([Rewrite in the engine](#rewrite-in-the-engine), step 3); a push, a start, a pull request,
-a review request or an action of a robot stays disabled until the first sync committed and what it reads answered
-fresh (above).
+the keys the frame kept ([Rewrite in the engine](#rewrite-in-the-engine), step 3); a push, a start (a merge of the
+pull request and Cancel Auto-Merge on the merge route among them), a pull request, a review request, a review or an
+action of a robot stays disabled until the first sync committed and what it reads answered fresh (above). The engine
+holds it the same for a caller that did not read the action: `engine::execute` refuses such an intent with
+`plan_changed` before it is admitted while what it reads is the frame's (`action_view::reads_cached_frame`, the
+`FrameReads` of each), and a push that waited for the first sync refuses once that sync failed and left the frame.
 
 **The first sync**: a worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
 app's writer keeps, `app_settings::projects::synced_before`) syncs when its session opens (`Open`, with or without a
@@ -4292,10 +4299,12 @@ of the frame stand, and the end of the run waits for the view of its robots ("Th
 **The start of the app** (`src-tauri/src/warm_start.rs`) reads the frame of the selected project
 (`projects::selected_project`) before the main window is built: the common git directory by the files of the worktree
 (its `.git` directory, or the `commondir` a linked worktree's `.git` file names, `lease_slot::linked_worktree`), the
-object cache there, then `Sessions::open_seeded` under the key the frame names, whose seed goes into the init script
-of the window as `window.__BD_MODEL__ = JSON.parse('…')` (`CachedModel { repositoryPath, view }`) beside
-`__TAURI_STORE__`. A frame of a prefix the git config left seeds a session no window subscribes to, which goes idle,
-and the window's own key opens the session it gets the snapshot of. The page puts the seed into its store before the
+object cache there, beside the key the subscription of the window resolves (`session_key_now`, the prefix the git
+config names now: one `git config` on a thread of its own), then `Sessions::open_seeded` under that key, whose seed
+goes into the init script of the window as `window.__BD_MODEL__ = JSON.parse('…')` (`CachedModel { repositoryPath,
+view }`) beside `__TAURI_STORE__`. A frame of another prefix (saved before the prefix changed in Settings or in a
+terminal) seeds nothing: no model, so the window never shows rows of a prefix its subscription replaces, and the
+session of the prefix of now opens unseeded, its first sync running while the window loads. The page puts the seed into its store before the
 first render (`adoptCachedModel`) and subscribes holding it: one `subscribe_view` and its channel before the rows
 ([Rendering Performance](rendering-performance.md#loading)). Without a frame (a first start, another schema, a
 worktree whose files name no git directory) the start is cold: no model, and the window subscribes holding nothing.
@@ -4303,8 +4312,9 @@ worktree whose files name no git directory) the start is cold: no model, and the
 `warm_start_test.rs` pins the encoding and the key, `table_test.rs` and `facts_test.rs` the seed, `state_test.rs` the
 seeded view, the catch-up and `diff_views`, `session_test.rs` the seed of a session, its first sync (a patch of what
 differs only, one run with a focus during it, its end with the view of its robots), a frame of another prefix or schema
-and the saves, `sync_scheduler_test.rs` the open and the focus as one run, `cache_test.rs` the store, `rewrite_test.rs`
-the rewrite on a seeded table, and `tests/e2e/startup/warm-start.spec.ts` the start of the page.
+(at a subscription and at the start) and the saves, `sync_scheduler_test.rs` the open and the focus as one run,
+`cache_test.rs` the store, `rewrite_test.rs` the rewrite and the refused remote intents on a seeded table, and
+`tests/e2e/startup/warm-start.spec.ts` the start of the page.
 
 #### The facts of a session
 

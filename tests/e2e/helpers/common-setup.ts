@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expect } from "@playwright/test"
 import type { CachedModel } from "../../../src/lib/bindings"
 import { clearClipboard } from "./clipboard-helpers"
@@ -267,6 +267,23 @@ export async function reloadWarm(page: Page, repo: TestRepositoryBuilder): Promi
   await injectWarmModel(page, model)
   await page.reload()
   return model
+}
+
+/**
+ * `item` of an open menu on the frame of a warm start: disabled, its tooltip "Waits for the first sync"; the menu closes
+ * after it
+ */
+export async function expectWaitingForTheFirstSync(page: Page, item: Locator): Promise<void> {
+  await expect(item).toHaveAttribute("aria-disabled", "true")
+  await item.hover()
+  await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for the first sync" })).toBeVisible()
+  await page.keyboard.press("Escape")
+}
+
+/** The first sync of the warm start, held at the backend, runs and commits: the rows are of this run, no frame any more */
+export async function releaseTheFirstSync(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  await repo.holdRemoteAnswers({ release: ["sync"] })
+  await expect(page.locator("[data-cached]")).toHaveCount(0)
 }
 
 /** Logs a setup step with DEBUG_E2E=1 */

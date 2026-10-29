@@ -664,13 +664,17 @@ fn path_of(state: &AppState, id: &str) -> Result<String, (StatusCode, String)> {
   state.repositories.get(id).map(|repo| repo.path.clone()).ok_or_else(unknown_repository)
 }
 
-/// The key of the session of the repository at `path`, as the commands of its app key it (`AppContext::session_key`)
-pub(crate) async fn session_of(state: &AppState, path: &str) -> Result<SessionKey, (StatusCode, String)> {
-  let context = state
+/// The app of the test repository at `path`, what its commands run with (`AppState::context_of`)
+pub(crate) fn context_of(state: &AppState, path: &str) -> Result<Arc<app_api::context::AppContext>, (StatusCode, String)> {
+  state
     .repository(path)
     .map(|repository| Arc::clone(&repository.context))
-    .map_err(|_unknown| unknown_repository())?;
-  context
+    .map_err(|_unknown| unknown_repository())
+}
+
+/// The key of the session of the repository at `path`, as the commands of its app key it (`AppContext::session_key`)
+pub(crate) async fn session_of(state: &AppState, path: &str) -> Result<SessionKey, (StatusCode, String)> {
+  context_of(state, path)?
     .session_key(path)
     .await
     .map_err(|_refused| (StatusCode::UNPROCESSABLE_ENTITY, "the repository has no branch prefix".to_string()))

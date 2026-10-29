@@ -10,7 +10,9 @@
 //! `POST /repositories/{id}/rebase-in-progress` (`{"inProgress": bool}`) leaves the repository as an interrupted rebase
 //! does (`.git/rebase-merge`), so its syncs are deferred (`SyncDeferred`) by the real check, until it is set back.
 //! `POST /repositories/{id}/branch-prefix` (`{"prefix": "team"}`) sets `branchdeck.branchPrefix` of `.git/config` as
-//! `git config` in a terminal does: no command of the app was asked, so the server's prefixes still name the old one
+//! `git config` in a terminal does: no command of the app was asked, so the server's prefixes still name the old one.
+//! `POST /repositories/{id}/user-name` (`{"name": ""}`) sets `user.name` there the same way: an empty name is an identity
+//! git cannot form, so the next sync fails with `no_identity`
 
 use crate::state::AppState;
 use axum::Json;
@@ -170,24 +172,37 @@ pub struct BranchPrefixRequest {
   prefix: String,
 }
 
+#[derive(Deserialize)]
+pub struct UserNameRequest {
+  name: String,
+}
+
 /// Sets `branchdeck.branchPrefix` in `.git/config` of the repository behind the app's back
 pub async fn set_branch_prefix_in_terminal(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<BranchPrefixRequest>) -> StatusCode {
-  let Some(path) = state.repositories.get(&id).map(|repository| repository.path.clone()) else {
+  set_in_terminal(&state, &id, "branchdeck.branchPrefix", request.prefix).await
+}
+
+/// Sets `user.name` in `.git/config` of the repository behind the app's back: an empty one is an identity git cannot
+/// form, over any global config (`git var GIT_COMMITTER_IDENT` fails), so a write of notes or commits is `no_identity`
+pub async fn set_user_name_in_terminal(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<UserNameRequest>) -> StatusCode {
+  set_in_terminal(&state, &id, "user.name", request.name).await
+}
+
+/// `git config --local <key> <value>` in the repository `id`, as a terminal runs it
+async fn set_in_terminal(state: &AppState, id: &str, key: &'static str, value: String) -> StatusCode {
+  let Some(path) = state.repositories.get(id).map(|repository| repository.path.clone()) else {
     return StatusCode::UNPROCESSABLE_ENTITY;
   };
   let git = state.git_executor.clone();
-  let written = tokio::task::spawn_blocking(in_current_span(move || {
-    git.execute_command(&["config", "--local", "branchdeck.branchPrefix", &request.prefix], &path)
-  }))
-  .await;
+  let written = tokio::task::spawn_blocking(in_current_span(move || git.execute_command(&["config", "--local", key, &value], &path))).await;
   match written {
     Ok(Ok(_)) => StatusCode::OK,
     Ok(Err(error)) => {
-      tracing::warn!("Cannot set the branch prefix of the repository: {error:#}");
+      tracing::warn!("Cannot set {key} of the repository: {error:#}");
       StatusCode::INTERNAL_SERVER_ERROR
     }
     Err(error) => {
-      tracing::warn!("The write of the branch prefix failed: {error}");
+      tracing::warn!("The write of {key} failed: {error}");
       StatusCode::INTERNAL_SERVER_ERROR
     }
   }

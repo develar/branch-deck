@@ -1,10 +1,14 @@
+use crate::engine::execute;
 use crate::events::NoEvents;
+use crate::land_execute::Accepted;
 use crate::push::push_test::{Fixture, OFFLINE, alone, fixture, registry_on, test_host, waits_for_the_agent};
 use crate::rewrite::execute_rewrite;
 use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::fixtures::land_intent;
 use domain_types::landing::PlannedEffect;
-use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationStep, Outcome, Resource, RunningOperation};
+use domain_types::operation::{EffectStatus, Fingerprint, Intent, OperationResult, OperationStep, Outcome, Resource, RunningOperation};
+use domain_types::patronus::PatronusPushMode;
 use domain_types::repository_view::PatronusView;
 use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind};
 use domain_types::session::{SyncReason, ViewPatch};
@@ -800,6 +804,14 @@ impl Fixture {
     self.registry.sessions().read(&self.key, |state, _| state.cached()).await.unwrap()
   }
 
+  /// The first sync of the session, held so far, commits the table, which was the frame until then
+  async fn commit_first_sync(&self, syncs: &HeldSyncs) {
+    assert!(self.cached().await, "the first sync is still held");
+    syncs.release();
+    self.registry.sessions().sync(&self.key, SyncReason::Open).wait().await.unwrap();
+    assert!(!self.cached().await);
+  }
+
   /// The operation of the view once it waits for the first sync of the session
   async fn until_waiting_for_sync(&self) -> RunningOperation {
     let operations = self.until(|operations| operations.len() == 1 && operations[0].step == OperationStep::WaitingForSync).await;
@@ -825,6 +837,40 @@ async fn an_unstack_on_a_seeded_table_waits_for_the_first_sync_and_runs_once_it_
   assert_eq!(fixture.subjects(), ["(beta) Beta", "(alpha) Alpha"]);
   assert!(!fixture.cached().await);
   assert_eq!(syncs.runs(), 2, "the sync of the open, which the wait joined, and the one after the rewrite");
+}
+
+/// A remote intent pressed on the table a start seeded from the frame of the start before (a start, a merge of a pull
+/// request and the cancel of its auto-merge, a retarget, a restart or a cancel of a robot) is refused before it is
+/// admitted, as its actions wait there: its plan would take the checks, the reviews and the robots of the frame for
+/// those of now. Nothing runs, HEAD stays, the first sync goes on and commits the table
+#[tokio::test(flavor = "multi_thread")]
+async fn a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted() {
+  let (fixture, syncs, ()) = seeded(|_| ()).await;
+  let head = fixture.repo.rev_parse("HEAD").unwrap();
+  let accepted = Accepted {
+    fingerprint: Fingerprint(String::new()),
+    confirmations: Vec::new(),
+  };
+  let intents = [
+    land_intent("alpha", PatronusPushMode::RebaseAutosquash),
+    Intent::DisableAutoMerge { number: 7 },
+    Intent::Retarget { number: 7 },
+    Intent::RestartRobot { robot_id: "r1".to_owned() },
+    Intent::CancelRobot { robot_id: "r1".to_owned() },
+  ];
+  for intent in intents {
+    let refused = execute(&fixture.registry, &fixture.key, intent.clone(), accepted.clone(), OFFLINE.hosts(), Arc::new(NoEvents))
+      .await
+      .unwrap_err();
+    assert_eq!(
+      (refused.code, refused.message.as_str()),
+      (ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run"),
+      "{intent:?}"
+    );
+  }
+  assert_eq!(fixture.operations().await, Vec::new(), "nothing was admitted");
+  assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head);
+  fixture.commit_first_sync(&syncs).await;
 }
 
 /// A move pressed on a seeded table whose HEAD another process moved after the frame was saved (`bd reword` of the
@@ -867,11 +913,7 @@ async fn a_stop_waiting_for_the_first_sync_is_canceled_and_the_sync_goes_on() {
   };
   let refused = fixture.rewrite_while(&unstack(&witness), stop).await;
   fixture.assert_stopped(refused, &head).await;
-  assert!(fixture.cached().await, "the first sync is still held");
-
-  syncs.release();
-  fixture.registry.sessions().sync(&fixture.key, SyncReason::Open).wait().await.unwrap();
-  assert!(!fixture.cached().await);
+  fixture.commit_first_sync(&syncs).await;
   assert_eq!(syncs.runs(), 1, "the sync the session started as it opened, joined by the open");
   assert_eq!(fixture.subjects(), ["(alpha/beta) Beta", "(alpha) Alpha"]);
 }

@@ -488,12 +488,15 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - On the cached frame of an earlier run (the table the session seeded when it opened, `RepositoryView.cached`, until
   the first sync of this run commits; or a fact of it no fresh answer replaced yet, `FactState::Cached`) the cell must
   show what the frame says (the push button, the step in the Safe Push slot), and every remote action of the row, of
-  its whole stack, of its robot and of a pull request to review (a push, a start, a restart or a cancel, a pull
-  request, a retarget, a review request, a review) must be disabled with "Waits for the first sync"
-  (`ActionBlocker::Cached`), whatever else the frame says of it: a press on a frame nobody checked never acts on what a
-  sync may change. The rewrites, the park, the reviews and the links stay as the frame offers them; no robot of the
-  frame needs the user ([Patronus](patronus.spec.md#landing-overview)).
+  its whole stack, of its robot and of a pull request to review (a push, a start, on the merge route the merge of the
+  pull request and Cancel Auto-Merge, a restart or a cancel, a pull request, a retarget, a review request, a review)
+  must be disabled with "Waits for the first sync" (`ActionBlocker::Cached`), whatever else the frame says of it: a
+  press on a frame nobody checked never acts on what a sync may change, and the engine refuses such an intent there
+  (`plan_changed`) for a caller that did not read the action. The rewrites, the park, the reviews and the links stay
+  as the frame offers them; no robot of the frame needs the user ([Patronus](patronus.spec.md#landing-overview)).
   [@test] ../../crates/domain-policy/src/actions_test.rs (`on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_the_rest_stays`, `a_frame_is_unchecked_while_its_table_or_a_fact_the_actions_read_is_the_cached_one`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted`)
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should say Merge #7 of the frame of a warm start waits for the first sync, and merge once that sync committed`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`a_cached_frame_shows_its_steps_and_holds_its_remote_actions_back_until_the_first_sync_commits`)
   [@test] ../../src/presenters/actions.test.ts (`words every blocker of the catalog as the page says it`)
 - "⋯" must open the branch menu under the button: exactly the menu of the right-click, so its actions are found without

@@ -483,7 +483,10 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (running && next.sync.kind === "running" && next.sync.step !== "grouping" && state.groupedRun !== runCount) {
     update.groupedRun = runCount
   }
-  if (!running && wasRunning) {
+  // a run ended: the window saw it run, or the first sync of the session committed the table before the window heard
+  // of it (the catch-up from the seed, idle on both sides, is the frame of an earlier run no more)
+  const ended = !running && (wasRunning || (previous?.cached === true && !next.cached && next.header.head !== ""))
+  if (ended) {
     update.syncCount = state.syncCount + 1
     // a run no request of this window waits for (the session's own on open, the follow-up of a rewrite, `bd`, another
     // window): the repository is synced now; a request records its own run with its time (`recordSync`)
@@ -571,7 +574,7 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
     update.commitsRevision = state.commitsRevision + 1
   }
   branchSyncStore.setState(update)
-  if (!running && (wasRunning || changes === null)) {
+  if (ended || (!running && changes === null)) {
     // a placeholder still waiting got no result, also after a failed run
     settleArchivedPlaceholders()
     // the fixups of the table the run left, whoever asked it: this window, another, a rewrite of the engine; none of the

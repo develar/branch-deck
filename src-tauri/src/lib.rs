@@ -249,7 +249,7 @@ pub fn run() {
       let (settings_script, _) = settings_script(&ctx.settings, app_settings::windows::MAIN_WINDOW);
       // the rows of the selected project as its session left them, seeded before the window, whose first sync runs
       // while the webview loads (`warm_start`)
-      let model_script = app_settings::projects::selected_project(&ctx.settings).map_or_default(|path| warm_start::model_script(&ctx.sessions, &path));
+      let model_script = app_settings::projects::selected_project(&ctx.settings).map_or_default(|path| warm_start::model_script(&ctx, &path));
       // the open of the window, which its page settles once it drew its first rows (`sub_window_ready`)
       let open = ctx.sub_windows.next_open(epoch_millis());
       let init_script = format!("{settings_script} {model_script} {} {}", open_script(&open), title_bar_script());

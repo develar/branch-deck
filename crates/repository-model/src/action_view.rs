@@ -6,7 +6,8 @@
 //! (docs/design/rust-domain-authority.md, s8-policy), with the operations of the session laid over them
 //! (`with_operations`: what runs, what a start waits behind, what holds a remote action back). The view derives them
 //! with every patch, a sync and a change of the operations included. A table of the cached frame of an earlier run, or
-//! robots or pull requests that are values of it, hold the remote actions back (`on_cached_frame`).
+//! robots or pull requests that are values of it, hold the remote actions back (`on_cached_frame`, by what each reads:
+//! `reads_cached_frame`, which the engine refuses their intents by too).
 
 use crate::derive::{github_repository_known, landing_route_of, live_hold, patronus_lands, row_of_view};
 use crate::facts::FactStore;
@@ -28,6 +29,31 @@ use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, PatronusView, RobotOf};
 use domain_types::session::{BranchPush, BranchView, RobotsView, SyncState, WholeStackView, stack_readiness_key};
 use std::collections::{BTreeMap, HashSet};
+
+/// What of the session the remote actions of a subject read, and their intents with them, which the cached frame of an
+/// earlier run may hold
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameReads {
+  /// The pushes, the starts, the pull requests and their bases, the review requests and the auto-merge of a branch and of
+  /// a whole stack: the robots, the pull requests and the Patronus view
+  Landing,
+  /// The restart and the cancel of a robot, the robot that needs the user: the robots
+  Robots,
+  /// The review of a pull request to review: the review requests
+  Reviews,
+}
+
+/// Whether the remote actions that read `reads` of the session read a frame nobody checked yet: its table is the cached
+/// frame of an earlier run, or one of the facts they read is a value of it (`on_cached_frame`)
+#[must_use]
+pub fn reads_cached_frame(state: &TableState, facts: &FactStore, reads: FrameReads) -> bool {
+  let robots = &facts.robots.view().head.state;
+  match reads {
+    FrameReads::Landing => on_cached_frame(state.cached(), [robots, &facts.pull_requests.view().head.state, &facts.patronus.part().state]),
+    FrameReads::Robots => on_cached_frame(state.cached(), [robots]),
+    FrameReads::Reviews => on_cached_frame(state.cached(), [&facts.review_requests.view().head.state]),
+  }
+}
 
 /// What the actions of a view are decided on beside the table and the facts: the parts of the view derived with the same
 /// patch
@@ -59,8 +85,8 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
   let push_route = matches!(route, LandingRoute::Push { .. });
   let merge_route = merges_on_github(&route, patronus_lands(facts.robots.view()));
   // what the pushes, the starts and the pull requests read; a restart and a cancel only the robots
-  let cached = on_cached_frame(state.cached(), [&robots.head.state, &pull_requests.head.state, &part.state]);
-  let robots_cached = on_cached_frame(state.cached(), [&robots.head.state]);
+  let cached = reads_cached_frame(state, facts, FrameReads::Landing);
+  let robots_cached = reads_cached_frame(state, facts, FrameReads::Robots);
   let mut actions = BTreeMap::new();
   for (name, branch) in &parts.branches {
     let Some(step) = sources.steps.get(name) else {

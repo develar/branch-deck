@@ -18,7 +18,7 @@
 //! branch of a whole stack alone (`whole_stack_planned`). `bd push` plans one intent per branch it names over its
 //! one-shot session, the same plans, and sends them as one atomic push (`push_together`) through the same run.
 
-use crate::engine::{run, run_planned_in};
+use crate::engine::{cached_frame_refusal, run, run_planned_in};
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef, refusal_of};
 use crate::land_session::push_start;
@@ -796,6 +796,10 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
     // the rewrites admitted before it (a move out of the branch): it sends what they leave, after the sync they ask
     let behind = guard.wait_behind(vec![Resource::Head], OperationStep::Checking).await;
     let synced = wait_for_running_sync(sessions, key, &guard.stepper()).await;
+    // the rows are still the frame of an earlier run (its first sync failed): no tip of this process to push
+    if sessions.read(key, |state, _| state.cached()).await.unwrap_or(false) {
+      return Err(cached_frame_refusal());
+    }
     let waited = behind || synced || guard.queued();
     let checked = checked_holds(services, sessions, key, &push).await.map(Arc::new);
     let (prefix, intent, holds) = (key.prefix.clone(), push.clone(), checked.clone());

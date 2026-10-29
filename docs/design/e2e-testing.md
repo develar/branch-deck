@@ -133,8 +133,8 @@ sequenceDiagram
    (`TestRepository::frame`, saved again by its sessions from then on); the session closes, as the app quits. A quit
    (`POST …/sessions/close`, `closeSessions`, also that of `reloadWarm`) answers once each session saved its last frame
    (`Sessions::close_worktree_saved`), so the next start reads the frame of the last facts, not of the last commit. The
-   setup then starts the app as Rust does (`GET /repositories/{id}/warm-start`: the session opened seeded from the frame,
-   whose first sync starts at once for a repository synced before, `syncedAgoMs` an hour ago unless set) and injects the
+   setup then starts the app as Rust does (`GET /repositories/{id}/warm-start`: the session of the prefix the config
+   names now, seeded from the frame when the frame is of that prefix, whose first sync starts at once for a repository synced before, `syncedAgoMs` an hour ago unless set) and injects the
    seed it answers as `window.__BD_MODEL__` from an init script of its own, before the page loads; `reloadWarm` quits
    and starts again the same way, its init script replacing the one before for the next load. A test that looks at the
    rows before the first sync holds it in the session (`remoteAnswers: { hold: ["sync"] }`, `HeldAnswer::Sync`, with
@@ -393,7 +393,11 @@ Mock implementation:
   leaves the repository as an interrupted rebase does, so its syncs are deferred by the real check. `POST
   /repositories/{id}/branch-prefix` (`setBranchPrefixInTerminal`) sets `branchdeck.branchPrefix` of `.git/config` as
   `git config` in a terminal does: the run of a session reads the local prefix again (`branch_prefix_now`), so one
-  under the prefix the config left answers `prefix_changed`, as in the app.
+  under the prefix the config left answers `prefix_changed`, as in the app. `POST /repositories/{id}/user-name`
+  (`setUserNameInTerminal`) sets `user.name` there the same way: an empty name is an identity git cannot form whatever
+  the global config says, so the next sync fails with `no_identity` at its notes. `repo.sessionView()` asks the test
+  server for the view of the session (`get_snapshot`, the test's own request, no answer of the page): a test whose page
+  waits for an answer (a held `subscribe_view`) waits on it for what the backend did meanwhile.
   [@test] ../../crates/test-server/src/session_routes_test.rs (`the_next_sync_takes_the_overrides_of_its_repository_and_the_syncs_after_it_do_not_unless_set_for_every_sync`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_revision_of_the_repository_answers_its_commit`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_rebase_in_progress_defers_the_sync_until_it_is_gone`)
@@ -576,7 +580,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 | `GET …/windows`, `POST …/windows/built`, `POST …/dialog-pick` | what the desktop opened and its menus, the build of a page a test opens, the folder of the dialog | `getOpenedSubWindows`, `getWindowMenus`, `registerWindowBuild` (sub-window-helpers.ts), `setDialogPick` |
 | `GET /store/{repo}`, `GET`/`POST`/`DELETE /store/{repo}/{key}` | the settings of the repository's app, through their writer | `setupRepo` (`initialStoreValues`, `syncedAgoMs`; common-setup.ts) |
 | `POST …/reword`, `…/commit`, `…/update-outside`, `GET …/revision` | git of the test behind the app's back | `reword`, `commit`, `updateOutsideTheApp`, `revision` |
-| `POST …/sync-overrides`, `…/rebase-in-progress`, `…/branch-prefix` | what the next run of its session takes (`sync_overrides.rs`) | `setSyncOverrides`, `setRebaseInProgress`, `setBranchPrefixInTerminal` |
+| `POST …/sync-overrides`, `…/rebase-in-progress`, `…/branch-prefix`, `…/user-name` | what the next run of its session takes (`sync_overrides.rs`) | `setSyncOverrides`, `setRebaseInProgress`, `setBranchPrefixInTerminal`, `setUserNameInTerminal` |
 | `POST …/locks/{lock}` | the repository lock or the fetch lock, held as another process holds it | `holdRepositoryLock`, `holdFetchLock` |
 | `POST …/foreign-operation`, `…/agent-operation`, `…/journal-gone`, `…/stamp` | the operations registry, the journal and the stamp of another process | `setForeignOperation`, `journalAgentOperation`, `loseJournalDisk`, `touchStamp` |
 | `POST`/`GET …/patronus`, `POST …/patronus-details`, `…/patronus-history`, `…/patronus-progress`, `…/patronus-profiles`, `…/patronus-start-refusal`, `…/patronus-replies` | the fake Patronus and its log | `setPatronus`, `setPatronusDetails`, `setPatronusHistory`, `setPatronusProgress`, `setPatronusProfiles`, `refusePatronusStarts`, `setPatronusReplies`, `getPatronusLog` |

@@ -491,6 +491,24 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
   Ok(())
 }
 
+/// A sync whose notes git cannot sign (no name or email it can form: here an empty name, for a user no `user.name` or
+/// `user.email`) fails with `NoIdentity`, the code `no_identity` of the identity alert, rather than build every copy
+/// again on each sync without notes; with the identity the same sync passes and writes them
+#[tokio::test]
+async fn a_sync_whose_notes_git_cannot_sign_fails_with_no_identity() -> anyhow::Result<()> {
+  let test_repo = repo_with_initial_commit();
+  test_repo.create_commit("(feature-auth) Add authentication", "auth/auth.txt", "auth content");
+  let no_identity = test_repo.git_executor().with_env("GIT_COMMITTER_NAME", "");
+  let error = sync_events(&no_identity, &test_repo).await.unwrap_err();
+  assert!(error.downcast_ref::<git_ops::commit_writer::NoIdentity>().is_some(), "{error:#}");
+
+  let events = sync_events(test_repo.git_executor(), &test_repo).await?;
+  assert!(events.iter().any(|event| matches!(event, SyncEvent::CommitSynced { .. })));
+  let notes = test_repo.git(&["notes", "list"]);
+  assert_eq!(notes.lines().count(), 1, "the mapping note of the copy: {notes}");
+  Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_branches_grouped_precedes_per_branch_events() -> anyhow::Result<()> {
   let test_repo = repo_with_initial_commit();

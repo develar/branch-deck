@@ -1416,12 +1416,14 @@ fn a_whole_stack_off_the_robot_offers_the_push_or_the_merge_of_its_stack_branch_
 
 /// On a frame nobody checked yet (the cached frame of an earlier run, or a fact of it the actions read) every remote
 /// action of a branch, a whole stack, a robot and a pull request to review waits for the first sync and the fresh
-/// answers, whatever else the frame says of it (a push it holds back for its own reason too); the rewrites, the park,
-/// the reviews and the links stay as they are
+/// answers, whatever else the frame says of it (a push it holds back for its own reason too; on the merge route the
+/// merge of a pull request the frame shows green, and Cancel Auto-Merge); the rewrites, the park, the reviews and the
+/// links stay as they are
 #[test]
 fn on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_the_rest_stays() {
   use crate::actions::review_actions;
   use ActionId::{Approve, RequestChanges, Review, SafePushPullRequest};
+  use domain_types::pull_request::MergeMethod;
   let cached = Some(ActionBlocker::Cached);
   let writes = [
     SafePush,
@@ -1430,6 +1432,8 @@ fn on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_th
     Push,
     PushWithChildren,
     PushToBaseline,
+    MergePullRequest,
+    CancelAutoMerge,
     RequestReview,
     RetargetPullRequest,
     CreatePullRequest,
@@ -1469,6 +1473,58 @@ fn on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_th
     Some(&step),
   );
   assert_waits("a whole stack", stack_actions(&stack), stack_actions(&StackFacts { cached: true, ..stack.clone() }));
+
+  // the merge route: a merge the frame shows as ready, and the cancel of an auto-merge, write GitHub as well
+  let merge = NextStep {
+    row: StepRow::Merge,
+    kind: StepKind::MergePullRequest {
+      number: 7,
+      auto: false,
+      method: MergeMethod::Rebase,
+    },
+    ..ready_step()
+  };
+  let auto_merging = NextStep {
+    row: StepRow::MergePrime,
+    kind: StepKind::AutoMerging {
+      number: 7,
+      method: MergeMethod::Rebase,
+    },
+    safe_push: Some(StepBlocker::Step),
+    ..merge.clone()
+  };
+  for (step, write) in [(&merge, MergePullRequest), (&auto_merging, CancelAutoMerge)] {
+    let on_route = BranchFacts {
+      patronus: PatronusAnswer::NotOnSpace,
+      merge_route: true,
+      ..facts(step, &status)
+    };
+    let fresh = branch_actions(&on_route);
+    assert_eq!(reason_of(&fresh, write), None, "{write:?} runs on facts of this process");
+    let frame = branch_actions(&BranchFacts { cached: true, ..on_route });
+    assert_eq!(reason_of(&frame, write), cached, "{write:?} waits for the first sync");
+    assert_waits("a branch on the merge route", fresh, frame);
+    let stack_on_route = StackFacts {
+      patronus: PatronusAnswer::NotOnSpace,
+      merge_route: true,
+      ..stack_facts(
+        StackShape::Forking {
+          not_built: None,
+          tip: true,
+          main_line: None,
+        },
+        Some(step),
+      )
+    };
+    assert_waits(
+      "a whole stack on the merge route",
+      stack_actions(&stack_on_route),
+      stack_actions(&StackFacts {
+        cached: true,
+        ..stack_on_route.clone()
+      }),
+    );
+  }
 
   let failed = robot("r1", Some("auth"), PatronusRobotStatus::Failure, 1);
   let restart = restart(RestartAction::Restart, None);

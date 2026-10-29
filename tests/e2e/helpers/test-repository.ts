@@ -10,6 +10,7 @@ import type {
   PatronusRobotProgress,
   PlannedEffect,
   RemoteStatusUpdate,
+  RepositoryView,
   Resource,
   StackBranchUpdate,
 } from "../../../src/lib/bindings"
@@ -260,6 +261,31 @@ export class TestRepositoryBuilder {
   /** Leaves the repository as an interrupted rebase does (`.git/rebase-merge`), or takes it back: a sync is deferred */
   async setRebaseInProgress(inProgress: boolean): Promise<void> {
     await this.setFixture("rebase-in-progress", { inProgress })
+  }
+
+  /**
+   * Sets `user.name` in `.git/config` behind the app's back, as `git config` in a terminal does: an empty name is an
+   * identity git cannot form (`git var GIT_COMMITTER_IDENT` fails), whatever the global config says
+   */
+  async setUserNameInTerminal(name: string): Promise<void> {
+    await this.setFixture("user-name", { name })
+  }
+
+  /**
+   * The view of the session of the repository as the backend has it now (`get_snapshot`, asked by the test, not the
+   * page); null while none is open: a test waits on it for what the backend did while the page waits for an answer
+   */
+  async sessionView(): Promise<RepositoryView | null> {
+    // the command runs in the app of the repository the header names, as the page mock sends it
+    const response = await fetch(`${this.baseUrl}/invoke/get_snapshot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Repository-Id": this.id },
+      body: JSON.stringify({ repositoryPath: this.path }),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to read the session of ${this.path}: ${response.status}`)
+    }
+    return (await response.json()) as RepositoryView | null
   }
 
   /** The commit a ref of the repository is at, e.g. the copy of a branch a sync built (`user-name/virtual/<branch>`) */

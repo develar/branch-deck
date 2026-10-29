@@ -12,7 +12,7 @@
 //! and the effects of the engine go to the same fakes (`TestServices`).
 
 use crate::host::held_or_failed;
-use crate::remote_fixtures::{session_of, unknown_repository};
+use crate::remote_fixtures::{context_of, session_of, unknown_repository};
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
 use crate::review_fixtures::review_requests_of;
@@ -592,9 +592,9 @@ pub async fn build_warm_start(Path(id): Path<String>, State(state): State<Arc<Ap
 }
 
 /// The start of the app with the frame of the repository (`GET /repositories/{id}/warm-start`), as
-/// `src-tauri/src/warm_start.rs` starts it before the main window: the session opened seeded from the frame (its first
-/// sync runs at once for a repository synced before) and what the page gets as `window.__BD_MODEL__`, the path and the
-/// seed; null without a frame
+/// `src-tauri/src/warm_start.rs` starts it before the main window: the session of the prefix the config names now opened
+/// seeded from the frame (its first sync runs at once for a repository synced before) and what the page gets as
+/// `window.__BD_MODEL__`, the path and the seed; null without a frame or with a frame of another prefix
 pub async fn warm_start(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<Option<CachedModel>>, (StatusCode, String)> {
   let (path, frame) = {
     let repository = state.repositories.get(&id).ok_or_else(unknown_repository)?;
@@ -604,8 +604,18 @@ pub async fn warm_start(Path(id): Path<String>, State(state): State<Arc<AppState
   let Some(frame) = frame else {
     return Ok(Json(None));
   };
-  let view = state.sessions.open_seeded(frame).await;
+  let key = session_key_now(&state, &path).await?;
+  let view = state.sessions.open_seeded(&key, frame).await;
   Ok(Json(view.map(|view| CachedModel { repository_path: path, view })))
+}
+
+/// The key of the session of the test repository at `path` by its git config read now, as the start of the app and the
+/// subscription of its window resolve it (`AppContext::session_key_now`)
+async fn session_key_now(state: &AppState, path: &str) -> Result<SessionKey, (StatusCode, String)> {
+  context_of(state, path)?
+    .session_key_now(path)
+    .await
+    .map_err(|error| fixture_failed("resolve the key of the session", &error))
 }
 
 /// The rejection of a fixture route that could not `operation`: a failure of the test, not an answer of the app

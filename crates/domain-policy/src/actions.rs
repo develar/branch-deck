@@ -218,9 +218,9 @@ pub fn on_cached_frame<'a>(table: bool, facts: impl IntoIterator<Item = &'a Fact
   table || facts.into_iter().any(|fact| *fact == FactState::Cached)
 }
 
-/// The actions that write the remote: a push, a start, a restart or a cancel of a robot, a pull request and its base, a
-/// review request, a review
-const REMOTE: [ActionId; 20] = [
+/// The actions that write the remote: a push, a start (a robot's, a push into the target, a merge of the pull request
+/// and its auto-merge), a restart or a cancel of a robot, a pull request and its base, a review request, a review
+const REMOTE: [ActionId; 22] = [
   ActionId::SafePush,
   ActionId::SafePushWithProfile,
   ActionId::DryRun,
@@ -228,6 +228,8 @@ const REMOTE: [ActionId; 20] = [
   ActionId::Push,
   ActionId::PushWithChildren,
   ActionId::PushToBaseline,
+  ActionId::MergePullRequest,
+  ActionId::CancelAutoMerge,
   ActionId::RequestReview,
   ActionId::RetargetPullRequest,
   ActionId::CreatePullRequest,

@@ -558,16 +558,17 @@ impl Sessions {
     answer.await.ok().map(|joined| (id, joined))
   }
 
-  /// Opens the session of the key `frame` names, seeded from it rather than from the host's frame: the start of the app,
-  /// which read the frame of its last project before its window (`warm_start` of the app), and the E2E server's
-  /// `/warm-start`. Answers the seed, the view of the frame at the first version of the session's epoch, which the window
-  /// shows before it subscribes and then names as what it holds (`subscribe_from`); `None` when the frame seeds nothing
-  /// (another schema), the session was open already without a seed, or its actor is gone. The session syncs as it opens
-  /// when the host says its worktree was synced before, with no window yet
-  pub async fn open_seeded(&self, frame: CachedSession) -> Option<RepositoryView> {
-    let key = frame.key.clone();
+  /// Opens the session of `key`, the key the window's subscription resolves now (the prefix the git config names now),
+  /// seeded from `frame` rather than from the host's frame: the start of the app, which read the frame of its last
+  /// project before its window (`warm_start` of the app), and the E2E server's `/warm-start`. Answers the seed, the view
+  /// of the frame at the first version of the session's epoch, which the window shows before it subscribes and then
+  /// names as what it holds (`subscribe_from`); `None` when the frame seeds nothing of `key` (another prefix, the one of
+  /// a save before the prefix changed; another schema), the session was open already without a seed, or its actor is
+  /// gone. The session syncs as it opens when the host says its worktree was synced before, with no window yet, seeded
+  /// or not
+  pub async fn open_seeded(&self, key: &SessionKey, frame: CachedSession) -> Option<RepositoryView> {
     let (reply, answer) = oneshot::channel();
-    self.with_entry_from(&key, Some(frame), |entry| {
+    self.with_entry_from(key, Some(frame), |entry| {
       let _ = entry.mailbox.send(Message::Seed(reply));
     });
     answer.await.ok().flatten()

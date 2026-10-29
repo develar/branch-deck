@@ -4,9 +4,10 @@
 //! review by `pull:<number>` (`domain_policy::actions::review_actions`): every request by name, every pull request of
 //! the sections, and the ones the review windows show that no listing has any more. Both are derived with every patch.
 
+use crate::action_view::{FrameReads, reads_cached_frame};
 use crate::facts::FactStore;
 use crate::table::TableState;
-use domain_policy::actions::{PullRequestFacts, Target, on_cached_frame, review_actions};
+use domain_policy::actions::{PullRequestFacts, Target, review_actions};
 use domain_policy::landing_node::is_users_move;
 use domain_policy::reviews::{ReviewsFacts, is_returned, sections};
 use domain_types::actions::ActionState;
@@ -55,7 +56,7 @@ pub fn review_actions_of(state: &TableState, facts: &FactStore, reviews: &Review
   let fact = &facts.review_requests;
   let target = target(state, facts);
   // the commit a request shows, the branch Patronus pushes into: of the cached frame until fresh answers come
-  let cached = on_cached_frame(state.cached(), [&fact.view().head.state]);
+  let cached = reads_cached_frame(state, facts, FrameReads::Reviews);
   let mut actions = BTreeMap::new();
   let mut add = |request: &ReviewRequest, involvement: Option<&ReviewInvolvement>| {
     let key = pull_key(request.number);

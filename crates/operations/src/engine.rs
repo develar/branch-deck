@@ -38,6 +38,7 @@ use domain_types::operation::{
 use domain_types::rewrite::RewriteIntent;
 use domain_types::session::Version;
 use remote_facts::service_sources::ServiceHost;
+use repository_model::action_view::{FrameReads, reads_cached_frame};
 use repository_model::session::{SessionKey, Sessions};
 use std::sync::Arc;
 use sync_core::transfer_progress::TransferProgress;
@@ -130,6 +131,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
 /// (a pick, a regroup of a plan, a move of a hunk: `runs_only_in_bd`)
 pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
   let services = hosts.services;
+  refuse_on_cached_frame(registry.sessions(), key, &intent).await?;
   match intent {
     // the run of a start is a large future: on the heap
     Intent::Land(land) => Box::pin(execute_land(registry, key, land, accepted, hosts, events)).await,
@@ -151,6 +153,38 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     Intent::FetchReview { number } => review_fetch::execute_review_fetch(registry, key, number, hosts, events).await,
     intent @ Intent::Pick { .. } => Err(runs_only_in_bd(&intent)),
   }
+}
+
+/// What a remote intent reads of its session that the cached frame of an earlier run may hold, as its actions read it
+/// (`action_view::FrameReads`); `None` for an intent that reads none of it or waits for the first sync itself (a push,
+/// a rewrite, an update)
+const fn frame_reads(intent: &Intent) -> Option<FrameReads> {
+  match intent {
+    Intent::Land(_) | Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::DisableAutoMerge { .. } => Some(FrameReads::Landing),
+    Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => Some(FrameReads::Robots),
+    Intent::SubmitReview { .. } => Some(FrameReads::Reviews),
+    _ => None,
+  }
+}
+
+/// Refuses a remote intent pressed on a frame nobody checked yet (`action_view::reads_cached_frame`): the table of its
+/// session is the cached frame of an earlier run, or a fact it reads is a value of it, so a plan of it would take the
+/// checks, the reviews and the robots of yesterday for those of now. Its actions wait there (`ActionBlocker::Cached`):
+/// this holds the same for a caller that did not read them (a key, a toast)
+///
+/// # Errors
+/// `plan_changed`, before anything is admitted or written
+pub(crate) async fn refuse_on_cached_frame(sessions: &Sessions, key: &SessionKey, intent: &Intent) -> Result<(), ApiError> {
+  let Some(reads) = frame_reads(intent) else {
+    return Ok(());
+  };
+  let cached = sessions.read(key, move |state, facts| reads_cached_frame(state, facts, reads)).await.unwrap_or(false);
+  if cached { Err(cached_frame_refusal()) } else { Ok(()) }
+}
+
+/// The refusal of a remote intent on the cached frame of an earlier run, in the words of its actions there
+pub(crate) fn cached_frame_refusal() -> ApiError {
+  ApiError::new(ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run")
 }
 
 /// Whether `plan`, decided again once the operation of `guard` was admitted, is the plan its caller accepted, or after a

@@ -199,6 +199,23 @@ async fn a_prefix_set_in_a_terminal_refuses_the_run_of_the_session_under_the_old
   assert_eq!(revision("team/virtual/test-branch").await.unwrap().status(), 200);
 }
 
+/// A name git cannot form an identity with, set in a terminal (an empty `user.name`), fails the sync of the session at
+/// its notes with `no_identity`, the code of the identity alert; with the name back, the same sync passes
+#[tokio::test]
+async fn a_sync_without_an_identity_git_can_form_fails_with_no_identity() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  let user_name = format!("/repositories/{id}/user-name");
+  post(&client, addr, &user_name, json!({ "name": "" })).await;
+  let refused = post_error(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
+  assert_eq!(refused["code"], "no_identity", "{refused}");
+
+  post(&client, addr, &user_name, json!({ "name": "Test User" })).await;
+  let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
+  assert_eq!(synced["outcome"], "synced", "{synced}");
+}
+
 /// The subscription of a window reads the prefix of the config now, as the page asks for no prefix of its own: its view
 /// names the prefix before any sync, and a prefix set in a terminal that no sync read yet opens the session of the next
 /// subscription under it, which the commands after it name too

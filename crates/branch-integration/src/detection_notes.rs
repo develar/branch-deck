@@ -226,8 +226,9 @@ impl<'a> CacheOps<'a> {
       .iter()
       .map(|(commit, detection)| Ok((commit.clone(), serialize_for_cache(&detection.info, detection.check.as_ref())?)))
       .collect::<Result<Vec<_>>>()?;
-    // a cache: a write that lost to another writer runs once more, then is a warning, never a failure of the sync
-    write_cache_notes("integration", || write_notes(self.git, self.repo, NOTES_REF, &notes).context("Failed to write notes"));
+    // a cache: a write that lost to another writer runs once more, then is a warning; an identity git cannot form fails
+    // the sync, as its mapping notes do
+    write_cache_notes("integration", || write_notes(self.git, self.repo, NOTES_REF, &notes).context("Failed to write notes"))?;
     debug!("Cached detection for {} branches", notes.len());
     Ok(())
   }

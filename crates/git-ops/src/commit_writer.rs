@@ -688,16 +688,27 @@ pub fn write_notes_on_existing(git_executor: &GitCommandExecutor, repo_path: &st
   Ok(())
 }
 
-/// A write of notes that only save work (the mapping notes of a sync, the integration detection), which never fails the
-/// operation: a write that lost a ref to another writer (the app's sync beside `bd sync`: `from <ref>^0` was read
+/// A write of notes that only save work (the mapping notes of a sync, the integration detection), which a lost race
+/// never fails: a write that lost a ref to another writer (the app's sync beside `bd sync`: `from <ref>^0` was read
 /// before the other moved the ref, so `fast-import` refuses the tip that lacks its notes) runs once more, from the new
-/// tip, and keeps the other's notes; a second failure is a warning, and a later run writes them
-pub fn write_cache_notes(what: &str, write: impl Fn() -> Result<()>) {
-  let Err(first) = write() else { return };
+/// tip, and keeps the other's notes; a second failure is a warning, and a later run writes them. An identity git
+/// cannot form fails it at once: no later run could write them either, so every sync would copy its commits again
+///
+/// # Errors
+/// `NoIdentity` of `current_committer`, the code `no_identity` the page shows the two `git config` commands for
+pub fn write_cache_notes(what: &str, write: impl Fn() -> Result<()>) -> Result<()> {
+  let Err(first) = write() else { return Ok(()) };
+  if first.downcast_ref::<NoIdentity>().is_some() {
+    return Err(first);
+  }
   debug!(what, error = %format!("{first:#}"), "the notes lost to another writer: once more from its tip");
   if let Err(second) = write() {
+    if second.downcast_ref::<NoIdentity>().is_some() {
+      return Err(second);
+    }
     warn!(what, error = %format!("{second:#}"), "the notes are not written: a later run writes them");
   }
+  Ok(())
 }
 
 /// `write_notes` for several notes refs, `(notes ref, notes)`, with one `git fast-import` run: one notes commit per ref

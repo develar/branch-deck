@@ -1696,7 +1696,7 @@ async fn a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs
   let (sessions, _clock) = scripted(&host);
   let key = key("/repo");
 
-  let seed = sessions.open_seeded(auth_frame()).await.unwrap();
+  let seed = sessions.open_seeded(&key, auth_frame()).await.unwrap();
   assert!(seed.cached);
   assert_eq!((seed.version.seq, seed.order.clone()), (0, vec!["auth".to_string()]));
   assert_eq!(seed.facts.robots.head.state, FactState::Cached);
@@ -1770,7 +1770,10 @@ async fn a_seeded_session_shows_the_steps_and_the_actions_of_its_rows_a_push_wai
 
   // the next start of the app
   let (other, _clock) = scripted(&host);
-  let seed = other.open_seeded(serde_json::from_value(serde_json::to_value(frame).unwrap()).unwrap()).await.unwrap();
+  let seed = other
+    .open_seeded(&key, serde_json::from_value(serde_json::to_value(frame).unwrap()).unwrap())
+    .await
+    .unwrap();
   assert!(seed.cached);
   assert_eq!(seed.next_steps.get("auth").map(|step| &step.step), synced.next_steps.get("auth").map(|step| &step.step));
   let action = |id: ActionId| seed.actions["auth"].iter().find(|action| action.id == id).map(|action| action.availability.clone());
@@ -1801,6 +1804,28 @@ async fn a_frame_of_another_prefix_or_schema_seeds_nothing() {
     assert_eq!(view.order, Vec::<String>::new());
     assert_eq!(view.facts.robots.head.state, FactState::Loading);
   }
+}
+
+/// The start of the app opens the session of the prefix the git config names now: a frame its worktree saved under
+/// another prefix (the prefix changed since, in Settings or in a terminal) seeds nothing, so the window shows no rows of
+/// that prefix; the session of now opens unseeded all the same and syncs at once, as the worktree was synced before
+#[tokio::test]
+async fn the_start_seeds_nothing_from_a_frame_of_another_prefix_than_the_one_of_now() {
+  let host = Arc::new(ScriptedHost::with_frame(None));
+  host.set_inputs(1);
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let now = SessionKey {
+    prefix: "team".to_string(),
+    ..key("/repo")
+  };
+  assert_ne!(auth_frame().key, now, "the frame is of the prefix before");
+
+  assert_eq!(sessions.open_seeded(&now, auth_frame()).await, None);
+  assert!(sessions.get_snapshot(&key("/repo")).await.is_none(), "no session of the frame's prefix");
+  let synced = view_when(&sessions, &now, |view| view.sync == SyncState::Idle && host.runs() == 1).await;
+  assert!(!synced.cached, "the table is of the sync of now, no frame of it");
+  assert_eq!(synced.header.prefix, "team");
 }
 
 fn robot_ids(frame: &CachedSession) -> Vec<&str> {

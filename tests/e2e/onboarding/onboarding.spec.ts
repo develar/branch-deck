@@ -388,6 +388,47 @@ test.describe("A sync without a table", () => {
   })
 })
 
+test.describe("Git setup", () => {
+  test("says above everything else that git is missing, and opens the repository once Check Again finds it", async ({ page, setupRepo }) => {
+    // the first command that runs git, the subscription of the window, finds none: its words are the summary, then the hint
+    const missing = "Cannot find Git: git is not on PATH\nInstall or upgrade Git with: brew install git"
+    await routeCommandError(page, "subscribe_view", { code: "git_not_found", message: missing }, { times: 1 })
+    await setupRepo("simple", { prepopulateStore: true, waitForSync: false })
+    const alert = page.getByTestId("git-setup-alert")
+    await expect(alert.getByText("Cannot find Git: git is not on PATH")).toBeVisible()
+    await expect(alert.getByText("brew install git", { exact: true })).toBeVisible()
+    // it replaces the errors that would say the same, and the welcome card
+    await expect(page.getByTestId("error-alert")).toHaveCount(0)
+    await expect(page.getByTestId("welcome-card")).toHaveCount(0)
+
+    const resubscribed = page.waitForRequest(request => request.url().endsWith("/invoke/subscribe_view"))
+    await alert.getByRole("button", { name: "Check Again" }).click()
+    await resubscribed
+    await expect(alert).toHaveCount(0)
+    await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+  })
+
+  test("warns that git does not know the user's name and email when a sync fails on it, and syncs on Sync Again", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    // an identity git cannot form, whatever the global config says: the notes of the sync fail with `no_identity`
+    await repo.setUserNameInTerminal("")
+    await page.getByTestId("ready-to-sync-button").click()
+    const alert = page.getByTestId("git-setup-alert")
+    await expect(alert).toContainText("Git does not know your name and email")
+    await expect(alert.getByText('git config --global user.name "Your Name"')).toBeVisible()
+    await expect(alert.getByText("git config --global user.email you@example.com")).toBeVisible()
+    // instead of the error alert, which would say the same
+    await expect(page.getByTestId("error-alert")).toHaveCount(0)
+
+    await repo.setUserNameInTerminal("Test User")
+    const syncs = await finishedSyncCount(page)
+    await alert.getByRole("button", { name: "Sync Again" }).click()
+    await waitForSyncComplete(page, syncs)
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
+    await expect(alert).toHaveCount(0)
+  })
+})
+
 test.describe("Sync on focus", () => {
   /** Rewords the commit of feature-docs in a terminal, into feature-documentation: a change the next sync shows */
   async function rewordDocsInTerminal(page: Page, repo: TestRepositoryBuilder): Promise<void> {

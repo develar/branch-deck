@@ -156,9 +156,13 @@ impl PreparedRewrite {
         return;
       }
     };
-    write_cache_notes("carried mapping notes", || {
+    // the committer of the rewrite writes them: git formed it before the commits were written
+    let carried = write_cache_notes("carried mapping notes", || {
       write_notes_on_existing(git_executor, repo_path, &notes_ref, &self.committer, &self.carried_notes)
     });
+    if let Err(e) = carried {
+      warn!(error = %format!("{e:#}"), "the carried mapping notes are not written");
+    }
   }
 
   /// Abandon the rewrite: delete the temporary refs, leaving the unreferenced objects to `git gc`

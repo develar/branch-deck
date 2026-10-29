@@ -2,19 +2,27 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { branchTree, findBranchRow, unstackOauthFromMenuWaiting } from "../helpers/branch-helpers"
-import { reloadWarm } from "../helpers/common-setup"
+import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import type { FirstRowsIpc } from "../helpers/ipc-helpers"
 import { firstRowsAsks, recordIpcAtFirstRows } from "../helpers/ipc-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { emitTauriEvent, finishedSyncCount } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordRewrites } from "../helpers/wait-helpers"
+import { holdCommand, recordRewrites, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The rows came with the subscription the window made holding the seed and its channel, nothing else asked before them */
 async function expectRowsWithTheSubscriptionAlone(page: Page): Promise<void> {
   const asks = await firstRowsAsks(page)
   expect(asks?.invokes).toEqual({ subscribe_view: 1 })
   expect(Object.keys(asks?.channelMessages ?? {}).filter(command => command !== "subscribe_view")).toEqual([])
+}
+
+/** What the syncs the page recorded wrote of each repository (`repositoryState`, `recordSynced`) */
+type LastSyncs = Record<string, { readonly lastSyncTime?: number; readonly lastBranchCount?: number }>
+
+/** The `repositoryState` the page wrote so far in this test, by repository */
+async function lastSyncTimes(page: Page): Promise<LastSyncs> {
+  return page.evaluate(() => ((JSON.parse(sessionStorage.getItem("bd-e2e-store-writes") ?? "{}") as Record<string, unknown>).repositoryState ?? {}) as LastSyncs)
 }
 
 /** The rows of `stacked_branches` as the frame of its last sync has them */
@@ -61,18 +69,33 @@ test.describe("The warm start", () => {
     await expect(page.locator("[data-cached]")).toHaveCount(0)
   })
 
+  test("handles the end of a first sync that committed before the subscription answered as the end of any run", async ({ page, setupRepo }) => {
+    // the subscription of the page reaches the backend only once the first sync of the session committed: the catch-up
+    // from the seed is idle on both sides
+    const releaseSubscription = await holdCommand(page, "subscribe_view")
+    const repo = await startWarmWithTheSyncHeld(page, setupRepo)
+    const syncedBefore = (await lastSyncTimes(page))[repo.path!]
+    expect(syncedBefore).toBeUndefined()
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await expect.poll(async () => (await repo.sessionView())?.cached).toBe(false)
+    expect((await repo.sessionView())?.sync).toEqual({ kind: "idle" })
+
+    releaseSubscription()
+    await expect(page.locator("[data-cached]")).toHaveCount(0)
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
+    // the window records the run it never saw: the time of the sync and the room of the loading table at the next start
+    await waitForStorePersistence(page, "repositoryState", states => (states as LastSyncs | undefined)?.[repo.path!]?.lastBranchCount === FRAME_TREE.length)
+    expect(await branchTree(page)).toEqual(FRAME_TREE)
+  })
+
   test("says a push of the rows of the frame waits for the first sync, and offers it once the sync committed", async ({ page, setupRepo }) => {
     const repo = await startWarmWithTheSyncHeld(page, setupRepo)
     await openContextMenu(page, findBranchRow(page, "docs"))
     // the one commit of docs to push, and its key
     const push = page.getByRole("menuitem", { name: /^Push Branch \(1\)/ })
-    await expect(push).toHaveAttribute("aria-disabled", "true")
-    await push.hover()
-    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for the first sync" })).toBeVisible()
-    await page.keyboard.press("Escape")
+    await expectWaitingForTheFirstSync(page, push)
 
-    await repo.holdRemoteAnswers({ release: ["sync"] })
-    await expect(page.locator("[data-cached]")).toHaveCount(0)
+    await releaseTheFirstSync(page, repo)
     await openContextMenu(page, findBranchRow(page, "docs"))
     await expect(push).toBeVisible()
     await expect(push).not.toHaveAttribute("aria-disabled", "true")

@@ -4,6 +4,7 @@ import type { ChecksSummary, PullRequest } from "../../../src/lib/bindings"
 import type { BranchReviewRequest } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
+import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import { availablePullRequests, gitHubMutations, pullRequest } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter, waitForStepFacts } from "../helpers/safe-push-helpers"
@@ -135,6 +136,26 @@ test.describe("Merge #7", () => {
     const copy = await repo.revision(virtualBranch(BRANCH))
     await findBranchRow(page, BRANCH).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Merge #7" }).click()
+    await expectMerged(page, repo, copy)
+  })
+
+  test("should say Merge #7 of the frame of a warm start waits for the first sync, and merge once that sync committed", async ({ page, setupRepo }) => {
+    // a start warm already, so the quit saves the frame of the session with #7 in it
+    const repo = await setupRepo("issue_links", { warmStart: true, pullRequests: merging(seven()), landing: { setting: "pull-request", gitHub: "acme/monorepo" } })
+    await waitForStepFacts(findBranchRow(page, BRANCH).getByTestId("next-step-slot"))
+    await expect(mergeStep(page)).toHaveText("Merge #7")
+    const copy = await repo.revision(virtualBranch(BRANCH))
+    // the next start, its first sync held: the rows and the green #7 of the frame, which GitHub may have changed since
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
+    await reloadWarm(page, repo)
+    await expect(page.locator("[data-cached=true]")).toBeVisible()
+    await findBranchRow(page, BRANCH).click({ button: "right" })
+    const merge = page.getByRole("menuitem", { name: "Merge #7" })
+    await expectWaitingForTheFirstSync(page, merge)
+
+    await releaseTheFirstSync(page, repo)
+    await findBranchRow(page, BRANCH).click({ button: "right" })
+    await merge.click()
     await expectMerged(page, repo, copy)
   })
 

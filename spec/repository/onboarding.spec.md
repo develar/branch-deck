@@ -103,12 +103,17 @@ alert with the reason and the next step, never a raw Git error.
   …", "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer"), the description how to install or upgrade it on
   this platform, then "Check Again", which subscribes again. It replaces the path and sync errors, which would say the
   same; the welcome card is hidden, Sync disabled with the summary as its reason.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says above everything else that git is missing, and opens the repository once Check Again finds it`)
 - An identity git cannot form fails the write that needs it with `no_identity` (`NoIdentity` of `current_committer`:
-  the notes of a sync, a rewritten commit), in the app as in `bd`. A sync that failed so is the `warning` alert "Git
-  does not know your name and email" with the two `git config --global` commands (each with a copy button) and "Sync
-  Again", instead of the error alert.
+  the notes of a sync and of its detection, which `write_cache_notes` never swallows, a rewritten commit), in the app
+  as in `bd`: a sync that wrote no notes would copy every commit again on each run. A sync that failed so is the
+  `warning` alert "Git does not know your name and email" with the two `git config --global` commands (each with a
+  copy button) and "Sync Again", which syncs again, instead of the error alert.
   [@test] ../../crates/git-ops/src/commit_writer_test.rs (`a_committer_git_cannot_form_is_no_identity`)
+  [@test] ../../crates/sync-core/src/sync_test.rs (`a_sync_whose_notes_git_cannot_sign_fails_with_no_identity`)
+  [@test] ../../crates/test-server/src/session_routes_test.rs (`a_sync_without_an_identity_git_can_form_fails_with_no_identity`)
   [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_the_setup_of_git_by_its_code`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`warns that git does not know the user's name and email when a sync fails on it, and syncs on Sync Again`)
 - A message of several lines in the error alert shows its first line as the title, the rest as the description.
 
 ### Welcome card
@@ -196,20 +201,28 @@ alert with the reason and the next step, never a raw Git error.
 - The app starts warm: before the main window is built, Rust reads the frame the session of the selected project saved
   last (`repository_model::warm_start`: the rows, the stacks, the sections and the facts of the remote as its last
   sync and its last answers left them) from the object cache of the repository, without a git process (the common
-  git directory found by the files of the worktree), opens the session seeded from it, whose first sync starts at
+  git directory found by the files of the worktree), beside the prefix the git config names now (the one the
+  subscription of the window resolves), opens the session of that prefix seeded from it, whose first sync starts at
   once, and puts its seed into the page as `window.__BD_MODEL__`. The page shows those rows on its first frame
   (`data-cached` on the table) and subscribes holding the seed (`subscribe_view` with `have`): the answer is the patch
   from it to the view of the session, or nothing; the rows come with that one command and its channel. Until the first
-  sync commits, the rows are of the frame (`RepositoryView.cached`): a push and every other action of the remote waits
-  for it ("Waits for the first sync"), a rewrite pressed then (Unstack) says it waits ("Unstacking oauth after the
-  sync") and runs on the table the sync committed, and a focus during that sync is one check after it. The frame
+  sync commits, the rows are of the frame (`RepositoryView.cached`): a push and every other action of the remote (on
+  the merge route the merge of the pull request and Cancel Auto-Merge too) waits for it ("Waits for the first sync"),
+  and the backend refuses such an intent there (`plan_changed`) whoever asks it; a rewrite pressed then (Unstack) says
+  it waits ("Unstacking oauth after the sync") and runs on the table the sync committed, and a focus during that sync
+  is one check after it. A first sync that committed before the subscription answered ends in the window as any run
+  does: the count of Sync, "Last synced just now", the fixups of its table. The frame
   keeps the landing needs with the tips they are of: a first sync that leaves those tips computes them not again, and
   no step of a row waits for them anew ("Checking what … needs to land"); the next steps, the starts and the actions of
   the rows change once, when that sync commits (the view of the robots it derives goes in the same patch when it
   comes within 16 ms). A frame of
-  another prefix or schema, a project without one, or a model of another project (a reload after a switch) start as
-  before, without rows until the first sync.
+  another prefix (saved before the prefix changed) or schema, a project without one, or a model of another project (a
+  reload after a switch) start as before, without rows until the first sync.
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`shows the rows of the frame before the first sync, asking only for the subscription, and the first sync's table after it`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`handles the end of a first sync that committed before the subscription answered as the end of any run`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_start_seeds_nothing_from_a_frame_of_another_prefix_than_the_one_of_now`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_the_rest_stays`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`says a push of the rows of the frame waits for the first sync, and offers it once the sync committed`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`runs an unstack pressed on the rows of the frame once the first sync committed, waiting for it until then`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`checks a focus during the first sync once after it, with no second run`)
