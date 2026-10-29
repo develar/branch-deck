@@ -97,6 +97,33 @@ export async function verifyBranchState(branchRow: Locator, state: "open" | "clo
 }
 
 /**
+ * Brings `target` under a still pointer: the pointer goes where `target` is while the branch row `above` is collapsed,
+ * `above` expands by → (its commits lie there then), and ← collapses it: the rows move up and `target` comes under the
+ * pointer, which does not move. WebKit tells the pointer is over it at once, Chromium at the next event of the pointer:
+ * a "move" to where it is, which ends this. Returns that point.
+ */
+export async function bringUnderStillPointer(page: Page, target: Locator, above: Locator): Promise<{ x: number; y: number }> {
+  const toggle = async (key: "ArrowRight" | "ArrowLeft") => {
+    await page.keyboard.press(key)
+    await verifyBranchState(above, key === "ArrowRight" ? "open" : "closed")
+  }
+  const isUnder = (at: { x: number; y: number }) => target.evaluate((element, point) => element.contains(document.elementFromPoint(point.x, point.y)), at)
+  await above.focus()
+  // expanded once first: the table measured its columns for both
+  await toggle("ArrowRight")
+  await toggle("ArrowLeft")
+  const box = (await target.boundingBox())!
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  await toggle("ArrowRight")
+  await page.mouse.move(point.x, point.y)
+  await expect.poll(() => isUnder(point)).toBe(false)
+  await toggle("ArrowLeft")
+  await expect.poll(() => isUnder(point)).toBe(true)
+  await page.mouse.move(point.x, point.y)
+  return point
+}
+
+/**
  * Get the expanded details row for a branch: the next row, after the progress line of a running robot
  */
 export function getBranchDetailsRow(page: Page, branchName: string): Locator {

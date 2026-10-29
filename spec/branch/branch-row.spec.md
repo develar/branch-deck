@@ -10,6 +10,7 @@ targets:
   - ../../src/components/branch/BranchRowElement.tsx
   - ../../src/components/shared/TableContextMenu.tsx
   - ../../src/hooks/useLazyRoot.ts
+  - ../../src/lib/pointer-moves.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../crates/domain-policy/src/actions.rs
   - ../../crates/domain-policy/src/landing_node.rs
@@ -538,6 +539,15 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should close the popups of the branches as the view hides, open none by itself as it shows, and leave the focus on no hidden control`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it`)
+- A hover must open a popup only once the pointer moved over its trigger (`hoverOpensOnMove` of
+  `src/lib/pointer-moves.ts`, in the roots of `src/components/ui`): a tooltip, a hover card (the description of a push)
+  or a submenu whose trigger came under a still pointer (a row expanded or collapsed above it, a new branch on top, a
+  sync that reorders, a scroll) stays closed when the delay of its hover runs out, and the next move over the trigger
+  opens it after that delay. WebKit tells at once that the pointer is over an element that came under it: the
+  description of session's push opened so, Push session Only in it. A control that renders itself anew in its place
+  under the pointer keeps the hover: the "⋯" of a row whose move waits for the lock says whom for.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no hover card or tooltip of a trigger that came under a still pointer, and open it at the next move`)
+  [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved`)
 - Space over a row must open the [branch preview](branch-preview.spec.md).
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)
 - A row with commits must be draggable: it drags the branch, or all selected branches; a collapsed stack root drags its

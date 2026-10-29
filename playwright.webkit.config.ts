@@ -16,6 +16,7 @@ export default defineConfig({
     "landing/statistics.spec.ts",
     "command-palette/command-palette.spec.ts",
     "youtrack/issue-popover.spec.ts",
+    "branch-row-layout/branch-row-layout.spec.ts",
   ],
   grep: [/drag|dropped|new branch zone/i, /@webkit/],
   ignoreSnapshots: true,

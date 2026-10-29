@@ -1,12 +1,14 @@
-// local customisation: `DropdownMenu` closes when its view of the main window hides (`useCloseWhenViewHides`)
+// local customisation: `DropdownMenu` closes when its view of the main window hides (`useCloseWhenViewHides`); its hover
+// (a menu of the menubar, a submenu) opens it only with a move of the pointer (`hoverOpensOnMove`)
 import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { cn } from "cn"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
+import { hoverOpensOnMove } from "@/lib/pointer-moves"
 
 function DropdownMenu({ open, onOpenChange, ...props }: Omit<MenuPrimitive.Root.Props, "actionsRef">) {
-  const closing = useCloseWhenViewHides(open, onOpenChange)
+  const closing = useCloseWhenViewHides(open, hoverOpensOnMove(onOpenChange))
   return <MenuPrimitive.Root data-slot="dropdown-menu" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
 }
 
@@ -81,8 +83,8 @@ function DropdownMenuItem({
   )
 }
 
-function DropdownMenuSub({ ...props }: MenuPrimitive.SubmenuRoot.Props) {
-  return <MenuPrimitive.SubmenuRoot data-slot="dropdown-menu-sub" {...props} />
+function DropdownMenuSub({ onOpenChange, ...props }: MenuPrimitive.SubmenuRoot.Props) {
+  return <MenuPrimitive.SubmenuRoot data-slot="dropdown-menu-sub" {...props} onOpenChange={hoverOpensOnMove(onOpenChange)} />
 }
 
 function DropdownMenuSubTrigger({

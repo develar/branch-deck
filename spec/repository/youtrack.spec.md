@@ -250,12 +250,14 @@ client takes a pasted token.
   [@test] ../../src/lib/youtrack.test.ts (`takes the key of a link to the issue page of the YouTrack`, `refuses a link of another host, path or scheme, and what is not a key`)
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should leave the links of a signed-out user as they are`)
 - One popover per window (`IssueHoverHost`, in `App`): a hover of 500 ms on such a link, or its keyboard focus
-  (`:focus-visible`), opens it under the link; the pointer may cross to it (200 ms), and it stays while the pointer is
-  over it, also when one move took the pointer from the link into it (no leave of the link is counted then, nor of the
-  focus that moves into it). One delegated listener, not a popover per link of every commit list. It opens without taking the focus;
+  (`:focus-visible`), opens it under the link; a link that came under a still pointer (the rows moved) opens nothing
+  until the pointer comes over it (`pointerMoved`, [Branch Row](../branch/branch-row.spec.md#hover-and-click)); the
+  pointer may cross to it (200 ms), and it stays while the pointer is over it, also when one move took the pointer
+  from the link into it (no leave of the link is counted then, nor of the focus that moves into it). One delegated listener, not a popover per link of every commit list. It opens without taking the focus;
   Escape closes it only, so a dialog under it stays; it closes once its link leaves the page (a sync, a collapsed
   branch, a closed toast).
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`, `should keep the branch preview open under the popover of its title`)
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show no issue of a link that came under a still pointer, and show it once the pointer comes over it`)
 - It lies in the layer of its link: the popup of another popover, a dialog (the branch preview) or the toasts. The
   layer counts it as its own (a click in it is no outside press, the toast's timer waits while the pointer is over it),
   and it is above the layer.

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react"
 import { Popover, PopoverContent } from "@/components/ui/popover"
+import { pointerMoved } from "@/lib/pointer-moves"
 import { useYouTrackUrl } from "@/stores/auth"
 
 const IssueDetails = lazy(() => import("@/components/issue/IssueDetails").then(module => ({ default: module.IssueDetails })))
@@ -50,13 +51,14 @@ export function IssueHoverHost() {
     setShown(null)
   }
 
-  const onOver = useEffectEvent((link: HTMLElement) => {
+  // `moved`: the pointer came over the link, or the focus did; a link that came under a still pointer shows nothing
+  const onOver = useEffectEvent((link: HTMLElement, moved: boolean) => {
     if (shown?.anchor === link) {
       clearTimer()
       return
     }
     const key = link.dataset.issueKey
-    if (key === undefined) {
+    if (key === undefined || !moved) {
       return
     }
     schedule(shown === null ? OPEN_DELAY_MS : CLOSE_DELAY_MS, () => setShown({ key, anchor: link, container: layerOf(link) }))
@@ -75,7 +77,7 @@ export function IssueHoverHost() {
     const over = (event: PointerEvent) => {
       const link = linkOf(event.target)
       if (link !== null) {
-        onOver(link)
+        onOver(link, pointerMoved(event))
       }
     }
     const out = (event: PointerEvent) => {
@@ -87,7 +89,7 @@ export function IssueHoverHost() {
     const focusIn = (event: FocusEvent) => {
       const link = linkOf(event.target)
       if (link?.matches(":focus-visible") === true) {
-        onOver(link)
+        onOver(link, true)
       }
     }
     const focusOut = (event: FocusEvent) => {

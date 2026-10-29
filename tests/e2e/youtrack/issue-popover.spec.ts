@@ -1,7 +1,7 @@
 // @spec spec/repository/youtrack.spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow } from "../helpers/branch-helpers"
+import { bringUnderStillPointer, findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -79,6 +79,25 @@ test.describe("YouTrack issue popover", () => {
     await link.hover()
     await expect(popover).toHaveAttribute("data-issue-key", "JIRA-456")
   })
+
+  test(
+    "should show no issue of a link that came under a still pointer, and show it once the pointer comes over it",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setUp(page, setupRepo, syncAndWaitForBranches, OPEN_ISSUES)
+      const link = issueKeyLink(page, "ABC-123")
+      const popover = page.getByTestId("issue-popover")
+      await expect(link).toHaveAttribute("data-issue-key", "ABC-123")
+      // JIRA-456 above it expanded and collapsed: the link comes under the pointer, and the delay of the hover runs out
+      await bringUnderStillPointer(page, link, findBranchRow(page, "JIRA-456"))
+      await page.clock.fastForward(1000)
+      await expect(popover).toHaveCount(0)
+      // the pointer comes over it
+      await page.mouse.move(640, 700)
+      await link.hover()
+      await expect(popover).toHaveAttribute("data-issue-key", "ABC-123")
+    },
+  )
 
   test("should open on the keyboard focus, and mark the issue of a branch fixed from its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setUp(page, setupRepo, syncAndWaitForBranches, { issues: [openIssue("JIRA-456"), resolvedIssue("ABC-123", "Duplicate")], signedIn: "signIn" })

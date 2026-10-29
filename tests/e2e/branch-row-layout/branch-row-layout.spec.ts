@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test"
 // @spec spec/branch/branch-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpers/aria-snapshot-helpers"
@@ -8,7 +9,9 @@ import {
   collapseBranch,
   verifyBranchState,
   verifyBranchStatus,
+  bringUnderStillPointer,
   getMoreButton,
+  getPushButton,
   getBranchCommitRow,
   verifyCommitCount,
   expectNothingToPush,
@@ -288,4 +291,47 @@ test.describe("Status of a pushed branch", () => {
     await expect(row.getByTestId("branch-status-dot")).toHaveCount(0)
     await expectNothingToPush(row)
   })
+})
+
+test.describe("Hover over rows that move", () => {
+  /** `trigger` under a still pointer (`bringUnderStillPointer`), its root mounted: Base UI's trigger, with its id */
+  async function bringTriggerUnderStillPointer(page: Page, trigger: Locator): Promise<{ x: number; y: number }> {
+    const point = await bringUnderStillPointer(page, trigger, findBranchRow(page, "docs"))
+    await expect(trigger).toHaveAttribute("id", /^base-ui-/)
+    return point
+  }
+
+  test(
+    "should open no hover card or tooltip of a trigger that came under a still pointer, and open it at the next move",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // docs, then auth and session stacked, none pushed: session's push button has its description, auth's status its tooltip
+      await setupRepo("stacked_branches")
+      await syncAndWaitForBranches()
+      const push = getPushButton(findBranchRow(page, "session"))
+      const description = page.getByTestId("push-description")
+      // the trigger of the tooltip of auth's status: the text with its dot
+      const status = findBranchRow(page, "auth").locator("[data-slot=tooltip-trigger]", { has: page.getByTestId("branch-status") })
+      const tooltip = page.getByRole("tooltip").filter({ hasText: "The branch isn't on the remote yet: the push creates it." })
+
+      // the delay of the hover runs out with the pointer still: the description, whose Enter pushed, stays closed
+      const point = await bringTriggerUnderStillPointer(page, push)
+      await page.clock.fastForward(1000)
+      await expect(description).toHaveCount(0)
+      // a move of a pixel over the button opens it after the delay
+      await page.mouse.move(point.x + 1, point.y)
+      await page.clock.fastForward(1000)
+      await expect(description).toContainText("Push session Only")
+      await page.mouse.move(640, 700)
+      await expect(description).toHaveCount(0)
+
+      // the same for the tooltip of a status
+      const at = await bringTriggerUnderStillPointer(page, status)
+      await page.clock.fastForward(1000)
+      await expect(tooltip).toHaveCount(0)
+      await page.mouse.move(at.x + 1, at.y)
+      await page.clock.fastForward(1000)
+      await expect(tooltip).toBeVisible()
+    },
+  )
 })

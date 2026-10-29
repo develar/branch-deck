@@ -185,6 +185,8 @@ flowchart LR
      intent replays once (a ref marks it): a view of the main window runs the effects of its rows again as it shows
      (React's `Activity`), and a replay there opened the popup of every trigger hovered before with the pointer
      elsewhere and gave the focus back to a push button focused before ([Main Views](../../spec/repository/main-views.spec.md)).
+     A trigger that came under a still pointer (WebKit tells its enter at once) is mounted, but its replay is no move:
+     the popup opens with the next move over it (`hoverOpensOnMove`, `src/lib/pointer-moves.ts`).
    - In the content of a popover the roots mount with their triggers (`EagerRootsContext`, set by `PopoverContent`):
      a popup mounts its content as it opens, one at a time, so it has no mount to save; and a trigger swapped under the
      pointer would close a popup a hover opened, whose safe polygon keeps it open for the element the pointer went to

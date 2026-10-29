@@ -218,6 +218,10 @@ Mistakes agents made here; each cost a session.
   An effect that acts once (a replay, a focus) marks it in a ref, as `useLazyRoot` does; a popup root closes as its view
   hides (`useCloseWhenViewHides`). WebKit, the engine of the app, keeps the focus on a hidden element until a later
   layout: test the focus and the popups in `pnpm e2e:webkit` too (`{ tag: "@webkit" }`).
+- **Content that moves under a still pointer**: WebKit tells the over and the enter of the element that came under it
+  at once (trusted, at the same position), and moves the pointer where it is after a scroll. A hover opens a popup only
+  after a move over its trigger (`hoverOpensOnMove`, `src/lib/pointer-moves.ts`); its E2E test brings a trigger under
+  the pointer with `bringUnderStillPointer` and runs the delay with `page.clock.fastForward`.
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
   caret at 0 and the text lands at the start.
 - **zsh does not word-split `$args`**: `args="--no-default-features --features=x"; cargo build $args` passes one

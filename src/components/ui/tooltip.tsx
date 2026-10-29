@@ -2,7 +2,8 @@
 // pointer leaves its trigger and never blocks what is under it (a tooltip over the submit of the form above it stayed
 // open while hovered and swallowed the click); `lazy` on `Tooltip`: the root mounts at the first hover or focus of its
 // trigger, a plain element until then (`useLazyRoot`), for the many tooltips of a table row; it closes when its view of
-// the main window hides (`useCloseWhenViewHides`)
+// the main window hides (`useCloseWhenViewHides`), and its hover opens it only with a move of the pointer
+// (`hoverOpensOnMove`)
 "use client"
 
 import { use } from "react"
@@ -10,6 +11,7 @@ import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 import { cn } from "cn"
 import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
 import { childNodes, LazyRootContext, PlainTrigger, useLazyRoot } from "@/hooks/useLazyRoot"
+import { hoverOpensOnMove } from "@/lib/pointer-moves"
 
 function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
@@ -21,11 +23,12 @@ const CLOSED_TOOLTIP_TRIGGER = { "data-slot": "tooltip-trigger" }
 
 /**
  * `lazy`: the root mounts at the first hover or focus of its trigger, or while `open` (`useLazyRoot`); until then the
- * trigger is a plain element and the content is not rendered. Open when its view of the main window hides, it closes
+ * trigger is a plain element and the content is not rendered. Open when its view of the main window hides, it closes;
+ * its hover opens it only with a move of the pointer, not a trigger that came under a still one
  */
 function Tooltip({ disableHoverablePopup = true, lazy = false, open, onOpenChange, ...props }: Omit<TooltipPrimitive.Root.Props, "actionsRef"> & { lazy?: boolean }) {
   const root = useLazyRoot(lazy, open === true || props.defaultOpen === true)
-  const closing = useCloseWhenViewHides(open, onOpenChange)
+  const closing = useCloseWhenViewHides(open, hoverOpensOnMove(onOpenChange))
   return (
     // every root sets the context, so a trigger in its content never reads the root of an outer tooltip
     <LazyRootContext value={lazy ? root : null}>
