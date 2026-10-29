@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.38.0](https://github.com/develar/branch-deck/compare/v0.37.0...v0.38.0) (2026-10-29)
+
+
+### Features
+
+* **patronus:** restart a failing Safe Push, cancel first; the robot details in two rows ([f5bf513](https://github.com/develar/branch-deck/commit/f5bf513a21301cd40064b2973a9308f7a9204d2d))
+
+
+### Bug Fixes
+
+* **e2e:** a window that closes as it says a stage fails no test: the observer of its stages measures nothing then ([f466f2e](https://github.com/develar/branch-deck/commit/f466f2ec061ae9f3bf4a8d7c5e1c3a3f8ee9deb7))
+* **e2e:** Find Usages from the menu of the code waits for the list that Escape closed ([5f8e0a2](https://github.com/develar/branch-deck/commit/5f8e0a29c0a64929a6e75ea5834c9e41511e4dca))
+* **focus:** the "⋯" of a row is one element through the action it shows, and an item of its menu gives the focus back to it ([8407e83](https://github.com/develar/branch-deck/commit/8407e83ea5776dd1272a4c98b2eb60ff844aef23))
+* **header:** "Checked" only where it reads apart from "Last synced": a check in the minute of the sync, as the one after the sync of the start, leaves "Last synced just now" ([cf302a1](https://github.com/develar/branch-deck/commit/cf302a1ac84567dfa54d334009bd6f915ee88422))
+* **header:** the Activity button is there while the log is empty, so the first entry moves nothing in the header ([77c6810](https://github.com/develar/branch-deck/commit/77c6810a22801e48efe2680914927ac68e24c95d))
+* **header:** the repository selector cuts its path at a separator behind one "…", in a width the aging of the last sync keeps ([83d7b9b](https://github.com/develar/branch-deck/commit/83d7b9bea10919edf175e8388b30f2ecdbe616f3))
+* **hover:** a control keeps its hover by its key from one place: every root of the ui names its trigger, a component that renders its root anew names it by its action and subject ([4d200d7](https://github.com/develar/branch-deck/commit/4d200d751b1c4acce882c88ad2779f00feb61bce))
+* **hover:** a hover opens a popup only once the pointer moved over its trigger, never for content that moved under a still pointer ([813aab8](https://github.com/develar/branch-deck/commit/813aab849204dad96aaa36735d1f3007534ed244))
+* **hover:** another element keeps the hover of a control only by its key, never by its place, and a submenu that came under a still pointer stays closed ([434124a](https://github.com/develar/branch-deck/commit/434124ac9e03e4a39667fe0bdaab0650c5679f1e))
+* **palette:** Check for Updates… where the system title bar stays too, as its Help menu has it ([7a77c3a](https://github.com/develar/branch-deck/commit/7a77c3a1a3a4758c12751da1295a0528cb6a1445))
+* **palette:** the list shows every command of the app when it opens, and the palette offers Open Repository…, the help, and Check for Updates… on macOS ([4f32c89](https://github.com/develar/branch-deck/commit/4f32c89682cff39ae919bac278d4c96914468790))
+* **palette:** the name of a branch typed goes to it before an action of the branch at hand that names it, and Go to focuses a row a collapsed stack hid ([20728a8](https://github.com/develar/branch-deck/commit/20728a8b303748916b721a11db0ef607b7d54f60))
+* **review:** a disabled decision keeps the focus its form gives back, and the tests press a decision's key once its button is enabled ([bc537b1](https://github.com/develar/branch-deck/commit/bc537b138a62e95eb7a56f0112bb1ad471ac1178))
+* **sync:** the branches come newest first by where each begins in the history, so no rewrite of their commits moves a row ([f492bf5](https://github.com/develar/branch-deck/commit/f492bf592092b779410d93fda83141f772a865d1))
+* **test:** the journal on a disk that hangs keeps its writer until the read took a part of what it writes ([675043e](https://github.com/develar/branch-deck/commit/675043e6538e5ace22e4db275dd50c98ecc7c98c))
+* **title-bar:** the names of the views and the branch count show by the room of the repository, so ☰ and the window buttons never lay them over the selector ([516eb5d](https://github.com/develar/branch-deck/commit/516eb5d47ece7cc568b0ef61f602d0eb9372b414))
+* **ui:** a move back that only removed prefixes says it once, in its title, and the squash of one fixup reads as one ([8b3ab17](https://github.com/develar/branch-deck/commit/8b3ab172ec8208ff755e4cabc2b618e5b37af6e8))
+* **views:** a view that hides closes its popups, one that shows again opens none and takes no focus, and a hidden control keeps no focus ([355bca6](https://github.com/develar/branch-deck/commit/355bca66f5261b81a9582f22a7575c4fadb03a15))
+
 ## [0.37.0](https://github.com/develar/branch-deck/compare/v0.36.0...v0.37.0) (2026-10-29)
 
 
