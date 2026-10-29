@@ -1905,12 +1905,31 @@ the HEAD of every worktree; the leased commit keeps out what the slot started wi
 left unreachable), then one `status`. When `log` finds commits, the question is whether the branch the source had
 checked out at the get (recorded with the source in the lease) has every change of the slot. After `bd pick
 --follow` and a rewrite of that branch (`bd update`, a fold), the slot's HEAD is reachable from nothing, yet every
-commit is there by content. So a dry run of the pick decides (`commits_to_pick` in `crates/git-ops/src/pick.rs`): the
-fork point of the slot in the reflog of the branch, `git replay` onto its tip, and only the commits that do not drop
-are unlanded. It runs on git objects only: `check_pick` needs a worktree on the branch, its index for the dry run of
-the files, and the guards, none of which a return may take from the shared checkout. Reachability stays the fast
-path, and decides alone without a recorded branch, when the branch is gone, or when the pick can't tell
-(`range_unknown`, a merge in the range); the output names the check (`landed_check`).
+commit is there by content; a robot that landed a commit with a conflict resolution, or under its virtual copy, left
+it there under another patch. So each commit `log` found must be proven on the tip of that branch
+(`lease_pool::landed_work`, the one rule of the return, the takeover and `bd lease reclaim`), rung by rung, each for
+the commits the one before left:
+
+1. the dry run of a pick (`pick_dry_run` in `crates/git-ops/src/pick.rs`): the fork point of the slot in the reflog of
+   the branch, `git replay` onto its tip; a commit of its range that it would not pick is there. A commit outside its
+   range is no proof: the fork point of a fast-forward that a `git reset` took back is the commit itself, and the range
+   is empty (`a_lease_whose_home_was_reset_past_its_commits_is_not_landed`; before, such a return freed the slot);
+2. the patch id of a commit of the branch's side (`present_by_patch_id`: `rev-list --cherry-mark --left-only`, so no
+   commit of the slot's side below the leased commit is taken as the branch's);
+3. the ladder of `bd update` over the commits of the slot the branch lacks (`read_local`, `read_upstream` of the
+   authors since the merge base, `pair_twins`): the same identity and a cherry-pick (`replayed`) or the same changed
+   lines (`changed_lines`);
+4. the twin of `bd update`: a pair of the same identity whose branch commit has every changed line of the commit and
+   its fixups (`interdiffs`, `local_only` empty; `LandedTwin::is_same` of update-core, which lease-pool may not depend
+   on): a conflict resolution, a robot's autosquash;
+5. the mapping note of a sync (`v-commit-v1`, not stale by its source tree, `mapped_virtual`): the virtual copy on the
+   branch, or proven there by the patch id or the rungs above, the copy a resolve by words made of the commit.
+
+A commit no rung proves is unlanded. It runs on git objects only: `check_pick` needs a worktree on the branch, its
+index for the dry run of the files, and the guards, none of which a return may take from the shared checkout.
+Reachability stays the fast path, and decides alone without a recorded branch and when the branch is gone; the output
+names the check (`landed_check`) and the proof of each commit found landed (`landed`). The proofs cost the processes of
+the pick and about twenty more, only when `log` found commits (`a_lease_return_whose_commit_landed_by_the_ladder`).
 
 Where the commits of a lease land is part of the lease: the get records the source checkout and the branch it had
 checked out (`source`, `source_branch`) and prints them as `home` with the session's `next`. Before, the get printed

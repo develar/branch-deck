@@ -9,7 +9,7 @@
 
 use crate::commit_writer::{NewCommit, NewParent, read_raw_commits, write_commits};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
-use crate::landed_pairing::pair_by_patch_id;
+use crate::landed_pairing::present_by_patch_id;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
@@ -557,12 +557,24 @@ fn resolve_revisions(git_executor: &GitCommandExecutor, target: &str, text: &str
   }
 }
 
+/// The dry run of a pick of the worktree of `source_dir` onto `branch`: its range and what of it the pick would pick
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PickDryRun {
+  /// The commits of the range, oldest first: the fork point of the source in the reflog of `branch` leaves out what is
+  /// below it, so a commit outside the range is no commit the branch was found to have
+  pub range: Vec<String>,
+  /// The commits of the range the pick would pick, oldest first; the others the branch has, by their patch or by their
+  /// content
+  pub kept: Vec<PickCommit>,
+}
+
 /// The commits of the worktree of `source_dir` that a pick onto `branch` would pick, checked on git objects only, from
 /// any worktree of the repository: the range of `check_pick` (the fork point of the source in the reflog of `branch`),
 /// replayed onto the tip of `branch`. A commit whose change the branch has, by its patch or by its content, drops.
-/// Unlike `check_pick` it needs no worktree on `branch`, no index and no lock, and it writes no worktree: the return of a
-/// lease asks it (`bd lease return`). A range that conflicts is picked whole, as nothing of it is proven present
-pub fn commits_to_pick(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, source_dir: &str, upstream: Option<&str>) -> Result<Vec<PickCommit>> {
+/// Unlike `check_pick` it needs no worktree on `branch`, no index and no lock, and it writes no worktree: the return and
+/// the takeover of a lease ask it (`lease_pool::landed_work`). A range that conflicts is picked whole, as nothing of it
+/// is proven present but what the branch has by patch id
+pub fn pick_dry_run(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, source_dir: &str, upstream: Option<&str>) -> Result<PickDryRun> {
   let tip = format!("refs/heads/{branch}");
   let head_line = git_executor.execute_command(&["log", "-1", "--date=raw", "--format=%H%x00%cd", &tip, "--"], repo_path)?;
   let (head, head_date) = head_line.split_once('\0').ok_or_else(|| anyhow!("Unexpected tip of {branch}: {head_line:?}"))?;
@@ -577,10 +589,12 @@ pub fn commits_to_pick(git_executor: &GitCommandExecutor, repo_path: &str, branc
   ensure_no_merges(git_executor, repo_path, &source_head, &excluded)?;
   let negated: Vec<String> = excluded.iter().map(|rev| format!("^{rev}")).collect();
   let range = range_of(git_executor, repo_path, head, &source_head, &negated[1..])?;
+  let ids = range.iter().map(|commit| commit.commit.id.clone()).collect();
+  let dry_run = |kept: Vec<PickCommit>| PickDryRun { range: ids, kept };
   // a commit with the patch id of a commit of the branch is there already
   let kept: Vec<UpdateCommit> = range.iter().filter(|commit| !commit.same_patch).map(|commit| commit.commit.clone()).collect();
   if range.is_empty() || range[0].parent == head || kept.is_empty() {
-    return Ok(kept.iter().map(pick_commit).collect());
+    return Ok(dry_run(kept.iter().map(pick_commit).collect()));
   }
   let date = committer_date(head_date, &range);
   let env: Vec<(&str, &str)> = date.iter().map(|date| ("GIT_COMMITTER_DATE", date.as_str())).collect();
@@ -594,13 +608,13 @@ pub fn commits_to_pick(git_executor: &GitCommandExecutor, repo_path: &str, branc
   let mut tip = head.to_string();
   for (first, last) in segments(&range) {
     let Some(new_tip) = replay.segment(&tip, first, last)? else {
-      return Ok(kept.iter().map(pick_commit).collect());
+      return Ok(dry_run(kept.iter().map(pick_commit).collect()));
     };
     tip = new_tip;
   }
   let replayed = commits_of(git_executor, repo_path, &[tip, format!("^{head}")])?;
   let (picked, _present) = match_replayed(&kept, &replayed);
-  Ok(
+  Ok(dry_run(
     picked
       .into_iter()
       .map(|commit| PickCommit {
@@ -608,7 +622,7 @@ pub fn commits_to_pick(git_executor: &GitCommandExecutor, repo_path: &str, branc
         subject: commit.subject,
       })
       .collect(),
-  )
+  ))
 }
 
 /// The commits of `revs`, oldest first, with their authors (one `log`)
@@ -851,20 +865,14 @@ fn match_replayed(range: &[UpdateCommit], replayed: &[UpdateCommit]) -> (Vec<Pic
   (picked, present)
 }
 
-/// The commits the target has already, each with the target commit of the same patch id: one `rev-list --cherry-mark
-/// --left-only` of the target's side, then `pair_by_patch_id`. `dropped` are those the replay dropped as empty, the
-/// others were left out by patch id
+/// The commits the target has already, each with the target commit of the same patch id (`present_by_patch_id`).
+/// `dropped` are those the replay dropped as empty, the others were left out by patch id
 fn present_on(git_executor: &GitCommandExecutor, target: &str, head: &str, source_head: &str, present: Vec<PickCommit>, dropped: &[&str]) -> Result<Vec<PresentCommit>> {
   if present.is_empty() {
     return Ok(Vec::new());
   }
-  let marked = git_executor.execute_command_lines(
-    &["rev-list", "--cherry-mark", "--left-only", "--no-merges", &format!("{head}...{source_head}"), "--"],
-    target,
-  )?;
-  let equivalent: Vec<&str> = marked.iter().filter_map(|line| line.strip_prefix('=')).collect();
   let local: Vec<&str> = present.iter().map(|commit| commit.id.as_str()).collect();
-  let pairs = pair_by_patch_id(git_executor, target, &local, &equivalent)?;
+  let pairs = present_by_patch_id(git_executor, target, head, source_head, &local)?;
   Ok(
     present
       .into_iter()

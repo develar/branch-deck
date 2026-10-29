@@ -12,6 +12,8 @@ targets:
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/lease-pool/src/lease.rs
+  - ../../crates/lease-pool/src/landed_work.rs
+  - ../../crates/git-ops/src/landed_pairing.rs
   - ../../crates/lease-pool/src/host_slots.rs
   - ../../crates/lease-pool/src/host_refs.rs
   - ../../crates/lease-pool/src/host_git.rs
@@ -260,17 +262,27 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   the slot was leased at never count as unlanded, also after a rewrite of master made them unreachable.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
 - The question of the unlanded check is whether the branch of the source has every change of the slot. The get must
-  record the source checkout and its branch (none for a detached HEAD). When reachability finds commits, a dry run of
-  the pick from the slot onto that branch must decide (`commits_to_pick`: the fork point in the reflog of the branch,
-  `git replay` onto its tip, on git objects only, without the lock and without the index of the shared checkout), and
-  only the commits it would pick are unlanded. Reachability decides when it finds nothing (the fast path), when the
-  source had no branch, when the branch is gone, and when the pick can't tell; the output says which check decided
-  (`landed_check`, `landed_branch`), and the refusal says so too.
+  record the source checkout and its branch (none for a detached HEAD). When reachability finds commits, each must be
+  proven on the tip of that branch, on git objects only, without the lock and without the index of the shared
+  checkout (`lease_pool::landed_work`, the one rule of the return, the takeover and the reclaim), and only the commits
+  no proof finds are unlanded. The proofs, each for the commits the one before left: a commit of the range of a dry
+  run of the pick (the fork point in the reflog of the branch, `git replay` onto its tip) that it would not pick; the
+  patch id of a commit of the branch's side; a commit of the branch of the same identity (author, author time, subject
+  without the prefix) that is its cherry-pick or changes the same lines; the twin of `bd update`, a commit of the
+  branch of the same identity that has every changed line of the commit with its fixups (a conflict resolution, an
+  autosquash); the mapping note of a sync, its virtual copy on the branch or proven there so. A commit outside the
+  range of the pick is no commit the pick proved: a fast-forward that a reset took back leaves the commit as its own
+  fork point. Reachability decides alone when it finds nothing (the fast path), when the source had no branch and when
+  the branch is gone; the output says which check decided (`landed_check`, `landed_branch`) and names each commit the
+  proofs found landed with its proof (`landed`), and the refusal says which check refused.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_after_a_follow_and_a_rewrite_of_master_finds_the_work_landed_by_content`, `a_return_refuses_only_the_commit_that_the_source_branch_lacks`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_session_rewords_its_landed_commit_from_its_lease`, `a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_after_a_pick_that_rolled_back_refuses_the_commit`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_after_a_pick_that_rolled_back_refuses_the_commit`, `a_lease_whose_home_was_reset_past_its_commits_is_not_landed`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_finds_a_commit_that_landed_with_a_conflict_resolution`, `a_return_finds_a_commit_that_landed_by_its_virtual_copy`)
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it`)
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_dry_run_names_its_range_and_the_commits_it_would_pick`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_return_whose_commit_landed_by_the_ladder`)
 - The return must find the Bazel servers of the slot (a process whose argv has `--workspace_directory=<dir>`, `<dir>`
   the slot or inside it, such as `<slot>/community`), ask each to exit with SIGTERM once nothing else refuses, wait up
   to 30 s, and name them in `stopped_servers` (pid, workspace, output base). A server that does not exit keeps the

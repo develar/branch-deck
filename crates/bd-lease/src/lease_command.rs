@@ -15,9 +15,10 @@ use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::check_record::{NAMED_PATHS, TreeCheck, check_tree};
 use lease_pool::free_space::available_bytes;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
+use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
-  Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool,
-  SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at,
+  Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool, SkipReason,
+  SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age, read_pick_requires_check};
 use schemars::JsonSchema;
@@ -569,9 +570,13 @@ pub struct LeaseReturnOutput {
   /// them until git expires it
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub given_up: Vec<GivenUpOutput>,
+  /// The commits that no branch, tag or remote branch holds and that `landed_branch` was proven to have, newest first:
+  /// each with its proof
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub landed: Vec<LandedCommitOutput>,
   /// Which check found the work landed: `reachability` (a branch, tag or remote branch holds every commit) or
-  /// `content` (a pick onto `landed_branch` would pick nothing, after a rewrite of that branch); omitted for a return
-  /// that joined another before it checked anything
+  /// `content` (`landed_branch` has every other commit by a proof, `landed`); omitted for a return that joined another
+  /// before it checked anything
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_check: Option<LandedCheckOutput>,
   /// Another return of the same lease (a retry after a timeout) returned it: this one waited for it, or was overtaken
@@ -655,6 +660,58 @@ pub struct StoppedServerOutput {
   pub output_base: Option<String>,
 }
 
+/// A commit of a lease that the home branch has
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LandedCommitOutput {
+  pub commit: String,
+  pub subject: String,
+  pub proof: LandedProofOutput,
+  /// With `note`: the virtual copy of the commit that landed (its mapping note of a sync, `v-commit-v1`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub virtual_commit: Option<String>,
+}
+
+/// How the home branch proves that it has a commit of the lease
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LandedProofOutput {
+  /// The dry run of a pick onto it would not pick the commit
+  Picked,
+  /// A commit of the branch has its patch id
+  PatchId,
+  /// A commit of the branch of its identity (author, author time, subject without the prefix) is its cherry-pick
+  Replayed,
+  /// A commit of the branch of its identity changes the same lines
+  ChangedLines,
+  /// A commit of the branch of its identity has every line it changes with its fixups: the twin of `bd update`, a
+  /// conflict resolution or an autosquash
+  Twin,
+  /// Its virtual copy landed on the branch
+  Note,
+}
+
+pub(crate) fn landed_output(landed: &[LandedCommit]) -> Vec<LandedCommitOutput> {
+  landed
+    .iter()
+    .map(|commit| LandedCommitOutput {
+      commit: commit.id.clone(),
+      subject: commit.subject.clone(),
+      proof: match commit.proof {
+        Proof::Picked => LandedProofOutput::Picked,
+        Proof::PatchId => LandedProofOutput::PatchId,
+        Proof::Replayed => LandedProofOutput::Replayed,
+        Proof::ChangedLines => LandedProofOutput::ChangedLines,
+        Proof::Twin => LandedProofOutput::Twin,
+        Proof::Note { .. } => LandedProofOutput::Note,
+      },
+      virtual_commit: match &commit.proof {
+        Proof::Note { virtual_commit } => Some(virtual_commit.clone()),
+        _ => None,
+      },
+    })
+    .collect()
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct GivenUpOutput {
   pub commit: String,
@@ -694,6 +751,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
         subject: commit.subject.clone(),
       })
       .collect(),
+    landed: landed_output(&returned.landed),
     landed_check: returned.landed_check.as_ref().map(|check| match check {
       LandedCheck::Reachability { .. } => LandedCheckOutput::Reachability,
       LandedCheck::Content { .. } => LandedCheckOutput::Content,

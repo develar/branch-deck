@@ -302,9 +302,29 @@ pub struct UnlandedCommit {
 /// Not `--all`, which holds the HEAD of every worktree, this one too. `base` keeps out the commits the slot started
 /// with, which a rewrite of master may have left unreachable
 pub fn unlanded_commits(git_executor: &GitCommandExecutor, slot: &str, base: Option<&str>, limit: usize) -> Result<Vec<UnlandedCommit>> {
+  head_commits_without(git_executor, slot, &["--branches", "--tags", "--remotes"], base, limit)
+}
+
+/// Up to `limit` commits of the HEAD of `slot` that `branch` and `base` (the commit the slot was leased at) do not have,
+/// newest first: one `log HEAD --not refs/heads/<branch> <base>`. The commits of a lease that its home branch lacks,
+/// whatever other branch holds them (its own, made by the get)
+pub fn commits_beyond_branch(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Option<&str>, limit: usize) -> Result<Vec<UnlandedCommit>> {
+  let branch = format!("refs/heads/{branch}");
+  head_commits_without(git_executor, slot, &[&branch], base, limit)
+}
+
+/// Up to `limit` commits of the HEAD of `slot` that `base` (the commit the slot was leased at) does not have, newest
+/// first: one `log HEAD --not <base>`. Every commit of a lease, whatever branch holds it
+pub fn commits_since(git_executor: &GitCommandExecutor, slot: &str, base: Option<&str>, limit: usize) -> Result<Vec<UnlandedCommit>> {
+  head_commits_without(git_executor, slot, &[], base, limit)
+}
+
+/// The commits of HEAD of `slot` without those of `not` and `base` (an id from the state file, never an option), newest
+/// first: one `log -z`
+fn head_commits_without(git_executor: &GitCommandExecutor, slot: &str, not: &[&str], base: Option<&str>, limit: usize) -> Result<Vec<UnlandedCommit>> {
   let max_count = format!("--max-count={limit}");
-  let mut args = vec!["log", "-z", "--format=%H %s", &max_count, "HEAD", "--not", "--branches", "--tags", "--remotes"];
-  // an id from the state file, never an option
+  let mut args = vec!["log", "-z", "--format=%H %s", &max_count, "HEAD", "--not"];
+  args.extend_from_slice(not);
   args.extend(base.filter(|base| is_object_id(base)));
   let output = git_executor.cmd(&args, slot).bytes()?;
   Ok(

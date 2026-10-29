@@ -445,6 +445,23 @@ pub fn pair_by_patch_id(git_executor: &GitCommandExecutor, repo_path: &str, loca
   )
 }
 
+/// The commits of `local` (on the side of `head`) whose patch id equals that of a commit of `upstream_head` above their
+/// merge base, each with that commit: one `rev-list --cherry-mark --left-only` marks the commits of the upstream side
+/// that have a counterpart, then `pair_by_patch_id` pairs them one to one. Only the upstream side is marked, so a commit
+/// of the side of `head` that is no local commit (one below the commit a lease started at) is never taken as the
+/// upstream one. None, and one process, when nothing is marked
+pub fn present_by_patch_id(git_executor: &GitCommandExecutor, repo_path: &str, upstream_head: &str, head: &str, local: &[&str]) -> Result<Vec<LandedDrop>> {
+  if local.is_empty() {
+    return Ok(Vec::new());
+  }
+  let marked = git_executor.execute_command_lines(
+    &["rev-list", "--cherry-mark", "--left-only", "--no-merges", &format!("{upstream_head}...{head}"), "--"],
+    repo_path,
+  )?;
+  let equivalent: Vec<&str> = marked.iter().filter_map(|line| line.strip_prefix('=')).collect();
+  pair_by_patch_id(git_executor, repo_path, local, &equivalent)
+}
+
 /// A local commit with a counterpart upstream by identity only: nothing proves that the upstream has its change (an
 /// amend after the push, a robot that folded its fixups in, an independent fix), so it is never left out by itself. A
 /// resolve session keeps it in its state: its round offers `--landed`

@@ -17,6 +17,8 @@
 //! - `host_runs`: the steps of the agent of `bd-host`: the queue line of a waiting lend and the reclaim of the slots
 //!   and the refs of a tick of the keeper
 //! - `state_file`: a JSON state file of `branch-deck/` with a lock of its own, of the pool and of the lend table
+//! - `landed_work`: whether the work of a lease landed in its home branch, by the proofs of `bd update` and the
+//!   mapping notes of a sync: the one rule of the return, the takeover and `bd lease reclaim`
 //! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot, and its
 //!   `pick_requires_check`
 //! - `check_record`: the green builds and tests a check tool recorded in the git dir of a worktree, by tree, which
@@ -33,6 +35,7 @@ pub mod host_git;
 pub mod host_refs;
 pub mod host_runs;
 pub mod host_slots;
+pub mod landed_work;
 pub mod lease;
 pub mod lease_clean;
 mod state_file;

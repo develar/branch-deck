@@ -316,7 +316,9 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
-   content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `resolve_in_progress` (exit 4): the
+   content (a dry run of the pick, the patch id, the identity and the twin of `bd update` or the mapping note of a sync
+   prove a commit there, also after the owner rewrote the branch or a robot landed it with a conflict resolution); land
+   them with step 2 first; `resolve_in_progress` (exit 4): the
    resolve session of a pick is open in it, finish it (`bd update --continue`, then `bd lease pick`) or close it (`bd update --abort`); `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
    `processes`: each with `argv` and `kind`): a process of another session works in it (a shell, a build, a test run);
    read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. `host_slot` (exit 4, `paths`):

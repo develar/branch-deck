@@ -532,10 +532,7 @@ fn a_clone_that_fails_falls_back_to_a_checkout() {
 
 /// Commit `file` in the slot at `path`
 fn commit_in(path: &str, subject: &str, file: &str) -> String {
-  std::fs::write(Path::new(path).join(file), format!("{subject}\n")).unwrap();
-  slot_git(path, &["add", file]);
-  slot_git(path, &["commit", "-q", "-m", subject]);
-  slot_git(path, &["rev-parse", "HEAD"])
+  commit_content(path, subject, file, &format!("{subject}\n"))
 }
 
 /// A lease whose commits landed by `bd pick --follow`, on master with a peer commit, after which a peer rewrote master:
@@ -567,6 +564,95 @@ fn a_return_after_a_follow_and_a_rewrite_of_master_finds_the_work_landed_by_cont
   let returned = fixture.give_back(&path);
   assert_eq!((&returned["landed_check"], &returned["landed_branch"]), (&json!("content"), &json!("master")), "{returned}");
   assert_eq!(returned.get("given_up"), None);
+}
+
+/// Write `content` into `file` of the slot at `path` and commit it as `subject`
+fn commit_content(path: &str, subject: &str, file: &str, content: &str) -> String {
+  std::fs::write(Path::new(path).join(file), content).unwrap();
+  slot_git(path, &["add", file]);
+  slot_git(path, &["commit", "-q", "-m", subject]);
+  slot_git(path, &["rev-parse", "HEAD"])
+}
+
+/// The `(commit, proof)` of each commit a return or a takeover found landed
+fn proofs(landed: &Value) -> Vec<(String, String)> {
+  landed
+    .as_array()
+    .unwrap_or_else(|| panic!("no landed commits: {landed}"))
+    .iter()
+    .map(|commit| (commit["commit"].as_str().unwrap().to_string(), commit["proof"].as_str().unwrap().to_string()))
+    .collect()
+}
+
+/// A commit of the slot landed on master with a conflict resolution, as the twin of `bd update`: the same identity, and
+/// a change that holds every line of the commit and its fixup, with a line more. Its pick conflicts, its patch id
+/// differs, and the ladder proves nothing; the twin proves both
+#[test_log::test]
+fn a_return_finds_a_commit_that_landed_with_a_conflict_resolution() {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit("Add f", "f.txt", "a\nz\n");
+  let path = path_of(&fixture.get(&[]));
+  let commit = commit_content(&path, "(lane) Add b to f", "f.txt", "a\nb\nz\n");
+  let fixup = commit_content(&path, "fixup! (lane) Add b to f", "f.txt", "a\nb\nb2\nz\n");
+  fixture.repo.create_commit("(peer) Add m to f", "f.txt", "a\nm\nz\n");
+  // the robot's resolution: the commit with its fixup folded in, onto the peer's line, and one line of its own
+  std::fs::write(fixture.repo.path().join("f.txt"), "a\nb\nb2\nm\nz2\n").unwrap();
+  git(&fixture.repo, &["commit", "-q", "-a", "-C", &commit]);
+
+  let returned = fixture.give_back(&path);
+  assert_eq!(
+    (proofs(&returned["landed"]), &returned["landed_check"]),
+    (vec![(fixup, "twin".to_string()), (commit, "twin".to_string())], &json!("content")),
+    "{returned}"
+  );
+}
+
+/// A commit of the slot landed by its virtual copy: the sync resolved it by words into another change (its mapping
+/// note, `v-commit-v1`), and the robot cherry-picked that copy onto master. Nothing of the commit itself is on master,
+/// so only the note proves it
+#[test_log::test]
+fn a_return_finds_a_commit_that_landed_by_its_virtual_copy() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  let commit = commit_content(&path, "(lane) Add n", "n.txt", "n\n");
+  let repo = &fixture.repo;
+  git(repo, &["switch", "-q", "-c", "lane/virtual/lane", got["source_head"].as_str().unwrap()]);
+  std::fs::write(repo.path().join("n.txt"), "n by words\n").unwrap();
+  git(repo, &["add", "n.txt"]);
+  git(repo, &["commit", "-q", "-m", "Add n", "--date=2001-02-03T04:05:06Z"]);
+  let copy = repo.head();
+  git(repo, &["switch", "-q", "master"]);
+  git(repo, &["branch", "-q", "-D", "lane/virtual/lane"]);
+  git(repo, &["cherry-pick", &copy]);
+  git(repo, &["notes", "add", "-m", &format!("v-commit-v1:{copy}"), &commit]);
+
+  let returned = fixture.give_back(&path);
+  assert_eq!(proofs(&returned["landed"]), vec![(commit, "note".to_string())], "{returned}");
+  assert_eq!(returned["landed"][0]["virtual_commit"], json!(copy), "{returned}");
+}
+
+/// A pick that landed the commit by a fast-forward and a reset of master that took it back by hand: the reflog of
+/// master names the commit as a fork point, so a dry run of the pick finds nothing to pick, yet master lacks it. No
+/// proof finds it there, and the return refuses it
+#[test_log::test]
+fn a_lease_whose_home_was_reset_past_its_commits_is_not_landed() {
+  assert_unlanded_after_a_move_taken_back("merge: Fast-forward", "reset: moving to HEAD~1");
+}
+
+/// A fast-forward of master to the slot's commit (reflog message `moved`), then a move back (`back`): the return refuses
+/// the commit, which master lacks
+fn assert_unlanded_after_a_move_taken_back(moved: &str, back: &str) {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let base = fixture.repo.head();
+  let commit = commit_in(&path, "(lane) Add c", "lane-c.txt");
+  fixture.repo.git(&["update-ref", "-m", moved, "refs/heads/master", &commit, &base]);
+  fixture.repo.git(&["update-ref", "-m", back, "refs/heads/master", &base, &commit]);
+
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "unlanded_commits"));
+  assert_eq!(output["error"]["commits"], json!([commit]));
 }
 
 /// A commit that master lacks is refused, and the refusal names only it: not the followed, landed commits that the
@@ -605,18 +691,7 @@ fn a_return_by_lease_id_from_another_checkout_returns_the_slot_of_the_lease() {
 /// took it back: the commit is unlanded, not a fork point that makes it landed
 #[test_log::test]
 fn a_return_after_a_pick_that_rolled_back_refuses_the_commit() {
-  let fixture = Fixture::new();
-  let path = path_of(&fixture.get(&[]));
-  let base = fixture.repo.head();
-  let commit = commit_in(&path, "(lane) Add c", "lane-c.txt");
-  fixture.repo.git(&["update-ref", "-m", "branch-deck: pick", "refs/heads/master", &commit, &base]);
-  fixture
-    .repo
-    .git(&["update-ref", "-m", "branch-deck: pick rolled back", "refs/heads/master", &base, &commit]);
-
-  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
-  assert_error(&output, exit_code, (4, "unlanded_commits"));
-  assert_eq!(output["error"]["commits"], json!([commit]));
+  assert_unlanded_after_a_move_taken_back("branch-deck: pick", "branch-deck: pick rolled back");
 }
 
 /// A session lands a commit with `bd pick --follow`, then fixes its message on the shared branch from its own worktree

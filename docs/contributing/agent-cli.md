@@ -958,8 +958,9 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `resolve_in_progress` (a resolve session of the slot is
   open: finish it with `bd update --continue` or close it with `--abort`), `slot_busy` (a process of another session
   in it: `processes` [{`pid`, `command`, `argv`, `kind`: `bazel_server` or `other`, `workspace`}]), `unlanded_commits`
-  (`commits` that no branch, tag or remote branch holds and that a dry run of
-  the pick onto the branch of the source would pick: land them with `bd pick --from <dir> --follow`),
+  (`commits` that no branch, tag or remote branch holds and that no proof finds on the branch of the source: a dry run
+  of the pick onto it, a patch id, the identity and the twin of `bd update`, the mapping note of a sync; land them with
+  `bd -C <dir> lease pick`),
   `dirty_worktree` (`paths`). Not counted: the session of bd (bd, its ancestors and the processes of their process
   groups, such as the `jq` of a pipeline), git's background maintenance (`git maintenance`, `git gc --auto` and the
   gits they start: `maintenance` names them; a detach of HEAD waits up to 10 s for a `HEAD.lock` they hold;
@@ -968,7 +969,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `caffeinate`. A Bazel server of the worktree (`--workspace_directory` in it) is asked to exit with SIGTERM once no
   other process is there, up to 30 s, and named in `stopped_servers`; one that does not exit is `slot_busy`.
   `landed_check` says which check found the work landed: `reachability` or `content`
-  (`landed_branch`). `--confirm-preserved` gives the commits up
+  (`landed_branch`), and `landed` names each commit the content check proved, with its `proof` (`picked`, `patch_id`,
+  `replayed`, `changed_lines`, `twin`, `note` with its `virtual_commit`). `--confirm-preserved` gives the commits up
   (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`. A repeat joins: a return
   retried while the first still runs waits for it, and a return that another return of the lease overtook changes
   nothing; both answer `joined: true`, with empty lists and no `landed_check` when they checked nothing.

@@ -1,4 +1,4 @@
-use crate::pick::{FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, SubjectPrefix, apply_pick, check_pick, check_pick_undo};
+use crate::pick::{FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, SubjectPrefix, apply_pick, check_pick, check_pick_undo, pick_dry_run};
 use crate::revs::ref_exists;
 use crate::rewrite_guard::HeadMoved;
 use crate::update_branch::{GuardRefusal, PENDING_UPDATE_PREFIX, ReflogEntry, UndoCheck, apply_update_undo, finish_pending_update, undone_move_base};
@@ -166,17 +166,7 @@ fn the_copies_get_the_newest_committer_date_so_the_check_names_the_commits_the_p
 
 #[test]
 fn a_commit_the_target_has_already_is_present_with_the_target_commit_of_its_patch() {
-  let repo = TestRepo::new();
-  repo.create_commit("base", "a.txt", "a\n");
-  let worktree = TestWorktree::detached(&repo);
-  let landed = worktree.commit("(lane) landed", "b.txt", "b\n");
-  let same_content = worktree.commit("(lane) same content", "c.txt", "c\n");
-  worktree.commit("(lane) new", "d.txt", "d\n");
-  // the target has the first by cherry-pick (`-x`: in the same second, a plain pick would be the same commit), and the
-  // change of the second inside a larger commit
-  repo.git(&["cherry-pick", "-x", &landed]);
-  let copy = repo.head();
-  repo.create_commit_with_files("(other) bigger", &[("c.txt", "c\n"), ("e.txt", "e\n")]);
+  let (repo, worktree, [landed, same_content, _], copy) = a_lane_with_commits_the_target_has();
 
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
   assert_eq!(plan.check.state, PickState::Clean);
@@ -188,6 +178,43 @@ fn a_commit_the_target_has_already_is_present_with_the_target_commit_of_its_patc
   );
   apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
   assert_eq!(read(&repo, "d.txt"), "d\n");
+}
+
+/// A lane of three commits, `landed`, `same content` and `new`: the target has the first by cherry-pick (`-x`: in the
+/// same second, a plain pick would be the same commit; its copy is the last of the answer), and the change of the second
+/// inside a larger commit
+fn a_lane_with_commits_the_target_has() -> (TestRepo, TestWorktree, [String; 3], String) {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  let landed = worktree.commit("(lane) landed", "b.txt", "b\n");
+  let same_content = worktree.commit("(lane) same content", "c.txt", "c\n");
+  let new = worktree.commit("(lane) new", "d.txt", "d\n");
+  repo.git(&["cherry-pick", "-x", &landed]);
+  let copy = repo.head();
+  repo.create_commit_with_files("(other) bigger", &[("c.txt", "c\n"), ("e.txt", "e\n")]);
+  (repo, worktree, [landed, same_content, new], copy)
+}
+
+/// The dry run names its range beside what it would pick: a commit of the range it would not pick is on the branch (by
+/// patch id or by content), and one outside the range is no commit it checked. A range that conflicts is kept whole but
+/// for its commits of the same patch id
+#[test]
+fn a_dry_run_names_its_range_and_the_commits_it_would_pick() {
+  let (repo, worktree, [landed, same_content, new], _) = a_lane_with_commits_the_target_has();
+  let dry_run = |dir: &str| pick_dry_run(repo.git_executor(), repo.path_str(), "master", dir, None).unwrap();
+
+  let clean = dry_run(&worktree.path);
+  assert_eq!(clean.range, [landed.clone(), same_content.clone(), new.clone()]);
+  assert_eq!(clean.kept.iter().map(|commit| commit.id.as_str()).collect::<Vec<_>>(), [new.as_str()]);
+
+  repo.create_commit("(other) d", "d.txt", "other d\n");
+  let conflicting = dry_run(&worktree.path);
+  assert_eq!(conflicting.range, [landed, same_content.clone(), new.clone()]);
+  assert_eq!(
+    conflicting.kept.iter().map(|commit| commit.id.as_str()).collect::<Vec<_>>(),
+    [same_content.as_str(), new.as_str()]
+  );
 }
 
 #[test]

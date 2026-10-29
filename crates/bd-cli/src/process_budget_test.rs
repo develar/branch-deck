@@ -662,6 +662,12 @@ fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, bd_core::context::E
   (home, environment)
 }
 
+/// The slot of a `bd lease get` in the repository of `environment`
+fn leased_slot(environment: &bd_core::context::Environment) -> std::path::PathBuf {
+  let context = LeaseContext::resolve(environment, None).unwrap();
+  std::path::PathBuf::from(lease_get(&context, environment, &LeaseGetArgs::default()).unwrap().path)
+}
+
 /// `bd lease get` of a free slot and its `bd lease return`: the repository, the source HEAD and the pool config, one
 /// `status` and the HEAD of the slot, which is at the source HEAD already, so no move; the return reads whether a resolve session of the slot is open, the
 /// unlanded commits, the untracked mode of the config, the `status` and HEAD. No `status` of another slot, no full checkout
@@ -669,9 +675,7 @@ fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, bd_core::context::E
 fn a_lease_get_and_return() {
   let repo = repo_with_branches();
   let (_home, environment) = lease_environment(&repo);
-  let context = LeaseContext::resolve(&environment, None).unwrap();
-  let added = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
-  let slot = std::path::PathBuf::from(&added.path);
+  let slot = leased_slot(&environment);
   lease_return(&LeaseContext::resolve(&environment, Some(&slot)).unwrap(), &LeaseReturnArgs::default()).unwrap();
 
   let context = LeaseContext::resolve(&environment, None).unwrap();
@@ -681,6 +685,50 @@ fn a_lease_get_and_return() {
   let context = LeaseContext::resolve(&environment, Some(&slot)).unwrap();
   lease_return(&context, &LeaseReturnArgs::default()).unwrap();
   assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("rev-parse", 2), ("show-ref", 1), ("status", 1)]);
+}
+
+/// `bd lease return` of a commit that landed on master with a conflict resolution (the twin of `bd update`): the return
+/// of a free slot, then the proofs, each for what the one before left: the dry run of the pick (its tip, the upstream,
+/// the fork point, the merges, the range and the replay that conflicts), the patch id (`rev-list --cherry-mark` of
+/// master's side, nothing marked), the reads of the ladder (the local and the upstream `log`, the stack setting), the
+/// ladder (`diff-tree` and `patch-id` of the pair, `merge-tree` and the upstream tree, the changed lines) and the
+/// interdiff of the twin
+#[test]
+fn a_lease_return_whose_commit_landed_by_the_ladder() {
+  let repo = repo_with_branches();
+  repo.create_commit("Add f", "f.txt", "a\nz\n");
+  let (_home, environment) = lease_environment(&repo);
+  let slot = leased_slot(&environment);
+  let in_slot = |args: &[&str]| GitCommandExecutor::new().execute_command(args, &slot.to_string_lossy()).unwrap();
+  std::fs::write(slot.join("f.txt"), "a\nb\nz\n").unwrap();
+  in_slot(&["commit", "-q", "-a", "-m", "(lane) Add b to f"]);
+  let commit = in_slot(&["rev-parse", "HEAD"]);
+  repo.create_commit("(peer) Add m to f", "f.txt", "a\nm\nz\n");
+  std::fs::write(repo.path().join("f.txt"), "a\nb\nm\nz2\n").unwrap();
+  repo.git(&["commit", "-q", "-a", "-C", &commit]);
+
+  let context = LeaseContext::resolve(&environment, Some(&slot)).unwrap();
+  let returned = lease_return(&context, &LeaseReturnArgs::default()).unwrap();
+  assert_eq!(returned.landed.len(), 1, "{returned:?}");
+  assert_git_processes(
+    &context.git,
+    &[
+      ("config", 2),
+      ("diff-tree", 4),
+      ("for-each-ref", 1),
+      ("log", 5),
+      ("merge-base", 5),
+      ("merge-tree", 1),
+      ("patch-id", 2),
+      ("remote", 1),
+      ("replay", 1),
+      ("rev-list", 2),
+      ("rev-parse", 7),
+      ("show-ref", 2),
+      ("status", 1),
+      ("symbolic-ref", 1),
+    ],
+  );
 }
 
 /// `bd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto
