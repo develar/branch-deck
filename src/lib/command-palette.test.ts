@@ -3,7 +3,7 @@
 import { ListTreeIcon, ShieldCheckIcon } from "lucide-react"
 import { describe, expect, it, vi } from "vite-plus/test"
 import { runAppCommand } from "@/lib/app-commands"
-import { paletteCommands } from "@/lib/command-palette"
+import { paletteCommands, paletteGroups } from "@/lib/command-palette"
 import type { PaletteSources } from "@/lib/command-palette"
 import type { MenuItemGroups } from "@/lib/menu"
 
@@ -107,5 +107,37 @@ describe("paletteCommands", () => {
     expect(given.goToBranch).toHaveBeenCalledWith("IJPL-1")
     byId.get("app:update_project")!.run()
     expect(runAppCommand).toHaveBeenCalledWith("update_project")
+  })
+})
+
+describe("paletteGroups", () => {
+  // as the filter of the list compares: case aside
+  const startsWith = (value: string, query: string) => value.toLowerCase().startsWith(query.toLowerCase())
+  const menu: MenuItemGroups = [
+    [
+      { id: "push", label: "Push Stack (2 branches)", onSelect: () => {} },
+      { id: "push-branch-only", label: "Push session Only", onSelect: () => {} },
+    ],
+    [{ id: "stack-on", label: "Stack On…", onSelect: () => {}, children: [{ label: "auth", onSelect: () => {} }] }],
+  ]
+  const commands = paletteCommands(sources({ branches: ["auth", "session"], branchMenu: { name: "session", groups: menu } }))
+  const listed = (text: string) => paletteGroups(commands, text, startsWith).map(group => [group.value, group.items.map(command => command.label)])
+
+  it("lists the groups in their order without a text, a command and its group that start with the text first", () => {
+    expect(listed("").map(([group]) => group)).toEqual(["Views", "Activity", "Commands", "Branch", "Branches"])
+    // the name of a branch goes to it before the action of the branch at hand that names it, which Enter would run
+    expect(listed("session").slice(0, 2)).toEqual([
+      ["Branches", ["Go to session", "Go to auth"]],
+      ["Views", ["Branches"]],
+    ])
+    expect(listed("auth")[0]).toEqual(["Branches", ["Go to auth", "Go to session"]])
+    // the words of an action find it first, the commands of the app before the actions where both start with them
+    expect(listed("push")[0]).toEqual(["Branch", ["Push Stack (2 branches)", "Push session Only", "Stack On › auth"]])
+    expect(listed("s").slice(0, 2)).toEqual([
+      ["Commands", ["Sync Branches", "Settings…", "Update Project", "Install Agent CLI…"]],
+      ["Branch", ["Stack On › auth", "Push Stack (2 branches)", "Push session Only"]],
+    ])
+    // a Go to found by its label keeps its place among the branches
+    expect(listed("go to")[0]).toEqual(["Branches", ["Go to auth", "Go to session"]])
   })
 })

@@ -32,6 +32,11 @@ export interface NewBranchDrop {
 export interface RevealRequest {
   branchName: string
   commitIds: readonly string[]
+  /**
+   * The row takes the focus as it shows (Go to of the palette): a row a collapsed stack or the filter hid is there only
+   * once the reveal rendered it
+   */
+  focus?: boolean
 }
 
 /**

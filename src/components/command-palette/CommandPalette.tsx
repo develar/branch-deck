@@ -1,4 +1,5 @@
 import { useRef, useState } from "react"
+import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { Combobox, ComboboxCollection, ComboboxEmpty, ComboboxGroup, ComboboxInput, ComboboxItem, ComboboxLabel, ComboboxList } from "@/components/ui/combobox"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
@@ -8,8 +9,8 @@ import { useAppCommand } from "@/hooks/useAppCommand"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
 import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { openActivity } from "@/lib/activity-window"
-import { PALETTE_GROUPS, paletteCommands } from "@/lib/command-palette"
-import type { PaletteCommand, PaletteGroup } from "@/lib/command-palette"
+import { paletteCommands, paletteGroups } from "@/lib/command-palette"
+import type { PaletteCommand, PaletteCommandGroup } from "@/lib/command-palette"
 import { logError } from "@/lib/errors"
 import { kbdLabel } from "@/lib/menu"
 import { titleBar } from "@/lib/title-bar"
@@ -18,11 +19,6 @@ import { getSelectedBranches, requestReveal, selectBranches } from "@/stores/com
 import { MAIN_VIEWS, showMainView } from "@/stores/main-view"
 import { requestLinkFieldFocus } from "@/stores/reviews"
 import { useAppSettings } from "@/stores/settings/appSettings"
-
-interface CommandGroup {
-  readonly value: PaletteGroup
-  readonly items: readonly PaletteCommand[]
-}
 
 /** Expands the row of a branch an action of the palette shows the commits of (Amend Changes…, Unapply…) */
 function expandRow(name: string, expanded: boolean): void {
@@ -41,11 +37,13 @@ function branchAtHand(focused: HTMLElement | null): string | null {
   return selected.length === 1 ? selected[0]! : null
 }
 
-/** Shows the branch: its row expanded and scrolled into view (`requestReveal`), selected and focused, so its keys work */
+/**
+ * Shows the branch: its row expanded, scrolled into view and focused (`requestReveal`), also a row a collapsed stack or
+ * the filter hid, which the reveal renders first; selected, so its keys work
+ */
 function goToBranch(name: string): void {
-  requestReveal({ branchName: name, commitIds: [] })
+  requestReveal({ branchName: name, commitIds: [], focus: true })
   selectBranches(name, "only", [])
-  document.querySelector<HTMLElement>(`tr[data-row-id="${CSS.escape(name)}"]`)?.focus({ preventScroll: true })
 }
 
 /**
@@ -57,6 +55,9 @@ function goToBranch(name: string): void {
  */
 export function CommandPalette() {
   const [open, setOpen] = useState(false)
+  // what the search holds: a command that starts with it comes first (`paletteGroups`)
+  const [text, setText] = useState("")
+  const { startsWith } = ComboboxPrimitive.useFilter()
   const sync = useSyncAvailability()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   const branches = useBranchSync(state => state.branchOrder)
@@ -87,6 +88,7 @@ export function CommandPalette() {
       focusBefore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
       chosen.current = null
       setActionBranch(branchAtHand(focusBefore.current))
+      setText("")
       setOpen(true)
     }
   })
@@ -107,7 +109,7 @@ export function CommandPalette() {
         },
       })
     : []
-  const groups: CommandGroup[] = PALETTE_GROUPS.map(group => ({ value: group, items: commands.filter(command => command.group === group) })).filter(group => group.items.length > 0)
+  const groups = paletteGroups(commands, text, startsWith)
 
   return (
     <Dialog
@@ -138,6 +140,7 @@ export function CommandPalette() {
           items={groups}
           value={null}
           itemToStringLabel={command => command.label}
+          onInputValueChange={setText}
           onValueChange={command => {
             if (command !== null && command.disabled !== true) {
               chosen.current = command
@@ -148,7 +151,7 @@ export function CommandPalette() {
           <ComboboxInput showTrigger={false} placeholder="Type a command or a branch" aria-label="Command or branch" className="m-2 h-8" />
           <ComboboxEmpty>No command or branch matches</ComboboxEmpty>
           <ComboboxList className="max-h-80 border-t border-border">
-            {(group: CommandGroup) => (
+            {(group: PaletteCommandGroup) => (
               <ComboboxGroup key={group.value} items={group.items}>
                 <ComboboxLabel>{group.value === "Branch" && actionBranch !== null ? actionBranch : group.value}</ComboboxLabel>
                 <ComboboxCollection>

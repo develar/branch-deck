@@ -13,6 +13,8 @@ targets:
   - ../../src/hooks/useActivityPanel.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/presenters/actions.ts
+  - ../../src/stores/commit-move.ts
+  - ../../src/components/branch/BranchRow.tsx
 ---
 
 # Command Palette
@@ -81,14 +83,23 @@ names and reasons.
 - The search keeps the commands whose label has the typed text, ignoring case (the filter of Base UI `Combobox`), the
   first one highlighted; Enter or a click runs it. Nothing kept: "No command or branch matches".
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should go to a branch: the row expanded, selected and focused`, `should open the Activity panel with the focus in it from the keyboard, and the Activity window by a click`)
+- A command that starts with the typed text comes first, in its group and its group before the others
+  (`paletteGroups`): its label starts with it, or the name of the branch of a Go to does. The name of a branch typed
+  and Enter go to that branch, never to an action of the branch at hand whose label names it ("Push session Only",
+  "Stack On › session"): that one came first in the group order and Enter pushed or restacked instead of going.
+  [@test] ../../src/lib/command-palette.test.ts (`lists the groups in their order without a text, a command and its group that start with the text first`)
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should go to the branch a search names before an action that names it, and focus its row in a collapsed stack`)
 
 ### Running
 
 - A command runs once the palette closed and the focus went back where it was, so what the command focuses keeps the
   focus: "Go to <branch>" shows the branches, expands the row, scrolls it into view (`requestReveal`), selects it and
-  focuses it; Activity Panel chosen by Enter opens the panel with the focus in its log (a keyboard open,
-  [Activity](activity.spec.md#side-panel)), by a click without; Activity Window opens the window and closes the panel.
+  focuses it, also a row a collapsed stack or the filter hid, which takes the focus as the reveal renders it (else
+  the focus stayed where it was, a push button of another row too); Activity Panel chosen by Enter opens the panel
+  with the focus in its log (a keyboard open, [Activity](activity.spec.md#side-panel)), by a click without; Activity
+  Window opens the window and closes the panel.
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should go to a branch: the row expanded, selected and focused`, `should show the branches view`)
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should go to the branch a search names before an action that names it, and focus its row in a collapsed stack`)
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open the Activity panel with the focus in it from the keyboard, and the Activity window by a click`)
   [@test] ../../src/lib/command-palette.test.ts (`runs what its source runs`)
 - A command of the app runs as its menu item does (`onSelect` of the item of `mainMenus`).

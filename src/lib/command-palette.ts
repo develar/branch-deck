@@ -24,6 +24,8 @@ export interface PaletteCommand {
   readonly id: string
   readonly label: string
   readonly group: PaletteGroup
+  /** The branch "Go to <branch>" goes to: a search that starts with its name ranks it first (`paletteGroups`) */
+  readonly branch?: string
   readonly icon?: LucideIcon
   /** The key of the command anywhere in the window; a command without a global key has none */
   readonly kbds?: readonly string[]
@@ -116,7 +118,14 @@ export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
       ]
     }),
     ...(sources.branchMenu === null ? [] : branchActions(sources.branchMenu.name, sources.branchMenu.groups)),
-    ...sources.branches.map(name => ({ id: `branch:${name}`, label: `Go to ${name}`, group: "Branches" as const, icon: GitBranchIcon, run: () => sources.goToBranch(name) })),
+    ...sources.branches.map(name => ({
+      id: `branch:${name}`,
+      label: `Go to ${name}`,
+      group: "Branches" as const,
+      branch: name,
+      icon: GitBranchIcon,
+      run: () => sources.goToBranch(name),
+    })),
   ]
   const seen = new Set<string>()
   return commands.filter(command => {
@@ -126,4 +135,31 @@ export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
     seen.add(command.id)
     return true
   })
+}
+
+/** A group of the palette with its commands, as the list shows them */
+export interface PaletteCommandGroup {
+  readonly value: PaletteGroup
+  readonly items: readonly PaletteCommand[]
+}
+
+/**
+ * The groups of the palette in the order the list shows them for the typed `text` (the filter of the list keeps the
+ * commands whose label has it): without a text in the order of `PALETTE_GROUPS`; with one, a command that starts with
+ * it first (its label does, or the name of the branch of a Go to), in its group and its group before the others. So the
+ * name of a branch typed and Enter go to the branch, not to an action of the branch at hand whose label names it
+ * ("Push session Only", "Stack On › session"), which is listed first otherwise and which Enter would run.
+ * `startsWith` compares as the filter of the list does (`Combobox.useFilter`: case and accents aside).
+ */
+export function paletteGroups(commands: readonly PaletteCommand[], text: string, startsWith: (value: string, query: string) => boolean): PaletteCommandGroup[] {
+  const groups = PALETTE_GROUPS.map(group => ({ value: group, items: commands.filter(command => command.group === group) })).filter(group => group.items.length > 0)
+  if (text === "") {
+    return groups
+  }
+  const leads = (command: PaletteCommand) => startsWith(command.label, text) || (command.branch !== undefined && startsWith(command.branch, text))
+  const tiered = groups.map(group => {
+    const first = group.items.filter(leads)
+    return { value: group.value, items: [...first, ...group.items.filter(command => !first.includes(command))], leads: first.length > 0 }
+  })
+  return [...tiered.filter(group => group.leads), ...tiered.filter(group => !group.leads)].map(({ value, items }) => ({ value, items }))
 }

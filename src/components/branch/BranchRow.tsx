@@ -139,16 +139,21 @@ export const BranchRow = memo(function BranchRow({
   const reveal = useRevealRequest(name)
   const isRevealTarget = reveal !== null && branch !== undefined
   const revealsCommits = reveal !== null && reveal.commitIds.length > 0
+  const revealFocuses = reveal?.focus === true
   useEffect(() => {
     if (!isRevealTarget) {
       return
     }
     setExpanded(name, true)
-    document.querySelector(`tr[data-branch-name="${CSS.escape(name)}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+    const row = document.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(name)}"]`)
+    row?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+    if (revealFocuses) {
+      row?.focus({ preventScroll: true })
+    }
     if (!revealsCommits) {
       requestReveal(null)
     }
-  }, [isRevealTarget, revealsCommits, name, setExpanded])
+  }, [isRevealTarget, revealsCommits, revealFocuses, name, setExpanded])
 
   if (branch === undefined) {
     return null

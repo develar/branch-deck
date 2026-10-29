@@ -1,12 +1,13 @@
 // @spec spec/repository/command-palette.spec.md
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers"
-import { collapseBranch, findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { collapseBranch, findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { openPalette, palette, runByKeyboard, search } from "../helpers/command-palette-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
+import { recordCommand } from "../helpers/wait-helpers"
 
 // `issue_links`: 7 branches, ABC-123 and JIRA-456 among them; `behind_upstream`: master is behind origin/master
 
@@ -92,6 +93,56 @@ testWithIssueLinks.describe("Command palette", () => {
     await palette(page).getByRole("option", { name: "Install Agent CLI…" }).click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })).toBeVisible()
   })
+})
+
+test.describe("Command palette of a stack", () => {
+  test(
+    "should go to the branch a search names before an action that names it, and focus its row in a collapsed stack",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // auth and session stacked, neither pushed: the menu of session has Push session Only, the one of docs Stack On › session
+      await setupRepo("stacked_branches")
+      await syncAndWaitForBranches()
+      const executes = await recordCommand(page, "execute")
+      const session = findBranchRow(page, "session")
+      const first = palette(page).getByRole("option").first()
+
+      // session is the branch at hand: the focus on its push button (a Tab or a click put it there)
+      await getPushButton(session).focus()
+      await openPalette(page)
+      await search(page).fill("session")
+      // its name goes to it; its action that names it comes after, Enter would have pushed session alone
+      await expect(first).toHaveText(/^Go to session$/)
+      await expect(first).toHaveAttribute("data-highlighted", "")
+      await expect(palette(page).getByRole("option", { name: "Push session Only" })).toBeVisible()
+      await page.keyboard.press("Enter")
+      await expect(palette(page)).toHaveCount(0)
+      await expect(session).toBeFocused()
+      await expect(session).toHaveAttribute("data-selected", "true")
+
+      // the words of an action find it first
+      await openPalette(page)
+      await search(page).fill("push")
+      await expect(first).toHaveText(/^Push Stack/)
+      await page.keyboard.press("Escape")
+      await expect(session).toBeFocused()
+
+      // in a collapsed stack: the reveal expands it, then the row takes the focus; docs at hand names session in Stack On
+      await getStackChip(findBranchRow(page, "auth")).click()
+      await expect(session).toHaveCount(0)
+      const docs = findBranchRow(page, "docs")
+      await docs.focus()
+      await openPalette(page)
+      await search(page).fill("session")
+      await expect(first).toHaveText(/^Go to session$/)
+      await expect(palette(page).getByRole("option", { name: "Stack On › session" })).toBeVisible()
+      await page.keyboard.press("Enter")
+      await expect(palette(page)).toHaveCount(0)
+      await expect(session).toBeFocused()
+      await expect(session).toHaveAttribute("data-selected", "true")
+      expect(executes).toEqual([])
+    },
+  )
 })
 
 test.describe("Command palette of a custom title bar", () => {
