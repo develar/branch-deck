@@ -85,15 +85,16 @@ fn an_update_after_its_fetch() {
   assert_processes(&git, UPDATE);
 }
 
-/// Update Project of `upstream_and_clone_with_twins` after its fetch: the replay conflicts, so the
-/// check pairs the local commits once. The pairing reads the local commits (`log`), the commits of the same patch
-/// (`rev-list --cherry-mark`, none here) and the upstream commits by the local authors (`log`), replays both pairs by
-/// identity (`merge-tree --stdin`, one `rev-parse` of the upstream trees), and proves the one whose cherry-pick
-/// conflicts by its changed lines (`diff-tree -p -U0` with `patch-id --verbatim`, `diff-tree --raw`). The replay
-/// without the twins conflicts again (the second `replay`), and the resolve by words stops at the real conflict (`var`,
-/// `merge-tree`, `check-attr`, `cat-file`): the first conflict, which needs no search. It is described by its merge
-/// (`merge-tree`), the commit (`log`) and the upstream commits that change its files (`log`); the outline of the whole
-/// branch is gone (one `log` less). A conflict moves nothing: no lock, no witness
+/// Update Project of `upstream_and_clone_with_twins` after its fetch: the check pairs the local commits once. Before the
+/// replay, the pairing reads the local commits (`log`) and the upstream commits by the local authors (`log`), compares
+/// the patch ids of both pairs by identity (`diff-tree -p` with `patch-id --stable`, none equal), replays them
+/// (`merge-tree --stdin`, one `rev-parse` of the upstream trees), and proves the one whose cherry-pick conflicts by its
+/// changed lines (`diff-tree -p -U0` with `patch-id --verbatim`, `diff-tree --raw`). The replay without the twins
+/// conflicts, so the pairing looks for the commits of the same patch (`rev-list --cherry-mark`, none here), and the
+/// resolve by words stops at the real conflict (`var`, `merge-tree`, `check-attr`, `cat-file`): the first conflict,
+/// which needs no search. It is described by its merge (`merge-tree`), the commit (`log`) and the upstream commits that
+/// change its files (`log`); the outline of the whole branch is gone (one `log` less). A conflict moves nothing: no
+/// lock, no witness
 #[test]
 fn a_conflicting_update_pairs_its_commits_once() {
   let (_upstream, clone, _, _) = TestRepo::upstream_and_clone_with_twins(false);
@@ -116,14 +117,14 @@ fn a_conflicting_update_pairs_its_commits_once() {
       ("cat-file", 2),
       ("check-attr", 1),
       ("config", 1),
-      ("diff-tree", 2),
+      ("diff-tree", 3),
       ("for-each-ref", 1),
       ("log", 4),
       ("merge-base", 2),
       ("merge-tree", 3),
-      ("patch-id", 1),
+      ("patch-id", 2),
       ("remote", 1),
-      ("replay", 2),
+      ("replay", 1),
       ("rev-list", 2),
       ("rev-parse", 4),
       ("symbolic-ref", 2),

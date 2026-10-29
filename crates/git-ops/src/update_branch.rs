@@ -9,7 +9,7 @@
 use crate::commit_utils::blob_id;
 use crate::commit_writer::{current_committer, write_notes_to_refs};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
-use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedScope, pair_landed};
+use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_twins, read_landed, with_patch_identical};
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
@@ -29,7 +29,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 use sync_utils::list_cut::kept;
 use tracing::{debug, info, instrument};
@@ -70,15 +70,17 @@ pub enum CheckPurpose {
   Apply,
 }
 
-/// Which local commits a check whose replay conflicts leaves out: those the upstream proves it has
-/// (`landed_pairing::pair_landed`), then, while the replay still conflicts, the candidates by identity, e.g. those a
+/// Which local commits a check leaves out of its replay: the twins the upstream proves it has
+/// (`landed_pairing::pair_twins`), before any replay; when the replay conflicts, also the commits of the same patch id
+/// (`landed_pairing::with_patch_identical`), then, while it still conflicts, the candidates by identity, e.g. those a
 /// Safe Push robot pushed with their fixups folded in (the target alone then adds other content than the upstream has).
 /// A candidate is left out only if the result provably keeps its change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LandedLookup {
   /// None: the check leaves nothing out
   Off,
-  /// The ladder of `landed_pairing::pair_landed`; `stacks` is the stack setting, by which a fixup finds its target
+  /// The ladder of `landed_pairing::pair_landed`, its twins before the replay; `stacks` is the stack setting, by which a
+  /// fixup finds its target
   ByKey { stacks: bool },
 }
 
@@ -104,12 +106,15 @@ pub struct UpdatePlan {
   excluded: Vec<String>,
   /// What the check read, kept apart from the public `check`: a resolve session starts from these (`update_resolve`)
   pub(crate) checked: CheckedState,
-  /// The plan of the replay, when the first replay conflicted: what the pairing left out; `None` on a clean replay
+  /// The plan of the replay, when the pairing left a commit out or the replay conflicted; `None` on a clean replay of
+  /// every local commit
   replay: Option<ReplayPlan>,
+  /// What the pairing read (`LandedLookup::ByKey` of a rebase), for the landed report of the check
+  landed_reads: Option<Arc<LandedReads>>,
 }
 
-/// What a check whose first replay conflicted computed once (`landed_pairing::pair_landed`): the local commits it keeps
-/// and the pairing. The check stores it; a resolve session replays it, without a pairing of its own
+/// What the pairing of a check left out (`landed_pairing::pair_twins`, after a conflict `pair_landed`): the local commits
+/// it keeps and the pairing. The check stores it; a resolve session replays it, without a pairing of its own
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplayPlan {
   /// The local commits the replay keeps, oldest first: the proven drops left out
@@ -186,14 +191,21 @@ impl UpdatePlan {
     &self.excluded
   }
 
-  /// The plan of the replay, when the first replay conflicted (`ReplayPlan`); a resolve session starts from it
+  /// The plan of the replay, when the pairing left a commit out or the replay conflicted (`ReplayPlan`); a resolve
+  /// session starts from it
   pub const fn replay_plan(&self) -> Option<&ReplayPlan> {
     self.replay.as_ref()
   }
 
-  /// The local commits the replay left out because the upstream proves it has them; empty on a clean first replay
+  /// The local commits the replay left out because the upstream proves it has them
   pub fn landed_drops(&self) -> &[LandedDrop] {
     self.replay.as_ref().map_or(&[], ReplayPlan::left_out)
+  }
+
+  /// What the pairing of the check read, for the landed report (`sync_core::landed::find_landed`); `None` when it
+  /// paired nothing (no rebase, `LandedLookup::Off`)
+  pub fn landed_reads(&self) -> Option<&LandedReads> {
+    self.landed_reads.as_deref()
   }
 }
 
@@ -352,6 +364,7 @@ fn check_update_with(
     excluded: Vec::new(),
     checked,
     replay: None,
+    landed_reads: None,
   };
   if base == upstream_head {
     return Ok(plan);
@@ -396,8 +409,9 @@ fn check_update_with(
     }
   };
 
+  plan.landed_reads = outcome.landed_reads().cloned();
   let (new_head, changed, blocked) = match &outcome {
-    ReplayOutcome::Conflict { first_conflict, plan: replay } => {
+    ReplayOutcome::Conflict { first_conflict, plan: replay, .. } => {
       plan.check.state = UpdateState::Conflict {
         first_conflict: first_conflict.clone(),
       };
@@ -409,6 +423,7 @@ fn check_update_with(
       changed,
       resolved,
       plan: replay,
+      ..
     } => {
       plan.check.resolved_by_words.clone_from(resolved);
       plan.replay.clone_from(replay);
@@ -475,20 +490,34 @@ enum ReplayOutcome {
     first_conflict: FirstConflict,
     /// With `ReplayPlan::first_conflict`
     plan: ReplayPlan,
+    landed_reads: Option<Arc<LandedReads>>,
   },
   Applies {
     new_head: String,
     changed: Vec<ChangedPath>,
     /// The local commits that the words resolved, oldest first
     resolved: Vec<UpdateResolvedCommit>,
-    /// The plan, when the first replay conflicted
+    /// The plan, when the pairing left a commit out or the replay conflicted
     plan: Option<ReplayPlan>,
+    landed_reads: Option<Arc<LandedReads>>,
   },
 }
 
+impl ReplayOutcome {
+  /// What the pairing read (`UpdatePlan::landed_reads`)
+  const fn landed_reads(&self) -> Option<&Arc<LandedReads>> {
+    match self {
+      Self::Conflict { landed_reads, .. } | Self::Applies { landed_reads, .. } => landed_reads.as_ref(),
+    }
+  }
+}
+
 /// Replay the local commits onto the upstream (a fast-forward needs no replay) and list the paths HEAD's tree changes.
-/// When the replay conflicts, the pairing runs once (`ReplayPlan`): the replay without the drops, then without the
-/// candidates too (`replay_without_landed`), then by words; the outcome keeps the plan
+/// The twins the upstream proves it has are left out before the replay (`pair_twins`, `LandedLookup::ByKey`), as
+/// `git rebase` leaves out a commit of the same patch id: a clean merge of a twin onto other context can add its lines a
+/// second time. When the replay conflicts, the pairing adds the commits of the same patch id once (`ReplayPlan`): the
+/// replay without the drops, then without the candidates too (`replay_without_landed`), then by words; the outcome
+/// keeps the plan
 fn replay_outcome(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -501,6 +530,7 @@ fn replay_outcome(
   let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
   let mut resolved = Vec::new();
   let mut replay_plan = None;
+  let mut landed_reads = None;
   let new_head = match kind {
     UpdateKind::FastForward => upstream_head.clone(),
     UpdateKind::Rebase => {
@@ -515,11 +545,34 @@ fn replay_outcome(
         CheckPurpose::Preview => &PREVIEW_COMMITTER_DATE,
         CheckPurpose::Apply => &[],
       };
-      if let Some(new_head) = replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)? {
+      let twins = match landed {
+        LandedLookup::ByKey { stacks } => {
+          let reads = read_landed(git_executor, repo_path, landed_scope(plan))?;
+          let twins = pair_twins(git_executor, repo_path, &reads, stacks)?;
+          landed_reads = Some(Arc::new(reads));
+          Some((twins, stacks))
+        }
+        LandedLookup::Off => None,
+      };
+      // the twins the upstream proves it has are never replayed onto it
+      let tried = twins.as_ref().map_or(0, |(twins, _)| twins.drops.len());
+      let first = match &twins {
+        Some((twins, _)) if tried > 0 => replay_skipping(git_executor, repo_path, upstream_head, &revs, &twins.local, &drop_ids(&twins.drops), env)?,
+        _ => replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)?,
+      };
+      if let Some(new_head) = first {
+        if tried > 0 {
+          info!(left_out = tried, "the update leaves out the twins the upstream proves it has");
+          replay_plan = twins.map(|(twins, _)| ReplayPlan::of(twins));
+        }
         new_head
       } else {
-        let replay = ReplayPlan::of(read_pairing(git_executor, repo_path, plan, &revs, landed)?);
-        let mut replayed = replay_without_landed(git_executor, repo_path, upstream_head, &revs, env, &replay)?;
+        let pairing = match (twins, &landed_reads) {
+          (Some((twins, stacks)), Some(reads)) => with_patch_identical(git_executor, repo_path, landed_scope(plan), reads, twins, stacks)?,
+          _ => unpaired(git_executor, repo_path, &revs)?,
+        };
+        let replay = ReplayPlan::of(pairing);
+        let mut replayed = replay_without_landed(git_executor, repo_path, upstream_head, &revs, env, &replay, tried)?;
         let mut stopped = None;
         if replayed.is_none() && resolve == ResolveMode::On {
           match replay_by_words(git_executor, repo_path, upstream_head, &replay, env, purpose)? {
@@ -535,7 +588,7 @@ fn replay_outcome(
             Some(stopped) => stopped,
             None => find_first_conflict(git_executor, repo_path, upstream_head, &replay, env)?,
           };
-          return conflict_outcome(git_executor, repo_path, base, upstream_head, replay, index, &tip);
+          return conflict_outcome(git_executor, repo_path, base, upstream_head, replay, index, &tip, landed_reads);
         };
         replay_plan = Some(replay);
         new_head
@@ -548,30 +601,32 @@ fn replay_outcome(
     changed,
     resolved,
     plan: replay_plan,
+    landed_reads,
   })
 }
 
-/// The pairing of a replay that conflicted (`LandedLookup`): the ladder of `pair_landed`, or the local commits alone
-/// (`local_revs`, one `rev-list`)
-fn read_pairing(git_executor: &GitCommandExecutor, repo_path: &str, plan: &UpdatePlan, local_revs: &[&str], landed: LandedLookup) -> Result<LandedPairing> {
+/// What the pairing of `plan` reads
+fn landed_scope(plan: &UpdatePlan) -> LandedScope<'_> {
   let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
-  match landed {
-    LandedLookup::ByKey { stacks } => {
-      let scope = LandedScope {
-        head,
-        upstream_head,
-        base,
-        excluded: &plan.excluded,
-      };
-      pair_landed(git_executor, repo_path, scope, stacks)
-    }
-    LandedLookup::Off => {
-      let mut args = vec!["rev-list", "--reverse"];
-      args.extend_from_slice(local_revs);
-      args.push("--");
-      Ok(LandedPairing::unpaired(git_executor.execute_command_lines(&args, repo_path)?))
-    }
+  LandedScope {
+    head,
+    upstream_head,
+    base,
+    excluded: &plan.excluded,
   }
+}
+
+/// The local commits of `local_revs` without a pairing (`LandedLookup::Off`): one `rev-list`
+fn unpaired(git_executor: &GitCommandExecutor, repo_path: &str, local_revs: &[&str]) -> Result<LandedPairing> {
+  let mut args = vec!["rev-list", "--reverse"];
+  args.extend_from_slice(local_revs);
+  args.push("--");
+  Ok(LandedPairing::unpaired(git_executor.execute_command_lines(&args, repo_path)?))
+}
+
+/// The local commits of `drops`
+fn drop_ids(drops: &[LandedDrop]) -> Vec<String> {
+  drops.iter().map(|drop| drop.commit.clone()).collect()
 }
 
 /// The first conflicting commit of the kept local commits of `plan` onto `upstream_head`, whose replay conflicted:
@@ -589,7 +644,17 @@ fn find_first_conflict(git_executor: &GitCommandExecutor, repo_path: &str, upstr
 
 /// The conflict of a replay at the commit at `index` of `plan.local`, onto `tip`: the files of its merge, the commit and
 /// the upstream commits that change those files
-fn conflict_outcome(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, upstream_head: &str, mut plan: ReplayPlan, index: usize, tip: &str) -> Result<ReplayOutcome> {
+#[expect(clippy::too_many_arguments, reason = "the conflict keeps what the pairing read")]
+fn conflict_outcome(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  base: &str,
+  upstream_head: &str,
+  mut plan: ReplayPlan,
+  index: usize,
+  tip: &str,
+  landed_reads: Option<Arc<LandedReads>>,
+) -> Result<ReplayOutcome> {
   let id = &plan.local[index];
   let paths = first_conflict_files(git_executor, repo_path, tip, id)?;
   let file_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
@@ -617,6 +682,7 @@ fn conflict_outcome(git_executor: &GitCommandExecutor, repo_path: &str, base: &s
       upstream_commits,
     },
     plan,
+    landed_reads,
   })
 }
 
@@ -639,7 +705,8 @@ fn replay_by_words(
   replay_resolving_words(git_executor, repo_path, upstream_head, &plan.local, &plan.run_starts, env, &committer)
 }
 
-/// For a replay that conflicts: replay again without the drops of `plan`, which the upstream proves it has, then also
+/// For a replay that conflicts: replay again without the drops of `plan`, which the upstream proves it has, unless the
+/// replay that conflicted already left out all of them (`tried`: the twins of `pair_twins` come first), then also
 /// without each set of candidates in order (`LandedPairing::candidate_sets`). A set of candidates counts only if the
 /// result keeps the change of each candidate (`keeps_candidates`). So a commit amended after it was pushed, or a fixup
 /// made after, is never lost; its set fails and the update conflicts as before. `None` when nothing gives a clean result
@@ -650,10 +717,11 @@ fn replay_without_landed(
   local_revs: &[&str],
   env: &[(&str, &str)],
   plan: &ReplayPlan,
+  tried: usize,
 ) -> Result<Option<String>> {
   let pairing = &plan.pairing;
-  let drops: Vec<String> = plan.left_out().iter().map(|drop| drop.commit.clone()).collect();
-  if !drops.is_empty()
+  let drops = drop_ids(plan.left_out());
+  if drops.len() > tried
     && let Some(new_head) = replay_skipping(git_executor, repo_path, upstream_head, local_revs, &pairing.local, &drops, env)?
   {
     info!(left_out = drops.len(), "the update leaves out local commits the upstream proves it has");

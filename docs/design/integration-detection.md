@@ -156,11 +156,13 @@ flowchart TB
    commit, with its committer (the robot), before and after the update and also partly (3 of 12 commits of a branch).
    Patch ids would miss a commit whose fixups the robot folded in. The key's subject is the one the virtual branch
    commit was pushed with (`stripped_subject`), so a fixup of a prefix branch, pushed without its marker, matches its own
-   upstream commit. The key names a candidate; only a proof leaves a local commit out of a replay. When a replay
-   conflicts, the check pairs the local commits once by a ladder of proofs, one to one (`landed_pairing::pair_landed`):
-   the same patch id; the same key and a cherry-pick onto the upstream commit's own parent that writes its tree
-   (`replayed`: twins that landed in another order, whose context lines differ); the same key and the same changed
-   lines, paths and modes (`changed_lines`: a cherry-pick that conflicts on the line next to it). A proven commit
+   upstream commit. The key names a candidate; only a proof leaves a local commit out of a replay. Before every replay,
+   the check pairs each local commit with the upstream commit of its key, one to one, and proves the pair by a ladder
+   (`landed_pairing::pair_twins`): the same patch id; a cherry-pick onto the upstream commit's own parent that writes
+   its tree (`replayed`: twins that landed in another order, whose context lines differ); the same changed lines, paths
+   and modes (`changed_lines`: a cherry-pick that conflicts on the line next to it). A proven twin is never replayed: a
+   clean merge of it onto other context can add its lines a second time. When the replay conflicts, the check also
+   pairs the commits of the same patch id under another key, once (`landed_pairing::pair_landed`). A proven commit
    landed as its upstream commit, also under a reworded message. When the replay conflicts because the robot folded
    fixups into their target, the update leaves the candidates out too if a `merge-tree` of each candidate's change
    proves nothing local is lost (see "Update project" in [Git Operations](git-operations.md)). Where the check

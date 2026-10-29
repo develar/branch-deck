@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::landed_pairing::LandedDrop;
+use git_ops::landed_pairing::{LandedDrop, LandedReads};
 use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
   CheckPurpose, LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
@@ -266,6 +266,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       excluded: plan.excluded(),
       new_head: &applied.new_head,
       proven: plan.landed_drops(),
+      reads: plan.landed_reads(),
       not_landed: &[],
     };
     record_landed_update(git_executor, repo_path, &report, &grouping)
@@ -361,6 +362,8 @@ pub(crate) struct LandedReport<'a> {
   pub new_head: &'a str,
   /// The local commits the replay left out because the upstream proves it has them: landed as their upstream commit
   pub proven: &'a [LandedDrop],
+  /// What the pairing of the check read (`UpdatePlan::landed_reads`); `None` after a resolve session
+  pub reads: Option<&'a LandedReads>,
   /// The local commits that are gone for another reason: a resolution dropped them, and no upstream commit has their
   /// identity
   pub not_landed: &'a [String],
@@ -373,6 +376,7 @@ pub(crate) fn record_landed_update(git_executor: &GitCommandExecutor, repo_path:
     excluded,
     new_head,
     proven,
+    reads,
     not_landed,
   } = *report;
   let result = (|| {
@@ -389,6 +393,7 @@ pub(crate) fn record_landed_update(git_executor: &GitCommandExecutor, repo_path:
         gone_is_landed: true,
         grouping,
         proven,
+        reads,
       },
     )?;
     let mut landed = landed;

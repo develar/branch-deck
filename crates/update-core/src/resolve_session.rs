@@ -631,6 +631,7 @@ fn outcome(
         excluded: &state.excluded,
         new_head: &new_head,
         proven: &state.landed_dropped,
+        reads: None,
         not_landed: &not_landed,
       };
       // onto a local branch (a lease) nothing reached the baseline

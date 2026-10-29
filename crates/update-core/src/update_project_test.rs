@@ -91,7 +91,7 @@ fn status(repo: &TestRepo) -> String {
   String::from_utf8_lossy(&output).trim_end().to_string()
 }
 
-const ORIGIN_MASTER: UpstreamRef<'static> = UpstreamRef {
+pub(crate) const ORIGIN_MASTER: UpstreamRef<'static> = UpstreamRef {
   tracking_ref: "refs/remotes/origin/master",
   name: "origin/master",
   previous: None,

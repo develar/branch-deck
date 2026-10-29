@@ -1,8 +1,11 @@
-use crate::update_project::update_project_test::{Setup, git, path, setup, update};
+use crate::update_project::update_project_test::{ORIGIN_MASTER, Setup, git, path, setup, update};
 use crate::update_project::{UpdateUndoToken, undo_update_core};
 use domain_types::SyncEvent;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateKind, UpdateState};
+use git_ops::landed_pairing::{LandedDrop, LandedProof};
+use git_ops::update_branch::{CheckPurpose, LandedLookup, check_update};
+use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use pretty_assertions::assert_eq;
 use std::fs;
@@ -321,4 +324,71 @@ async fn sync_sends_the_landing_and_the_report() -> anyhow::Result<()> {
   update(&clone)?;
   assert_eq!(baseline_status().await?, (Vec::new(), expected));
   Ok(())
+}
+
+/// The local `(auth) Add note`, which repeats the block of `f.txt`, landed by a robot as its twin (`land_as`), onto a
+/// changed last line when `other_context` (so the patch ids differ); then the upstream changes the older copy of the
+/// block. The diff of the upstream pairs the block of the merge base with the newer copy, so the merge of the local
+/// commit onto the upstream is clean and adds its lines a second time (branch-deck#153). The local commit, the twin
+/// and the file the upstream has
+fn twin_whose_merge_adds_its_lines_again(other_context: bool) -> (Setup, String, String, String) {
+  let block = "for a {\n  x\n}\n";
+  let last = if other_context { "LAST" } else { "last" };
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", &format!("start\n{block}end\npad\nlast\n"))]);
+  let local = clone.create_commit("(auth) Add note", "f.txt", &format!("start\n{block}note\n{block}end\npad\nlast\n"));
+  if other_context {
+    upstream.create_commit("Change the last line", "f.txt", &format!("start\n{block}end\npad\n{last}\n"));
+  }
+  let twin = land_as(
+    &upstream,
+    &clone,
+    &local,
+    "Add note",
+    &[("f.txt", &format!("start\n{block}note\n{block}end\npad\n{last}\n"))],
+  );
+  let upstream_file = format!("start\nfor a {{\n  y\n}}\nnote\n{block}end\npad\n{last}\n");
+  upstream.create_commit("Change the older block", "f.txt", &upstream_file);
+  git(&clone, &["fetch", "origin"]);
+  (Setup { upstream, clone }, local, twin, upstream_file)
+}
+
+/// A twin is left out before the replay by its proof, not replayed onto the upstream: the update moves to the upstream,
+/// the file holds the lines once, and the twin landed
+fn assert_twin_left_out(other_context: bool, proof: LandedProof) {
+  let (Setup { clone, upstream: _upstream }, local, twin, upstream_file) = twin_whose_merge_adds_its_lines_again(other_context);
+  let check = check_update(
+    clone.git_executor(),
+    path(&clone),
+    ORIGIN_MASTER,
+    CheckPurpose::Preview,
+    LandedLookup::ByKey { stacks: false },
+    ResolveMode::Off,
+  )
+  .unwrap();
+  assert_eq!(check.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  assert_eq!(
+    check.landed_drops(),
+    [LandedDrop {
+      commit: local,
+      upstream: twin.clone(),
+      proof,
+    }]
+  );
+  let expected = vec![format!("auth: Add note -> {twin} | 0 stay")];
+  assert_eq!(landing(&clone), expected);
+
+  let result = update(&clone).unwrap();
+  assert_eq!(describe(&result.landed), expected);
+  assert_eq!(git(&clone, &["rev-parse", "HEAD"]), git(&clone, &["rev-parse", "origin/master"]));
+  assert_eq!(fs::read_to_string(clone.path().join("f.txt")).unwrap(), upstream_file);
+}
+
+#[test]
+fn a_twin_of_the_same_patch_is_left_out_of_a_clean_replay_that_would_add_its_lines_again() {
+  assert_twin_left_out(false, LandedProof::PatchId);
+}
+
+#[test]
+fn a_twin_on_other_context_is_left_out_of_a_clean_replay_by_its_replay() {
+  assert_twin_left_out(true, LandedProof::Replayed);
 }

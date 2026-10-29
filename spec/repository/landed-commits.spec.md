@@ -82,12 +82,15 @@ by the next sync the same way.
 
 ### The proof
 
-- A key match is a candidate, never a proof. When the replay conflicts, the check pairs the local commits with the
-  baseline commits once, by a ladder: the same patch id with context (`patch_id`, as `git rebase` compares); else the
-  same key and a cherry-pick of the local commit onto the baseline commit's own parent that writes that commit's tree
-  (`replayed`: twins that landed in another order, whose context lines differ); else the same key and the same changed
+- A key match is a candidate, never a proof. Before the replay, the check pairs each local commit with the baseline
+  commit of its key (a twin) and proves the pair by a ladder: the same patch id with context (`patch_id`, as
+  `git rebase` compares); else a cherry-pick of the local commit onto the baseline commit's own parent that writes that
+  commit's tree (`replayed`: twins that landed in another order, whose context lines differ); else the same changed
   lines without context, paths, statuses and modes, with the same new object of each binary file and gitlink
-  (`changed_lines`: a cherry-pick that conflicts on the line next to it). What no rung proves stays a candidate.
+  (`changed_lines`: a cherry-pick that conflicts on the line next to it). When the replay conflicts, the check also
+  pairs the local commits of the same patch id under another key (a reworded one), once. What no rung proves stays a
+  candidate.
+  [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_of_the_same_patch_is_proven_by_its_patch_id_before_the_replay`, `the_same_patch_under_another_identity_is_proven_only_after_a_conflict`, `the_pairing_of_the_twins_runs_no_process_without_a_twin`)
   [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_with_other_context_is_proven_by_its_replay`)
   [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`twins_landed_in_the_other_order_are_both_proven_by_their_replay`)
   [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_twin_whose_cherry_pick_conflicts_is_proven_by_its_changed_lines`)
@@ -113,9 +116,12 @@ by the next sync the same way.
 
 ### Update
 
-- When the replay conflicts, the check replays again without the proven commits ("The proof"), as a drop does (a run
-  of kept commits per replay). If that conflicts too, it leaves out the candidates together with their fixups, then
-  the candidates alone. Such a result counts only if it keeps the change of each candidate: the merge of the change
+- The check replays without the proven twins ("The proof"), as `git rebase` leaves out a commit of the same patch id
+  and as a drop does (a run of kept commits per replay): a clean merge of a twin onto a baseline that changed the lines
+  around it would add its lines a second time.
+  [@test] ../../crates/update-core/src/landed_test.rs (`a_twin_of_the_same_patch_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`, `a_twin_on_other_context_is_left_out_of_a_clean_replay_by_its_replay`)
+- When the replay conflicts, the check replays again without the commits of the same patch id under another key too.
+  If that conflicts too, it leaves out the candidates together with their fixups, then the candidates alone. Such a result counts only if it keeps the change of each candidate: the merge of the change
   from the candidate's parent to its last local fixup into the result gives the result's tree. So a robot that folded
   the fixups into their target no longer makes the update conflict, while a commit amended after the push, or a fixup
   made after it, is never left out; the update then conflicts as before.

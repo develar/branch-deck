@@ -6,8 +6,9 @@
 //! - `CommitKey`: the identity of a commit across a rebase and an amend
 //! - the walks: one `rev-list` of the commits a caller matches by `CommitKey` (`walk_commits`), of some authors only
 //!   (`walk_commits_by_authors`, `ids_by_key`)
-//! - the pairing of an update whose replay conflicts (`pair_landed`): a ladder of proofs (`LandedProof`), one to one,
-//!   on the logs of the landed report (`read_local`, `read_upstream`); the pairs by identity alone are candidates
+//! - the pairing of an update (`pair_twins` before its replay, `with_patch_identical` after a conflict, both
+//!   `pair_landed`): a ladder of proofs (`LandedProof`), one to one, on the logs of the landed report (`LandedReads`);
+//!   the pairs by identity alone are candidates
 //! - the patch ids: `same_changes` of commit pairs without context, `pair_by_patch_id` and `patch_identical` with it
 //! - the interdiff of a candidate and its twin (`interdiffs`): what a drop of the candidate loses
 
@@ -173,6 +174,36 @@ pub struct LandedScope<'a> {
   pub excluded: &'a [String],
 }
 
+impl LandedScope<'_> {
+  /// The revisions of the local commits: `HEAD ^upstream ^<excluded>`
+  fn local_revs(&self) -> Vec<String> {
+    let mut revs = vec![self.head.to_string(), format!("^{}", self.upstream_head)];
+    revs.extend(self.excluded.iter().map(|rev| format!("^{rev}")));
+    revs
+  }
+}
+
+/// What the pairing of an update reads, the two `log`s that the landed report reads too
+/// (`sync_core::landed::find_landed`): the check reads them once and hands them on
+#[derive(Debug, Clone, Default)]
+pub struct LandedReads {
+  /// The local commits (`read_local`), oldest first
+  pub local: Vec<Commit>,
+  /// The upstream commits since the merge base by the authors of `local` (`read_upstream`), newest first; none without
+  /// local commits
+  pub upstream: Vec<KeyedCommit>,
+}
+
+/// The local commits of `scope` and the upstream commits by their authors: two `log`, one without local commits
+pub fn read_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>) -> Result<LandedReads> {
+  let local = read_local(git_executor, repo_path, &scope.local_revs())?;
+  if local.is_empty() {
+    return Ok(LandedReads::default());
+  }
+  let upstream = read_upstream(git_executor, repo_path, &local, scope.base, scope.upstream_head)?;
+  Ok(LandedReads { local, upstream })
+}
+
 /// A commit of the upstream, or one that stays local
 #[derive(Debug, Clone)]
 pub struct KeyedCommit {
@@ -312,17 +343,23 @@ fn lines_of(items: impl IntoIterator<Item = impl AsRef<str>>) -> String {
 /// patch id ignores the line numbers and whitespace) are equal. One `diff-tree --stdin` and one `patch-id`, none
 /// without pairs
 pub fn same_changes(git_executor: &GitCommandExecutor, repository_path: &str, pairs: &[(&str, &str)]) -> Result<Vec<bool>> {
+  same_patch_ids(git_executor, repository_path, pairs, PatchContext::None)
+}
+
+/// Which pairs have equal `patch-id --stable` of their diffs with `context`: one `diff-tree --stdin -p` and one
+/// `patch-id`, none without pairs
+fn same_patch_ids(git_executor: &GitCommandExecutor, repository_path: &str, pairs: &[(&str, &str)], context: PatchContext) -> Result<Vec<bool>> {
   if pairs.is_empty() {
     return Ok(Vec::new());
   }
   let patch_of = patch_ids(
     git_executor,
     repository_path,
-    pairs.iter().flat_map(|(older, newer)| [older, newer]),
-    PatchContext::None,
+    pairs.iter().flat_map(|(one, other)| [one, other]),
+    context,
     PatchIdMode::Stable,
   )?;
-  Ok(pairs.iter().map(|(older, newer)| same_value(&patch_of, older, newer)).collect())
+  Ok(pairs.iter().map(|(one, other)| same_value(&patch_of, one, other)).collect())
 }
 
 /// Both have a value, and it is the same
@@ -360,18 +397,20 @@ pub struct LandedDrop {
 /// The local commits (`local`) whose patch id equals that of an upstream commit since the merge base, with that commit:
 /// one `rev-list --cherry-mark` marks the commits of both sides that have a counterpart, then one `diff-tree --stdin -p`
 /// and one `patch-id --stable` pair them one to one (`pair_by_patch_id`). As `git rebase` does, they are left out of the
-/// replay; the patch id is the proof that the upstream has their change
-pub fn patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, upstream_head: &str, head: &str, local: &[String]) -> Result<Vec<LandedDrop>> {
+/// replay; the patch id is the proof that the upstream has their change. The local and the upstream commits of `proven`,
+/// which an earlier proof paired, take no part
+pub fn patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, upstream_head: &str, head: &str, local: &[String], proven: &[LandedDrop]) -> Result<Vec<LandedDrop>> {
   let marked = git_executor.execute_command_lines(&["rev-list", "--cherry-mark", "--no-merges", &format!("{upstream_head}...{head}"), "--"], repo_path)?;
   let equivalent: Vec<&str> = marked.iter().filter_map(|line| line.strip_prefix('=')).collect();
   if equivalent.is_empty() {
     return Ok(Vec::new());
   }
   let local_set: HashSet<&str> = local.iter().map(String::as_str).collect();
-  let marked: HashSet<&str> = equivalent.iter().copied().collect();
+  let taken: HashSet<&str> = proven.iter().flat_map(|drop| [drop.commit.as_str(), drop.upstream.as_str()]).collect();
+  let marked: HashSet<&str> = equivalent.iter().copied().filter(|commit| !taken.contains(commit)).collect();
   // in the order of `local`, so the oldest local commit takes the upstream commit
   let local: Vec<&str> = local.iter().map(String::as_str).filter(|commit| marked.contains(commit)).collect();
-  let upstream: Vec<&str> = equivalent.into_iter().filter(|commit| !local_set.contains(commit)).collect();
+  let upstream: Vec<&str> = equivalent.into_iter().filter(|commit| marked.contains(commit) && !local_set.contains(commit)).collect();
   pair_by_patch_id(git_executor, repo_path, &local, &upstream)
 }
 
@@ -472,52 +511,54 @@ impl LandedPairing {
   }
 }
 
-/// Pair the local commits of `scope` with the upstream commits since the merge base (`LandedPairing`), by a ladder of
-/// proofs, each rung only for the pairs the one before left (`LandedProof`):
-/// 1. `patch_id`: `patch_identical`;
-/// 2. `replayed`: the local and the upstream commit with the same `CommitKey`, one `merge-tree --stdin` and one
-///    `rev-parse` of the upstream trees for all pairs, each pair against its own upstream parent;
+/// Pair the local commits of `scope` with the upstream commits since the merge base (`LandedPairing`): the twins
+/// (`pair_twins`), then the rest by their patch id (`with_patch_identical`), the pairing of an update whose replay
+/// conflicted. `stacks` is the stack setting, by which a fixup finds its target
+pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, stacks: bool) -> Result<LandedPairing> {
+  let reads = read_landed(git_executor, repo_path, scope)?;
+  let twins = pair_twins(git_executor, repo_path, &reads, stacks)?;
+  with_patch_identical(git_executor, repo_path, scope, &reads, twins, stacks)
+}
+
+/// Pair each local commit of `reads` with the upstream commit of its `CommitKey`, one to one, the oldest local commit of
+/// a key with the oldest upstream one, and prove each pair by a ladder, each rung only for the pairs the one before left
+/// (`LandedProof`):
+/// 1. `patch_id`: one `diff-tree --stdin -p` and one `patch-id --stable` of the pairs;
+/// 2. `replayed`: one `merge-tree --stdin` and one `rev-parse` of the upstream trees for all pairs, each pair against its
+///    own upstream parent;
 /// 3. `changed_lines`: the pairs whose cherry-pick conflicts on its context, one `diff-tree -p -U0` with one
 ///    `patch-id --verbatim` and one `diff-tree --raw --numstat`.
 ///
-/// The pairs that no rung proves are the candidates. The local commits by `log`, the upstream ones by their authors
-/// (`read_upstream`); `stacks` is the stack setting, by which a fixup finds its target
-pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, stacks: bool) -> Result<LandedPairing> {
-  let mut revs = vec![scope.head.to_string(), format!("^{}", scope.upstream_head)];
-  revs.extend(scope.excluded.iter().map(|rev| format!("^{rev}")));
-  let local = read_local(git_executor, repo_path, &revs)?;
-  let mut pairing = LandedPairing::unpaired(local.iter().map(|commit| commit.id.clone()).collect());
-  if local.is_empty() {
-    return Ok(pairing);
-  }
-  let mut drops = patch_identical(git_executor, repo_path, scope.upstream_head, scope.head, &pairing.local)?;
-  let mut taken: HashSet<String> = drops.iter().map(|drop| drop.upstream.clone()).collect();
-  let proven: HashSet<String> = drops.iter().map(|drop| drop.commit.clone()).collect();
-
-  let upstream = read_upstream(git_executor, repo_path, &local, scope.base, scope.upstream_head)?;
+/// The pairs that no rung proves are the candidates. No process without pairs, so every check of an update pairs its
+/// twins before its replay: `git replay` drops a commit only when it becomes empty, and the merge of a twin onto other
+/// context can add its lines a second time. `stacks` is the stack setting, by which a fixup finds its target
+pub fn pair_twins(git_executor: &GitCommandExecutor, repo_path: &str, reads: &LandedReads, stacks: bool) -> Result<LandedPairing> {
   // oldest first, so the oldest local commit of a key takes the oldest upstream one
   let mut by_key: HashMap<&CommitKey, VecDeque<&str>> = HashMap::new();
-  for commit in upstream.iter().rev() {
-    if !taken.contains(&commit.upstream.id) {
-      by_key.entry(&commit.key).or_default().push_back(commit.upstream.id.as_str());
-    }
+  for commit in reads.upstream.iter().rev() {
+    by_key.entry(&commit.key).or_default().push_back(commit.upstream.id.as_str());
   }
   let mut pairs: Vec<(&str, &str)> = Vec::new();
-  for commit in local.iter().filter(|commit| !proven.contains(&commit.id)) {
+  for commit in &reads.local {
     let key = CommitKey::from_message(&commit.author_email, commit.author_timestamp, &commit.message);
     if let Some(upstream) = by_key.get_mut(&key).and_then(VecDeque::pop_front) {
-      taken.insert(upstream.to_string());
       pairs.push((commit.id.as_str(), upstream));
     }
   }
 
-  let replayed = replayed_pairs(git_executor, repo_path, &pairs)?;
-  let conflicting: Vec<(&str, &str)> = pairs.iter().zip(&replayed).filter(|(_, replayed)| !**replayed).map(|(pair, _)| *pair).collect();
+  let same_patch = same_patch_ids(git_executor, repo_path, &pairs, PatchContext::Default)?;
+  let unpatched: Vec<(&str, &str)> = pairs.iter().zip(&same_patch).filter(|(_, same)| !**same).map(|(pair, _)| *pair).collect();
+  let replayed = replayed_pairs(git_executor, repo_path, &unpatched)?;
+  let conflicting: Vec<(&str, &str)> = unpatched.iter().zip(&replayed).filter(|(_, replayed)| !**replayed).map(|(pair, _)| *pair).collect();
   let changed_lines = same_changed_lines(git_executor, repo_path, &conflicting)?;
+  let mut by_replay = unpatched.iter().zip(replayed);
   let mut by_lines = conflicting.iter().zip(changed_lines);
+  let mut drops = Vec::new();
   let mut candidates: Vec<(&str, &str)> = Vec::new();
-  for (pair, replayed) in pairs.iter().zip(replayed) {
-    let proof = if replayed {
+  for (pair, same_patch) in pairs.iter().zip(same_patch) {
+    let proof = if same_patch {
+      Some(LandedProof::PatchId)
+    } else if by_replay.next().is_some_and(|(_, replayed)| replayed) {
       Some(LandedProof::Replayed)
     } else {
       by_lines.next().and_then(|(_, same)| same.then_some(LandedProof::ChangedLines))
@@ -531,14 +572,53 @@ pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: La
       None => candidates.push(*pair),
     }
   }
+  Ok(pairing_of(reads, drops, &candidates, stacks))
+}
+
+/// The pairing of `twins` (`pair_twins`) with the rung that only an update whose replay conflicts runs: the local commits
+/// that no twin proves, whose patch id equals that of an upstream commit since the merge base that no proof took
+/// (`patch_identical`, e.g. a commit the upstream reworded). They are left out as `patch_id`; a candidate whose commit or
+/// upstream commit they take is a candidate no more. One `rev-list --cherry-mark`, the processes of `pair_by_patch_id`
+/// only for marked commits
+pub fn with_patch_identical(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  scope: LandedScope<'_>,
+  reads: &LandedReads,
+  twins: LandedPairing,
+  stacks: bool,
+) -> Result<LandedPairing> {
+  if twins.local.is_empty() {
+    return Ok(twins);
+  }
+  let found = patch_identical(git_executor, repo_path, scope.upstream_head, scope.head, &twins.local, &twins.drops)?;
+  if found.is_empty() {
+    return Ok(twins);
+  }
+  let taken: HashSet<&str> = found.iter().flat_map(|drop| [drop.commit.as_str(), drop.upstream.as_str()]).collect();
+  let candidates: Vec<(&str, &str)> = twins
+    .candidates
+    .iter()
+    .filter(|candidate| !taken.contains(candidate.commit.as_str()) && !taken.contains(candidate.upstream.as_str()))
+    .map(|candidate| (candidate.commit.as_str(), candidate.upstream.as_str()))
+    .collect();
+  let drops = twins.drops.iter().cloned().chain(found).collect();
+  Ok(pairing_of(reads, drops, &candidates, stacks))
+}
+
+/// The pairing of the local commits of `reads` with the proven `drops` and the `candidates`: the drops in the order of
+/// the local commits, each candidate with its local fixups that are no drop
+fn pairing_of(reads: &LandedReads, mut drops: Vec<LandedDrop>, candidates: &[(&str, &str)], stacks: bool) -> LandedPairing {
+  let local = &reads.local;
+  let mut pairing = LandedPairing::unpaired(local.iter().map(|commit| commit.id.clone()).collect());
   let position: HashMap<&str, usize> = pairing.local.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
   drops.sort_by_key(|drop| position.get(drop.commit.as_str()).copied());
 
-  let target_of = target_of_each_fixup(&local, stacks);
+  let target_of = target_of_each_fixup(local, stacks);
   let candidate_ids: HashSet<&str> = candidates.iter().map(|(commit, _)| *commit).collect();
   let dropped: HashSet<&str> = drops.iter().map(|drop| drop.commit.as_str()).collect();
   let mut fixups: HashMap<&str, Vec<String>> = HashMap::new();
-  for commit in &local {
+  for commit in local {
     let target = target_of.get(&commit.id).map_or(commit.id.as_str(), String::as_str);
     if candidate_ids.contains(target) && !dropped.contains(commit.id.as_str()) {
       pairing.with_fixups.push(commit.id.clone());
@@ -548,10 +628,10 @@ pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: La
     }
   }
   pairing.candidates = candidates
-    .into_iter()
+    .iter()
     .map(|(commit, upstream)| LandedCandidate {
-      commit: commit.to_string(),
-      upstream: upstream.to_string(),
+      commit: (*commit).to_string(),
+      upstream: (*upstream).to_string(),
       fixups: fixups.remove(commit).unwrap_or_default(),
     })
     .collect();
@@ -562,7 +642,7 @@ pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: La
     "landed pairing"
   );
   pairing.drops = drops;
-  Ok(pairing)
+  pairing
 }
 
 /// Which `(local, upstream)` pairs are a cherry-pick: the merge of the local commit's change onto the upstream commit's

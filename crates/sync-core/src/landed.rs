@@ -22,8 +22,9 @@ use domain_types::update_project::UpdateCheck;
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::autosquash_targets::target_of_each_fixup;
-use git_ops::landed_pairing::{CommitKey, KeyedCommit, LandedDrop, by_key, read_keyed, read_local, read_upstream};
+use git_ops::landed_pairing::{CommitKey, KeyedCommit, LandedDrop, LandedReads, by_key, read_keyed, read_local, read_upstream};
 use git_ops::revs::{known_dirs, read_head};
+use git_ops::update_branch::UpdatePlan;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{RepositoryLock, lock_file};
 use indexmap::IndexMap;
@@ -56,6 +57,9 @@ pub struct LandedQuery<'a> {
   /// The local commits a replay left out because the upstream proves it has them, with their upstream commit
   /// (`landed_pairing::LandedDrop`): they landed as that commit, also when the upstream reworded it
   pub proven: &'a [LandedDrop],
+  /// The local commits of `local` and the upstream commits by their authors, when the check read them for its pairing
+  /// (`UpdatePlan::landed_reads`): no `log` of them again
+  pub reads: Option<&'a LandedReads>,
 }
 
 /// The subject as the branch shows it: without the `(prefix)`, a fixup keeps its marker (`fixup! Add login`)
@@ -69,25 +73,37 @@ fn shown_subject(subject: &str) -> String {
 
 /// The local commits of the query that landed, grouped by branch in the order of their oldest commit. Three `git log`
 /// processes: the local commits, the ones that stay, and the upstream commits since the merge base by the authors of
-/// the local commits; one more for the upstream commits of `proven` by other authors.
-#[instrument(skip(git_executor))]
+/// the local commits, the first and the last none with the `reads` of the check; one more for the upstream commits of
+/// `proven` by other authors.
+#[instrument(skip(git_executor, query), fields(local = ?query.local))]
 pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: LandedQuery<'_>) -> Result<Vec<LandedBranch>> {
-  let local = read_local(git_executor, repo_path, query.local)?;
+  let read;
+  let LandedReads { local, upstream } = if let Some(reads) = query.reads {
+    reads
+  } else {
+    let local = read_local(git_executor, repo_path, query.local)?;
+    let upstream = if local.is_empty() {
+      Vec::new()
+    } else {
+      read_upstream(git_executor, repo_path, &local, query.base, query.upstream_head)?
+    };
+    read = LandedReads { local, upstream };
+    &read
+  };
   if local.is_empty() {
     return Ok(Vec::new());
   }
   let remaining = query.remaining.map(|revs| read_keyed(git_executor, repo_path, revs, &[])).transpose()?;
   let remaining_keys: Option<HashSet<&CommitKey>> = remaining.as_ref().map(|commits| commits.iter().map(|c| &c.key).collect());
 
-  let upstream = read_upstream(git_executor, repo_path, &local, query.base, query.upstream_head)?;
-  let by_key = by_key(&upstream);
-  let proven = proven_upstream(git_executor, repo_path, query.proven, &upstream)?;
+  let by_key = by_key(upstream);
+  let proven = proven_upstream(git_executor, repo_path, query.proven, upstream)?;
 
   // id -> the upstream commit, `None` when it landed in another form
   let mut landed: HashMap<&str, Option<UpstreamCommit>> = HashMap::new();
   // gone without a counterpart
   let mut unmatched: Vec<&Commit> = Vec::new();
-  for commit in &local {
+  for commit in local {
     if let Some(upstream) = proven.get(commit.id.as_str()) {
       landed.insert(&commit.id, Some(upstream.clone()));
       continue;
@@ -107,7 +123,7 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   }
   if !unmatched.is_empty() {
     // a fixup folded upstream (Safe Push autosquashes) landed with its target
-    let target_of = target_of_each_fixup(&local, query.grouping.stacks);
+    let target_of = target_of_each_fixup(local, query.grouping.stacks);
     for commit in unmatched {
       let target_upstream = target_of.get(commit.id.as_str()).and_then(|target| landed.get(target.as_str())).cloned().flatten();
       if target_upstream.is_some() || query.gone_is_landed {
@@ -122,7 +138,7 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   let branch_of = |subject: &str| query.grouping.branch_of(subject);
   let now = unix_now();
   let mut branches: IndexMap<Option<String>, LandedBranch> = IndexMap::new();
-  for commit in &local {
+  for commit in local {
     let name = branch_of(&commit.subject);
     let landed_commit = landed.remove(commit.id.as_str());
     let branch = branches.entry(name.clone()).or_insert_with(|| LandedBranch {
@@ -196,18 +212,13 @@ fn landing_cache() -> &'static LandingCache {
   CACHE.get_or_init(Mutex::default)
 }
 
-/// The local commits that the fetched upstream already has, for the check inside a sync: an update drops them.
-/// `replayed_head` is HEAD after the replay, `None` when it conflicts; `proven` the commits the replay left out
-/// (`UpdatePlan::landed_drops`).
-pub fn find_landing(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  check: &UpdateCheck,
-  excluded: &[String],
-  replayed_head: Option<&str>,
-  proven: &[LandedDrop],
-  grouping: &GroupingInputs,
-) -> Result<Vec<LandedBranch>> {
+/// The local commits that the fetched upstream already has, for the check `plan` inside a sync: an update drops them.
+/// HEAD after its replay (`UpdatePlan::replayed_head`, `None` when it conflicts) tells what stays; the commits the replay
+/// left out (`UpdatePlan::landed_drops`) landed by their proof; what its pairing read (`UpdatePlan::landed_reads`) is not
+/// read again.
+pub fn find_landing(git_executor: &GitCommandExecutor, repo_path: &str, plan: &UpdatePlan, grouping: &GroupingInputs) -> Result<Vec<LandedBranch>> {
+  let check = &plan.check;
+  let replayed_head = plan.replayed_head();
   if check.head == check.base || check.upstream_head == check.base {
     // a fast-forward: no local commits; up to date: no upstream commit since the merge base can carry one
     return Ok(Vec::new());
@@ -226,7 +237,7 @@ pub fn find_landing(
       return Ok(landing.clone());
     }
   }
-  let local = local_revs(check, excluded);
+  let local = local_revs(check, plan.excluded());
   let remaining = replayed_head.map(|new_head| remaining_revs(new_head, &check.upstream_head));
   let landing = find_landed(
     git_executor,
@@ -238,7 +249,8 @@ pub fn find_landing(
       upstream_head: &check.upstream_head,
       gone_is_landed: remaining.is_some(),
       grouping,
-      proven,
+      proven: plan.landed_drops(),
+      reads: plan.landed_reads(),
     },
   )?;
   let mut cache = landing_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -331,6 +343,7 @@ pub fn record_sync(git_executor: &GitCommandExecutor, repo_path: &str, path: &Pa
       gone_is_landed: false,
       grouping,
       proven: &[],
+      reads: None,
     };
     match find_landed(git_executor, repo_path, query) {
       Ok(found) => {

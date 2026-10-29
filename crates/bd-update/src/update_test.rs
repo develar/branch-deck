@@ -106,6 +106,36 @@ fn a_commit_that_the_replay_leaves_without_a_change_is_dropped_as_empty() {
   );
 }
 
+/// A twin that the upstream changed around: the clean merge of the local commit would add its lines a second time, so
+/// the update leaves it out by its proof before the replay, and it landed as the twin (branch-deck#153)
+#[test_log::test]
+fn a_twin_whose_merge_adds_its_lines_again_is_dropped_by_its_proof() {
+  let block = "for a {\n  x\n}\n";
+  let added = format!("start\n{block}note\n{block}end\n");
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", &format!("start\n{block}end\n"))]);
+  let local = clone.create_commit_with_timestamp("(auth) Add note", "f.txt", &added, Some(1_700_000_200));
+  let twin = upstream.create_commit_with_timestamp("Add note", "f.txt", &added, Some(1_700_000_200));
+  let upstream_file = format!("start\nfor a {{\n  y\n}}\nnote\n{block}end\n");
+  upstream.create_commit("Change the older block", "f.txt", &upstream_file);
+  git(&clone, &["fetch", "-q", "origin"]);
+
+  let (exit_code, output) = run_in(&clone, &["--full-ids", "update", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["landed"][0]["commits"][0]["upstream"], json!(twin), "{output}");
+  let (exit_code, output) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&output["replayed"], &output["dropped"]),
+    (
+      &json!(0),
+      &json!([{ "commit": local, "subject": "(auth) Add note", "upstream": twin, "proof": "patch_id" }])
+    ),
+    "{output}"
+  );
+  assert_eq!(output["landed"][0]["commits"][0]["upstream"], json!(twin), "{output}");
+  assert_eq!(read(&clone, "f.txt"), upstream_file);
+}
+
 #[test_log::test]
 fn uncommitted_changes_on_updated_files_block_with_their_paths() {
   let (upstream, clone) = clone_of_upstream();

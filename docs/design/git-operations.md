@@ -1204,19 +1204,25 @@ Details:
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
   `bd update` names each in `dropped` with `proof: empty`: the commits of the landed report that the pairing did not
   leave out, read with no process more.
-  **Landed commits left out.** When the replay conflicts, the check pairs the local commits with the upstream ones
-  once (`LandedLookup::ByKey`, `landed_pairing::pair_landed`) and keeps the result as the `ReplayPlan` of the plan,
-  which a resolve session replays. The pairing is a ladder of proofs, one to one: each upstream commit proves at most
-  one local commit, the oldest first, and merge commits never pair.
-  1. `patch_id`: one `rev-list --cherry-mark --no-merges U...H`, then one `diff-tree --stdin -p` and one
-     `patch-id --stable` of the marked commits, as `git rebase` compares.
-  2. `replayed`: a local commit L and the upstream commit T with its key (author email, author time, subject without
-     the `(prefix)`). One `merge-tree --write-tree --stdin` of the lines `L^ -- T^ L` for all pairs and one `rev-parse`
-     of their `T^{tree}`: T is L cherry-picked onto its own parent when the merge writes T's tree. Each pair is
-     compared against its own parent, so twins that landed in another order prove each other's context.
+  **Landed commits left out.** Before the replay, the check pairs each local commit L with the upstream commit T of
+  its key (author email, author time, subject without the `(prefix)`; `LandedLookup::ByKey`,
+  `landed_pairing::pair_twins`), and keeps the result as the `ReplayPlan` of the plan, which a resolve session replays.
+  A proven twin is left out of the replay, as `git rebase` leaves out a commit of the same patch id: `git replay` drops
+  a commit only when it becomes empty, and the merge of a twin onto an upstream that changed the lines around it can be
+  clean and add its lines a second time (a block that the commit repeats, whose older copy the upstream changed). The
+  pairing is a ladder of proofs, one to one: each upstream commit proves at most one local commit, the oldest first,
+  and merge commits never pair.
+  1. `patch_id`: one `diff-tree --stdin -p` and one `patch-id --stable` of the pairs, as `git rebase` compares.
+  2. `replayed`: one `merge-tree --write-tree --stdin` of the lines `L^ -- T^ L` for all pairs and one `rev-parse` of
+     their `T^{tree}`: T is L cherry-picked onto its own parent when the merge writes T's tree. Each pair is compared
+     against its own parent, so twins that landed in another order prove each other's context.
   3. `changed_lines`: the pairs whose cherry-pick conflicts on its context. One `diff-tree --stdin -p -U0` with one
      `patch-id --verbatim`, and one `diff-tree --stdin -r -z --raw --numstat`: the same changed lines, and the same
      paths, statuses and modes, with the same new object of each binary file (`-` counts) and gitlink.
+
+  No process without twins. When the replay conflicts, the pairing adds the local commits of the same patch id under
+  another key (an upstream that reworded them) once (`with_patch_identical`): one `rev-list --cherry-mark --no-merges
+  U...H`, then one `diff-tree --stdin -p` and one `patch-id --stable` of the marked commits that no twin took.
 
   A pair that no rung proves is a candidate: the key alone is no proof (an amend after the push, a robot that folded
   its fixups in, an independent fix of the same lines). The proven commits are left out as a drop does, one `replay`
@@ -1226,12 +1232,12 @@ Details:
   C), and each merge gives the result's tree. So the proven drops and the other local commits never take part in the
   check, and a fixup made after the push keeps the candidate's set out. A robot that autosquashes pushes the target
   with its fixups folded in; the target alone then adds other content than the upstream has, and a plain replay
-  conflicts. Tried only after a conflict, so a clean update costs nothing more.
+  conflicts. The candidates are tried only after a conflict, so a clean update costs only the pairing of its twins.
 
-  Which commits landed, and where, takes three read-only `log` processes after the check (the preview's are cached
-  with its replay): the local commits (`HEAD ^U ^<previous tips>`), the ones that stay (`N ^U`) and the upstream
-  commits since the merge base by the authors of the local commits (`--fixed-strings --author=<email>`, so a monorepo
-  upstream stays small). None when the upstream has nothing since the merge base (up to date): no upstream commit can
+  Which commits landed, and where, takes three read-only `log` processes (the preview's are cached with its replay):
+  the local commits (`HEAD ^U ^<previous tips>`) and the upstream commits since the merge base by the authors of the
+  local commits (`--fixed-strings --author=<email>`, so a monorepo upstream stays small), which the pairing of the
+  check reads before its replay and hands to the landing (`LandedReads`), and the ones that stay (`N ^U`). None when the upstream has nothing since the merge base (up to date): no upstream commit can
   carry a local one. A commit the replay left out landed as the upstream commit of its proof, also when the upstream
   reworded it (one `log --no-walk` for such commits by other authors). See "Landed commits" in
   [Integration Detection](integration-detection.md); the report is
@@ -4786,7 +4792,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | Squash two commits | `a_squash` | 18 | 14 |
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |
-| Update Project that conflicts, two twins and a real conflict: the pairing once, no lock; the first conflict instead of the outline of the whole branch: 1 less (2026-10-25) | `a_conflicting_update_pairs_its_commits_once` | 30 | 29 |
+| Update Project that conflicts, two twins and a real conflict: the pairing once, no lock; the first conflict instead of the outline of the whole branch: 1 less (2026-10-25); the twins paired before the replay, by their patch ids first, so one `replay` less and a `diff-tree` with a `patch-id` more (2026-10-29) | `a_conflicting_update_pairs_its_commits_once` | 30 | 30 |
 | The core push of two branches of a stack (`PreparedPush`; first a push per branch; the size check since 2026-10-25: 3 more) | `an_atomic_push_of_a_stack` * | 8 | 7 |
 | The text of the app's pull request of the whole stack (`read_new_stack_pull_request`) | `the_text_of_a_new_pull_request_of_the_whole_stack` ** | 1 | 1 |
 | What a merged robot landed after a change below its commit (`robot_landings`, 2026-10-18) | `the_landing_of_a_merged_robot_after_a_change_below_its_commit` | 8 | 8 |

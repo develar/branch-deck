@@ -1,8 +1,12 @@
-use crate::landed_pairing::{CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_landed, walk_commits};
+use crate::landed_pairing::{
+  CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_landed, pair_twins, read_landed, walk_commits,
+  with_patch_identical,
+};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::history::{HistoryCommit, numbered_lines};
+use test_utils::process_budget::{counting, processes};
 
 /// `(mark, id, author, key, subject)` of each commit
 fn fields(repo: &TestRepo, options: &[&str], revs: &[&str]) -> Vec<(char, String, String, CommitKey, String)> {
@@ -57,7 +61,20 @@ fn sides() -> TestRepo {
   repo
 }
 
-fn pairing(repo: &TestRepo) -> LandedPairing {
+/// The pairing of `local` with `upstream`: the twins, then the rest by their patch id (`pair_landed`), and the twins alone
+/// (`pair_twins`), the pairing before a replay
+fn pairings(repo: &TestRepo) -> (LandedPairing, LandedPairing) {
+  in_scope(repo, |scope| {
+    let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
+    let twins = pair_twins(repo.git_executor(), repo.path_str(), &reads, false).unwrap();
+    let all = with_patch_identical(repo.git_executor(), repo.path_str(), scope, &reads, twins.clone(), false).unwrap();
+    assert_eq!(all, pair_landed(repo.git_executor(), repo.path_str(), scope, false).unwrap());
+    (all, twins)
+  })
+}
+
+/// `f` of the scope of `local` onto `upstream`
+fn in_scope<R>(repo: &TestRepo, f: impl FnOnce(LandedScope<'_>) -> R) -> R {
   let head = repo.rev_parse("local").unwrap();
   let upstream_head = repo.rev_parse("upstream").unwrap();
   let base = repo.git(&["merge-base", &head, &upstream_head]);
@@ -67,7 +84,11 @@ fn pairing(repo: &TestRepo) -> LandedPairing {
     base: &base,
     excluded: &[],
   };
-  pair_landed(repo.git_executor(), repo.path_str(), scope, false).unwrap()
+  f(scope)
+}
+
+fn pairing(repo: &TestRepo) -> LandedPairing {
+  pairings(repo).0
 }
 
 /// The local commit whose twins the tests land
@@ -174,6 +195,42 @@ fn one_upstream_commit_proves_one_local_commit() {
   );
   let upstream = repo.commit_history("refs/heads/upstream", &[at("Change line 5", &[(5, "five")], 100)]);
   assert_eq!(pairing(&repo).drops, [drop_of(&local[0], &upstream[0], LandedProof::PatchId)]);
+}
+
+/// A twin of the same patch is proven by its patch id before the replay too: the pairing of the twins compares the
+/// patch ids of the pairs first
+#[test]
+fn a_twin_of_the_same_patch_is_proven_by_its_patch_id_before_the_replay() {
+  let repo = sides();
+  let local = repo.commit_history("refs/heads/local", &[change_line_5()]);
+  let upstream = repo.commit_history("refs/heads/upstream", &[at("Change line 5", &[(5, "five")], 200)]);
+  let (all, twins) = pairings(&repo);
+  assert_eq!(twins.drops, [drop_of(&local[0], &upstream[0], LandedProof::PatchId)]);
+  assert_eq!(all, twins);
+}
+
+/// The same patch under another identity (the upstream reworded it) is no twin: only the rung after a conflict proves it
+#[test]
+fn the_same_patch_under_another_identity_is_proven_only_after_a_conflict() {
+  let repo = sides();
+  let local = repo.commit_history("refs/heads/local", &[change_line_5()]);
+  let upstream = repo.commit_history("refs/heads/upstream", &[at("Fix line 5", &[(5, "five")], 300)]);
+  let (all, twins) = pairings(&repo);
+  assert_eq!(twins, LandedPairing::unpaired(local.clone()));
+  assert_eq!(all.drops, [drop_of(&local[0], &upstream[0], LandedProof::PatchId)]);
+}
+
+/// The twins are paired before every replay: without a commit of the same identity, no process
+#[test]
+fn the_pairing_of_the_twins_runs_no_process_without_a_twin() {
+  let repo = sides();
+  repo.commit_history("refs/heads/local", &[change_line_5()]);
+  repo.commit_history("refs/heads/upstream", &[at("Other change", &[(2, "two")], 100)]);
+  let reads = in_scope(&repo, |scope| read_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
+  let git = counting();
+  let twins = pair_twins(&git, repo.path_str(), &reads, false).unwrap();
+  assert_eq!(twins, LandedPairing::unpaired(vec![repo.rev_parse("local").unwrap()]));
+  assert_eq!(processes(&git), []);
 }
 
 /// The same changed lines under another subject are another commit
