@@ -1,6 +1,7 @@
-import { RotateCwIcon } from "lucide-react"
+import { MonitorIcon, MoonIcon, RotateCwIcon, SunIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { SettingRow, SettingsSection } from "@/components/settings/SettingRow"
@@ -10,14 +11,18 @@ import { zoomMenuItems } from "@/lib/main-menu"
 import { FROM_MENU, kbdLabel } from "@/lib/menu"
 import type { MenuItem } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
+import type { Theme } from "@/lib/theme"
 import { titleBar } from "@/lib/title-bar"
 import type { NativeTitleBarReason } from "@/lib/title-bar"
-import { setSystemTitleBar, useAppSettings } from "@/stores/settings/appSettings"
+import { setSystemTitleBar, setTheme, useAppSettings } from "@/stores/settings/appSettings"
 
-/** Settings → Appearance: the zoom of every window; off macOS, the system title bar */
+/** Settings → Appearance: the theme and the zoom of every window; off macOS, the system title bar */
 export function AppearancePage() {
   return (
     <>
+      <SettingsSection title="Theme" description="The colours of every window: as the system, light or dark">
+        <ThemePicker />
+      </SettingsSection>
       <SettingsSection title="Zoom" description="The size of the text and the controls in every window, also in the View menu">
         <ZoomStepper />
       </SettingsSection>
@@ -27,6 +32,41 @@ export function AppearancePage() {
         </SettingsSection>
       )}
     </>
+  )
+}
+
+const themes: Array<{ theme: Theme; label: string; icon: typeof SunIcon }> = [
+  { theme: "system", label: "System", icon: MonitorIcon },
+  { theme: "light", label: "Light", icon: SunIcon },
+  { theme: "dark", label: "Dark", icon: MoonIcon },
+]
+
+/** System · Light · Dark: every window changes at once (`useTheme`) */
+function ThemePicker() {
+  const current = useAppSettings(state => state.theme)
+  return (
+    <ToggleGroup
+      aria-label="Theme"
+      data-testid="setting-theme"
+      className="self-start"
+      variant="outline"
+      size="sm"
+      spacing={0}
+      value={[current]}
+      onValueChange={next => {
+        const chosen = next.find(it => it !== current)
+        if (chosen !== undefined) {
+          setTheme(chosen as Theme)
+        }
+      }}
+    >
+      {themes.map(({ theme, label, icon: Icon }) => (
+        <ToggleGroupItem key={theme} value={theme}>
+          <Icon data-icon="inline-start" />
+          {label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   )
 }
 

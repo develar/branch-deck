@@ -61,6 +61,9 @@ targets:
   - ../../src/components/repository/BranchPrefixHelp.tsx
   - ../../src/components/shared/ShortcutHint.tsx
   - ../../src/hooks/useZoom.ts
+  - ../../src/hooks/useTheme.ts
+  - ../../src/lib/theme.ts
+  - ../../src/index.css
   - ../../src/stores/ai-suggestions.ts
   - ../../src/stores/settings/appSettings.ts
   - ../../src/stores/settings/repositorySettings.ts
@@ -189,6 +192,12 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   Suggest branch names ([Branch Name Suggestions](../branch/branch-name-suggestions.spec.md)).
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should turn AI on and off in Settings`)
+- Appearance: "Theme", System · Light · Dark (`appSettings.theme`, System by default): every window shows the tokens
+  of the choice at once (`data-theme` of the root, `useTheme`), System those of the system, again whenever the system
+  changes; the frame of the window follows (the theme of Tauri, `null` for System), set only once the choice differs
+  from the frame's.
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should set the theme of every window from Appearance, System following the system`)
+  [@test] ../../src/lib/theme.test.ts (`follows the system for System, and keeps Light and Dark whatever the system shows`)
 - Appearance: "Zoom", Zoom Out · the level · Zoom In, then Actual Size: the items of the View menu by id
   (`zoomMenuItems`), their keys in the tooltips, the same command, so every window zooms one step
   ([Zoom](zoom.spec.md)); "Title bar" (Windows, Linux), the system title bar ([Title Bar](title-bar.spec.md#setting)).
