@@ -849,6 +849,9 @@ pub enum LandedProofOutput {
   /// twin does not were gone from the twin's parent already: the resolution of a removal of lines that another commit had
   /// rewritten
   TwinRemovedBefore,
+  /// A commit of the branch of the same author and subject at another author time (made anew, a rebase that reset the
+  /// author) passes the twin check
+  SubjectTwin,
   /// Its virtual copy landed on the branch
   Note,
 }
@@ -866,6 +869,7 @@ pub(crate) fn landed_output(landed: &[LandedCommit]) -> Vec<LandedCommitOutput> 
         Proof::ChangedLines => LandedProofOutput::ChangedLines,
         Proof::Twin => LandedProofOutput::Twin,
         Proof::TwinRemovedBefore => LandedProofOutput::TwinRemovedBefore,
+        Proof::SubjectTwin => LandedProofOutput::SubjectTwin,
         Proof::Note { .. } => LandedProofOutput::Note,
       },
       virtual_commit: match &commit.proof {

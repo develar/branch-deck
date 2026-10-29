@@ -640,6 +640,33 @@ fn a_return_finds_a_commit_whose_twin_lacks_only_a_removal_master_made_before() 
   assert_eq!(proofs(&returned["landed"]), vec![(commit, "twin_removed_before".to_string())], "{returned}");
 }
 
+/// A commit of the slot is on master made anew, at another author time: the same author and subject pair it, and its
+/// lines decide, as for a twin. A commit of the same author and subject that lacks a line of the slot's is unlanded
+#[test_log::test]
+fn a_return_finds_a_commit_made_anew_by_its_author_and_subject() {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit_with_files("Add f and h", &[("f.txt", "a\nz\n"), ("h.txt", "q\n")]);
+  let path = path_of(&fixture.get(&[]));
+  let commit = commit_content(&path, "(lane) Add b to f", "f.txt", "a\nb\nz\n");
+  let other = commit_content(&path, "(lane) Add r to h", "h.txt", "q\nr\n");
+  fixture.repo.create_commit("(peer) Add m to f", "f.txt", "a\nm\nz\n");
+  let anew = |file: &str, content: &str, message_of: &str| {
+    std::fs::write(fixture.repo.path().join(file), content).unwrap();
+    git(&fixture.repo, &["add", file]);
+    git(&fixture.repo, &["commit", "-q", "-C", message_of, "--date=2001-02-03T04:05:06Z"]);
+  };
+  anew("f.txt", "a\nb\nm\nz\n", &commit);
+  // the same subject without the line of the slot's commit
+  anew("h.txt", "q\ns\n", &other);
+
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "unlanded_commits"));
+  assert_eq!(output["error"]["commits"], json!([other]), "{output}");
+  slot_git(&path, &["reset", "-q", "--hard", "HEAD^"]);
+  let returned = fixture.give_back(&path);
+  assert_eq!(proofs(&returned["landed"]), vec![(commit, "subject_twin".to_string())], "{returned}");
+}
+
 /// A commit of the slot landed by its virtual copy: the sync resolved it by words into another change (its mapping
 /// note, `v-commit-v1`), and the robot cherry-picked that copy onto master. Nothing of the commit itself is on master,
 /// so only the note proves it

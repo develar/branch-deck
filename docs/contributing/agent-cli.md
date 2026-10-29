@@ -974,7 +974,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `landed_check` says which check found the work landed: `reachability` or `content`
   (`landed_branch`), and `landed` names each commit the content check proved, with its `proof` (`picked`, `patch_id`,
   `replayed`, `changed_lines`, `twin`, `twin_removed_before` (the twin lacks only removals of lines its parent no
-  longer had), `note` with its `virtual_commit`). `--confirm-preserved` gives the commits up
+  longer had), `subject_twin` (a commit of the same author and subject at another author time with the same lines),
+  `note` with its `virtual_commit`). `--confirm-preserved` gives the commits up
   (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`. A repeat joins: a return
   retried while the first still runs waits for it, and a return that another return of the lease overtook changes
   nothing; both answer `joined: true`, with empty lists and no `landed_check` when they checked nothing.

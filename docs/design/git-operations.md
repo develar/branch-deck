@@ -1928,7 +1928,11 @@ the commits the one before left:
    rewritten (`from_mins(30)`) or removed before the robot landed them, so their twins differed in removed lines only,
    and the user's look at the subjects found them landed. The twin rule of `bd update` stays as it is: there a drop
    loses the lines, here a lease that keeps them is the only loss;
-5. the mapping note of a sync (`v-commit-v1`, not stale by its source tree, `mapped_virtual`): the virtual copy on the
+5. a commit of the branch of the same author and subject at another author time (the three newest of the authors'
+   commits the ladder read, no process), through the twin check of the rung before: four commits of a dead lease of
+   idea-1 were made anew a day after the versions master had, with the same lines, and no identity paired them. The
+   subject only picks the pair; the lines decide;
+6. the mapping note of a sync (`v-commit-v1`, not stale by its source tree, `mapped_virtual`): the virtual copy on the
    branch, or proven there by the patch id or the rungs above, the copy a resolve by words made of the commit.
 
 A commit no rung proves is unlanded. It runs on git objects only: `check_pick` needs a worktree on the branch, its

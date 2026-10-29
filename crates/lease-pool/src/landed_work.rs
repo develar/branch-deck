@@ -13,7 +13,9 @@
 //!    leaves it; or one that lacks only lines the commit removes and the parent of the twin no longer had, as the
 //!    resolution of a commit that removes lines another commit had rewritten or removed already leaves it (the branch
 //!    loses nothing: the line is gone);
-//! 5. the mapping note of a sync (`v-commit-v1`): its virtual copy, which a robot rebased and landed, is on the branch
+//! 5. a commit of the same author and subject at another author time (a commit made anew, a rebase that reset the
+//!    author), whose change passes the twin check of the rung before: the content decides, the subject only picks it;
+//! 6. the mapping note of a sync (`v-commit-v1`): its virtual copy, which a robot rebased and landed, is on the branch
 //!    or proven there by the same rungs.
 //!
 //! No range comes from the reflog of the branch: the fork point a pick starts from can leave commits out, and a commit
@@ -21,9 +23,11 @@
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::autosquash_targets::target_of_each_fixup;
 use git_ops::commit_utils::get_commits_info;
 use git_ops::landed_pairing::{
-  LandedCandidate, LandedPairing, LandedProof, LandedReads, PathLines, full_interdiffs, interdiffs, pair_by_patch_id, pair_twins, present_by_patch_id, read_local, read_upstream,
+  CommitKey, LandedCandidate, LandedPairing, LandedProof, LandedReads, PathLines, full_interdiffs, interdiffs, pair_by_patch_id, pair_twins, present_by_patch_id, read_local,
+  read_upstream,
 };
 use git_ops::lease_slot::{UnlandedCommit, commits_beyond_branch, commits_since, unlanded_commits};
 use git_ops::object_texts::read_texts;
@@ -38,6 +42,8 @@ use tracing::debug;
 /// How many candidates a check proves; a lease with more is unlanded without a proof, as no session lands that many
 /// commits by hand
 const CANDIDATE_LIMIT: usize = 500;
+/// How many commits of the branch with the author and the subject of a commit the check by subject tries, newest first
+const SUBJECT_TWINS_PER_COMMIT: usize = 3;
 /// How many unlanded commits an answer names
 pub const UNLANDED_LIMIT: usize = 20;
 /// The largest file of the parent of a twin that the check of its removed lines reads; a larger one proves nothing
@@ -70,6 +76,8 @@ pub enum Proof {
   /// A commit of the branch of its identity has every line it adds, with its fixups; the lines it removes and the twin
   /// does not were gone from the parent of the twin already
   TwinRemovedBefore,
+  /// A commit of the branch of the same author and subject, at another author time, passes the twin check
+  SubjectTwin,
   /// Its virtual copy (`v-commit-v1`) landed on the branch
   Note { virtual_commit: String },
 }
@@ -280,7 +288,15 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
     return Ok(());
   }
 
-  // 5. the virtual copy of a sync, by its mapping note
+  // 5. the same author and subject at another author time
+  for (commit, _) in landed_by_pairing(git_executor, slot, &subject_twins(&reads, stacks, proofs))? {
+    proofs.add(&commit, Proof::SubjectTwin);
+  }
+  if proofs.is_done() {
+    return Ok(());
+  }
+
+  // 6. the virtual copy of a sync, by its mapping note
   let copies: HashMap<&str, &str> = reads
     .local
     .iter()
@@ -326,6 +342,42 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
     }
   }
   Ok(())
+}
+
+/// The pairs of each commit no rung proved yet with the commits of the branch of its author and subject at another
+/// author time (the newest `SUBJECT_TWINS_PER_COMMIT`), each with the fixups of the commit still unproven: candidates
+/// for the twin check (`landed_by_pairing`), which decides by their content alone. A fixup is no commit of its own here
+fn subject_twins(reads: &LandedReads, stacks: bool, proofs: &Proofs<'_>) -> LandedPairing {
+  let left: HashSet<&str> = proofs.left().into_iter().collect();
+  let target_of = target_of_each_fixup(&reads.local, stacks);
+  let mut fixups: HashMap<&str, Vec<String>> = HashMap::new();
+  for commit in reads.local.iter().filter(|commit| left.contains(commit.id.as_str())) {
+    if let Some(target) = target_of.get(&commit.id) {
+      fixups.entry(target.as_str()).or_default().push(commit.id.clone());
+    }
+  }
+  // newest first, as the upstream is read
+  let mut by_subject: HashMap<(&str, &str), Vec<(&str, u32)>> = HashMap::new();
+  for commit in &reads.upstream {
+    by_subject
+      .entry((commit.key.email.as_str(), commit.key.subject.as_str()))
+      .or_default()
+      .push((commit.upstream.id.as_str(), commit.key.time));
+  }
+  let mut pairing = LandedPairing::default();
+  for commit in reads.local.iter().filter(|commit| left.contains(commit.id.as_str()) && !target_of.contains_key(&commit.id)) {
+    let key = CommitKey::from_message(&commit.author_email, commit.author_timestamp, &commit.message);
+    let twins = by_subject.get(&(key.email.as_str(), key.subject.as_str())).map_or(&[][..], Vec::as_slice);
+    // the same time was the ladder's pair already
+    for (upstream, _) in twins.iter().filter(|(_, time)| *time != key.time).take(SUBJECT_TWINS_PER_COMMIT) {
+      pairing.candidates.push(LandedCandidate {
+        commit: commit.id.clone(),
+        upstream: (*upstream).to_string(),
+        fixups: fixups.get(commit.id.as_str()).cloned().unwrap_or_default(),
+      });
+    }
+  }
+  pairing
 }
 
 /// The local commits a pairing proves landed: its drops with their proof, then each candidate whose upstream commit

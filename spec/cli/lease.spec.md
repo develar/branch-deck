@@ -319,7 +319,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   branch of the same identity that has every changed line of the commit with its fixups (a conflict resolution, an
   autosquash), or every line it adds while the lines it removes and the twin does not are in no line of the file of the
   twin's parent (a removal of lines that another commit had rewritten or removed already: nothing is lost; a file there
-  that is gone, binary or over 8 MiB proves nothing); the mapping note of a sync, its virtual copy on the branch or proven there so. A commit outside the
+  that is gone, binary or over 8 MiB proves nothing); a commit of the branch of the same author and subject at another
+  author time (made anew, a rebase that reset the author; the three newest), whose change passes that twin check, the
+  subject only picking it; the mapping note of a sync, its virtual copy on the branch or proven there so. A commit outside the
   range of the pick is no commit the pick proved: a fast-forward that a reset took back leaves the commit as its own
   fork point. Reachability decides alone when it finds nothing (the fast path), when the source had no branch and when
   the branch is gone; the output says which check decided (`landed_check`, `landed_branch`) and names each commit the
@@ -330,6 +332,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_after_a_pick_that_rolled_back_refuses_the_commit`, `a_lease_whose_home_was_reset_past_its_commits_is_not_landed`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_finds_a_commit_that_landed_with_a_conflict_resolution`, `a_return_finds_a_commit_that_landed_by_its_virtual_copy`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_finds_a_commit_whose_twin_lacks_only_a_removal_master_made_before`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_finds_a_commit_made_anew_by_its_author_and_subject`)
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it`)
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_dry_run_names_its_range_and_the_commits_it_would_pick`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_return_whose_commit_landed_by_the_ladder`)
