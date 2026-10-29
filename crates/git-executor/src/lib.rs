@@ -10,7 +10,8 @@
 //! - `concurrency`: `ProcessPermits`, the slots of an operation's parallel git work
 //!
 //! Its tests also scan the production sources of the workspace for how they run git (`source_scan_test.rs`,
-//! `worktree_safety_test.rs`, `git_usage_scan_test.rs`), and for how they start any process (`console_window_scan_test.rs`).
+//! `worktree_safety_test.rs`, `git_usage_scan_test.rs`), for how they start any process (`console_window_scan_test.rs`),
+//! and for what they hold across the network (`concurrency_scan_test.rs`).
 
 pub mod concurrency;
 pub mod git_command_executor;
@@ -19,6 +20,8 @@ pub mod interactive_command;
 pub mod process_stats;
 mod process_tree;
 
+#[cfg(test)]
+mod concurrency_scan_test;
 #[cfg(test)]
 mod console_window_scan_test;
 #[cfg(test)]

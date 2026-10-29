@@ -39,7 +39,12 @@ for the worktree safety scan too): git starts only in `GitCommandExecutor` (and 
 crates (`crates/bd-*`) and src-tauri start no git of their own; no `--no-pager`, no `credential.helper=`; `update-ref` only in
 `ref_transaction.rs`; `cat-file --batch*` only in `cat_file_batch.rs`; `--name-only`, `--name-status` and `--raw`
 only with `-z`; paths after `--` only with `--literal-pathspecs`; `push`, `fetch` and `ls-remote` only through
-`execute_remote_command*`. An exemption names its file, its reason and its exact number of hits.
+`execute_remote_command*`. The concurrency scan on the same sources (`concurrency_scan_test.rs`): no guard of an
+async mutex or `RwLock` (`let … = ….lock().await`) lives across another `.await` of its scope (a read others wait for
+is one shared future, not a mutex), no guard of the repository lock across `execute_remote_command*`,
+`fetch_baseline`, `push_baseline`, `push_leased`, HTTP (`reqwest`, a method of a GitHub, Patronus or YouTrack
+service) or `block_on` ([invariant 2](../design/rust-domain-authority.md#инварианты)). An exemption names its file,
+its reason and its exact number of hits.
 
 ## Never write to the working tree
 

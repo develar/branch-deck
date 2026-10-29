@@ -1,6 +1,7 @@
 //! The production sources of the workspace as the scan tests read them (`worktree_safety_test.rs`,
-//! `git_usage_scan_test.rs`): every `.rs` file of `src-tauri` and the crates, without test files, test crates and the
-//! inline test modules of a file (only their blocks: the code after one is scanned), and the git argument lists in it.
+//! `git_usage_scan_test.rs`, `concurrency_scan_test.rs`): every `.rs` file of `src-tauri` and the crates, without test
+//! files, test crates and the inline test modules of a file (only their blocks: the code after one is scanned), their
+//! code without literals and comments (`code_text`), and the git argument lists in it.
 //! An argument list is an array literal whose first element is a string literal (`&["log", "-z", &range]`,
 //! `vec!["diff-tree", ...]`); its subcommand is the first element after git's global options and their values
 //! (`process_stats::subcommand_index`), so `["-C", dir, "reset"]` is a `reset`. A list built with `push` or `extend` is
@@ -164,6 +165,25 @@ fn block_end(text: &str, start: usize) -> Option<usize> {
     index += 1;
   }
   None
+}
+
+/// `text` with its string, raw string and char literals and its comments blanked out, each of their bytes a space and
+/// their line breaks kept: a scan of the code finds no word in them, at the offsets and lines of `text`
+pub(crate) fn code_text(text: &str) -> String {
+  let bytes = text.as_bytes();
+  let mut code = Vec::with_capacity(bytes.len());
+  let mut index = 0;
+  while index < bytes.len() {
+    // inside a multibyte character no literal starts (a lifetime before one ends at its quote)
+    if let Some(end) = text.is_char_boundary(index).then(|| literal_end(text, index)).flatten() {
+      code.extend(bytes[index..end].iter().map(|&byte| if byte == b'\n' { b'\n' } else { b' ' }));
+      index = end;
+    } else {
+      code.push(bytes[index]);
+      index += 1;
+    }
+  }
+  String::from_utf8(code).expect("only whole literals and comments are blanked, so the code stays UTF-8")
 }
 
 /// An element of an argument list
@@ -409,6 +429,24 @@ fn only_the_test_modules_are_left_out() {
   // a test function stays, and so does a module whose block does not close
   let kept = "#[cfg(test)]\nfn helper() {}\n#[cfg(test)]\nmod open {\n";
   assert_eq!(production_part(kept), kept);
+}
+
+#[test]
+fn the_code_text_blanks_the_literals_and_the_comments_on_their_lines() {
+  let source = "let a = \"x.await\"; // y.await\nlet b = r#\"}\"#; /* z\n.await */ let c = '}';\nfn f<'a>(s: &'a str) -> &'a str { \"é\" }";
+  let code = code_text(source);
+  assert_eq!(code.len(), source.len());
+  let blanks = |count| " ".repeat(count);
+  assert_eq!(
+    code.lines().map(str::trim_end).collect::<Vec<_>>(),
+    [
+      format!("let a ={};", blanks(10)),
+      format!("let b ={};", blanks(7)),
+      format!("{}let c ={};", blanks(10), blanks(4)),
+      // the quote of a lifetime goes too
+      format!("fn f< a>(s: & a str) -> & a str {{{}}}", blanks(6)),
+    ]
+  );
 }
 
 #[test]
