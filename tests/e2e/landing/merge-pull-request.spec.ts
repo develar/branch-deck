@@ -7,11 +7,12 @@ import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import { availablePullRequests, gitHubMutations, pullRequest } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
-import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter, waitForStepFacts } from "../helpers/safe-push-helpers"
+import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { waitForStepFacts } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches off Space, none pushed; JIRA-456 has 3 commits. The repository lands by a merge
 // of the pull request on GitHub (`branchdeck.landing=pull-request`, `origin` pushing to acme/monorepo), which allows

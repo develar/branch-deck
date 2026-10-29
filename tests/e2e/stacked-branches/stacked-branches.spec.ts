@@ -57,7 +57,6 @@ import {
   popoverStart,
   safePushPopover,
   slotSafePush,
-  waitForStepFacts,
 } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -65,7 +64,7 @@ import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSy
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
-import { holdCommand, recordCommand, recordRewrites, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand, recordRewrites, routeCommandError, waitForStepFacts, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/acme/monorepo/compare"
 

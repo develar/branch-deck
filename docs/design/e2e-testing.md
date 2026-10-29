@@ -899,7 +899,10 @@ branch at the commit it was pushed up to.
   after a sync shows with its own element: the autosquash plan with the fixup count of a row. Sync is enabled while
   the branch prefix still loads: the "Ready to Sync" card says it is loaded. The unassigned commits card above the
   table renders with the rows (a lazy chunk of it once came seconds later under load and moved the rows away from
-  the pointer of a hover). A menu zoomed in late under load, and an item hovered meanwhile moved away under the
+  the pointer of a hover). A rest on a row (`restOnBranchRow`) waits for the facts of the steps first: the last answer
+  widens the step of some rows and the step track of the others follows a frame later (the observer of the columns),
+  so for that frame their "⋯" sits left of its place; a hover that landed then met the "⋯" coming back under the still
+  pointer, which opens no tooltip (2 of 5 runs on the Studio). A menu zoomed in late under load, and an item hovered meanwhile moved away under the
   pointer, its leave canceling the hover open: the zoom is off in a test now (**Motion** above), and `openSubmenu`
   hovers once the exits of the menus ended (`animationsEnded`) and waits for the submenu. A chain of commands gets a
   wait per step: at a load of 150-220 on 18 cores each of them takes 2-5 s, and a 5 s assertion after the press that
@@ -915,7 +918,7 @@ branch at the commit it was pushed up to.
   restart that came 90 ms before it (traced on the Studio) and held the test 30 s. The step of a row waits for
   facts that answer one after another (the robots, the pull requests, why a robot failed, what it needs to land, the
   approvals): "Checking…" names the fact it waits for (`data-waits-for` of the slot), and `waitForStepFacts`
-  (`safe-push-helpers.ts`) gives each fact an assertion's time of its own before the step is asserted. The steps
+  (`wait-helpers.ts`) gives each fact an assertion's time of its own before the step is asserted. The steps
   measured in the traces of the failed waits (2026-10-24):
   the fetch of an update 2-4 s, the landing gate 2-3.5 s (the gate of a whole stack in `execute`: the test server has no
   object cache), the landing needs 2-5 s (then the page's `wait_landing_needs`, the session's since s7-4), the readiness 1-5 s

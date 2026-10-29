@@ -6,8 +6,9 @@ import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from ".
 import { availableRobots, expectPatronusStarts, robot, startRequest } from "../helpers/patronus-helpers"
 import { expectPushedToast, holdRemotePushes, remotePushes } from "../helpers/push-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
-import { popoverStart, safePushPopover, slotSafePush, waitForStepFacts } from "../helpers/safe-push-helpers"
+import { popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { waitForStepFacts } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own
 const ROW_ORDER = ["deps", "lint", "search", "IJPL-102", "IJPL-101", "ci", "docs", "core", "cli", "api", "web"]

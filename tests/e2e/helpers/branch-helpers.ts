@@ -1,6 +1,7 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
 import type { TestRepositoryBuilder } from "./test-repository"
+import { waitForStepFacts } from "./wait-helpers"
 
 /**
  * Find a branch row by branch name
@@ -12,9 +13,16 @@ export function findBranchRow(page: Page, branchName: string): Locator {
 /**
  * The pointer rests on the row of `branchName`: on its "⋯", until the tooltip of the button shows, the effect of the
  * rest the user sees. A count of what a hover of a row asks (its IPC) is anchored on it: the hover took place, and
- * time passed as the user rests
+ * time passed as the user rests.
+ *
+ * Once the steps of the rows have their facts (`waitForStepFacts`): the last answer widens the step of some rows, and the
+ * step track of the others follows a frame later (the observer of `ColumnRegistry`), so for that frame their "⋯" sits
+ * left of its place (37 px in `issue_links`). A hover that lands then puts the pointer beside the "⋯", which comes back
+ * under the still pointer and opens no tooltip (`hoverOpensOnMove`): 2 of 5 runs of the hover of patronus.spec.ts on
+ * the Studio
  */
 export async function restOnBranchRow(page: Page, branchName: string): Promise<void> {
+  await waitForStepFacts(page.getByTestId("next-step-slot"))
   const row = findBranchRow(page, branchName)
   await row.hover()
   await row.getByRole("button", { name: `More actions for ${branchName}` }).hover()

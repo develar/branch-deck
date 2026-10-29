@@ -6,12 +6,13 @@ import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { availablePullRequests, gitHubWrites, pullRequest, repoPath } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter, waitForStepFacts } from "../helpers/safe-push-helpers"
+import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
+import { waitForStepFacts } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches off Space, none pushed; JIRA-456 has 3 commits. The repository lands by a push
 // of the copy into master (`branchdeck.landing=push`), its GitHub the fake one of acme/monorepo with no pull request

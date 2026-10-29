@@ -5,29 +5,10 @@ import { findBranchRow } from "./branch-helpers"
 import { openBranchPreview } from "./review-status-helpers"
 import { closeMenus, openSubmenu } from "./selection-helpers"
 import { closeToast } from "./toast-helpers"
-import { animationsEnded } from "./wait-helpers"
+import { animationsEnded, waitForStepFacts } from "./wait-helpers"
 
 /** The merge profiles of master without any: a start runs the default checks */
 export const DEFAULT_CHECKS_ONLY: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
-
-/** The facts a step waits for (`PendingFact` of `src/presenters/next-step.ts`, `StepFact` of Rust), in the order they come */
-const STEP_FACTS = ["patronus", "pullRequests", "robotProblems", "landingNeeds", "readiness"] as const
-
-/**
- * Waits until no step of the next-step `slots` waits for a fact (`data-waits-for` of "Checking…"), each fact with an
- * assertion's time of its own: under load every answer takes seconds and they come one after another (the landing needs
- * after the sync, the approvals after the robots), so one assertion over all of them failed at a load of 150-200. A
- * second round takes a fact asked once another answered. A step pending on a failed read (no fact) is the caller's
- */
-export async function waitForStepFacts(slots: Locator): Promise<void> {
-  const waiting = (fact?: string) => slots.and(slots.page().locator(fact === undefined ? "[data-waits-for]" : `[data-waits-for="${fact}"]`))
-  for (let round = 0; round < 2; round++) {
-    for (const fact of STEP_FACTS) {
-      await expect(waiting(fact)).toHaveCount(0)
-    }
-  }
-  await expect(waiting()).toHaveCount(0)
-}
 
 /** The popover of a start (`SafePushPopover`): it opens at the slot of the row, or of the island header */
 export function safePushPopover(page: Page): Locator {

@@ -3,10 +3,10 @@ import type { PullRequest, PatronusAvailability, PatronusReviewer, PatronusRevie
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
 import { dismissingApprovals } from "./pull-request-helpers"
-import { waitForStepFacts } from "./safe-push-helpers"
 import type { SetupRepoOptions } from "./setup-options"
 import { emitTauriEvent } from "./sync-helpers"
 import type { PatronusStartRequest, SyncOverrides, TestRepositoryBuilder } from "./test-repository"
+import { waitForStepFacts } from "./wait-helpers"
 
 /**
  * What the fake Patronus of a test repository answers the lists and polls of its session (`TestRepositoryBuilder.setPatronus`,
