@@ -1,4 +1,4 @@
-//! Rules of how the production code runs git (AGENTS.md, "Git Operations"), checked on its sources like the worktree
+//! Rules of how the production code runs git (docs/contributing/git-rules.md), checked on its sources like the worktree
 //! safety scan (`source_scan_test.rs`). A failure names the place and what to do instead. Each rule allows a file only
 //! with its reason and exact number of hits, so a new hit and a stale exemption both fail.
 
@@ -310,7 +310,7 @@ fn the_directories_of_an_operation_are_read_once() {
 fn network_commands_run_through_remote_command() {
   check(
     "a network command runs on a plain executor call",
-    "run push, fetch and ls-remote with sync_core::remote_command::execute_remote_command* (AGENTS.md, Network \
+    "run push, fetch and ls-remote with sync_core::remote_command::execute_remote_command* (docs/contributing/git-rules.md, Network \
      commands): the credential helpers stay, prompts are off, stalled HTTP transfers abort and the locale is C",
     &[Exemption {
       path: "crates/bd-cli/src/schema.rs",

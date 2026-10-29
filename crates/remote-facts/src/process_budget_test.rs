@@ -1,5 +1,5 @@
 //! The git processes of the reads of the remote family that run git: the text of a new pull request of a branch and
-//! of the whole stack (AGENTS.md, "Adding a git operation": a test that pins its processes by subcommand).
+//! of the whole stack (docs/contributing/adding-git-operation.md, "Checklist": a test that pins its processes by subcommand).
 
 use crate::pull_request_create::read_new_pull_request;
 use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};

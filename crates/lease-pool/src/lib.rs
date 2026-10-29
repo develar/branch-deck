@@ -1,7 +1,7 @@
 //! The lease pool: the worktrees that agent sessions work in, one session per slot (`bd lease`), the clean rules a
 //! return applies to a slot, and where a coding agent works and how it writes a subject (`bd workspace`). The state and
 //! the locks of the pool live in `$GIT_COMMON_DIR/branch-deck/`; the git of a slot (`checkout --force`, `reset --hard`,
-//! `clean -fd`) is `git_ops::lease_slot`, the one place the working-tree safety scan allows it (AGENTS.md, "Never write
+//! `clean -fd`) is `git_ops::lease_slot`, the one place the working-tree safety scan allows it (docs/contributing/git-rules.md, "Never write
 //! to the working tree"). Nothing here talks to GitHub, Patronus or YouTrack.
 //!
 //! - `lease`: the slots agent sessions lease (`bd lease`), their state and locks in `$GIT_COMMON_DIR/branch-deck/`: the

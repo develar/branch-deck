@@ -2,7 +2,7 @@
 //! the commits ahead of the baseline, the stores of the issue groups, the stack parents and the parked branches, the
 //! repository lock, and one core per rewrite (`*_core(params, options)`: the lock, the expected HEAD and the order of
 //! the git steps). The app and `bd` call these cores through sync-core or directly, and run no git of their own
-//! (AGENTS.md, "Adding a git operation").
+//! (docs/contributing/adding-git-operation.md, "Checklist").
 //!
 //! What a rewrite reads:
 //! - `baseline`: `detect_baseline_branch`, the baseline outside a sync

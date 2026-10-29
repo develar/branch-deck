@@ -1,8 +1,9 @@
 // Checks the `[@test]` links of the specs and the design docs: every link is a line of its own,
 // `[@test] <path> (`name`, `name`)`, its path names a test file and every name a test in it: a TypeScript test by its
 // title (a string literal), a Rust test by its function. A renamed or deleted test fails here, not in a reader.
+// Also the budget of AGENTS.md, which every session of every agent reads whole (Codex reads no more than 32 KiB).
 // Run: `pnpm lint:specs`.
-import { existsSync, globSync, readFileSync } from "node:fs"
+import { existsSync, globSync, readFileSync, statSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 
 const root = join(import.meta.dirname, "..")
@@ -51,8 +52,14 @@ for (const doc of globSync(["spec/**/*.md", "docs/**/*.md"], { cwd: root })) {
   })
 }
 
+const AGENTS_BUDGET = 32 * 1024
+const agentsBytes = statSync(join(root, "AGENTS.md")).size
+if (agentsBytes > AGENTS_BUDGET) {
+  problems.push(`AGENTS.md: ${agentsBytes} bytes, over its budget of ${AGENTS_BUDGET}: one line per rule there, the detail in the doc it links`)
+}
+
 if (problems.length > 0) {
   console.error(problems.join("\n"))
-  console.error(`${problems.length} broken [@test] link(s)`)
+  console.error(`${problems.length} problem(s) of the [@test] links and AGENTS.md`)
   process.exit(1)
 }

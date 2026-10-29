@@ -180,7 +180,7 @@ fn only_the_named_files_move_head_with_the_files() {
   expected.sort();
   assert_eq!(
     found, expected,
-    "a new caller of a move that the files follow needs a review of docs/design/git-operations.md (invariant 1) and AGENTS.md"
+    "a new caller of a move that the files follow needs a review of docs/design/git-operations.md (invariant 1) and docs/contributing/git-rules.md"
   );
 }
 

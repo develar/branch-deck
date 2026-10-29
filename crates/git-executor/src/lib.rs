@@ -1,4 +1,4 @@
-//! The one place a git process starts (AGENTS.md, "Git Operations"; docs/design/git-operations.md, "Executor"): the
+//! The one place a git process starts (docs/contributing/git-rules.md; docs/design/git-operations.md, "Executor"): the
 //! environment and config every git gets, one builder on one spawn core, and the counts of an operation's processes.
 //! No operation lives here; git-ops builds them on this.
 //!

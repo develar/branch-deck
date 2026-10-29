@@ -3,7 +3,7 @@
 //! It talks to no remote service but through git: what GitHub and Patronus know of the branches (pull requests, review
 //! requests, branch rules, review readiness, the Patronus command, the Safe Push statistics) is the crate
 //! `remote-facts`, over HTTP, built on this one. The app and `bd` call these cores, git-ops directly only for reads that
-//! need no lock, and run no git of their own (AGENTS.md, "Adding a git operation").
+//! need no lock, and run no git of their own (docs/contributing/adding-git-operation.md, "Checklist").
 //!
 //! The grouping, the stores of the issue groups, the stack parents and the parked branches, the repository lock and the
 //! rewrites that need no sync (regroup, reword, squash, fold) are the crate `history-rewrite`.

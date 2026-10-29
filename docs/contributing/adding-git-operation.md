@@ -8,8 +8,47 @@
 
 Read this before you add or change a git operation in `crates/git-ops`, `crates/history-rewrite`, `crates/sync-core`,
 `crates/update-core`, `crates/trial-check`, `crates/lease-pool`, `crates/remote-facts`, `crates/repository-model`,
-`crates/operations`, `crates/bd-*` or `crates/app-api`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
-in its "Git Operations", the flows and the reasons in [Git Operations](../design/git-operations.md).
+`crates/operations`, `crates/bd-*` or `crates/app-api`. The checklist is [below](#checklist), the hard rules
+are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../design/git-operations.md).
+
+## Checklist
+
+- One name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`); the `//!` headers of
+  `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
+  `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs`,
+  `crates/remote-facts/src/lib.rs`, `crates/repository-model/src/lib.rs` and `crates/operations/src/lib.rs` map the
+  modules by area.
+- **git-ops** has the git: one process per phase, `-z` output, full ids, `--end-of-options` before a revision from
+  outside, `--literal-pathspecs` for paths after `--`; no lock and no policy.
+- **The core** `<op>_core` in `crates/history-rewrite/` (a rewrite that needs no sync, GitHub or Patronus),
+  `crates/update-core/` (Update Project, `bd pick`, the resolve sessions), `crates/trial-check/` (the trial checks,
+  `bd move-hunk`, whatever reads the diffs or the symbols of the commits), `crates/lease-pool/` (`bd lease`,
+  `bd workspace`), `crates/remote-facts/` (what GitHub and Patronus answer over HTTP, and the writes to them),
+  `crates/repository-model/` (the branch table Rust derives, the guards of the app's push and robot actions) or
+  `crates/sync-core/` (the sync, the pushes and the rest, with no remote service but git's) is the one
+  entry of every caller: a rewrite of the checked-out branch
+  takes `&RewriteOptions`, reads and computes on the oids it read once (checking the expected HEAD there), then takes
+  the lock for the witness of those refs and the CAS write (`RewriteOptions::lock_prepared`).
+- **operations**: an action on the remote, a rewrite of the checked-out branch and Update Project are an intent of its
+  family in `crates/operations/` (`prepare` and `execute` of `engine`; a rewrite and an update are `execute` alone): it
+  runs in `engine::run`, admitted by `registry` over the resources it names (`domain_policy::admission`), its steps the
+  `operations` part of the view, and checks its `witness` before the first effect (`plan_changed`). A write
+  to Patronus, GitHub or YouTrack and the leased push are effects of a plan, called only from `crates/operations`
+  (`remote_write_scan_test.rs`, exact counts per file). What
+  its plan reads of the remote is `needs::needs(intent)`, read by `facts::fill` through the one reader of every host
+  (`remote_facts::service_sources::ServiceFactSources`) into its session; `bd`'s is a one-shot session of its sync
+  (`repository_model::one_shot::OneShot`, its services `bd_core::services::BdServices`), never a reader of its own.
+- **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
+  JSON object with `schema`, errors as `CliError` with an `ErrorCode`, and records a rewrite, an update, a pick and an
+  operation of the remote in the operations registry (`bd_core::operation_record`); a command of the app is one entry
+  of the registry of app-api (`crates/app-api/src/commands.rs`): a read `run_blocking` of the core, a write `execute`
+  of its intent or a command of the app, `app(<reason>)` (`AppReason`: what has no repository as its subject); the
+  app's Tauri wrapper and the E2E server's route come from the entry and run the same body.
+- **Reuse a helper** before writing a parser or a process: `ref_transaction`, `commit_writer`, `commit_chain`,
+  `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `snapshot`, `repository_lock`
+  and `regroup` in `history_rewrite`; `repo_facts`, `baseline` and `remote_command` in `sync_core`.
+- **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test in
+  `process_budget_test.rs` that pins its processes by subcommand; the scan tests stay green.
 
 ## Layers
 
@@ -80,7 +119,7 @@ modules by area; the layers are the
   `crates/update-core/src/`, `crates/trial-check/src/`, `crates/remote-facts/src/`, `crates/operations/src/` and
   `crates/branch-integration/src/` for theirs; `crates/bd-cli/src/` for a `bd` command)
   that pins its processes by subcommand; the scan tests stay green (`worktree_safety_test.rs`,
-  `git_usage_scan_test.rs`, "Scan tests" of AGENTS.md), an exemption added only with its reason and its number of hits.
+  `git_usage_scan_test.rs`, [Scan tests](git-rules.md#scan-tests)), an exemption added only with its reason and its number of hits.
 
 ## Helpers
 

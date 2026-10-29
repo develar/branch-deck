@@ -81,8 +81,8 @@ runs the guards on the history it read and moves the branch with CAS. The `//!` 
 `crates/repository-model/src/lib.rs` map their modules by area; `crates/bd-cli/src/architecture_test.rs` fences the
 edges on `cargo metadata` (sync-core, update-core and trial-check reach no HTTP crate, sync-core and lease-pool no
 `file-diffs` or `code-symbols`, lease-pool and remote-facts no trial check and no update, repository-model none of
-the crates beside it; the two dashed edges stand in its `ALLOWED`, each with the stage that removes it); "Adding a git operation" in `AGENTS.md` is the checklist
-of a new one, and [Adding a Git Operation](../contributing/adding-git-operation.md) says where it goes and which helpers
+the crates beside it; the two dashed edges stand in its `ALLOWED`, each with the stage that removes it); the [Checklist](../contributing/adding-git-operation.md#checklist) of a new one
+and the rest of [Adding a Git Operation](../contributing/adding-git-operation.md) say where it goes and which helpers
 it reuses.
 
 A rewrite of the checked out branch:
@@ -4571,7 +4571,7 @@ same robots) and `facts_test.rs` the order of the computations.
 
 What the rules of `domain-policy` decide over the table and the facts is a part of the view too, which the session
 derives (`repository_model::derive`, `action_view`), so the page words one answer and `bd` prints the same one (the
-rules, one file each: [Rule Index](../../AGENTS.md#rule-index)). Every rule reads the table as
+rules, one file each: [Rule Index](../contributing/code-map.md#rule-index)). Every rule reads the table as
 `domain_policy::facts::Repository`, borrowed where it lives (`derive::repository` over the table state, `derive::
 grouped_rows` over the grouping of `bd`), and the facts as `Fact<T>` with their state: a fact without a fresh answer is
 a wait (`Pending`) or a confirmation, never a "no" ([Facts without an

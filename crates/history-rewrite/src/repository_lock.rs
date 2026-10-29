@@ -1,6 +1,6 @@
 //! A lock file that serializes history rewrites between processes: the app and parallel `bd` calls. The in-process
 //! mutexes (ref renames, notes) don't cover another process. Every rewrite of the checked out branch takes it in its
-//! core, through the `RewriteOptions` it is called with (AGENTS.md, "Repository lock"): after it read and computed on
+//! core, through the `RewriteOptions` it is called with (docs/contributing/git-rules.md, "Repository lock"): after it read and computed on
 //! the oids it read once, for the witness of those refs and its compare-and-swap write only (`lock_prepared`).
 //!
 //! Before the file lock stands the line of this process (`Place`): a fair queue per lock file, in which an operation
@@ -886,7 +886,7 @@ impl Prepared for CheckedRestore {
   fn discard(&self, _git_executor: &GitCommandExecutor, _repository_path: &str) {}
 }
 
-/// The lock of a rewrite that computed `prepared` before it (AGENTS.md, "Repository lock"): `(lock_wait, held_lock)`.
+/// The lock of a rewrite that computed `prepared` before it (docs/contributing/git-rules.md, "Repository lock"): `(lock_wait, held_lock)`.
 /// Under the lock only the witness is read, one process; when it holds, `prepared` is written as it is. When a ref it
 /// computed on moved meanwhile (another process rewrote HEAD, a sync dropped the lines of a store), `prepared` is
 /// discarded and `again` computes it once more, under the lock now, so nothing it reads moves again: the HEAD it
@@ -927,7 +927,7 @@ pub fn lock_prepared<P: Prepared, E: From<anyhow::Error>>(
   }
 }
 
-/// `lock_prepared` of a move that the files follow (an unapply, a reapply, the undo of a move; AGENTS.md, "Repository
+/// `lock_prepared` of a move that the files follow (an unapply, a reapply, the undo of a move; docs/contributing/git-rules.md, "Repository
 /// lock"): `prepared` was read and computed before the lock, the dry run of the files on a copy of the index included,
 /// on a worktree without the mark of an interrupted move (`git_ops::update_branch::pending_mark`). The witness reads
 /// that mark absent with HEAD and the refs it computed on, in its one `for-each-ref`; a mark there lets the files of
