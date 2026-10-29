@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { bringUnderStillPointer, findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
-import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, pressSyncHeld, releaseHeldSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
 import type { YouTrackFixture } from "../helpers/youtrack-helpers"
@@ -117,6 +117,19 @@ test.describe("YouTrack issue popover", () => {
     await page.getByRole("menuitem", { name: "Mark ABC-123 Fixed" }).click()
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Cannot mark ABC-123 fixed" })).toContainText("ABC-123 is already Duplicate")
     expect((await repo.getYouTrack()).commands).toEqual([])
+  })
+
+  test("should mark the issue of a branch fixed from its menu pressed during a held sync at once, the sync ending once", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setUp(page, setupRepo, syncAndWaitForBranches, OPEN_ISSUES)
+    const syncs = await pressSyncHeld(page, repo)
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Mark JIRA-456 Fixed" }).click()
+    // the command of YouTrack waits for no sync: it is sent and answered while the sync is held
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Marked JIRA-456 Fixed" })).toContainText("Was Open")
+    expect((await repo.getYouTrack()).commands).toEqual([{ query: "State Fixed", issues: ["JIRA-456"] }])
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await releaseHeldSync(page, repo, syncs)
+    expect((await repo.getYouTrack()).commands).toHaveLength(1)
   })
 
   test("should show a resolved issue without Mark Fixed, and send an expired sign-in to Settings", async ({ page, setupRepo, syncAndWaitForBranches }) => {

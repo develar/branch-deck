@@ -294,8 +294,9 @@ client takes a pasted token.
   issue is still Fixed ("ABC-1 is now Verified" otherwise), then "ABC-1 is Open again" in place of the toast it was
   pressed on (one toast of the issue, the event of the outcome `NewsKey::Issue`,
   [One toast per event](../../docs/contributing/ux-writing.md#one-toast-per-event)); YouTrack clears `resolved` itself. A failure is "Cannot mark ABC-1 fixed" or
-  "Cannot undo the Fixed state of ABC-1" with YouTrack's reason (`notifyError`, so in Activity too).
-  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
+  "Cannot undo the Fixed state of ABC-1" with YouTrack's reason (`notifyError`, so in Activity too). It waits for no
+  sync: pressed while one runs, it is sent and answered at once, and that sync ends once.
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`, `should mark the issue of a branch fixed from its menu pressed during a held sync at once, the sync ending once`)
   [@test] ../../crates/operations/src/issue_test.rs (`a_change_of_the_state_of_an_issue_is_its_one_effect_and_its_undo_the_same_intent`)
   [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_sign_ins_and_service_against_the_fake`)
 - Surfaces: the popover of every key (the rows, the commits, the preview, the toasts, the merge toast of a robot

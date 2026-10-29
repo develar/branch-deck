@@ -6,7 +6,7 @@ import { findBranchRow, getMoreButton, getPushButton } from "../helpers/branch-h
 import { DAY_ROBOTS, ROBOTS_NOW, availableRobots, failedFastTests, setupRobots, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { openLandingOverview } from "../helpers/review-status-helpers"
-import { emitTauriEvent, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { HistoryRobotFixture, TestRepositoryBuilder } from "../helpers/test-repository"
 import { openMainMenuView, TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { recordCommand, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -313,6 +313,20 @@ test.describe("Landing view", () => {
     await landingView(page).getByTestId("landing-refresh").click()
     await expect.poll(async () => (await statisticsLists(repo)).length).toBe(15)
     await expect(landingView(page).getByTestId("landing-merged")).toContainText("2")
+  })
+
+  test("should read the statistics of the Landing view shown during a held sync at once, the sync ending once", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupHistory(page, setupRepo, syncAndWaitForBranches)
+    const syncs = await pressSyncHeld(page, repo)
+    // the read of the statistics is a command of its own, off the workers of the sync: it answers while the sync is held
+    await page.getByTestId("main-view-landing").click()
+    await expectStatisticsShown(page)
+    await expect(landingView(page)).toHaveAttribute("aria-busy", "false")
+    expect(await statisticsLists(repo)).toHaveLength(5)
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await releaseHeldSync(page, repo, syncs)
+    // the end of the sync reads no statistics again
+    expect(await statisticsLists(repo)).toHaveLength(5)
   })
 
   test("should say why there are no statistics", async ({ page, setupRepo, syncAndWaitForBranches }) => {

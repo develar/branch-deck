@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
 import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
-import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, nextAnswer, pressSyncHeld, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { holdNextAnswer, recordCommand, routeCommandError } from "../helpers/wait-helpers"
@@ -84,6 +84,33 @@ test.describe("Settings → Repository", () => {
     await expect(reset).toHaveCount(0)
     await expect(stacks.getByTestId("repository-setting-source")).toHaveCount(0)
     await waitForSyncComplete(page, syncs)
+    await expectDocsStacked(page, false)
+  })
+
+  test("should write stacked branches turned off during a held sync at once, the main window syncing it once after that sync", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("stacked_issues")
+    await syncAndWaitForBranches()
+    await expectDocsStacked(page, true)
+    const window = await openRepositorySettings(page)
+    const toggle = row(window, "stacks").getByRole("switch", { name: "Stacked branches" })
+    await expect(toggle).toBeChecked()
+
+    // the write waits for no sync: .git/config has it while the sync of the main window is held
+    const syncs = await pressSyncHeld(page, repo)
+    const written = nextAnswer(window, "set_repository_config")
+    await toggle.click()
+    await written
+    await expect(toggle).not.toBeChecked()
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await expect(window.locator("[data-slot=toast]")).toHaveCount(0)
+
+    // the held sync ends, then the one sync of the change: docs is a branch of its own
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+    await expect.poll(() => finishedSyncCount(page)).toBe(syncs + 2)
     await expectDocsStacked(page, false)
   })
 

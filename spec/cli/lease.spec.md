@@ -259,6 +259,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_slot_deleted_by_hand_gives_its_path_to_the_next_new_slot`)
   [@test] ../../crates/git-ops/src/lease_slot_test.rs (`a_new_slot_takes_over_the_registration_of_a_slot_deleted_by_hand`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_of_a_new_slot_by_a_clone`)
+- A get and a return must take no repository lock: a sync of the repository beside them (another agent's `bd sync`,
+  the app's) neither waits for them nor holds them, and the lease is cut at the HEAD that sync reads.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_and_a_return_beside_a_held_sync_do_not_wait_for_it`)
 - `--branch <name>` (`-b`) must create the branch at the source HEAD and check it out in the slot; a branch that
   exists must be `branch_exists` (exit 4), an invalid name `invalid_arguments` (exit 2).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_lease_on_a_new_branch_keeps_the_branch_after_the_return`)

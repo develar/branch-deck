@@ -1,5 +1,7 @@
 use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
 use bd_cli::fixture_test::assert_covered;
+#[cfg(unix)]
+use bd_cli::fixture_test::beside_a_held_sync;
 use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_with_baseline, run_json};
 use bd_core::context::Environment;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -1690,4 +1692,23 @@ fn a_running_return_reserves_the_slot_against_a_get() {
   expected.sort();
   actual.sort();
   assert_eq!(actual, expected);
+}
+
+/// An agent leases a worktree and gives it back while another agent's `bd sync` of the repository is held in its
+/// merges: a sync takes neither the repository lock nor the pool lock, so the get and the return end while that sync is
+/// still held, which then ends too
+#[cfg(unix)]
+#[test_log::test]
+fn a_get_and_a_return_beside_a_held_sync_do_not_wait_for_it() {
+  let fixture = Fixture::new();
+  // below it a commit of no branch: the sync merges `own` onto the baseline
+  fixture.repo.create_commit("(own) Add c", "c.txt", "c\n");
+  let head = fixture.repo.head();
+  let mut path = String::new();
+  beside_a_held_sync(&fixture.repo, || {
+    path = path_of(&fixture.get(&["-b", "lane"]));
+    assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]).trim(), head, "the lease is cut at the HEAD the sync reads");
+    fixture.give_back(&path);
+  });
+  assert_eq!(states(&fixture.status()), [(slot_path(&path), "free".to_string())]);
 }

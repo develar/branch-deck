@@ -436,8 +436,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   window opens and syncs for a repository synced before ([Onboarding](onboarding.spec.md)); stacked branches a sync; the symbol
   mode a sync, and the stack-independence checks of the Safe Push popover ask again; the GitHub repository a sync and the
   pull requests (`refreshPullRequests("manual")`). A repository never synced only loads its prefix: its first sync is
-  the user's.
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`, `should open and sync the session of a prefix written here, for a repository synced before`)
+  the user's. A write waits for no sync: during one it is written at once, and the sync it asks for runs once after
+  that one.
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should write stacked branches turned off during a held sync at once, the main window syncing it once after that sync`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`, `should open and sync the session of a prefix written here, for a repository synced before`)
 - Stacked branches are not offered off while a sync would fail then: with them on, the read groups the commits as with
   them off (`stacks_off_clashes`, baseline detection, one `cat-file`, one `log`) and names the flat branches git cannot
   keep beside another one (`auth/login` beside `auth`). The switch is disabled with what to do: "Turning this off

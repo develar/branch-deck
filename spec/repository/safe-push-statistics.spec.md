@@ -156,9 +156,12 @@ it for little.
 
 - `get_robot_stats` must answer the same `RobotStats` of the period it is asked for from the same core, the progress
   and the numbers of the lists (`RobotStatsEvent::Partial`) through its channel before the checks are read; two reads
-  of one repository at once read once, and one from the cache waits for none. The E2E server answers it from the real
-  core at the page's clock, in UTC, without a cache.
+  of one repository at once read once, and one from the cache waits for none. Its open of the object cache runs off
+  the async workers, and it waits for no sync: shown during one, the view reads them at once. The E2E server answers it
+  from the real core at the page's clock, in UTC, without a cache.
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_history_robot_reads_back_through_the_parser_of_the_statistics`)
+  [@test] ../../crates/app-api/src/command_scan_test.rs (`an_async_function_makes_the_blocking_reads_off_the_async_workers`)
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should read the statistics of the Landing view shown during a held sync at once, the sync ending once`)
 - The Landing view of the main window shows them, in the period of its header ([Main Views](main-views.spec.md)).
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should count the chosen period: its robots, its weeks, and keep the choice`)
