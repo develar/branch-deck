@@ -6,7 +6,8 @@ use object_cache::commit_lines::FileLines;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::{HistoryCommit, HistoryStream, one_file_each};
 
 const PREFIX: &str = "test-prefix";
 
@@ -61,13 +62,14 @@ class AirFlowLaneHost {{
 /// The incident of 2026-10-16: `(fake-agent)` moves two constants from `AcpScenarioAgent` into the new
 /// `AcpControlProtocol`; the Kotlin file that used one was changed by a commit of `(lane-document)`
 fn incident() -> (TestRepo, String, String) {
-  let repo = TestRepo::new();
-  repo.create_commit_with_files("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, &host("AcpScenarioAgent"))]);
-  let removed_by = repo.create_commit_with_files(
-    "(fake-agent) IJAI-3880 Move the control protocol constants",
-    &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)],
-  );
-  let fixed_by = repo.create_commit_with_files("(lane-document) IJAI-3878 Use the control protocol", &[(HOST, &host("AcpControlProtocol"))]);
+  let (repo, [_, removed_by, fixed_by]) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, &host("AcpScenarioAgent"))]),
+    HistoryCommit::new(
+      "(fake-agent) IJAI-3880 Move the control protocol constants",
+      &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)],
+    ),
+    HistoryCommit::new("(lane-document) IJAI-3878 Use the control protocol", &[(HOST, &host("AcpControlProtocol"))]),
+  ]);
   (repo, removed_by, fixed_by)
 }
 
@@ -108,13 +110,14 @@ fn the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch() {
 #[test]
 fn a_use_in_a_path_with_a_space_is_fixed_by_its_commit() {
   let spaced_host = "plugins/air/tests/flow/Air Flow Lane Host.kt";
-  let repo = TestRepo::new();
-  repo.create_commit_with_files("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (spaced_host, &host("AcpScenarioAgent"))]);
-  repo.create_commit_with_files(
-    "(fake-agent) IJAI-3880 Move the control protocol constants",
-    &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)],
-  );
-  let fixed_by = repo.create_commit_with_files("(lane-document) IJAI-3878 Use the control protocol", &[(spaced_host, &host("AcpControlProtocol"))]);
+  let (repo, [_, _, fixed_by]) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (spaced_host, &host("AcpScenarioAgent"))]),
+    HistoryCommit::new(
+      "(fake-agent) IJAI-3880 Move the control protocol constants",
+      &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)],
+    ),
+    HistoryCommit::new("(lane-document) IJAI-3878 Use the control protocol", &[(spaced_host, &host("AcpControlProtocol"))]),
+  ]);
 
   let report = check(&repo);
 
@@ -181,11 +184,11 @@ fn the_changed_lines_are_read_by_the_paths_as_stored() {
 /// that its lines come in another order, `diff.interHunkContext` fuses hunks
 #[test]
 fn the_changed_lines_do_not_depend_on_the_diff_config() {
-  let repo = TestRepo::new();
-  repo.create_commit("Base", "f.kt", "1\n2\n/* function */\nfoo() {\n\tfoo\n}\n\n3\n4\n");
-  let commit = repo.create_commit("Add bar", "f.kt", "1\n2\n/* function */\nbar() {\n\tfoo\n}\n\n/* function */\nfoo() {\n\tfoo\n}\n\n3\n4\n");
-  repo.git(&["config", "diff.indentHeuristic", "false"]);
-  repo.git(&["config", "diff.interHunkContext", "10"]);
+  let (repo, [_, commit]) = TestRepo::with_commits(&one_file_each([
+    ("Base", "f.kt", "1\n2\n/* function */\nfoo() {\n\tfoo\n}\n\n3\n4\n"),
+    ("Add bar", "f.kt", "1\n2\n/* function */\nbar() {\n\tfoo\n}\n\n/* function */\nfoo() {\n\tfoo\n}\n\n3\n4\n"),
+  ]));
+  append_config(repo.path(), &[("diff.indentHeuristic", "false"), ("diff.interHunkContext", "10")]);
 
   let mut lines = commit_lines(&repo, &commit);
 
@@ -203,24 +206,26 @@ fn the_changed_lines_do_not_depend_on_the_diff_config() {
 /// The fix in the same branch: nothing dangles
 #[test]
 fn a_use_changed_by_the_branch_itself_is_not_dangling() {
-  let repo = TestRepo::new();
-  repo.create_commit_with_files("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, &host("AcpScenarioAgent"))]);
-  repo.create_commit_with_files(
-    "(fake-agent) Move the control protocol constants",
-    &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)],
-  );
-  repo.create_commit_with_files("(fake-agent) Use the control protocol", &[(HOST, &host("AcpControlProtocol"))]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, &host("AcpScenarioAgent"))]),
+    HistoryCommit::new(
+      "(fake-agent) Move the control protocol constants",
+      &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)],
+    ),
+    HistoryCommit::new("(fake-agent) Use the control protocol", &[(HOST, &host("AcpControlProtocol"))]),
+  ]);
   assert!(check(&repo).dangling.is_empty());
 }
 
 /// A declaration changed in place (or one overload of several) is still declared in its file
 #[test]
 fn a_declaration_changed_in_place_is_not_dangling() {
-  let repo = TestRepo::new();
-  repo.create_commit_with_files("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, &host("AcpScenarioAgent"))]);
   let changed = AGENT_WITH_CONSTANTS.replace("\"AIR_CONTROL_URL\"", "\"AIR_CONTROL_URL_V2\"");
-  repo.create_commit_with_files("(fake-agent) Change the variable", &[(AGENT, &changed)]);
-  repo.create_commit_with_files("(other) Drop the host", &[(HOST, "package flow\n")]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, &host("AcpScenarioAgent"))]),
+    HistoryCommit::new("(fake-agent) Change the variable", &[(AGENT, &changed)]),
+    HistoryCommit::new("(other) Drop the host", &[(HOST, "package flow\n")]),
+  ]);
   assert!(check(&repo).dangling.is_empty());
 }
 
@@ -228,27 +233,29 @@ fn a_declaration_changed_in_place_is_not_dangling() {
 /// HEAD doesn't break too
 #[test]
 fn a_reformatted_use_is_not_dangling() {
-  let repo = TestRepo::new();
-  repo.create_commit_with_files("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, &host("AcpScenarioAgent"))]);
-  repo.create_commit_with_files("(fake-agent) Drop the constants", &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)]);
   let reformatted = host("AcpScenarioAgent").replace(
     "mapOf(AcpScenarioAgent.CONTROL_URL_ENV to url)",
     "mapOf(\n      AcpScenarioAgent.CONTROL_URL_ENV to url,\n    )",
   );
-  repo.create_commit_with_files("(other) Reformat", &[(HOST, &reformatted)]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, &host("AcpScenarioAgent"))]),
+    HistoryCommit::new("(fake-agent) Drop the constants", &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)]),
+    HistoryCommit::new("(other) Reformat", &[(HOST, &reformatted)]),
+  ]);
   assert!(check(&repo).dangling.is_empty());
 }
 
 /// A private member is used in its own file only: a use elsewhere is another name
 #[test]
 fn a_private_declaration_is_not_searched_outside_its_file() {
-  let repo = TestRepo::new();
   let agent = "package acp;\n\npublic final class AcpScenarioAgent {\n  private static final String CONTROL_URL_ENV = \"AIR\";\n}\n";
   let other = "package other;\n\nclass Other {\n  static final String CONTROL_URL_ENV = \"OTHER\";\n  String url() { return CONTROL_URL_ENV; }\n}\n";
-  repo.create_commit_with_files("Initial commit", &[(AGENT, agent), ("src/other/Other.java", other)]);
-  repo.create_commit_with_files("(fake-agent) Drop the constant", &[(AGENT, "package acp;\n\npublic final class AcpScenarioAgent {\n}\n")]);
   let changed = other.replace("return CONTROL_URL_ENV;", "return \"\";");
-  repo.create_commit_with_files("(other) Change other", &[("src/other/Other.java", &changed)]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[(AGENT, agent), ("src/other/Other.java", other)]),
+    HistoryCommit::new("(fake-agent) Drop the constant", &[(AGENT, "package acp;\n\npublic final class AcpScenarioAgent {\n}\n")]),
+    HistoryCommit::new("(other) Change other", &[("src/other/Other.java", &changed)]),
+  ]);
   assert!(check(&repo).dangling.is_empty());
 }
 
@@ -256,12 +263,13 @@ fn a_private_declaration_is_not_searched_outside_its_file() {
 /// branch, so stacking helps
 #[test]
 fn a_removed_top_level_function_is_searched_by_its_name() {
-  let repo = TestRepo::new();
   let util = "package util\n\nfun controlUrl(): String = \"\"\n\nfun other(): String = \"\"\n";
   let user = "package flow\n\nimport util.controlUrl\n\nfun start() = controlUrl()\n";
-  repo.create_commit_with_files("Initial commit", &[("src/util/Util.kt", util), ("src/flow/Start.kt", user)]);
-  let removed_by = repo.create_commit_with_files("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n\nfun other(): String = \"\"\n")]);
-  let fixed_by = repo.create_commit_with_files("(flow) Start without it", &[("src/flow/Start.kt", "package flow\n\nfun start() = \"\"\n")]);
+  let (repo, [_, removed_by, fixed_by]) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[("src/util/Util.kt", util), ("src/flow/Start.kt", user)]),
+    HistoryCommit::new("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n\nfun other(): String = \"\"\n")]),
+    HistoryCommit::new("(flow) Start without it", &[("src/flow/Start.kt", "package flow\n\nfun start() = \"\"\n")]),
+  ]);
 
   let dangling = check(&repo).dangling;
   assert_eq!(
@@ -290,15 +298,20 @@ fn a_removed_top_level_function_is_searched_by_its_name() {
 #[test]
 fn a_use_landed_on_the_baseline_is_a_possible_reference() {
   let repo = TestRepo::new();
-  let initial = repo.create_commit_with_files("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, "package flow\n")]);
-  let path = repo.path().to_str().unwrap();
-  let git = |args: &[&str]| repo.git_executor().execute_command(args, path).unwrap();
-  // upstream adds a use after the base
-  let upstream = repo.create_commit_with_files("Use the URL", &[(HOST, &host("AcpScenarioAgent"))]);
-  git(&["remote", "add", "origin", "."]);
-  git(&["update-ref", "refs/remotes/origin/master", &upstream]);
-  git(&["reset", "-q", "--hard", &initial]);
-  let removed_by = repo.create_commit_with_files("(fake-agent) Drop the constants", &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)]);
+  // upstream adds a use after the base: `origin/master` has it, `master` is the base
+  let mut history = HistoryStream::new("refs/remotes/origin/master");
+  history.commit(&HistoryCommit::new("Initial commit", &[(AGENT, AGENT_WITH_CONSTANTS), (HOST, "package flow\n")]));
+  history.commit(&HistoryCommit::new("Use the URL", &[(HOST, &host("AcpScenarioAgent"))]));
+  history.reset_to_root("refs/heads/master");
+  history.write(repo.path()).unwrap();
+  append_config(repo.path(), &[("remote.origin.url", "."), ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")]);
+  let [removed_by] = repo.commits_on(
+    "refs/heads/master",
+    &[HistoryCommit::new(
+      "(fake-agent) Drop the constants",
+      &[(AGENT, AGENT_WITHOUT_CONSTANTS), (PROTOCOL, PROTOCOL_WITH_CONSTANTS)],
+    )],
+  );
 
   let dangling = check(&repo).dangling;
   let references = &dangling["fake-agent"];
@@ -318,18 +331,15 @@ fn a_use_landed_on_the_baseline_is_a_possible_reference() {
 /// another branch deletes is no dangling reference; only an import of the old package would be
 #[test]
 fn a_member_moved_with_its_class_is_not_dangling() {
-  let repo = TestRepo::new();
   let json = |package: &str| format!("package {package};\n\npublic final class Json {{\n  public static String quote(String value) {{\n    return value;\n  }}\n}}\n");
   let user = "package flow\n\nimport protocol.Json\n\nfun shown(name: String) = Json.quote(name)\n";
-  repo.create_commit_with_files("Initial commit", &[("old/support/Json.java", &json("support")), ("src/flow/Other.kt", "package flow\n")]);
-  // the move, and a user of the new place in the same branch
-  repo.create_commit_with_files("(protocol) Move Json", &[("new/protocol/Json.java", &json("protocol")), ("src/flow/Shown.kt", user)]);
-  repo
-    .git_executor()
-    .execute_command(&["rm", "-q", "old/support/Json.java"], repo.path().to_str().unwrap())
-    .unwrap();
-  repo.create_commit_with_files("(protocol) Drop the old Json", &[("src/flow/Other.kt", "package flow\n\n// moved\n")]);
-  repo.create_commit_with_files("(other) Drop the user", &[("src/flow/Shown.kt", "package flow\n")]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[("old/support/Json.java", &json("support")), ("src/flow/Other.kt", "package flow\n")]),
+    // the move, and a user of the new place in the same branch
+    HistoryCommit::new("(protocol) Move Json", &[("new/protocol/Json.java", &json("protocol")), ("src/flow/Shown.kt", user)]),
+    HistoryCommit::new("(protocol) Drop the old Json", &[("src/flow/Other.kt", "package flow\n\n// moved\n")]).deleting(&["old/support/Json.java"]),
+    HistoryCommit::new("(other) Drop the user", &[("src/flow/Shown.kt", "package flow\n")]),
+  ]);
   assert!(check(&repo).dangling.is_empty(), "{:?}", check(&repo).dangling);
 }
 
@@ -337,37 +347,39 @@ fn a_member_moved_with_its_class_is_not_dangling() {
 /// the function still resolves, and the property is no use of it
 #[test]
 fn a_top_level_function_moved_within_its_package_is_not_dangling() {
-  let repo = TestRepo::new();
   let dsl = "package acp\n\nfun requestKey(value: String): String = value\n\nclass Permission(\n  val requestKey: String,\n)\n";
-  repo.create_commit_with_files("Initial commit", &[("src/acp/Dsl.kt", dsl)]);
-  repo.create_commit_with_files(
-    "(keys) Move requestKey",
-    &[
-      ("src/acp/Dsl.kt", "package acp\n\nclass Permission(\n  val requestKey: String,\n)\n"),
-      ("src/acp/Keys.kt", "package acp\n\nfun requestKey(value: String): String = value\n"),
-    ],
-  );
-  repo.create_commit_with_files("(other) Drop the property", &[("src/acp/Dsl.kt", "package acp\n\nclass Permission\n")]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[("src/acp/Dsl.kt", dsl)]),
+    HistoryCommit::new(
+      "(keys) Move requestKey",
+      &[
+        ("src/acp/Dsl.kt", "package acp\n\nclass Permission(\n  val requestKey: String,\n)\n"),
+        ("src/acp/Keys.kt", "package acp\n\nfun requestKey(value: String): String = value\n"),
+      ],
+    ),
+    HistoryCommit::new("(other) Drop the property", &[("src/acp/Dsl.kt", "package acp\n\nclass Permission\n")]),
+  ]);
   assert!(check(&repo).dangling.is_empty(), "{:?}", check(&repo).dangling);
 }
 
 /// A private function moved to another file and made public there: its old file imports it from the new place
 #[test]
 fn a_private_declaration_moved_elsewhere_is_not_dangling() {
-  let repo = TestRepo::new();
   let utils = "package flow\n\nprivate fun String.listedIdentity(): String = this\n\nfun shown(name: String) = name.listedIdentity()\n";
-  repo.create_commit_with_files("Initial commit", &[("src/flow/Utils.kt", utils)]);
-  repo.create_commit_with_files(
-    "(authored) Share listedIdentity",
-    &[
-      ("src/bridge/Authored.kt", "package bridge\n\nfun String.listedIdentity(): String = this\n"),
-      (
-        "src/flow/Utils.kt",
-        "package flow\n\nimport bridge.listedIdentity\n\nfun shown(name: String) = name.listedIdentity()\n",
-      ),
-    ],
-  );
-  repo.create_commit_with_files("(other) Drop the utils", &[("src/flow/Utils.kt", "package flow\n")]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[("src/flow/Utils.kt", utils)]),
+    HistoryCommit::new(
+      "(authored) Share listedIdentity",
+      &[
+        ("src/bridge/Authored.kt", "package bridge\n\nfun String.listedIdentity(): String = this\n"),
+        (
+          "src/flow/Utils.kt",
+          "package flow\n\nimport bridge.listedIdentity\n\nfun shown(name: String) = name.listedIdentity()\n",
+        ),
+      ],
+    ),
+    HistoryCommit::new("(other) Drop the utils", &[("src/flow/Utils.kt", "package flow\n")]),
+  ]);
   assert!(check(&repo).dangling.is_empty(), "{:?}", check(&repo).dangling);
 }
 
@@ -385,44 +397,46 @@ fn assert_found_by_the_lines_only(repo: &TestRepo, branch: &str) {
 /// declares; the name stays bound in its file, so the uses still compile
 #[test]
 fn a_name_re_exported_by_a_use_is_not_removed() {
-  let repo = TestRepo::new();
   let identity = "crates/guest/src/lane/identity.rs";
   let context = "crates/guest/src/lane/context.rs";
-  repo.create_commit_with_files(
-    "Initial commit",
-    &[
-      ("crates/guest/Cargo.toml", "[package]\nname = \"guest\"\n"),
-      (identity, "pub(crate) enum ControlOwner {\n  Agent,\n}\n"),
-      (
-        context,
-        "use super::identity::ControlOwner;\n\npub fn owner() -> ControlOwner {\n  ControlOwner::Agent\n}\n",
-      ),
-    ],
-  );
-  repo.create_commit_with_files("(wire) Use the owner of the wire", &[(identity, "pub(crate) use wire::program::lane::ControlOwner;\n")]);
-  repo.create_commit_with_files(
-    "(context) Name the owner once",
-    &[(context, "use super::identity::ControlOwner;\n\npub fn owner() -> ControlOwner {\n  wire::agent()\n}\n")],
-  );
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new(
+      "Initial commit",
+      &[
+        ("crates/guest/Cargo.toml", "[package]\nname = \"guest\"\n"),
+        (identity, "pub(crate) enum ControlOwner {\n  Agent,\n}\n"),
+        (
+          context,
+          "use super::identity::ControlOwner;\n\npub fn owner() -> ControlOwner {\n  ControlOwner::Agent\n}\n",
+        ),
+      ],
+    ),
+    HistoryCommit::new("(wire) Use the owner of the wire", &[(identity, "pub(crate) use wire::program::lane::ControlOwner;\n")]),
+    HistoryCommit::new(
+      "(context) Name the owner once",
+      &[(context, "use super::identity::ControlOwner;\n\npub fn owner() -> ControlOwner {\n  wire::agent()\n}\n")],
+    ),
+  ]);
   assert_found_by_the_lines_only(&repo, "wire");
 }
 
 /// (b): a removed function named in a doc comment only: a comment is no use
 #[test]
 fn a_word_in_kdoc_is_no_use() {
-  let repo = TestRepo::new();
-  repo.create_commit_with_files(
-    "Initial commit",
-    &[
-      ("src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n"),
-      (
-        "src/flow/Start.kt",
-        "package flow\n\n/** Starts without [controlUrl] and its controlUrl. */\nfun start() = 1\n",
-      ),
-    ],
-  );
-  repo.create_commit_with_files("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n")]);
-  repo.create_commit_with_files("(flow) Document start", &[("src/flow/Start.kt", "package flow\n\n/** Starts. */\nfun start() = 1\n")]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new(
+      "Initial commit",
+      &[
+        ("src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n"),
+        (
+          "src/flow/Start.kt",
+          "package flow\n\n/** Starts without [controlUrl] and its controlUrl. */\nfun start() = 1\n",
+        ),
+      ],
+    ),
+    HistoryCommit::new("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n")]),
+    HistoryCommit::new("(flow) Document start", &[("src/flow/Start.kt", "package flow\n\n/** Starts. */\nfun start() = 1\n")]),
+  ]);
   assert_found_by_the_lines_only(&repo, "cleanup");
 }
 
@@ -430,17 +444,18 @@ fn a_word_in_kdoc_is_no_use() {
 /// `override fun` for a use, the syntax tree has it as an override, which is no use of a top-level function
 #[test]
 fn an_override_line_is_no_use() {
-  let repo = TestRepo::new();
   let agent = |body: &str| format!("package flow\n\nclass Agent : Base() {{\n{body}}}\n");
-  repo.create_commit_with_files(
-    "Initial commit",
-    &[
-      ("src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n"),
-      ("src/flow/Agent.kt", &agent("  override fun controlUrl(): String = \"agent\"\n")),
-    ],
-  );
-  repo.create_commit_with_files("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n")]);
-  repo.create_commit_with_files("(flow) Drop the override", &[("src/flow/Agent.kt", &agent(""))]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new(
+      "Initial commit",
+      &[
+        ("src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n"),
+        ("src/flow/Agent.kt", &agent("  override fun controlUrl(): String = \"agent\"\n")),
+      ],
+    ),
+    HistoryCommit::new("(cleanup) Drop controlUrl", &[("src/util/Util.kt", "package util\n")]),
+    HistoryCommit::new("(flow) Drop the override", &[("src/flow/Agent.kt", &agent(""))]),
+  ]);
   assert_found_by_the_lines_only(&repo, "cleanup");
 }
 
@@ -448,14 +463,15 @@ fn an_override_line_is_no_use() {
 /// the same name in another class is no use of it either
 #[test]
 fn a_local_val_shadows_a_private_member_of_another_class() {
-  let repo = TestRepo::new();
   let dsl = "src/journey/Dsl.kt";
   let journey = |handle: &str, turn: &str| {
     format!("package journey\n\nclass Handle {{\n{handle}  fun id() = 1\n}}\n\nclass Turn {{\n  fun run(): Int {{\n    val turnId = 2\n{turn}    return turnId\n  }}\n}}\n")
   };
-  repo.create_commit_with_files("Initial commit", &[(dsl, &journey("  private val turnId: Int = 1\n", "    println(turnId)\n"))]);
-  repo.create_commit_with_files("(handle) Drop the turn id", &[(dsl, &journey("", "    println(turnId)\n"))]);
-  repo.create_commit_with_files("(turn) Print nothing", &[(dsl, &journey("", ""))]);
+  let (repo, _) = TestRepo::with_commits(&one_file_each([
+    ("Initial commit", dsl, &journey("  private val turnId: Int = 1\n", "    println(turnId)\n")),
+    ("(handle) Drop the turn id", dsl, &journey("", "    println(turnId)\n")),
+    ("(turn) Print nothing", dsl, &journey("", "")),
+  ]));
   assert_found_by_the_lines_only(&repo, "handle");
 }
 
@@ -466,24 +482,26 @@ const VM_TESTS: &str = "crates/avl-vm/src/bench/classes/tests.rs";
 /// Two crates of a workspace (the IntelliJ checkout, 2026-10-19): `(cleanup)` removes `collect` (declared as
 /// `declaration`) from `avl-guest`, whose `sum.rs` calls it; `(vm)` changes `sum.rs` and the file `vm_tests` of
 /// `avl-vm`. Returns `(the commit that removes it, the commit that changes the uses)`
-fn two_crates(repo: &TestRepo, declaration: &str, vm_tests: &str) -> (String, String) {
+fn two_crates(declaration: &str, vm_tests: &str) -> (TestRepo, String, String) {
   let lib = format!("{declaration} {{\n  values.iter().sum()\n}}\n\npub fn other() {{}}\n");
-  repo.create_commit_with_files(
-    "Initial commit",
-    &[
-      ("crates/avl-guest/Cargo.toml", "[package]\nname = \"avl-guest\"\n"),
-      (GUEST_LIB, &lib),
-      (GUEST_SUM, "use crate::collect;\n\npub fn total() -> u32 {\n  collect(&[1, 2])\n}\n"),
-      ("crates/avl-vm/Cargo.toml", "[package]\nname = \"avl-vm\"\n"),
-      (VM_TESTS, vm_tests),
-    ],
-  );
-  let removed_by = repo.create_commit_with_files("(cleanup) Drop collect", &[(GUEST_LIB, "pub fn other() {}\n")]);
-  let fixed_by = repo.create_commit_with_files(
-    "(vm) Count without collect",
-    &[(GUEST_SUM, "pub fn total() -> u32 {\n  3\n}\n"), (VM_TESTS, "fn names() {}\n")],
-  );
-  (removed_by, fixed_by)
+  let (repo, [_, removed_by, fixed_by]) = TestRepo::with_commits(&[
+    HistoryCommit::new(
+      "Initial commit",
+      &[
+        ("crates/avl-guest/Cargo.toml", "[package]\nname = \"avl-guest\"\n"),
+        (GUEST_LIB, &lib),
+        (GUEST_SUM, "use crate::collect;\n\npub fn total() -> u32 {\n  collect(&[1, 2])\n}\n"),
+        ("crates/avl-vm/Cargo.toml", "[package]\nname = \"avl-vm\"\n"),
+        (VM_TESTS, vm_tests),
+      ],
+    ),
+    HistoryCommit::new("(cleanup) Drop collect", &[(GUEST_LIB, "pub fn other() {}\n")]),
+    HistoryCommit::new(
+      "(vm) Count without collect",
+      &[(GUEST_SUM, "pub fn total() -> u32 {\n  3\n}\n"), (VM_TESTS, "fn names() {}\n")],
+    ),
+  ]);
+  (repo, removed_by, fixed_by)
 }
 
 /// The files of the dangling references of `(cleanup)`
@@ -495,9 +513,8 @@ fn files_of_cleanup(repo: &TestRepo) -> Vec<String> {
 /// free function, by the lines alone too; the call in its own crate still is one
 #[test]
 fn a_method_call_is_no_use_of_a_removed_free_function() {
-  let repo = TestRepo::new();
   let vm_tests = "fn names() -> Vec<String> {\n  let all: Vec<u32> = (0..3).collect();\n  let _ = all.iter().copied().collect::<Vec<_>>();\n  all\n    .iter()\n    .map(u32::to_string)\n    .collect()\n}\n";
-  two_crates(&repo, "pub fn collect(values: &[u32]) -> u32", vm_tests);
+  let (repo, ..) = two_crates("pub fn collect(values: &[u32]) -> u32", vm_tests);
   for mode in ["off", "on"] {
     repo.set_config("branchdeck.symbols", mode).unwrap();
     assert_eq!(files_of_cleanup(&repo), [GUEST_SUM], "branchdeck.symbols {mode}");
@@ -510,9 +527,8 @@ fn a_method_call_is_no_use_of_a_removed_free_function() {
 #[test]
 fn a_free_call_in_another_crate_without_a_use_is_no_use() {
   let found = |vm_tests: &str, mode: &str| {
-    let repo = TestRepo::new();
-    two_crates(&repo, "pub fn collect(values: &[u32]) -> u32", vm_tests);
-    repo.set_config("branchdeck.symbols", mode).unwrap();
+    let (repo, ..) = two_crates("pub fn collect(values: &[u32]) -> u32", vm_tests);
+    append_config(repo.path(), &[("branchdeck.symbols", mode)]);
     files_of_cleanup(&repo)
   };
   let bare = "fn total() -> u32 {\n  collect(&[1])\n}\n";
@@ -532,8 +548,7 @@ fn a_free_call_in_another_crate_without_a_use_is_no_use() {
 /// was declared
 #[test]
 fn a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in() {
-  let repo = TestRepo::new();
-  let (removed_by, fixed_by) = two_crates(&repo, "pub fn collect(values: &[u32]) -> u32", "fn names() -> Vec<u32> {\n  Vec::new()\n}\n");
+  let (repo, removed_by, fixed_by) = two_crates("pub fn collect(values: &[u32]) -> u32", "fn names() -> Vec<u32> {\n  Vec::new()\n}\n");
   assert_eq!(
     check(&repo).dangling.get("cleanup").cloned().unwrap_or_default(),
     [DanglingReference {
@@ -566,8 +581,7 @@ fn a_pub_crate_function_is_not_searched_in_another_crate() {
     // searched in its own file only
     ("pub(self) fn collect(values: &[u32]) -> u32", vec![]),
   ] {
-    let repo = TestRepo::new();
-    two_crates(&repo, declaration, vm_tests);
+    let (repo, ..) = two_crates(declaration, vm_tests);
     assert_eq!(files_of_cleanup(&repo), found, "{declaration}");
   }
 }
@@ -577,24 +591,25 @@ fn a_pub_crate_function_is_not_searched_in_another_crate() {
 /// lines
 #[test]
 fn a_call_on_an_expression_is_a_use_of_an_extension_only() {
-  let repo = TestRepo::new();
   let util = "package util\n\nfun String.shout(): String = this\n\nfun controlUrl(): String = \"\"\n";
-  repo.create_commit_with_files(
-    "Initial commit",
-    &[
-      ("src/util/Util.kt", util),
-      ("src/flow/Start.kt", "package flow\n\nimport util.shout\n\nfun start(name: String) = name.shout()\n"),
-      ("src/flow/Connect.kt", "package flow\n\nfun connect(client: Client) = client.controlUrl()\n"),
-    ],
-  );
-  repo.create_commit_with_files("(cleanup) Drop the helpers", &[("src/util/Util.kt", "package util\n")]);
-  repo.create_commit_with_files(
-    "(flow) Start and connect plainly",
-    &[
-      ("src/flow/Start.kt", "package flow\n\nfun start(name: String) = name\n"),
-      ("src/flow/Connect.kt", "package flow\n\nfun connect(client: Client) = client\n"),
-    ],
-  );
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new(
+      "Initial commit",
+      &[
+        ("src/util/Util.kt", util),
+        ("src/flow/Start.kt", "package flow\n\nimport util.shout\n\nfun start(name: String) = name.shout()\n"),
+        ("src/flow/Connect.kt", "package flow\n\nfun connect(client: Client) = client.controlUrl()\n"),
+      ],
+    ),
+    HistoryCommit::new("(cleanup) Drop the helpers", &[("src/util/Util.kt", "package util\n")]),
+    HistoryCommit::new(
+      "(flow) Start and connect plainly",
+      &[
+        ("src/flow/Start.kt", "package flow\n\nfun start(name: String) = name\n"),
+        ("src/flow/Connect.kt", "package flow\n\nfun connect(client: Client) = client\n"),
+      ],
+    ),
+  ]);
   let found = |mode: &str| -> Vec<(String, String)> {
     repo.set_config("branchdeck.symbols", mode).unwrap();
     check(&repo)
@@ -616,23 +631,23 @@ fn a_call_on_an_expression_is_a_use_of_an_extension_only() {
 /// the removed file is still known, by its nearest directory HEAD has
 #[test]
 fn a_crate_item_of_a_deleted_module_is_not_searched_in_another_crate() {
-  let repo = TestRepo::new();
   let gc = "crates/avl-guest/src/stage/gc.rs";
   let tests = "crates/avl-vm/src/bench/tests.rs";
   let uses = |call: &str| format!("fn run() {{\n  let run = {call};\n  let names: Vec<u32> = (0..2).collect();\n}}\n");
-  repo.create_commit_with_files(
-    "Initial commit",
-    &[
-      ("crates/avl-guest/Cargo.toml", "[package]\nname = \"avl-guest\"\n"),
-      ("crates/avl-guest/src/lib.rs", "mod stage;\n"),
-      (gc, "pub(crate) fn collect(root: &str) -> u32 {\n  1\n}\n"),
-      ("crates/avl-vm/Cargo.toml", "[package]\nname = \"avl-vm\"\n"),
-      (tests, &uses("record::collect(\"session\")")),
-    ],
-  );
-  repo.git(&["rm", "-q", "--", gc]);
-  repo.create_commit_with_files("(stage) The guest has no stage", &[("crates/avl-guest/src/lib.rs", "pub mod fs;\n")]);
-  repo.create_commit_with_files("(bench) Rank a plugin", &[(tests, &uses("record::read(\"session\")"))]);
+  let (repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new(
+      "Initial commit",
+      &[
+        ("crates/avl-guest/Cargo.toml", "[package]\nname = \"avl-guest\"\n"),
+        ("crates/avl-guest/src/lib.rs", "mod stage;\n"),
+        (gc, "pub(crate) fn collect(root: &str) -> u32 {\n  1\n}\n"),
+        ("crates/avl-vm/Cargo.toml", "[package]\nname = \"avl-vm\"\n"),
+        (tests, &uses("record::collect(\"session\")")),
+      ],
+    ),
+    HistoryCommit::new("(stage) The guest has no stage", &[("crates/avl-guest/src/lib.rs", "pub mod fs;\n")]).deleting(&[gc]),
+    HistoryCommit::new("(bench) Rank a plugin", &[(tests, &uses("record::read(\"session\")"))]),
+  ]);
   for mode in ["on", "off"] {
     repo.set_config("branchdeck.symbols", mode).unwrap();
     let found: Vec<String> = check(&repo).dangling.get("stage").into_iter().flatten().map(|reference| reference.file.clone()).collect();

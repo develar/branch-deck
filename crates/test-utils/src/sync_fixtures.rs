@@ -3,6 +3,7 @@
 //! results a detection reports or a detection note holds.
 
 use crate::git_test_utils::TestRepo;
+use crate::history::{HistoryCommit, HistoryStream};
 use anyhow::Result;
 use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use domain_types::stack::BranchStack;
@@ -69,8 +70,12 @@ pub fn setup_test_repos() -> (TestRepo, TestRepo, GitCommandExecutor) {
   let git_executor = GitCommandExecutor::new();
 
   let upstream_repo = TestRepo::new();
-  let initial_commit = upstream_repo.create_commit("Initial commit", "README.md", "# Project");
-  upstream_repo.create_branch_at("main", &initial_commit).unwrap();
+  // `master` and `main` at the initial commit from one stream: `fast-import` and `read-tree` where `add`, `commit` and
+  // `branch` were three processes
+  let mut history = HistoryStream::new("refs/heads/master");
+  history.commit(&HistoryCommit::new("Initial commit", &[("README.md", "# Project")]));
+  history.reset_to_root("refs/heads/main");
+  history.write(upstream_repo.path()).unwrap();
 
   let local_repo = TestRepo::new_empty();
   local_repo.clone_from(upstream_repo.path()).unwrap();

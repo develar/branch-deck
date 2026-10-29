@@ -17,8 +17,15 @@ use history_rewrite::reword::reword_core;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::{HistoryCommit, one_file_each};
 use test_utils::sync_fixtures::TestReporter;
+
+/// The commits of the fixtures, `(message, path, content)` (`one_file_each`)
+const INITIAL: (&str, &str, &str) = ("Initial commit", "README.md", "# Test");
+const LOGIN: (&str, &str, &str) = ("(auth) Add login", "login.rs", "// login");
+const CACHE: (&str, &str, &str) = ("(cache) Add cache", "cache.rs", "// cache");
+const LOGOUT: (&str, &str, &str) = ("(auth) Add logout", "logout.rs", "// logout");
 
 fn repo_path(test_repo: &TestRepo) -> &str {
   test_repo.path().to_str().unwrap()
@@ -140,10 +147,11 @@ fn finish_login_first(test_repo: &TestRepo, base: &str) -> (Vec<String>, BuiltBr
 /// it was built on, so it is right while the parent's ref is absent (a new stack) or at the old head (an existing one)
 #[test]
 fn a_child_finished_before_its_parent_excludes_the_parent_by_the_head_it_was_built_on() {
-  let test_repo = TestRepo::new();
-  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(login) Add form", "login.rs", "// login");
+  let (test_repo, [initial, _, _]) = TestRepo::with_commits(&one_file_each([
+    INITIAL,
+    ("(auth) Add auth", "auth.rs", "// auth"),
+    ("(login) Add form", "login.rs", "// login"),
+  ]));
 
   // a new stack: auth has no ref yet
   let (unpushed, auth) = finish_login_first(&test_repo, &initial);
@@ -182,17 +190,23 @@ fn final_status(progress: &TestReporter, branch: &str) -> (BranchSyncStatus, Opt
 /// deterministic) is written, and the other branches are written as usual
 #[test]
 fn a_branch_moved_since_the_listing_is_not_overwritten() {
-  let test_repo = TestRepo::new();
-  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(alpha) Alpha", "alpha.rs", "// alpha");
-  test_repo.create_commit("(beta) Beta", "beta.rs", "// beta");
-  test_repo.create_commit("(gamma) Gamma", "gamma.rs", "// gamma");
+  let (test_repo, [initial, _, _, _]) = TestRepo::with_commits(&one_file_each([
+    INITIAL,
+    ("(alpha) Alpha", "alpha.rs", "// alpha"),
+    ("(beta) Beta", "beta.rs", "// beta"),
+    ("(gamma) Gamma", "gamma.rs", "// gamma"),
+  ]));
   for branch in ["alpha", "beta", "gamma"] {
     rebuild_branch(&test_repo, branch, &initial);
   }
-  test_repo.create_commit("(alpha) Alpha 2", "alpha-2.rs", "// alpha 2");
-  test_repo.create_commit("(beta) Beta 2", "beta-2.rs", "// beta 2");
-  test_repo.create_commit("(gamma) Gamma 2", "gamma-2.rs", "// gamma 2");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(alpha) Alpha 2", "alpha-2.rs", "// alpha 2"),
+      ("(beta) Beta 2", "beta-2.rs", "// beta 2"),
+      ("(gamma) Gamma 2", "gamma-2.rs", "// gamma 2"),
+    ]),
+  );
 
   let progress = TestReporter::new();
   let context = sync_context(&test_repo, progress.clone());
@@ -219,9 +233,7 @@ fn a_branch_moved_since_the_listing_is_not_overwritten() {
 /// A new branch is created only while no ref of its name exists
 #[test]
 fn a_new_branch_created_meanwhile_is_not_overwritten() {
-  let test_repo = TestRepo::new();
-  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(alpha) Alpha", "alpha.rs", "// alpha");
+  let (test_repo, [initial, _]) = TestRepo::with_commits(&one_file_each([INITIAL, ("(alpha) Alpha", "alpha.rs", "// alpha")]));
 
   let progress = TestReporter::new();
   let context = sync_context(&test_repo, progress.clone());
@@ -251,11 +263,7 @@ fn existing_tips(test_repo: &TestRepo) -> HashMap<String, String> {
 
 #[test]
 fn a_new_base_recopies_the_commits_whose_mapped_commits_still_exist() {
-  let test_repo = TestRepo::new();
-  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  let base = test_repo.create_commit("Update docs", "docs.md", "docs");
-  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
-  test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+  let (test_repo, [initial, base, _, _]) = TestRepo::with_commits(&one_file_each([INITIAL, ("Update docs", "docs.md", "docs"), LOGIN, LOGOUT]));
 
   rebuild_branch(&test_repo, "auth", &initial);
   let on_initial = virtual_commits(&test_repo, "auth");
@@ -273,11 +281,12 @@ fn a_new_base_recopies_the_commits_whose_mapped_commits_still_exist() {
 #[tokio::test]
 async fn a_rebuild_without_notes_writes_the_same_commits() {
   const BASE: i64 = 1_700_000_000;
-  let test_repo = TestRepo::new();
-  test_repo.create_commit_with_timestamp("Initial commit", "README.md", "# Test", Some(BASE));
-  test_repo.create_commit_with_timestamp("(auth) Add login", "login.rs", "// login", Some(BASE + 1));
-  test_repo.create_commit_with_timestamp("(cache) Add cache", "cache.rs", "// cache", Some(BASE + 2));
-  test_repo.create_commit_with_timestamp("(auth) Add logout\n\nClears the session.", "logout.rs", "// logout", Some(BASE + 3));
+  let (test_repo, _) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[("README.md", "# Test")]).at(BASE),
+    HistoryCommit::new("(auth) Add login", &[("login.rs", "// login")]).at(BASE + 1),
+    HistoryCommit::new("(cache) Add cache", &[("cache.rs", "// cache")]).at(BASE + 2),
+    HistoryCommit::new("(auth) Add logout\n\nClears the session.", &[("logout.rs", "// logout")]).at(BASE + 3),
+  ]);
 
   sync(&test_repo).await;
   let auth = virtual_commits(&test_repo, "auth");
@@ -311,12 +320,7 @@ async fn a_rebuild_without_notes_writes_the_same_commits() {
 
 #[tokio::test]
 async fn assigning_an_older_commit_reuses_every_virtual_commit() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  let unassigned = test_repo.create_commit("Fix typo", "typo.txt", "typo");
-  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
-  test_repo.create_commit("(cache) Add cache", "cache.rs", "// cache");
-  test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+  let (test_repo, [_, unassigned, _, _, _]) = TestRepo::with_commits(&one_file_each([INITIAL, ("Fix typo", "typo.txt", "typo"), LOGIN, CACHE, LOGOUT]));
 
   sync(&test_repo).await;
   let auth = virtual_commits(&test_repo, "auth");
@@ -336,11 +340,7 @@ async fn assigning_an_older_commit_reuses_every_virtual_commit() {
 
 #[tokio::test]
 async fn moving_a_commit_to_another_branch_copies_it_there() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
-  test_repo.create_commit("(cache) Add cache", "cache.rs", "// cache");
-  let logout = test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+  let (test_repo, [_, _, _, logout]) = TestRepo::with_commits(&one_file_each([INITIAL, LOGIN, CACHE, LOGOUT]));
 
   sync(&test_repo).await;
   let auth = virtual_commits(&test_repo, "auth");
@@ -362,10 +362,7 @@ async fn moving_a_commit_to_another_branch_copies_it_there() {
 
 #[tokio::test]
 async fn a_reworded_body_recopies_the_commit() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  let login = test_repo.create_commit("(auth) Add login", "login.rs", "// login");
-  test_repo.create_commit("(cache) Add cache", "cache.rs", "// cache");
+  let (test_repo, [_, login, _]) = TestRepo::with_commits(&one_file_each([INITIAL, LOGIN, CACHE]));
 
   sync(&test_repo).await;
   let cache = virtual_commits(&test_repo, "cache");
@@ -388,10 +385,11 @@ async fn a_reworded_body_recopies_the_commit() {
 
 #[tokio::test]
 async fn a_commit_moved_into_the_branch_of_an_issue_is_copied_with_the_key() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(IJPL-1) docs plugins: audit the attributes\n\nThe rules of the audit.", "audit.md", "# Audit");
-  test_repo.create_commit("[plugins] IJPL-1 Lift the attribute", "plugin.rs", "// plugin");
+  let (test_repo, _) = TestRepo::with_commits(&one_file_each([
+    INITIAL,
+    ("(IJPL-1) docs plugins: audit the attributes\n\nThe rules of the audit.", "audit.md", "# Audit"),
+    ("[plugins] IJPL-1 Lift the attribute", "plugin.rs", "// plugin"),
+  ]));
 
   sync(&test_repo).await;
 
@@ -485,10 +483,7 @@ fn tree_with(test_repo: &TestRepo, base: &str, file: &str, content: &str) -> Str
 /// The sync sees that the commit's trees are not the ones the note was copied from, and copies it again
 #[tokio::test]
 async fn a_note_copied_to_a_commit_with_another_tree_is_stale() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
-  let logout = test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+  let (test_repo, [_, _, logout]) = TestRepo::with_commits(&one_file_each([INITIAL, LOGIN, LOGOUT]));
   sync(&test_repo).await;
   let before = virtual_commits(&test_repo, "auth");
 
@@ -513,12 +508,10 @@ async fn a_note_copied_to_a_commit_with_another_tree_is_stale() {
 /// is stale, though the trees are the same
 #[tokio::test]
 async fn an_amend_with_notes_rewrite_ref_rebuilds_the_copy() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  let (test_repo, _) = TestRepo::with_commits(&one_file_each([INITIAL, LOGIN]));
   sync(&test_repo).await;
 
-  test_repo.set_config("notes.rewriteRef", "refs/notes/commits").unwrap();
+  append_config(test_repo.path(), &[("notes.rewriteRef", "refs/notes/commits")]);
   git(&test_repo, &["commit", "--amend", "-m", "(auth) Add login\n\nWith a remember-me box."]);
   assert!(test_repo.show_note("HEAD").is_ok(), "the amend copied the note");
 
@@ -531,9 +524,7 @@ async fn an_amend_with_notes_rewrite_ref_rebuilds_the_copy() {
 /// date): the sync checks the copy against its tree and keeps it, so the branch doesn't change, and records the source
 #[tokio::test]
 async fn a_note_without_a_source_keeps_an_older_copy_and_gets_one() {
-  let test_repo = TestRepo::new();
-  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  let login = test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  let (test_repo, [initial, login]) = TestRepo::with_commits(&one_file_each([INITIAL, LOGIN]));
   sync(&test_repo).await;
 
   // the older copy: another committer date, a note with the mapping line only
@@ -569,9 +560,7 @@ async fn a_note_without_a_source_keeps_an_older_copy_and_gets_one() {
 /// notes (`bd --no-cache`) copies the commit again
 #[tokio::test]
 async fn a_verifying_sync_checks_the_tree_of_each_copy() {
-  let test_repo = TestRepo::new();
-  let initial = test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(auth) Add login", "login.rs", "// login");
+  let (test_repo, [initial, _]) = TestRepo::with_commits(&one_file_each([INITIAL, LOGIN]));
   sync(&test_repo).await;
 
   let copy = git(&test_repo, &["rev-parse", "test/virtual/auth"]);

@@ -12,7 +12,10 @@ use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+#[cfg(unix)]
+use test_utils::history::HistoryStream;
+use test_utils::history::{HistoryCommit, one_file_each};
 use test_utils::sync_fixtures::TestReporter;
 
 /// Runs a sync with the `test` branch prefix and returns the events it reported
@@ -86,13 +89,23 @@ fn test_sync_branches_with_conflicting_commits() {
 
   // Create a sequence of commits that modify the same file multiple times
   // This is the scenario that commonly causes cherry-pick conflicts
-  test_repo.create_commit("(bugfix-session) Create bugfix file", "bugfix.txt", "Initial bugfix content\n");
-  test_repo.create_commit("(bugfix-session) Update bugfix file", "bugfix.txt", "Updated bugfix content\nSecond line\n");
-  test_repo.create_commit("(bugfix-session) Final bugfix changes", "bugfix.txt", "Final bugfix content\nSecond line\nThird line\n");
-
-  // Create commits for another branch to ensure we handle multiple branches
-  test_repo.create_commit("(feature-auth) Add auth module", "auth.js", "export function login() {}\n");
-  test_repo.create_commit("(feature-auth) Improve auth", "auth.js", "export function login() {\n  // improved implementation\n}\n");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &[
+      HistoryCommit::new("(bugfix-session) Create bugfix file", &[("bugfix.txt", "Initial bugfix content\n")]),
+      HistoryCommit::new("(bugfix-session) Update bugfix file", &[("bugfix.txt", "Updated bugfix content\nSecond line\n")]),
+      HistoryCommit::new(
+        "(bugfix-session) Final bugfix changes",
+        &[("bugfix.txt", "Final bugfix content\nSecond line\nThird line\n")],
+      ),
+      // Create commits for another branch to ensure we handle multiple branches
+      HistoryCommit::new("(feature-auth) Add auth module", &[("auth.js", "export function login() {}\n")]),
+      HistoryCommit::new(
+        "(feature-auth) Improve auth",
+        &[("auth.js", "export function login() {\n  // improved implementation\n}\n")],
+      ),
+    ],
+  );
 
   // Test that we can get the commit list ahead of baseline
   let git_executor = GitCommandExecutor::new();
@@ -140,20 +153,27 @@ fn test_conflict_prone_commit_sequences() {
   // Multiple commits modifying the same file in ways that create merge conflicts
 
   // First commit adds the file
-  test_repo.create_commit("(conflict-test) Add config file", "config.json", "{\n  \"version\": \"1.0\",\n  \"name\": \"test\"\n}\n");
-
-  // Second commit modifies the same file in a way that might cause conflicts
-  test_repo.create_commit(
-    "(conflict-test) Update config version",
-    "config.json",
-    "{\n  \"version\": \"2.0\",\n  \"name\": \"test\",\n  \"new_field\": \"value\"\n}\n",
-  );
-
-  // Third commit makes more changes to the same file
-  test_repo.create_commit(
-    "(conflict-test) Add environment config",
-    "config.json",
-    "{\n  \"version\": \"2.1\",\n  \"name\": \"test-env\",\n  \"new_field\": \"updated_value\",\n  \"environment\": \"production\"\n}\n",
+  test_repo.commits_on(
+    "refs/heads/master",
+    &[
+      HistoryCommit::new(
+        "(conflict-test) Add config file",
+        &[("config.json", "{\n  \"version\": \"1.0\",\n  \"name\": \"test\"\n}\n")],
+      ),
+      // Second commit modifies the same file in a way that might cause conflicts
+      HistoryCommit::new(
+        "(conflict-test) Update config version",
+        &[("config.json", "{\n  \"version\": \"2.0\",\n  \"name\": \"test\",\n  \"new_field\": \"value\"\n}\n")],
+      ),
+      // Third commit makes more changes to the same file
+      HistoryCommit::new(
+        "(conflict-test) Add environment config",
+        &[(
+          "config.json",
+          "{\n  \"version\": \"2.1\",\n  \"name\": \"test-env\",\n  \"new_field\": \"updated_value\",\n  \"environment\": \"production\"\n}\n",
+        )],
+      ),
+    ],
   );
 
   // Test that our core functions can handle this scenario
@@ -204,12 +224,17 @@ fn test_reproduce_bugfix_txt_conflict_scenario() {
   // This simulates the scenario where multiple commits in the same logical branch
   // modify the same file, which causes conflicts during cherry-pick
 
-  test_repo.create_commit("(bugfix-session) Create bugfix.txt", "bugfix.txt", "Initial bugfix content\nLine 2\n");
-  test_repo.create_commit("(bugfix-session) Update bugfix.txt", "bugfix.txt", "Modified bugfix content\nLine 2\nLine 3\n");
-  test_repo.create_commit(
-    "(bugfix-session) Final bugfix.txt changes",
-    "bugfix.txt",
-    "Final bugfix content\nModified Line 2\nLine 3\nLine 4\n",
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(bugfix-session) Create bugfix.txt", "bugfix.txt", "Initial bugfix content\nLine 2\n"),
+      ("(bugfix-session) Update bugfix.txt", "bugfix.txt", "Modified bugfix content\nLine 2\nLine 3\n"),
+      (
+        "(bugfix-session) Final bugfix.txt changes",
+        "bugfix.txt",
+        "Final bugfix content\nModified Line 2\nLine 3\nLine 4\n",
+      ),
+    ]),
   );
 
   // Get the commits and test the grouping
@@ -370,9 +395,14 @@ fn test_prefix_stripping_in_sync_branches() {
   test_repo.create_branch_at("origin/main", &initial_id).unwrap();
 
   // Create commits with prefixes
-  test_repo.create_commit("(feature-auth) Add authentication\n\nThis adds basic auth support", "auth.js", "auth code");
-  test_repo.create_commit("(feature-auth) Add user validation", "validate.js", "validation code");
-  test_repo.create_commit("(bugfix-login) Fix login timeout\n\nFixed timeout issue\nResolves #123", "login.js", "login fix");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(feature-auth) Add authentication\n\nThis adds basic auth support", "auth.js", "auth code"),
+      ("(feature-auth) Add user validation", "validate.js", "validation code"),
+      ("(bugfix-login) Fix login timeout\n\nFixed timeout issue\nResolves #123", "login.js", "login fix"),
+    ]),
+  );
 
   // Run the actual sync process
   let git_executor = GitCommandExecutor::new();
@@ -429,8 +459,13 @@ async fn test_commit_reuse_via_git_notes() -> anyhow::Result<()> {
 
   // Create initial commits with branch prefixes
   // Important: Each commit modifies different files to avoid conflicts
-  test_repo.create_commit("(feature-auth) Add authentication", "auth/auth.txt", "auth content");
-  test_repo.create_commit("(feature-cache) Add caching", "cache/cache.txt", "cache content");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(feature-auth) Add authentication", "auth/auth.txt", "auth content"),
+      ("(feature-cache) Add caching", "cache/cache.txt", "cache content"),
+    ]),
+  );
 
   // First sync - should create virtual branches
   let events = sync_events(&git_executor, &test_repo).await?;
@@ -571,15 +606,20 @@ async fn test_zero_commit_sync_clears_branch_set() -> anyhow::Result<()> {
 #[tokio::test]
 async fn test_branches_grouped_carries_the_description_titles() -> anyhow::Result<()> {
   let test_repo = repo_with_initial_commit();
-  test_repo.create_commit("(vm-lane-daemon) Start the daemon", "daemon.txt", "daemon");
-  test_repo.create_commit("(docs) fix typo", "docs.txt", "docs");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(vm-lane-daemon) Start the daemon", "daemon.txt", "daemon"), ("(docs) fix typo", "docs.txt", "docs")]),
+  );
   // as `bd describe` writes it, under the full name of the virtual branch
-  test_repo
-    .set_config("branch.test/virtual/vm-lane-daemon.description", "vm: the guest agent runs the lane daemon\n\nThe body.\n")
-    .unwrap();
-  // the same name under another prefix and a plain branch are other branches
-  test_repo.set_config("branch.other/virtual/docs.description", "Not this one\n").unwrap();
-  test_repo.set_config("branch.docs.description", "Nor this one\n").unwrap();
+  append_config(
+    test_repo.path(),
+    &[
+      ("branch.test/virtual/vm-lane-daemon.description", "vm: the guest agent runs the lane daemon\n\nThe body.\n"),
+      // the same name under another prefix and a plain branch are other branches
+      ("branch.other/virtual/docs.description", "Not this one\n"),
+      ("branch.docs.description", "Nor this one\n"),
+    ],
+  );
 
   let events = sync_events(&GitCommandExecutor::new(), &test_repo).await?;
   let titles: BTreeMap<String, Option<String>> = events
@@ -726,8 +766,13 @@ fn test_prepare_branches_for_ui_mixed_commits() {
 async fn sync_waits_while_a_rebase_is_in_progress_or_head_is_detached() -> anyhow::Result<()> {
   let test_repo = repo_with_initial_commit();
   let git_executor = GitCommandExecutor::new();
-  test_repo.create_commit("(feature-auth) Add authentication", "auth/auth.txt", "auth content");
-  test_repo.create_commit("(feature-cache) Add caching", "cache/cache.txt", "cache content");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(feature-auth) Add authentication", "auth/auth.txt", "auth content"),
+      ("(feature-cache) Add caching", "cache/cache.txt", "cache content"),
+    ]),
+  );
   sync_events(&git_executor, &test_repo).await?;
 
   let rebase_dir = test_repo.path().join(".git/rebase-merge");
@@ -756,8 +801,13 @@ fn interleaved_branches(test_repo: &TestRepo) {
   test_repo.create_branch_at("origin/master", &base).unwrap();
   test_repo.git(&["branch", "--set-upstream-to=origin/master"]);
   for index in 1..=3 {
-    test_repo.create_commit(&format!("(alpha) Alpha {index}"), &format!("alpha-{index}.txt"), "alpha\n");
-    test_repo.create_commit(&format!("(beta) Beta {index}"), &format!("beta-{index}.txt"), "beta\n");
+    test_repo.commits_on(
+      "refs/heads/master",
+      &one_file_each([
+        (&format!("(alpha) Alpha {index}"), &format!("alpha-{index}.txt"), "alpha\n"),
+        (&format!("(beta) Beta {index}"), &format!("beta-{index}.txt"), "beta\n"),
+      ]),
+    );
   }
 }
 
@@ -849,10 +899,12 @@ async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Re
   let old_b = test_repo.rev_parse("test/virtual/b").unwrap();
 
   // b's change of file.txt needs a's commit: b conflicts and keeps its tip
-  test_repo.create_commit("(a) Add file", "file.txt", "1\n");
-  test_repo.create_commit("(b) Change file", "file.txt", "2\n");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(a) Add file", "file.txt", "1\n"), ("(b) Change file", "file.txt", "2\n")]),
+  );
   test_repo.git(&["update-ref", "refs/remotes/origin/test/virtual/a", &old_b]);
-  test_repo.set_config("branch.test/virtual/a.description", "The title\n\nThe body").unwrap();
+  append_config(test_repo.path(), &[("branch.test/virtual/a.description", "The title\n\nThe body")]);
   let progress = TestReporter::new();
   let report = sync_branches(&git_executor, path, "test", progress.clone(), SyncOptions::default()).await?;
   let conflicted = progress
@@ -915,8 +967,10 @@ async fn conflict_of_b(git_executor: &GitCommandExecutor, test_repo: &TestRepo, 
 #[test(tokio::test)]
 async fn a_remembered_conflict_is_the_one_the_analysis_made() -> anyhow::Result<()> {
   let test_repo = repo_with_initial_commit();
-  test_repo.create_commit("(a) Add file", "file.txt", "1\n");
-  test_repo.create_commit("(b) Change file", "file.txt", "2\n");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(a) Add file", "file.txt", "1\n"), ("(b) Change file", "file.txt", "2\n")]),
+  );
   let git_executor = GitCommandExecutor::new();
   let analysed = conflict_of_b(&git_executor, &test_repo, &ObjectCache::disabled()).await;
   assert_eq!(analysed["MergeConflict"]["conflictAnalysis"]["missingCommits"][0]["branch"], "a");
@@ -934,10 +988,15 @@ async fn a_remembered_conflict_is_the_one_the_analysis_made() -> anyhow::Result<
 /// A repository whose `origin/master` is its initial commit, and that commit
 #[cfg(unix)]
 fn repo_with_origin_at_initial_commit() -> (TestRepo, String) {
-  let test_repo = repo_with_initial_commit();
-  let initial = test_repo.head();
-  test_repo.git(&["remote", "add", "origin", "."]);
-  test_repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
+  let test_repo = TestRepo::new();
+  let mut history = HistoryStream::new("refs/heads/master");
+  history.commit(&HistoryCommit::new("Initial commit", &[("README.md", "# Test Project")]));
+  history.reset_to_root("refs/remotes/origin/master");
+  let initial = history.write(test_repo.path()).unwrap().remove(0).unwrap();
+  append_config(
+    test_repo.path(),
+    &[("remote.origin.url", "."), ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")],
+  );
   (test_repo, initial)
 }
 
@@ -948,9 +1007,10 @@ fn repo_with_origin_at_initial_commit() -> (TestRepo, String) {
 #[test(tokio::test)]
 async fn a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups() -> anyhow::Result<()> {
   let (test_repo, initial) = repo_with_origin_at_initial_commit();
-  let auth = test_repo.create_commit("(auth) Add auth", "auth.txt", "auth");
-  test_repo.create_commit("(login) Add login", "login.txt", "login");
-  let head = test_repo.head();
+  let [auth, head] = test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(auth) Add auth", "auth.txt", "auth"), ("(login) Add login", "login.txt", "login")]),
+  );
   // the commit of the IDE during the sync, and the fetch that brings `auth` into the baseline
   let later = test_repo.git(&["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "(ui) Add ui"]);
   let path = test_repo.path().to_str().unwrap();

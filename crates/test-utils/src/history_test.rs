@@ -10,28 +10,17 @@ fn a_message_is_cleaned_as_git_commit_m_cleans_it() {
 }
 
 /// The history of a fixture is one `fast-import` and one `read-tree`, whatever the number of its commits, and its
-/// commits are those `add` and `commit` write: the same ids at the same times, the files of HEAD in the working tree
-/// with a clean status, a commit that changes nothing left out
+/// commits are those `add` and `commit` write: the same ids at the same times, of the test user or of another one, the
+/// files of HEAD in the working tree with a clean status, a commit that changes nothing left out
 #[test]
 fn a_history_is_two_processes_and_the_commits_of_git_commit() {
   let commits = [
-    HistoryCommit {
-      timestamp: Some(1_700_000_000),
-      ..HistoryCommit::new("Initial commit", &[("README.md", "# Test\n"), ("src/a.txt", "a\n")])
-    },
-    HistoryCommit {
-      timestamp: Some(1_700_000_100),
-      ..HistoryCommit::new("(auth) Add login\n\nThe body  \n", &[("src/login.txt", "login\n")])
-    },
-    HistoryCommit {
-      timestamp: Some(1_700_000_200),
-      ..HistoryCommit::new("Nothing changes", &[("src/a.txt", "a\n")])
-    },
-    HistoryCommit {
-      deleted: vec!["src/a.txt".to_string()],
-      timestamp: Some(1_700_000_300),
-      ..HistoryCommit::new("Remove a", &[])
-    },
+    HistoryCommit::new("Initial commit", &[("README.md", "# Test\n"), ("src/a.txt", "a\n")]).at(1_700_000_000),
+    HistoryCommit::new("(auth) Add login\n\nThe body  \n", &[("src/login.txt", "login\n")])
+      .at(1_700_000_100)
+      .by("Dana Lee <dana@example.com>"),
+    HistoryCommit::new("Nothing changes", &[("src/a.txt", "a\n")]).at(1_700_000_200),
+    HistoryCommit::new("Remove a", &[]).deleting(&["src/a.txt"]).at(1_700_000_300),
   ];
 
   let written = TestRepo::new();
@@ -63,9 +52,16 @@ fn a_history_is_two_processes_and_the_commits_of_git_commit() {
     }
     committed.git(&["add", "-A"]);
     let date = format!("{} +0000", commit.timestamp.unwrap());
-    expected.push(Some(
-      committed.commit_with(&["-m", &commit.message], &[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)]),
-    ));
+    let mut env = vec![("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())];
+    if let Some((name, email)) = commit.identity.as_deref().and_then(|identity| identity.strip_suffix('>')?.split_once(" <")) {
+      env.extend([
+        ("GIT_AUTHOR_NAME", name),
+        ("GIT_AUTHOR_EMAIL", email),
+        ("GIT_COMMITTER_NAME", name),
+        ("GIT_COMMITTER_EMAIL", email),
+      ]);
+    }
+    expected.push(Some(committed.commit_with(&["-m", &commit.message], &env)));
   }
   assert_eq!(ids, expected);
   assert_eq!(written.git(&["rev-parse", "refs/remotes/origin/master"]), ids[0].clone().unwrap());

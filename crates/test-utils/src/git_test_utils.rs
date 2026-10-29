@@ -275,6 +275,17 @@ impl TestRepo {
     (repo, ids)
   }
 
+  /// `with_history` of a known number of commits, whose ids a test names:
+  /// `let (repo, [base, change]) = TestRepo::with_commits(&[…])`
+  ///
+  /// # Panics
+  /// When git refuses the history, or a commit changes nothing
+  pub fn with_commits<const N: usize>(commits: &[HistoryCommit; N]) -> (Self, [String; N]) {
+    let (repo, ids) = Self::with_history(commits);
+    let ids = ids.try_into().unwrap_or_else(|ids: Vec<String>| panic!("{} ids of {N} commits", ids.len()));
+    (repo, ids)
+  }
+
   /// Commits `commits` on top of `branch` (`refs/heads/master`) with one `fast-import`, then checks HEAD out with one
   /// `read-tree` (`history`): what `create_commit` of each does in two processes per commit. The ids of the commits
   ///
@@ -287,6 +298,16 @@ impl TestRepo {
     }
     let ids = history.write(self.path()).unwrap_or_else(|e| panic!("cannot write the history: {e:#}"));
     ids.into_iter().map(|id| id.expect("a commit of a continued history is always written")).collect()
+  }
+
+  /// `commit_history` of a known number of commits, whose ids a test names:
+  /// `let [fix] = repo.commits_on("refs/heads/master", &[…])`
+  ///
+  /// # Panics
+  /// When git refuses the history
+  pub fn commits_on<const N: usize>(&self, branch: &str, commits: &[HistoryCommit; N]) -> [String; N] {
+    let ids = self.commit_history(branch, commits);
+    ids.try_into().unwrap_or_else(|ids: Vec<String>| panic!("{} ids of {N} commits", ids.len()))
   }
 
   /// Creates an empty temporary directory without initializing git
@@ -781,7 +802,15 @@ impl TestWorktree {
   pub fn commit(&self, message: &str, file: &str, content: &str) -> String {
     self.write(file, content);
     self.git(&["add", "--", file]);
-    commit_in(&self.git_executor, &self.path, &["-m", message], &[]).unwrap_or_else(|e| panic!("Git commit failed: {e}"))
+    self.commit_with(&["-m", message], &[])
+  }
+
+  /// Runs `git commit` with `args` and `env` in the worktree and returns the id of the commit (`commit_in`)
+  ///
+  /// # Panics
+  /// When the commit fails or its output names no full commit id
+  pub fn commit_with(&self, args: &[&str], env: &[(&str, &str)]) -> String {
+    commit_in(&self.git_executor, &self.path, args, env).unwrap_or_else(|e| panic!("Git commit failed: {e}"))
   }
 
   pub fn head(&self) -> String {

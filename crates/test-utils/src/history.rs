@@ -1,8 +1,8 @@
 //! A history of a fixture repository in two git processes: one `git fast-import` writes its commits (and any other ref
 //! a fixture needs), one `read-tree -u --reset HEAD` gives the index and the working tree the files of HEAD. `add` and
 //! `commit` cost two processes per commit, and a fixture of 50 commits 100 of them. The commits are those
-//! `git commit -m` writes with the test identity (`Test User <test@example.com>`): the message cleaned up as `-m` does,
-//! the author and the committer at the commit's time (`+0000`), else now.
+//! `git commit -m` writes with the test identity (`Test User <test@example.com>`) or the commit's own (`by`): the
+//! message cleaned up as `-m` does, the author and the committer at the commit's time (`+0000`), else now.
 
 use crate::git_test_utils::git_command;
 use anyhow::{Context, Result, bail};
@@ -15,13 +15,15 @@ use std::process::Stdio;
 /// The identity of the commits of a fixture, the `user.name` and `user.email` of its config
 pub const TEST_IDENTITY: &str = "Test User <test@example.com>";
 
-/// A commit of a history: its message, the files it writes and the paths it deletes, its time (Unix seconds)
+/// A commit of a history: its message, the files it writes and the paths it deletes, its time (Unix seconds) and its
+/// author and committer (`Name <email>`, else `TEST_IDENTITY`)
 #[derive(Debug, Clone, Default)]
 pub struct HistoryCommit {
   pub message: String,
   pub files: Vec<(String, String)>,
   pub deleted: Vec<String>,
   pub timestamp: Option<i64>,
+  pub identity: Option<String>,
 }
 
 impl HistoryCommit {
@@ -39,6 +41,28 @@ impl HistoryCommit {
   pub fn at(self, time: i64) -> Self {
     Self { timestamp: Some(time), ..self }
   }
+
+  /// This commit by `identity` (`Name <email>`), its author and its committer, as `git commit` of a repository whose
+  /// `user.name` and `user.email` name them writes it
+  #[must_use]
+  pub fn by(self, identity: &str) -> Self {
+    Self {
+      identity: Some(identity.to_string()),
+      ..self
+    }
+  }
+
+  /// This commit deleting `paths` too, as a `git rm` of them before it
+  #[must_use]
+  pub fn deleting(mut self, paths: &[&str]) -> Self {
+    self.deleted.extend(paths.iter().map(|path| (*path).to_string()));
+    self
+  }
+}
+
+/// Commits of one file each, `(message, path, content)`, as `create_commit` of each writes them
+pub fn one_file_each<const N: usize>(commits: [(&str, &str, &str); N]) -> [HistoryCommit; N] {
+  commits.map(|(message, path, content)| HistoryCommit::new(message, &[(path, content)]))
 }
 
 /// Nine lines, each its number, with `changes` (line number, text) in place: a change of one line keeps the others as
@@ -105,8 +129,9 @@ impl HistoryStream {
     let mark = self.next_mark;
     self.next_mark += 1;
     let when = format!("{} +0000", commit.timestamp.unwrap_or_else(now));
+    let identity = commit.identity.as_deref().unwrap_or(TEST_IDENTITY);
     let _ = writeln!(self.stream, "commit {}\nmark :{mark}", self.branch);
-    let _ = writeln!(self.stream, "author {TEST_IDENTITY} {when}\ncommitter {TEST_IDENTITY} {when}");
+    let _ = writeln!(self.stream, "author {identity} {when}\ncommitter {identity} {when}");
     push_data(&mut self.stream, &cleaned_message(&commit.message));
     match self.tip {
       Some(tip) => {

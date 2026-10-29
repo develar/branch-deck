@@ -7,7 +7,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::HistoryCommit;
 use test_utils::sync_fixtures::TestReporter;
 use test_utils::sync_fixtures::setup_test_repos;
 
@@ -71,15 +72,28 @@ impl TestScenario {
   }
 
   fn configure_author(&self) {
-    self.local_repo.set_config("user.email", &self.user_email).unwrap();
-    self.local_repo.set_config("user.name", &self.user_name).unwrap();
+    configure_test_author(&self.local_repo, &self.user_email, &self.user_name);
   }
 
-  fn create_commits(&self, commits: &[(String, &str, &str)]) -> Vec<String> {
-    commits
+  /// The author of the user's commits, `Name <email>`
+  fn identity(&self) -> String {
+    format!("{} <{}>", self.user_name, self.user_email)
+  }
+
+  /// `commits` of the user on top of the checked-out `branch`, from one history (`commit_history`)
+  fn commit_on<const N: usize>(&self, branch: &str, commits: [HistoryCommit; N]) -> [String; N] {
+    let identity = self.identity();
+    self.local_repo.commits_on(&format!("refs/heads/{branch}"), &commits.map(|commit| commit.by(&identity)))
+  }
+
+  /// `commits` (subject, file, content) of the user on top of the checked-out `branch`, from one history
+  fn create_commits(&self, branch: &str, commits: &[(String, &str, &str)]) -> Vec<String> {
+    let identity = self.identity();
+    let commits: Vec<HistoryCommit> = commits
       .iter()
-      .map(|(subject, file, content)| self.local_repo.create_commit(subject, file, content))
-      .collect()
+      .map(|(subject, file, content)| HistoryCommit::new(subject.as_str(), &[(file, content)]).by(&identity))
+      .collect();
+    self.local_repo.commit_history(&format!("refs/heads/{branch}"), &commits)
   }
 
   fn simulate_commit_merge_to_master(&self, commit_hash: &str) {
@@ -113,10 +127,9 @@ impl TestScenario {
   }
 }
 
-/// Helper function to configure test author for a repository
+/// The author of the next commits of `repo`, appended to its config: git takes the last `user.email` and `user.name`
 fn configure_test_author(repo: &TestRepo, email: &str, name: &str) {
-  repo.set_config("user.email", email).unwrap();
-  repo.set_config("user.name", name).unwrap();
+  append_config(repo.path(), &[("user.email", email), ("user.name", name)]);
 }
 
 /// Helper function to print remote status for debugging
@@ -160,10 +173,13 @@ async fn test_my_commits_count_excludes_baseline_commits() {
   scenario.setup_development_branch();
 
   // Create two feature commits
-  let commits = scenario.create_commits(&[
-    ("(feature-a) Implement feature A".to_string(), "feature_a.rs", "// Feature A implementation"),
-    ("(other-feature) Fix important bug".to_string(), "bug_fix.rs", "// Important bug fix"),
-  ]);
+  let commits = scenario.create_commits(
+    "development",
+    &[
+      ("(feature-a) Implement feature A".to_string(), "feature_a.rs", "// Feature A implementation"),
+      ("(other-feature) Fix important bug".to_string(), "bug_fix.rs", "// Important bug fix"),
+    ],
+  );
 
   // Push feature branch to remote first
   scenario.local_repo.checkout("main").unwrap();
@@ -217,14 +233,17 @@ async fn test_real_io_mockk_update_bug_scenario() {
   scenario.setup_development_branch();
 
   // Create commits on the feature branch (simulating io-mockk-update)
-  let commits = scenario.create_commits(&[
-    (
-      "(io-mockk-update) update MockK to version 1.14.5".to_string(),
-      "mockk_update.kt",
-      "// MockK version 1.14.5 update",
-    ),
-    ("(io-mockk-update) fix test compatibility".to_string(), "test_fix.kt", "// Fix tests for new MockK version"),
-  ]);
+  let commits = scenario.create_commits(
+    "development",
+    &[
+      (
+        "(io-mockk-update) update MockK to version 1.14.5".to_string(),
+        "mockk_update.kt",
+        "// MockK version 1.14.5 update",
+      ),
+      ("(io-mockk-update) fix test compatibility".to_string(), "test_fix.kt", "// Fix tests for new MockK version"),
+    ],
+  );
 
   // Create and push the virtual branch
   scenario.local_repo.checkout("main").unwrap();
@@ -260,7 +279,7 @@ async fn test_compute_remote_status_directly() {
   scenario.setup_development_branch();
 
   // Create and push a test commit
-  scenario.create_commits(&[("(test) Test commit".to_string(), "test.rs", "// Test")]);
+  scenario.create_commits("development", &[("(test) Test commit".to_string(), "test.rs", "// Test")]);
   let latest_commit = scenario.local_repo.head();
   scenario.local_repo.create_branch_at("user/virtual/test", &latest_commit).unwrap();
   scenario.local_repo.push("origin", "user/virtual/test").unwrap();
@@ -294,10 +313,13 @@ async fn test_new_commit_after_baseline_merge() {
   scenario.setup_development_branch();
 
   // Create commits on the feature branch
-  let commits = scenario.create_commits(&[
-    ("(feature) Add feature A".to_string(), "feature_a.kt", "// Feature A implementation"),
-    ("(feature) Add feature B".to_string(), "feature_b.kt", "// Feature B implementation"),
-  ]);
+  let commits = scenario.create_commits(
+    "development",
+    &[
+      ("(feature) Add feature A".to_string(), "feature_a.kt", "// Feature A implementation"),
+      ("(feature) Add feature B".to_string(), "feature_b.kt", "// Feature B implementation"),
+    ],
+  );
 
   // Push feature branch to remote
   scenario.local_repo.checkout("main").unwrap();
@@ -385,16 +407,19 @@ async fn test_unrelated_commits_from_same_author_not_counted() {
   // Create BAZEL commits on one branch
   scenario.local_repo.checkout_new_branch("bazel-work").unwrap();
   scenario.configure_author();
-  let bazel_commits = scenario.create_commits(&[
-    ("(BAZEL-2453) introduce RunConfigurationProducerSuppressor".to_string(), "suppressor.rs", "// suppressor"),
-    ("(BAZEL-2453) convert RunConfigurationProducersDisabler to kotlin".to_string(), "disabler.kt", "// kotlin"),
-    ("(BAZEL-2453) Rename .java to .kt".to_string(), "rename.kt", "// renamed"),
-    (
-      "(BAZEL-2453) mark RunConfigurationProducersDisabler as internal API".to_string(),
-      "internal.kt",
-      "// internal",
-    ),
-  ]);
+  let bazel_commits = scenario.create_commits(
+    "bazel-work",
+    &[
+      ("(BAZEL-2453) introduce RunConfigurationProducerSuppressor".to_string(), "suppressor.rs", "// suppressor"),
+      ("(BAZEL-2453) convert RunConfigurationProducersDisabler to kotlin".to_string(), "disabler.kt", "// kotlin"),
+      ("(BAZEL-2453) Rename .java to .kt".to_string(), "rename.kt", "// renamed"),
+      (
+        "(BAZEL-2453) mark RunConfigurationProducersDisabler as internal API".to_string(),
+        "internal.kt",
+        "// internal",
+      ),
+    ],
+  );
 
   // Create parallel-load-state commit on another branch
   scenario.local_repo.checkout("main").unwrap();
@@ -426,14 +451,14 @@ async fn test_unrelated_commits_from_same_author_not_counted() {
 
   // Update upstream main with BAZEL commits
   scenario.upstream_repo.checkout("main").unwrap();
-  for (subject, file, content) in [
+  let upstream_commits = [
     ("(BAZEL-2453) introduce RunConfigurationProducerSuppressor", "suppressor.rs", "// suppressor"),
     ("(BAZEL-2453) convert RunConfigurationProducersDisabler to kotlin", "disabler.kt", "// kotlin"),
     ("(BAZEL-2453) Rename .java to .kt", "rename.kt", "// renamed"),
     ("(BAZEL-2453) mark RunConfigurationProducersDisabler as internal API", "internal.kt", "// internal"),
-  ] {
-    scenario.upstream_repo.create_commit(subject, file, content);
-  }
+  ]
+  .map(|(subject, file, content)| HistoryCommit::new(subject, &[(file, content)]));
+  scenario.upstream_repo.commit_history("refs/heads/main", &upstream_commits);
 
   // Prepare local branch with all commits for sync
   scenario.local_repo.fetch_prune("origin").unwrap();
@@ -637,12 +662,13 @@ fn dropped_subjects(status: &domain_types::RemoteStatusUpdate) -> Vec<&str> {
 async fn an_amended_commit_is_amended_not_dropped() {
   let scenario = TestScenario::new();
   scenario.setup_development_branch();
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(feature) First", "first.txt", "first", Some(1_700_000_000));
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(feature) Second", "second.txt", "second", Some(1_700_000_100));
+  scenario.commit_on(
+    "development",
+    [
+      HistoryCommit::new("(feature) First", &[("first.txt", "first")]).at(1_700_000_000),
+      HistoryCommit::new("(feature) Second", &[("second.txt", "second")]).at(1_700_000_100),
+    ],
+  );
   scenario.run_sync("user").await;
   scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
 
@@ -665,13 +691,16 @@ async fn an_amended_commit_is_amended_not_dropped() {
 /// the events of that sync
 async fn rebuilt_parent(scenario: &TestScenario, auth_subject: &str, auth_again: (&str, &str)) -> Vec<SyncEvent> {
   scenario.setup_development_branch();
-  scenario.local_repo.set_config("branchdeck.stacks", "true").unwrap();
+  append_config(scenario.local_repo.path(), &[("branchdeck.stacks", "true")]);
   let base = scenario.local_repo.head();
   let commit_both = |auth: (&str, &str)| {
-    scenario.local_repo.create_commit_with_timestamp(auth.0, "auth.rs", auth.1, Some(1_700_000_000));
-    scenario
-      .local_repo
-      .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+    scenario.commit_on(
+      "development",
+      [
+        HistoryCommit::new(auth.0, &[("auth.rs", auth.1)]).at(1_700_000_000),
+        HistoryCommit::new("(auth/login) Add form", &[("login.rs", "// login")]).at(1_700_000_100),
+      ],
+    );
   };
   commit_both((auth_subject, "// auth"));
   scenario.run_sync("user").await;
@@ -729,13 +758,14 @@ async fn a_child_of_an_amended_parent_is_restacked() {
 async fn a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote() {
   let scenario = TestScenario::new();
   scenario.setup_development_branch();
-  scenario.local_repo.set_config("branchdeck.stacks", "true").unwrap();
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth) Add auth", "auth.rs", "// auth", Some(1_700_000_000));
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+  append_config(scenario.local_repo.path(), &[("branchdeck.stacks", "true")]);
+  scenario.commit_on(
+    "development",
+    [
+      HistoryCommit::new("(auth) Add auth", &[("auth.rs", "// auth")]).at(1_700_000_000),
+      HistoryCommit::new("(auth/login) Add form", &[("login.rs", "// login")]).at(1_700_000_100),
+    ],
+  );
   scenario.run_sync("user").await;
   scenario.local_repo.push("origin", "user/virtual/auth").unwrap();
   scenario.local_repo.push("origin", "user/virtual/login").unwrap();
@@ -829,12 +859,11 @@ async fn an_amended_commit_and_a_dropped_one_are_told_apart() {
   let scenario = TestScenario::new();
   scenario.setup_development_branch();
   let base = scenario.local_repo.head();
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(feature) First", "first.txt", "first", Some(1_700_000_000));
-  let second = scenario
-    .local_repo
-    .create_commit_with_timestamp("(feature) Second", "second.txt", "second", Some(1_700_000_100));
+  let first = HistoryCommit::new("(feature) First", &[("first.txt", "first")]).at(1_700_000_000);
+  let [_, second] = scenario.commit_on(
+    "development",
+    [first.clone(), HistoryCommit::new("(feature) Second", &[("second.txt", "second")]).at(1_700_000_100)],
+  );
   scenario.local_repo.create_branch_at("user/virtual/feature", &second).unwrap();
   scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
 
@@ -847,12 +876,10 @@ async fn an_amended_commit_and_a_dropped_one_are_told_apart() {
 
   // the second commit amended
   scenario.local_repo.reset_hard(&base).unwrap();
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(feature) First", "first.txt", "first", Some(1_700_000_000));
-  let amended = scenario
-    .local_repo
-    .create_commit_with_timestamp("(feature) Second", "second.txt", "second, amended", Some(1_700_000_100));
+  let [_, amended] = scenario.commit_on(
+    "development",
+    [first, HistoryCommit::new("(feature) Second", &[("second.txt", "second, amended")]).at(1_700_000_100)],
+  );
   scenario
     .local_repo
     .git_executor()

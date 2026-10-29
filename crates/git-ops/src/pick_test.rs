@@ -6,6 +6,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
+use test_utils::history::{HistoryCommit, HistoryStream, one_file_each};
 
 const TRACKING_REF: &str = "refs/remotes/origin/master";
 
@@ -39,13 +40,11 @@ fn refusal_with_upstream(repo: &TestRepo, worktree: &TestWorktree) -> PickRefusa
 }
 
 /// Commits `file` in `worktree` with the author and committer date `seconds` (`+0200`); returns the commit
-fn commit_at(repo: &TestRepo, worktree: &TestWorktree, message: &str, file: &str, seconds: i64) -> String {
+fn commit_at(worktree: &TestWorktree, message: &str, file: &str, seconds: i64) -> String {
   worktree.write(file, "lane\n");
   worktree.git(&["add", "--", file]);
   let date = format!("{seconds} +0200");
-  let env = [("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())];
-  repo.git_executor().cmd(&["commit", "-q", "-m", message], &worktree.path).env(&env).text().unwrap();
-  worktree.head()
+  worktree.commit_with(&["-m", message], &[("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())])
 }
 
 /// The conflict of `plan`, which must name `commit` on `a.txt` after the clean `(lane) clean`, nothing moved
@@ -116,8 +115,8 @@ fn a_worktree_cut_at_the_tip_lands_its_commits_as_they_are() {
   repo.create_commit("base", "a.txt", "a\n");
   let worktree = TestWorktree::detached(&repo);
   // dated in the past: a replay now would write other commits
-  let first = commit_at(&repo, &worktree, "(lane) first", "b.txt", 1_700_000_000);
-  let second = commit_at(&repo, &worktree, "(lane) second", "a.txt", 1_700_000_100);
+  let first = commit_at(&worktree, "(lane) first", "b.txt", 1_700_000_000);
+  let second = commit_at(&worktree, "(lane) second", "a.txt", 1_700_000_100);
 
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
   assert_eq!(plan.check.state, PickState::Clean);
@@ -146,8 +145,8 @@ fn the_copies_get_the_newest_committer_date_so_the_check_names_the_commits_the_p
   repo.create_commit_with_timestamp("base", "a.txt", "a\n", Some(BASE));
   let worktree = TestWorktree::detached(&repo);
   // the newest committer date of the range is not its tip's
-  commit_at(&repo, &worktree, "(lane) first", "b.txt", BASE + 100);
-  commit_at(&repo, &worktree, "(lane) second", "c.txt", BASE + 50);
+  commit_at(&worktree, "(lane) first", "b.txt", BASE + 100);
+  commit_at(&worktree, "(lane) second", "c.txt", BASE + 50);
   repo.create_commit_with_timestamp("(own) other", "own.txt", "own\n", Some(BASE + 10));
 
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
@@ -280,9 +279,7 @@ fn a_conflict_after_a_commit_left_out_by_its_patch_id_names_the_commit_and_lists
 
 #[test]
 fn a_target_rewritten_after_the_worktree_was_cut_from_it_gives_back_none_of_its_old_commits() {
-  let repo = TestRepo::new();
-  repo.create_commit("base", "a.txt", "a\n");
-  repo.create_commit("(own) local", "own.txt", "one\n");
+  let (repo, _) = TestRepo::with_commits(&one_file_each([("base", "a.txt", "a\n"), ("(own) local", "own.txt", "one\n")]));
   let worktree = TestWorktree::detached(&repo);
   worktree.commit("(lane) new", "b.txt", "b\n");
   // the owner rewrites the local commit: a new date and a folded fixup change its id and its patch
@@ -302,10 +299,13 @@ fn a_target_rewritten_after_the_worktree_was_cut_from_it_gives_back_none_of_its_
 #[test]
 fn without_a_fork_point_a_local_shared_history_is_refused_and_a_range_names_the_commits() {
   let repo = TestRepo::new();
-  let base = repo.create_commit("base", "a.txt", "a\n");
-  repo.git(&["update-ref", TRACKING_REF, &base]);
-  repo.create_commit("(own) one", "own.txt", "one\n");
-  repo.create_commit("(own) two", "two.txt", "two\n");
+  // `master` with two commits of its own on the base, which `TRACKING_REF` names: one stream
+  let mut history = HistoryStream::new("refs/heads/master");
+  for (message, file, content) in [("base", "a.txt", "a\n"), ("(own) one", "own.txt", "one\n"), ("(own) two", "two.txt", "two\n")] {
+    history.commit(&HistoryCommit::new(message, &[(file, content)]));
+  }
+  history.reset_to_root(TRACKING_REF);
+  let _base = history.write(repo.path()).unwrap().remove(0).unwrap();
   let worktree = TestWorktree::detached(&repo);
   let new = worktree.commit("(lane) new", "b.txt", "b\n");
   repo.git(&["commit", "--amend", "-q", "-m", "(own) two, reworded"]);
@@ -333,9 +333,7 @@ fn without_a_fork_point_a_local_shared_history_is_refused_and_a_range_names_the_
 
 #[test]
 fn a_worktree_on_a_newer_baseline_is_refused() {
-  let repo = TestRepo::new();
-  let base = repo.create_commit("base", "a.txt", "a\n");
-  repo.create_commit("(own) local", "own.txt", "one\n");
+  let (repo, [base, _]) = TestRepo::with_commits(&one_file_each([("base", "a.txt", "a\n"), ("(own) local", "own.txt", "one\n")]));
   let worktree = TestWorktree::detached(&repo);
   // the baseline moved on, and the worktree stands on it
   worktree.git(&["checkout", "-q", "--detach", &base]);
@@ -459,9 +457,7 @@ fn a_source_that_switched_after_the_check_stays_and_the_same_pick_again_moves_it
 
 #[test]
 fn a_pick_and_a_follow_killed_before_their_files_followed_are_finished() {
-  let repo = TestRepo::new();
-  let from_commit = repo.create_commit("one", "a.txt", "one\n");
-  let to = repo.create_commit("two", "a.txt", "two\n");
+  let (repo, [from_commit, to]) = TestRepo::with_commits(&one_file_each([("one", "a.txt", "one\n"), ("two", "a.txt", "two\n")]));
   let worktree = TestWorktree::detached(&repo);
   // the target: the pick moved the branch, the files stayed at `from`
   repo.git(&["reset", "-q", "--hard", &from_commit]);
@@ -595,15 +591,20 @@ fn a_pick_waits_for_the_index_lock_of_another_process_and_then_lands_with_its_fi
   worktree.commit("(lane) change", "b.txt", "b\n");
   repo.create_commit("(own) other", "own.txt", "own\n");
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
-  // an IDE's `git status` holds the lock of the target for a while. The wait of the pick polls the lock file on the
-  // system clock and tells no one that it waits (`IndexLock::wait_while_locked`, which the plan builds itself), so the
-  // lock goes after a time long enough for the wait to have seen it, not on an event
+  // an IDE's `git status` holds the lock of the target for a while: open, so the wait never takes it for a lock that no
+  // process owns and removes it itself (`IndexLock`), however late the holder lets it go. The wait polls the lock on
+  // the system clock and tells no one that it waits (`IndexLock::wait_while_locked`, which the plan builds itself): the
+  // holder keeps the lock for two of its polls after the wait starts, and the outcome is the same whenever it lets go
   let lock = repo.path().join(".git").join("index.lock");
-  std::fs::write(&lock, "").unwrap();
+  let held = std::fs::File::create(&lock).unwrap();
+  let (waits, wait_started) = std::sync::mpsc::channel::<()>();
   let release = std::thread::spawn(move || {
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    wait_started.recv().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    drop(held);
     std::fs::remove_file(lock).unwrap();
   });
+  waits.send(()).unwrap();
   plan.wait_for_index_locks(repo.git_executor(), repo.path_str()).unwrap();
   release.join().unwrap();
   let applied = apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
@@ -744,12 +745,12 @@ fn the_source_is_another_worktree_of_this_repository() {
 }
 
 /// The commits of someone else on a remote branch: `theirs` on top of `older`, a commit of the branch as it was pushed,
-/// committed in `worktree` as Lev on a side line of `repo`; returns both
-fn remote_line(repo: &TestRepo, worktree: &TestWorktree) -> (String, String) {
-  let older = commit_at(repo, worktree, "(feature) older version", "feature.txt", 1_700_000_100);
+/// committed in `worktree` as Lev on a side line of its repository; returns both
+fn remote_line(worktree: &TestWorktree) -> (String, String) {
+  let older = commit_at(worktree, "(feature) older version", "feature.txt", 1_700_000_100);
   worktree.git(&["config", "user.name", "Lev Leontev"]);
   worktree.git(&["config", "user.email", "lev@example.com"]);
-  let theirs = commit_at(repo, worktree, "fix ultimate opened as JPS", "fix.txt", 1_700_000_200);
+  let theirs = commit_at(worktree, "fix ultimate opened as JPS", "fix.txt", 1_700_000_200);
   (older, theirs)
 }
 
@@ -771,7 +772,7 @@ fn listed_commits_land_alone_with_the_prefix_of_their_branch() {
   let repo = TestRepo::new();
   repo.create_commit("base", "a.txt", "a\n");
   let worktree = TestWorktree::detached(&repo);
-  let (_older, theirs) = remote_line(&repo, &worktree);
+  let (_older, theirs) = remote_line(&worktree);
   repo.create_commit("(feature) the branch as it is here", "feature.txt", "feature here\n");
 
   let ids = vec![theirs.clone()];
@@ -800,9 +801,9 @@ fn listed_commits_apart_replay_each_after_its_parent() {
   let repo = TestRepo::new();
   repo.create_commit("base", "a.txt", "a\n");
   let worktree = TestWorktree::detached(&repo);
-  let first = commit_at(&repo, &worktree, "first", "first.txt", 1_700_000_100);
-  commit_at(&repo, &worktree, "skipped", "skipped.txt", 1_700_000_200);
-  let third = commit_at(&repo, &worktree, "third", "third.txt", 1_700_000_300);
+  let first = commit_at(&worktree, "first", "first.txt", 1_700_000_100);
+  commit_at(&worktree, "skipped", "skipped.txt", 1_700_000_200);
+  let third = commit_at(&worktree, "third", "third.txt", 1_700_000_300);
 
   let ids = vec![first, third];
   let plan = check_pick(repo.git_executor(), repo.path_str(), &listed(&ids, None)).unwrap();

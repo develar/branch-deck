@@ -8,7 +8,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::one_file_each;
 use test_utils::process_budget::empty_cache;
 use test_utils::sync_fixtures::TestReporter;
 
@@ -20,7 +21,7 @@ fn repo_path(test_repo: &TestRepo) -> &str {
 fn stacked_repo() -> TestRepo {
   let test_repo = TestRepo::new();
   test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.set_config("branchdeck.stacks", "true").unwrap();
+  append_config(test_repo.path(), &[("branchdeck.stacks", "true")]);
   test_repo
 }
 
@@ -45,10 +46,11 @@ fn grouped(events: &[SyncEvent]) -> BTreeMap<String, GroupedBranchInfo> {
 
 #[tokio::test]
 async fn without_stacks_branches_grouped_has_no_stack() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(docs) Document", "docs.md", "docs");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  let (test_repo, _) = TestRepo::with_commits(&one_file_each([
+    ("Initial commit", "README.md", "# Test"),
+    ("(docs) Document", "docs.md", "docs"),
+    ("(auth/login) Add form", "login.rs", "// login"),
+  ]));
 
   let flat = grouped(&sync(&test_repo).await);
 
@@ -60,8 +62,10 @@ async fn without_stacks_branches_grouped_has_no_stack() {
 #[tokio::test]
 async fn branches_grouped_carries_the_stack() {
   let test_repo = stacked_repo();
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(auth) Add auth", "auth.rs", "// auth"), ("(auth/login) Add form", "login.rs", "// login")]),
+  );
 
   let stacked = grouped(&sync(&test_repo).await);
 
@@ -82,8 +86,7 @@ async fn branches_grouped_carries_the_stack() {
 #[tokio::test]
 async fn an_unapplied_parent_is_reported_before_the_sync_starts() {
   let test_repo = stacked_repo();
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  let head = test_repo.head();
+  let head = test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
   test_repo.create_branch_at("test/unapplied/auth", &head).unwrap();
 
   let branches = grouped(&sync(&test_repo).await);
@@ -125,11 +128,16 @@ fn rev(test_repo: &TestRepo, revision: &str) -> String {
 async fn builds_each_branch_on_its_parent() {
   let test_repo = stacked_repo();
   // the child's commit comes before every commit of its parent
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth) Add session", "session.rs", "// session");
-  test_repo.create_commit("(login/oauth) Add OAuth", "oauth.rs", "// oauth");
-  test_repo.create_commit("(docs) Document", "docs.md", "docs");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(auth/login) Add form", "login.rs", "// login"),
+      ("(auth) Add auth", "auth.rs", "// auth"),
+      ("(auth) Add session", "session.rs", "// session"),
+      ("(login/oauth) Add OAuth", "oauth.rs", "// oauth"),
+      ("(docs) Document", "docs.md", "docs"),
+    ]),
+  );
 
   let events = sync(&test_repo).await;
 
@@ -165,11 +173,16 @@ async fn builds_each_branch_on_its_parent() {
 async fn a_parent_conflict_blocks_its_descendants() {
   let test_repo = stacked_repo();
   // auth changes a file that only an unassigned commit creates, so its copy onto the base conflicts
-  test_repo.create_commit("Add config", "config.txt", "a");
-  test_repo.create_commit("(auth) Change config", "config.txt", "b");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  test_repo.create_commit("(login/oauth) Add OAuth", "oauth.rs", "// oauth");
-  test_repo.create_commit("(docs) Document", "docs.md", "docs");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("Add config", "config.txt", "a"),
+      ("(auth) Change config", "config.txt", "b"),
+      ("(auth/login) Add form", "login.rs", "// login"),
+      ("(login/oauth) Add OAuth", "oauth.rs", "// oauth"),
+      ("(docs) Document", "docs.md", "docs"),
+    ]),
+  );
 
   let events = sync(&test_repo).await;
 
@@ -196,9 +209,14 @@ async fn a_parent_conflict_blocks_its_descendants() {
 #[tokio::test]
 async fn a_problem_is_not_built_and_a_missing_parent_is_passed() {
   let test_repo = stacked_repo();
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  let looped = test_repo.create_commit("(a/a) Loop", "a.rs", "// a");
-  test_repo.create_commit("(docs) Document", "docs.md", "docs");
+  let [_, looped, _] = test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(auth/login) Add form", "login.rs", "// login"),
+      ("(a/a) Loop", "a.rs", "// a"),
+      ("(docs) Document", "docs.md", "docs"),
+    ]),
+  );
 
   let statuses = final_statuses(&sync(&test_repo).await);
 
@@ -220,7 +238,10 @@ fn stacked_repo_with_remote() -> (TestRepo, TestRepo) {
   let test_repo = stacked_repo();
   let remote = TestRepo::new_empty();
   remote.git_executor().execute_command(&["init", "--bare"], repo_path(&remote)).unwrap();
-  test_repo.add_remote("origin", repo_path(&remote)).unwrap();
+  append_config(
+    test_repo.path(),
+    &[("remote.origin.url", repo_path(&remote)), ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")],
+  );
   test_repo.push("origin", "master").unwrap();
   (test_repo, remote)
 }
@@ -228,14 +249,18 @@ fn stacked_repo_with_remote() -> (TestRepo, TestRepo) {
 #[tokio::test]
 async fn the_unpushed_commits_of_a_child_exclude_its_parent() {
   let (test_repo, _remote) = stacked_repo_with_remote();
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(auth) Add auth", "auth.rs", "// auth"), ("(auth/login) Add form", "login.rs", "// login")]),
+  );
   sync(&test_repo).await;
   test_repo.push("origin", "test/virtual/login").unwrap();
 
   // the parent and the child get a commit each: login is copied onto the parent's new head
-  test_repo.create_commit("(auth) Add session", "session.rs", "// session");
-  test_repo.create_commit("(login) Validate form", "validate.rs", "// validate");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(auth) Add session", "session.rs", "// session"), ("(login) Validate form", "validate.rs", "// validate")]),
+  );
   let events = sync(&test_repo).await;
 
   let login = events
@@ -265,10 +290,11 @@ async fn failed_sync(test_repo: &TestRepo) -> (anyhow::Error, Vec<SyncEvent>) {
 /// fails. Which of the two fails depends on the order the branches are written in, the other one is written
 #[tokio::test]
 async fn without_stacks_a_parent_and_its_child_prefix_fail_the_sync() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  let (test_repo, _) = TestRepo::with_commits(&one_file_each([
+    ("Initial commit", "README.md", "# Test"),
+    ("(auth) Add auth", "auth.rs", "// auth"),
+    ("(auth/login) Add form", "login.rs", "// login"),
+  ]));
 
   let (error, events) = failed_sync(&test_repo).await;
 
@@ -283,8 +309,10 @@ async fn without_stacks_a_parent_and_its_child_prefix_fail_the_sync() {
 #[tokio::test]
 async fn turning_stacks_off_fails_the_sync_on_the_flat_child() {
   let test_repo = stacked_repo();
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(auth) Add auth", "auth.rs", "// auth"), ("(auth/login) Add form", "login.rs", "// login")]),
+  );
   sync(&test_repo).await;
   test_repo.set_config("branchdeck.stacks", "false").unwrap();
 
@@ -328,12 +356,17 @@ fn announced_stacks(events: &[SyncEvent]) -> Vec<String> {
 /// commits oldest first: auth, login, docs, session, oauth, auth
 fn forking_repo() -> TestRepo {
   let test_repo = stacked_repo();
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  test_repo.create_commit("(docs) Document", "docs.md", "docs");
-  test_repo.create_commit("(auth/session) Add session", "session.rs", "// session");
-  test_repo.create_commit("(login/oauth) Add OAuth", "oauth.rs", "// oauth");
-  test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(auth) Add auth", "auth.rs", "// auth"),
+      ("(auth/login) Add form", "login.rs", "// login"),
+      ("(docs) Document", "docs.md", "docs"),
+      ("(auth/session) Add session", "session.rs", "// session"),
+      ("(login/oauth) Add OAuth", "oauth.rs", "// oauth"),
+      ("(auth) Add logout", "logout.rs", "// logout"),
+    ]),
+  );
   test_repo
 }
 
@@ -497,8 +530,10 @@ async fn a_conflict_keeps_the_old_ref_stale_and_says_why() {
   let tip = rev(&test_repo, "test/stack/auth");
 
   // `session` changes a file that only an unassigned commit creates
-  test_repo.create_commit("Add config", "config.txt", "a");
-  let changed = test_repo.create_commit("(session) Change config", "config.txt", "b");
+  let [_, changed] = test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([("Add config", "config.txt", "a"), ("(session) Change config", "config.txt", "b")]),
+  );
   let events = sync(&test_repo).await;
 
   assert_eq!(final_statuses(&events)["session"].0, BranchSyncStatus::MergeConflict);
@@ -521,10 +556,15 @@ async fn a_conflict_keeps_the_old_ref_stale_and_says_why() {
 #[tokio::test]
 async fn a_member_that_fails_blocks_the_stack_branch() {
   let test_repo = stacked_repo();
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add config", "config.txt", "a");
-  test_repo.create_commit("(auth) Change config", "config.txt", "b");
-  test_repo.create_commit("(auth/session) Add session", "session.rs", "// session");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(auth) Add auth", "auth.rs", "// auth"),
+      ("(auth/login) Add config", "config.txt", "a"),
+      ("(auth) Change config", "config.txt", "b"),
+      ("(auth/session) Add session", "session.rs", "// session"),
+    ]),
+  );
 
   let events = sync(&test_repo).await;
 
@@ -546,11 +586,14 @@ async fn a_member_that_fails_blocks_the_stack_branch() {
 #[tokio::test]
 async fn a_stack_that_no_longer_forks_loses_its_stack_branch_unless_it_is_on_the_remote() {
   let (test_repo, _remote) = stacked_repo_with_remote();
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  let straight = test_repo.head();
-  test_repo.create_commit("(auth/session) Add session", "session.rs", "// session");
-  let forking = test_repo.head();
+  let [_, straight, forking] = test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(auth) Add auth", "auth.rs", "// auth"),
+      ("(auth/login) Add form", "login.rs", "// login"),
+      ("(auth/session) Add session", "session.rs", "// session"),
+    ]),
+  );
   sync(&test_repo).await;
   assert!(test_repo.branch_exists("test/stack/auth"));
 
@@ -586,10 +629,15 @@ async fn a_stack_that_no_longer_forks_loses_its_stack_branch_unless_it_is_on_the
 #[tokio::test]
 async fn a_straight_stack_has_none() {
   let test_repo = stacked_repo();
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  test_repo.create_commit("(login/oauth) Add OAuth", "oauth.rs", "// oauth");
-  test_repo.create_commit("(docs) Document", "docs.md", "docs");
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(auth) Add auth", "auth.rs", "// auth"),
+      ("(auth/login) Add form", "login.rs", "// login"),
+      ("(login/oauth) Add OAuth", "oauth.rs", "// oauth"),
+      ("(docs) Document", "docs.md", "docs"),
+    ]),
+  );
 
   let events = sync(&test_repo).await;
 

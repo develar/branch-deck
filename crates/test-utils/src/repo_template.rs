@@ -113,6 +113,7 @@ impl RepoTemplate {
         files: commit.files.clone(),
         deleted: commit.deleted.clone(),
         timestamp: commit.timestamp,
+        identity: None,
       });
     }
     // for templates that simulate existing repositories with history, `origin/master` at the initial commit: the
@@ -137,7 +138,7 @@ impl RepoTemplate {
 /// Pre-defined test repository templates
 pub mod templates {
   use super::RepoTemplate;
-  use crate::git_test_utils::{disable_background_maintenance, git_command};
+  use crate::git_test_utils::{NO_BACKGROUND_MAINTENANCE, append_config, disable_background_maintenance, git_command};
   use crate::remote_git::{BARE_ORIGIN, add_bare_origin};
   use anyhow::Result;
   use std::fmt::Write;
@@ -1334,20 +1335,29 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         fs::write(full, content)?;
         Ok(())
       };
+      // one `add` of every file of the commit: an `add` per file was 480 of the processes of `update_conflict_wide`
       let commit_as = |author: &str, message: &str, files: &[(&str, &str)], dates: (i64, i64)| -> Result<()> {
+        let mut add = vec!["add", "--"];
         for (path, content) in files {
           write(path, content)?;
-          git(&["add", "--", path], None)?;
+          add.push(path);
         }
+        git(&add, None)?;
         git(&["commit", "-q", &format!("--author={author}"), "-m", message], Some(dates))
       };
       let commit = |message: &str, files: &[(&str, &str)], timestamp: i64| commit_as("Test User <test@example.com>", message, files, (timestamp, timestamp));
 
       git(&["init", "-q", "--initial-branch=master"], None)?;
-      disable_background_maintenance(output_path);
-      git(&["config", "user.name", "Test User"], None)?;
-      git(&["config", "user.email", "test@example.com"], None)?;
-      git(&["config", "branchdeck.branchPrefix", "user-name"], None)?;
+      append_config(
+        output_path,
+        &[
+          NO_BACKGROUND_MAINTENANCE[0],
+          NO_BACKGROUND_MAINTENANCE[1],
+          ("user.name", "Test User"),
+          ("user.email", "test@example.com"),
+          ("branchdeck.branchPrefix", "user-name"),
+        ],
+      );
       let mut initial_files = vec![
         ("README.md", "# Update Project\n"),
         (UPDATE_APP_FILE, "line 1\nline 2\nline 3\n"),
@@ -1361,9 +1371,17 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
 
       git(&["init", "-q", "--bare", "--initial-branch=master", BARE_ORIGIN], None)?;
       disable_background_maintenance(&output_path.join(BARE_ORIGIN));
-      git(&["remote", "add", "origin", BARE_ORIGIN], None)?;
+      // what `remote add origin` and `branch --set-upstream-to=origin/master` write, appended
+      append_config(
+        output_path,
+        &[
+          ("remote.origin.url", BARE_ORIGIN),
+          ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
+          ("branch.master.remote", "origin"),
+          ("branch.master.merge", "refs/heads/master"),
+        ],
+      );
       git(&["push", "-q", "origin", "master"], None)?;
-      git(&["branch", "-q", "--set-upstream-to=origin/master", "master"], None)?;
 
       // upstream commits, pushed by URL so the tracking ref stays until the fetch below
       git(&["checkout", "-q", "--detach"], None)?;

@@ -26,7 +26,8 @@ use std::time::Duration;
 use sync_core::baseline::{check_baseline_update, previous_tip_of_forced_update};
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::{HistoryCommit, one_file_each};
 use test_utils::sync_fixtures::TestReporter;
 
 /// An upstream repository with `shared.txt` and `other.txt`, and a clone of it whose `master` tracks `origin/master`
@@ -131,8 +132,10 @@ fn reflog(repo: &TestRepo) -> String {
 #[test]
 fn fast_forward_updates_the_working_tree() {
   let Setup { upstream, clone } = setup();
-  let upstream_head = upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
-  upstream.create_commit("Add new", "new.txt", "new\n");
+  let [upstream_head, _] = upstream.commits_on(
+    "refs/heads/master",
+    &one_file_each([("Upstream change", "shared.txt", "one\nTWO\nthree\n"), ("Add new", "new.txt", "new\n")]),
+  );
 
   let (result, progress) = update_reporting_progress(&clone);
   let mut phases: Vec<UpdatePhase> = progress.iter().map(|it| it.phase).collect();
@@ -155,17 +158,23 @@ fn fast_forward_updates_the_working_tree() {
 #[test]
 fn rebase_keeps_the_author_and_makes_the_current_user_the_committer() {
   let Setup { upstream, clone } = setup();
-  clone.set_config("user.name", "Local Author").unwrap();
-  clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
-  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
-  clone.set_config("user.name", "Updater").unwrap();
+  // the local commits of the user as `Local Author`, who then names themselves `Updater`
+  let author = "Local Author <test@example.com>";
+  clone.commits_on(
+    "refs/heads/master",
+    &[
+      HistoryCommit::new("(auth) Add login", &[("login.txt", "login\n")]).by(author),
+      HistoryCommit::new("(auth) Add logout", &[("logout.txt", "logout\n")]).by(author),
+    ],
+  );
+  let upstream_head = upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  append_config(clone.path(), &[("user.name", "Updater")]);
 
   let result = update(&clone).unwrap();
   assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
   let applied = result.applied.unwrap();
   assert_eq!((applied.replayed, applied.dropped_already_upstream), (2, 0));
-  assert_eq!(git(&clone, &["rev-parse", "HEAD~2"]), upstream.head());
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~2"]), upstream_head);
   assert_eq!(
     git(&clone, &["log", "--format=%s|%an|%cn", "-2"]),
     "(auth) Add logout|Local Author|Updater\n(auth) Add login|Local Author|Updater"
@@ -280,8 +289,13 @@ fn touched_only_file_passes_thanks_to_the_refresh() {
 #[test]
 fn same_line_conflict_reports_the_first_conflict_and_changes_nothing() {
   let Setup { upstream, clone } = setup();
-  clone.create_commit_with_timestamp("(auth) Add login", "login.txt", "login\n", Some(1_700_000_100));
-  let second = clone.create_commit_with_timestamp("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n", Some(1_700_000_200));
+  let [_, second] = clone.commits_on(
+    "refs/heads/master",
+    &[
+      HistoryCommit::new("(auth) Add login", &[("login.txt", "login\n")]).at(1_700_000_100),
+      HistoryCommit::new("(auth) Change two", &[("shared.txt", "one\nlocal two\nthree\n")]).at(1_700_000_200),
+    ],
+  );
   upstream.create_commit("Upstream other", "other.txt", "upstream other\n");
   // written by Dana Lee, landed a day later by a robot: the committer is another person at another time
   write(&upstream, "shared.txt", "one\nupstream two\nthree\n");
@@ -344,8 +358,10 @@ fn same_line_conflict_reports_the_first_conflict_and_changes_nothing() {
 #[test]
 fn commit_already_upstream_is_dropped_and_reported() {
   let Setup { upstream, clone } = setup();
-  clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  clone.create_commit("(fix) Fix two", "shared.txt", "one\nfixed two\nthree\n");
+  clone.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(auth) Add login", "login.txt", "login\n"), ("(fix) Fix two", "shared.txt", "one\nfixed two\nthree\n")]),
+  );
   // the fix was applied upstream, e.g. merged from a pull request
   upstream.create_commit("Fix two (#12)", "shared.txt", "one\nfixed two\nthree\n");
 
@@ -749,10 +765,14 @@ fn fetch_reports_progress_until_the_last_stage_ends() {
 fn applied_update(setup: &Setup) -> UpdateUndoToken {
   let Setup { upstream, clone } = setup;
   clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
-  upstream.create_commit("Add new", "new.txt", "new\n");
-  git(upstream, &["rm", "-q", "other.txt"]);
-  git(upstream, &["commit", "-q", "-m", "Remove other"]);
+  upstream.commits_on(
+    "refs/heads/master",
+    &[
+      HistoryCommit::new("Upstream change", &[("shared.txt", "one\nTWO\nthree\n")]),
+      HistoryCommit::new("Add new", &[("new.txt", "new\n")]),
+      HistoryCommit::new("Remove other", &[]).deleting(&["other.txt"]),
+    ],
+  );
   let result = update(clone).unwrap();
   UpdateUndoToken {
     previous_head: result.check.head,
@@ -1145,8 +1165,10 @@ fn loose_objects(repo: &TestRepo) -> String {
 /// A clean first commit and a second one that conflicts with the upstream, fetched: the replay writes the first
 fn conflict_after_a_replayed_commit() -> Setup {
   let Setup { upstream, clone } = setup();
-  clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  clone.create_commit("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n");
+  clone.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(auth) Add login", "login.txt", "login\n"), ("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n")]),
+  );
   upstream.create_commit("Upstream change", "shared.txt", "one\nupstream two\nthree\n");
   git(&clone, &["fetch", "origin"]);
   Setup { upstream, clone }
@@ -1281,8 +1303,10 @@ fn the_undo_of_an_update_locks_only_the_witness_and_the_move() {
 #[cfg(unix)]
 fn fetched_conflict() -> Setup {
   let setup = setup();
-  setup.clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  setup.clone.create_commit("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n");
+  setup.clone.commits_on(
+    "refs/heads/master",
+    &one_file_each([("(auth) Add login", "login.txt", "login\n"), ("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n")]),
+  );
   setup.upstream.create_commit("Upstream change", "shared.txt", "one\nupstream two\nthree\n");
   git(&setup.clone, &["fetch", "origin"]);
   setup

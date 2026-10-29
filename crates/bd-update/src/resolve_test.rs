@@ -2,10 +2,8 @@ use bd_cli::fixture_test::{assert_error, canonical, git, hold_the_lock, run_in, 
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
-use test_utils::git_test_utils::TestRepo;
-#[cfg(unix)]
-use test_utils::history::HistoryCommit;
-use test_utils::history::numbered_lines;
+use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::history::{HistoryCommit, numbered_lines, one_file_each};
 
 const SHARED: &str = "one\ntwo\nthree\n";
 
@@ -216,7 +214,7 @@ fn the_first_conflict_is_found_with_a_binary_search() {
   for (n, conflict_at) in [(1, 1), (10, 7), (10, 1), (10, 10)] {
     let (upstream, clone) = clone_with_commits(n, conflict_at);
     // the replays of the session alone: the check replays the commits once more to resolve them by words
-    git(&clone, &["config", "branchdeck.resolveByWords", "false"]);
+    append_config(clone.path(), &[("branchdeck.resolveByWords", "false")]);
     let wrapped = Wrapped::new(&clone, "");
     let (exit_code, round) = wrapped.run(&["update"]);
     assert_eq!(exit_code, 1, "{round}");
@@ -241,7 +239,7 @@ fn the_first_conflict_is_found_with_a_binary_search() {
 fn a_second_conflict_opens_a_second_round_with_its_own_copies() {
   let (_upstream, clone) = conflicting_clone();
   // the words of the second conflict resolve it: a round of its own needs the resolve by words off
-  git(&clone, &["config", "branchdeck.resolveByWords", "false"]);
+  append_config(clone.path(), &[("branchdeck.resolveByWords", "false")]);
   clone.create_commit("(auth) Change line 2 again", "shared.txt", "one\nmine again\nthree\n");
   let (_, round1) = run_in(&clone, &["update"]);
   std::fs::write(edit_of(&round1, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
@@ -449,7 +447,7 @@ fn a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it() 
 fn peers_commits_on_top_become_more_rounds() {
   let (upstream, clone) = conflicting_clone();
   // the words of the peer's conflict resolve it: a round of its own needs the resolve by words off
-  git(&clone, &["config", "branchdeck.resolveByWords", "false"]);
+  append_config(clone.path(), &[("branchdeck.resolveByWords", "false")]);
   let (_, round) = run_in(&clone, &["update"]);
   // a peer commits in the same tree while the agent resolves: one clean commit, one that conflicts again
   clone.create_commit("(peer) Add peer", "peer.txt", "peer\n");
@@ -1079,11 +1077,21 @@ fn a_take_reports_the_lines_of_the_other_side_it_drops() {
 #[test_log::test]
 fn a_commit_the_upstream_has_with_the_same_patch_is_left_out() {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")]);
-  clone.create_commit("(auth) Add a", "a.txt", "a\n");
-  let landed = clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
-  clone.create_commit("(auth) Add b", "b.txt", "b\n");
-  let picked = upstream.create_commit("Change line 2 (picked)", "shared.txt", "one\nmine\nthree\n");
-  upstream.create_commit("Change line 2 further", "shared.txt", "one\nmine, further\nthree\n");
+  let [_, landed, _] = clone.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(auth) Add a", "a.txt", "a\n"),
+      ("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n"),
+      ("(auth) Add b", "b.txt", "b\n"),
+    ]),
+  );
+  let [picked, _] = upstream.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("Change line 2 (picked)", "shared.txt", "one\nmine\nthree\n"),
+      ("Change line 2 further", "shared.txt", "one\nmine, further\nthree\n"),
+    ]),
+  );
 
   let (exit_code, done) = run_in(&clone, &["--full-ids", "update"]);
   assert_eq!(exit_code, 0, "{done}");
@@ -1137,13 +1145,23 @@ fn twins_in_another_order_are_left_out_by_their_proof_and_land() {
 #[test_log::test]
 fn a_conflict_after_a_left_out_commit_opens_its_round() {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")]);
-  clone.create_commit("(auth) Change other", "other.txt", "other, mine\n");
-  clone.create_commit("(auth) Add a", "a.txt", "a\n");
-  clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");
-  clone.create_commit("(auth) Add b", "b.txt", "b\n");
-  upstream.create_commit("Change other (picked)", "other.txt", "other, mine\n");
-  upstream.create_commit("Change other further", "other.txt", "other, mine, further\n");
-  upstream.create_commit("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n");
+  clone.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(auth) Change other", "other.txt", "other, mine\n"),
+      ("(auth) Add a", "a.txt", "a\n"),
+      ("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n"),
+      ("(auth) Add b", "b.txt", "b\n"),
+    ]),
+  );
+  upstream.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("Change other (picked)", "other.txt", "other, mine\n"),
+      ("Change other further", "other.txt", "other, mine, further\n"),
+      ("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n"),
+    ]),
+  );
 
   let (exit_code, round) = run_in(&clone, &["update"]);
   assert_eq!(exit_code, 1, "{round}");
@@ -1245,8 +1263,10 @@ fn field_shaped_conflicts_resolve_as_the_hints_say() {
   let added = build.replace("  \"c\",", "  \"b\",\n  \"c\",");
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("BUILD", build)]);
   clone.create_commit("(build) Add b", "BUILD", &added);
-  upstream.create_commit("Add b upstream", "BUILD", &added);
-  upstream.create_commit("Add d upstream", "d.txt", "d\n");
+  upstream.commits_on(
+    "refs/heads/master",
+    &one_file_each([("Add b upstream", "BUILD", &added), ("Add d upstream", "d.txt", "d\n")]),
+  );
   let (exit_code, done) = run_in(&clone, &["update"]);
   assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
 }
