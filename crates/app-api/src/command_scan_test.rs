@@ -43,8 +43,10 @@ fn rust_files(directory: &Path, files: &mut Vec<PathBuf>) {
   }
 }
 
+/// The workspace as an ancestor of the crate, not canonical: the sources walked from the crate's own directory have it
+/// as their prefix (a canonical path on Windows is verbatim, `\\?\C:\…`, which none of them starts with)
 fn workspace() -> PathBuf {
-  Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("workspace directory")
+  Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).expect("workspace directory").to_path_buf()
 }
 
 /// Splits `text` at the commas outside brackets
