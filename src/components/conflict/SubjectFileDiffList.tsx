@@ -113,27 +113,3 @@ export function SubjectFileDiff({ file, diff, diffViewMode, worktree = false }: 
   }, [file, diff])
   return <LazyDiffView files={files} mode={diffViewMode} softWraps={softWraps} initialPath={null} label={`Changes of ${file.path}`} scroll="parent" worktree={worktree} />
 }
-
-/** The diff of one file of a subject on its own, e.g. the change of the commit of a modify/delete conflict */
-export function SubjectFileDiffPanel({ subject, path, diffViewMode }: { subject: FileDiffSubject; path: string; diffViewMode: DiffViewMode }) {
-  const policy = useDiffWhitespacePolicy()
-  const entry = useFileDiffs(subject, policy)
-  const subjectKey = JSON.stringify(subject)
-  useEffect(() => {
-    loadFileDiffs(JSON.parse(subjectKey) as FileDiffSubject, policy)
-  }, [subjectKey, policy])
-  if (entry?.kind === "error") {
-    return (
-      <div className="p-4">
-        <Callout tone="destructive" title="Cannot read the diff">
-          {entry.message}
-        </Callout>
-      </div>
-    )
-  }
-  const diff = fileDiffOf(entry, path)
-  if (diff === "pending") {
-    return <LoadingLine className="p-4">Loading diff…</LoadingLine>
-  }
-  return <SubjectFileDiff file={{ path }} diff={diff} diffViewMode={diffViewMode} worktree={subject.kind === "uncommitted"} />
-}
