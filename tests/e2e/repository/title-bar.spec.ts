@@ -136,6 +136,28 @@ test.describe("Title bar", () => {
     await expectToolbarOnOneLineAtEveryWidth(page)
   })
 
+  test("should keep the toolbar between the main menu and the window buttons of Windows on one line at every width, the names of the views where the repository keeps its room", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await useTitleBar(page, TITLE_BARS.windows)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await expectToolbarOnOneLineAtEveryWidth(page)
+  })
+
+  test("should keep the toolbar under the system title bar on one line at every width, the names of the views where the repository keeps its room", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await expect(header(page)).toHaveAttribute("data-title-bar", "native")
+    await expectToolbarOnOneLineAtEveryWidth(page)
+  })
+
   test("should keep the native title bar where the page doesn't draw one", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()

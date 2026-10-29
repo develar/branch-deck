@@ -228,14 +228,149 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
 - The toolbar keeps its size at any page zoom, as window chrome does ([Zoom](zoom.spec.md)).
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom the islands but not the toolbar, the title bar of the window`)
 - Every control stays on the one 40px line, apart from the others, at every width of the window down to its 960px
-  minimum, beside the traffic lights or between ☰ and the window buttons. The repository, the switcher of the views and
+  minimum, beside the traffic lights, between ☰ and the window buttons, or under the system title bar. The
+  repository, the switcher of the views and the count of the branches share the room the rest of the row leaves them
+  (a container of its own, `ConfigurationHeader`) and give way in this order: the repository selector down to its room
+  beside the names, then the names of the views and the count together (below `@md`, 28rem, of that room), then the
+  selector down to its minimum; the actions, the time of the last sync among them, keep their place. So ☰ and the
+  window buttons of a custom title bar take their room first. Without it GNOME's 1077px maximized window put the names
+  and the count over the repository selector and Update: from 1032 to 1080px, and to 1152px once the time of the last
+  sync kept the room of its widest text and Activity stayed in an empty log.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
+
+### Windows
+
+- The window has no decorations; `shadow(true)` gives it the 1px border and, on Windows 11, the rounded corners.
+- The toolbar ends with Minimize, Maximize (Restore while maximized) and Close, flush with the right edge: 46×40 as
+  the native caption buttons, the Segoe Fluent Icons glyphs, `bg-muted` on hover and `bg-destructive` for Close.
+  Each has an `aria-label` and a tooltip. A failed call is a "Cannot minimize the window" error.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should end a custom title bar with the window buttons`)
+
+### Linux
+
+- The window keeps its decorations, and gets an empty GTK titlebar before GTK realizes it (`prepare_title_bar`): GTK then
+  draws client-side decorations without a title, as GNOME apps with a header bar have: the shadow, the resize edges in
+  it, the tiled, maximized and fullscreen states and the frame extents snapping needs. Every window is built hidden,
+  the window-state plugin doesn't show it (no `StateFlags::VISIBLE`), and the main thread sets the titlebar before the
+  window shows (`prepare_title_bar`), then the window shows once its page settled its content (`sub_window_ready`,
+  [Main window](#main-window)).
+  [@test] ../../src-tauri/src/title_bar_test.rs (`the_window_state_restores_neither_the_decorations_nor_the_visibility`)
+- The window buttons are those of GTK's `gtk-decoration-layout` (GNOME's `button-layout` through XSETTINGS or the
+  portal, KDE's through kde-gtk-config), the start before `:` and the end after it, by GTK's rules: `icon`, `menu`,
+  `appmenu`, `spacer` and unknown names dropped, a layout with a button twice refused; a missing or refused one is
+  `:minimize,maximize,close`. GNOME's default `appmenu:close` gives Close alone.
+  [@test] ../../src-tauri/src/title_bar_test.rs (`reads_the_buttons_of_a_gtk_decoration_layout_by_its_rules`, `a_missing_or_refused_layout_is_the_default_of_gtk`)
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should put the window buttons where the desktop's layout does, in its look`, `should split the buttons of a split layout, the start ones before the main menu`)
+- A press on the empty parts drags the window only once the mouse moved 4px, as GTK's header bar does
+  (`installTitleBarMouse`): Tauri's drag script asks the window manager to move the window on every press, and the
+  grab of the move took the second click of a double click.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should drag only once the mouse moved, so a double click reaches the page and maximizes`)
+- The window is rounded as the desktop's windows are (libadwaita's 12px on GNOME, 8px on KDE, `corner_radius`), with a
+  compositor: the window is transparent (RGBA), GTK keeps drawing its decorations with the same radius (the shadow, the
+  resize edges in it, the frame extents; `round_corners` gives them the radius and no window background), and the page
+  clips its canvas to the radius (`data-window-rounded`; GTK3 doesn't clip the webview). Square while maximized,
+  fullscreen or tiled (GTK's window state, `window-tiled`), and without a compositor. This is what Tauri apps on Linux do
+  by hand ([dbx](https://github.com/t8y2/dbx/pull/11142), [Hatoba](https://github.com/scarletkc/Hatoba/pull/107):
+  undecorated, their own shadow and resize handles); keeping GTK's decorations leaves the shadow, resizing and snapping
+  to GTK.
+  [@test] ../../src-tauri/src/title_bar_test.rs (`rounds_the_window_as_the_desktop_does`)
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should round the window as the desktop does, square while maximized or tiled`, `should not round a window where the system does it or can't`)
+- They look as IntelliJ draws them (its icons, `platform/icons/src/linux/theme`): GNOME's (Adwaita) for an icon theme
+  starting with `adwaita` or `yaru`, KDE's (Breeze) for `breeze`, else KDE's on a KDE desktop and GNOME's elsewhere.
+  [@test] ../../src-tauri/src/title_bar_test.rs (`picks_the_look_of_the_buttons_by_the_icon_theme_then_the_desktop`)
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should draw KDE's buttons, dim them in an inactive window, and leave fullscreen with Restore`)
+
+### Windows and Linux
+
+- The main menu replaces the native menu bar: `configure_app_menu` sets no menu for a custom title bar (no menu bar
+  above the title bar, no accelerator table), the page's main menu holds its items (`mainMenus`) and the page handles
+  their keys ([Main menu](#main-menu)). A window with the system title bar keeps the native menu bar, with Check for
+  Updates… in its Help menu.
+- The buttons are not in the tab order, as native window buttons aren't; each has an `aria-label` and a tooltip.
+  Maximize is Restore while the window is maximized or fullscreen, and leaves fullscreen there. The buttons of an
+  inactive window dim (`data-window-inactive`, the focus of the window).
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should draw KDE's buttons, dim them in an inactive window, and leave fullscreen with Restore`)
+- A right click on the empty parts of the row opens the window manager's window menu, as a native title bar does
+  (`show_window_menu` of app-api, on the main thread, through `MenuHost` of `src-tauri/src/menu.rs`: the system menu on
+  Windows with its items enabled by the state of the window, Restore while
+  maximized or minimized, Move, Size and Maximize while not, as `DefWindowProc` would; GDK's `show_window_menu` on Linux
+  with the right button press of the webview of the last two seconds, whose serial Wayland checks, forgotten with its
+  window); a control keeps its own right click.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should do what the system's double click does, and open the window menu on a right click of the empty row`)
+
+### Main menu
+
+- ☰ ("Main Menu", Alt+\ in its tooltip) is the first control of the main window's row, after the start buttons, as
+  IntelliJ's `MainMenuWithButton`. A click expands the menu bar File, View, Help in place, over the start of the row,
+  which hides meanwhile, with File open; ←/→ go through the menus; Esc, a click outside or a chosen item collapse it
+  back to ☰ (IntelliJ's `ExpandableMenu`). Sub-windows have none.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should expand the menu bar in place of ☰, go through the menus, and collapse on Escape`)
+- The items are those of the native menu (`src/lib/main-menu.ts`): File: Sync Branches (Ctrl+R, disabled with the
+  reason of the Sync button), Update Project (Ctrl+T), Auto-sync on Focus (checked), Settings… (Ctrl+,); View: Command
+  Palette… (Ctrl+K, [Command Palette](command-palette.spec.md)), Branches (Ctrl+1), Reviews (Ctrl+2) and Landing (Ctrl+3)
+  ([Main Views](main-views.spec.md)), Actual Size (Ctrl+0), Zoom In (Ctrl+=), Zoom Out
+  (Ctrl+-), Activity ([Activity](activity.spec.md)); Help: Getting Started, Install Agent CLI…, Check for
+  Updates… (a build with the `auto-update` feature, as the native menu: `checkForUpdates` of the title bar), GitHub
+  Repository. No Edit menu: the webview's Ctrl+C/V/X/A stay. Each item runs the
+  command the native item runs (`runAppCommand`, registered by the window that runs it with `useAppCommand`). The
+  native menu sends a command to the main window as an event named as it (`sync_branches`, `update_project`,
+  `check_for_updates`, `install_agent_cli`, `zoom` with its step, `open_settings`): the main window opens Settings
+  ([Settings](settings.spec.md)), as it has the current settings to start it from.
+- Check for Updates… says that the app is up to date, with its version, or offers the update the check downloaded
+  (Install and Restart, a toast that stays until the user acts); a failed check or install says why ("Cannot check for
+  updates", "Cannot install the update"). The main window also checks silently a few seconds after its start.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should say the app is up to date, offer the downloaded update, and say why its install failed`)
+- Alt+\ and F10 open File, Alt+F, Alt+V and Alt+H their menu (the physical keys), the mnemonics underlined; on Windows a
+  lone Alt tap highlights File, unless a key, a click or leaving the window came between Alt down and up (IntelliJ's
+  `WinAltKeyProcessor`); a held Alt that repeats is still a tap on its release.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should open from the keyboard and run the items`, `should highlight File on a lone Alt tap on Windows, not after another key`)
+- The page handles the keys of the native menu where it is gone, in every window with a custom title bar
+  (`useMainMenuKeys`, the physical key, as the native accelerators go by the virtual key: a Cyrillic layout's Ctrl+R
+  syncs too): Ctrl+R and Ctrl+T run in the main window
+  (a sub-window sends them there), Ctrl+, opens Settings and Ctrl+K the command palette, also through the main window,
+  the zoom keys zoom all windows one step. They are `preventDefault`ed (WebView2 would reload on Ctrl+R). A window with a native menu leaves them to it.
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should take the keys of the native menu: Ctrl+R syncs, Ctrl+, opens the settings`, `should leave the keys to the native menu where the window has one`, `should send Sync and Settings from a sub-window to the main window`)
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from Ctrl+K and from View → Command Palette… of ☰, and run Update Project and Check for Updates…`)
+  [@test] ../../tests/e2e/repository/zoom.spec.ts (`should step once per press with the keys the page handles in a custom title bar`)
+
+### Setting
+
+- Settings → Appearance → Title bar (Windows, Linux): "Use the system title bar" (`appSettings.systemTitleBar`, off), the system title
+  bar and menu bar instead of the page's (IntelliJ's "Merge main menu with window title", inverted). The backend reads
+  it from `settings.json` at startup, so a change says "Applies after a restart" with Restart (`restart_app`, which
+  writes the setting to `settings.json` itself before it restarts: the main window saves the settings debounced). Where the
+  system title bar is fixed (WSL, a tiling window manager, an unknown desktop, the environment variable) the switch is
+  on, disabled, and says why.
+  [@test] ../../src-tauri/src/title_bar_test.rs (`reads_the_stored_setting`)
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should offer the system title bar in Settings → Appearance, applied after a restart`, `should show a fixed system title bar in the settings with its reason`)
+
+### Every platform
+
+- After the repository the switcher of the views, Branches · Reviews · Landing ([Main Views](main-views.spec.md)): where the
+  user is, as the left side of the row says; its names give way to the icons on a narrow window.
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from the native View menu and Show Statistics, and give the branches back as they were`)
+- The empty parts of the row drag the window (`data-tauri-drag-region="deep"`); a double click does what the system's
+  title bar does there (macOS `AppleActionOnDoubleClick`, GTK's `gtk-titlebar-double-click`: zoom or maximize,
+  minimize, nothing; `installTitleBarMouse` takes the second click before Tauri's drag script, which always maximizes).
+  The controls in it keep their clicks.
+  [@test] ../../src-tauri/src/title_bar_test.rs (`maps_the_double_click_setting_of_the_system`)
+- Every window has the permissions of the title bar (one capability, `title-bar.json`: the window state, dragging, the
+  double click, the window buttons, the title, the minimum size); a test checks that every sub-window label has it.
+  [@test] ../../src-tauri/src/title_bar_test.rs (`every_window_gets_the_permissions_of_the_title_bar`)
+- The window-state plugin restores sizes and positions, never the decorations (a saved `decorated` would bring the
+  native caption back on Windows) nor the visibility (a window shows once its title bar is set and its page settled
+  its content, `show_when_settled`).
+- The toolbar keeps its size at any page zoom, as window chrome does ([Zoom](zoom.spec.md)).
+  [@test] ../../tests/e2e/repository/zoom.spec.ts (`should zoom the islands but not the toolbar, the title bar of the window`)
+- Every control stays on the one 40px line, apart from the others, at every width of the window down to its 960px
+  minimum, beside the traffic lights, between ☰ and the window buttons, or under the system title bar. The repository, the switcher of the views and
   the count of the branches share the room the rest of the row leaves them (a container of its own,
   `ConfigurationHeader`): the names of the views and the count show where that room is `@md` (28rem) or more, so the
   window buttons and ☰ of a custom title bar take their room first. Without it GNOME's 1077px maximized window put the
   names and the count over the repository selector and Update.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
-  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar beside the traffic lights on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons on one line at every width, the names of the views where the repository keeps its room`)
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar beside the traffic lights on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons of Windows on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar under the system title bar on one line at every width, the names of the views where the repository keeps its room`)
 
 ### Main window
 
