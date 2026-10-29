@@ -1,5 +1,6 @@
 import { GitPullRequestCreateIcon } from "lucide-react"
 import { useStore } from "zustand"
+import { useOperationWordsWhile } from "@/hooks/useOperationWords"
 import { getRowOperation, useRowOperation } from "@/hooks/useRowOperation"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
@@ -18,7 +19,7 @@ import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
-import type { RobotAction, SessionOperations } from "@/presenters/actions"
+import type { OperationWords, RobotAction } from "@/presenters/actions"
 import { getRobotActionItems, isRestart } from "@/presenters/actions"
 import type { BranchNextStep, NextStepActions, NextStepBusy, StepContext } from "@/presenters/next-step"
 import { formatPendingFact, formatProblemsFailure, presentNextStep } from "@/presenters/next-step"
@@ -26,13 +27,14 @@ import { CREATE_PULL_REQUEST_LABEL } from "@/presenters/pull-request-url"
 import { getRequestReviewItem } from "@/presenters/review"
 import { recordApproval } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getSessionOperations, NO_OPERATIONS, useBranchSyncEntry, useBranchSyncField } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, useBranchSyncEntry, useBranchSyncField } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
-import { operationBusyOf } from "@/stores/indicators"
+import { getOperationWords, operationBusyOf } from "@/stores/indicators"
 import { getRobot, getRobotProblemsFailure, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, retargetPullRequest } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getSelectedProject, isSelectedRepository, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
+import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import type { LandRun } from "@/stores/safe-push"
 import { getLandRun, useLandRun } from "@/stores/safe-push"
@@ -87,9 +89,14 @@ export interface StepInputs {
   readonly robotActions: readonly ActionState[] | undefined
   /** The open pull request of the subject, while the step asks for a review of it */
   readonly pullRequest: PullRequestView | undefined
+  /** The actions Rust offers of the subject, `request-review` among them, while the step asks for a review */
+  readonly reviewActions: readonly ActionState[] | undefined
   readonly repositoryPath: string | null
-  /** The operations of the session, whose words the items of that robot and of that pull request name; none while the step names neither */
-  readonly operations: SessionOperations
+  /**
+   * The operations of the session and the busy states this window gave its own, whose words the items of that robot
+   * and of that pull request name; none while the step names neither
+   */
+  readonly words: OperationWords
 }
 
 /** The robot the step of a subject restarts (rows 2 and 3, or a restart disabled while Patronus didn't tell why it failed) */
@@ -114,8 +121,9 @@ export function useStepInputs(key: string, step: NextStep | undefined): StepInpu
     robot: useStore(patronusStore, () => (robotId === null ? undefined : getRobot(robotId))),
     robotActions: useRowPart(robotId === null ? "" : `robot:${robotId}`, "actions"),
     pullRequest: useBranchSyncEntry("openPullRequests", key, pullRequest => (review ? pullRequest : undefined)),
+    reviewActions: useRowPart(review ? key : "", "actions"),
     repositoryPath: useSelectedProjectPath() ?? null,
-    operations: useBranchSyncField("operations", operations => (robotId === null && !review ? NO_OPERATIONS : operations)),
+    words: useOperationWordsWhile(robotId !== null || review),
   }
 }
 
@@ -129,8 +137,9 @@ export function getStepInputs(key: string, step: NextStep | undefined): StepInpu
     robot: robotId === null ? undefined : getRobot(robotId),
     robotActions: robotId === null ? undefined : getRowPart(`robot:${robotId}`, "actions"),
     pullRequest: asksReview(step) ? branchSyncStore.getState().openPullRequests[key] : undefined,
+    reviewActions: asksReview(step) ? getRowPart(key, "actions") : undefined,
     repositoryPath: getSelectedProject()?.path ?? null,
-    operations: getSessionOperations(),
+    words: getOperationWords(),
   }
 }
 
@@ -173,8 +182,8 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),
     updateProject: () => void runUpdateProject(),
-    restart: robot === undefined ? null : (getRobotActionItems(robot, inputs.operations, { offered: inputs.robotActions }).find(isRestart) ?? null),
-    requestReview: inputs.pullRequest === undefined ? null : getRequestReviewItem(key, inputs.operations),
+    restart: robot === undefined ? null : (getRobotActionItems(robot, { ...inputs.words, offered: inputs.robotActions }).find(isRestart) ?? null),
+    requestReview: getRequestReviewItem({ pullRequest: inputs.pullRequest, actions: inputs.reviewActions, open: () => openRequestReview(key) }, { ...inputs.words, subject: key }),
   }
 }
 
@@ -296,8 +305,8 @@ export function announceApproval(news: ApprovalNews, pullRequest: PullRequest | 
 export interface RobotParts {
   readonly actions: readonly ActionState[] | undefined
   readonly landing: NextStepView | undefined
-  /** The operations of the session, whose words a restart or a cancel that runs names */
-  readonly operations: SessionOperations
+  /** The operations of the session and the busy states this window gave its own, whose words a restart or a cancel that runs names */
+  readonly words: OperationWords
 }
 
 /** `RobotParts` of `robot` now */
@@ -305,7 +314,7 @@ function robotPartsOf(robot: PatronusRobot): RobotParts {
   return {
     actions: getRowPart(`robot:${robot.id}`, "actions"),
     landing: robot.branchName === null ? undefined : getRowPart(robot.branchName, "landing"),
-    operations: getSessionOperations(),
+    words: getOperationWords(),
   }
 }
 
@@ -314,7 +323,7 @@ export function useRobotParts(robot: PatronusRobot | null | undefined): RobotPar
   return {
     actions: useRowPart(robot == null ? "" : `robot:${robot.id}`, "actions"),
     landing: useRowPart(robot?.branchName ?? "", "landing"),
-    operations: useBranchSyncField("operations", operations => (robot == null ? NO_OPERATIONS : operations)),
+    words: useOperationWordsWhile(robot != null),
   }
 }
 
@@ -326,5 +335,5 @@ export function useRobotParts(robot: PatronusRobot | null | undefined): RobotPar
  */
 export function getRobotItems(robot: PatronusRobot, parts: RobotParts = robotPartsOf(robot)): RobotAction[] {
   const step = robot.branchName === null || parts.landing === undefined ? null : getBranchNextStep(robot.branchName)
-  return getRobotActionItems(robot, parts.operations, { stepReason: step?.safePushBlocker ?? null, offered: parts.actions })
+  return getRobotActionItems(robot, { ...parts.words, stepReason: step?.safePushBlocker ?? null, offered: parts.actions })
 }

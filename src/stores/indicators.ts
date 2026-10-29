@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { OperationId, RunningOperation } from "@/lib/bindings"
+import type { OperationWords } from "@/presenters/actions"
 import type { WaitingOperation } from "@/presenters/lock-wait"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
 import { presentOperationBusy, presentRunningLabel } from "@/presenters/operations"
@@ -79,6 +80,11 @@ export function startIndicator(surface: string | null | undefined, label: string
         starts: op === null ? state.starts : without(state.starts, op),
       })),
   }
+}
+
+/** The operations of the session and the busy states this window gave its own (`BlockerWords`), as they are now */
+export function getOperationWords(): OperationWords {
+  return { operations: branchSyncStore.getState().operations, named: indicatorsStore.getState().starts }
 }
 
 /** The busy state this window gave the operation `operation`, else as the view names it ("Unstacking oauth") */

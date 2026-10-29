@@ -14,6 +14,7 @@ import { formatMergeLabel, mergeOf } from "@/lib/merge-pull-request"
 import { formatPushMode, openRobot } from "@/lib/patronus"
 import { openPullRequest, openPullRequestUrl } from "@/lib/pull-request"
 import { pushForAction, pushWholeStack } from "@/lib/push-run"
+import { getRobotActionItemsNow } from "@/lib/robot-items"
 import { showRobotEventToast } from "@/lib/robot-toast"
 import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
@@ -21,7 +22,6 @@ import { formatReadinessSubject, formatWholeStack, stackReadinessKey, stackRootO
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
 import { executeIntent } from "@/model/intents"
 import { getRowPart } from "@/model/store"
-import { getRobotActionItems } from "@/presenters/actions"
 import type { LandPrompt } from "@/presenters/land"
 import { presentLand, startRouteOf } from "@/presenters/land"
 import { formatLandingFix } from "@/presenters/landing"
@@ -34,7 +34,6 @@ import {
   getBranch,
   getLandingRoute,
   getLands,
-  getSessionOperations,
   getStackBranch,
   getStackBranchOf,
   getStackIslandRoots,
@@ -778,7 +777,7 @@ function tellOutcome(outcome: Outcome, plan: Plan, repositoryPath: string, prese
         title: toast.title,
         description: toast.description,
         stepLast: true,
-        stepOf: current => getRobotActionItems(current, getSessionOperations()).find(action => action.id === "cancel-robot") ?? null,
+        stepOf: current => getRobotActionItemsNow(current).find(action => action.id === "cancel-robot") ?? null,
       })
       return true
     case "commented":

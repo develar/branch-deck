@@ -5,10 +5,10 @@ import { toast } from "@/components/ui/toast"
 import type { BranchDrop, BranchDropFacts } from "@/lib/branch-drop"
 import { getRowPart } from "@/model/store"
 import { actionBlocker } from "@/presenters/actions"
-import { branchSyncStore, getBranch, getBranchCommits, getParkedState, getSessionOperations, getStackDescendants, isStacksEnabled, resolveCommits } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchCommits, getParkedState, getStackDescendants, isStacksEnabled, resolveCommits } from "@/stores/branch-sync"
 import type { CommitDrag } from "@/stores/commit-move"
 import { clearHoverRefusal, commitMoveStore, endCommitDrag, isDroppableOn, setDragOrigin, setHoverRefusal, useDroppableDrag } from "@/stores/commit-move"
-import { indicatorsStore } from "@/stores/indicators"
+import { getOperationWords, indicatorsStore } from "@/stores/indicators"
 import { patronusStore } from "@/stores/patronus"
 
 /** `dataTransfer` type of a commit drag; the commits themselves are in the commit move store */
@@ -65,7 +65,7 @@ export function getBranchDropFacts(): BranchDropFacts {
   return {
     branch: getBranch,
     parked: getParkedState,
-    blocker: (name, id) => actionBlocker(getRowPart(name, "actions"), id, { subject: name, statusText: getBranch(name)?.statusText ?? "", operations: getSessionOperations() }),
+    blocker: (name, id) => actionBlocker(getRowPart(name, "actions"), id, { ...getOperationWords(), subject: name, statusText: getBranch(name)?.statusText ?? "" }),
     descendants: getStackDescendants,
     stacksEnabled: isStacksEnabled(),
   }

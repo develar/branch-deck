@@ -134,9 +134,12 @@ flowchart LR
    (`useSelectedProjectPath`); `useSelectedProject` re-renders on every change of the
    metadata. A menu a component renders comes from a selector cached by the states of the stores its builder reads
    (`getBranchMenuNow` and `useBranchMenu`, `getStackIslandMenuNow` of the "⋯" of an island header, `menuSources`),
-   or takes the state it marks as a parameter (the running operations of the session, `getSessionOperations()` of
-   the builder handed to `getRobotActionItems` and `BlockerWords.operations`, [Running Operations](operations.md); a
-   presenter reads no store, `presenter-state` of `pnpm lint:arch`): a `getState()` inside the builder
+   or takes the state it marks as a parameter (the running operations of the session and the busy states this window
+   gave its own, `getOperationWords()` of the builder handed to `getRobotActionItems` and `BlockerWords`, selected by
+   a component with `useOperationWords` only while an item of it runs, waits or is busy, [Running
+   Operations](operations.md); a presenter reads no store: it imports a store module for its types only, and the
+   readers of what is built on demand are the callers', `src/lib/pull-request-now.ts`, `getRobotActionItemsNow`,
+   `getRequestReviewItemNow`, `presenter-state` of `pnpm lint:arch`): a `getState()` inside the builder
    would be memoized on its other arguments, and a menu reopened while it still fades out showed its first state (a
    Safe Push the pull request no longer allowed). The "⋯" of an island opened before the pull requests loaded showed
    "Create Pull Request of the Stack…" and never the items of #12. The node of a row is its part of the view, one kept

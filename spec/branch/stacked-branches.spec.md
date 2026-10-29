@@ -261,7 +261,7 @@ menu stacks, unstacks and renames branches.
 ### Pull requests
 
 - The pull request of every virtual branch, stacked or not, must go into the baseline as the remote names it
-  (`master`, `getPullRequestBase`): a stacked branch's holds the commits of the branches it is built on with its own,
+  (`master`, `pullRequestBaseOf`): a stacked branch's holds the commits of the branches it is built on with its own,
   what its Safe Push lands, so its approvals are the ones Patronus counts ([Landing](../../docs/design/landing.md)).
   "Create Pull Request…" creates it into the baseline ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)),
   and its dialog says what it holds ("Includes the commits of auth and login, which oauth is built on: 3 branches · 12

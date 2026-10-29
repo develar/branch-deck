@@ -35,7 +35,9 @@
 //   `src/model/intents.ts`, or an `app(…)` command called outside its module of `APP_COMMAND_CALLERS`, in src (its tests
 //   aside); an entry of `APP_COMMAND_CALLERS` that names no `app(…)` command or whose module doesn't call it fails too.
 // A presenter words what the caller selected of the view (src/presenters):
-// - `presenter-state`: a `.getState()` of a store in src/presenters (their tests aside): the caller passes the part.
+// - `presenter-state`: a `.getState()` of a store, or an import of a value of a store module (`@/stores/…`,
+//   `@/model/store`: its getters read the store, `getRowPart`, `getPullRequest`, `operationLabelOf`), in src/presenters
+//   (their tests aside): a presenter imports a store for its types only, the caller passes the part it selected.
 // A run in the repository of its press (docs/design/rust-domain-authority.md, "Конкурентность"): the key of the selected
 // project is read before the run waits for anything, never after the user may have selected another repository:
 // - `late-project-read`: a read of the selected project (`getSelectedProject`, `getSelectedRepositoryPath`,
@@ -161,6 +163,8 @@ function registryCalls(text, registry) {
 /** The sources whose presenters word what the caller selected: src/presenters, their tests aside */
 const PRESENTING = /^src\/presenters\/(?!.*\.test\.tsx?$)/
 const STATE_READ = /\.getState\s*\(/
+// an import of a value of a store module, over lines: its getters read the store; `import type` reads nothing
+const STORE_IMPORT = /(?<![\w$])import\s+(?!type\s)[^;"'`]*?\bfrom\s*["'](?:@\/stores\/[^"']+|@\/model\/store)["']/g
 
 /** The sources whose runs read the selected project before they wait: the page, its tests aside */
 const RUNNING = /^src\/(?!.*\.test\.tsx?$)/
@@ -448,6 +452,12 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
       problems.push({ ...at, rule: "presenter-state" })
     }
   })
+  if (PRESENTING.test(file)) {
+    for (const found of text.matchAll(STORE_IMPORT)) {
+      const line = text.slice(0, found.index).split("\n").length
+      problems.push({ file, line, rule: "presenter-state", text: sourceLines[line - 1].trim() })
+    }
+  }
   if (CALLING.test(file)) {
     for (const { command, line } of registryCalls(withoutStrings(text), registry)) {
       if (!callAllowed(file, command, callers)) {

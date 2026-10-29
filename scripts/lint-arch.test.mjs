@@ -290,12 +290,23 @@ test("a presenter reads no store: the caller passes what it selected of the view
     "const operation = branchSyncStore.getState().operations[op]",
     "const { baselineBranch } = branchSyncStore",
     "  .getState()",
-    // a part the caller passed, a getter of the model
+    // a part the caller passed
     "const operation = words.operations[op]",
+    // the getters of a store module read the store: of the view, of the facts, of the window
+    'import { getRowPart } from "@/model/store"',
+    "import {",
+    "  getOpenPullRequest,",
+    '} from "@/stores/branch-sync"',
+    "import { operationLabelOf } from '@/stores/indicators'",
     'const actions = getRowPart(name, "actions")',
+    // its types read nothing, nor a module beside the stores
+    'import type { Branch, BranchSyncState } from "@/stores/branch-sync"',
+    'import type { RowParts } from "@/model/store"',
+    'import { useShowReviewReadiness } from "@/model/demand"',
+    'import { findAction } from "@/presenters/actions"',
   ].join("\n")
   const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
-  assert.deepEqual(rules("src/presenters/example.ts"), ["1 presenter-state", "3 presenter-state"])
+  assert.deepEqual(rules("src/presenters/example.ts"), ["1 presenter-state", "3 presenter-state", "5 presenter-state", "6 presenter-state", "9 presenter-state"])
   assert.deepEqual(rules("src/presenters/example.test.ts"), [])
   assert.deepEqual(rules("src/hooks/useExample.ts"), [])
 })

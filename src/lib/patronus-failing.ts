@@ -7,11 +7,12 @@ import { closeEventToasts, isEventToastOpen, replaceEventToast, toastKeys } from
 import type { MenuItem } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, formatPushMode, formatRobotSubject } from "@/lib/patronus"
+import { getRobotActionItemsNow } from "@/lib/robot-items"
 import { copyRobotPrompt, robotAncestors } from "@/lib/robot-prompt-copy"
 import { robotToastKeys, showRobotEventToast } from "@/lib/robot-toast"
-import { getRobotActionItems, isRestart } from "@/presenters/actions"
+import { isRestart } from "@/presenters/actions"
 import { recordRobotNews } from "@/stores/activity"
-import { branchSyncStore, getSessionOperations } from "@/stores/branch-sync"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { announceMerge, patronusStore, repositoryKey } from "@/stores/patronus"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
 import { readRobotDetails } from "@/stores/robot-details"
@@ -152,7 +153,7 @@ function showFailedToast(
         return branch === null ? null : getPullRequestItem(branch)
       }
       // as Rust offers them now: a restart, the prompt of a robot that didn't fail for the approvals
-      const actions = getRobotActionItems(current, getSessionOperations())
+      const actions = getRobotActionItemsNow(current)
       const restart = actions.find(isRestart) ?? null
       const copy = actions.find(action => action.id === "copy-robot-prompt")
       return kind === "infrastructure" || copy === undefined ? restart : copyInPlace(repositoryPath, copy, current)
@@ -205,7 +206,7 @@ async function announceFailing(key: string, robot: PatronusRobot, label: string 
       type: "warning",
       title,
       description,
-      stepOf: current => getRobotActionItems(current, getSessionOperations()).find(action => action.id === "cancel-robot") ?? null,
+      stepOf: current => getRobotActionItemsNow(current).find(action => action.id === "cancel-robot") ?? null,
     }),
   )
 }

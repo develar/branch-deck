@@ -12,6 +12,7 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { useLandingNode } from "@/hooks/useLandingNode"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
+import { useOperationWords } from "@/hooks/useOperationWords"
 import type { ActionState, IssueLead, ReviewRequest } from "@/lib/bindings"
 import { reviewBlockerOf } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
@@ -26,7 +27,7 @@ import type { ReviewSource } from "@/lib/pull-request-review"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
 import { useRowPart } from "@/model/store"
-import type { SessionOperations } from "@/presenters/actions"
+import type { OperationWords } from "@/presenters/actions"
 import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import type { ReviewAction } from "@/stores/review-requests"
@@ -74,7 +75,7 @@ function requestMenu(
   repositoryPath: string,
   source: ReviewSource,
   actions: readonly ActionState[] | undefined,
-  operations: SessionOperations,
+  words: OperationWords,
   busy: ReviewAction | undefined,
   extra: Pick<ReviewRequestRowProps, "onShowBranch" | "onRemoveFromReviews">,
 ): MenuItemGroups {
@@ -83,7 +84,7 @@ function requestMenu(
     {
       reviewedCommit: { id: null, reason: "" },
       actions,
-      operations,
+      words,
       busy,
       onReview: () => openReviewRequest(repositoryPath, request.number, undefined, source),
       onApprove: () => openReviewRequest(repositoryPath, request.number, "approve", source),
@@ -121,7 +122,8 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
 }: ReviewRequestRowProps) {
   const actions = usePullRequestActions(request.number)
   const busy = useReviewAction(request.number)
-  const operations = useBranchSync(state => state.operations)
+  // the operations of the session only while an action of the pull request runs, waits or is busy behind one
+  const words = useOperationWords(actions)
   const onClick = (event: MouseEvent) => {
     if (isMac ? event.metaKey : event.ctrlKey) {
       openRequestOnGitHub(request)
@@ -203,7 +205,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItems groups={requestMenu(request, repositoryPath, source, actions, operations, busy, { onShowBranch, onRemoveFromReviews })} />
+        <ContextMenuItems groups={requestMenu(request, repositoryPath, source, actions, words, busy, { onShowBranch, onRemoveFromReviews })} />
       </ContextMenuContent>
     </ContextMenu>
   )

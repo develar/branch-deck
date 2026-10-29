@@ -5,8 +5,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { PopoverDescription, PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
+import { useOperationWords } from "@/hooks/useOperationWords"
 import { useReviewerSearch } from "@/hooks/useReviewerSearch"
-import type { GitHubUser, PullRequest, ReviewReadiness } from "@/lib/bindings"
+import type { ActionId, GitHubUser, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import { isRulesUnknown } from "@/lib/branch-rules"
 import { isLogin } from "@/lib/create-pull-request"
 import { notifyError } from "@/lib/errors"
@@ -21,6 +22,9 @@ import { useBranchSync, useOpenPullRequest } from "@/stores/branch-sync"
 import { usePatronusAvailable } from "@/stores/patronus"
 import { useBranchRules } from "@/stores/pull-requests"
 import { useSelectedProjectPath } from "@/stores/repository"
+
+/** The action whose words the form says */
+const REQUEST_REVIEW: readonly ActionId[] = ["request-review"]
 
 export interface RequestReviewFormProps {
   /**
@@ -53,8 +57,9 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
 
   // as Rust offers the request (a draft asks nobody)
   const actions = useRowPart(branch.name, "actions")
-  const operations = useBranchSync(state => state.operations)
-  const blocker = actionBlocker(actions, "request-review", { subject: branch.name, operations }) ?? null
+  // the operations of the session only while the request runs, waits or is busy behind one, whose words it says
+  const words = useOperationWords(actions, REQUEST_REVIEW)
+  const blocker = actionBlocker(actions, "request-review", { ...words, subject: branch.name }) ?? null
   // the reviewers see the commits: the request pushes the work the remote lacks first (a step of its plan, not of the
   // user); the warnings read Rust's push action of the remote status (an unknown one is no push)
   const pushes = branch.remoteStatus != null && branch.remoteStatus.action.kind !== "upToDate"

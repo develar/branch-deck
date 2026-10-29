@@ -64,6 +64,7 @@ targets:
   - ../../crates/operations/src/forget.rs
   - ../../crates/operations/src/robot_start.rs
   - ../../src/lib/robot-run.ts
+  - ../../src/lib/robot-items.ts
   - ../../crates/operations/src/land_execute.rs
   - ../../crates/operations/src/land_session.rs
   - ../../crates/operations/src/engine.rs

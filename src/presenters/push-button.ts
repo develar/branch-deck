@@ -12,17 +12,12 @@ import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import { formatPushStackLabel, formatPushWithChildrenLabel } from "@/lib/stack"
 import { cutList } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
-import { getRowPart } from "@/model/store"
-import type { SessionOperations } from "@/presenters/actions"
+import type { OperationNames, SessionOperations } from "@/presenters/actions"
 import { ACTION_LOOKS, findAction, formatActionBlocker } from "@/presenters/actions"
 import type { PendingFact } from "@/presenters/next-step"
 import { formatPendingFact } from "@/presenters/next-step"
-import { getBranchesGitHubRepository, getPullRequestRetarget } from "@/presenters/pull-request-url"
 import { formatStackPushLine } from "@/presenters/push"
 import type { Branch, BranchSyncState, PushOrders } from "@/stores/branch-sync"
-import { NO_OPERATIONS, pushOrdersIn } from "@/stores/branch-sync"
-import { isPatronusAvailable } from "@/stores/patronus"
-import { getPullRequest } from "@/stores/pull-requests"
 
 /** What a press of the button pushes, besides what its state shows: the run of `push-run.ts` or of the stack push */
 export interface PushButtonRuns {
@@ -134,6 +129,8 @@ export interface PushButtonContext {
   runs?: PushButtonRuns
   /** The operations of the session, whose words a push busy behind one says; none: "Another operation" */
   operations?: SessionOperations
+  /** The busy states this window gave the operations it started (`BlockerWords.named`) */
+  named?: OperationNames
 }
 
 /**
@@ -145,6 +142,10 @@ export const PUSH_BRANCH = ACTION_LOOKS.push.label
 export const FORCE_PUSH_BRANCH = "Force Push Branch"
 
 const NO_RUNS: PushButtonRuns = { alone: () => {}, stack: () => {}, children: () => {} }
+
+/** No operation of the session to word, nor a busy state this window gave one */
+const NO_OPERATIONS: SessionOperations = {}
+const NO_NAMES: OperationNames = {}
 
 /** The state of a button that can't push for a reason of the rules (`rule`) or of the sync: disabled, the reason its description */
 function disabledState(tooltip: string): PushButtonState {
@@ -222,9 +223,10 @@ export function getPushButtonState(
     retargets = [],
     runs = NO_RUNS,
     operations = NO_OPERATIONS,
+    named = NO_NAMES,
   }: PushButtonContext = {},
 ): PushButtonState {
-  const words = { subject: branch.name, statusText: branch.statusText, operations }
+  const words = { subject: branch.name, statusText: branch.statusText, operations, named }
   // the children of a branch a merged Safe Push landed push without it; parked, held, unbuilt branches keep theirs
   const children = childrenEnabled && landedIn === null ? childrenActionOf(branch.name, unpushedChildren, runs) : null
   // a running push keeps its progress until it finished
@@ -386,24 +388,6 @@ export function landingPushes(patronus: boolean, gitHub: boolean, pullRequestSta
   return (patronus || gitHub) && (pullRequestState === undefined || pullRequestState === "closed")
 }
 
-/** `useLandingPushes` outside a component, for the items built on demand */
-export function isLandingPushAvailable(branchName: string): boolean {
-  return landingPushes(isPatronusAvailable(), getBranchesGitHubRepository() !== null, getPullRequest(branchName)?.state)
-}
-
-/**
- * The push button of the branch in `state`, the view as the caller read it (`branchSyncStore.getState()` of a menu built
- * on open), for the surfaces that list it as a menu item (the branch menu, the branch preview, the review): its label
- * ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)") and what a click pushes, as the button renders
- * it, its other pushes running `runs`
- */
-export function getPushButtonNow(branch: Branch, isPushing: boolean, runs: PushButtonRuns, state: BranchSyncState): PushButtonState {
-  const unpushedParent = unpushedParentIn(state, branch.name)
-  const retargets = getPushRetargets(retargetCandidates(branch.name, unpushedParent))
-  const actions = getRowPart(branch.name, "actions")
-  return getPushButtonState(branch, { isPushing, blocker: pushBlockerOf(actions), unpushedParent, retargets, runs, operations: state.operations })
-}
-
 /** The branches whose pull requests the push button may retarget: those of its stack push, root first, else the branch */
 export function retargetCandidates(branchName: string, unpushedParent: UnpushedParent | null): string[] {
   const stack = (unpushedParent?.buttonStack ?? []).map(it => it.name)
@@ -411,11 +395,11 @@ export function retargetCandidates(branchName: string, unpushedParent: UnpushedP
 }
 
 /**
- * The nearest branch `name` is built on that its Push Stack pushes, and its stack pushes, as Rust orders them
- * (`BranchPush`): null while none of its ancestors has work for the remote (a held one ends them)
+ * The nearest branch its Push Stack pushes that the branch of `orders` (`pushOrdersIn` of `state`, as Rust orders them,
+ * `BranchPush`) is built on, and its stack pushes: null while none of its ancestors has work for the remote (a held one
+ * ends them)
  */
-export function unpushedParentIn(state: BranchSyncState, name: string): UnpushedParent | null {
-  const orders = pushOrdersIn(state, name)
+export function unpushedParentIn(state: BranchSyncState, orders: PushOrders): UnpushedParent | null {
   const parent = parentOf(state, orders)
   if (parent === undefined) {
     return null
@@ -442,18 +426,6 @@ export interface PushRetarget {
   readonly base: string
   /** Someone approved it: GitHub may dismiss the approvals of a pull request whose base changes */
   readonly approved: boolean
-}
-
-/** The open pull requests into a virtual branch that a push of `branchNames` retargets first (the `retarget` effects of its plan) */
-export function getPushRetargets(branchNames: readonly string[]): PushRetarget[] {
-  return branchNames.flatMap(branchName => {
-    const retarget = getPullRequestRetarget(branchName)
-    if (retarget === null) {
-      return []
-    }
-    const { number, reviewers } = retarget.pullRequest
-    return [{ branchName, number, base: retarget.base, approved: reviewers.some(reviewer => reviewer.state === "approved") }]
-  })
 }
 
 /**

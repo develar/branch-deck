@@ -22,7 +22,7 @@ function context(patch: Partial<ReviewRequestActionContext> = {}): ReviewRequest
   return {
     reviewedCommit: { id: HEAD },
     actions: OFFERED,
-    operations: {},
+    words: { operations: {}, named: {} },
     busy: undefined,
     onReview: () => {},
     onApprove: () => {},

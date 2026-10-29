@@ -132,8 +132,9 @@ joins it), `waits` (enabled, its start queues behind the operation named), `disa
 behind the operation that holds what it needs) or any other reason. `presentAction` words them: the busy state of the
 operation ("Unstacking oauth…", "Waits for Moving 1 commit to docs…", whom it waits for while another holder has the
 repository lock), the words of a surface where it has its own (a restart: "Restarting the Safe Push…"); the busy state
-of an operation of this window is the one it gave it (`operationLabelOf`), of another process its row's ("bd: Pushing
-auth"). The commit menus are the page's and stay enabled: their move, squash and reword queue in the session. A surface
+of an operation of this window is the one it gave it (`BlockerWords.named`, which the caller selects with the
+operations: `useOperationWords` while an item of it runs, waits or is busy, `getOperationWords` for a builder), of
+another process its row's ("bd: Pushing auth"). The commit menus are the page's and stay enabled: their move, squash and reword queue in the session. A surface
 that renders a builder reads it through a selector cached by the states of the stores it reads, the view and the
 indicators among them (`useBranchMenu`, `menuSources`): a store read inside a builder that the React Compiler memoizes
 would show a stale menu ([Rendering Performance](rendering-performance.md)). A disabled submenu (Stack On ›) is an item

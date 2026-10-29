@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vite-plus/test"
+import { describe, expect, it } from "vite-plus/test"
 import type { ActionState, PullRequestView, ReviewCandidate } from "@/lib/bindings"
+import type { SelectContext } from "@/lib/menu"
 import { describeCodeOwnersFact, formatRefused, formatRequestedToast, getRequestReviewItem } from "@/presenters/review"
-import { branchSyncStore } from "@/stores/branch-sync"
-import { disabled, enabled, setActions } from "@/test-support/actions"
+import { disabled, enabled } from "@/test-support/actions"
 
 const ilya: ReviewCandidate = { login: "ikorennoy", fullName: "Ilya Korennoy", groups: ["IJPL Code Platform"], preselected: true }
 
@@ -26,30 +26,32 @@ describe("what Request Review… says of the code owners", () => {
 })
 
 describe("the Request Review… item", () => {
-  afterEach(() => branchSyncStore.setState({ openPullRequests: {}, actions: {} }))
+  const words = { subject: "auth", operations: {}, named: {} }
 
-  /** The open pull request of `auth` as Rust reads it, and the request as Rust offers it */
-  function setRequest(view: PullRequestView, request: ActionState): void {
-    branchSyncStore.setState({ openPullRequests: { auth: view } })
-    setActions({ auth: [request] })
+  /** The item of the open pull request `view` of `auth`, the request as Rust offers it, its popover opened by `open` */
+  function itemOf(view: PullRequestView | undefined, request?: ActionState, open: () => void = () => {}) {
+    return getRequestReviewItem({ pullRequest: view, actions: request === undefined ? [] : [request], open }, words)
   }
 
-  it("asks the chosen code owners on the open pull request", () => {
+  it("asks the chosen code owners on the open pull request, its press opens the popover", () => {
     const candidates = [ilya, { ...ilya, login: "bob", fullName: "Bob", preselected: false }]
-    setRequest(pullRequest({ candidates }), enabled("request-review")[0]!)
-    expect(getRequestReviewItem("auth", {})).toMatchObject({ id: "request-review", label: "Request Review…", description: "Ask Ilya Korennoy to review #1078" })
-    expect(getRequestReviewItem("auth", {})?.disabled).toBeUndefined()
-    setRequest(pullRequest(), enabled("request-review")[0]!)
-    expect(getRequestReviewItem("auth", {})).toMatchObject({ description: "Ask for a review of #1078" })
+    let opened = 0
+    const item = itemOf(pullRequest({ candidates }), enabled("request-review")[0]!, () => opened++)
+    expect(item).toMatchObject({ id: "request-review", label: "Request Review…", description: "Ask Ilya Korennoy to review #1078" })
+    expect(item?.disabled).toBeUndefined()
+    item?.onSelect({} as SelectContext)
+    expect(opened).toBe(1)
+    expect(itemOf(pullRequest(), enabled("request-review")[0]!)).toMatchObject({ description: "Ask for a review of #1078" })
   })
 
   it("is disabled with the reason Rust gives for a draft: work the remote lacks is pushed by the request", () => {
-    setRequest(pullRequest({ draft: true, candidates: [ilya] }), disabled("request-review", { code: "draft", number: 1078 }))
-    expect(getRequestReviewItem("auth", {})).toMatchObject({ disabled: true, description: "#1078 is a draft: mark it ready for review on GitHub first" })
+    const item = itemOf(pullRequest({ draft: true, candidates: [ilya] }), disabled("request-review", { code: "draft", number: 1078 }))
+    expect(item).toMatchObject({ disabled: true, description: "#1078 is a draft: mark it ready for review on GitHub first" })
   })
 
-  it("is not there without an open pull request", () => {
-    expect(getRequestReviewItem("auth", {})).toBeNull()
+  it("is not there without an open pull request, nor while Rust doesn't offer it", () => {
+    expect(itemOf(undefined, enabled("request-review")[0]!)).toBeNull()
+    expect(itemOf(pullRequest())).toBeNull()
   })
 })
 

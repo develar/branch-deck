@@ -16,6 +16,7 @@ targets:
   - ../../crates/app-api/src/repository_state.rs
   - ../../src/stores/pull-requests.ts
   - ../../src/lib/pull-request.ts
+  - ../../src/lib/pull-request-now.ts
   - ../../src/lib/check-counts.ts
   - ../../src/lib/review-commit.ts
   - ../../src/components/branch/PullRequestChip.tsx
@@ -544,8 +545,9 @@ Patronus counts the approvals of the code owners in the pull request the robot s
 ([Patronus](patronus.spec.md#code-owner-review)): a pull request that asks no member of a group whose approval is
 missing waits for nobody. "Request Review…" asks them, on the pull request that exists.
 
-- `getRequestReviewItem` (`src/presenters/review.ts`) builds the item, id `request-review`, "Request Review…", for
-  every surface that offers it (the row's next step, the branch menu): there only while the branch
+- `getRequestReviewItem` (`src/presenters/review.ts`) builds the item, id `request-review`, "Request Review…", of the
+  open pull request and the actions of the subject its caller selected, for every surface that offers it (the row's
+  next step, the branch menu, `getRequestReviewItemNow`): there only while the branch
   has an open pull request (else "Create Pull Request…" asks the reviewers); disabled with the reason while the pull
   request is a draft ("#1078 is a draft: mark it ready for review on GitHub first"), as the session reads the open pull
   request of the subject (`RepositoryView.openPullRequests`, `PullRequestView`: its number, where it goes by
@@ -560,7 +562,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   no approvals): "Cannot check whether the push of the new commits keeps the approvals of #1078: GitHub answered 500."
   A refused push ("Cannot request a review on
   #1078" with its reason) asks nobody. Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
-  [@test] ../../src/presenters/review.test.ts (`asks the chosen code owners on the open pull request`, `is not there without an open pull request`, `is disabled with the reason Rust gives for a draft: work the remote lacks is pushed by the request`)
+  [@test] ../../src/presenters/review.test.ts (`asks the chosen code owners on the open pull request, its press opens the popover`, `is not there without an open pull request, nor while Rust doesn't offer it`, `is disabled with the reason Rust gives for a draft: work the remote lacks is pushed by the request`)
   [@test] ../../crates/operations/src/pull_request_test.rs (`a_review_request_pushes_first_only_when_told_to_and_asks_the_preselected_code_owner`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_reads_where_each_open_pull_request_goes_and_whom_request_review_offers`)

@@ -3,7 +3,7 @@ import type { ActionId, ActionState, ReviewRequest } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import type { SessionOperations } from "@/presenters/actions"
+import type { OperationWords } from "@/presenters/actions"
 import { findAction, formatActionBlocker, presentAction } from "@/presenters/actions"
 import type { ReviewAction } from "@/stores/review-requests"
 
@@ -33,8 +33,11 @@ export interface ReviewRequestActionContext {
    * Push where Patronus merges into its base; undefined while the session has none of it (another repository)
    */
   readonly actions: readonly ActionState[] | undefined
-  /** The operations of the session as the window's view has them: the words of an action of it that runs or waits */
-  readonly operations: SessionOperations
+  /**
+   * The operations of the session as the window's view has them and the busy states this window gave its own: the
+   * words of an action of it that runs or waits (`useOperationWords` of `actions`)
+   */
+  readonly words: OperationWords
   /** What runs for it now */
   readonly busy: ReviewAction | undefined
   readonly onReview: () => void
@@ -73,12 +76,12 @@ export function approvedCommitOf(actions: readonly ActionState[] | undefined): s
 }
 
 /** Why Rust refuses the action `id` of `request` other than an approval (which the surface words by its commit); null while it runs */
-function refusal(actions: readonly ActionState[] | undefined, id: ActionId, request: ReviewRequest, operations: SessionOperations): string | null {
+function refusal(actions: readonly ActionState[] | undefined, id: ActionId, request: ReviewRequest, words: OperationWords): string | null {
   const action = findAction(actions, id)
   if (action?.availability.kind !== "disabled" || action.availability.reason.code === "approved") {
     return null
   }
-  return formatActionBlocker(id, action.availability.reason, { subject: `#${request.number}`, operations })
+  return formatActionBlocker(id, action.availability.reason, { ...words, subject: `#${request.number}` })
 }
 
 /**
@@ -89,7 +92,7 @@ function refusal(actions: readonly ActionState[] | undefined, id: ActionId, requ
  */
 export function getReviewRequestActions(request: ReviewRequest, context: ReviewRequestActionContext, surface: ReviewActionSurface): ReviewRequestActions {
   const inReview = surface === "window"
-  const { reviewedCommit, busy, actions, operations } = context
+  const { reviewedCommit, busy, actions, words } = context
   // the row knows the head GitHub shows; the review the commit the user sees
   const shownCommit = inReview ? reviewedCommit.id : request.headRefOid
   const approvedCommit = approvedCommitOf(actions)
@@ -97,7 +100,7 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
   // the review names what the write needs; the row's item opens the review, which gets it
   const writeBlocked = !inReview ? null : reviewedCommit.id === null ? reviewedCommit.reason : busy !== undefined ? "Wait for GitHub to answer" : null
   const keys = (key: string) => (inReview ? [key] : undefined)
-  const approveRefused = writeBlocked ?? refusal(actions, "approve", request, operations)
+  const approveRefused = writeBlocked ?? refusal(actions, "approve", request, words)
 
   const approve: MenuItem = {
     id: "approve",
@@ -111,7 +114,7 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
 
   let safePush: MenuItem | null = null
   if (findAction(actions, "safe-push-pull-request") !== undefined) {
-    const blocked = writeBlocked ?? refusal(actions, "safe-push-pull-request", request, operations)
+    const blocked = writeBlocked ?? refusal(actions, "safe-push-pull-request", request, words)
     safePush = {
       id: "safe-push",
       // after the approval of the commit, the Safe Push alone is left
@@ -124,9 +127,9 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
     }
   }
 
-  const requestChangesRefused = writeBlocked ?? refusal(actions, "request-changes", request, operations)
+  const requestChangesRefused = writeBlocked ?? refusal(actions, "request-changes", request, words)
   const offered = (id: ActionId, onSelect: (() => void) | undefined): MenuItem | null =>
-    onSelect === undefined ? null : presentAction(actions, id, { onSelect }, { subject: `#${request.number}`, operations })
+    onSelect === undefined ? null : presentAction(actions, id, { onSelect }, { ...words, subject: `#${request.number}` })
   return {
     review: { id: "review", label: "Review", icon: UserCheckIcon, kbds: inReview ? ["d"] : ["enter"], onSelect: context.onReview },
     approve,

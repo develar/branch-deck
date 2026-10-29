@@ -6,15 +6,29 @@
 //   it names lists it as a target;
 // - every presenter of the page (`src/presenters/*.ts`) is a target of a spec;
 // - AGENTS.md keeps within its budget, which every session of every agent reads whole (Codex reads no more than 32 KiB).
-// A renamed, moved or deleted test or file fails here, not in a reader. Run: `pnpm lint:specs`.
+// A renamed, moved or deleted test or file fails here, not in a reader. Every path is one from the root with `/` on
+// every platform, as the links, the targets and the `//!` headers name a file (`globSync` answers `\` on Windows).
+// Run: `pnpm lint:specs`.
 import { existsSync, globSync, readFileSync, statSync } from "node:fs"
-import { dirname, join, relative } from "node:path"
+import { join, posix } from "node:path"
 
 const LINK = /^\s*\[@test\] (\S+) \(((?:`[^`]+`(?:, )?)+)\)$/
 const RULES = "crates/domain-policy/src/*.rs"
 const PRESENTERS = "src/presenters/*.ts"
 const AGENTS_BUDGET = 32 * 1024
 const SPEC_NAME = /\bspec\/[a-z0-9-]+\/[a-z0-9-]+\.spec\.md\b/g
+
+/** The files under `root` that `patterns` match (`glob`: `globSync`), by their paths from `root` with `/`, sorted */
+function filesOf(root, patterns, glob) {
+  return glob(patterns, { cwd: root })
+    .map(path => path.replaceAll("\\", "/"))
+    .toSorted()
+}
+
+/** The file a link of `doc` names by `path` (`../../src/x.ts`), from the root with `/` */
+function linkedFile(doc, path) {
+  return posix.join(posix.dirname(doc), path)
+}
 
 /** Whether the file declares the test: a Rust function, else a title in any string quote, escaped as the source writes it */
 function declares(path, source, name) {
@@ -24,8 +38,8 @@ function declares(path, source, name) {
   return ['"', "'", "`"].some(quote => source.includes(`${quote}${name.replaceAll(quote, `\\${quote}`)}${quote}`))
 }
 
-/** The problems of the `[@test]` links of the specs and the design docs under `root` */
-export function checkTestLinks(root) {
+/** The problems of the `[@test]` links of the specs and the design docs under `root`; `glob` lists their files */
+export function checkTestLinks(root, glob = globSync) {
   const sources = new Map()
   const sourceOf = path => {
     if (!sources.has(path)) {
@@ -34,7 +48,7 @@ export function checkTestLinks(root) {
     return sources.get(path)
   }
   const problems = []
-  for (const doc of globSync(["spec/**/*.md", "docs/**/*.md"], { cwd: root })) {
+  for (const doc of filesOf(root, ["spec/**/*.md", "docs/**/*.md"], glob)) {
     const lines = readFileSync(join(root, doc), "utf8").split(/\r?\n/)
     lines.forEach((line, index) => {
       if (!line.includes("[@test]")) {
@@ -46,14 +60,15 @@ export function checkTestLinks(root) {
         problems.push(`${at}: not a link of its own line, \`[@test] <path> (\`name\`, …)\`: ${line.trim().slice(0, 120)}`)
         return
       }
-      const path = join(root, dirname(doc), link[1])
+      const file = linkedFile(doc, link[1])
+      const path = join(root, file)
       if (!existsSync(path)) {
-        problems.push(`${at}: no file ${relative(root, path)}`)
+        problems.push(`${at}: no file ${file}`)
         return
       }
       for (const [, name] of link[2].matchAll(/`([^`]+)`/g)) {
         if (!declares(path, sourceOf(path), name)) {
-          problems.push(`${at}: ${relative(root, path)} has no test \`${name}\``)
+          problems.push(`${at}: ${file} has no test \`${name}\``)
         }
       }
     })
@@ -103,13 +118,13 @@ function moduleHeader(source) {
 /**
  * The problems of the `targets:` of the specs under `root`: a spec without them, a target that is no `../../` path of
  * a file, one listed twice; a rule of `crates/domain-policy/src/` whose `//!` header names no spec, or a spec that
- * lists it not; a presenter of `src/presenters/` that no spec lists
+ * lists it not; a presenter of `src/presenters/` that no spec lists. `glob` lists the files
  */
-export function checkSpecTargets(root) {
+export function checkSpecTargets(root, glob = globSync) {
   const problems = []
   /** The specs that list a file, by its path from `root` */
   const listedBy = new Map()
-  for (const spec of globSync("spec/**/*.spec.md", { cwd: root }).sort()) {
+  for (const spec of filesOf(root, "spec/**/*.spec.md", glob)) {
     const found = targetsOf(spec, readFileSync(join(root, spec), "utf8"))
     if (found.problem !== undefined) {
       problems.push(found.problem)
@@ -123,7 +138,7 @@ export function checkSpecTargets(root) {
         problems.push(`${at}: the target ${path} is no \`../../\` path from the root of the repository`)
         continue
       }
-      const file = relative(root, join(root, dirname(spec), path))
+      const file = linkedFile(spec, path)
       if (seen.has(file)) {
         problems.push(`${at}: lists ${path} twice`)
         continue
@@ -143,7 +158,7 @@ export function checkSpecTargets(root) {
       listedBy.get(file).add(spec)
     }
   }
-  for (const rule of globSync(RULES, { cwd: root }).sort()) {
+  for (const rule of filesOf(root, RULES, glob)) {
     if (rule.endsWith("/lib.rs") || rule.endsWith("_test.rs")) {
       continue
     }
@@ -159,7 +174,7 @@ export function checkSpecTargets(root) {
       }
     }
   }
-  for (const presenter of globSync(PRESENTERS, { cwd: root }).sort()) {
+  for (const presenter of filesOf(root, PRESENTERS, glob)) {
     if (!presenter.endsWith(".test.ts") && !listedBy.has(presenter)) {
       problems.push(`${presenter}: a presenter that the \`targets:\` of no spec list`)
     }

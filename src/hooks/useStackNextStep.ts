@@ -1,8 +1,9 @@
 import type { StepInputs } from "@/hooks/useBranchNextStep"
 import { announceApproval, busyOf, getBranchNextStep, getStepInputs, stepActionsOf, tellApprovalNews, useBranchNextStep, useStepInputs } from "@/hooks/useBranchNextStep"
+import { useOperationWords } from "@/hooks/useOperationWords"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
-import type { ActionState, StackLanding } from "@/lib/bindings"
+import type { ActionId, ActionState, StackLanding } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import type { MenuItem } from "@/lib/menu"
 import { formatLandingSubject } from "@/lib/patronus"
@@ -11,13 +12,14 @@ import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
-import type { SessionOperations } from "@/presenters/actions"
+import type { OperationWords } from "@/presenters/actions"
 import { presentAction } from "@/presenters/actions"
 import type { BranchNextStep, StepContext } from "@/presenters/next-step"
 import { presentNextStep } from "@/presenters/next-step"
 import type { StackBranch } from "@/stores/branch-sync"
-import { getSessionOperations, getStackBranch, getWholeStack, NO_OPERATIONS, useBranchSyncField, useStackBranch, useWholeStack } from "@/stores/branch-sync"
+import { getStackBranch, getWholeStack, useStackBranch, useWholeStack } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
+import { getOperationWords } from "@/stores/indicators"
 import { getStackLanding, useStackLanding } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
@@ -73,13 +75,7 @@ export function wholeStackRestOf(root: string): WholeStackRest {
  * whole stack (`actions`, `stack:<root>` of `RepositoryView.actions`: of a stack that forks on GitHub without a live
  * pull request of it, disabled while the sync didn't build it and once all of it landed); null while it doesn't
  */
-function stackPullRequestItemOf(
-  root: string,
-  actions: readonly ActionState[] | undefined,
-  stack: StackBranch | undefined,
-  target: string,
-  operations: SessionOperations,
-): MenuItem | null {
+function stackPullRequestItemOf(root: string, actions: readonly ActionState[] | undefined, stack: StackBranch | undefined, target: string, words: OperationWords): MenuItem | null {
   const members = stack?.members.length ?? 0
   return presentAction(
     actions,
@@ -88,14 +84,17 @@ function stackPullRequestItemOf(
       description: `The pull request of ${formatWholeStack(root)} into ${target}: the commits of ${formatBranchCount(members)}, which one Safe Push lands`,
       onSelect: () => openStackPullRequestDialog(root),
     },
-    { subject: root, operations },
+    { ...words, subject: root },
   )
 }
 
 /** "Create Pull Request of the Stack…" of `root` now (`stackPullRequestItemOf`), for the menus */
 export function getCreateStackPullRequestItem(root: string): MenuItem | null {
-  return stackPullRequestItemOf(root, getRowPart(stackReadinessKey(root), "actions"), getStackBranch(root), getReadinessTarget(), getSessionOperations())
+  return stackPullRequestItemOf(root, getRowPart(stackReadinessKey(root), "actions"), getStackBranch(root), getReadinessTarget(), getOperationWords())
 }
+
+/** The action of a whole stack whose words name the operation it runs as */
+const CREATE_STACK_PULL_REQUEST: readonly ActionId[] = ["create-stack-pull-request"]
 
 /** What the words of the step of a whole stack read beside those of a branch (`StepInputs`): what its start lands, its pull request */
 interface StackInputs extends StepInputs {
@@ -103,6 +102,8 @@ interface StackInputs extends StepInputs {
   readonly stack: StackBranch | undefined
   /** The actions Rust offers of the whole stack: its Create Pull Request of the Stack… */
   readonly actions: readonly ActionState[] | undefined
+  /** The words of the operations of the session its Create Pull Request of the Stack… names while it runs */
+  readonly stackWords: OperationWords
 }
 
 /**
@@ -112,7 +113,7 @@ interface StackInputs extends StepInputs {
 function stackContextOf(root: string, inputs: StackInputs, forStart: boolean, byPush: boolean): StepContext {
   const key = stackReadinessKey(root)
   const rest = wholeStackRestIn(inputs.rest, inputs.stack)
-  const create = stackPullRequestItemOf(root, inputs.actions, inputs.stack, inputs.target, inputs.operations)
+  const create = stackPullRequestItemOf(root, inputs.actions, inputs.stack, inputs.target, inputs.stackWords)
   return {
     subject: formatWholeStack(root),
     target: inputs.target,
@@ -149,7 +150,13 @@ export function getStackNextStep(root: string, options?: { readonly forStart: tr
   if (view === undefined) {
     return null
   }
-  const inputs: StackInputs = { ...getStepInputs(key, view.step), rest: getStackLanding(root).rest, stack: getStackBranch(root), actions: getRowPart(key, "actions") }
+  const inputs: StackInputs = {
+    ...getStepInputs(key, view.step),
+    rest: getStackLanding(root).rest,
+    stack: getStackBranch(root),
+    actions: getRowPart(key, "actions"),
+    stackWords: getOperationWords(),
+  }
   return { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, options !== undefined, view.step.kind.kind === "pushToBaseline")) }
 }
 
@@ -164,13 +171,14 @@ export function useStackNextStep(root: string): StackNextStep | null {
   const key = forks ? stackReadinessKey(root) : ""
   useShowReviewReadiness(key)
   const view = useRowPart(key, "landing")
+  const actions = useRowPart(key, "actions")
   const inputs: StackInputs = {
     ...useStepInputs(key, view?.step),
     rest: useStackLanding(forks ? root : "").rest,
     stack: useStackBranch(forks ? root : ""),
-    actions: useRowPart(key, "actions"),
-    // the words of its Create Pull Request of the Stack… while it runs: of a stack that forks
-    operations: useBranchSyncField("operations", operations => (forks ? operations : NO_OPERATIONS)),
+    actions,
+    // the words of its Create Pull Request of the Stack… while it runs or waits
+    stackWords: useOperationWords(actions, CREATE_STACK_PULL_REQUEST),
   }
   const leaf = whole?.kind === "chain" ? whole.leaf : null
   const leafStep = useBranchNextStep(leaf ?? "")

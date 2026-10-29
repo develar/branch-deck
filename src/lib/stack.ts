@@ -100,7 +100,7 @@ export function describePrefixChange(
 
 /**
  * The branch name a remote knows the baseline by: `origin/master` is `master` there. Every pull request of a virtual
- * branch goes into it (`getPullRequestBase`).
+ * branch goes into it (`pullRequestBaseOf`).
  */
 export function baselineOnRemote(baselineBranch: string): string {
   const slash = baselineBranch.indexOf("/")

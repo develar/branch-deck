@@ -153,6 +153,19 @@ fn auth_tip(repo: &TestRepo) -> String {
   git(repo, &["rev-parse", &format!("refs/heads/{PREFIX}/virtual/auth")])
 }
 
+/// A failure beside a held sync fails the test at once: the sync goes on as the panic leaves `beside_a_held_sync`, and
+/// ends with its build, so no test waits until nextest kills it for a sync nobody lets go
+#[cfg(unix)]
+#[test_log::test]
+fn a_failure_beside_a_held_sync_lets_the_sync_go_and_end() {
+  let (repo, _) = repo_with_auth();
+  let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    beside_a_held_sync(&repo, || panic!("an assertion beside the held sync failed"));
+  }));
+  assert!(failed.is_err(), "the failure beside the sync is the test's");
+  assert!(!auth_tip(&repo).is_empty(), "the sync went on and built auth");
+}
+
 /// Two agents' `bd sync` at once, the first held in its merges: the second builds auth and ends; the first then ends too,
 /// on the same build, which its compare-and-swap leaves as the second wrote it
 #[cfg(unix)]

@@ -1,37 +1,39 @@
 // The words and the menu item of Request Review… (spec/branch/pull-requests.spec.md, "Request Review"): whom it offers,
 // what it says of the code owners while Patronus can't name them, and the toast of whom GitHub asked; the request is
 // the intent of the engine (`requestReview` of `pull-request-run.ts`), the candidates Rust's (`review::candidates`).
-import type { PullRequest, PullRequestView, RequestedReviewers, ReviewCandidate, ReviewReadiness } from "@/lib/bindings"
+import type { ActionState, PullRequest, PullRequestView, RequestedReviewers, ReviewCandidate, ReviewReadiness } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
-import { getRowPart } from "@/model/store"
-import type { SessionOperations } from "@/presenters/actions"
+import type { BlockerWords } from "@/presenters/actions"
 import { presentAction } from "@/presenters/actions"
-import { getOpenPullRequest } from "@/stores/branch-sync"
-import { openRequestReview } from "@/stores/request-review-popover"
 
 /** "Ilya Korennoy", else the login */
 export function formatCandidate(candidate: Pick<ReviewCandidate, "login" | "fullName">): string {
   return candidate.fullName ?? candidate.login
 }
 
+/** What "Request Review…" of a subject (a branch, `stack:<root>`) is built of, as its caller selected them */
+export interface RequestReviewParts {
+  /** Its open pull request (`RepositoryView.openPullRequests` of the subject); none: no item */
+  readonly pullRequest: PullRequestView | undefined
+  /** Its actions (`RepositoryView.actions` of the subject), `request-review` among them while Rust offers it */
+  readonly actions: readonly ActionState[] | undefined
+  /** Opens its popover (`openRequestReview` of the subject) */
+  readonly open: () => void
+}
+
 /**
- * "Request Review…" of the open pull request of the subject `key` (a branch, `stack:<root>`), as Rust offers it (none
- * without an open pull request, disabled for a draft): its popover asks the code owners Patronus suggests (the readiness
- * of the subject), the push first, running in the words of its operation among `operations`; null without one
+ * "Request Review…" of the open pull request of a subject, as Rust offers it (none without an open pull request,
+ * disabled for a draft): its popover asks the code owners Patronus suggests (the readiness of the subject), the push
+ * first, running in the words of its operation (`words.operations`); null without one
  */
-export function getRequestReviewItem(key: string, operations: SessionOperations): MenuItem | null {
-  const pullRequest = getOpenPullRequest(key)
+export function getRequestReviewItem(parts: RequestReviewParts, words: BlockerWords): MenuItem | null {
+  const { pullRequest } = parts
   if (pullRequest === undefined) {
     return null
   }
-  return presentAction(
-    getRowPart(key, "actions"),
-    "request-review",
-    { description: describeRequestReview(pullRequest), onSelect: () => openRequestReview(key) },
-    { subject: key, operations },
-  )
+  return presentAction(parts.actions, "request-review", { description: describeRequestReview(pullRequest), onSelect: parts.open }, words)
 }
 
 /**

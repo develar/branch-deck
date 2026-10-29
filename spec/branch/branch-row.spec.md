@@ -23,6 +23,7 @@ targets:
   - ../../src/components/shared/InlineInputDialog.tsx
   - ../../src/stores/inline-row-action.ts
   - ../../src/stores/indicators.ts
+  - ../../src/hooks/useOperationWords.ts
   - ../../src/hooks/useRowOperation.ts
   - ../../src/lib/rewrite-run.ts
   - ../../src/components/shared/MoreActionsMenu.tsx

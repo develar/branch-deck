@@ -54,7 +54,8 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   `oxc-transform-react` is pinned to the range `@vitejs/plugin-react` declares; `pnpm update-deps` leaves it alone.
 - **Rules and intents** ([Rust as the Domain Authority](../design/rust-domain-authority.md)): a rule of the domain is
   a file of `crates/domain-policy/src/` ([Rule Index](code-map.md#rule-index)) that the session derives into the view; the page
-  words its answer (`src/presenters/`: a presenter takes the part its caller selected and reads no store), sends what
+  words its answer (`src/presenters/`: a presenter takes the part its caller selected and reads no store, importing a
+  store module for its types only), sends what
   the user asks as an intent (`planIntent`, `runIntent`, `executePlan`, `executeRewrite`, `cancelIntent` of
   `src/model/intents.ts`, the one module that calls `execute` and `cancel_operation`; a command of the app,
   `app(…)` of `crates/app-api/src/commands.rs`, from its one module of `APP_COMMAND_CALLERS`), tells what it shows

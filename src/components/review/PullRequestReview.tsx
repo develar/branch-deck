@@ -16,6 +16,7 @@ import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
+import { useOperationWords } from "@/hooks/useOperationWords"
 import type { ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -28,7 +29,6 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions } from "@/lib/review-request-actions"
-import { useBranchSync } from "@/stores/branch-sync"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
 import { reviewFetchKey, startReviewFetch, useReviewFetch } from "@/stores/review-fetch"
@@ -197,13 +197,14 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     }
   }
 
-  const operations = useBranchSync(state => state.operations)
+  // the operations of the session only while an action of the pull request runs, waits or is busy behind one
+  const words = useOperationWords(host.actions)
   const actions = getReviewRequestActions(
     request,
     {
       reviewedCommit,
       actions: host.actions,
-      operations,
+      words,
       busy: host.busy,
       onReview: () => showTab("changes"),
       onApprove: () => {

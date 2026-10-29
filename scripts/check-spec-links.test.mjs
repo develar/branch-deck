@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { globSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
@@ -96,4 +96,30 @@ test("every presenter of the page is a target of a spec, its tests aside", t => 
     "spec/area/example.spec.md": specOf(["../../src/presenters/listed.ts"]),
   })
   assert.deepEqual(checkSpecTargets(root), ["src/presenters/unlisted.ts: a presenter that the `targets:` of no spec list"])
+})
+
+test("on Windows, where the glob answers paths with `\\`, every check answers the paths with `/` as everywhere", t => {
+  const rules = "crates/domain-policy/src"
+  const root = repositoryOf(t, {
+    [`${rules}/lib.rs`]: "pub mod listed;\n",
+    [`${rules}/listed.rs`]: "//! The listed rule (spec/area/rules.spec.md).\n",
+    [`${rules}/unlisted.rs`]: "//! A rule the spec doesn't list (spec/area/rules.spec.md).\n",
+    "src/presenters/listed.ts": "",
+    "src/presenters/unlisted.ts": "",
+    "src/example.test.ts": 'test("shows the row", () => {})\n',
+    "spec/area/rules.spec.md": specOf(
+      [`../../${rules}/listed.rs`, "../../src/presenters/listed.ts"],
+      ["- A requirement.", "  [@test] ../../src/example.test.ts (`shows the row`, `hides the row`)"].join("\n"),
+    ),
+  })
+  const windowsGlob = (patterns, options) => globSync(patterns, options).map(path => path.replaceAll("/", "\\"))
+  const expected = [
+    `spec/area/rules.spec.md: no target ../../${rules}/unlisted.rs, whose \`//!\` header names the spec`,
+    "src/presenters/unlisted.ts: a presenter that the `targets:` of no spec list",
+  ]
+  assert.deepEqual(checkSpecTargets(root), expected)
+  assert.deepEqual(checkSpecTargets(root, windowsGlob), expected)
+  const links = ["spec/area/rules.spec.md:9: src/example.test.ts has no test `hides the row`"]
+  assert.deepEqual(checkTestLinks(root), links)
+  assert.deepEqual(checkTestLinks(root, windowsGlob), links)
 })

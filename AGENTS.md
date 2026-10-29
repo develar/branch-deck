@@ -252,8 +252,8 @@ Frontend, in full: [Frontend Rules](docs/contributing/frontend.md).
 - **Errors** go through `notifyError` (`src/lib/errors.ts`) and are decided by `error.code`; a toast of an event is
   `showEventToast`, one per event. **Wording** by [UX Writing](docs/contributing/ux-writing.md): "Cannot <verb>
   <object>", Title Case for buttons and menu items. **Actions**: one builder of `MenuItem`s per object for every surface.
-- **Rules and intents**: a presenter reads no store; `execute` and `cancel_operation` only in `src/model/intents.ts`,
-  each `app(…)` command from its one module (`APP_COMMAND_CALLERS`).
+- **Rules and intents**: a presenter reads no store (a store module for its types only); `execute` and
+  `cancel_operation` only in `src/model/intents.ts`, each `app(…)` command from its one module (`APP_COMMAND_CALLERS`).
 - **React Compiler** compiles everything (`panicThreshold: "all_errors"`): no disable comment of a React rule, no
   `try`/`finally` without `catch`, no JSX parameter default.
 - **State**: zustand vanilla stores, narrow `useStore` selectors; a persisted setting is a `createPersistentStore`

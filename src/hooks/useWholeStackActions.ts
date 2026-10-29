@@ -1,4 +1,4 @@
-import { actionsOf, getPushWithChildrenItem, withStepReason } from "@/hooks/useBranchContextActions"
+import { actionsOf, getPushWithChildrenItem, getRequestReviewItemNow, withStepReason } from "@/hooks/useBranchContextActions"
 import { getBranchNextStep, getRobotItems } from "@/hooks/useBranchNextStep"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { StackNextStep } from "@/hooks/useStackNextStep"
@@ -11,12 +11,12 @@ import { describeStart } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
 import { describeOrphanedStackPullRequest, describeWholeStackLanding, formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
-import type { ActionItem, SessionOperations } from "@/presenters/actions"
+import type { ActionItem, OperationWords } from "@/presenters/actions"
 import { presentAction } from "@/presenters/actions"
 import { NO_NEXT_STEP } from "@/presenters/next-step"
-import { getRequestReviewItem } from "@/presenters/review"
-import { branchSyncStore, getLandedState, getSessionOperations, getStackBranch, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
+import { branchSyncStore, getLandedState, getStackBranch, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
+import { getOperationWords } from "@/stores/indicators"
 import { openInline } from "@/stores/inline-row-action"
 import { getStackRobot } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
@@ -79,7 +79,7 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
   // says whose approval is missing, or that nobody of a group can approve); one that no longer matches the stack is closed
   const next = getStackNextStep(root)
   const stepItem = next?.leaf === null && next.step.kind === "requestReview" ? next.step.item : null
-  const requestReview = orphaned === null ? (stepItem ?? getRequestReviewItem(stackReadinessKey(root), getSessionOperations())) : null
+  const requestReview = orphaned === null ? (stepItem ?? getRequestReviewItemNow(stackReadinessKey(root))) : null
   if (requestReview !== null) {
     items.push(requestReview)
   }
@@ -112,20 +112,24 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
   return items
 }
 
+/** The action of the close of a stack's pull request, whose words name the operation it runs as (`useOperationWords`) */
+export const CLOSE_STACK_PULL_REQUEST: readonly ActionId[] = ["close-stack-pull-request"]
+
 /**
  * "Close Pull Request #12…" of the pull request `number` of the whole stack of `root` that no longer matches the stack
  * (`orphaned`, its words, `describeOrphanedStackPullRequest`): the confirmation opens in the root's row (`before` closes
  * an open preview first), the pull request is never closed by itself. Offered and disabled as Rust decides it
  * (`close-stack-pull-request`: on the frame of an earlier run it waits for the first sync, a close that runs holds it);
  * null while Rust doesn't offer it. The menus of the whole stack and the buttons of the island header and of the root's
- * preview render it (a component passes the actions and the operations it subscribed to, `useRowPart`)
+ * preview render it (a component passes the actions and the words of the operations it subscribed to, `useRowPart`,
+ * `useOperationWords`)
  */
 export function getCloseStackPullRequestItem(
   root: string,
   number: number,
   orphaned: string,
   actions: readonly ActionState[] | undefined = actionsOf(stackReadinessKey(root)),
-  operations: SessionOperations = getSessionOperations(),
+  words: OperationWords = getOperationWords(),
   before?: () => void,
 ): MenuItem | null {
   const onSelect = () => {
@@ -133,12 +137,12 @@ export function getCloseStackPullRequestItem(
     requestReveal({ branchName: root, commitIds: [] })
     openInline("close-stack-pull-request", root)
   }
-  return presentAction(actions, "close-stack-pull-request", { label: `Close Pull Request #${number}…`, description: orphaned, onSelect }, { subject: root, operations })
+  return presentAction(actions, "close-stack-pull-request", { label: `Close Pull Request #${number}…`, description: orphaned, onSelect }, { ...words, subject: root })
 }
 
 /** The item of the action `id` of the whole stack of `root` as Rust offers it; null while it doesn't */
 function stackItem(root: string, id: ActionId, item: ActionItem, step?: string | null): MenuItem | null {
-  return presentAction(actionsOf(stackReadinessKey(root)), id, item, { subject: root, operations: getSessionOperations(), ...(step !== undefined && { step }) })
+  return presentAction(actionsOf(stackReadinessKey(root)), id, item, { ...getOperationWords(), subject: root, ...(step !== undefined && { step }) })
 }
 
 /**

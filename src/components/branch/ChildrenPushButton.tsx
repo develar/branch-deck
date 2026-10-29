@@ -7,6 +7,8 @@ import { CompactPushLabel, PushProgressDescription } from "@/components/branch/B
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import type { ChildrenPush } from "@/hooks/useBranchPushes"
 import { useBranchPushProgress, useStackBranchPushAlone, useStackBranchPushProgress } from "@/hooks/useBranchPushes"
+import { useOperationWords } from "@/hooks/useOperationWords"
+import type { ActionId } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { pushWithChildren } from "@/lib/push-run"
 import { formatAskFirst, formatPushWithChildrenLabel, stackPushSubject } from "@/lib/stack"
@@ -24,6 +26,9 @@ import { useLandRun } from "@/stores/safe-push"
 
 /** Why the push of a stack without branches to land is disabled: Rust offers no Push with Children of its root */
 const NOTHING_TO_PUSH = "Nothing to push: the stack is on the remote"
+
+/** The action whose words the button says */
+const PUSH_WITH_CHILDREN: readonly ActionId[] = ["push-with-children"]
 
 export interface ChildrenPushButtonProps {
   /** The branch whose Push with Children it is: the root of an island, or a row whose own push has nothing to send */
@@ -73,7 +78,8 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
   const hold = usePushHold(root)
   // Push with Children of the root as Rust offers it (`domain_policy::actions`)
   const rootActions = useRowPart(root, "actions")
-  const operations = useBranchSync(state => state.operations)
+  // the operations of the session only while Push with Children runs, waits or is busy behind one, whose words it says
+  const words = useOperationWords(rootActions, PUSH_WITH_CHILDREN)
   const stack = useStackBranch(root)
   const { children } = push
   const withStackBranch = children?.stackBranch?.kind === "along" && stack !== undefined
@@ -84,7 +90,7 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
     if (held) {
       blocker = hold === null || hold.kind === "landed" ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
     } else {
-      blocker = actionBlocker(rootActions, "push-with-children", { subject: root, operations }) ?? (children?.offers === true ? null : NOTHING_TO_PUSH)
+      blocker = actionBlocker(rootActions, "push-with-children", { ...words, subject: root }) ?? (children?.offers === true ? null : NOTHING_TO_PUSH)
     }
   }
   let label = "Push with Children"

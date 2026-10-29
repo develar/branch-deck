@@ -4,7 +4,9 @@ import { useMemo } from "react"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { useLandedIn } from "@/hooks/useLandedIn"
+import { useOperationWordsWhile } from "@/hooks/useOperationWords"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
+import { getPushRetargets } from "@/lib/pull-request-now"
 import { pushBranch, pushStack, pushWithChildren } from "@/lib/push-run"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { lockWaitProgress } from "@/lib/transfer-progress"
@@ -13,9 +15,9 @@ import { cancelIntent } from "@/model/intents"
 import { useRowPart } from "@/model/store"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
 import type { PushButtonRuns, PushButtonState, PushRetarget, UnpushedChildren, UnpushedParent } from "@/presenters/push-button"
-import { childrenPushEnabled, getPushButtonState, getPushRetargets, landingPushes, parentOf, pushBlockerOf, retargetCandidates } from "@/presenters/push-button"
+import { childrenPushEnabled, getPushButtonState, landingPushes, parentOf, pushBlockerOf, retargetCandidates } from "@/presenters/push-button"
 import type { Branch, ChildrenPushOrder } from "@/stores/branch-sync"
-import { NO_OPERATIONS, pushOperationIn, pushOrdersIn, useBranchSync, useBranchSyncField, useIsStackBranchPushing, useOperationPushProgress } from "@/stores/branch-sync"
+import { pushOperationIn, pushOrdersIn, useBranchSync, useBranchSyncField, useIsStackBranchPushing, useOperationPushProgress } from "@/stores/branch-sync"
 import { usePatronusAvailable } from "@/stores/patronus"
 import { pullRequestsStore, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
 import { useLandRun } from "@/stores/safe-push"
@@ -64,8 +66,7 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
   const actions = useRowPart(branch.name, "actions")
   const retargets = usePushRetargets(retargetCandidates(branch.name, unpushedParent))
   // the operations of the session only while the push is busy behind one, whose words its button says
-  const busy = pushBlockerOf(actions)?.code === "busy"
-  const operations = useBranchSyncField("operations", operations => (busy ? operations : NO_OPERATIONS))
+  const { operations, named } = useOperationWordsWhile(pushBlockerOf(actions)?.code === "busy")
   return useMemo(() => {
     const runs = pushRunsOf(branch.name)
     return getPushButtonState(branch, {
@@ -78,8 +79,9 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
       retargets,
       runs,
       operations,
+      named,
     })
-  }, [branch, isPushing, actions, unpushedParent, unpushedChildren, landedIn, retargets, operations])
+  }, [branch, isPushing, actions, unpushedParent, unpushedChildren, landedIn, retargets, operations, named])
 }
 
 /** The pull requests into a virtual branch a push of `names` retargets first (`getPushRetargets`), from the stores */

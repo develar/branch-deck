@@ -9,8 +9,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useClosePreview } from "@/hooks/useClosePreview"
+import { useOperationWords } from "@/hooks/useOperationWords"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
+import type { ActionId } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { isStartItem } from "@/lib/push-to-baseline"
 import { formatStackPushing } from "@/lib/stack"
@@ -19,7 +21,6 @@ import { stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import { getStartActionItems } from "@/presenters/actions"
 import type { Branch } from "@/stores/branch-sync"
-import { NO_OPERATIONS, useBranchSync } from "@/stores/branch-sync"
 import type { SafePushPlacement } from "@/stores/safe-push"
 import { stopStart, useLandProgress, useLandRun } from "@/stores/safe-push"
 
@@ -53,6 +54,9 @@ export interface SafePushButtonProps {
 
 /** A click right after the button took the place of another step under the pointer is a click meant for that step */
 const STEP_CHANGE_GUARD_MS = 700
+
+/** The actions of a start whose answer was lost, whose words name an operation while one of them runs */
+const START_ACTIONS: readonly ActionId[] = ["open-unknown-start", "forget-start"]
 
 /** Stop Waiting of a start that waits for another holder of the repository lock (`waiting` names whom for) */
 function stopStartItem(op: string, waiting: string): MenuItem {
@@ -105,9 +109,9 @@ export function SafePushButton({
   // a start whose answer was lost: its actions beside the slot, as Rust offers them
   const lost = starting?.lost ?? null
   const lostOffered = useRowPart(lost === null ? "" : `op:${lost.id}`, "actions")
-  // the operations of the session, whose words its items may name: only beside a lost start, so a row renders for nothing else
-  const operations = useBranchSync(state => (lost === null ? NO_OPERATIONS : state.operations))
-  const lostItems = lost === null ? [] : getStartActionItems(lost, lostOffered, operations)
+  // the operations of the session, whose words its items may name: only while one of them runs or waits, so a row renders for nothing else
+  const words = useOperationWords(lostOffered, START_ACTIONS)
+  const lostItems = lost === null ? [] : getStartActionItems(lost, lostOffered, words)
   const label =
     starting === null
       ? (item?.label ?? "Safe Push")

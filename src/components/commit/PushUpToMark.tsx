@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { pushUpTo } from "@/lib/push-run"
 import type { PushUpTo } from "@/presenters/push"
 import { describePushUpTo, pushUpToIn } from "@/presenters/push"
-import { useBranchSync, useStackPush } from "@/stores/branch-sync"
+import { pushOrdersIn, useBranchSync, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { showPushUpTo } from "@/stores/stack-view"
 
@@ -17,7 +17,7 @@ function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpTo
   // a string, so the store notifies only when the plan changes
   const key = useBranchSync(state => {
     const hash = state.branches[branchName]?.commits.find(commit => commit.originalHash === originalHash)?.hash
-    const plan = hash === undefined ? null : pushUpToIn(state, branchName, hash)
+    const plan = hash === undefined ? null : pushUpToIn(state, pushOrdersIn(state, branchName), branchName, hash)
     if (plan === null) {
       return ""
     }

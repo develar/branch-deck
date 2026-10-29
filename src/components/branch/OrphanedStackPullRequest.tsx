@@ -5,11 +5,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
+import { useOperationWords } from "@/hooks/useOperationWords"
 import { useOrphanedStackPullRequest } from "@/hooks/useOrphanedStackPullRequest"
-import { getCloseStackPullRequestItem } from "@/hooks/useWholeStackActions"
+import { CLOSE_STACK_PULL_REQUEST, getCloseStackPullRequestItem } from "@/hooks/useWholeStackActions"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
-import { useBranchSync } from "@/stores/branch-sync"
 import { useStackPullRequest } from "@/stores/pull-requests"
 
 /**
@@ -49,14 +49,10 @@ export function ClosePullRequestButton({
   className?: string
 }) {
   const closePreview = useContext(ClosePreviewContext)
-  const item = getCloseStackPullRequestItem(
-    root,
-    number,
-    orphaned,
-    useRowPart(stackReadinessKey(root), "actions"),
-    useBranchSync(state => state.operations),
-    closePreview ?? undefined,
-  )
+  const actions = useRowPart(stackReadinessKey(root), "actions")
+  // the operations of the session only while the close runs, waits or is busy behind one, whose words it says
+  const words = useOperationWords(actions, CLOSE_STACK_PULL_REQUEST)
+  const item = getCloseStackPullRequestItem(root, number, orphaned, actions, words, closePreview ?? undefined)
   if (item === null) {
     return null
   }

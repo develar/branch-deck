@@ -13,7 +13,7 @@ import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { pushUpTo } from "@/lib/push-run"
 import { describePushUpTo, pushUpToIn } from "@/presenters/push"
-import { branchSyncStore, getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
+import { branchSyncStore, getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets, pushOrdersIn } from "@/stores/branch-sync"
 import { claimSelection, requestCommitForm, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitFormRequest, useCommitMove, useRevealRequest } from "@/stores/commit-move"
 import type { CommitFormRequest } from "@/stores/commit-move"
 
@@ -105,7 +105,7 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
 function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
   const state = branchSyncStore.getState()
   const hash = state.branches[branchName]?.commits.find(it => it.originalHash === commit.originalHash)?.hash
-  const plan = hash === undefined ? null : pushUpToIn(state, branchName, hash)
+  const plan = hash === undefined ? null : pushUpToIn(state, pushOrdersIn(state, branchName), branchName, hash)
   if (plan === null || hash === undefined) {
     return []
   }

@@ -274,7 +274,9 @@ pub fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
 }
 
 /// Runs `during` while an agent's `bd sync` of `repo` is held in its first merge, asserts the sync is still held after
-/// it, then lets the sync go on and asserts it ended; the sync must merge (a commit of no branch below the branch's)
+/// it, then lets the sync go on and asserts it ended; the sync must merge (a commit of no branch below the branch's). A
+/// panic of `during` or of an assertion lets the sync go as it leaves (`LetGo`), so the test fails at once instead of
+/// waiting for a sync nobody lets go
 #[cfg(unix)]
 pub fn beside_a_held_sync(repo: &TestRepo, during: impl FnOnce()) {
   // the first merge of the sync waits until the test lets it go
@@ -282,16 +284,32 @@ pub fn beside_a_held_sync(repo: &TestRepo, during: impl FnOnce()) {
   let (held, go) = (wrapped.dir().join("held"), wrapped.dir().join("go"));
   std::thread::scope(|scope| {
     let sync = scope.spawn(|| wrapped.run(&["sync"]));
+    // dropped before the scope joins the sync: on the way out of a panic too
+    let let_go = LetGo(&go);
     while !held.exists() && !sync.is_finished() {
       std::thread::yield_now();
     }
     assert!(held.exists(), "the sync reached its merge");
     during();
     assert!(!sync.is_finished(), "the sync is still held at its merge");
-    std::fs::write(&go, "").unwrap();
+    drop(let_go);
     let (exit_code, output) = sync.join().unwrap();
     assert_eq!(exit_code, 0, "{output}");
   });
+}
+
+/// Lets a sync held by `beside_a_held_sync` go on when dropped: it writes the mark the held merge waits for
+#[cfg(unix)]
+struct LetGo<'a>(&'a Path);
+
+#[cfg(unix)]
+impl Drop for LetGo<'_> {
+  fn drop(&mut self) {
+    // a mark that can't be written leaves the sync held: nextest ends the test, the panic tells why
+    if let Err(error) = std::fs::write(self.0, "") {
+      panic!("cannot let the held sync go: {error}");
+    }
+  }
 }
 
 /// bd with a git wrapper that logs every command with the state of the repository lock when it started: `locked` while

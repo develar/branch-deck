@@ -6,8 +6,7 @@ import type { Reason } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatForcePushPart } from "@/lib/remote-status"
 import { formatReason } from "@/presenters/reasons"
-import type { Branch, BranchSyncState } from "@/stores/branch-sync"
-import { pushOrdersIn } from "@/stores/branch-sync"
+import type { Branch, BranchSyncState, PushOrders } from "@/stores/branch-sync"
 
 /** One push of a Push Up to Here, root first */
 export interface PushUpToStep {
@@ -52,9 +51,10 @@ function namedBranch(reason: Reason): string | undefined {
  * Push Up to Here of the commit `hash` (its copy) of the branch `name` as the view has it (`BranchPush.upTo`): the
  * branches it pushes first, whole, root first (those of Push Stack unless the view names others), then the branch up to
  * the commit, the last one the remote lacks pushing it whole; or why it can't, in the words of the reason. Null for a
- * commit that offers none: the remote has it, or a merged Safe Push landed it
+ * commit that offers none: the remote has it, or a merged Safe Push landed it. `orders`: the pushes of the branch in
+ * `state` (`pushOrdersIn`), whose Push Stack the view's own list replaces
  */
-export function pushUpToIn(state: BranchSyncState, name: string, hash: string): PushUpTo | null {
+export function pushUpToIn(state: BranchSyncState, orders: PushOrders, name: string, hash: string): PushUpTo | null {
   const remote = state.branches[name]?.remoteStatus
   if (remote == null || !pushUpToCommitsIn(state, name).includes(hash)) {
     return null
@@ -65,7 +65,7 @@ export function pushUpToIn(state: BranchSyncState, name: string, hash: string): 
     const reason = formatReason(upTo.blocker, branch => state.branches[branch]?.statusText ?? "")
     return show === undefined ? { ok: false, reason } : { ok: false, reason, show }
   }
-  const ancestors = upTo?.ancestors ?? pushOrdersIn(state, name).stack.slice(0, -1)
+  const ancestors = upTo?.ancestors ?? orders.stack.slice(0, -1)
   const steps: PushUpToStep[] = ancestors.map(ancestor => {
     const total = state.branches[ancestor]?.remoteStatus?.unpushedCommits.length ?? 0
     return { name: ancestor, sent: total, total }

@@ -18,18 +18,20 @@ import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
+import { getBranchesGitHubRepository, getPushRetargets, getRetargetCommand } from "@/lib/pull-request-now"
 import { pushFromButton, pushWithChildren } from "@/lib/push-run"
 import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
+import { getRobotActionItemsNow } from "@/lib/robot-items"
 import { formatPushWithChildrenLabel, stackOnFixes, stackProblemOf } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong } from "@/lib/whole-stack"
 import { getRowPart } from "@/model/store"
 import type { ActionItem, BlockerWords } from "@/presenters/actions"
-import { ACTION_LOOKS, findAction, getRobotActionItems, presentAction } from "@/presenters/actions"
+import { ACTION_LOOKS, findAction, presentAction } from "@/presenters/actions"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP } from "@/presenters/next-step"
-import { getRetargetCommand } from "@/presenters/pull-request-url"
-import { firstPushPending, firstPushWait, getPushButtonNow, isLandingPushAvailable } from "@/presenters/push-button"
+import type { PushButtonState } from "@/presenters/push-button"
+import { firstPushPending, firstPushWait, getPushButtonState, landingPushes, pushBlockerOf, retargetCandidates, unpushedParentIn } from "@/presenters/push-button"
 import { getRequestReviewItem } from "@/presenters/review"
 import { authStore } from "@/stores/auth"
 import type { Branch } from "@/stores/branch-sync"
@@ -40,8 +42,8 @@ import {
   getBranchTableOrder,
   getIssueGroups,
   getParkedState,
+  getOpenPullRequest,
   getPushOrders,
-  getSessionOperations,
   getStackAncestors,
   getStackBranch,
   getStackChildren,
@@ -51,12 +53,13 @@ import {
 } from "@/stores/branch-sync"
 import { commitMoveStore, getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
-import { indicatorsStore } from "@/stores/indicators"
+import { getOperationWords, indicatorsStore } from "@/stores/indicators"
 import { openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, getLandingBranchCount, getPushHold, isPatronusAvailable, isPatronusPending, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading, pullRequestsStore } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getSelectedRepositoryPath } from "@/stores/repository"
+import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, recheckReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { safePushStore } from "@/stores/safe-push"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
@@ -68,9 +71,34 @@ export function actionsOf(key: string): readonly ActionState[] | undefined {
   return getRowPart(key, "actions")
 }
 
+/**
+ * "Request Review…" of the open pull request of the subject `key` (a branch, `stack:<root>`) as the stores are now
+ * (`getRequestReviewItem`), for a menu built on open
+ */
+export function getRequestReviewItemNow(key: string): MenuItem | null {
+  return getRequestReviewItem({ pullRequest: getOpenPullRequest(key), actions: actionsOf(key), open: () => openRequestReview(key) }, { ...getOperationWords(), subject: key })
+}
+
+/**
+ * The push button of the branch as the stores are now (`getPushButtonState`), for the surfaces that list it as a menu
+ * item (the branch menu, the branch preview, the review): its label ("Push Branch (2)", "Force Push Branch (1)", "Push
+ * Stack (3 branches)") and what a click pushes, as the button renders it
+ */
+function getPushButtonNow(branch: Branch, isPushing: boolean): PushButtonState {
+  const unpushedParent = unpushedParentIn(branchSyncStore.getState(), getPushOrders(branch.name))
+  const retargets = getPushRetargets(retargetCandidates(branch.name, unpushedParent))
+  const blocker = pushBlockerOf(actionsOf(branch.name))
+  return getPushButtonState(branch, { isPushing, blocker, unpushedParent, retargets, runs: pushRunsOf(branch.name), ...getOperationWords() })
+}
+
+/** `useLandingPushes` outside a component, for the items built on demand (`landingPushes`) */
+function isLandingPushAvailable(branchName: string): boolean {
+  return landingPushes(isPatronusAvailable(), getBranchesGitHubRepository() !== null, getPullRequest(branchName)?.state)
+}
+
 /** What the words of a blocker of the branch read of its row, and the operations of the session now */
 function wordsOf(branch: Branch, step?: string | null): BlockerWords {
-  return { subject: branch.name, statusText: branch.statusText, operations: getSessionOperations(), ...(step !== undefined && { step }) }
+  return { ...getOperationWords(), subject: branch.name, statusText: branch.statusText, ...(step !== undefined && { step }) }
 }
 
 /** The item of the action `id` of the branch as Rust offers it (`presentAction`); null while it doesn't */
@@ -120,10 +148,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const nextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP
   const robot = getBranchRobot(branch.name)
   // its pull request is the branch's one, which "Open Pull Request" already opens
-  const robotActions =
-    robot === undefined
-      ? []
-      : getRobotActionItems(robot, getSessionOperations()).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
+  const robotActions = robot === undefined ? [] : getRobotActionItemsNow(robot).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
   const landingActions = present(
     // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
     nextStep.landingFix,
@@ -161,7 +186,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       }),
       pullRequest === undefined ? null : openPullRequestItemOf(pullRequest),
       // the row's step when it is the one (a group nobody of it can approve says so), else the action's item
-      nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItem(branch.name, getSessionOperations()),
+      nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItemNow(branch.name),
       // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
       findAction(actionsOf(branch.name), "retarget-pull-request") === undefined ? null : nextStep.retarget,
       getCreatePullRequestItem(branch),
@@ -268,7 +293,7 @@ function getParkMenuItems(branch: Branch): MenuItem[] {
  */
 function getPushMenuItems(branch: Branch): MenuItem[] {
   const isPushing = isBranchPushing(branch.name) || isStackPushing(branch.name)
-  const button = getPushButtonNow(branch, isPushing, pushRunsOf(branch.name), branchSyncStore.getState())
+  const button = getPushButtonNow(branch, isPushing)
   const push = branchItem(branch, "push", { label: button.text, onSelect: () => pushFromButton(branch.name, "row") })
   if (push === null) {
     return []

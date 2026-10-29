@@ -46,7 +46,7 @@ const PROMPTS = ["Copy Prompt for Agent", "Copy Prompt with CI Details"]
 
 /** The labels of the actions of `subject` Rust offers (`offered`), a disabled one with its reason */
 function labels(subject: PatronusRobot, offered: readonly ActionState[], stepReason: string | null = null): string[] {
-  return getRobotActionItems(subject, {}, { offered, stepReason }).map(it => (it.disabled === true ? `${it.label} (disabled: ${it.description})` : it.label))
+  return getRobotActionItems(subject, { operations: {}, named: {}, offered, stepReason }).map(it => (it.disabled === true ? `${it.label} (disabled: ${it.description})` : it.label))
 }
 
 /** The action `id` of a robot whose intent runs in the session as the operation `op` (`with_operations`) */
@@ -78,9 +78,9 @@ describe("getRobotActionItems", () => {
 
   it("runs the restart of the engine from both restarts, and shows one running in the session running on every surface", async () => {
     const failed = robot({})
-    const [restart] = getRobotActionItems(failed, {}, { offered: enabled("restart-robot") })
+    const [restart] = getRobotActionItems(failed, { operations: {}, named: {}, offered: enabled("restart-robot") })
     restart!.onSelect(FROM_MENU)
-    const [pushAndRestart] = getRobotActionItems(failed, {}, { offered: enabled("push-and-restart-robot") })
+    const [pushAndRestart] = getRobotActionItems(failed, { operations: {}, named: {}, offered: enabled("push-and-restart-robot") })
     pushAndRestart!.onSelect(FROM_MENU)
     await vi.waitFor(() => expect(calls).toEqual(["restart r1", "restart r1"]))
     // Rust lays the restart that runs over the actions of its robot: running, and the cancel waits for it
@@ -95,7 +95,7 @@ describe("getRobotActionItems", () => {
       },
     } as const satisfies Record<string, RunningOperation>
     const busy: ActionState = { id: "cancel-robot", availability: { kind: "disabled", reason: { code: "busy", op: "op" } } }
-    expect(getRobotActionItems(failed, operations, { offered: [runs("push-and-restart-robot"), busy] })).toMatchObject([
+    expect(getRobotActionItems(failed, { operations, named: {}, offered: [runs("push-and-restart-robot"), busy] })).toMatchObject([
       { running: true, disabled: true, description: "Restarting the Safe Push…" },
       { disabled: true, description: "Restarting robot r1…" },
     ])
@@ -103,26 +103,30 @@ describe("getRobotActionItems", () => {
 
   it("names what a restart of a robot of a branch changed since does: it cancels a running one, then pushes", () => {
     const running = robot({ status: "running", finishTime: null })
-    const actions = getRobotActionItems(running, {}, { offered: enabled("push-and-restart-robot", "cancel-robot", "open-robot") })
+    const actions = getRobotActionItems(running, { operations: {}, named: {}, offered: enabled("push-and-restart-robot", "cancel-robot", "open-robot") })
     expect(actions.map(it => it.id)).toEqual(["push-and-restart-robot", "cancel-robot", "open-robot"])
     expect(actions[0]!.description).toMatch(/^Cancels the run on .+, pushes IJPL-1 and starts it again on the pushed commit$/)
     const whole = robot({ id: "whole", branchName: null, stackRoot: "air", sourceRevision: "stack-tip" })
-    const [pushAndRestart] = getRobotActionItems(whole, {}, { offered: enabled("push-and-restart-robot") })
+    const [pushAndRestart] = getRobotActionItems(whole, { operations: {}, named: {}, offered: enabled("push-and-restart-robot") })
     expect(pushAndRestart).toMatchObject({ id: "push-and-restart-robot", description: "Pushes the whole air stack and starts it again on the pushed commit" })
   })
 
   it("names what a restart of a running robot a failed required check dooms does: it cancels it, then starts it again", () => {
     const failing = robot({ status: "running", finishTime: null, sourceRevision: "78ca3b88aa" })
-    const actions = getRobotActionItems(failing, {}, { offered: enabled("restart-robot", "cancel-robot", "copy-robot-prompt", "copy-robot-full-prompt", "open-robot") })
+    const actions = getRobotActionItems(failing, {
+      operations: {},
+      named: {},
+      offered: enabled("restart-robot", "cancel-robot", "copy-robot-prompt", "copy-robot-full-prompt", "open-robot"),
+    })
     expect(actions.map(it => it.label)).toEqual(["Restart Safe Push", "Cancel Safe Push", ...PROMPTS, "Open in Patronus"])
     expect(actions[0]!.description).toBe("Cancels the run on 78ca3b88 and starts it again on the remote branch")
     // a finished one is restarted as it is
-    expect(getRobotActionItems(robot({}), {}, { offered: enabled("restart-robot") })[0]!.description).toBeUndefined()
+    expect(getRobotActionItems(robot({}), { operations: {}, named: {}, offered: enabled("restart-robot") })[0]!.description).toBeUndefined()
   })
 
   it("cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from", async () => {
     const runningRobot = robot({ status: "running", finishTime: null, pullRequest: { number: 12, url: "https://github.com/acme/monorepo/pull/12" } })
-    const actions = getRobotActionItems(runningRobot, {}, { offered: enabled("cancel-robot", "open-robot", "open-robot-pull-request") })
+    const actions = getRobotActionItems(runningRobot, { operations: {}, named: {}, offered: enabled("cancel-robot", "open-robot", "open-robot-pull-request") })
     expect(actions.map(it => [it.id, it.label])).toEqual([
       ["cancel-robot", "Cancel Safe Push"],
       ["open-robot", "Open in Patronus"],
@@ -133,7 +137,7 @@ describe("getRobotActionItems", () => {
     }
     await vi.waitFor(() => expect(calls).toEqual(["cancel r1"]))
     expect(vi.mocked(openUrl).mock.calls.map(([url]) => url)).toEqual(["https://patronus/robot/r1", "https://github.com/acme/monorepo/pull/12"])
-    expect(getRobotActionItems(runningRobot, {}, { offered: [runs("cancel-robot")] })[0]).toMatchObject({
+    expect(getRobotActionItems(runningRobot, { operations: {}, named: {}, offered: [runs("cancel-robot")] })[0]).toMatchObject({
       running: true,
       description: "Canceling the Safe Push…",
     })
