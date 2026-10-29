@@ -2601,17 +2601,35 @@ rewrites между процессами через файл `s10`; `s12` ждё
 
 - **Цель:** ограды и завершение.
 - **Зависит от:** s12-app-api, s13-warm-start (и через них все остальные: allowlist пустеет последним).
-- **Объём и файлы:** allowlist архитектурного теста пуст; `lint:arch` полный (мутирующие `commands.` только в
-  `src/model/intents.ts`, нет модулей правил в `src/lib`, нет `getState()` view store в презентерах); scan-тесты git
-  на всех crates; `targets:` каждой спецификации; AGENTS.md: Feature Index, File Structure, индекс правил, «Never» —
-  «no domain rule in TS» с lint как enforcement; финальные `perf:table`, `perf:monorepo`, e2e и nextest против
-  `s0a`; статус документа → Implemented, когда отмечен каждый [критерий завершения](#критерии-завершения).
-  **Конкурентность:** scan-тест «ничего поперёк сети»: ни `tokio::sync::Mutex`/`RwLock`-guard, ни guard repository
-  lock не живёт через `.await` HTTP или через `push`/`fetch` (по образцу scan-тестов git); lock span всех ядер в
-  одной таблице; `lint:arch`: ни один модуль `src/` не читает выбранный проект после `await` в intent'е.
-- **Удаляется:** всё, что осталось в allowlist'ах.
-- **Проверки:** таблица бюджетов заполнена «до/после», C1–C14 тоже; каждая строка
-  [По областям](#по-областям) имеет пять [путей](#пути-конкурентности).
+- **Объём и файлы:** allowlist архитектурного теста пуст (`ALLOWED` пуст с s13, тест остаётся оградой); `lint:arch`
+  полный: `intent-call` — `commands.execute` и `commands.cancelOperation` только в `src/model/intents.ts` (переезд
+  `src/lib/run-intent.ts`), а каждая команда `app(…)` реестра — из одного модуля страницы (`APP_COMMAND_CALLERS`:
+  команда → модуль; второй вызывающий — ошибка; команды `app(…)` — не intents репозитория, у них нет плана);
+  `rule-module` без записей allowlist; `presenter-state` — ни `getState()` в `src/presenters/`; `late-project-read` —
+  ни одного чтения выбранного проекта (`getSelectedProject`, `getSelectedRepositoryPath`, `getDiffRepositoryPath`,
+  `getEffectiveBranchPrefix`, `getFullBranchName`, `getFullStackBranchName`, `vcsRequestFactory`,
+  `repositoryStore.getState()`) после первого `await` async-функции в `src/`; allowlist `lint:arch` держит только
+  таймеры UI правила `poll-timer`, которые оно допускает по замыслу. Scan-тесты git — на всех crates
+  (`production_sources`: `src-tauri` и каждый crate, кроме `test-utils`, чьи фикстуры идут через `git_command`).
+  `targets:` каждой спецификации проверяет `lint:specs`: путь существует; каждое правило `domain-policy` — target
+  спецификации, которую называет его `//!`; каждый презентер `src/presenters/*.ts` — target спецификации. AGENTS.md:
+  Feature Index, File Structure, индекс правил, «Never» — «no domain rule in TS» с lint как enforcement; финальные
+  `perf:table`, `perf:monorepo`, e2e и nextest против `s0a`; статус документа → Implemented, когда отмечен каждый
+  [критерий завершения](#критерии-завершения).
+  **Конкурентность:** scan-тест «ничего поперёк сети» (`crates/git-executor/src/concurrency_scan_test.rs`, на
+  `production_sources`, как scan-тесты git): guard async mutex (`.lock().await`, `.read().await`, `.write().await`) не
+  живёт через другой `.await` своей области (single-flight — общий future или `watch`, не mutex, п. 2
+  [инвариантов](#инварианты)); guard repository lock не живёт через `execute_remote_command*`, `fetch_baseline`,
+  `push_baseline`, метод сервиса GitHub, Patronus или YouTrack, `block_on`; исключение — файл, причина, точное число
+  (как у scan-тестов git), и первый список исключений пустеет в этом же этапе; lock span всех ядер в одной таблице
+  («Lock spans» в `git-operations.md`); `lint:arch` `late-project-read`.
+- **Удаляется:** всё, что осталось в allowlist'ах: запись `rule-module` allowlist `lint:arch`, исключения нового
+  scan-теста, `src/lib/run-intent.ts`.
+- **Проверки:** таблица бюджетов заполнена «до/после» (B1–B16 — замер на одной машине, как `s0a`, подраздел «Итог
+  s14» рядом с [Baseline s0a](#baseline-s0a)), C1–C14 тоже (графа «Чем проверяется» называет тест, который есть);
+  каждая строка [По областям](#по-областям) имеет пять [путей](#пути-конкурентности) в матрице «Пути по областям»
+  (ячейка — имя теста; «не применим» с причиной только там, где у пути нет смысла для строки: «два окна» у команды
+  `bd`, «`bd` рядом» у окна review; такая ячейка — решение рецензента архитектуры).
 - **Критерий выхода:** все критерии завершения отмечены.
 
 ## Матрица обязательных проверок
