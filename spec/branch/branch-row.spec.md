@@ -541,12 +541,16 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it`)
 - A hover must open a popup only once the pointer moved over its trigger (`hoverOpensOnMove` of
   `src/lib/pointer-moves.ts`, in the roots of `src/components/ui`): a tooltip, a hover card (the description of a push)
-  or a submenu whose trigger came under a still pointer (a row expanded or collapsed above it, a new branch on top, a
-  sync that reorders, a scroll) stays closed when the delay of its hover runs out, and the next move over the trigger
-  opens it after that delay. WebKit tells at once that the pointer is over an element that came under it: the
-  description of session's push opened so, Push session Only in it. A control that renders itself anew in its place
-  under the pointer keeps the hover: the "⋯" of a row whose move waits for the lock says whom for.
+  or a submenu of the row menu (Copy) whose trigger came under a still pointer (a row expanded or collapsed above it,
+  a new branch on top, a sync that reorders, a scroll, a badge before it that left) stays closed when the delay of its
+  hover runs out, and the next move over the trigger opens it after that delay. WebKit tells at once that the pointer
+  is over an element that came under it: the description of session's push opened so, Push session Only in it.
+  Another element is the same control only by its identity, never by its place: a control that renders itself anew as
+  another element names itself by `data-control-key`, its action and its subject (`more-actions:<branch>`: the "⋯" of
+  a row whose move waits for the lock says whom for, its tooltip open from "Moving…" on).
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no hover card or tooltip of a trigger that came under a still pointer, and open it at the next move`)
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no tooltip of a stack chip that slid into the place of a fixup badge under a still pointer, and open it at the next move`)
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no submenu of the row menu whose item came under a still pointer, and open it at the next move`)
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved`)
 - Space over a row must open the [branch preview](branch-preview.spec.md).
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should open the preview of the hovered branch with Space and step through the branches with the arrows`)

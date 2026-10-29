@@ -8,12 +8,21 @@
  *
  * A move is the task of the events at a new position of the pointer, the out, the over, the enter and the move of each
  * family; the events of a later task at the same position are none. Each family has its position: Chromium gives the
- * pointer events fractions of a pixel, the mouse events whole ones. The elements a move went over stay pointed until
- * the pointer leaves them. An element that took the place of the one the pointer moved over, in its parent, is pointed
- * as it was: a control that renders its state anew ("⋯" of a row that waits for the lock, its tooltip open before);
- * WebKit sends the over and the enter of such an element only in a later task, and the move of that task to its
- * parent, so the replay of the first hover of a lazy trigger points it itself (`markPointedOver`).
+ * pointer events fractions of a pixel, the mouse events whole ones. The elements the last move went over are pointed
+ * until the pointer leaves them. Another element is never the same control by its place: a badge that left a row
+ * slid the chip after it under the pointer. A control that renders itself anew as another element in its place names
+ * itself by `data-control-key`, its action and its subject ("⋯" of a row, from "Moving…" to "Waiting for …" with its
+ * tooltip open): the key the last move went over points its new element. The trigger that a lazy root mounts in the
+ * place of its plain one is the same control too (`markPointedOver`): WebKit sends its over and enter only in a later
+ * task, and the move of that task to its parent.
+ *
+ * A trigger whose open came before a move hears the next move over it as the pointer that enters it (a `mouseenter`):
+ * a tooltip of a warm group (another closed just before) opens at the enter only, and the pointer that moves inside the
+ * trigger enters it no more.
  */
+
+/** The attribute that names a control across its renders: its action and its subject, as `more-actions:auth` */
+export const CONTROL_KEY = "data-control-key"
 
 interface Position {
   x: number
@@ -25,9 +34,11 @@ const last: Record<"pointer" | "mouse", Position | null> = { pointer: null, mous
 let moving = false
 let endOfTask: MessagePort | null = null
 const moves = new WeakSet<Event>()
-const pointed = new WeakSet<Element>()
-// the element the last move went over, the deepest
-let under: Element | null = null
+// what the last move went over, the elements and the keys of the controls among them, until the pointer leaves them
+let pointed = new WeakSet<Element>()
+let pointedKeys = new Set<string>()
+// the triggers whose open by the hover was canceled: the next move over one enters it (`hoverOpensOnMove`)
+const refused = new WeakSet<Element>()
 
 function track(event: Event): void {
   if (!(event instanceof MouseEvent) || !event.isTrusted) {
@@ -39,6 +50,8 @@ function track(event: Event): void {
     last[family] = { x: event.clientX, y: event.clientY }
     if (!moving) {
       moving = true
+      pointed = new WeakSet()
+      pointedKeys = new Set()
       endOfTask?.postMessage(null)
     }
   }
@@ -49,11 +62,25 @@ function track(event: Event): void {
   if (event.type === "mouseleave" || event.type === "pointerleave") {
     if (target !== null) {
       pointed.delete(target)
+      const key = target.getAttribute(CONTROL_KEY)
+      if (key !== null) {
+        pointedKeys.delete(key)
+      }
     }
-  } else if (moving && target !== null && !event.type.endsWith("out")) {
-    under = target
+  } else if (moving && !event.type.endsWith("out")) {
     for (let element: Element | null = target; element !== null; element = element.parentElement) {
       pointed.add(element)
+      const key = element.getAttribute(CONTROL_KEY)
+      if (key !== null) {
+        pointedKeys.add(key)
+      }
+      if (refused.has(element)) {
+        refused.delete(element)
+        const trigger = element
+        const init = { clientX: event.clientX, clientY: event.clientY, view: window }
+        // after the event of the move, as the pointer that came over the trigger
+        queueMicrotask(() => trigger.dispatchEvent(new MouseEvent("mouseenter", init)))
+      }
     }
   }
 }
@@ -77,15 +104,12 @@ export function pointerMoved(event: Event | undefined): boolean {
 }
 
 /**
- * The pointer moved over the element and has not left it, or over the one it replaced: the element the last move went
- * over left the page, and the parent of this one is pointed. Content that moved under the pointer is neither
+ * The pointer moved over the element and has not left it, or over the control it renders anew (its `CONTROL_KEY`).
+ * Content that moved under the pointer is neither
  */
 export function pointerMovedOver(element: Element): boolean {
-  if (pointed.has(element)) {
-    return true
-  }
-  const parent = element.parentElement
-  return under !== null && !under.isConnected && parent !== null && pointed.has(parent)
+  const key = element.getAttribute(CONTROL_KEY)
+  return pointed.has(element) || (key !== null && pointedKeys.has(key))
 }
 
 /** The pointer moved over the element: it took the place of one the pointer moved over (`useLazyRoot`) */
@@ -109,6 +133,9 @@ export function hoverOpensOnMove<Details extends OpenChangeDetails>(onOpenChange
   return (open, details) => {
     if (open && details.reason === "trigger-hover" && !(details.trigger === undefined ? pointerMoved(details.event) : pointerMovedOver(details.trigger))) {
       details.cancel()
+      if (details.trigger !== undefined) {
+        refused.add(details.trigger)
+      }
       return
     }
     onOpenChange?.(open, details)

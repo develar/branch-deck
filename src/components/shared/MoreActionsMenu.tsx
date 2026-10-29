@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { useLazyRoot } from "@/hooks/useLazyRoot"
 import type { MenuItem } from "@/lib/menu"
+import { CONTROL_KEY } from "@/lib/pointer-moves"
 
 export interface MoreActionsMenuProps {
   /** The object of the actions, for the accessible name: "More actions for feature-auth" */
@@ -35,6 +36,8 @@ export interface MoreActionsMenuProps {
  */
 export function MoreActionsMenu({ name, menu, disabled = false, busy = null, stopWaiting = null }: MoreActionsMenuProps) {
   const root = useLazyRoot(true)
+  // each state renders another button in the place of the last: one control for the hover (`CONTROL_KEY`)
+  const control = { [CONTROL_KEY]: `more-actions:${name}` }
   if (!root.armed) {
     // the button of the branch below that the state renders, closed: a menu unless an action runs without Stop Waiting
     const menuTrigger = busy === null || stopWaiting !== null
@@ -44,6 +47,7 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
         size="icon-xs"
         className="text-muted-foreground"
         aria-label={`More actions for ${name}`}
+        {...control}
         aria-haspopup={menuTrigger ? "menu" : undefined}
         aria-expanded={menuTrigger ? "false" : undefined}
         aria-busy={busy === null ? undefined : true}
@@ -62,7 +66,11 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger
-            render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} aria-busy />} />}
+            render={
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} {...control} aria-busy />}
+              />
+            }
           >
             <Spinner />
           </TooltipTrigger>
@@ -79,7 +87,18 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
     return (
       <Tooltip>
         <TooltipTrigger
-          render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} aria-busy disabled focusableWhenDisabled />}
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              aria-label={`More actions for ${name}`}
+              {...control}
+              aria-busy
+              disabled
+              focusableWhenDisabled
+            />
+          }
         >
           <Spinner />
         </TooltipTrigger>
@@ -92,7 +111,10 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
       <Tooltip>
         <TooltipTrigger
           render={
-            <DropdownMenuTrigger disabled={disabled} render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} />} />
+            <DropdownMenuTrigger
+              disabled={disabled}
+              render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} {...control} />}
+            />
           }
         >
           <EllipsisIcon />

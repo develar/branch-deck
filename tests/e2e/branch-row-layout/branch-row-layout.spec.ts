@@ -20,7 +20,7 @@ import { pressCopyKey, testContextMenuCopy, readClipboard } from "../helpers/cli
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { pushedRemote, waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, pushedRemote, runAndWaitForSync, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 test.describe("Branch Row Layout and Copy Functionality", () => {
@@ -332,6 +332,79 @@ test.describe("Hover over rows that move", () => {
       await page.mouse.move(at.x + 1, at.y)
       await page.clock.fastForward(1000)
       await expect(tooltip).toBeVisible()
+    },
+  )
+
+  test(
+    "should open no tooltip of a stack chip that slid into the place of a fixup badge under a still pointer, and open it at the next move",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // a fixup of auth: its badge after the name of the root, before the chip of its stack
+      const repo = await setupRepo("stacked_branches")
+      const fixup = await repo.commit("fixup! (auth) Add auth module", { "auth-fix.js": "export const fix = 1\n" }, 1704128400)
+      await syncAndWaitForBranches()
+      const auth = findBranchRow(page, "auth")
+      const badge = auth.getByTestId("branch-fixup-count")
+      const chip = auth.getByTestId("stack-chip")
+      const tooltip = page.getByRole("tooltip")
+      await expect(badge).toBeVisible()
+      // the pointer over the start of the badge, in the cell the chip shares with it
+      const box = (await badge.boundingBox())!
+      const point = { x: box.x + 4, y: box.y + box.height / 2 }
+      const chipIsUnder = () => chip.evaluate((element, at) => element.contains(document.elementFromPoint(at.x, at.y)), point)
+      await page.mouse.move(point.x, point.y)
+      expect(await chipIsUnder()).toBe(false)
+
+      // the fixup reworded in a terminal: the sync drops the badge, the chip slides into its place under the pointer
+      await repo.reword(fixup, "(auth) Fix the auth module")
+      await runAndWaitForSync(page, () => emitTauriEvent(page, "sync_branches"))
+      await expect(badge).toHaveCount(0)
+      await expect.poll(chipIsUnder).toBe(true)
+      await page.mouse.move(point.x, point.y)
+      // its root mounted at the pointer over it: another control than the badge, its tooltip stays closed
+      await expect(chip).toHaveAttribute("id", /^base-ui-/)
+      await page.clock.fastForward(1000)
+      await expect(tooltip).toHaveCount(0)
+      // a move of a pixel over the chip opens it after the delay
+      await page.mouse.move(point.x + 1, point.y)
+      await page.clock.fastForward(1000)
+      await expect(tooltip).toContainText("auth")
+    },
+  )
+
+  test(
+    "should open no submenu of the row menu whose item came under a still pointer, and open it at the next move",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("stacked_branches")
+      await syncAndWaitForBranches()
+      const docs = findBranchRow(page, "docs")
+      await getMoreButton(docs).click()
+      const copy = page.getByRole("menuitem", { name: "Copy" })
+      const submenu = page.getByRole("menu").filter({ has: page.getByRole("menuitem", { name: /^Copy Branch Name/ }) })
+      await expect(copy).toBeVisible()
+      // a branch that begins later comes on top: the rows and the menu under "⋯" of docs move down a row; the pointer
+      // goes below Copy, where it will be
+      const box = (await copy.boundingBox())!
+      const rowHeight = (await docs.boundingBox())!.height
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 + rowHeight }
+      const copyIsUnder = () => copy.evaluate((element, at) => element.contains(document.elementFromPoint(at.x, at.y)), point)
+      await page.mouse.move(point.x, point.y)
+      expect(await copyIsUnder()).toBe(false)
+
+      await repo.commit("(fresh) Add a fresh note", { "fresh.md": "fresh\n" }, 1704128400)
+      await runAndWaitForSync(page, () => emitTauriEvent(page, "sync_branches"))
+      await expect(findBranchRow(page, "fresh")).toBeVisible()
+      await expect.poll(copyIsUnder).toBe(true)
+      await page.mouse.move(point.x, point.y)
+      // the item knows the pointer is over it, and the delay of its submenu runs out: the submenu stays closed
+      await expect(copy).toHaveAttribute("data-highlighted", "")
+      await page.clock.fastForward(1000)
+      await expect(submenu).toHaveCount(0)
+      // a move of a pixel over Copy opens it after the delay
+      await page.mouse.move(point.x + 1, point.y)
+      await page.clock.fastForward(1000)
+      await expect(submenu).toBeVisible()
     },
   )
 })

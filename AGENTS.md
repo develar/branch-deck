@@ -220,7 +220,8 @@ Mistakes agents made here; each cost a session.
   layout: test the focus and the popups in `pnpm e2e:webkit` too (`{ tag: "@webkit" }`).
 - **Content that moves under a still pointer**: WebKit tells the over and the enter of the element that came under it
   at once (trusted, at the same position), and moves the pointer where it is after a scroll. A hover opens a popup only
-  after a move over its trigger (`hoverOpensOnMove`, `src/lib/pointer-moves.ts`); its E2E test brings a trigger under
+  after a move over its trigger (`hoverOpensOnMove`, `src/lib/pointer-moves.ts`); a control that renders itself anew
+  as another element keeps it only by its `data-control-key`, never by its place. Its E2E test brings a trigger under
   the pointer with `bringUnderStillPointer` and runs the delay with `page.clock.fastForward`.
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
   caret at 0 and the text lands at the start.
