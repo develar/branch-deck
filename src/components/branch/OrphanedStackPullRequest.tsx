@@ -3,11 +3,12 @@ import { cn } from "cn"
 import { GitPullRequestClosedIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
-import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
+import { getCloseStackPullRequestItem } from "@/hooks/useWholeStackActions"
+import { describeOrphanedStackPullRequest, stackReadinessKey } from "@/lib/whole-stack"
+import { useRowPart } from "@/model/store"
 import { useStackBranch } from "@/stores/branch-sync"
-import { requestReveal } from "@/stores/commit-move"
-import { openInline } from "@/stores/inline-row-action"
 import { useStackLandedBy } from "@/stores/landed-stacks"
 import { useStackPullRequest } from "@/stores/pull-requests"
 
@@ -34,26 +35,51 @@ export function OrphanedStackPullRequestLine({ root, className }: { root: string
 }
 
 /**
- * "Close Pull Request #12…" of the pull request of the whole stack of `root`: the confirmation opens in the root's row
- * (an open preview closes first); `link` in a sentence, `ghost` beside the actions of the island header
+ * "Close Pull Request #12…" of the pull request of the whole stack of `root`, which no longer matches it (`orphaned`):
+ * the confirmation opens in the root's row (an open preview closes first); `link` in a sentence, `ghost` beside the
+ * actions of the island header. Disabled with the reason in its hover as Rust decides it (`getCloseStackPullRequestItem`:
+ * "Waits for the first sync" on the frame of an earlier run), none while Rust doesn't offer it
  */
-export function ClosePullRequestButton({ root, number, variant = "link", className }: { root: string; number: number; variant?: "link" | "ghost"; className?: string }) {
+export function ClosePullRequestButton({
+  root,
+  number,
+  orphaned,
+  variant = "link",
+  className,
+}: {
+  root: string
+  number: number
+  orphaned: string
+  variant?: "link" | "ghost"
+  className?: string
+}) {
   const closePreview = useContext(ClosePreviewContext)
-  return (
+  const item = getCloseStackPullRequestItem(root, number, orphaned, useRowPart(stackReadinessKey(root), "actions"), closePreview ?? undefined)
+  if (item === null) {
+    return null
+  }
+  const button = (
     <Button
       variant={variant}
       size="xs"
       className={cn(variant === "link" && "h-auto p-0", className)}
       data-testid="close-stack-pull-request"
-      onClick={() => {
-        closePreview?.()
-        requestReveal({ branchName: root, commitIds: [] })
-        openInline("close-stack-pull-request", root)
-      }}
+      disabled={item.disabled === true}
+      onClick={() => item.onSelect({ surface: null })}
     >
       <GitPullRequestClosedIcon data-icon="inline-start" />
-      {`Close Pull Request #${number}…`}
+      {item.label}
     </Button>
+  )
+  if (item.disabled !== true) {
+    return button
+  }
+  return (
+    <Tooltip>
+      {/* a span: a disabled button gets no pointer events */}
+      <TooltipTrigger render={<span className="inline-flex" />}>{button}</TooltipTrigger>
+      <TooltipContent>{item.description}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -72,7 +98,7 @@ export function OrphanedStackPullRequestNotice({ root }: { root: string }) {
       <TriangleAlertIcon />
       <AlertDescription className="flex flex-wrap items-center gap-x-2">
         {`${text}.`}
-        <ClosePullRequestButton root={root} number={pullRequest.number} />
+        <ClosePullRequestButton root={root} number={pullRequest.number} orphaned={text} />
       </AlertDescription>
     </Alert>
   )

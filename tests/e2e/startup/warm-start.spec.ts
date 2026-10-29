@@ -5,6 +5,8 @@ import { branchTree, findBranchRow, unstackOauthFromMenuWaiting } from "../helpe
 import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import type { FirstRowsIpc } from "../helpers/ipc-helpers"
 import { firstRowsAsks, recordIpcAtFirstRows } from "../helpers/ipc-helpers"
+import { availablePullRequests, stackPullRequest, withStackPullRequests } from "../helpers/pull-request-helpers"
+import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { emitTauriEvent, finishedSyncCount } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -86,6 +88,46 @@ test.describe("The warm start", () => {
     // the window records the run it never saw: the time of the sync and the room of the loading table at the next start
     await waitForStorePersistence(page, "repositoryState", states => (states as LastSyncs | undefined)?.[repo.path!]?.lastBranchCount === FRAME_TREE.length)
     expect(await branchTree(page)).toEqual(FRAME_TREE)
+  })
+
+  test("ends the first sync once: a reload of the window after it ends no run", async ({ page, setupRepo }) => {
+    const repo = await startWarmWithTheSyncHeld(page, setupRepo)
+    await releaseTheFirstSync(page, repo)
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
+
+    // a reload (F5, a dev reload): the init script hands the page the same seed, whose end the page before it handled
+    await page.reload()
+    await expect(findBranchRow(page, "oauth")).toBeVisible()
+    // the session answers its snapshot, the table of this run: the rows of the frame no more, and no run ended here
+    await expect(page.locator("[data-cached]")).toHaveCount(0)
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "0")
+    expect(await branchTree(page)).toEqual(FRAME_TREE)
+  })
+
+  test("says the close of a pull request of a stack that is no more waits for the first sync on the rows of the frame", async ({ page, setupRepo }) => {
+    // docs heads no stack, and its stack branch still has #12: the frame keeps the pull requests as GitHub listed them
+    const pullRequests = withStackPullRequests(availablePullRequests(), { docs: stackPullRequest("docs", 12) })
+    const repo = await setupRepo("stacked_branches", { warmStart: true, pullRequests })
+    await expect.poll(async () => (await repo.sessionView())?.facts.pullRequests.stackPullRequests.docs?.number).toBe(12)
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
+    await reloadWarm(page, repo)
+    await expect(page.locator("[data-cached=true]")).toBeVisible()
+
+    const preview = await openBranchPreview(page, "docs")
+    const notice = preview.getByTestId("orphaned-stack-pull-request")
+    await expect(notice).toContainText("#12 no longer matches the docs stack: it no longer forks.")
+    const close = notice.getByRole("button", { name: "Close Pull Request #12…" })
+    await expect(close).toBeDisabled()
+    // the hover of a disabled button is its wrapper's
+    await close.locator("..").hover()
+    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for the first sync" })).toBeVisible()
+
+    await releaseTheFirstSync(page, repo)
+    await expect(close).toBeEnabled()
+    await close.click()
+    await expect(preview).toHaveCount(0)
+    const confirm = page.locator('tr[data-branch-of="docs"]').filter({ has: page.getByRole("button", { name: "Close Pull Request", exact: true }) })
+    await expect(confirm).toContainText("Close pull request #12")
   })
 
   test("says a push of the rows of the frame waits for the first sync, and offers it once the sync committed", async ({ page, setupRepo }) => {

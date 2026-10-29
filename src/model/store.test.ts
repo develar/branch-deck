@@ -246,6 +246,31 @@ describe("the warm start", () => {
     expect(plans).toHaveBeenCalledWith({ repositoryPath: "/repo" })
   })
 
+  it("ends the first sync once: a reload that installs the seed again after the end was told gets the snapshot, which ends no run", async () => {
+    const seed = seedOf("a")
+    fakeSessions.seed("/repo", seed)
+    adoptCachedModel({ repositoryPath: "/repo", view: seed })
+    await whenSessionReady()
+    // the first sync commits while the window holds the frame: its patch tells the window the end
+    await send({ ...grouping("a", "b"), cached: false })
+    expect(branchSyncStore.getState().syncCount).toBe(1)
+    expect(syncRecords).toHaveLength(1)
+    syncRecords.length = 0
+
+    // the window reloads: its page loads the modules afresh, and the init script hands it the same seed
+    closeSession()
+    vi.resetModules()
+    const reloaded = await import("@/model/store")
+    const table = (await import("@/stores/branch-sync")).branchSyncStore
+    reloaded.adoptCachedModel({ repositoryPath: "/repo", view: seed })
+    expect(table.getState()).toMatchObject({ branchOrder: ["a"], cached: true })
+    await reloaded.whenSessionReady()
+    // the snapshot of the session: the table of this run, and no run ended in this window, none recorded
+    expect(table.getState()).toMatchObject({ branchOrder: ["a", "b"], cached: false, syncedRepositoryPath: "/repo", syncCount: 0 })
+    expect(syncRecords).toEqual([])
+    reloaded.closeSession()
+  })
+
   it("keeps the seed when the session sent nothing since, and leaves a model of another project", async () => {
     const seed = seedOf("a")
     adoptCachedModel({ repositoryPath: "/other", view: seed })

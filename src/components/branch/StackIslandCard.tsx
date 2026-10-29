@@ -253,8 +253,9 @@ function StackPullRequestButton({ root }: { root: string }) {
   if (pullRequest?.state !== "open") {
     return null
   }
-  if (describeOrphanedStackPullRequest(root, pullRequest, stack, landedBy) !== null) {
-    return <ClosePullRequestButton root={root} number={pullRequest.number} variant="ghost" className="text-warning" />
+  const orphaned = describeOrphanedStackPullRequest(root, pullRequest, stack, landedBy)
+  if (orphaned !== null) {
+    return <ClosePullRequestButton root={root} number={pullRequest.number} orphaned={orphaned} variant="ghost" className="text-warning" />
   }
   return (
     <Tooltip>

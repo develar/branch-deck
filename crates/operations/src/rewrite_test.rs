@@ -1,7 +1,7 @@
 use crate::engine::execute;
 use crate::events::NoEvents;
 use crate::land_execute::Accepted;
-use crate::push::push_test::{Fixture, OFFLINE, alone, fixture, registry_on, test_host, waits_for_the_agent};
+use crate::push::push_test::{Fixture, OFFLINE, alone, assert_done, fixture, registry_on, test_host, waits_for_the_agent};
 use crate::rewrite::execute_rewrite;
 use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
@@ -24,8 +24,8 @@ use repository_model::session::{RunReporter, SessionHost, SessionKey, Subscriber
 use repository_model::warm_start::{CachedSession, frame_of};
 use std::collections::HashSet;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sync_core::sync_inputs::SyncInputs;
 use tokio::sync::watch;
@@ -699,11 +699,13 @@ async fn an_amend_waiting_for_the_lock_of_another_process_that_rewrites_below_it
 }
 
 /// The host of the sessions of a start after the one that saved `frame`: the worktree was synced before, so a session
-/// seeds from the frame as it opens and syncs (`SyncReason::Open`); each sync waits until the test releases the syncs
+/// seeds from the frame as it opens and syncs (`SyncReason::Open`); each sync waits until the test releases the syncs,
+/// and the first one released after `HeldSyncs::fail` fails with its error
 struct Seeded {
   host: Arc<dyn SessionHost>,
   frame: CachedSession,
   released: watch::Receiver<bool>,
+  failure: Arc<Mutex<Option<ApiError>>>,
   runs: Arc<AtomicUsize>,
 }
 
@@ -714,10 +716,14 @@ impl SessionHost for Seeded {
 
   fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
     self.runs.fetch_add(1, Ordering::SeqCst);
-    let (run, mut released) = (self.host.run(key, reporter), self.released.clone());
+    let (run, mut released, failure) = (self.host.run(key, reporter), self.released.clone(), Arc::clone(&self.failure));
     Box::pin(async move {
       let _ = released.wait_for(|released| *released).await;
-      run.await
+      let failed = failure.lock().unwrap().take();
+      match failed {
+        Some(error) => Err(error),
+        None => run.await,
+      }
     })
   }
 
@@ -745,12 +751,20 @@ impl SessionHost for Seeded {
 /// The syncs of a seeded start, held until `release`
 struct HeldSyncs {
   release: watch::Sender<bool>,
+  failure: Arc<Mutex<Option<ApiError>>>,
   runs: Arc<AtomicUsize>,
 }
 
 impl HeldSyncs {
   fn release(&self) {
     self.release.send_replace(true);
+  }
+
+  /// The sync that runs fails with `error` as it is released (a sync of a git without an identity: `no_identity`); the
+  /// next ones run
+  fn fail(&self, error: ApiError) {
+    *self.failure.lock().unwrap() = Some(error);
+    self.release();
   }
 
   /// The syncs the sessions ran so far
@@ -785,17 +799,18 @@ async fn seeded<T>(meanwhile: impl FnOnce(&Fixture) -> T) -> (Fixture, HeldSyncs
   let Fixture { repo, registry, .. } = earlier;
   drop(registry);
   let (release, released) = watch::channel(false);
-  let runs = Arc::new(AtomicUsize::new(0));
+  let (failure, runs) = (Arc::new(Mutex::new(None)), Arc::new(AtomicUsize::new(0)));
   let host = Seeded {
     host: test_host(),
     frame,
     released,
+    failure: Arc::clone(&failure),
     runs: Arc::clone(&runs),
   };
   let (registry, key) = registry_on(&repo, Arc::new(host), false).await;
   let (_, view) = registry.sessions().subscribe(&key, Box::new(Window)).await.unwrap();
   assert!(view.cached, "the window shows the frame");
-  (Fixture { repo, registry, key }, HeldSyncs { release, runs }, answered)
+  (Fixture { repo, registry, key }, HeldSyncs { release, failure, runs }, answered)
 }
 
 impl Fixture {
@@ -840,9 +855,10 @@ async fn an_unstack_on_a_seeded_table_waits_for_the_first_sync_and_runs_once_it_
 }
 
 /// A remote intent pressed on the table a start seeded from the frame of the start before (a start, a merge of a pull
-/// request and the cancel of its auto-merge, a retarget, a restart or a cancel of a robot) is refused before it is
-/// admitted, as its actions wait there: its plan would take the checks, the reviews and the robots of the frame for
-/// those of now. Nothing runs, HEAD stays, the first sync goes on and commits the table
+/// request and the cancel of its auto-merge, a retarget, the close of the pull request of a whole stack that no longer
+/// matches it, a restart or a cancel of a robot) is refused before it is admitted, as its actions wait there: its plan
+/// would take the checks, the reviews and the robots of the frame for those of now. Nothing runs, HEAD stays, the first
+/// sync goes on and commits the table
 #[tokio::test(flavor = "multi_thread")]
 async fn a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted() {
   let (fixture, syncs, ()) = seeded(|_| ()).await;
@@ -855,6 +871,10 @@ async fn a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted() {
     land_intent("alpha", PatronusPushMode::RebaseAutosquash),
     Intent::DisableAutoMerge { number: 7 },
     Intent::Retarget { number: 7 },
+    Intent::ClosePullRequest {
+      number: 12,
+      comment: "Closed in Branch Deck: #12 no longer matches the alpha stack.".to_owned(),
+    },
     Intent::RestartRobot { robot_id: "r1".to_owned() },
     Intent::CancelRobot { robot_id: "r1".to_owned() },
   ];
@@ -871,6 +891,34 @@ async fn a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted() {
   assert_eq!(fixture.operations().await, Vec::new(), "nothing was admitted");
   assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head);
   fixture.commit_first_sync(&syncs).await;
+}
+
+/// Push Branch pressed on a seeded table by a caller that read no action (its key, a toast) waits for the first sync of
+/// the session (`WaitingForSync`). When that sync fails (here a git without an identity, `no_identity`), the rows stay
+/// the frame of the earlier start, whose tips no sync of this process read: the push is refused in the words of its
+/// action there, sends nothing and leaves the view. Once a sync committed the table, the same push sends the branch
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_that_waited_for_a_first_sync_that_failed_is_refused_and_sends_nothing() {
+  let (fixture, syncs, ()) = seeded(|_| ()).await;
+  let push = alone("beta", None);
+  let first_sync_fails = async {
+    fixture.until_waiting_for_sync().await;
+    syncs.fail(ApiError::new(ErrorCode::NoIdentity, "Git has no identity to write the notes of the sync"));
+  };
+  let (refused, ()) = within_a_minute(Box::pin(async { tokio::join!(fixture.execute(&push, Vec::new()), first_sync_fails) })).await;
+  let refused = refused.unwrap_err();
+  assert_eq!(
+    (refused.code, refused.message.as_str()),
+    (ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run")
+  );
+  assert!(fixture.cached().await, "the failed sync left the frame");
+  assert_eq!(fixture.remote_branches(), "", "nothing was pushed");
+  assert_eq!(fixture.operations().await, Vec::new());
+
+  fixture.synced().await;
+  assert!(!fixture.cached().await);
+  assert_done(&fixture.execute(&push, Vec::new()).await);
+  assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/beta");
 }
 
 /// A move pressed on a seeded table whose HEAD another process moved after the frame was saved (`bd reword` of the

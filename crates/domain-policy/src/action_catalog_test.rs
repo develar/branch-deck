@@ -200,6 +200,7 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::SafePushMainLine
       | ActionId::OpenStackPullRequest
       | ActionId::CreateStackPullRequest
+      | ActionId::CloseStackPullRequest
       | ActionId::ReviewWholeStack
       | ActionId::RestartRobot
       | ActionId::PushAndRestartRobot

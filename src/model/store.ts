@@ -484,8 +484,10 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
     update.groupedRun = runCount
   }
   // a run ended: the window saw it run, or the first sync of the session committed the table before the window heard
-  // of it (the catch-up from the seed, idle on both sides, is the frame of an earlier run no more)
-  const ended = !running && (wasRunning || (previous?.cached === true && !next.cached && next.header.head !== ""))
+  // of it (the catch-up from the seed, idle on both sides, is the frame of an earlier run no more). A snapshot over the
+  // seed ends none: the session answers it once a window that held the seed was told that end (a reload of the window,
+  // which installs the seed again), or a session of another epoch does
+  const ended = !running && (wasRunning || (changes !== null && previous?.cached === true && !next.cached && next.header.head !== ""))
   if (ended) {
     update.syncCount = state.syncCount + 1
     // a run no request of this window waits for (the session's own on open, the follow-up of a rewrite, `bd`, another

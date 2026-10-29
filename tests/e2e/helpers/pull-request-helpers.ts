@@ -112,6 +112,16 @@ export function pullRequest(branchName: string, number: number, patch: Partial<P
   }
 }
 
+/** The open pull request of the stack branch of `root`; its empty head is the stack branch the sync built */
+export function stackPullRequest(root: string, number: number, patch: Partial<PullRequest> = {}): PullRequest {
+  return pullRequest(root, number, { title: `The whole ${root} stack`, headRefName: `${BRANCH_PREFIX}/stack/${root}`, ...patch })
+}
+
+/** `result` with the pull requests of the stack branches `stacks`, by the root of each stack */
+export function withStackPullRequests(result: GitHubFixture, stacks: Record<string, PullRequest>): GitHubFixture {
+  return { ...result, stackPullRequests: stacks }
+}
+
 /**
  * A reviewer of a pull request: `state` is the latest submitted review, `requested` an open review request (by default
  * only for one who hasn't reviewed); a re-requested approver is `reviewer("alice", "approved", true)`

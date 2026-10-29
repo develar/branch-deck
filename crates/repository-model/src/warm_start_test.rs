@@ -20,7 +20,7 @@ pub(crate) fn key() -> SessionKey {
   }
 }
 
-fn github() -> PullRequestAvailability {
+pub(crate) fn github() -> PullRequestAvailability {
   PullRequestAvailability::Available {
     owner: "acme".to_owned(),
     name: "monorepo".to_owned(),

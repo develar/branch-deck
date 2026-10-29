@@ -1685,7 +1685,8 @@ async fn a_window_that_holds_the_seed_catches_up_by_one_patch() {
 
 /// The start of the app opens the session of the frame it read (`open_seeded`): the session answers the seed of that
 /// frame, `cached` at the first version of its epoch, the host's own frame not read, and syncs with no window (the
-/// worktree was synced before); a window that holds the seed and subscribes during that sync catches up and joins it
+/// worktree was synced before); a window that holds the seed and subscribes during that sync catches up and joins it;
+/// once the patch of that sync's table told it the end, a reload of it gets the snapshot
 #[tokio::test]
 async fn a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs_with_no_window() {
   // synced before, with no frame of the host: the seed can only be the start's
@@ -1704,11 +1705,11 @@ async fn a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs
   assert!(running.version.seq > 0, "the sync of the open patched the view with no window");
 
   let window = Window::default();
-  let (_, joined) = sessions.subscribe_from(&key, Box::new(window.clone()), Some(seed.version)).await.unwrap();
+  let (id, joined) = sessions.subscribe_from(&key, Box::new(window.clone()), Some(seed.version)).await.unwrap();
   let Joined::CatchUp(catch_up) = joined else {
     panic!("the window that holds the seed catches up, not {joined:?}");
   };
-  let mut shown = seed;
+  let mut shown = seed.clone();
   crate::patch::apply_patch(&mut shown, *catch_up).unwrap();
   assert!(matches!(shown.sync, SyncState::Running { .. }));
   gate.notify_one();
@@ -1718,6 +1719,11 @@ async fn a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs
   }
   assert_eq!(shown, synced);
   assert_eq!(host.runs(), 1, "the window joined the sync of the open");
+
+  // the window was told the end of the first sync: a reload of it, which installs the seed again, gets the snapshot
+  sessions.unsubscribe(id);
+  let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), Some(seed.version)).await.unwrap();
+  assert_eq!(joined, Joined::Snapshot(Box::new(snapshot(&sessions, &key).await)));
 }
 
 /// A window that comes back to a session kept idle (a switch back within `IDLE_LIMIT`) syncs it as a window that opens

@@ -10,7 +10,8 @@
 //! files don't name, no prefix or no git: no model, the page starts as without a cache.
 //!
 //! A reload runs the same script: the page installs that seed again, and the session that still holds it catches the
-//! window up from it; a session opened since (another epoch) answers its snapshot.
+//! window up from it; a session that told a window the table of its first sync since (`View::told`), or one opened
+//! since (another epoch), answers its snapshot, whose run the page doesn't take for one that ended.
 
 use app_api::context::AppContext;
 use domain_types::session::CachedModel;

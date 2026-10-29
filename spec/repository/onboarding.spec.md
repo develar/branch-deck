@@ -207,11 +207,14 @@ alert with the reason and the next step, never a raw Git error.
   (`data-cached` on the table) and subscribes holding the seed (`subscribe_view` with `have`): the answer is the patch
   from it to the view of the session, or nothing; the rows come with that one command and its channel. Until the first
   sync commits, the rows are of the frame (`RepositoryView.cached`): a push and every other action of the remote (on
-  the merge route the merge of the pull request and Cancel Auto-Merge too) waits for it ("Waits for the first sync"),
-  and the backend refuses such an intent there (`plan_changed`) whoever asks it; a rewrite pressed then (Unstack) says
+  the merge route the merge of the pull request and Cancel Auto-Merge too, the close of a pull request of a stack
+  that is no more) waits for it ("Waits for the first sync"), and the backend refuses such an intent there
+  (`plan_changed`) whoever asks it, also a push that waited for a first sync that failed; a rewrite pressed then (Unstack) says
   it waits ("Unstacking oauth after the sync") and runs on the table the sync committed, and a focus during that sync
   is one check after it. A first sync that committed before the subscription answered ends in the window as any run
-  does: the count of Sync, "Last synced just now", the fixups of its table. The frame
+  does: the count of Sync, "Last synced just now", the fixups of its table. It ends once: the session keeps the seed
+  only until a window that held it got the table of this run, so a reload of the window, whose init script hands the
+  page the same seed, gets the view of the session and ends no run (no count, no new "Last synced"). The frame
   keeps the landing needs with the tips they are of: a first sync that leaves those tips computes them not again, and
   no step of a row waits for them anew ("Checking what … needs to land"); the next steps, the starts and the actions of
   the rows change once, when that sync commits (the view of the robots it derives goes in the same patch when it
@@ -220,17 +223,20 @@ alert with the reason and the next step, never a raw Git error.
   reload after a switch) start as before, without rows until the first sync.
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`shows the rows of the frame before the first sync, asking only for the subscription, and the first sync's table after it`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`handles the end of a first sync that committed before the subscription answered as the end of any run`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`ends the first sync once: a reload of the window after it ends no run`)
+  [@test] ../../crates/repository-model/src/state_test.rs (`a_seeded_view_is_the_frame_at_the_first_version_and_a_window_that_holds_it_catches_up`, `the_seed_seeds_a_window_until_one_that_held_it_got_the_table_of_this_run`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_start_seeds_nothing_from_a_frame_of_another_prefix_than_the_one_of_now`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_the_rest_stays`)
-  [@test] ../../crates/operations/src/rewrite_test.rs (`a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted`, `a_push_that_waited_for_a_first_sync_that_failed_is_refused_and_sends_nothing`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`says a push of the rows of the frame waits for the first sync, and offers it once the sync committed`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`says the close of a pull request of a stack that is no more waits for the first sync on the rows of the frame`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`runs an unstack pressed on the rows of the frame once the first sync committed, waiting for it until then`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`checks a focus during the first sync once after it, with no second run`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs_with_no_window`, `a_seeded_session_shows_the_steps_and_the_actions_of_its_rows_a_push_waiting_for_the_first_sync`, `a_frame_of_another_prefix_or_schema_seeds_nothing`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_warm_first_sync_that_leaves_the_tips_of_the_frame_changes_every_subject_in_one_patch_at_most`, `the_end_of_a_sync_goes_with_the_view_of_its_robots_in_one_patch`, `the_end_of_a_sync_waits_for_the_view_of_its_robots_one_interval_at_most`)
   [@test] ../../src-tauri/src/warm_start_test.rs (`the_common_dir_is_found_by_the_files_of_the_main_and_of_a_linked_worktree`, `the_model_is_the_json_of_the_path_and_the_view_in_a_string_that_json_parse_reads`)
   [@test] ../../crates/app-settings/src/projects_test.rs (`the_selected_project_is_the_first_recent_one`)
-  [@test] ../../src/model/store.test.ts (`shows the rows of the seed before anything answers, and catches up by the patch from it, the patches before the answer after it`, `keeps the seed when the session sent nothing since, and leaves a model of another project`)
+  [@test] ../../src/model/store.test.ts (`shows the rows of the seed before anything answers, and catches up by the patch from it, the patches before the answer after it`, `keeps the seed when the session sent nothing since, and leaves a model of another project`, `ends the first sync once: a reload that installs the seed again after the end was told gets the snapshot, which ends no run`)
   [@test] ../../src/presenters/operations.test.ts (`says that an operation waits for the sync, behind another one, or what it does`)
 - While a sync runs and the page has no rows to show (the first sync of a session of a repository synced before: when
   the window opens it at start, or another session of it, under a prefix changed in a terminal or in Settings; a sync

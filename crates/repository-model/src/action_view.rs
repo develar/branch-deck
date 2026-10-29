@@ -24,7 +24,7 @@ use domain_types::landing::{LandDecisions, Landed, StartRoute};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
 use domain_types::patronus::PatronusRobotStatus;
-use domain_types::pull_request::PullRequestView;
+use domain_types::pull_request::{PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, PatronusView, RobotOf};
 use domain_types::session::{BranchPush, BranchView, RobotsView, SyncState, WholeStackView, stack_readiness_key};
@@ -148,9 +148,13 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
     actions.insert(name.clone(), with_operations(branch_actions(&facts), of, operations));
   }
   for (root, branch) in &parts.branches {
-    let Some(whole) = &branch.structure.whole_stack else {
+    let stack_pull_request = pull_requests.stack_pull_requests.get(root);
+    // a root no branch is built on any more, whose stack branch still has an open pull request, is a chain of one: the
+    // close of that pull request
+    let open = stack_pull_request.is_some_and(|pull_request| pull_request.state == PullRequestState::Open);
+    if branch.structure.whole_stack.is_none() && !open {
       continue;
-    };
+    }
     let key = stack_readiness_key(root);
     let main_line = &branch.structure.main_line;
     let leaf = main_line.last();
@@ -170,8 +174,8 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
         all_referenced: false,
       })
     });
-    let (shape, step) = match whole {
-      WholeStackView::Forking { not_built } => (
+    let (shape, step) = match &branch.structure.whole_stack {
+      Some(WholeStackView::Forking { not_built }) => (
         StackShape::Forking {
           not_built: not_built.as_ref(),
           tip: parts.stacks.get(root).is_some_and(|stack| stack.tip.is_some()),
@@ -179,7 +183,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
         },
         sources.steps.get(&key).map(|view| &view.step),
       ),
-      WholeStackView::Chain { .. } => (
+      Some(WholeStackView::Chain { .. }) | None => (
         StackShape::Chain {
           length: main_line.len() + 1,
           review: leaf_review.as_ref(),
@@ -192,7 +196,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       patronus,
       shape,
       step,
-      pull_request: pull_requests.stack_pull_requests.get(root),
+      pull_request: stack_pull_request,
       open_pull_request: sources.open_pull_requests.get(&key),
       repository,
       landed: sources.landed.get(&key),
@@ -203,7 +207,12 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
     let of = Of::WholeStack {
       root,
       main_line: leaf.map(String::as_str),
-      pull_request: sources.open_pull_requests.get(&key).map(|open| open.number),
+      // of a stack that no longer forks its pull request as GitHub lists it, which no rule reads where it goes
+      pull_request: sources
+        .open_pull_requests
+        .get(&key)
+        .map(|view| view.number)
+        .or_else(|| stack_pull_request.filter(|_| open).map(|pull_request| pull_request.number)),
     };
     let offered = with_operations(stack_actions(&facts), of, operations);
     actions.insert(key, offered);

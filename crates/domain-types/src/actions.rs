@@ -61,6 +61,9 @@ pub enum ActionId {
   SafePushMainLine,
   OpenStackPullRequest,
   CreateStackPullRequest,
+  /// The open pull request of its stack branch closed with a comment (`Intent::ClosePullRequest`): offered while it is
+  /// open, shown by the page once it no longer matches the stack
+  CloseStackPullRequest,
   ReviewWholeStack,
   // a robot
   RestartRobot,
@@ -89,7 +92,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 48] = [
+  pub const ALL: [Self; 49] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -122,6 +125,7 @@ impl ActionId {
     Self::SafePushMainLine,
     Self::OpenStackPullRequest,
     Self::CreateStackPullRequest,
+    Self::CloseStackPullRequest,
     Self::ReviewWholeStack,
     Self::RestartRobot,
     Self::PushAndRestartRobot,

@@ -1,10 +1,9 @@
-import { GitPullRequestClosedIcon } from "lucide-react"
 import { actionsOf, getPushWithChildrenItem, withStepReason } from "@/hooks/useBranchContextActions"
 import { getBranchNextStep, getRobotItems } from "@/hooks/useBranchNextStep"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { StackNextStep } from "@/hooks/useStackNextStep"
 import { getCreateStackPullRequestItem, getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
-import type { ActionId, PatronusPushMode } from "@/lib/bindings"
+import type { ActionId, ActionState, PatronusPushMode } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { openBranchReviewWindow, openWholeStackReviewWindow } from "@/lib/branch-review-window"
 import type { MenuItem } from "@/lib/menu"
@@ -87,16 +86,10 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
     items.push(requestReview)
   }
   if (orphaned !== null && pullRequest !== undefined) {
-    items.push({
-      id: "close-stack-pull-request",
-      label: `Close Pull Request #${pullRequest.number}…`,
-      icon: GitPullRequestClosedIcon,
-      description: orphaned,
-      onSelect: () => {
-        requestReveal({ branchName: root, commitIds: [] })
-        openInline("close-stack-pull-request", root)
-      },
-    })
+    const close = getCloseStackPullRequestItem(root, pullRequest.number, orphaned)
+    if (close !== null) {
+      items.push(close)
+    }
   } else {
     const create = getCreateStackPullRequestItem(root)
     if (create !== null) {
@@ -119,6 +112,29 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
     items.push(...getRobotItems(robot).filter(item => item.id !== "open-robot-pull-request" || robot.pullRequest?.url !== pullRequest?.url))
   }
   return items
+}
+
+/**
+ * "Close Pull Request #12…" of the pull request `number` of the whole stack of `root` that no longer matches the stack
+ * (`orphaned`, its words, `describeOrphanedStackPullRequest`): the confirmation opens in the root's row (`before` closes
+ * an open preview first), the pull request is never closed by itself. Offered and disabled as Rust decides it
+ * (`close-stack-pull-request`: on the frame of an earlier run it waits for the first sync, a close that runs holds it);
+ * null while Rust doesn't offer it. The menus of the whole stack and the buttons of the island header and of the root's
+ * preview render it (a component passes the actions it subscribed to, `useRowPart`)
+ */
+export function getCloseStackPullRequestItem(
+  root: string,
+  number: number,
+  orphaned: string,
+  actions: readonly ActionState[] | undefined = actionsOf(stackReadinessKey(root)),
+  before?: () => void,
+): MenuItem | null {
+  const onSelect = () => {
+    before?.()
+    requestReveal({ branchName: root, commitIds: [] })
+    openInline("close-stack-pull-request", root)
+  }
+  return presentAction(actions, "close-stack-pull-request", { label: `Close Pull Request #${number}…`, description: orphaned, onSelect }, { subject: root })
 }
 
 /** The item of the action `id` of the whole stack of `root` as Rust offers it; null while it doesn't */

@@ -157,10 +157,13 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
 
 /// What a remote intent reads of its session that the cached frame of an earlier run may hold, as its actions read it
 /// (`action_view::FrameReads`); `None` for an intent that reads none of it or waits for the first sync itself (a push,
-/// a rewrite, an update)
+/// a rewrite, an update), and for the closes of what a landing landed, which the news of this run ask (a frame tells
+/// none)
 const fn frame_reads(intent: &Intent) -> Option<FrameReads> {
   match intent {
-    Intent::Land(_) | Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::DisableAutoMerge { .. } => Some(FrameReads::Landing),
+    Intent::Land(_) | Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::ClosePullRequest { .. } | Intent::DisableAutoMerge { .. } => {
+      Some(FrameReads::Landing)
+    }
     Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => Some(FrameReads::Robots),
     Intent::SubmitReview { .. } => Some(FrameReads::Reviews),
     _ => None,

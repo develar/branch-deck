@@ -351,7 +351,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`, `write_notes_on_existing`: `from <ref>^0`, and a tip that does not
   contain the ref's value fails the run, so a concurrent writer is never overwritten; the cache notes of a sync and of
   the detection and the notes a squash carries to the commits it replays run once more from the new tip, then only
-  warn, `write_cache_notes`; the mapping notes a rewrite carries
+  warn, `write_cache_notes`, but an identity git cannot form (`NoIdentity`) fails the run at once (a sync with
+  `no_identity`: no later run could write them); the mapping notes a rewrite carries
   once more, then fail it; the resolve notes move in the
   session's transaction); the temporary ref of a sync chain's commit writer (`commit_chain.rs`): one per writer
   (`unique_temp_ref`), deleted in its own `fast-import` stream after a `checkpoint` wrote it (`reset` from the null

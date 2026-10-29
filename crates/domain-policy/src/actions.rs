@@ -219,8 +219,9 @@ pub fn on_cached_frame<'a>(table: bool, facts: impl IntoIterator<Item = &'a Fact
 }
 
 /// The actions that write the remote: a push, a start (a robot's, a push into the target, a merge of the pull request
-/// and its auto-merge), a restart or a cancel of a robot, a pull request and its base, a review request, a review
-const REMOTE: [ActionId; 22] = [
+/// and its auto-merge), a restart or a cancel of a robot, a pull request, its base and its close, a review request, a
+/// review
+const REMOTE: [ActionId; 23] = [
   ActionId::SafePush,
   ActionId::SafePushWithProfile,
   ActionId::DryRun,
@@ -237,6 +238,7 @@ const REMOTE: [ActionId; 22] = [
   ActionId::DryRunWholeStack,
   ActionId::SafePushMainLine,
   ActionId::CreateStackPullRequest,
+  ActionId::CloseStackPullRequest,
   ActionId::RestartRobot,
   ActionId::PushAndRestartRobot,
   ActionId::CancelRobot,
@@ -476,6 +478,10 @@ pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
   {
     let reason = not_built.map(|reason| ActionBlocker::Rule { reason: reason.clone() });
     offer(ActionId::CreateStackPullRequest, reason.or_else(|| landed_whole(facts.landed)));
+  }
+  // the page shows it once the pull request no longer matches the stack (`describeOrphanedStackPullRequest`)
+  if pull_request.is_some_and(|pull_request| pull_request.state == PullRequestState::Open) {
+    offer(ActionId::CloseStackPullRequest, None);
   }
   match facts.shape {
     StackShape::Forking { not_built, tip, .. } => {
@@ -769,6 +775,7 @@ fn needs(id: ActionId, of: Of<'_>) -> Vec<Resource> {
     (Of::Branch { pull_request, .. }, ActionId::RetargetPullRequest) => field(pull_request, PullRequestField::Base),
     (Of::Branch { pull_request, .. } | Of::WholeStack { pull_request, .. }, ActionId::CancelAutoMerge) => field(pull_request, PullRequestField::AutoMerge),
     (Of::Branch { pull_request, .. } | Of::WholeStack { pull_request, .. }, ActionId::RequestReview) => field(pull_request, PullRequestField::Reviewers),
+    (Of::WholeStack { pull_request, .. }, ActionId::CloseStackPullRequest) => field(pull_request, PullRequestField::State),
     (Of::Robot { id: robot }, ActionId::RestartRobot | ActionId::PushAndRestartRobot | ActionId::CancelRobot) => vec![Resource::Robot { id: robot.to_owned() }],
     _ => Vec::new(),
   }
@@ -795,7 +802,9 @@ fn is_own(id: ActionId, of: Of<'_>, intent: &Intent) -> bool {
       (ActionId::SafePushWholeStack | ActionId::PushToBaseline | ActionId::MergePullRequest, Intent::Land(land)) => {
         land.mode != PatronusPushMode::DryRun && is_stack(&land.subject, root)
       }
-      (ActionId::CancelAutoMerge, Intent::DisableAutoMerge { number }) => pull_request == Some(*number),
+      (ActionId::CancelAutoMerge, Intent::DisableAutoMerge { number }) | (ActionId::CloseStackPullRequest, Intent::ClosePullRequest { number, .. }) => {
+        pull_request == Some(*number)
+      }
       (ActionId::DryRunWholeStack, Intent::Land(land)) => land.mode == PatronusPushMode::DryRun && is_stack(&land.subject, root),
       (ActionId::SafePushMainLine, Intent::Land(land)) => land.mode != PatronusPushMode::DryRun && main_line.is_some_and(|leaf| is_branch(&land.subject, leaf)),
       (ActionId::RequestReview, Intent::RequestReview { subject, .. }) => is_stack(subject, root),

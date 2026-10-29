@@ -32,6 +32,7 @@
     "safe-push-main-line",
     "open-stack-pull-request",
     "create-stack-pull-request",
+    "close-stack-pull-request",
     "review-whole-stack",
     "restart-robot",
     "push-and-restart-robot",

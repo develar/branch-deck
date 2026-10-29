@@ -1,6 +1,6 @@
 // @spec spec/branch/whole-stack.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { PatronusReviewRequirement, PatronusRobot, PullRequest } from "../../../src/lib/bindings"
+import type { PatronusReviewRequirement, PatronusRobot } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchDetailsRow, getLandingNode } from "../helpers/branch-helpers"
@@ -24,6 +24,8 @@ import {
   gitHubWrites,
   pullRequest,
   reviewer,
+  stackPullRequest,
+  withStackPullRequests,
 } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, STACKED_BRANCHES, stackBranchOf } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
@@ -70,15 +72,6 @@ async function openWholeStackReview(page: Page): Promise<Page> {
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
   const opened = (await getOpenedSubWindows<BranchReviewWindowData>(page))[0]!
   return openLinkedSubWindow(page, opened)
-}
-
-/** The open pull request of the stack branch of `root`; its empty head is the stack branch the sync built */
-function stackPullRequest(root: string, number: number, patch: Partial<PullRequest> = {}): PullRequest {
-  return pullRequest(root, number, { title: `The whole ${root} stack`, headRefName: `user-name/stack/${root}`, ...patch })
-}
-
-function withStackPullRequests(result: GitHubFixture, stacks: Record<string, PullRequest>): GitHubFixture {
-  return { ...result, stackPullRequests: stacks }
 }
 
 /** No pull request yet, the code owner Ilya Korennoy a collaborator; the next pull request created is #12 */

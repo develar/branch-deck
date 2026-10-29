@@ -108,7 +108,7 @@ pub(crate) async fn registry_on(repo: &TestRepo, host: Arc<dyn SessionHost>, syn
 
 impl Fixture {
   /// The branches of the bare origin under the prefix
-  fn remote_branches(&self) -> String {
+  pub(crate) fn remote_branches(&self) -> String {
     self.repo.git(&["--git-dir", ".git/origin.git", "for-each-ref", "--format=%(refname)", "refs/heads/test/"])
   }
 
@@ -744,7 +744,7 @@ impl Fixture {
 }
 
 /// The outcome pushed everything it planned
-fn assert_done(outcome: &Result<Outcome, ApiError>) {
+pub(crate) fn assert_done(outcome: &Result<Outcome, ApiError>) {
   let statuses: Option<Vec<&EffectStatus>> = outcome.as_ref().ok().map(|outcome| outcome.effects.iter().map(|record| &record.status).collect());
   assert_eq!(statuses, Some(vec![&EffectStatus::Done]), "{outcome:?}");
 }

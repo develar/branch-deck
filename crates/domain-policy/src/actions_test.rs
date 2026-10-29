@@ -14,10 +14,10 @@ use domain_types::{PushAction, RemoteStatusUpdate};
 use pretty_assertions::assert_eq;
 
 use ActionId::{
-  AddIssueReference, AmendChanges, CancelAutoMerge, CancelRobot, CheckApprovals, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest, CreateStackPullRequest, DryRun,
-  DryRunWholeStack, ForgetStart, MergePullRequest, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest, OpenUnknownStart, Park, Push,
-  PushAndRestartRobot, PushToBaseline, PushWithChildren, Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack, SafePush, SafePushMainLine,
-  SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, Unapply, Ungroup, Unpark, Unstack,
+  AddIssueReference, AmendChanges, CancelAutoMerge, CancelRobot, CheckApprovals, CloseStackPullRequest, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest,
+  CreateStackPullRequest, DryRun, DryRunWholeStack, ForgetStart, MergePullRequest, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest,
+  OpenUnknownStart, Park, Push, PushAndRestartRobot, PushToBaseline, PushWithChildren, Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack,
+  SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, Unapply, Ungroup, Unpark, Unstack,
 };
 
 /// The actions as the table reads them: the id and why it can't run, `None` when it can
@@ -653,7 +653,8 @@ fn stack_facts<'a>(shape: StackShape<'a>, step: Option<&'a NextStep>) -> StackFa
 
 /// The whole stack starts as its step says; while the sync didn't build its stack branch it lands in pieces (the Safe
 /// Push of its main line) and neither its pull request nor its review can be made; a chain reviews its last branch
-/// from the root, a stack of one branch has no whole review; the pull request of the stack opens while it is not closed
+/// from the root, a stack of one branch has no whole review; the pull request of the stack opens while it is not closed,
+/// and closes while it is open
 #[test]
 fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_branch_is_not_built() {
   let step = ready_step();
@@ -703,6 +704,18 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
   assert_eq!(
     table(&stack_actions(&with_pull_request)),
     [(OpenStackPullRequest, None), (RequestReview, None), (ReviewWholeStack, None)]
+  );
+  // an open one can be closed too: the page offers it once it no longer matches the stack
+  let open_pull_request = pull_request("stack/air", 12);
+  let open_view = view_of(&open_pull_request, false);
+  let with_open_pull_request = StackFacts {
+    pull_request: Some(&open_pull_request),
+    open_pull_request: Some(&open_view),
+    ..with_pull_request
+  };
+  assert_eq!(
+    table(&stack_actions(&with_open_pull_request)),
+    [(OpenStackPullRequest, None), (RequestReview, None), (CloseStackPullRequest, None), (ReviewWholeStack, None)]
   );
   let landed = landed_by_oauth();
   let landed_stack = StackFacts {
@@ -1156,6 +1169,62 @@ fn the_restart_and_the_cancel_of_a_robot_run_once_and_hold_each_other_back() {
   assert_eq!(of(OpenRobot), Some(Availability::Enabled));
 }
 
+/// The close of the pull request of a whole stack runs in the session: its item is running while its close does, and an
+/// operation of another process that holds the state of that pull request keeps it busy, never joined
+#[test]
+fn the_close_of_the_pull_request_of_a_whole_stack_runs_once_and_waits_for_what_holds_its_state() {
+  use crate::actions::{Of, with_operations};
+  use domain_types::operation::{Intent, OperationStep, Origin, PullRequestField, Resource, RunningOperation};
+  let open = pull_request("stack/air", 12);
+  let view = view_of(&open, false);
+  let built = StackShape::Forking {
+    not_built: None,
+    tip: true,
+    main_line: None,
+  };
+  let stack = StackFacts {
+    pull_request: Some(&open),
+    open_pull_request: Some(&view),
+    ..stack_facts(built, None)
+  };
+  let of = Of::WholeStack {
+    root: "air",
+    main_line: None,
+    pull_request: Some(12),
+  };
+  let close = |operations: &[RunningOperation]| {
+    let actions = with_operations(stack_actions(&stack), of, operations);
+    actions.into_iter().find(|action| action.id == CloseStackPullRequest).map(|action| action.availability)
+  };
+  let closing = [operation(
+    "c1",
+    Intent::ClosePullRequest {
+      number: 12,
+      comment: "Closed in Branch Deck: #12 no longer matches the air stack.".to_string(),
+    },
+    vec![Resource::PullRequest {
+      number: 12,
+      field: PullRequestField::State,
+    }],
+    OperationStep::Starting,
+  )];
+  assert_eq!(close(&[]), Some(Availability::Enabled));
+  assert_eq!(close(&closing), Some(Availability::Running { op: op("c1") }));
+  let elsewhere = [RunningOperation {
+    origin: Origin::OtherProcess {
+      tool: domain_types::error::HolderTool::Bd,
+      pid: 4242,
+    },
+    ..closing[0].clone()
+  }];
+  assert_eq!(
+    close(&elsewhere),
+    Some(Availability::Disabled {
+      reason: ActionBlocker::Busy { op: op("c1") }
+    })
+  );
+}
+
 /// A repository that lands by a push into the target offers its push, of a branch and of a whole stack that forks, with
 /// the reason of its step, and none of the starts of the robot: on Space neither
 #[test]
@@ -1441,6 +1510,7 @@ fn on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_th
     DryRunWholeStack,
     SafePushMainLine,
     CreateStackPullRequest,
+    CloseStackPullRequest,
     RestartRobot,
     PushAndRestartRobot,
     CancelRobot,
@@ -1464,15 +1534,24 @@ fn on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_th
   assert_eq!((reason_of(&frame, Rename), reason_of(&frame, Park), reason_of(&frame, CheckApprovals)), (None, None, None));
   assert_waits("a branch", branch_actions(&branch), frame);
 
-  let stack = stack_facts(
-    StackShape::Forking {
-      not_built: None,
-      tip: true,
-      main_line: None,
-    },
-    Some(&step),
-  );
-  assert_waits("a whole stack", stack_actions(&stack), stack_actions(&StackFacts { cached: true, ..stack.clone() }));
+  // its pull request open: Close Pull Request #12… writes GitHub as well
+  let stack_pull_request = pull_request("stack/air", 12);
+  let stack_pull_request_view = view_of(&stack_pull_request, false);
+  let stack = StackFacts {
+    pull_request: Some(&stack_pull_request),
+    open_pull_request: Some(&stack_pull_request_view),
+    ..stack_facts(
+      StackShape::Forking {
+        not_built: None,
+        tip: true,
+        main_line: None,
+      },
+      Some(&step),
+    )
+  };
+  let frame = stack_actions(&StackFacts { cached: true, ..stack.clone() });
+  assert_eq!(reason_of(&frame, CloseStackPullRequest), cached, "the close of its pull request waits for the first sync");
+  assert_waits("a whole stack", stack_actions(&stack), frame);
 
   // the merge route: a merge the frame shows as ready, and the cancel of an auto-merge, write GitHub as well
   let merge = NextStep {

@@ -368,7 +368,9 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   the app saw the merge; or the stack no longer forks and its stack branch stays for its remote branch) must never be
   closed by itself, and its stack branch stays: the merge toast, the root's preview, the island's header and the
   description of its items say "#12 no longer matches the air stack: auth landed", and "Close Pull Request #12…" (the
-  preview's notice, the island's header, "⋯") asks in the root's row before it closes it with a comment that says why.
+  preview's notice, the island's header, "⋯") asks in the root's row before it closes it with a comment that says why;
+  on the frame of an earlier run it waits for the first sync ("Waits for the first sync", in its hover), as Rust
+  offers it (`close-stack-pull-request`).
   A new pull request of the whole stack matches it again: the landed root is forgotten in the repository it was created
   in, also after a switch during its push, never the root of the same name in another one.
   [@test] ../../src/lib/whole-stack.test.ts (`has a pull request that no longer matches it once a piece landed the root or the stack no longer forks, an open one only`)
@@ -376,6 +378,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../src/stores/patronus.test.ts (`says that a piece that landed the root leaves the pull request of the whole stack, never closed by itself`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say that the pull request of the whole stack no longer matches it once a piece landed the root, and close it only when asked`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should offer the close of the pull request of the whole stack in the island header once it no longer matches`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`says the close of a pull request of a stack that is no more waits for the first sync on the rows of the frame`)
+  [@test] ../../crates/repository-model/src/state_test.rs (`the_pull_request_of_a_stack_that_is_no_more_closes_and_waits_for_the_first_sync_on_the_frame`)
 
 ### The Safe Push of the whole stack in the app
 

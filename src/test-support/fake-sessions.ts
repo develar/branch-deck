@@ -151,9 +151,10 @@ export class FakeSessions {
   readonly subscribeCalls: { repositoryPath: string; have?: Version }[] = []
   /**
    * The seed each session was opened with (the warm start, `seed`) and the changes sent since: a window that holds it
-   * gets them as one patch from it
+   * gets them as one patch from it, until a window that held it was told the table of this run (`View::told`); the
+   * subscriptions that hold it so far in `holders`
    */
-  private readonly seeds = new Map<string, { seed: RepositoryView; since: TableChanges[] }>()
+  private readonly seeds = new Map<string, { seed: RepositoryView; since: TableChanges[]; holders: Set<number> }>()
   /** While true, `subscribe_view` answers once `releaseSubscriptions` runs: patches sent meanwhile come first */
   holdSubscriptions = false
   /** What `get_snapshot` answers instead of the view, once (`null`: the session went away) */
@@ -200,7 +201,7 @@ export class FakeSessions {
   /** The session of `repositoryPath` opened seeded from a frame (the start of the app): `seed` its view and its seed */
   seed(repositoryPath: string, seed: RepositoryView): void {
     this.views.set(repositoryPath, seed)
-    this.seeds.set(repositoryPath, { seed, since: [] })
+    this.seeds.set(repositoryPath, { seed, since: [], holders: new Set() })
   }
 
   /** A patch of `changes` on the view of the session of `repositoryPath`, to each of its subscribers */
@@ -208,8 +209,14 @@ export class FakeSessions {
     const base = this.view(repositoryPath).version
     const patch: ViewPatch = { base, next: { epoch: base.epoch, seq: base.seq + 1 }, changes }
     this.views.set(repositoryPath, applyViewPatch(this.view(repositoryPath), patch))
-    this.seeds.get(repositoryPath)?.since.push(changes)
+    const seeded = this.seeds.get(repositoryPath)
+    seeded?.since.push(changes)
     this.deliver(repositoryPath, patch)
+    // a window that held the seed got the table of this run: the seed seeds no window after it
+    const told = this.subscriptions.some(it => it.repositoryPath === repositoryPath && seeded?.holders.has(it.id) === true)
+    if (told && !this.view(repositoryPath).cached) {
+      this.seeds.delete(repositoryPath)
+    }
     return patch
   }
 
@@ -255,7 +262,7 @@ export class FakeSessions {
       const subscription = { id: this.nextId++, repositoryPath: params.repositoryPath, channel }
       this.subscriptions.push(subscription)
       // what brings the window to the view at the subscription; the patches after it go to the channel before a held answer
-      const answer: Result<ViewSubscription> = { status: "ok", data: { id: subscription.id, ...this.joined(params.repositoryPath, params.have) } }
+      const answer: Result<ViewSubscription> = { status: "ok", data: { id: subscription.id, ...this.joined(params.repositoryPath, subscription.id, params.have) } }
       if (!this.holdSubscriptions) {
         return Promise.resolve(answer)
       }
@@ -265,6 +272,9 @@ export class FakeSessions {
       const index = this.subscriptions.findIndex(it => it.id === params.id)
       if (index !== -1) {
         this.subscriptions.splice(index, 1)
+      }
+      for (const seeded of this.seeds.values()) {
+        seeded.holders.delete(params.id)
       }
       return { status: "ok", data: null }
     },
@@ -291,17 +301,24 @@ export class FakeSessions {
   }
 
   /**
-   * What a window that holds the view at `have` gets, as `View::join` answers it: nothing when it holds the view, the
-   * changes sent since the seed as one patch when it holds the seed, else the view
+   * What a window that holds the view at `have` gets when it subscribes as `id`, as `View::join` answers it: nothing
+   * when it holds the view, the changes sent since the seed as one patch when it holds the seed, else the view. A
+   * catch-up that brings the table of this run tells the window, so the seed seeds no window after it
    */
-  private joined(repositoryPath: string, have: Version | undefined): Pick<ViewSubscription, "view" | "catchUp"> {
+  private joined(repositoryPath: string, id: number, have: Version | undefined): Pick<ViewSubscription, "view" | "catchUp"> {
     const view = this.view(repositoryPath)
     const same = (version: Version) => have !== undefined && version.epoch === have.epoch && version.seq === have.seq
+    const seeded = this.seeds.get(repositoryPath)
+    const holdsSeed = seeded !== undefined && same(seeded.seed.version)
+    if (holdsSeed && view.cached) {
+      seeded.holders.add(id)
+    } else if (holdsSeed) {
+      this.seeds.delete(repositoryPath)
+    }
     if (same(view.version)) {
       return { view: null, catchUp: null }
     }
-    const seeded = this.seeds.get(repositoryPath)
-    if (seeded !== undefined && same(seeded.seed.version)) {
+    if (holdsSeed) {
       return { view: null, catchUp: { base: seeded.seed.version, next: view.version, changes: Object.assign({}, ...seeded.since) as TableChanges } }
     }
     return { view, catchUp: null }
