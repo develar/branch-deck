@@ -617,7 +617,7 @@ export function useRepositoryRobots(): Readonly<Record<string, PatronusRobot>> |
   return useStore(patronusStore, state => state.repositories[key]?.robots)
 }
 
-/** Non-hook variant of `usePatronusGitHubRepository`, for menus built on open */
+/** The GitHub repository the branches are reviewed in (see `RepositoryPatronus.githubRepository`), for menus built on open */
 export function getPatronusGitHubRepository(): string | null {
   const key = currentKey()
   return key === null ? null : (patronusStore.getState().repositories[key]?.githubRepository ?? null)

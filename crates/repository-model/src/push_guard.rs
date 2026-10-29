@@ -78,8 +78,8 @@ pub fn landed_words(name: &str, by: &Subject, robot: &PatronusRobot) -> String {
 
 /// "every branch of the whole auth stack landed in master with the Safe Pushes of login and session": what merged Safe
 /// Pushes landed of a whole stack every branch of which they landed whole (`landed`: what each robot ran on, one per
-/// branch), each subject named once in the order they merged, as the app names them (`formatLandedWholeReason`); the
-/// target of the first
+/// branch), each subject named once in the order they merged, as the page words the reason `stackLanded`
+/// (`formatRobotsLanded` of `src/presenters/reasons.ts`); the target of the first
 pub fn every_branch_landed(what: &str, landed: &[(Subject, &PatronusRobot)]) -> String {
   let mut merged: Vec<&(Subject, &PatronusRobot)> = landed.iter().collect();
   merged.sort_by_key(|(_, robot)| robot.finish_time.unwrap_or(0));
@@ -119,7 +119,8 @@ pub fn span_hold_words(name: &str, by: &Subject, robot: &PatronusRobot, carried:
 }
 
 /// "a Safe Push of the whole auth stack is running on it: …": why the stack branch of `root` is not pushed while the
-/// robot of the whole stack runs on it, as the app says it (`formatStackPushHoldReason`)
+/// robot of the whole stack runs on it; the page words the same hold from the reason `stackHeld` (`formatReason` of
+/// `src/presenters/reasons.ts`)
 pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
   let mode = push_mode_name(robot.push_mode);
   format!(

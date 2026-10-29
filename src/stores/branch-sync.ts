@@ -232,7 +232,7 @@ export interface BranchSyncState {
   autosquashPlan: AutosquashPlan | null
   /** null until a sync reported it */
   baselineStatus: BaselineStatus | null
-  /** The run of the session (`requestSync`) whose grouping `branches` holds: their counts tell how far it is; 0 before one */
+  /** The run of the session (`nextRunNumber`) whose grouping `branches` holds: their counts tell how far it is; 0 before one */
   groupedRun: number
   /** Stacked branches are on for the repository (`branchdeck.stacks`), as the last grouping read it */
   stacksEnabled: boolean

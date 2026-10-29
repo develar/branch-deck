@@ -41,7 +41,6 @@ pub(crate) const fn is_unjudged(readiness: &ReviewReadiness) -> bool {
 }
 
 /// The reviewers an open pull request waits for, as GitHub tells it: asked and not approving since; bots left out
-/// (`waitingReviewers` of the page)
 pub(crate) fn waiting_reviewers(reviewers: &[Reviewer]) -> Vec<&String> {
   reviewers
     .iter()
