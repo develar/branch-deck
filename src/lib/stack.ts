@@ -1,4 +1,4 @@
-import type { CommitGroup, ParentState, StackFix, StackProblemView } from "@/lib/bindings"
+import type { CommitGroup, ParentState, StackProblemView } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { joinNames } from "@/lib/text"
 import type { Branch } from "@/stores/branch-sync"
@@ -16,11 +16,6 @@ export function stackOnFixes(problem: StackProblemView): string[] {
   return problem.fixes.flatMap(fix => (typeof fix === "object" ? [fix.StackOn] : []))
 }
 
-/** Whether one of the fixes of the problem is `fix` */
-export function hasStackFix(problem: StackProblemView, fix: Exclude<StackFix, { StackOn: string }>): boolean {
-  return problem.fixes.includes(fix)
-}
-
 /** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that can't be built); null if not blocked */
 export function blockingBranchOf(branch: Branch): string | null {
   if (branch.status !== "Blocked") {
@@ -28,12 +23,6 @@ export function blockingBranchOf(branch: Branch): string | null {
   }
   const stack = branch.stack
   return stack?.blockedBy?.parent ?? stack?.effectiveBase ?? stack?.declaredParent ?? null
-}
-
-/** Why a blocked branch can't be pushed nor given to Patronus: "Blocked by auth: fix it first, then sync" */
-export function formatBlockedReason(branch: Branch): string {
-  const blocker = blockingBranchOf(branch)
-  return blocker === null ? "Blocked: fix the parent branch first" : `Blocked by ${blocker}: fix it first, then sync`
 }
 
 /** What the store knows about a branch for `describePrefixChange` */

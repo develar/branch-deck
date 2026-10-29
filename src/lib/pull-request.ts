@@ -42,11 +42,6 @@ export function getPullRequestChipState(pullRequest: PullRequest, localTip: stri
   }
 }
 
-/** The state of a pull request in words, as the label of its chip: "Approved", "Changes requested", "Draft", "Merged" */
-export function formatPullRequestState(pullRequest: PullRequest): string {
-  return describeState(pullRequest).label
-}
-
 /**
  * What the details say about the commit the pull request shows, null when it shows the branch as it is: a quiet line for
  * a branch only rebuilt on a newer baseline, a push for a changed one, the wait for GitHub when the remote branch
@@ -90,35 +85,9 @@ function describeState(pullRequest: PullRequest): Pick<PullRequestChipState, "ic
   }
 }
 
-/**
- * What an open pull request waits for from its author: "changes requested", "failing checks" or both; null when it
- * waits for nothing of theirs
- */
-export function formatAuthorAttention(pullRequest: PullRequest): string | null {
-  if (pullRequest.state !== "open") {
-    return null
-  }
-  const reasons: string[] = []
-  if (pullRequest.reviewDecision === "changesRequested") {
-    reasons.push("changes requested")
-  }
-  if (pullRequest.checks?.state === "failing") {
-    reasons.push("failing checks")
-  }
-  return reasons.length === 0 ? null : reasons.join(", ")
-}
-
 /** A bot or an AI reviewer: a request of one never waits for a person, its review counts for no code owner */
 function isBotReviewer(login: string): boolean {
   return login.endsWith("[bot]") || /^copilot/i.test(login)
-}
-
-/**
- * The reviewers an open pull request waits for, as GitHub tells it: asked and not approving since (never reviewed,
- * asked again after changes or a comment); a re-requested approval still counts, so it waits for nobody. Bots left out.
- */
-export function waitingReviewers(pullRequest: Pick<PullRequest, "reviewers">): string[] {
-  return pullRequest.reviewers.filter(it => it.requested && it.state !== "approved" && !isBotReviewer(it.login)).map(it => it.login)
 }
 
 /** The reviewers whose latest review requests changes and who were not asked again since; bots left out */

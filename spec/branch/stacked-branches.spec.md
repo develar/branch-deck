@@ -494,7 +494,7 @@ menu stacks, unstacks and renames branches.
   [Parked Branches](parked-branches.spec.md#the-app)); the menu item is disabled with the reason.
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_up_to_here_pushes_the_ancestors_whole_and_stops_at_what_cant_go`)
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
-- A commit a merged Safe Push landed (`isLandedCommit`: every commit of a landed branch but those added after the
+- A commit a merged Safe Push landed (`patronus_view::landed_commits`: every commit of a landed branch but those added after the
   landed ones, [Patronus](patronus.spec.md#merged)) is in the target, as a commit the remote has: one answer of the view
   for every surface (`BranchPush.upTo.commits`), so it has no push arrow and no "Push Up to Here" in its menu. A branch it landed whole is
   no step of a push up to a commit built on it: the branch is pushed without it, as its own push leaves it.

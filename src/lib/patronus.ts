@@ -315,15 +315,6 @@ export function isLandedWhole(landed: LandedBy | null | undefined): landed is La
   return landed != null && landed.after.length === 0
 }
 
-/**
- * A merged Safe Push landed the commit `originalHash` of a branch it landed (`landed`, `getLandedBy`): every commit but
- * those added after the landed ones. It is in the target: a push of it lands nothing, so it offers no Push Up to Here
- * and no push arrow, as a commit the remote has.
- */
-export function isLandedCommit(landed: LandedBy | null | undefined, originalHash: string): boolean {
-  return landed != null && !landed.after.includes(originalHash)
-}
-
 /** " · 1 commit after it": what is left of a branch a merged Safe Push landed; empty when nothing is */
 function formatAfter(landed: Pick<LandedBy, "after">): string {
   return landed.after.length === 0 ? "" : ` · ${formatCommitCount(landed.after.length)} after it`
@@ -339,14 +330,6 @@ export function formatLandedWith(landed: LandedBy): string | null {
     return landed.after.length === 0 ? null : `Landed${formatAfter(landed)}`
   }
   return `Landed with ${formatLandingSubject(landed)}${formatAfter(landed)}`
-}
-
-/**
- * "Landed in master with oauth", of its own robot "Merged by Patronus": why a branch a merged Safe Push landed whole starts
- * no Safe Push and no Dry Run
- */
-export function formatLandedReason(landed: Pick<LandedBy, "branch" | "robot" | "wholeStack" | "own">): string {
-  return landed.own === true ? "Merged by Patronus" : `Landed in ${landed.robot.targetBranch} with ${formatLandingSubject(landed)}`
 }
 
 /**

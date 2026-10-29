@@ -1066,7 +1066,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   Push and no Dry Run ([Next Step](next-step.spec.md#the-table), row 1: "Landed in master with oauth", "Merged by
   Patronus") and no push ([below](#pushing-into-a-branch-whose-safe-push-runs)); the "to push" counts leave them out.
   Once the fetched baseline has their commits, the Landed chip takes its place.
-  [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left`)
+  [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row: a branch built on it, the whole stack, its own robot with the work left`)
+  [@test] ../../src/presenters/reasons.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `a_dry_run_lands_nothing`)
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_missing_source_lands_nothing`)
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { ChecksSummary, PullRequest } from "@/lib/bindings"
 import {
-  formatAuthorAttention,
   formatAvailabilityHint,
   formatChecks,
   formatPullRequestCommitNotice,
@@ -11,7 +10,6 @@ import {
   MAX_COMPARE_BODY_LENGTH,
   getPullRequestChipState,
   changesRequestedBy,
-  waitingReviewers,
 } from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
@@ -93,16 +91,6 @@ describe("formatPullRequestCommitNotice", () => {
     expect(formatPullRequestCommitNotice(shown, getPullRequestChipState(shown, "00524674dd04", theirs), theirs.remoteTip)).toBe(
       "Shows d708d5b8; someone else pushed commits your branch doesn't have: a push drops them.",
     )
-  })
-})
-
-describe("formatAuthorAttention", () => {
-  it("names the requested changes and the failing checks of an open pull request", () => {
-    expect(formatAuthorAttention(pullRequest({ reviewDecision: "changesRequested" }))).toBe("changes requested")
-    expect(formatAuthorAttention(pullRequest({ checks: failing }))).toBe("failing checks")
-    expect(formatAuthorAttention(pullRequest({ reviewDecision: "changesRequested", checks: failing }))).toBe("changes requested, failing checks")
-    expect(formatAuthorAttention(pullRequest({ reviewDecision: "approved" }))).toBeNull()
-    expect(formatAuthorAttention(pullRequest({ state: "closed", reviewDecision: "changesRequested" }))).toBeNull()
   })
 })
 
@@ -188,8 +176,8 @@ describe("getCompareUrl", () => {
   })
 })
 
-describe("waitingReviewers", () => {
-  it("waits for the reviewers asked and not approving since, bots left out; a re-requested approval waits for nobody", () => {
+describe("changesRequestedBy", () => {
+  it("names who requested changes and wasn't asked again since, bots left out", () => {
     const reviewers: PullRequest["reviewers"] = [
       { login: "junie-jetbrains", state: "approved", requested: false },
       { login: "ikorennoy", state: "requested", requested: true },
@@ -199,8 +187,7 @@ describe("waitingReviewers", () => {
       { login: "renovate[bot]", state: "requested", requested: true },
       { login: "copilot-pull-request-reviewer", state: "requested", requested: true },
     ]
-    expect(waitingReviewers(pullRequest({ reviewers }))).toEqual(["ikorennoy", "alice"])
-    // asked again after changes: waited for, not "requested changes"
+    // asked again after changes (alice): waited for, not "requested changes"
     expect(changesRequestedBy(pullRequest({ reviewers }))).toEqual(["carol"])
   })
 })

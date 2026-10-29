@@ -3,7 +3,6 @@ import type { PatronusRobot } from "@/lib/bindings"
 import type { RobotRestartAction, SafePushSlotInput } from "@/lib/patronus"
 import {
   describeRobot,
-  formatLandedReason,
   formatLandedWith,
   formatRobotSubject,
   formatMergedRobotTitle,
@@ -259,7 +258,7 @@ describe("getRowRobot", () => {
 })
 
 describe("formatLandedWith", () => {
-  it("names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left", () => {
+  it("names who landed a branch in its row: a branch built on it, the whole stack, its own robot with the work left", () => {
     const piece = robot({ id: "oauth", branchName: "oauth", status: "success", finishTime: 200 })
     const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", status: "success", finishTime: 300 })
     expect(formatLandedWith({ branch: "oauth", robot: piece, after: [] })).toBe("Landed with oauth")
@@ -268,7 +267,5 @@ describe("formatLandedWith", () => {
     // its own robot: its row shows the robot ("Merged"), only the work left is said
     expect(formatLandedWith({ branch: "oauth", robot: piece, own: true, after: [] })).toBeNull()
     expect(formatLandedWith({ branch: "oauth", robot: piece, own: true, after: ["new"] })).toBe("Landed · 1 commit after it")
-    expect(formatLandedReason({ branch: "oauth", robot: piece })).toBe("Landed in master with oauth")
-    expect(formatLandedReason({ branch: "oauth", robot: piece, own: true })).toBe("Merged by Patronus")
   })
 })
