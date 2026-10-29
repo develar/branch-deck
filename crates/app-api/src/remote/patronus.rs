@@ -11,28 +11,10 @@ use domain_types::error::ApiError;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
-use moka::sync::Cache;
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_model::session::SessionKey;
-use std::sync::Arc;
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
 use tracing::instrument;
-
-/// By repository path: a read of the statistics that asks Patronus waits for the one asking, then reads what it kept
-#[derive(Clone)]
-pub struct RobotStatsReads(Cache<String, Arc<tokio::sync::Mutex<()>>>);
-
-impl Default for RobotStatsReads {
-  fn default() -> Self {
-    Self(Cache::new(100))
-  }
-}
-
-impl RobotStatsReads {
-  fn of(&self, repository_path: &str) -> Arc<tokio::sync::Mutex<()>> {
-    self.0.get_with(repository_path.to_owned(), || Arc::new(tokio::sync::Mutex::new(())))
-  }
-}
 
 /// Everyone's robots into the target of the period (`robot_stats_core`), kept in the object cache of the repository, at
 /// the time and in the calendar of the app (`AppHost`); off Space `notPatronus`
@@ -48,14 +30,13 @@ pub async fn get_robot_stats(ctx: &AppContext, _call: &Call, key: SessionKey, pa
   let target = ctx.services.target(&key, &params.baseline_branch).await?;
   let service = ctx.services.patronus(&key)?;
   let cache = ctx.services.object_cache(&key).await;
-  let reads = ctx.remote.robot_stats.of(&key.worktree);
   let source = RobotStatsSource {
     service: &service,
     cache: &cache,
     repository: &repository.name,
     target: &target,
     branch_prefix: &key.prefix,
-    reads: Some(&reads),
+    reads: Some(&ctx.remote.robot_stats),
   };
   let send = |event: RobotStatsEvent| {
     if events.send(event).is_err() {

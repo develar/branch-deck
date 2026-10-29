@@ -327,9 +327,9 @@ async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, n
     tracing::warn!(id, uri = %request.uri(), "Request for a deleted test repository");
     return StatusCode::GONE.into_response();
   };
-  let command = in_flight.read_owned().await;
-  // a deletion that came first has removed it and waited for the lock
-  if !state.repositories.contains_key(&id) {
+  // none once a deletion began; a deletion that came first has removed it and waits out the commands that hold it
+  let command = in_flight.hold();
+  if command.is_none() || !state.repositories.contains_key(&id) {
     tracing::warn!(id, uri = %request.uri(), "Request for a deleted test repository");
     return StatusCode::GONE.into_response();
   }
@@ -940,7 +940,7 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   if let Some(operation) = operation {
     operation.end();
   }
-  let no_commands = tokio::time::timeout(DELETE_WAIT, Arc::clone(&repo.in_flight).write_owned()).await;
+  let no_commands = tokio::time::timeout(DELETE_WAIT, repo.in_flight.close()).await;
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
   }

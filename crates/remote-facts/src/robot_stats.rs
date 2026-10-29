@@ -6,8 +6,9 @@
 //! - A week is keyed by its UTC start, so every period reads the same kept weeks. A week is listed once it settled (it
 //!   ended 2 days ago and each of its robots finished): never again. The other weeks are listed again when their list
 //!   is older than `LIST_TTL_SECONDS`, or on Refresh.
-//! - A read with nothing to ask answers from the cache at once; one that asks Patronus holds `RobotStatsSource::reads`
-//!   and reads the cache again under it, so two reads of one repository ask once.
+//! - A read with nothing to ask answers from the cache at once; one that asks Patronus leads the read of its repository
+//!   and target (`RobotStatsReads`, a single flight), and one that comes meanwhile waits for that read to end, then
+//!   reads the cache again, so two reads of one repository ask once. Nothing is locked across the lists.
 //! - A run is read once: a finished robot does not change. At most `MAX_RUNS_PER_READ` per read, the newest first; the
 //!   next read asks for the rest.
 //! - A failure keeps what was kept: the numbers are of it (`stale`), and a week never listed is missing.
@@ -22,6 +23,7 @@ use patronus::stats::HistoryList;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use sync_utils::single_flight::{Begin, SingleFlight};
 use tracing::{info, instrument};
 
 const DAY: u32 = 86_400;
@@ -44,9 +46,13 @@ pub struct RobotStatsSource<'a> {
   /// The branch the robots push into, e.g. `master`
   pub target: &'a str,
   pub branch_prefix: &'a str,
-  /// Held while Patronus is asked, so two reads of one repository ask once; None in a process of one read (`bd`)
-  pub reads: Option<&'a tokio::sync::Mutex<()>>,
+  /// The reads in flight, so two reads of one repository ask once; None in a process of one read (`bd`)
+  pub reads: Option<&'a RobotStatsReads>,
 }
+
+/// The reads of the statistics that ask Patronus, by repository and target (`read_key`): the end of one is what the
+/// reads that come meanwhile wait for
+pub type RobotStatsReads = SingleFlight<[u8; 32], ()>;
 
 /// A week of everyone's robots as it was listed
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -77,14 +83,22 @@ pub async fn robot_stats_core(
     .map(|week| key(source, &["week", source.repository, source.target, &week.to_string()]))
     .collect();
   let (mut kept, mut to_list) = kept_weeks(source, &weeks, &keys, now, refresh);
+  // the read of this repository and target, which ends with this one; a read in flight is waited for, and it may have
+  // kept what this one would ask
   let _reading = match source.reads {
-    Some(reads) if !to_list.is_empty() || runs_missing(source, &kept, runs_start) => {
-      let reading = reads.lock().await;
-      // the read that held it may have kept what this one would ask
-      (kept, to_list) = kept_weeks(source, &weeks, &keys, now, refresh);
-      Some(reading)
-    }
-    _ => None,
+    Some(reads) => loop {
+      if to_list.is_empty() && !runs_missing(source, &kept, runs_start) {
+        break None;
+      }
+      match reads.begin(read_key(source)) {
+        Begin::Lead(lead) => break Some(lead),
+        Begin::Join(join) => {
+          join.await;
+          (kept, to_list) = kept_weeks(source, &weeks, &keys, now, refresh);
+        }
+      }
+    },
+    None => None,
   };
   let lists_total = u32::try_from(to_list.len()).unwrap_or(u32::MAX);
   let progress = |lists_read: usize, runs_read: usize, runs_total: usize| {
@@ -237,6 +251,11 @@ fn salt(source: &RobotStatsSource<'_>) -> Vec<u8> {
   let salt = uuid::Uuid::new_v4().as_bytes().to_vec();
   source.cache.put_patronus_history(&[(key, &salt)]);
   salt
+}
+
+/// What the reads of the statistics of the repository and target of `source` are joined by
+pub(crate) fn read_key(source: &RobotStatsSource<'_>) -> [u8; 32] {
+  key(source, &["reads", source.repository, source.target])
 }
 
 fn key(source: &RobotStatsSource<'_>, parts: &[&str]) -> [u8; 32] {

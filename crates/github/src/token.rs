@@ -4,7 +4,8 @@
 //! the Branch Deck app. The token GitHub accepted is kept per repository; a token it
 //! rejected (401) is never sent again, and one that can't see a repository is skipped for that repository for a while,
 //! so a `gh auth login` takes effect without a restart. A process source (`gh`, git) runs once for every caller that
-//! asks while it runs, and its answer, a token or none, is kept for `SOURCE_TTL`; no lock is held across a source.
+//! asks while it runs (a single flight, `sync_utils::single_flight`), and its answer, a token or none, is kept for
+//! `SOURCE_TTL`; no lock is held across a source.
 
 use crate::token_store::{read_token, token_file};
 use domain_types::pull_request::TokenSource;
@@ -12,10 +13,10 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use sync_utils::child_process::{find_tool, run_child, windowless_command};
 use sync_utils::known_tools::GH;
+use sync_utils::single_flight::SingleFlight;
 use sync_utils::span::in_current_span;
 use tracing::{debug, info, instrument, warn};
 
@@ -128,8 +129,23 @@ enum SourceKey {
   GitCredential { repository_path: String, repository: String },
 }
 
-/// The last answer of a source and when it came; the async mutex around it is the single flight of the source
-type SourceSlot = Arc<tokio::sync::Mutex<Option<(Instant, Option<Token>)>>>;
+/// The answers of the sources, each with when it came
+#[derive(Default)]
+struct Kept {
+  answers: HashMap<SourceKey, (Instant, Option<Token>)>,
+  /// One more with every `forget`: a read that started before it keeps nothing of its answer
+  generation: u64,
+}
+
+impl Kept {
+  /// The answer of `key` that is younger than `SOURCE_TTL`, else the generation a read now keeps its answer in
+  fn fresh(&self, key: &SourceKey) -> Result<Option<Token>, u64> {
+    match self.answers.get(key) {
+      Some((at, token)) if at.elapsed() < SOURCE_TTL => Ok(token.clone()),
+      _ => Err(self.generation),
+    }
+  }
+}
 
 pub struct TokenChain {
   sources: TokenSources,
@@ -137,8 +153,10 @@ pub struct TokenChain {
   /// Held only to read or write, never across a source: an accepted repository answers while another's `git
   /// credential fill` runs
   state: std::sync::Mutex<ChainState>,
-  /// By source: one read at a time (concurrent first requests run `gh` once), its answer kept for `SOURCE_TTL`
-  reads: std::sync::Mutex<HashMap<SourceKey, SourceSlot>>,
+  /// By source: the answer of its last read, kept for `SOURCE_TTL`; held only to read or write it
+  kept: std::sync::Mutex<Kept>,
+  /// By source: the read in flight, which the concurrent first requests join (they run `gh` once)
+  reads: SingleFlight<SourceKey, Option<Token>>,
 }
 
 impl TokenChain {
@@ -147,12 +165,17 @@ impl TokenChain {
       sources,
       git,
       state: std::sync::Mutex::new(ChainState::default()),
-      reads: std::sync::Mutex::new(HashMap::new()),
+      kept: std::sync::Mutex::new(Kept::default()),
+      reads: SingleFlight::default(),
     }
   }
 
   fn state(&self) -> std::sync::MutexGuard<'_, ChainState> {
     self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+  }
+
+  fn kept(&self) -> std::sync::MutexGuard<'_, Kept> {
+    self.kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
   }
 
   /// The token to ask about `repository` (`owner/name`) with: the one GitHub last accepted, else the first source's
@@ -185,8 +208,8 @@ impl TokenChain {
     None
   }
 
-  /// The token of `source`: the environment as it is, a process or a file source once per `SOURCE_TTL`, with the
-  /// callers that ask meanwhile waiting for that one read
+  /// The token of `source`: the environment as it is, a process or a file source once per `SOURCE_TTL`, the callers
+  /// that ask meanwhile joining that one read
   async fn source_token(&self, source: TokenSource, repository_path: &str, repository: &str) -> Option<Token> {
     let key = match source {
       TokenSource::Environment => return self.read_source(source, repository_path, repository).await,
@@ -197,16 +220,27 @@ impl TokenChain {
         repository: repository.to_string(),
       },
     };
-    let slot = Arc::clone(self.reads.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key).or_default());
-    let mut read = slot.lock().await;
-    if let Some((at, token)) = &*read
-      && at.elapsed() < SOURCE_TTL
-    {
-      return token.clone();
+    let kept = self.kept().fresh(&key);
+    if let Ok(token) = kept {
+      return token;
     }
-    let token = self.read_source(source, repository_path, repository).await;
-    *read = Some((Instant::now(), token.clone()));
-    token
+    self
+      .reads
+      .run(key.clone(), || async {
+        // a flight that ended since the look above kept its answer before it left
+        let kept = self.kept().fresh(&key);
+        let generation = match kept {
+          Ok(token) => return token,
+          Err(generation) => generation,
+        };
+        let token = self.read_source(source, repository_path, repository).await;
+        let mut kept = self.kept();
+        if kept.generation == generation {
+          kept.answers.insert(key.clone(), (Instant::now(), token.clone()));
+        }
+        token
+      })
+      .await
   }
 
   /// The token of `source`; a process source runs off the async workers
@@ -270,8 +304,13 @@ impl TokenChain {
     let mut state = self.state();
     state.accepted.clear();
     state.no_access.clear();
-    // a read in flight keeps its own slot: its answer is not kept
-    self.reads.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+    drop(state);
+    let mut kept = self.kept();
+    kept.answers.clear();
+    // a read in flight answers the callers that joined it, keeps nothing, and the next request reads again
+    kept.generation += 1;
+    drop(kept);
+    self.reads.forget();
   }
 }
 

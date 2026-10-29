@@ -1,4 +1,4 @@
-use crate::robot_stats::{LIST_TTL_SECONDS, MAX_RUNS_PER_READ, RobotStatsSource, robot_stats_core};
+use crate::robot_stats::{LIST_TTL_SECONDS, MAX_RUNS_PER_READ, RobotStatsReads, RobotStatsSource, read_key, robot_stats_core};
 use domain_types::calendar::Calendar;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::robot_stats::{RobotStatsEvent, RobotStatsResult, StatsPeriod};
@@ -10,6 +10,7 @@ use pretty_assertions::assert_eq;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use sync_utils::single_flight::Begin;
 use sync_utils::timestamp::format_utc_timestamp;
 
 /// Friday 2026-10-23 10:00 UTC
@@ -56,19 +57,23 @@ async fn read(setup: &Setup, now: u32, refresh: bool) -> (RobotStatsResult, Vec<
   read_with(setup, now, StatsPeriod::Weeks10, refresh, None).await
 }
 
-async fn read_period(setup: &Setup, now: u32, period: StatsPeriod, reads: Option<&tokio::sync::Mutex<()>>) -> (RobotStatsResult, Vec<RobotStatsEvent>) {
+async fn read_period(setup: &Setup, now: u32, period: StatsPeriod, reads: Option<&RobotStatsReads>) -> (RobotStatsResult, Vec<RobotStatsEvent>) {
   read_with(setup, now, period, false, reads).await
 }
 
-async fn read_with(setup: &Setup, now: u32, period: StatsPeriod, refresh: bool, reads: Option<&tokio::sync::Mutex<()>>) -> (RobotStatsResult, Vec<RobotStatsEvent>) {
-  let source = RobotStatsSource {
+fn source_of<'a>(setup: &'a Setup, reads: Option<&'a RobotStatsReads>) -> RobotStatsSource<'a> {
+  RobotStatsSource {
     service: &setup.service,
     cache: &setup.cache,
     repository: "ultimate",
     target: "master",
     branch_prefix: "me",
     reads,
-  };
+  }
+}
+
+async fn read_with(setup: &Setup, now: u32, period: StatsPeriod, refresh: bool, reads: Option<&RobotStatsReads>) -> (RobotStatsResult, Vec<RobotStatsEvent>) {
+  let source = source_of(setup, reads);
   let events = Mutex::new(Vec::new());
   let result = robot_stats_core(&source, &Calendar::utc(), now, period, refresh, &|event| events.lock().unwrap().push(event)).await;
   (result, events.into_inner().unwrap())
@@ -198,11 +203,13 @@ async fn a_longer_period_lists_only_the_weeks_not_kept_and_a_shorter_one_asks_no
 async fn a_read_with_nothing_to_ask_does_not_wait_for_a_running_read() {
   let setup = setup(true).await;
   *setup.fake.robots.lock().unwrap() = Some(vec![robot("merged", "SUCCESS", DAY, "1")]);
-  let reads = tokio::sync::Mutex::new(());
+  let reads = RobotStatsReads::default();
   read_period(&setup, NOW, StatsPeriod::Days30, Some(&reads)).await;
 
-  // another read holds the lock: one from the cache answers, one that must ask waits for it
-  let running = reads.lock().await;
+  // another read asks Patronus: one from the cache answers, one that must ask waits for it
+  let Begin::Lead(running) = reads.begin(read_key(&source_of(&setup, None))) else {
+    panic!("no read in flight");
+  };
   let (kept, _) = tokio::time::timeout(Duration::from_secs(5), read_period(&setup, NOW + 60, StatsPeriod::Days14, Some(&reads)))
     .await
     .expect("a read from the cache does not wait");
@@ -222,7 +229,7 @@ async fn a_read_with_nothing_to_ask_does_not_wait_for_a_running_read() {
 async fn two_reads_at_once_ask_once() {
   let setup = setup(true).await;
   *setup.fake.robots.lock().unwrap() = Some(vec![robot("merged", "SUCCESS", DAY, "1"), robot("theirs", "SUCCESS", DAY, "2")]);
-  let reads = tokio::sync::Mutex::new(());
+  let reads = RobotStatsReads::default();
 
   let ((first, _), (second, _)) = tokio::join!(
     read_period(&setup, NOW, StatsPeriod::Days30, Some(&reads)),

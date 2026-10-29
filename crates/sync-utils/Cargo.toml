@@ -29,6 +29,8 @@ libc = "0.2.191"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading"] }
 
 [dev-dependencies]
+# the tests of a single flight (`single_flight_test.rs`): the crate itself needs no runtime
+tokio.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }

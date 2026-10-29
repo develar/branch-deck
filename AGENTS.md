@@ -263,6 +263,8 @@ Rust, in full: [Rust Rules](docs/contributing/rust-rules.md).
   ([Operation spans](docs/design/async-patterns.md#operation-spans)); a closure for another thread carries the span.
 - **Clippy** pedantic with `-D warnings`, Windows included; `#[expect(lint, reason = "…")]`, never `#[allow]`.
 - **A platform branch in a test** asserts on every platform; a `#[cfg(unix)]` test's helper is `#[cfg(unix)]` too.
+- **Single flights**: a read others wait for is a `sync_utils::single_flight`, never an async mutex guard across an
+  await ([Single flights](docs/design/async-patterns.md#single-flights-no-async-mutex)).
 - **File system removals and renames** through `sync_utils::fs_retry`, **processes** through
   `sync_utils::child_process::windowless_command`, never `std::fs` or `Command::new`.
 - **Imports** by the full module path, never `pub use` ([Import Guidelines](docs/contributing/imports.md)).

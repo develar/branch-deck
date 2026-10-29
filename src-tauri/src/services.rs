@@ -59,6 +59,7 @@ use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, find_space_repository};
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_utils::clock::SystemClock;
+use sync_utils::single_flight::SingleFlight;
 use sync_utils::timestamp::unix_now;
 use tauri::{AppHandle, Manager};
 use tracing::warn;
@@ -303,7 +304,7 @@ impl AppHost for AppServices {
   fn tool_changed(&self, tool: CliTool) -> Read<'_, ()> {
     Box::pin(async move {
       if tool == CliTool::Teamcity {
-        self.app.state::<PatronusState>().reset_teamcity().await;
+        self.app.state::<PatronusState>().reset_teamcity();
       }
     })
   }
@@ -334,9 +335,12 @@ pub struct PatronusState {
   service: Arc<PatronusService>,
   /// The Space repository (None = not on Space) by repository path. Re-read now and then: the remote can change.
   repositories: Cache<String, Option<SpaceRepository>>,
-  /// The `teamcity` CLI with an authenticated server, once found; looked for again on each full failure until then (the
-  /// user may log in meanwhile)
-  teamcity: tokio::sync::Mutex<Option<TeamCityCli>>,
+  /// The `teamcity` CLI with an authenticated server, once found, and the generation a search keeps its find in (one
+  /// more with every `reset_teamcity`); looked for again on each full failure until then (the user may log in
+  /// meanwhile). Held only to read or write it
+  teamcity: std::sync::Mutex<(Option<TeamCityCli>, u64)>,
+  /// The search in flight, which the full failures that ask meanwhile join (one search for the prompts of two robots)
+  teamcity_search: SingleFlight<(), Option<TeamCityCli>>,
 }
 
 impl PatronusState {
@@ -347,21 +351,45 @@ impl PatronusState {
     Self {
       service: Arc::new(PatronusService::new(PatronusClient::new(base_url, &user_agent), find_user_token)),
       repositories: Cache::builder().max_capacity(100).time_to_live(Duration::from_secs(600)).build(),
-      teamcity: tokio::sync::Mutex::new(None),
+      teamcity: std::sync::Mutex::new((None, 0)),
+      teamcity_search: SingleFlight::default(),
     }
+  }
+
+  fn found_teamcity(&self) -> std::sync::MutexGuard<'_, (Option<TeamCityCli>, u64)> {
+    self.teamcity.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
   }
 
   async fn teamcity(&self) -> Option<TeamCityCli> {
-    let mut teamcity = self.teamcity.lock().await;
-    if teamcity.is_none() {
-      *teamcity = TeamCityCli::discover().await;
+    let (found, _) = self.found_teamcity().clone();
+    if found.is_some() {
+      return found;
     }
-    teamcity.clone()
+    self
+      .teamcity_search
+      .run((), || async {
+        // a search that ended since the look above kept its find before it left
+        let (found, generation) = self.found_teamcity().clone();
+        if found.is_some() {
+          return found;
+        }
+        let found = TeamCityCli::discover().await;
+        let mut kept = self.found_teamcity();
+        if kept.1 == generation {
+          kept.0.clone_from(&found);
+        }
+        found
+      })
+      .await
   }
 
-  /// The CLI is looked for again on the next full failure: it was installed, updated or signed in to other servers
-  pub async fn reset_teamcity(&self) {
-    *self.teamcity.lock().await = None;
+  /// The CLI is looked for again on the next full failure: it was installed, updated or signed in to other servers. A
+  /// search in flight answers its callers and keeps nothing
+  pub fn reset_teamcity(&self) {
+    let mut kept = self.found_teamcity();
+    *kept = (None, kept.1 + 1);
+    drop(kept);
+    self.teamcity_search.forget();
   }
 
   /// The Space repository `origin` pushes to: one `remote get-url --push` (`find_space_repository`) on a miss, for the

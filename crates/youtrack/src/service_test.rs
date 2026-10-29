@@ -9,6 +9,7 @@ use serde_json::json;
 use std::sync::Arc;
 use sync_utils::secret_store::write_secret_json;
 use sync_utils::timestamp::unix_now;
+use test_utils::fake_server::FakeGate;
 
 fn stored(url: &str, access_expires_at: Option<u32>, refresh: bool) -> StoredToken {
   StoredToken {
@@ -225,18 +226,45 @@ async fn a_renewal_held_at_the_hub_leaves_the_status_free_and_is_shared_by_the_l
   }
 }
 
+/// The lookup of ABC-1 by `service`, which renews its token at a Hub that holds the request: the gate of the Hub, once
+/// the request reached it, and the lookup
+async fn lookup_renewing_at_a_held_hub(fake: &FakeGitHub, service: &Arc<YouTrackService>) -> (Arc<FakeGate>, tokio::task::JoinHandle<YouTrackIssueAnswer>) {
+  let gate = fake.hold("POST", "/hub/api/rest/oauth2/token");
+  let first = tokio::spawn({
+    let service = Arc::clone(service);
+    async move { service.issue("ABC-1").await }
+  });
+  gate.arrived().await;
+  (gate, first)
+}
+
+/// The lookup that renews goes away while the Hub holds its request (its popover closed): a lookup that waited for that
+/// renewal renews in its place and sends the renewed token
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lookup_that_waited_for_a_renewal_whose_lookup_went_away_renews_in_its_place() {
+  let (fake, service, _dir) = expiring_with_renewal().await;
+  let service = Arc::new(service);
+  let (gate, first) = lookup_renewing_at_a_held_hub(&fake, &service).await;
+  let mut second = Box::pin(service.issue("ABC-2"));
+  std::future::poll_fn(|cx| {
+    assert!(second.as_mut().poll(cx).is_pending(), "waits for the renewal in flight");
+    std::task::Poll::Ready(())
+  })
+  .await;
+  first.abort();
+  assert!(first.await.unwrap_err().is_cancelled());
+  gate.open();
+  assert!(is_found(&second.await));
+  assert_eq!(fake.requests_to("GET", "/api/issues/ABC-2")[0].authorization.as_deref(), Some("Bearer access-new"));
+}
+
 /// Lookups that wait for a renewal held at the Hub, which then answers `answer`: each lookup answers, and the Hub was
 /// asked once
 async fn lookups_waiting_for_a_held_renewal(answer: FakeAnswer) -> (Arc<FakeGitHub>, Arc<YouTrackService>, tempfile::TempDir, [YouTrackIssueAnswer; 3]) {
   let (fake, service, dir) = service_with(|url| stored(url, Some(unix_now() + 10), true)).await;
   fake.answer("POST", "/hub/api/rest/oauth2/token", answer);
-  let gate = fake.hold("POST", "/hub/api/rest/oauth2/token");
   let service = Arc::new(service);
-  let first = tokio::spawn({
-    let service = Arc::clone(&service);
-    async move { service.issue("ABC-1").await }
-  });
-  gate.arrived().await;
+  let (gate, first) = lookup_renewing_at_a_held_hub(&fake, &service).await;
   // the popovers and the rows that ask while the Hub holds the renewal: polled once, each read the state and waits
   let mut second = Box::pin(service.issue("ABC-2"));
   let mut third = Box::pin(service.issue("ABC-1"));

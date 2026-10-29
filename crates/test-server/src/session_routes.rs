@@ -17,6 +17,7 @@ use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
 use crate::review_fixtures::review_requests_of;
 use crate::state::AppState;
+use crate::state::CommandHold;
 use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use app_api::api_error::{api_error, patronus_error};
@@ -122,11 +123,13 @@ impl SessionEnvironment for TestSessionEnvironment {
         .map_err(|_gone| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
       (Arc::clone(&repository.in_flight), repository.existing_remote())
     };
-    let _command = in_flight.blocking_read();
-    // a deletion that came first has removed it and waited for the hold
-    state
+    // none once a deletion began; a deletion that came first has removed it and waits out the commands that hold it
+    let command = in_flight.hold();
+    let _command = state
       .repository(&key.worktree)
-      .map_err(|_gone| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
+      .ok()
+      .and(command)
+      .ok_or_else(|| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
     if let Some(host) = host {
       tokio::runtime::Handle::current().block_on(host.pass_held(HeldAnswer::LandingNeeds));
     }
@@ -186,9 +189,9 @@ impl SessionEnvironment for TestSessionEnvironment {
 }
 
 /// The repository of a session, held as a command holds it while a read of its facts runs: its deletion waits
-async fn holding(state: &AppState, key: &SessionKey) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, ApiError> {
+fn holding(state: &AppState, key: &SessionKey) -> Result<CommandHold, ApiError> {
   let in_flight = Arc::clone(&state.repository(&key.worktree)?.in_flight);
-  Ok(in_flight.read_owned().await)
+  in_flight.hold().ok_or_else(|| ApiError::internal(format!("The test repository {} is gone", key.worktree)))
 }
 
 /// The fake services of the repository at `path` (`remote_host.rs`), started now if not yet; the repository is not held
@@ -303,7 +306,7 @@ impl FactSources for TestFactSources {
   fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
     Box::pin(async move {
       let held = match self.count(key, |repository| &repository.pull_request_calls) {
-        Ok(state) => holding(&state, key).await,
+        Ok(state) => holding(&state, key),
         Err(error) => Err(error),
       };
       match held {
@@ -315,7 +318,7 @@ impl FactSources for TestFactSources {
 
   fn branch_rules<'a>(&'a self, key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
     Box::pin(async move {
-      let _command = holding(&*self.state()?, key).await?;
+      let _command = holding(&*self.state()?, key)?;
       self.gate(key, HeldAnswer::BranchRules, "read the rules of the branch").await?;
       self.services.branch_rules(key, branch).await
     })
@@ -323,7 +326,7 @@ impl FactSources for TestFactSources {
 
   fn profiles<'a>(&'a self, key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
     Box::pin(async move {
-      let _command = holding(&*self.state()?, key).await?;
+      let _command = holding(&*self.state()?, key)?;
       self.gate(key, HeldAnswer::Profiles, "read the Safe Push options").await?;
       self.services.profiles(key, baseline).await
     })
@@ -336,7 +339,7 @@ impl FactSources for TestFactSources {
   fn readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>> {
     Box::pin(async move {
       let state = self.state()?;
-      let _command = holding(&state, key).await?;
+      let _command = holding(&state, key)?;
       {
         let repo = state.repository(&key.worktree)?;
         let branches: Vec<&str> = asks.iter().map(|ask| ask.branch_name.as_str()).collect();

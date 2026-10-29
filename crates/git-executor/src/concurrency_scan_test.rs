@@ -47,39 +47,10 @@ const SERVICE_ACCESSORS: [&str; 3] = ["github", "patronus", "youtrack"];
 /// The functions of `bd_core::services` that make a service
 const SERVICE_CONSTRUCTORS: [&str; 3] = ["github_service", "patronus_service", "youtrack_service"];
 
-/// The guards across an `.await` today, each until the step of s14-fence that removes it (s14-2b)
-const EXEMPT_GUARDS: [Exemption; 6] = [
-  Exemption {
-    path: "crates/github/src/token.rs",
-    hits: 1,
-    reason: "s14-2b: the slot of a token source is held across its read (a process, a file): one shared future of the read instead",
-  },
-  Exemption {
-    path: "crates/youtrack/src/service.rs",
-    hits: 2,
-    reason: "s14-2b: the store lock across the write of the token file (`replace_stored_with`), the renewal lock across the refresh request to Hub (`access`): one shared renewal future instead",
-  },
-  Exemption {
-    path: "crates/remote-facts/src/robot_stats.rs",
-    hits: 1,
-    reason: "s14-2b: the read of the statistics of a repository and target holds its mutex across the lists of Patronus: one shared read instead",
-  },
-  Exemption {
-    path: "crates/operations/src/registry.rs",
-    hits: 1,
-    reason: "s14-2b: the turn of a reconcile of a repository across the reads of its registry and of Patronus (`reconcile_after_robots`): one reconcile future per repository that the next list joins",
-  },
-  Exemption {
-    path: "src-tauri/src/services.rs",
-    hits: 1,
-    reason: "s14-2b: the TeamCity CLI is looked for under its mutex, across the process that finds it: one shared future of the discovery instead",
-  },
-  Exemption {
-    path: "crates/test-server/src/lib.rs",
-    hits: 1,
-    reason: "s14-2b: the mock server holds the in-flight read lock of a repository across its command, so a deletion waits for the commands: a count of the commands in flight that the deletion waits out instead",
-  },
-];
+/// No guard of an async mutex lives across another `.await` since s14-2b: a read that the others wait for is a single
+/// flight (`sync_utils::single_flight`, the renewal of `youtrack::service`); an exemption here names its file, reason
+/// and count as the exemptions of the git scans do
+const EXEMPT_GUARDS: [Exemption; 0] = [];
 
 /// No repository lock lives across the network today; an exemption here names its file, reason and count as above
 const EXEMPT_LOCKS: [Exemption; 0] = [];

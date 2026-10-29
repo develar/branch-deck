@@ -31,6 +31,9 @@ per rule and links here.
 - **A platform branch in a test** asserts on every platform: an `if cfg!(target_os = "macos")` has an `else` that
   checks what the other platforms do (a `worktree add` where no APFS clone is), never a branch that asserts nothing.
   A helper or import that only `#[cfg(unix)]` tests use carries `#[cfg(unix)]` too, or Windows clippy fails on it.
+- **Single flights**: a read that other callers wait for (a token source, a renewal, a read of Patronus two windows ask
+  at once) is a single flight (`sync_utils::single_flight`), never the guard of an async mutex held across an await;
+  `concurrency_scan_test.rs` of `git-executor` fails on such a guard ([Single flights](../design/async-patterns.md#single-flights-no-async-mutex)).
 - **Removals and renames** of the file system go through `sync_utils::fs_retry` (`remove_dir_all`, `remove_dir`,
   `remove_file`, `rename`), never `std::fs`: on Windows a git or a shell whose current directory is in the path, or a
   scanner with a file open, fails them at once (`fs_retry_scan_test.rs`). A process that works in a test's directory is

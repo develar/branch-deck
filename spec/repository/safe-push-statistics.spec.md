@@ -124,8 +124,9 @@ it for little.
   another week again once its list is 5 minutes old, or on Refresh.
   [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`, `a_longer_period_lists_only_the_weeks_not_kept_and_a_shorter_one_asks_nothing`)
 - A read with nothing to ask (every week kept within its TTL, every run kept) answers from the cache at once, whatever
-  another read is asking. A read that asks holds the read of its repository and reads the cache again under it, so two
-  reads at once ask once, and only it makes the salt of the owner keys. A read that waited writes its own start as when
+  another read is asking. A read that asks leads the read of its repository and target, and one that comes meanwhile
+  waits for that read to end, then reads the cache again, so two reads at once ask once, and only the one that asks
+  makes the salt of the owner keys; nothing is locked across the lists. A read that waited writes its own start as when
   it listed; a run Patronus keeps failing keeps the next reads on the path that asks.
   [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`a_read_with_nothing_to_ask_does_not_wait_for_a_running_read`, `two_reads_at_once_ask_once`)
 - The checks of a finished robot of the user are read once, with its problems when it failed and its changes when it

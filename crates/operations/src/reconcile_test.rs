@@ -475,8 +475,8 @@ async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_i
 }
 
 /// The lost starts of a prefix that a list of the session lacks are settled by one list of the robots since the oldest
-/// of them, and a list of another window that comes meanwhile waits for that reconcile, so it asks nothing for what that
-/// one settled: one request for two starts and two lists
+/// of them, and a list of another window that comes meanwhile joins that reconcile, which runs it once it ended, so it
+/// asks nothing for what that one settled: one request for two starts and two lists
 #[tokio::test(flavor = "multi_thread")]
 async fn the_lost_starts_of_a_prefix_settle_by_one_list_since_the_oldest() {
   let directory = tempfile::tempdir().unwrap();

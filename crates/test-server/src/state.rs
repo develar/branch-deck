@@ -157,9 +157,9 @@ pub struct TestRepository {
   pub path: String,
   /// `AppState::app_data_of`: where the fake services keep the app's token files
   pub app_data: PathBuf,
-  /// Held for reading by every request of the page mock for this repository (`hold_repository` in lib.rs) and for
-  /// writing by `delete_repository`, so a repository is deleted only after the commands still running for it
-  pub in_flight: std::sync::Arc<tokio::sync::RwLock<()>>,
+  /// Held by every request of the page mock for this repository (`hold_repository` in lib.rs) and waited out by its
+  /// deletion (`remove_repository`), so a repository is deleted only after the commands still running for it
+  pub in_flight: std::sync::Arc<InFlight>,
   /// The settings of the page: the writer of the app on `settings.json` and `repository-state.json` in `app_data`,
   /// which `set_setting` and the `/store` fixture routes change
   pub store: std::sync::Arc<app_settings::service::SettingsService>,
@@ -331,5 +331,50 @@ impl WorktreeClocks {
 impl repository_model::session::SessionClocks for WorktreeClocks {
   fn of(&self, key: &repository_model::session::SessionKey) -> std::sync::Arc<dyn sync_utils::clock::Clock> {
     std::sync::Arc::new(self.of_worktree(&key.worktree))
+  }
+}
+
+/// The commands of the page that run for a test repository: a count each holds one of while it runs, which the deletion
+/// of the repository waits out, never a lock a command waits for
+#[derive(Default)]
+pub struct InFlight {
+  commands: tokio::sync::watch::Sender<Commands>,
+}
+
+#[derive(Default)]
+struct Commands {
+  running: usize,
+  /// The deletion began: no command starts any more
+  closed: bool,
+}
+
+/// A command that runs for a test repository, until it is dropped
+pub struct CommandHold(std::sync::Arc<InFlight>);
+
+impl InFlight {
+  /// A command of the repository holds it until it ends; none once its deletion began
+  pub fn hold(self: &std::sync::Arc<Self>) -> Option<CommandHold> {
+    let held = self.commands.send_if_modified(|commands| {
+      if commands.closed {
+        return false;
+      }
+      commands.running += 1;
+      true
+    });
+    held.then(|| CommandHold(std::sync::Arc::clone(self)))
+  }
+
+  /// No command holds the repository from now on; resolves once those that hold it ended
+  pub async fn close(&self) {
+    self.commands.send_modify(|commands| commands.closed = true);
+    let mut commands = self.commands.subscribe();
+    // the sender lives in `self`: the wait ends only when the count does
+    let _ = commands.wait_for(|commands| commands.running == 0).await;
+  }
+}
+
+impl Drop for CommandHold {
+  fn drop(&mut self) {
+    self.0.commands.send_modify(|commands| commands.running -= 1);
   }
 }

@@ -169,11 +169,12 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../crates/github/src/service_test.rs (`a_listing_without_access_tries_the_next_token_and_remembers_why_all_failed`)
 - A source that starts a process (`gh`, git) must run once for every request that asks while it runs, and its answer, a
   token or none, must be kept 30 s, so the first requests of every repository at start run `gh` once and a signed-out
-  chain asks no process on every refresh; the app's sign-in and sign-out forget the answers at once. No request waits
-  for a source it does not ask: a repository whose token GitHub accepted answers while `git credential fill` of another
-  waits for a keychain.
+  chain asks no process on every refresh; the app's sign-in and sign-out forget the answers at once, the answer of a
+  read in flight too. No request waits for a source it does not ask: a repository whose token GitHub accepted answers
+  while `git credential fill` of another waits for a keychain.
   [@test] ../../crates/github/src/token_test.rs (`five_first_requests_at_once_run_gh_once`)
   [@test] ../../crates/github/src/token_test.rs (`a_signed_out_chain_asks_its_sources_once_a_while_and_again_after_a_sign_in`)
+  [@test] ../../crates/github/src/token_test.rs (`a_read_in_flight_during_a_sign_in_keeps_nothing_of_its_answer`)
   [@test] ../../crates/github/src/token_test.rs (`an_accepted_repository_answers_while_the_credential_of_another_is_read`)
 
 ### Requests

@@ -156,21 +156,30 @@ fn wait_for_go(go: &std::path::Path) -> String {
   format!("i=0; while [ ! -e '{}' ] && [ $i -lt 3000 ]; do sleep 0.01; i=$((i+1)); done", shell_path(go))
 }
 
+/// A chain whose `gh` counts its run, then runs until the test lets it end (`go` in `dir`) and answers `from-gh`
+fn held_gh_chain(repo: &TestRepo, dir: &std::path::Path) -> (TokenChain, std::path::PathBuf) {
+  let go = dir.join("go");
+  (counting_gh_chain(repo, dir, &format!("{}\necho from-gh", wait_for_go(&go))), go)
+}
+
+/// Lets the held `gh` of `dir` end once it runs, after `meanwhile`
+async fn release_held_gh(dir: &std::path::Path, go: &std::path::Path, meanwhile: impl FnOnce()) {
+  while runs(dir) == 0 {
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
+  meanwhile();
+  std::fs::write(go, "").unwrap();
+}
+
 #[tokio::test]
 async fn five_first_requests_at_once_run_gh_once() {
   let repo = TestRepo::new();
   let path = repo.path().to_str().unwrap();
   let dir = tempfile::tempdir().unwrap();
-  let go = dir.path().join("go");
   // gh runs until the test lets it end: the asks meet while it runs
-  let chain = counting_gh_chain(&repo, dir.path(), &format!("{}\necho from-gh", wait_for_go(&go)));
+  let (chain, go) = held_gh_chain(&repo, dir.path());
   let ask = || chain.token(path, "acme/monorepo");
-  let release = async {
-    while runs(dir.path()) == 0 {
-      tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    std::fs::write(&go, "").unwrap();
-  };
+  let release = release_held_gh(dir.path(), &go, || {});
   let (tokens, ()) = tokio::time::timeout(TIMEOUT, async { tokio::join!(async { tokio::join!(ask(), ask(), ask(), ask(), ask()) }, release) })
     .await
     .expect("gh never ran");
@@ -180,6 +189,23 @@ async fn five_first_requests_at_once_run_gh_once() {
   // the answer is kept: another repository asks no process either
   assert_eq!(chain.token(path, "acme/other").await, from_gh);
   assert_eq!(runs(dir.path()), 1);
+}
+
+/// A sign-in while `gh` runs: the read in flight answers its callers, keeps nothing, and the next request reads again
+#[tokio::test]
+async fn a_read_in_flight_during_a_sign_in_keeps_nothing_of_its_answer() {
+  let repo = TestRepo::new();
+  let path = repo.path().to_str().unwrap();
+  let dir = tempfile::tempdir().unwrap();
+  let (chain, go) = held_gh_chain(&repo, dir.path());
+  let sign_in = release_held_gh(dir.path(), &go, || chain.forget());
+  let (token_of_the_read, ()) = tokio::time::timeout(TIMEOUT, async { tokio::join!(chain.token(path, "acme/monorepo"), sign_in) })
+    .await
+    .expect("gh never ran");
+  let from_gh = Some(token("from-gh", TokenSource::Gh));
+  assert_eq!(token_of_the_read, from_gh);
+  assert_eq!(chain.token(path, "acme/monorepo").await, from_gh);
+  assert_eq!(runs(dir.path()), 2, "the answer of the read before the sign-in was not kept");
 }
 
 #[tokio::test]

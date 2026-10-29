@@ -186,8 +186,9 @@ impl SubWindowEntry {
 /// The main window has one open, its build at the start of the app.
 #[derive(Default)]
 pub struct SubWindowState {
-  /// one open at a time: two opens of a label never both build it (`open_sub_window` is async, opens run in parallel)
-  open_lock: tokio::sync::Mutex<()>,
+  /// one open at a time: two opens of a label never both build it (`open_sub_window` is async, opens run in parallel).
+  /// Held across the build alone, which awaits nothing
+  open_lock: Mutex<()>,
   windows: Mutex<HashMap<String, SubWindowEntry>>,
   opens: AtomicU32,
 }
@@ -327,7 +328,7 @@ pub struct OpenSubWindowParams {
 pub async fn open_sub_window(ctx: &AppContext, call: &Call, params: OpenSubWindowParams) -> Result<(), ApiError> {
   operation(async move {
     let (state, host) = (&ctx.sub_windows, &ctx.desktop.windows);
-    let _open = state.open_lock.lock().await;
+    let _open = state.open_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let open = state.next_open(params.opened_at);
     if host.is_open(&params.window_id) {
       let update = SubWindowUpdate { data: params.data.clone(), open };

@@ -82,12 +82,43 @@ pub struct Registry {
   channels: Arc<Mutex<HashMap<OperationId, Channel>>>,
   /// The watches of the registries of the repositories whose sessions a window shows
   watches: Watches,
-  /// One reconcile after a list at a time per registry file (`reconcile_after_robots`)
-  reconciling: Arc<Turns>,
+  /// The reconciles after a list that run, one per registry file (`reconcile_after_robots`)
+  reconciling: Arc<Mutex<Reconciling>>,
 }
 
-/// The turn of each registry file, by its directory, which a reconcile after a list waits for
-type Turns = Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>;
+/// By the directory of a registry file, the reconcile after a list that runs for it, with the lists that came meanwhile
+/// and run in it once it ended: the newest of each session
+type Reconciling = HashMap<PathBuf, HashMap<SessionKey, Vec<domain_types::patronus::PatronusRobot>>>;
+
+/// The reconcile of a registry file that runs; dropped before its lists ran (its task stopped), it lets the next list
+/// start one again
+struct ReconcileRun<'a> {
+  reconciling: &'a Mutex<Reconciling>,
+  dir: Option<PathBuf>,
+}
+
+impl ReconcileRun<'_> {
+  /// The next list that came while it ran, or none: the run ends, and the next list starts one
+  fn next(&mut self) -> Option<(SessionKey, Vec<domain_types::patronus::PatronusRobot>)> {
+    let dir = self.dir.as_ref()?;
+    let mut reconciling = self.reconciling.lock().unwrap_or_else(PoisonError::into_inner);
+    let lists = reconciling.get_mut(dir)?;
+    let next = lists.keys().next().cloned().and_then(|key| lists.remove_entry(&key));
+    if next.is_none() {
+      reconciling.remove(dir);
+      self.dir = None;
+    }
+    next
+  }
+}
+
+impl Drop for ReconcileRun<'_> {
+  fn drop(&mut self) {
+    if let Some(dir) = self.dir.take() {
+      self.reconciling.lock().unwrap_or_else(PoisonError::into_inner).remove(&dir);
+    }
+  }
+}
 
 /// Where the operations of the sessions of a registry are recorded for the other processes of their repositories
 /// (`registry_file::ProcessRegistry` of the `$GIT_COMMON_DIR` of each), and as which program
@@ -302,22 +333,41 @@ impl Registry {
   /// whose robot it has started; else through the API one list the reconcile asks for all of them once they settled
   /// tells (the list of the session may be one the service kept from before), and for a comment the reply of the bot.
   /// A settled one leaves the registry and the windows read it again; the robot of one that started goes into the
-  /// sessions (`write_started`). One such reconcile of a repository runs at a time: the next (the list of another
-  /// window) reads the records once it ended, so it asks nothing for what that one settled. Nothing without such a
-  /// start, or without the services
+  /// sessions (`write_started`). One such reconcile of a repository runs at a time, and a list that comes meanwhile (of
+  /// another window) joins it: it answers at once, and the reconcile that runs takes it once it ended, reads the records
+  /// again and asks nothing for what it settled. Nothing waits for another reconcile, and nothing is locked across the
+  /// reads of the registry and of Patronus. Nothing without such a start, or without the services
   pub async fn reconcile_after_robots(&self, key: &SessionKey, listed: &[domain_types::patronus::PatronusRobot]) {
-    let (Some(host), Some(registry)) = (self.files.settle.as_deref(), self.files.registry_of(key).await) else {
+    if self.files.settle.is_none() {
+      return;
+    }
+    let Some(registry) = self.files.registry_of(key).await else {
       return;
     };
-    let turn = Arc::clone(
-      self
-        .reconciling
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .entry(registry.dir().to_path_buf())
-        .or_default(),
-    );
-    let _turn = turn.lock().await;
+    let dir = registry.dir().to_path_buf();
+    {
+      let mut reconciling = self.reconciling.lock().unwrap_or_else(PoisonError::into_inner);
+      if let Some(lists) = reconciling.get_mut(&dir) {
+        lists.insert(key.clone(), listed.to_vec());
+        return;
+      }
+      reconciling.insert(dir.clone(), HashMap::new());
+    }
+    let mut run = ReconcileRun {
+      reconciling: &self.reconciling,
+      dir: Some(dir),
+    };
+    self.reconcile_once(&registry, key, listed).await;
+    while let Some((key, listed)) = run.next() {
+      self.reconcile_once(&registry, &key, &listed).await;
+    }
+  }
+
+  /// One reconcile of `reconcile_after_robots`
+  async fn reconcile_once(&self, registry: &ProcessRegistry, key: &SessionKey, listed: &[domain_types::patronus::PatronusRobot]) {
+    let Some(host) = self.files.settle.as_deref() else {
+      return;
+    };
     let reading = registry.clone();
     let records = tokio::task::spawn_blocking(in_current_span(move || reading.of_other_processes())).await;
     let unknown: Vec<_> = match records {
@@ -349,7 +399,7 @@ impl Registry {
     }
     if settled {
       debug!("a list of the robots settled a start whose answer was lost");
-      self.watches.reread(&registry);
+      self.watches.reread(registry);
     }
   }
 

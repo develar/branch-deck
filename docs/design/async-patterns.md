@@ -1,7 +1,7 @@
 # Async Patterns and spawn_blocking
 
 **Status:** Implemented  
-**Updated:** 2025-08-23  
+**Updated:** 2026-10-29  
 **Tags:** [async, performance, tauri]
 
 ## Problem
@@ -180,6 +180,22 @@ server's error names its operation too); `src-tauri` has no command of its own
 - `bd` opens the root span `operation{op, operation_id}` in `bd_cli::run` before the dispatch, `op` the words of the
   command (`lease get`); every `-v` line carries it, the lines of the sync's threads too
   (`crates/bd-cli/src/operation_test.rs`, under a global subscriber that sees every thread).
+
+### Single flights, no async mutex
+
+A read that other callers wait for (a token source, the search of a tool, the renewal of a sign-in, a read of
+Patronus that two windows ask at once) is a single flight, never the guard of an async mutex held across it: the caller
+that comes first leads and runs the read, the callers that ask meanwhile wait for its answer on a `watch`, and nothing
+the read does (a process, a request, a file) holds a caller that asks for something else. `sync_utils::single_flight`
+is the one form of it: its map of flights is a `std` mutex held only to join or to register; a leader that goes away
+(its caller dropped) ends the flight, and the first of its joiners leads again. What should outlive the flight (a kept
+token, a list in the object cache) is kept by the read before it answers, so a caller after it reads nothing again.
+Where joining must be one step with reading a state (the renewal of `youtrack::service`: a lookup reads the token and
+joins the renewal of its generation under the one lock of the state), the flight lives in that state. A `std` mutex is
+held across no `.await` at all; one that a blocking write needs is taken on the thread of the write
+(`spawn_blocking`). The concurrency scan (`crates/git-executor/src/concurrency_scan_test.rs`) fails on the guard of an
+async mutex or read-write lock that lives across another `.await` of its scope, with no exemption
+([Rust as the Domain Authority](rust-domain-authority.md), «Инварианты», 2).
 
 ## Alternatives Considered
 

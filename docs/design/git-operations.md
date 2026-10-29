@@ -3306,7 +3306,9 @@ both ended; a mutation of `bd` touches the stamp, a read, a dry run and a failur
   (`FULL_LIST_REUSE`, 10 s, shared by the sessions of a Space repository), asked before the start settled however late
   it came; without the robot, a start that settled is asked again by that list of the reconcile, never before it
   settled: one request for all such starts of the prefix, since the oldest (`reconcile_all`), and one reconcile of a
-  repository at a time, so the list of another window meanwhile reads the records it settled and asks nothing for them.
+  repository at a time: the list of another window meanwhile joins it and runs in it once it ended (the newest list of
+  each session), so it reads the records that one settled and asks nothing for them; no list waits for another, and
+  nothing is locked across the reads of the registry and of Patronus (`Registry::reconcile_after_robots`).
   A robot that list finds is one a kept full list lacks: the service drops its kept lists (`forget_full_lists`, as a
   start does), so the next list of a window asks Patronus. A comment is read by its
   id (one conditional request of its reactions; a post that lost its answer is found by its text among the comments of
@@ -3908,10 +3910,13 @@ only git process of the chain:
 - never `credential approve` or `reject`: these are the user's credentials, and a token GitHub rejects is only
   skipped by the app (`TokenChain::reject`), not erased from the helper.
 
-A source that starts a process runs once for every caller that asks while it runs (an async mutex per source, by
-repository path and repository for git), and its answer, a token or none, is kept for `SOURCE_TTL` (30 s); the state
-of the chain (accepted, rejected, no access) is a `std` mutex held only to read or write it, never across a process,
-so a repository GitHub accepted a token for never waits for a slow `credential fill` of another.
+A source that starts a process runs once for every caller that asks while it runs: a single flight per source (by
+repository path and repository for git, `sync_utils::single_flight`), whose callers wait for its answer on a `watch`,
+never for a guard; the read keeps its answer, a token or none, for `SOURCE_TTL` (30 s) before the flight ends, so a
+caller after it reads no process. A sign-in or a sign-out (`TokenChain::forget`) starts a new generation: a read in
+flight answers the callers that joined it and keeps nothing, and the next request reads again. The state of the chain
+(accepted, rejected, no access) and the kept answers are `std` mutexes held only to read or write them, never across a
+process, so a repository GitHub accepted a token for never waits for a slow `credential fill` of another.
 
 It reads nothing of the working tree and writes nothing; the worktree safety scan allows it. GitHub itself is asked
 over HTTP (`GitHubService`, `crates/github/src/service.rs`); the only `gh` process is `gh auth token` of the chain.
