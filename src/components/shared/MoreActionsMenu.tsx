@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { cn } from "cn"
 import { EllipsisIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -7,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { useControlRef } from "@/hooks/useControlKey"
 import { useLazyRoot } from "@/hooks/useLazyRoot"
+import { focusBackFromMenu } from "@/lib/menu"
 import type { MenuItem } from "@/lib/menu"
 
 export interface MoreActionsMenuProps {
@@ -32,104 +34,63 @@ export interface MoreActionsMenuProps {
  * The "⋯" button of a row, inside its `ActionTracks` or `RowActions` (a click doesn't toggle the row): the menu its right-click opens,
  * under a button, so its actions are found without knowing the right-click. Its menu and its tooltip mount at the first
  * hover or focus of the button (`useLazyRoot`), a plain button with the ARIA of a closed menu trigger until then: every
- * row has one.
+ * row has one. One tree in every state (an action of the row runs: its spinner, its hover what runs, no menu; it waits
+ * for another holder of the lock: its menu is Stop Waiting), so the button keeps its element, its focus and its hover
+ * as the action runs, waits and ends; disabled, it keeps the focus (`aria-disabled`).
  */
 export function MoreActionsMenu({ name, menu, disabled = false, busy = null, stopWaiting = null }: MoreActionsMenuProps) {
   const root = useLazyRoot(true)
-  // each state renders its roots anew, another button in the place of the last: one control for the hover
+  // the plain button and the one of the roots are one control for the hover
   const controlKey = `more-actions:${name}`
   const plainRef = useControlRef<HTMLButtonElement>(undefined, controlKey)
+  const running = busy !== null
+  // a menu unless an action runs without Stop Waiting, or an operation works on the row
+  const opensMenu = running ? stopWaiting !== null : !disabled
+  const button = {
+    variant: "ghost",
+    size: "icon-xs",
+    // a running action keeps its colour beside the spinner: no dimming then
+    className: cn("text-muted-foreground", !running && "aria-disabled:opacity-50"),
+    "aria-label": `More actions for ${name}`,
+    "aria-busy": running || undefined,
+    disabled: !opensMenu,
+    focusableWhenDisabled: true,
+  } as const
+  const icon = running ? <Spinner /> : <EllipsisIcon />
   if (!root.armed) {
-    // the button of the branch below that the state renders, closed: a menu unless an action runs without Stop Waiting
-    const menuTrigger = busy === null || stopWaiting !== null
     return (
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground"
-        aria-label={`More actions for ${name}`}
-
-        aria-haspopup={menuTrigger ? "menu" : undefined}
-        aria-expanded={menuTrigger ? "false" : undefined}
-        aria-busy={busy === null ? undefined : true}
-        data-slot="tooltip-trigger"
-        ref={plainRef}
-        disabled={busy === null ? disabled : !menuTrigger}
-        focusableWhenDisabled={!menuTrigger}
-        {...root.armProps}
-      >
-        {busy === null ? <EllipsisIcon /> : <Spinner />}
+      <Button {...button} aria-haspopup="menu" aria-expanded="false" data-slot="tooltip-trigger" ref={plainRef} {...root.armProps}>
+        {icon}
       </Button>
     )
   }
-  if (busy !== null && stopWaiting !== null) {
-    // the action waits for another holder of the repository lock: the hover says whom for, a click offers Stop Waiting
-    return (
-      <DropdownMenu controlKey={controlKey}>
-        <Tooltip controlKey={controlKey}>
-          <TooltipTrigger
-            render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} aria-busy />} />}
-          >
-            <Spinner />
-          </TooltipTrigger>
-          <TooltipContent>{`${busy}…`}</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="end" className="w-auto min-w-36" finalFocus={false}>
-          <DropdownMenuItems groups={[[stopWaiting]]} />
-        </DropdownMenuContent>
-      </DropdownMenu>
-    )
-  }
-  if (busy !== null) {
-    // no menu while it runs; the hover says what runs (Base UI keeps a disabled button hoverable here, the dimming is off)
-    return (
-      <Tooltip controlKey={controlKey}>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground"
-              aria-label={`More actions for ${name}`}
-
-              aria-busy
-              disabled
-              focusableWhenDisabled
-            />
-          }
-        >
-          <Spinner />
-        </TooltipTrigger>
-        <TooltipContent>{`${busy}…`}</TooltipContent>
-      </Tooltip>
-    )
-  }
   return (
-    <DropdownMenu controlKey={controlKey}>
+    <DropdownMenu
+      controlKey={controlKey}
+      onOpenChange={(open, details) => {
+        if (open && !opensMenu) {
+          details.cancel()
+        }
+      }}
+    >
       <Tooltip controlKey={controlKey}>
-        <TooltipTrigger
-          render={
-            <DropdownMenuTrigger disabled={disabled} render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} />} />
-          }
-        >
-          <EllipsisIcon />
-        </TooltipTrigger>
-        <TooltipContent>More actions</TooltipContent>
+        <TooltipTrigger render={<DropdownMenuTrigger render={<Button {...button} />} />}>{icon}</TooltipTrigger>
+        <TooltipContent>{running ? `${busy}…` : "More actions"}</TooltipContent>
       </Tooltip>
       {/*
-        as wide as its items, as the right-click menu; the inline form opened from the menu takes the focus. The popup
-        sits in the row's React tree: a right-click in it must not open the row's menu
+        as wide as its items, as the right-click menu; the inline form opened from the menu takes the focus, any other
+        item gives it back here. The popup sits in the row's React tree: a right-click in it must not open the row's menu
       */}
       <DropdownMenuContent
         align="end"
         className="w-auto min-w-36"
-        finalFocus={false}
+        finalFocus={focusBackFromMenu}
         onContextMenu={event => {
           event.preventDefault()
           event.stopPropagation()
         }}
       >
-        {menu}
+        {running ? stopWaiting !== null && <DropdownMenuItems groups={[[stopWaiting]]} /> : menu}
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -548,11 +548,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   Another element is the same control only by its identity, never by its place (`registerControl`): a root of
   `src/components/ui` names its trigger by its own key, so a trigger that renders as another element in the same root
   (a text or a badge by the state, the plain trigger of a lazy root and the one it mounts) keeps the hover; a control
-  that renders its root anew names it by its action and its subject (`controlKey`: `more-actions:<branch>`, the "⋯" of
-  a row whose move waits for the lock says whom for, its tooltip open from "Moving…" on; the robot of a row as it
-  ends; the Safe Push of the slot as Stop Waiting comes beside it). The buttons of the actions (`MenuItemButton`, the
-  step of the slot, the actions of a robot) keep one root whether they have a reason to say or not, so their element
-  stays as their action is enabled, disabled or runs.
+  that renders its root anew names it by its action and its subject (`controlKey`: `more-actions:<branch>` of the
+  plain "⋯" and the one of its roots; the robot of a row as it ends). The buttons of the actions (`MenuItemButton`, the
+  step of the slot, the actions of a robot) keep one root whether they have a reason to say or not, and a Stop Waiting
+  or a lost answer comes beside a button (the Safe Push of the slot, a button of a surface) in a wrapper that is there
+  without them too, so their element stays as their action is enabled, disabled, runs or waits.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no hover card or tooltip of a trigger that came under a still pointer, and open it at the next move`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no tooltip of a stack chip that slid into the place of a fixup badge under a still pointer, and open it at the next move`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open no submenu of the row menu whose item came under a still pointer, and open it at the next move`)
@@ -746,6 +746,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   as the view of the session has it in every window (`RepositoryView.operations`: a rewrite of the branch or of its
   commits, the retarget of its pull request; `useRowOperation`): no right-click menu, "⋯" disabled, no drag, no push.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
+- The "⋯" must be one element through the states of the action it shows (its menu; the spinner, no menu; the wait
+  for another holder of the lock, its menu Stop Waiting): disabled it keeps the focus (`aria-disabled`), and an item
+  of its menu gives the focus back to it, but for one that opens an inline form, which takes it (`focusBackFromMenu`).
+  So a rewrite chosen from its menu by key that waits for the lock leaves the focus on the "⋯": Enter opens Stop
+  Waiting, Escape closes it again, and the keys of the row go on; the focus fell to the page before, at the item and
+  at each state, and the keys stopped until a click.
+  [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should keep the focus on the row's ⋯ through a rewrite started from its menu by key that waits for the lock, and stop it by key`)
 - The same error toast must not stack: an error with the title and the description of an open error toast updates
   it in place; Activity records each.
 - An item that opens a form must end with "…"; an item that acts at once must not: "Safe Push" and "Dry Run" start at

@@ -224,8 +224,10 @@ Mistakes agents made here; each cost a session.
   at once (trusted, at the same position), and moves the pointer where it is after a scroll. A hover opens a popup only
   after a move over its trigger (`hoverOpensOnMove`, `src/lib/pointer-moves.ts`); another element keeps it only as
   the same control, never by its place: the same root of `src/components/ui`, or the `controlKey` (action and subject)
-  of a component that renders its root anew (`<DropdownMenu>` in one state, a bare `<Tooltip>` in another). Its E2E
-  test brings a trigger under the pointer with `bringUnderStillPointer` and runs the delay with `page.clock.fastForward`.
+  of a component that renders its root anew. Better keep the element: one tree in every state of a control, its
+  Stop Waiting a sibling in a wrapper that is there without it too; a new element loses the focus as well, and the
+  keys with it. Its E2E test brings a trigger under the pointer with `bringUnderStillPointer` and runs the delay with
+  `page.clock.fastForward`.
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
   caret at 0 and the text lands at the start.
 - **zsh does not word-split `$args`**: `args="--no-default-features --features=x"; cargo build $args` passes one

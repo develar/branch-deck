@@ -113,3 +113,13 @@ export function toPreviewMenu(groups: MenuItemGroups, close: (() => void) | null
   }
   return groups.map(group => group.map(inPreview))
 }
+
+/**
+ * The `finalFocus` of a menu of a row: an item that opens an inline form gives the focus to it; any other gives it back
+ * to the trigger of the menu, so the keys of the row go on (Stop Waiting of the "⋯" by Enter among them). False while
+ * the focus is on something outside the menu but the page
+ */
+export function focusBackFromMenu(): boolean {
+  const active = document.activeElement
+  return !(active instanceof HTMLElement) || active === document.body || active.closest("[role=menu]") !== null
+}

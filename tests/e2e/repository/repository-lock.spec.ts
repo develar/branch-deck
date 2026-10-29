@@ -80,6 +80,54 @@ test.describe("Rewrites while another process holds the repository lock", () => 
   })
 
   test(
+    "should keep the focus on the row's ⋯ through a rewrite started from its menu by key that waits for the lock, and stop it by key",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // oauth stacked on login: Unstack from login of its menu, a rewrite, waits for the lock another process holds
+      const repo = await setupRepo("stacked_branches")
+      await syncAndWaitForBranches()
+      const unstacks = await recordRewrites(page, "unstack")
+      const cancels = await recordCommand(page, "cancel_operation")
+      await repo.holdRepositoryLock(true)
+      const more = getMoreButton(findBranchRow(page, "oauth"))
+      await more.focus()
+      await expect(more).toBeFocused()
+
+      // Enter opens its menu, the arrows go to the item, Enter runs it: the menu gives the focus back to the "⋯"
+      await page.keyboard.press("Enter")
+      const unstack = page.getByRole("menuitem", { name: "Unstack from login" })
+      await expect(unstack).toBeVisible()
+      for (let step = 0; step < 20 && !(await unstack.evaluate(item => item === document.activeElement)); step++) {
+        await page.keyboard.press("ArrowDown")
+      }
+      await expect(unstack).toBeFocused()
+      await page.keyboard.press("Enter")
+      await expect(page.getByRole("menu")).toHaveCount(0)
+      // the spinner, then the wait with its Stop Waiting: one button through both, the focus on it
+      await expect(more).toHaveAttribute("aria-busy", "true")
+      await expect(more).not.toHaveAttribute("aria-disabled", "true")
+      await expect(more).toBeFocused()
+      expect(unstacks).toHaveLength(1)
+
+      // Enter opens Stop Waiting, Escape closes it and gives the focus back
+      await page.keyboard.press("Enter")
+      const stop = page.getByRole("menuitem", { name: "Stop Waiting" })
+      await expect(stop).toBeVisible()
+      await page.keyboard.press("Escape")
+      await expect(stop).toHaveCount(0)
+      await expect(more).toBeFocused()
+      // Enter and Enter: Stop Waiting ends the wait with nothing changed, the focus on the "⋯" again
+      await page.keyboard.press("Enter")
+      await expect(stop).toBeFocused()
+      await page.keyboard.press("Enter")
+      await expect(page.getByText(/^Canceled unstacking oauth/)).toBeVisible()
+      expect(cancels).toHaveLength(1)
+      await expect(more).not.toHaveAttribute("aria-busy", "true")
+      await expect(more).toBeFocused()
+    },
+  )
+
+  test(
     "should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {

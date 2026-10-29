@@ -107,13 +107,15 @@ export function MenuItemButton({
       </TooltipContent>
     </Tooltip>
   )
-  if (stopWaiting === null) {
+  // only the button of a surface waits for the lock: it has Stop Waiting beside it in one wrapper, there or not, so the
+  // button keeps its element as the wait comes and goes
+  if (surface === undefined) {
     return described
   }
   return (
     <span className="inline-flex items-center gap-1">
       {described}
-      <MenuItemButton item={stopWaiting} variant="outline" size={size} data-testid="stop-waiting" />
+      {stopWaiting !== null && <MenuItemButton item={stopWaiting} variant="outline" size={size} data-testid="stop-waiting" />}
     </span>
   )
 }

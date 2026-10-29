@@ -143,8 +143,7 @@ export function SafePushButton({
   // it waits for another holder of the repository lock: Stop Waiting beside it, the hover says whom for
   const stopWaiting = waiting !== null && starting?.op != null && elsewhere === null ? stopStartItem(starting.op, waiting) : null
   const button = (
-    // the actions beside it (a lost answer, Stop Waiting) render its root anew in a span: one control for the hover
-    <Tooltip lazy controlKey={`safe-push:${placement}:${key}`}>
+    <Tooltip lazy>
       <TooltipTrigger
         render={
           <Button
@@ -192,24 +191,16 @@ export function SafePushButton({
       </TooltipContent>
     </Tooltip>
   )
-  // the actions beside the slot are no label the cap of the step track truncates: the track takes their width
-  if (lostItems.length > 0) {
-    return (
-      <span className="inline-flex items-center gap-1" data-beside-slot="">
-        {button}
-        {lostItems.map(lostItem => (
-          <MenuItemButton key={lostItem.id} item={lostItem} variant="outline" data-testid={lostItem.id} />
-        ))}
-      </span>
-    )
-  }
-  if (stopWaiting === null) {
-    return button
-  }
+  // the actions beside the slot are no label the cap of the step track truncates: the track takes their width. One
+  // wrapper whether they are there or not: the button keeps its element, its focus and its hover as they come and go
+  const beside = lostItems.length > 0 || stopWaiting !== null
   return (
-    <span className="inline-flex items-center gap-1" data-beside-slot="">
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1" data-beside-slot={beside ? "" : undefined}>
       {button}
-      <MenuItemButton item={stopWaiting} variant="outline" data-testid="stop-waiting" />
+      {lostItems.map(lostItem => (
+        <MenuItemButton key={lostItem.id} item={lostItem} variant="outline" data-testid={lostItem.id} />
+      ))}
+      {lostItems.length === 0 && stopWaiting !== null && <MenuItemButton item={stopWaiting} variant="outline" data-testid="stop-waiting" />}
     </span>
   )
 }
