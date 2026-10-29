@@ -172,8 +172,16 @@ export async function observeCommand<T>(page: Page, command: string, measure: ()
     try {
       const args = (route.request().postDataJSON() ?? {}) as Record<string, unknown>
       calls.push({ args, measured: await page.evaluate(measure) })
+    } catch (error) {
+      // the test ended as the call went out (its window says a stage as it closes): nothing is left to measure, and
+      // the call goes nowhere
+      if (!page.isClosed()) {
+        throw error
+      }
     } finally {
-      await route.fallback()
+      if (!page.isClosed()) {
+        await route.fallback()
+      }
     }
   })
   return calls
