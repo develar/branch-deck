@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.39.0](https://github.com/develar/branch-deck/compare/v0.38.0...v0.39.0) (2026-10-29)
+
+
+### Features
+
+* **bd:** coding agents name the branch in each commit subject by default ([dd5b940](https://github.com/develar/branch-deck/commit/dd5b9401202a8bd03a373f5e6245a1cc7d2eb8c2))
+
+
+### Bug Fixes
+
+* **update:** a twin the baseline proves it has is left out before the replay, so a clean merge never adds its lines again ([757d959](https://github.com/develar/branch-deck/commit/757d9598a78a9596f0dbe8a65c021f9e03c69a3d))
+
 ## [0.38.0](https://github.com/develar/branch-deck/compare/v0.37.0...v0.38.0) (2026-10-29)
 
 
