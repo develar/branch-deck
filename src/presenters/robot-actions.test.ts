@@ -113,11 +113,11 @@ describe("getRobotActionItems", () => {
 
   it("names what a restart of a running robot a failed required check dooms does: it cancels it, then starts it again", () => {
     const failing = robot({ status: "running", finishTime: null, sourceRevision: "78ca3b88aa" })
-    const actions = getRobotActionItems(failing, { offered: enabled("restart-robot", "cancel-robot", "copy-robot-prompt", "copy-robot-full-prompt", "open-robot") })
+    const actions = getRobotActionItems(failing, {}, { offered: enabled("restart-robot", "cancel-robot", "copy-robot-prompt", "copy-robot-full-prompt", "open-robot") })
     expect(actions.map(it => it.label)).toEqual(["Restart Safe Push", "Cancel Safe Push", ...PROMPTS, "Open in Patronus"])
     expect(actions[0]!.description).toBe("Cancels the run on 78ca3b88 and starts it again on the remote branch")
     // a finished one is restarted as it is
-    expect(getRobotActionItems(robot({}), { offered: enabled("restart-robot") })[0]!.description).toBeUndefined()
+    expect(getRobotActionItems(robot({}), {}, { offered: enabled("restart-robot") })[0]!.description).toBeUndefined()
   })
 
   it("cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from", async () => {
