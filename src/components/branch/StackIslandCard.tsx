@@ -1,7 +1,6 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { FoldVerticalIcon, GitPullRequestIcon, UnfoldVerticalIcon } from "lucide-react"
-import { useStore } from "zustand"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActionTracks } from "@/components/branch/ActionTracks"
@@ -18,6 +17,7 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { menuSources, useMenuStores } from "@/hooks/useBranchContextActions"
 import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
+import { useOrphanedStackPullRequest } from "@/hooks/useOrphanedStackPullRequest"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useSettledStackLine } from "@/hooks/useSettledLayout"
@@ -35,11 +35,10 @@ import type { StackStateChip } from "@/lib/stack-state"
 import { getStackStateChips } from "@/lib/stack-state"
 import { joinNames } from "@/lib/text"
 import { textColorClassName } from "@/lib/ui-types"
-import { describeOrphanedStackPullRequest, formatWholeStackApprovals, stackReadinessKey } from "@/lib/whole-stack"
+import { formatWholeStackApprovals, stackReadinessKey } from "@/lib/whole-stack"
 import type { ChildrenPushOrder } from "@/stores/branch-sync"
 import { isForkingRoot, mainLineOf, pushOrdersIn, structureIn, useBranch, useBranchSync, useStackBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { landedStacksStore, useStackLandedBy } from "@/stores/landed-stacks"
 import { useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
@@ -233,9 +232,8 @@ function IslandHeader({ root, summary, landing }: { root: string; summary: Islan
  */
 function WholeStackPullRequestLine({ root }: { root: string }) {
   const pullRequest = useStackPullRequest(root)
-  const stack = useStackBranch(root)
-  const landedBy = useStackLandedBy(root)
-  if (pullRequest?.state !== "open" || describeOrphanedStackPullRequest(root, pullRequest, stack, landedBy) !== null) {
+  const orphaned = useOrphanedStackPullRequest(root)
+  if (pullRequest?.state !== "open" || orphaned !== null) {
     return null
   }
   const decision = pullRequest.reviewDecision === "approved" ? " · approved" : pullRequest.reviewDecision === "changesRequested" ? " · changes requested" : ""
@@ -248,12 +246,10 @@ function WholeStackPullRequestLine({ root }: { root: string }) {
  */
 function StackPullRequestButton({ root }: { root: string }) {
   const pullRequest = useStackPullRequest(root)
-  const stack = useStackBranch(root)
-  const landedBy = useStackLandedBy(root)
+  const orphaned = useOrphanedStackPullRequest(root)
   if (pullRequest?.state !== "open") {
     return null
   }
-  const orphaned = describeOrphanedStackPullRequest(root, pullRequest, stack, landedBy)
   if (orphaned !== null) {
     return <ClosePullRequestButton root={root} number={pullRequest.number} orphaned={orphaned} variant="ghost" className="text-warning" />
   }
@@ -419,7 +415,6 @@ function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSum
 /** The items of the "⋯" of the header, built when it opens: Patronus, GitHub and the robots answer after the first render */
 /** The "⋯" of the header: an open menu follows every store it reads, the pull requests that load after the sync too */
 function StackIslandMenu({ root, collapsed }: { root: string; collapsed: boolean }) {
-  useStore(landedStacksStore, () => getStackIslandMenuNow(root, collapsed))
   return <DropdownMenuItems groups={useMenuStores(() => getStackIslandMenuNow(root, collapsed))} />
 }
 
@@ -431,7 +426,7 @@ const shownIslandMenus = new Map<string, { sources: readonly unknown[]; groups: 
  * selector of `StackIslandMenu`, as `getBranchMenuNow` is of the branch menu
  */
 function getStackIslandMenuNow(root: string, collapsed: boolean): MenuItemGroups {
-  const sources = [...menuSources(), landedStacksStore.getState(), collapsed]
+  const sources = [...menuSources(), collapsed]
   const shown = shownIslandMenus.get(root)
   if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
     return shown.groups

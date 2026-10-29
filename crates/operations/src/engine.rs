@@ -36,10 +36,11 @@ use domain_types::operation::{
   EffectRecord, Intent, NewsKey, OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, PullRequestField, Resource, RunningMove,
 };
 use domain_types::rewrite::RewriteIntent;
-use domain_types::session::Version;
+use domain_types::session::{SyncState, Version};
 use remote_facts::service_sources::ServiceHost;
 use repository_model::action_view::{FrameReads, reads_cached_frame};
 use repository_model::session::{SessionKey, Sessions};
+use repository_model::table::TableState;
 use std::sync::Arc;
 use sync_core::transfer_progress::TransferProgress;
 use tracing::Instrument;
@@ -176,18 +177,28 @@ const fn frame_reads(intent: &Intent) -> Option<FrameReads> {
 /// this holds the same for a caller that did not read them (a key, a toast)
 ///
 /// # Errors
-/// `plan_changed`, before anything is admitted or written
+/// `frame_refusal`, before anything is admitted or written
 pub(crate) async fn refuse_on_cached_frame(sessions: &Sessions, key: &SessionKey, intent: &Intent) -> Result<(), ApiError> {
   let Some(reads) = frame_reads(intent) else {
     return Ok(());
   };
-  let cached = sessions.read(key, move |state, facts| reads_cached_frame(state, facts, reads)).await.unwrap_or(false);
-  if cached { Err(cached_frame_refusal()) } else { Ok(()) }
+  let refused = sessions
+    .read(key, move |state, facts| reads_cached_frame(state, facts, reads).then(|| frame_refusal(state)))
+    .await
+    .flatten();
+  refused.map_or(Ok(()), Err)
 }
 
-/// The refusal of a remote intent on the cached frame of an earlier run, in the words of its actions there
-pub(crate) fn cached_frame_refusal() -> ApiError {
-  ApiError::new(ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run")
+/// The refusal of an intent on the cached frame of an earlier run in `state`. While the table is that frame because its
+/// first sync failed or git deferred it, the error of that sync (`no_identity`, `operation_in_progress`, …): no sync runs
+/// that the intent could wait for, and the error says what to fix. Otherwise `plan_changed` in the words of its actions
+/// there: it waits for the first sync
+pub(crate) fn frame_refusal(state: &TableState) -> ApiError {
+  let failed = match state.sync() {
+    SyncState::Failed { error } | SyncState::Deferred { error } if state.cached() => Some(error.clone()),
+    _ => None,
+  };
+  failed.unwrap_or_else(|| ApiError::new(ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run"))
 }
 
 /// Whether `plan`, decided again once the operation of `guard` was admitted, is the plan its caller accepted, or after a

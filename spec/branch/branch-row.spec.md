@@ -493,7 +493,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   "Close Pull Request #12…" of a pull request of the whole stack that no longer matches it) must be disabled with
   "Waits for the first sync" (`ActionBlocker::Cached`), whatever else the frame says of it: a press on a frame nobody
   checked never acts on what a sync may change, and the engine refuses such an intent there (`plan_changed`) for a
-  caller that did not read the action, also a push that waited for a first sync that failed and left the frame. The
+  caller that did not read the action; once the first sync failed and left the frame (or git deferred it), such an
+  intent, a push that waited for that sync too, is refused with the error of that sync (`no_identity`, …), which says
+  what to fix: no sync runs that it waits for. The
   rewrites, the park, the reviews and the links stay
   as the frame offers them; no robot of the frame needs the user ([Patronus](patronus.spec.md#landing-overview)).
   [@test] ../../crates/domain-policy/src/actions_test.rs (`on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_the_rest_stays`, `a_frame_is_unchecked_while_its_table_or_a_fact_the_actions_read_is_the_cached_one`)
@@ -618,9 +620,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   session (`with_operations`): the item of an intent that runs or waits in this process is running, a rewrite that can
   start says what its start waits behind, a remote action whose resource an operation holds is disabled with it; no
   sync disables a rewrite. Presence by what only the page holds stays the page's: "Squash N Fixups…" (the autosquash
-  plan), "Ungroup" (the prefix to remove), "Close Pull Request #12…" of a pull request of the whole stack that no
-  longer matches it (Rust offers its close while it is open, `close-stack-pull-request`, also of a root no branch is
-  built on any more, and decides whether it can run).
+  plan), "Ungroup" (the prefix to remove). "Close Pull Request #12…" of a pull request of the whole stack is Rust's
+  (`close-stack-pull-request`): offered only while that pull request is open and no longer matches the stack (a
+  landing took the root, or the stack no longer forks, also of a root no branch is built on any more), and whether it
+  can run.
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus`, `the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_in_this_order`, `a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`, `a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_branch_is_not_built`, `the_close_of_the_pull_request_of_a_whole_stack_runs_once_and_waits_for_what_holds_its_state`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_offers_the_actions_of_each_subject_and_a_patch_only_those_that_changed`)

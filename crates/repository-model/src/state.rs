@@ -7,9 +7,10 @@
 //! A session seeded from the frame of an earlier run (`warm_start`) starts at the view of that frame (`seeded`): what
 //! the rules derive of the seeded state, at the first version of its epoch, which the session keeps as its seed. A
 //! window that holds it (the start of the app shows it before the window subscribes) catches up by one patch from the
-//! seed to the view sent since (`join`, `patch::diff_views`), not by the whole view, until a window that held it got
-//! the table of this run (`told`): a reload of that window, which installs the seed again, gets the snapshot, so the
-//! end of the first sync ends once in it.
+//! seed to the view sent since (`join`, `patch::diff_views`), not by the whole view; so does a reload of that window,
+//! whose init script installs the same seed, for as long as the session lives. Whether that catch-up ends a run in the
+//! window is the page's to know (a Tauri channel to a page that went away never fails a send, so the session can't tell
+//! which page got the patch of the table of this run): it remembers the end it saw beside the seed (`src/model/store.ts`).
 
 use crate::action_view::{ActionSources, actions_of};
 use crate::derive::{attention_of, landed_states_of, landing_route_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
@@ -25,12 +26,8 @@ use std::hash::{BuildHasher, RandomState};
 #[derive(Clone, Debug)]
 pub struct View {
   last_sent: RepositoryView,
-  /// The view of the frame the session was seeded from, at the first version of its epoch (`seeded`), until a window
-  /// that held it was told the table of this run (`told`)
+  /// The view of the frame the session was seeded from, at the first version of its epoch (`seeded`)
   seed: Option<RepositoryView>,
-  /// The subscriptions that joined holding the seed and hold the frame still: the patch of the table of this run tells
-  /// them the end of the first sync
-  seed_holders: Vec<SubscriptionId>,
 }
 
 /// What a window that subscribes gets (`View::join`)
@@ -68,7 +65,6 @@ impl View {
         ..RepositoryView::default()
       },
       seed: None,
-      seed_holders: Vec::new(),
     }
   }
 
@@ -100,8 +96,7 @@ impl View {
     self.last_sent.version
   }
 
-  /// The view of the frame the session was seeded from, at the first version of its epoch; none for a session not seeded,
-  /// and once a window that held it was told the table of this run
+  /// The view of the frame the session was seeded from, at the first version of its epoch; none for a session not seeded
   #[must_use]
   pub const fn seed(&self) -> Option<&RepositoryView> {
     self.seed.as_ref()
@@ -113,49 +108,19 @@ impl View {
     self.last_sent.clone()
   }
 
-  /// What a window that holds the view at `have` (`None`: nothing) gets when it subscribes as `id`: nothing more when it
-  /// holds the view of the last patch, the catch-up when it holds the seed, else the snapshot. A catch-up that brings
-  /// the table of this run tells the window the end of the first sync, so the seed seeds no window after it: a reload of
-  /// that window, which installs the seed again, gets the snapshot, a view whose run it doesn't take for one it saw end;
-  /// a window that still holds the frame is told by the patch of that table (`told`)
-  pub fn join(&mut self, id: SubscriptionId, have: Option<Version>) -> Joined {
-    let joined = match have {
+  /// What a window that holds the view at `have` (`None`: nothing) gets when it subscribes: nothing more when it holds
+  /// the view of the last patch, the catch-up when it holds the seed (also a reload of a window that got the table of
+  /// this run, whose init script installs the seed again), else the snapshot
+  #[must_use]
+  pub fn join(&self, have: Option<Version>) -> Joined {
+    match have {
       Some(have) if have == self.version() => Joined::Holds,
       Some(have) => match self.seed.as_ref().filter(|seed| seed.version == have) {
         Some(seed) => Joined::CatchUp(Box::new(diff_views(seed, &self.last_sent))),
         None => Joined::Snapshot(Box::new(self.snapshot())),
       },
       None => Joined::Snapshot(Box::new(self.snapshot())),
-    };
-    if self.seed.as_ref().is_some_and(|seed| Some(seed.version) == have) {
-      if self.last_sent.cached {
-        self.seed_holders.push(id);
-      } else {
-        self.forget_seed();
-      }
     }
-    joined
-  }
-
-  /// The subscription `id` ended: a window that held the seed and leaves before the table of this run holds it no more
-  pub fn left(&mut self, id: SubscriptionId) {
-    self.seed_holders.retain(|holder| *holder != id);
-  }
-
-  /// The patch sent last went to the subscriptions `told`: once the view is the table of this run, a window among them
-  /// that held the seed was told the end of the first sync, and the seed seeds no window after it (`join`)
-  pub fn told(&mut self, told: impl IntoIterator<Item = SubscriptionId>) {
-    if self.last_sent.cached || self.seed_holders.is_empty() {
-      return;
-    }
-    if told.into_iter().any(|id| self.seed_holders.contains(&id)) {
-      self.forget_seed();
-    }
-  }
-
-  fn forget_seed(&mut self) {
-    self.seed = None;
-    self.seed_holders = Vec::new();
   }
 
   /// The patch from the view sent last to `state` and `facts`, and the view moves to it; `None` when no part differs

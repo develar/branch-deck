@@ -363,7 +363,7 @@ export function useBranchSync<T>(selector: (state: BranchSyncState) => T): T {
 // ---- narrow subscriptions: a change wakes only the hooks of what it changed ----
 
 /** The fields of the state that are records by a key (a branch, a subject), whose entries keep their objects while a patch leaves them */
-type EntryField = "branches" | "nextSteps" | "actions" | "openPullRequests" | "stackBranches" | "pushes"
+type EntryField = "branches" | "nextSteps" | "actions" | "openPullRequests" | "stackBranches" | "pushes" | "landedStates"
 type EntryOf<F extends EntryField> = BranchSyncState[F][string]
 type Listener = () => void
 
@@ -854,6 +854,11 @@ export function getLands(subject: string): LandDecisions | undefined {
 /** What landed `subject` (a branch, `stackReadinessKey(root)`) as Rust decides it; undefined while nothing did */
 export function getLandedState(subject: string): Landed | undefined {
   return branchSyncStore.getState().landedStates[subject]
+}
+
+/** `getLandedState`, re-rendering when it changes */
+export function useLandedState(subject: string): Landed | undefined {
+  return useBranchSyncEntry("landedStates", subject, landed => landed)
 }
 
 /**

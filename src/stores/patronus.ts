@@ -32,14 +32,13 @@ import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import type { RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
-import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
+import { formatOrphanedStackPullRequest } from "@/lib/whole-stack"
 import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { describeLandedCloses } from "@/presenters/news"
 import { recordRobotNews } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
-import { branchSyncStore, getStackAncestors, getStackBranch, structureIn, whenSynced } from "@/stores/branch-sync"
-import { rememberLandedStackRoot } from "@/stores/landed-stacks"
+import { branchSyncStore, getStackAncestors, structureIn, whenSynced } from "@/stores/branch-sync"
 import { getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -792,7 +791,7 @@ export function announceMerge(key: string, robot: PatronusRobot, closes: readonl
     void closeLanded(repositoryPath, { by: "robot", robotId: robot.id }, "Cannot close the pull requests the Safe Push landed")
   }
   // the stacks of the table are of the shown repository: only a merge there tells a pull request of a whole stack that no longer matches it
-  const closed = [describeLandedCloses(robot, closes), currentKey() === key ? rememberLandedRoot(robot) : null].filter((part): part is string => part !== null)
+  const closed = [describeLandedCloses(robot, closes), currentKey() === key ? describeLandedRoot(robot) : null].filter((part): part is string => part !== null)
   const description = closed.length === 0 ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed.join(" · ")}`
   const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
   recordRobotNews(repositoryPath, title, description, robot)
@@ -804,21 +803,18 @@ export function announceMerge(key: string, robot: PatronusRobot, closes: readonl
 
 /**
  * A merged robot of a branch landed the root of its stack: an open pull request of the whole stack no longer matches it
- * (`rememberLandedStackRoot`); the user decides on it, nothing closes it. What the toast says of it ("#12 no longer
- * matches the air stack: oauth landed"), null when there is none.
+ * (Rust offers its close once the session has what landed the root, `close-stack-pull-request`); the user decides on
+ * it, nothing closes it. What the toast says of it ("#12 no longer matches the air stack: oauth landed"), null when
+ * there is none.
  */
-function rememberLandedRoot(robot: PatronusRobot): string | null {
+function describeLandedRoot(robot: PatronusRobot): string | null {
   const name = robot.branchName
   if (name === null || robot.pushMode === "dryRun") {
     return null
   }
   const root = getStackAncestors(name)[0] ?? name
   const pullRequest = getStackPullRequest(root)
-  if (pullRequest?.state !== "open") {
-    return null
-  }
-  rememberLandedStackRoot(root, name)
-  return describeOrphanedStackPullRequest(root, pullRequest, getStackBranch(root), name)
+  return pullRequest?.state === "open" ? formatOrphanedStackPullRequest(root, pullRequest.number, `${name} landed`) : null
 }
 
 // ---- the robots of the session ----

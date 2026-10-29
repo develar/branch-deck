@@ -17,7 +17,6 @@ import { runFailure, runIntent } from "@/lib/run-intent"
 import type { ToastMessage } from "@/lib/toast-message"
 import { formatReadinessSubject, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { openNewPullRequest } from "@/presenters/pull-request-url"
-import { forgetLandedStackRoot } from "@/stores/landed-stacks"
 
 /** The subject of the row `key`: a branch, or the whole stack of a root (`stackReadinessKey`) */
 function subjectOf(key: string): Subject {
@@ -79,10 +78,6 @@ export async function submitPullRequest(
   const created = run.kind === "ran" && run.outcome.result.kind === "pullRequest" ? run.outcome.result : null
   if (created === null) {
     throw new Error(`GitHub opened no pull request of ${context.label}`)
-  }
-  if (context.wholeStack !== null) {
-    // a new pull request of the stack matches the stack as it is
-    forgetLandedStackRoot(context.branchName, context.repositoryPath, context.branchPrefix)
   }
   const toast = formatCreatedToast(context.label, context.base, input.viewerLogin, created)
   return { toast, pullRequest: created.pullRequest }

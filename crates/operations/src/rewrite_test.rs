@@ -832,6 +832,15 @@ impl Fixture {
     let operations = self.until(|operations| operations.len() == 1 && operations[0].step == OperationStep::WaitingForSync).await;
     operations[0].clone()
   }
+
+  /// Why the engine refuses `intent`, run off Space on a plan nobody read (a caller that read no action: a key, a toast)
+  async fn refused(&self, intent: Intent) -> ApiError {
+    let accepted = Accepted {
+      fingerprint: Fingerprint(String::new()),
+      confirmations: Vec::new(),
+    };
+    execute(&self.registry, &self.key, intent, accepted, OFFLINE.hosts(), Arc::new(NoEvents)).await.unwrap_err()
+  }
 }
 
 /// Unstack pressed on the table a start seeded from the frame of the start before waits for the first sync of the
@@ -863,10 +872,6 @@ async fn an_unstack_on_a_seeded_table_waits_for_the_first_sync_and_runs_once_it_
 async fn a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted() {
   let (fixture, syncs, ()) = seeded(|_| ()).await;
   let head = fixture.repo.rev_parse("HEAD").unwrap();
-  let accepted = Accepted {
-    fingerprint: Fingerprint(String::new()),
-    confirmations: Vec::new(),
-  };
   let intents = [
     land_intent("alpha", PatronusPushMode::RebaseAutosquash),
     Intent::DisableAutoMerge { number: 7 },
@@ -879,9 +884,7 @@ async fn a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted() {
     Intent::CancelRobot { robot_id: "r1".to_owned() },
   ];
   for intent in intents {
-    let refused = execute(&fixture.registry, &fixture.key, intent.clone(), accepted.clone(), OFFLINE.hosts(), Arc::new(NoEvents))
-      .await
-      .unwrap_err();
+    let refused = fixture.refused(intent.clone()).await;
     assert_eq!(
       (refused.code, refused.message.as_str()),
       (ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run"),
@@ -895,8 +898,9 @@ async fn a_remote_intent_on_a_seeded_table_is_refused_before_it_is_admitted() {
 
 /// Push Branch pressed on a seeded table by a caller that read no action (its key, a toast) waits for the first sync of
 /// the session (`WaitingForSync`). When that sync fails (here a git without an identity, `no_identity`), the rows stay
-/// the frame of the earlier start, whose tips no sync of this process read: the push is refused in the words of its
-/// action there, sends nothing and leaves the view. Once a sync committed the table, the same push sends the branch
+/// the frame of the earlier start, whose tips no sync of this process read: the push is refused with the error of that
+/// sync (nothing waits for a sync any more, and the error says what to fix), sends nothing and leaves the view; so is
+/// every remote intent pressed then. Once a sync committed the table, the same push sends the branch
 #[tokio::test(flavor = "multi_thread")]
 async fn a_push_that_waited_for_a_first_sync_that_failed_is_refused_and_sends_nothing() {
   let (fixture, syncs, ()) = seeded(|_| ()).await;
@@ -907,11 +911,18 @@ async fn a_push_that_waited_for_a_first_sync_that_failed_is_refused_and_sends_no
   };
   let (refused, ()) = within_a_minute(Box::pin(async { tokio::join!(fixture.execute(&push, Vec::new()), first_sync_fails) })).await;
   let refused = refused.unwrap_err();
+  // the error of the sync it waited for: nothing waits for a sync any more, and the error says what to fix
   assert_eq!(
     (refused.code, refused.message.as_str()),
-    (ErrorCode::PlanChanged, "Waits for the first sync: the rows are the frame of an earlier run")
+    (ErrorCode::NoIdentity, "Git has no identity to write the notes of the sync")
   );
   assert!(fixture.cached().await, "the failed sync left the frame");
+  // pressed again after that failure (no sync runs, and the frame plans no push): the same error, of the failed sync the
+  // view shows; a remote intent the engine refuses on the frame before it is admitted says it too
+  for intent in [Intent::Push(push.clone()), Intent::RestartRobot { robot_id: "r1".to_owned() }] {
+    assert_eq!(fixture.refused(intent.clone()).await.code, ErrorCode::NoIdentity, "{intent:?}");
+  }
+  assert_eq!(fixture.remote_branches(), "");
   assert_eq!(fixture.remote_branches(), "", "nothing was pushed");
   assert_eq!(fixture.operations().await, Vec::new());
 

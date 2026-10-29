@@ -422,8 +422,8 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
 /**  The auto-merge of its pull request disabled (`Intent::DisableAutoMerge`) */
 "cancel-auto-merge" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | 
 /**
- *  The open pull request of its stack branch closed with a comment (`Intent::ClosePullRequest`): offered while it is
- *  open, shown by the page once it no longer matches the stack
+ *  The open pull request of its stack branch closed with a comment (`Intent::ClosePullRequest`): offered only while it
+ *  no longer matches the stack (a landing took the root, or the stack no longer forks)
  */
 "close-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
 /**  Approve and Safe Push, or the Safe Push alone after an approval of the head */

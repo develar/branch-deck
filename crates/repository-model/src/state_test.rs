@@ -2,7 +2,6 @@ use crate::facts::FactResult;
 use crate::facts::FactStore;
 use crate::patch::{PatchRejected, apply_patch, diff_views};
 use crate::review_request_facts::review_request_facts_test::at;
-use crate::session::SubscriptionId;
 use crate::state::{Joined, View, new_epoch};
 use crate::table::table_test::{grouped, grouping, remote_status, run_sync, sync_events};
 use crate::table::{OperationPatch, TableState};
@@ -325,8 +324,9 @@ async fn a_branch_moved_by_another_process_asks_for_a_retry() {
 
 /// The view of a seeded session is what the rules derive of the frame, `cached`, at the first version of its epoch; a
 /// window that holds it catches up by one patch to the view sent since, one that holds the current view gets nothing,
-/// any other the snapshot. The catch-up that brings the table of this run told that window the end of the first sync:
-/// the seed seeds no window after it, so a reload of the window that installs the seed again gets the snapshot
+/// any other the snapshot. The seed seeds every window that holds it while the session lives: a reload of a window
+/// that got the table of this run installs the seed again, and the session can't tell whether the page before it saw
+/// that table (a channel to a page that went away never fails a send), so it catches up from the seed too
 #[test]
 fn a_seeded_view_is_the_frame_at_the_first_version_and_a_window_that_holds_it_catches_up() {
   let frame = frame_of(&key(), &synced_state(), &answered_facts());
@@ -337,70 +337,25 @@ fn a_seeded_view_is_the_frame_at_the_first_version_and_a_window_that_holds_it_ca
   assert!(seed.cached);
   assert_eq!(seed.order, ["auth", "ui"]);
   assert_eq!(seed.facts.robots.head.state, FactState::Cached);
-  assert_eq!(view.join(SubscriptionId(1), Some(seed.version)), Joined::Holds);
-  view.left(SubscriptionId(1));
+  assert_eq!(view.join(Some(seed.version)), Joined::Holds);
 
   run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Updated));
   view.diff(&state, &facts).unwrap();
   state.apply(SyncEvent::RemoteStatusUpdate(remote_status("ui", &["copy-u1"])));
   view.diff(&state, &facts).unwrap();
-  let Joined::CatchUp(catch_up) = view.join(SubscriptionId(2), Some(seed.version)) else {
+  let Joined::CatchUp(catch_up) = view.join(Some(seed.version)) else {
     panic!("a window that holds the seed catches up");
   };
   assert_eq!((catch_up.base, catch_up.next), (seed.version, Version { epoch: 5, seq: 2 }));
   assert_eq!(catch_up.changes.cached, Some(false));
   let mut window = seed.clone();
-  apply_patch(&mut window, *catch_up).unwrap();
+  apply_patch(&mut window, *catch_up.clone()).unwrap();
   assert_eq!(window, view.snapshot());
-  assert_eq!(view.seed(), None, "the catch-up told the window the table of this run");
-  assert_eq!(view.join(SubscriptionId(3), Some(seed.version)), Joined::Snapshot(Box::new(view.snapshot())));
-  assert_eq!(view.join(SubscriptionId(4), Some(view.version())), Joined::Holds);
-  assert_eq!(
-    view.join(SubscriptionId(5), Some(Version { epoch: 4, seq: 0 })),
-    Joined::Snapshot(Box::new(view.snapshot()))
-  );
-  assert_eq!(view.join(SubscriptionId(6), None), Joined::Snapshot(Box::new(view.snapshot())));
-}
-
-/// A window that holds the seed while the first sync runs is told its end by the patch of the table of this run: the
-/// seed seeds no window after that patch; a patch of the frame (the sync runs), the table sent to a window that held
-/// nothing, or to none, tells nobody, so the window that left before it (a reload) catches up from the seed still
-#[test]
-fn the_seed_seeds_a_window_until_one_that_held_it_got_the_table_of_this_run() {
-  let frame = frame_of(&key(), &synced_state(), &answered_facts());
-  let (mut state, facts) = frame.clone().seed();
-  let mut view = View::seeded(5, &state, &facts);
-  let seed = view.version();
-  let (holds, other) = (SubscriptionId(1), SubscriptionId(2));
-  assert_eq!(view.join(holds, Some(seed)), Joined::Holds);
-  state.begin_sync();
-  view.diff(&state, &facts).unwrap();
-  view.told([holds]);
-  assert!(view.seed().is_some(), "the frame still: nothing was told");
-  for event in sync_events(CommitSyncStatus::Created, BranchSyncStatus::Updated) {
-    state.apply(event);
-  }
-  state.finish_sync(Ok(()));
-  view.diff(&state, &facts).unwrap();
-  view.told([holds]);
-  assert_eq!(view.seed(), None, "the window that held the seed got the table of this run");
-  assert_eq!(view.join(SubscriptionId(3), Some(seed)), Joined::Snapshot(Box::new(view.snapshot())));
-
-  // the window left before the table came (a reload), and the patch went to another window only
-  let (mut state, facts) = frame.seed();
-  let mut view = View::seeded(6, &state, &facts);
-  let seed = view.version();
-  assert_eq!(view.join(holds, Some(seed)), Joined::Holds);
-  view.left(holds);
-  run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Updated));
-  view.diff(&state, &facts).unwrap();
-  view.told([other]);
-  assert!(view.seed().is_some(), "no window that held the seed was told");
-  let Joined::CatchUp(catch_up) = view.join(SubscriptionId(3), Some(seed)) else {
-    panic!("the reloaded window catches up from the seed");
-  };
-  assert_eq!(catch_up.changes.cached, Some(false), "the end of the first sync it never saw");
-  assert_eq!(view.seed(), None);
+  // a reload of that window holds the seed again: the same catch-up
+  assert_eq!(view.join(Some(seed.version)), Joined::CatchUp(catch_up));
+  assert_eq!(view.join(Some(view.version())), Joined::Holds);
+  assert_eq!(view.join(Some(Version { epoch: 4, seq: 0 })), Joined::Snapshot(Box::new(view.snapshot())));
+  assert_eq!(view.join(None), Joined::Snapshot(Box::new(view.snapshot())));
 }
 
 /// A root no branch is built on any more whose stack branch still has an open pull request (the stack no longer forks)

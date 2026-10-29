@@ -15,10 +15,9 @@ import type { ActionItem } from "@/presenters/actions"
 import { presentAction } from "@/presenters/actions"
 import { NO_NEXT_STEP } from "@/presenters/next-step"
 import { getRequestReviewItem } from "@/presenters/review"
-import { branchSyncStore, getStackBranch, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
+import { branchSyncStore, getLandedState, getStackBranch, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { openInline } from "@/stores/inline-row-action"
-import { getStackLandedBy } from "@/stores/landed-stacks"
 import { getStackRobot } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
@@ -57,7 +56,6 @@ export interface WholeStackMenuOptions {
  * Empty for a branch that heads no stack.
  */
 export function getWholeStackMenuItems(root: string, options: WholeStackMenuOptions): MenuItem[] {
-  const stack = getStackBranch(root)
   const items: MenuItem[] = getWholeStackStartItems(root)
   if (options.landInPieces === true) {
     const piece = getLandInPiecesItem(root)
@@ -66,7 +64,7 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
     }
   }
   const pullRequest = getStackPullRequest(root)
-  const orphaned = describeOrphanedStackPullRequest(root, pullRequest, stack, getStackLandedBy(root))
+  const orphaned = describeOrphanedStackPullRequest(root, pullRequest, actionsOf(stackReadinessKey(root)), getLandedState(root))
   if (pullRequest !== undefined) {
     const open = stackItem(root, "open-stack-pull-request", {
       label: `Open Pull Request #${pullRequest.number}`,

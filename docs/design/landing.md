@@ -377,9 +377,11 @@ The whole stack is an object of its own in the app, beside its branches, named "
   Push of a piece that lands the root, or a stack that no longer forks, leaves it showing a stack that is no more. It
   is never closed by itself, and its stack branch stays: the user may still want its review, or its approvals for
   another landing. The merge toast, the root's menu and preview and the island say "#12 no longer matches the air
-  stack: auth landed", and "Close Pull Request #12…" asks in the root's row. The landing that made it so is known only
-  while the app saw the merge (in memory); after a restart the reason is the shape of the stack, and once the root is
-  no longer a branch (after the update that archives it) nothing in the app shows it.
+  stack: auth landed", and "Close Pull Request #12…" asks in the root's row. Rust decides it (`stack_actions`: the close
+  is offered only of an open pull request of a stack whose root a landing took, as the session knows what landed the
+  root, also after a restart, or of a stack that no longer forks), and no new pull request of the whole stack is
+  created while its root landed; once the root is no longer a branch (after the update that archives it) nothing in
+  the app shows it.
 
 ## Alternatives Considered
 

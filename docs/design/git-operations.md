@@ -4274,23 +4274,29 @@ catches up by one patch (`Joined::CatchUp`, `patch::diff_views`, which brings th
 `next`: a patch applies to the view at its base and brings it to a newer version, the next one live, a later one in a
 catch-up), a window that holds the view of the last patch gets nothing more (`Joined::Holds`), any other the snapshot
 (`Joined::answer`, the `ViewSubscription` of the hosts: `view`, `catchUp` or neither); `Sessions::subscribe` is the
-subscription of a window that holds nothing. The session keeps the seed only until a window that held it got the
-table of this run: in its catch-up, or by the patch of that table while it still held the frame (`View::told`, the
-subscriptions that joined holding it, `View::left` those that left first). A window that installs the seed after that
-(a reload, whose init script is the start's) gets the snapshot, and the page takes the end of a run from a catch-up or
-a patch only, never from a snapshot: the first sync ends once in the window, its count of Sync and its `lastSyncTime`
-written once.
+subscription of a window that holds nothing. The session keeps the seed while it lives: a window that installs it
+again (a reload, whose init script is the start's) catches up from it too. Whether that catch-up ends a run in the
+window only the page knows: a Tauri channel to a page that went away takes a send without a failure, so a page that
+reloads as the table of the first sync goes out loses that patch although the session sent it. The page of a window
+keeps the seed whose run it saw end in `sessionStorage` (`bd-seed-ended`, which lives as long as the window, over a
+reload), and a catch-up from that seed ends no run in it; it takes the end of a run from a catch-up or a patch only,
+never from a snapshot (a session of another epoch). So the first sync ends once in the window, its count of Sync and
+its `lastSyncTime` written once, also when its page reloaded as that sync committed.
 
 **A rewrite on the frame**: what a window named on the seeded table is of no HEAD this process read, so a rewrite
 pressed meanwhile is admitted, waits for the first sync to commit (`WaitingForSync`), then resolves what it named by
 the keys the frame kept ([Rewrite in the engine](#rewrite-in-the-engine), step 3); a push, a start (a merge of the
 pull request and Cancel Auto-Merge on the merge route among them), a pull request, its close (`close-stack-pull-request`,
-offered while the pull request of a stack branch is open, also of a root no branch is built on any more), a review
+offered while the open pull request of a stack branch no longer matches the stack: a landing took the root, or the
+stack no longer forks, also of a root no branch is built on any more), a review
 request, a review or an action of a robot stays disabled until the first sync committed and what it reads answered
 fresh (above). The engine
 holds it the same for a caller that did not read the action: `engine::execute` refuses such an intent with
 `plan_changed` before it is admitted while what it reads is the frame's (`action_view::reads_cached_frame`, the
 `FrameReads` of each), and a push that waited for the first sync refuses once that sync failed and left the frame.
+While the table is the frame because its first sync failed or git deferred it, both refuse with the error of that sync
+(`engine::frame_refusal`: `no_identity`, `operation_in_progress`, …), as a rewrite that waited for it does: no sync runs
+that they wait for, and the error says what to fix.
 
 **The first sync**: a worktree synced before (`SessionHost::synced_before`: the `lastSyncTime` of its state that the
 app's writer keeps, `app_settings::projects::synced_before`) syncs when its session opens (`Open`, with or without a
@@ -4317,7 +4323,8 @@ first render (`adoptCachedModel`) and subscribes holding it: one `subscribe_view
 worktree whose files name no git directory) the start is cold: no model, and the window subscribes holding nothing.
 
 `warm_start_test.rs` pins the encoding and the key, `table_test.rs` and `facts_test.rs` the seed, `state_test.rs` the
-seeded view, the catch-up, the seed kept until a window got the table of this run, and `diff_views`, `session_test.rs` the seed of a session, its first sync (a patch of what
+seeded view, the catch-up (also of a reload) and `diff_views`, `session_test.rs` the seed of a session, a reload as
+its first sync commits, its first sync (a patch of what
 differs only, one run with a focus during it, its end with the view of its robots), a frame of another prefix or schema
 (at a subscription and at the start) and the saves, `sync_scheduler_test.rs` the open and the focus as one run,
 `cache_test.rs` the store, `rewrite_test.rs` the rewrite, the refused remote intents on a seeded table and the push

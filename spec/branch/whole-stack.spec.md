@@ -43,7 +43,6 @@ targets:
   - ../../src/hooks/useWholeStackActions.ts
   - ../../src/stores/patronus.ts
   - ../../src/stores/pull-requests.ts
-  - ../../src/stores/landed-stacks.ts
   - ../../crates/operations/src/close.rs
   - ../../crates/domain-policy/src/landed.rs
   - ../../src/lib/robot-run.ts
@@ -364,20 +363,25 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click`)
   [@test] ../../crates/remote-facts/src/process_budget_test.rs (`the_text_of_a_new_pull_request_of_the_whole_stack`)
   [@test] ../../crates/sync-core/src/push_test.rs (`the_whole_stack_pushes_its_stack_branch`)
-- A pull request of the whole stack that no longer matches it (a Safe Push of a branch landed the root in a piece, as
-  the app saw the merge; or the stack no longer forks and its stack branch stays for its remote branch) must never be
-  closed by itself, and its stack branch stays: the merge toast, the root's preview, the island's header and the
-  description of its items say "#12 no longer matches the air stack: auth landed", and "Close Pull Request #12…" (the
-  preview's notice, the island's header, "⋯") asks in the root's row before it closes it with a comment that says why;
-  on the frame of an earlier run it waits for the first sync ("Waits for the first sync", in its hover), as Rust
-  offers it (`close-stack-pull-request`).
-  A new pull request of the whole stack matches it again: the landed root is forgotten in the repository it was created
-  in, also after a switch during its push, never the root of the same name in another one.
-  [@test] ../../src/lib/whole-stack.test.ts (`has a pull request that no longer matches it once a piece landed the root or the stack no longer forks, an open one only`)
-  [@test] ../../src/stores/landed-stacks.test.ts (`forgets the root in the repository the pull request was created in, also after a switch`)
+- A pull request of the whole stack that no longer matches it (a landing took the root: a Safe Push of a branch in a
+  piece, the fetched baseline or the merged pull request of the root, as the session knows what landed the root, also
+  after a restart; or the stack no longer forks and its stack branch stays for its remote branch) must never be closed
+  by itself, and its stack branch stays: the merge toast, the root's preview, the island's header and the description
+  of its items say "#12 no longer matches the air stack: auth landed" ("air landed in origin/master", "#7 of air is
+  merged", "it no longer forks"), and "Close Pull Request #12…" (the preview's notice, the island's header, "⋯") asks
+  in the root's row before it closes it with a comment that says why; on the frame of an earlier run it waits for the
+  first sync ("Waits for the first sync", in its hover), and while another operation holds the state of #12 the
+  confirmation's Close Pull Request is disabled with why. Rust decides it: it offers the close
+  (`close-stack-pull-request`) only of an open pull request that no longer matches the stack, so a surface that
+  presents the actions of the stack never offers the close of one that matches; the page words what landed the root.
+  While the root landed, no new pull request of the whole stack is created: it would show a stack that is no more from
+  its start ("Create Pull Request of the Stack…" disabled with what landed the root).
+  [@test] ../../src/lib/whole-stack.test.ts (`says why its pull request no longer matches it while Rust offers its close: what landed the root, or that it no longer forks`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_branch_is_not_built`, `the_close_of_the_pull_request_of_a_whole_stack_runs_once_and_waits_for_what_holds_its_state`)
   [@test] ../../src/stores/patronus.test.ts (`says that a piece that landed the root leaves the pull request of the whole stack, never closed by itself`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say that the pull request of the whole stack no longer matches it once a piece landed the root, and close it only when asked`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should offer the close of the pull request of the whole stack in the island header once it no longer matches`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on the rows of the frame that the close of the pull request of the whole stack waits for the first sync, in the island header and its menu`, `should hold the confirmation of the close of the pull request of the whole stack while another process holds its state, and close it after`)
   [@test] ../../tests/e2e/startup/warm-start.spec.ts (`says the close of a pull request of a stack that is no more waits for the first sync on the rows of the frame`)
   [@test] ../../crates/repository-model/src/state_test.rs (`the_pull_request_of_a_stack_that_is_no_more_closes_and_waits_for_the_first_sync_on_the_frame`)
 

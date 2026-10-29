@@ -20,7 +20,6 @@ import { showRobotToast } from "@/lib/robot-toast"
 import { showRobotEventToast } from "@/lib/robot-toast"
 import { currentDemand, resetDemand } from "@/model/demand"
 import { formatPushHoldReason, formatStackHold } from "@/presenters/reasons"
-import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
 import {
   applyRobotsFacts,
   applySessionFacts,
@@ -550,7 +549,6 @@ beforeEach(() => {
   branches.tableRevision = 0
   branches.synced = Promise.resolve()
   branches.selected = "/repo"
-  resetLandedStacks()
   fetches.lastFetchTime = undefined
   patronus.list = available(robot({ status: "failure" }))
   patronus.poll = available()
@@ -910,7 +908,6 @@ describe("merges", () => {
     patronus.poll = available({ ...auth, status: "success", finishTime: 200 })
     await poll()
     expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · #12 no longer matches the air stack: auth landed"])
-    expect(getStackLandedBy("air")).toBe("auth")
     expect(notices.closed).toEqual([])
   })
 

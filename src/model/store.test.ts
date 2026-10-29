@@ -81,6 +81,8 @@ beforeEach(() => {
   archived.settled = 0
   syncRecords.length = 0
   answers.length = 0
+  // what the page of a window keeps over a reload (the end of a run of its seed)
+  sessionStorage.clear()
 })
 
 // a request left waiting would hold the tests after it
@@ -246,12 +248,12 @@ describe("the warm start", () => {
     expect(plans).toHaveBeenCalledWith({ repositoryPath: "/repo" })
   })
 
-  it("ends the first sync once: a reload that installs the seed again after the end was told gets the snapshot, which ends no run", async () => {
+  it("ends the first sync once: a reload that installs the seed again after its end catches up from it and ends no run", async () => {
     const seed = seedOf("a")
     fakeSessions.seed("/repo", seed)
     adoptCachedModel({ repositoryPath: "/repo", view: seed })
     await whenSessionReady()
-    // the first sync commits while the window holds the frame: its patch tells the window the end
+    // the first sync commits while the window holds the frame: its patch ends the run in the window
     await send({ ...grouping("a", "b"), cached: false })
     expect(branchSyncStore.getState().syncCount).toBe(1)
     expect(syncRecords).toHaveLength(1)
@@ -265,9 +267,34 @@ describe("the warm start", () => {
     reloaded.adoptCachedModel({ repositoryPath: "/repo", view: seed })
     expect(table.getState()).toMatchObject({ branchOrder: ["a"], cached: true })
     await reloaded.whenSessionReady()
-    // the snapshot of the session: the table of this run, and no run ended in this window, none recorded
+    // the catch-up from the seed to the table of this run, whose end the page before the reload saw: none ends here
     expect(table.getState()).toMatchObject({ branchOrder: ["a", "b"], cached: false, syncedRepositoryPath: "/repo", syncCount: 0 })
     expect(syncRecords).toEqual([])
+    expect(fakeSessions.snapshotCalls).toEqual([])
+    reloaded.closeSession()
+  })
+
+  it("ends the first sync in a reload of a window whose page went away as the table of that sync came", async () => {
+    const seed = seedOf("a")
+    fakeSessions.seed("/repo", seed)
+    adoptCachedModel({ repositoryPath: "/repo", view: seed })
+    await whenSessionReady()
+    // the window reloads as the first sync commits: the patch of the table goes to the channel of the page that went
+    // away, which takes it without a failure, and no page sees it; the page load ends that subscription after it
+    const gone = fakeSessions.subscriptions.find(it => it.repositoryPath === "/repo")!
+    gone.channel.onmessage = () => {}
+    fakeSessions.send("/repo", { ...grouping("a", "b"), cached: false })
+    await fakeSessions.commands.unsubscribeView({ id: gone.id })
+    expect([branchSyncStore.getState().syncCount, syncRecords]).toEqual([0, []])
+
+    vi.resetModules()
+    const reloaded = await import("@/model/store")
+    const table = (await import("@/stores/branch-sync")).branchSyncStore
+    reloaded.adoptCachedModel({ repositoryPath: "/repo", view: seed })
+    await reloaded.whenSessionReady()
+    // the catch-up from the seed brings the end of that run, which no page of the window saw: it ends here, once
+    expect(table.getState()).toMatchObject({ branchOrder: ["a", "b"], cached: false, syncCount: 1 })
+    expect(syncRecords).toEqual([{ path: "/repo", record: expect.objectContaining({ lastSyncTime: expect.any(Number), lastBranchCount: 2 }) }])
     reloaded.closeSession()
   })
 

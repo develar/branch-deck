@@ -5,7 +5,10 @@
  * each with a store of its own), takes the view at the subscription and then each patch on the channel, and keeps
  * `branchSyncStore` in the shape the components read. The main window starts warm (`adoptCachedModel`): the seed the
  * start of the app injected (`window.__BD_MODEL__`, the frame an earlier run saved) is the view before anything is
- * asked, and the window subscribes as the one that holds it, so the answer is the patch from it (`catchUp`), or nothing. A patch applies only to the view at its base: one of another
+ * asked, and the window subscribes as the one that holds it, so the answer is the patch from it (`catchUp`), or nothing;
+ * a reload of the window installs the same seed and catches up from it again, and the page of the window remembers
+ * that it saw a run of that session end (`sessionStorage`, which lives as long as the window), so the first sync ends
+ * once in the window. A patch applies only to the view at its base: one of another
  * epoch (the session was opened again) or after a gap asks for the snapshot (`get_snapshot`); one that came before the
  * subscription answered waits for it. A branch record is built again only from the parts a patch changed, so a row
  * that reads an untouched branch does not render again.
@@ -93,6 +96,8 @@ interface Session {
   ready: Promise<void>
   /** The id of the last news of the session the window told (`onSessionFacts`); null until its first view */
   toldNews: number | null
+  /** The version of the seed of the start the subscription began from (`adoptCachedModel`); null for none */
+  readonly seed: Version | null
 }
 
 let session: Session | null = null
@@ -282,6 +287,7 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
     pending,
     ready: Promise.resolve(),
     toldNews: replaces?.toldNews ?? null,
+    seed: held?.version ?? replaces?.seed ?? null,
   }
   const channel = new Channel<ViewPatch>()
   channel.onmessage = patch => receive(opened, patch)
@@ -394,7 +400,7 @@ function applyOrRefresh(target: Session, view: RepositoryView, patch: ViewPatch)
   }
   const next = applyViewPatch(view, patch)
   target.view = next
-  projectView(target.repositoryPath, view, next, patch.changes, untoldNews(target, patch.changes.news ?? []))
+  projectView(target.repositoryPath, view, next, patch.changes, untoldNews(target, patch.changes.news ?? []), target.seed)
   notifyViewListeners()
 }
 
@@ -432,7 +438,7 @@ function install(target: Session, view: RepositoryView): void {
   // the news of the first view were told before the window came, or are of a session it held before
   const news = target.toldNews === null ? [] : view.news
   target.toldNews ??= view.news.at(-1)?.id ?? 0
-  projectView(target.repositoryPath, previous, view, null, untoldNews(target, news))
+  projectView(target.repositoryPath, previous, view, null, untoldNews(target, news), target.seed)
   applyEarly(target)
 }
 
@@ -464,7 +470,43 @@ function untoldNews(target: Session, news: readonly News[]): readonly News[] {
   return untold
 }
 
-function projectView(repositoryPath: string, previous: RepositoryView | null, next: RepositoryView, changes: TableChanges | null, news: readonly News[]): void {
+/**
+ * The key of `sessionStorage` under which the page of a window keeps the seed whose session it saw a run of end
+ * (`seedKey`): it lives as long as the window, over a reload, whose init script installs the same seed
+ */
+const SEED_ENDED_KEY = "bd-seed-ended"
+
+/** The seed `seed` of the session of `repositoryPath`, as the page keeps it: `epoch:seq` and the path */
+function seedKey(repositoryPath: string, seed: Version): string {
+  return `${viewVersionKey(seed)}\n${repositoryPath}`
+}
+
+/** The page of the window, or the one before its reload, saw a run of the session seeded by `seed` end */
+function sawRunEnd(repositoryPath: string, seed: Version): boolean {
+  try {
+    return sessionStorage.getItem(SEED_ENDED_KEY) === seedKey(repositoryPath, seed)
+  } catch {
+    // no storage (a private context): a reload ends that run once more
+    return false
+  }
+}
+
+function rememberRunEnd(repositoryPath: string, seed: Version): void {
+  try {
+    sessionStorage.setItem(SEED_ENDED_KEY, seedKey(repositoryPath, seed))
+  } catch {
+    // no storage: a reload ends that run once more
+  }
+}
+
+function projectView(
+  repositoryPath: string,
+  previous: RepositoryView | null,
+  next: RepositoryView,
+  changes: TableChanges | null,
+  news: readonly News[],
+  seed: Version | null,
+): void {
   // the prefix Rust resolved for the subscription names the branches the page shows
   setSessionAnswer(next.header.prefix, null)
   const state = branchSyncStore.getState()
@@ -484,10 +526,15 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
     update.groupedRun = runCount
   }
   // a run ended: the window saw it run, or the first sync of the session committed the table before the window heard
-  // of it (the catch-up from the seed, idle on both sides, is the frame of an earlier run no more). A snapshot over the
-  // seed ends none: the session answers it once a window that held the seed was told that end (a reload of the window,
-  // which installs the seed again), or a session of another epoch does
-  const ended = !running && (wasRunning || (changes !== null && previous?.cached === true && !next.cached && next.header.head !== ""))
+  // of it (the catch-up from the seed, idle on both sides, is the frame of an earlier run no more). A reload of the
+  // window catches up from the same seed: that is the end of a run only while no page of the window saw one end (the
+  // session can't tell: a channel to a page that went away takes its patches). A snapshot over the seed (a session of
+  // another epoch) ends none
+  const caughtUp = changes !== null && previous?.cached === true && !next.cached && next.header.head !== ""
+  const ended = !running && (wasRunning || (caughtUp && (seed === null || !sawRunEnd(repositoryPath, seed))))
+  if (ended && seed !== null) {
+    rememberRunEnd(repositoryPath, seed)
+  }
   if (ended) {
     update.syncCount = state.syncCount + 1
     // a run no request of this window waits for (the session's own on open, the follow-up of a rewrite, `bd`, another

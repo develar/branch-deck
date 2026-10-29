@@ -15,7 +15,7 @@ import { formatNewPullRequestBlocker, getBranchesGitHubRepository, getPullReques
 import { formatReasonOrNull } from "@/presenters/reasons"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { getBranch, getStackAncestors, getStackNotBuilt } from "@/stores/branch-sync"
-import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName } from "@/stores/repository"
+import { getFullBranchName, getFullStackBranchName } from "@/stores/repository"
 
 /**
  * What the "Create pull request" dialog of a branch shows, from the main window, which owns the branches: the dialog
@@ -25,12 +25,10 @@ import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName } f
 export interface CreatePullRequestContext {
   /**
    * The repository the dialog was opened in: the push, the pull request and Activity go there, also once the main window
-   * shows another repository (whose branches of the same name are other branches: the push refuses). With the prefix
-   * the page showed then, which keys the stacks it remembers landed (`forgetLandedStackRoot`); Rust resolves the
+   * shows another repository (whose branches of the same name are other branches: the push refuses); Rust resolves the
    * prefix of every command itself
    */
   readonly repositoryPath: string
-  readonly branchPrefix: string
   /** The branch, or the root of the whole stack (`wholeStack`) */
   readonly branchName: string
   /** How the dialog names what the pull request is of: the branch, or "Whole air stack" */
@@ -88,7 +86,6 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
   const includes = ancestors.length === 0 ? null : { ancestors: ancestors.map(it => it.name), commitCount: ancestors.reduce((sum, it) => sum + it.commitCount, branch.commitCount) }
   return {
     repositoryPath: facts.repositoryPath,
-    branchPrefix: getEffectiveBranchPrefix(),
     branchName: branch.name,
     label: branch.name,
     wholeStack: null,
@@ -138,7 +135,6 @@ export function toStackPullRequestContext(root: string, stack: StackBranch | und
   const names = members.map(it => it.branch.name)
   return {
     repositoryPath: facts.repositoryPath,
-    branchPrefix: getEffectiveBranchPrefix(),
     branchName: root,
     label,
     wholeStack: {

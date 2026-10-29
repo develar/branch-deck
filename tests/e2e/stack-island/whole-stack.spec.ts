@@ -4,6 +4,7 @@ import type { PatronusReviewRequirement, PatronusRobot } from "../../../src/lib/
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchDetailsRow, getLandingNode } from "../helpers/branch-helpers"
+import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import {
   AWAITING_CODE_OWNER,
   NOT_EVALUATED,
@@ -126,6 +127,34 @@ async function setupAwaitingCodeOwner(
   const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
   await expect(slot).toHaveAttribute("data-step", "createPullRequest")
   return { slot, repo }
+}
+
+/**
+ * stack_island with #12, the pull request of the whole air stack, open and the Safe Push of bazel running (it lands air,
+ * the root, with it), synced by `synced` (`syncAndWaitForBranches`; nothing for a warm start, whose session syncs as it
+ * opens); then that Safe Push merges, so #12 no longer matches the stack. Returns the repository
+ */
+async function setupAirLandedWithBazel(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  synced: () => Promise<void>,
+  options: Partial<SetupRepoOptions> = {},
+): Promise<TestRepositoryBuilder> {
+  const running = robot("bazel", "bazel-robot")
+  const repo = await setupRepo("stack_island", {
+    ...options,
+    patronus: availableRobots(running),
+    pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
+  })
+  await synced()
+  await expect(findBranchRow(page, "air").getByTestId("landing-span")).toHaveText("lands with bazel")
+  // the merge reads the pull requests, which load after the sync: the header names #12
+  await expect(island(page, "air").getByTestId("stack-island-open-pull-request")).toBeVisible()
+  // the Safe Push of bazel lands air, the root: the pull request of the whole stack shows a stack that is no more
+  await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
+  await emitTauriEvent(page, "tauri://focus")
+  await expect(page.locator("[data-slot=toast]").filter({ hasText: "bazel merged into master" })).toBeVisible()
+  return repo
 }
 
 /**
@@ -1072,19 +1101,7 @@ test.describe("Whole stack", () => {
   })
 
   test("should offer the close of the pull request of the whole stack in the island header once it no longer matches", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const running = robot("bazel", "bazel-robot")
-    const repo = await setupRepo("stack_island", {
-      patronus: availableRobots(running),
-      pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
-    })
-    await syncAndWaitForBranches()
-    await expect(findBranchRow(page, "air").getByTestId("landing-span")).toHaveText("lands with bazel")
-    // the merge reads the pull requests, which load after the sync: the header names #12
-    await expect(island(page, "air").getByTestId("stack-island-open-pull-request")).toBeVisible()
-    // the Safe Push of bazel lands air, the root: the pull request of the whole stack shows a stack that is no more
-    await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
-    await emitTauriEvent(page, "tauri://focus")
-    await expect(page.locator("[data-slot=toast]").filter({ hasText: "bazel merged into master" })).toBeVisible()
+    await setupAirLandedWithBazel(page, setupRepo, syncAndWaitForBranches)
     const line = island(page, "air").getByTestId("orphaned-stack-pull-request")
     await expect(line).toContainText("#12 no longer matches the air stack")
     // the line is in the toggle of the header: the close is beside its actions
@@ -1092,5 +1109,65 @@ test.describe("Whole stack", () => {
     await island(page, "air").getByRole("button", { name: "Close Pull Request #12…" }).click()
     const confirm = page.locator('tr[data-branch-of="air"]').filter({ has: page.getByRole("button", { name: "Close Pull Request", exact: true }) })
     await expect(confirm).toContainText("Close pull request #12")
+  })
+
+  test("should say on the rows of the frame that the close of the pull request of the whole stack waits for the first sync, in the island header and its menu", async ({
+    page,
+    setupRepo,
+  }) => {
+    // the session of a warm start syncs as it opens
+    const repo = await setupAirLandedWithBazel(page, setupRepo, () => Promise.resolve(), { warmStart: true })
+    const close = island(page, "air").getByRole("button", { name: "Close Pull Request #12…" })
+    await expect(close).toBeEnabled()
+
+    // the next start shows the frame its session saved, what landed the root with it, its first sync held
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
+    await reloadWarm(page, repo)
+    await expect(page.locator("[data-cached=true]")).toBeVisible()
+    await expect(island(page, "air").getByTestId("orphaned-stack-pull-request")).toContainText("#12 no longer matches the air stack: bazel landed")
+    await expect(close).toBeDisabled()
+    // the hover of a disabled button is its wrapper's
+    await close.locator("..").hover()
+    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for the first sync" })).toBeVisible()
+    await openIslandMenu(page, "air")
+    await expectWaitingForTheFirstSync(page, page.getByRole("menuitem", { name: "Close Pull Request #12…" }))
+
+    await releaseTheFirstSync(page, repo)
+    await expect(close).toBeEnabled()
+    await openIslandMenu(page, "air")
+    await page.getByRole("menuitem", { name: "Close Pull Request #12…" }).click()
+    const confirm = page.locator('tr[data-branch-of="air"]').filter({ has: page.getByRole("button", { name: "Close Pull Request", exact: true }) })
+    await expect(confirm).toContainText("Close pull request #12")
+    expect(await closedPullRequests(repo)).toEqual([])
+  })
+
+  test("should hold the confirmation of the close of the pull request of the whole stack while another process holds its state, and close it after", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // docs heads no stack, and its stack branch still has #12: it no longer matches
+    const repo = await setupRepo("stacked_branches", { pullRequests: withStackPullRequests(availablePullRequests(), { docs: stackPullRequest("docs", 12) }) })
+    await syncAndWaitForBranches()
+    const preview = await openBranchPreview(page, "docs")
+    await preview.getByTestId("orphaned-stack-pull-request").getByRole("button", { name: "Close Pull Request #12…" }).click()
+    const confirm = page.locator('tr[data-branch-of="docs"]').filter({ has: page.getByRole("button", { name: "Close Pull Request", exact: true }) })
+    const submit = confirm.getByRole("button", { name: "Close Pull Request", exact: true })
+    await expect(submit).toBeEnabled()
+
+    // bd of another process writes the state of #12 meanwhile: the confirmation waits for it, and says so
+    await repo.setForeignOperation({ kind: "closePullRequest", number: 12, comment: "Closed by an agent." }, [{ kind: "pullRequest", number: 12, field: "state" }])
+    await expect(submit).toBeDisabled()
+    await expect(submit).toHaveAttribute("data-disabled-reason", "bd: Closing #12…")
+    await submit.hover()
+    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "bd: Closing #12…" })).toBeVisible()
+    expect(await closedPullRequests(repo)).toEqual([])
+
+    // its record left the registry: the same confirmation closes #12, once
+    await repo.setForeignOperation(null)
+    await expect(submit).toBeEnabled()
+    await submit.click()
+    await expect.poll(() => closedPullRequests(repo)).toEqual([12])
+    expect(await pullRequestComments(repo)).toEqual([[12, "Closed in Branch Deck: #12 no longer matches the docs stack: it no longer forks."]])
   })
 })

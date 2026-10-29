@@ -645,6 +645,7 @@ fn stack_facts<'a>(shape: StackShape<'a>, step: Option<&'a NextStep>) -> StackFa
     open_pull_request: None,
     repository: true,
     landed: None,
+    root_landed: None,
     push_route: false,
     merge_route: false,
     cached: false,
@@ -654,7 +655,8 @@ fn stack_facts<'a>(shape: StackShape<'a>, step: Option<&'a NextStep>) -> StackFa
 /// The whole stack starts as its step says; while the sync didn't build its stack branch it lands in pieces (the Safe
 /// Push of its main line) and neither its pull request nor its review can be made; a chain reviews its last branch
 /// from the root, a stack of one branch has no whole review; the pull request of the stack opens while it is not closed,
-/// and closes while it is open
+/// and closes while it is open and no longer matches the stack (the stack no longer forks, or a landing took its root);
+/// none is created while its root landed
 #[test]
 fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_branch_is_not_built() {
   let step = ready_step();
@@ -705,7 +707,7 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
     table(&stack_actions(&with_pull_request)),
     [(OpenStackPullRequest, None), (RequestReview, None), (ReviewWholeStack, None)]
   );
-  // an open one can be closed too: the page offers it once it no longer matches the stack
+  // an open one that matches the stack (it forks, its stack branch built, nothing landed its root) is not closed
   let open_pull_request = pull_request("stack/air", 12);
   let open_view = view_of(&open_pull_request, false);
   let with_open_pull_request = StackFacts {
@@ -715,15 +717,41 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
   };
   assert_eq!(
     table(&stack_actions(&with_open_pull_request)),
+    [(OpenStackPullRequest, None), (RequestReview, None), (ReviewWholeStack, None)]
+  );
+  // a landing took its root (a Safe Push of a piece), or the stack no longer forks: it no longer matches, and closes
+  let landed = landed_by_oauth();
+  let root_landed = StackFacts {
+    root_landed: Some(&landed),
+    ..with_open_pull_request.clone()
+  };
+  assert_eq!(
+    table(&stack_actions(&root_landed)),
     [(OpenStackPullRequest, None), (RequestReview, None), (CloseStackPullRequest, None), (ReviewWholeStack, None)]
   );
-  let landed = landed_by_oauth();
+  let no_longer_forks = StackFacts {
+    shape: StackShape::Chain { length: 1, review: None },
+    ..with_open_pull_request
+  };
+  assert_eq!(
+    table(&stack_actions(&no_longer_forks)),
+    [(OpenStackPullRequest, None), (RequestReview, None), (CloseStackPullRequest, None)]
+  );
   let landed_stack = StackFacts {
     landed: Some(&landed),
     ..stack_facts(built, None)
   };
   assert_eq!(
     table(&stack_actions(&landed_stack))[0],
+    (CreateStackPullRequest, Some(ActionBlocker::Landed { landed: landed.clone() }))
+  );
+  // its root landed: a new pull request of it would show a stack that is no more from its start
+  let root_landed_stack = StackFacts {
+    root_landed: Some(&landed),
+    ..stack_facts(built, None)
+  };
+  assert_eq!(
+    table(&stack_actions(&root_landed_stack))[0],
     (CreateStackPullRequest, Some(ActionBlocker::Landed { landed: landed.clone() }))
   );
   let unsynced = StackShape::Forking {
@@ -1182,9 +1210,12 @@ fn the_close_of_the_pull_request_of_a_whole_stack_runs_once_and_waits_for_what_h
     tip: true,
     main_line: None,
   };
+  // it no longer matches the stack: a Safe Push of a piece landed the root
+  let landed = landed_by_oauth();
   let stack = StackFacts {
     pull_request: Some(&open),
     open_pull_request: Some(&view),
+    root_landed: Some(&landed),
     ..stack_facts(built, None)
   };
   let of = Of::WholeStack {
@@ -1534,12 +1565,14 @@ fn on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_th
   assert_eq!((reason_of(&frame, Rename), reason_of(&frame, Park), reason_of(&frame, CheckApprovals)), (None, None, None));
   assert_waits("a branch", branch_actions(&branch), frame);
 
-  // its pull request open: Close Pull Request #12… writes GitHub as well
+  // its pull request open, its root landed: Close Pull Request #12… writes GitHub as well
   let stack_pull_request = pull_request("stack/air", 12);
   let stack_pull_request_view = view_of(&stack_pull_request, false);
+  let root_landed = landed_by_oauth();
   let stack = StackFacts {
     pull_request: Some(&stack_pull_request),
     open_pull_request: Some(&stack_pull_request_view),
+    root_landed: Some(&root_landed),
     ..stack_facts(
       StackShape::Forking {
         not_built: None,

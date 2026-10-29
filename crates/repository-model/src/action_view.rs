@@ -200,6 +200,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       open_pull_request: sources.open_pull_requests.get(&key),
       repository,
       landed: sources.landed.get(&key),
+      root_landed: sources.landed.get(root),
       push_route,
       merge_route,
       cached,

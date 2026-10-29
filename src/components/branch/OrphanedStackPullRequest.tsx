@@ -5,17 +5,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
+import { useOrphanedStackPullRequest } from "@/hooks/useOrphanedStackPullRequest"
 import { getCloseStackPullRequestItem } from "@/hooks/useWholeStackActions"
-import { describeOrphanedStackPullRequest, stackReadinessKey } from "@/lib/whole-stack"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
-import { useStackBranch } from "@/stores/branch-sync"
-import { useStackLandedBy } from "@/stores/landed-stacks"
 import { useStackPullRequest } from "@/stores/pull-requests"
-
-/** Why the pull request of the whole stack of `root` no longer matches it (`describeOrphanedStackPullRequest`), null while it does */
-function useOrphanedStackPullRequest(root: string): string | null {
-  return describeOrphanedStackPullRequest(root, useStackPullRequest(root), useStackBranch(root), useStackLandedBy(root))
-}
 
 /**
  * "#12 no longer matches the air stack: auth landed" in the header of the stack island: the pull request of the whole

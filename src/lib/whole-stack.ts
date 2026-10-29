@@ -1,4 +1,4 @@
-import type { PatronusPushMode, PullRequest, StackBranchConflict } from "@/lib/bindings"
+import type { ActionState, Landed, PatronusPushMode, PullRequest, StackBranchConflict } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
@@ -159,17 +159,42 @@ export function formatWholeStackBranch(root: string): string {
 export const STACK_BRANCH_PUSHING = "Pushing the whole stack"
 
 /**
- * Why an open pull request of the whole stack no longer matches it ("#12 no longer matches the air stack: auth
- * landed"), null while it does: a Safe Push of a branch landed the root in a piece (`landedBy`, as the app saw the
- * merge), or the stack branch is kept only for its remote branch (`members` empty: the stack no longer forks). The
- * pull request shows a stack that is no more; it is never closed by itself, the user decides ("Close Pull Request #12").
+ * Why the open pull request `pullRequest` of the whole stack of `root` no longer matches it ("#12 no longer matches the
+ * air stack: auth landed"), while Rust offers its close (`close-stack-pull-request` among `actions`, the actions of the
+ * stack: a landing took the root, or the stack no longer forks and its stack branch stays for its remote branch); null
+ * while it doesn't. `rootLanded` is what landed the root (`RepositoryView.landedStates` of the root), none when the stack
+ * no longer forks. The pull request shows a stack that is no more; it is never closed by itself, the user decides
+ * ("Close Pull Request #12").
  */
-export function describeOrphanedStackPullRequest(root: string, pullRequest: PullRequest | undefined, stack: StackBranch | undefined, landedBy: string | null): string | null {
-  if (pullRequest?.state !== "open") {
+export function describeOrphanedStackPullRequest(
+  root: string,
+  pullRequest: PullRequest | undefined,
+  actions: readonly ActionState[] | undefined,
+  rootLanded: Landed | undefined,
+): string | null {
+  if (pullRequest === undefined || actions?.some(action => action.id === "close-stack-pull-request") !== true) {
     return null
   }
-  if (landedBy !== null) {
-    return `#${pullRequest.number} no longer matches the ${root} stack: ${landedBy} landed`
+  return formatOrphanedStackPullRequest(root, pullRequest.number, rootLanded === undefined ? "it no longer forks" : formatRootLanded(root, rootLanded))
+}
+
+/** "#12 no longer matches the air stack: auth landed": the pull request `number` of the whole stack of `root`, and why */
+export function formatOrphanedStackPullRequest(root: string, number: number, why: string): string {
+  return `#${number} no longer matches the ${root} stack: ${why}`
+}
+
+/**
+ * What landed the root of a stack, as why the pull request of the whole stack no longer matches it: "oauth landed"
+ * (merged Safe Pushes, of a piece or of the root itself), "air landed in origin/master" (the fetched baseline), "#7 of
+ * air is merged" (GitHub merged the pull request of the root)
+ */
+function formatRootLanded(root: string, landed: Landed): string {
+  switch (landed.by.kind) {
+    case "robots":
+      return `${joinNames([...new Set(landed.by.by.map(robot => (robot.wholeStack ? formatWholeStack(robot.branch) : robot.branch)))])} landed`
+    case "baseline":
+      return `${root} landed in ${landed.by.upstream}`
+    case "pullRequest":
+      return `#${landed.by.number} of ${root} is merged`
   }
-  return stack === undefined || stack.members.length === 0 ? `#${pullRequest.number} no longer matches the ${root} stack: it no longer forks` : null
 }

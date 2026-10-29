@@ -460,7 +460,7 @@ impl Actor {
       Message::Subscribe { id, subscriber, have, reply } => {
         self.subscribers.push((id, subscriber));
         // the patches after what it gets follow it
-        let _ = reply.send(self.view.join(id, have));
+        let _ = reply.send(self.view.join(have));
         if self.subscribers.len() == 1 {
           self.watched_anew();
           // the window that watches anew hears no news of the requests that came while none did
@@ -477,7 +477,6 @@ impl Actor {
         let before = self.subscribers.len();
         self.subscribers.retain(|(subscription, _)| *subscription != id);
         self.demands.remove(&id);
-        self.view.left(id);
         if self.subscribers.len() < before {
           self.life.subscriber_left();
           self.windows_changed();
@@ -1072,12 +1071,9 @@ impl Actor {
       }
       kept
     });
-    // a window that held the seed and got the table of this run was told the end of the first sync
-    self.view.told(self.subscribers.iter().map(|(id, _)| *id));
     let left = !gone.is_empty();
     for id in gone {
       self.demands.remove(&id);
-      self.view.left(id);
     }
     if left {
       self.windows_changed();

@@ -1683,21 +1683,26 @@ async fn a_window_that_holds_the_seed_catches_up_by_one_patch() {
   assert_eq!(joined, Joined::Holds);
 }
 
-/// The start of the app opens the session of the frame it read (`open_seeded`): the session answers the seed of that
-/// frame, `cached` at the first version of its epoch, the host's own frame not read, and syncs with no window (the
-/// worktree was synced before); a window that holds the seed and subscribes during that sync catches up and joins it;
-/// once the patch of that sync's table told it the end, a reload of it gets the snapshot
-#[tokio::test]
-async fn a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs_with_no_window() {
-  // synced before, with no frame of the host: the seed can only be the start's
+/// The session of /repo as the start of the app opens it (`open_seeded`): synced before, with no frame of the host (the
+/// seed can only be the start's), its first sync, which builds auth, held until the gate is notified; the seed it answers
+async fn opened_from_the_start_with_the_sync_held() -> (Arc<ScriptedHost>, Sessions, SessionKey, Arc<Notify>, RepositoryView) {
   let host = Arc::new(ScriptedHost::with_frame(None));
   host.set_inputs(1);
   let gate = Arc::new(Notify::new());
   host.push_gated(auth_built(), Ok(report(false, &[])), Some(Arc::clone(&gate)));
   let (sessions, _clock) = scripted(&host);
   let key = key("/repo");
-
   let seed = sessions.open_seeded(&key, auth_frame()).await.unwrap();
+  (host, sessions, key, gate, seed)
+}
+
+/// The start of the app opens the session of the frame it read (`open_seeded`): the session answers the seed of that
+/// frame, `cached` at the first version of its epoch, the host's own frame not read, and syncs with no window (the
+/// worktree was synced before); a window that holds the seed and subscribes during that sync catches up and joins it;
+/// a reload of it after that sync's table, which installs the seed again, catches up from the seed too
+#[tokio::test]
+async fn a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs_with_no_window() {
+  let (host, sessions, key, gate, seed) = opened_from_the_start_with_the_sync_held().await;
   assert!(seed.cached);
   assert_eq!((seed.version.seq, seed.order.clone()), (0, vec!["auth".to_string()]));
   assert_eq!(seed.facts.robots.head.state, FactState::Cached);
@@ -1720,10 +1725,40 @@ async fn a_session_opened_from_the_frame_of_the_start_answers_its_seed_and_syncs
   assert_eq!(shown, synced);
   assert_eq!(host.runs(), 1, "the window joined the sync of the open");
 
-  // the window was told the end of the first sync: a reload of it, which installs the seed again, gets the snapshot
+  // a reload of the window: the page knows whether it saw that end (`src/model/store.ts`), the session catches it up
   sessions.unsubscribe(id);
   let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), Some(seed.version)).await.unwrap();
-  assert_eq!(joined, Joined::Snapshot(Box::new(snapshot(&sessions, &key).await)));
+  assert!(matches!(joined, Joined::CatchUp(_)), "{joined:?}");
+}
+
+/// A page that reloads while the first sync of a seeded session commits: the patch of the table of this run goes to its
+/// channel before the page load ends its subscription, and a Tauri channel to a page that went away takes a send
+/// without a failure, so the page never sees that patch although the session sent it. The reloaded page installs the
+/// seed again and catches up from it to the table of this run, the end of that run in it (the page ends it there unless
+/// it saw it before the reload)
+#[tokio::test]
+async fn a_page_that_reloads_as_the_first_sync_commits_catches_up_from_the_seed_to_the_table_of_this_run() {
+  let (host, sessions, key, gate, seed) = opened_from_the_start_with_the_sync_held().await;
+  // the page that reloads: its channel takes every patch, and nothing of it reaches a page
+  let gone = Window::default();
+  let (id, _) = sessions.subscribe_from(&key, Box::new(gone.clone()), Some(seed.version)).await.unwrap();
+  gate.notify_one();
+  let synced = view_when(&sessions, &key, |view| !view.cached && view.sync == SyncState::Idle).await;
+  assert!(
+    gone.take().iter().any(|patch| patch.changes.cached == Some(false)),
+    "the patch of the table of this run went to the channel of the page that went away"
+  );
+  // the page load ends the old subscription; the new page holds the seed of its init script
+  sessions.unsubscribe(id);
+  let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), Some(seed.version)).await.unwrap();
+  let Joined::CatchUp(catch_up) = joined else {
+    panic!("the reloaded page catches up from the seed, not {joined:?}");
+  };
+  assert_eq!(catch_up.changes.cached, Some(false), "the end of the first sync the page never saw");
+  let mut shown = seed;
+  crate::patch::apply_patch(&mut shown, *catch_up).unwrap();
+  assert_eq!(shown, synced);
+  assert_eq!(host.runs(), 1);
 }
 
 /// A window that comes back to a session kept idle (a switch back within `IDLE_LIMIT`) syncs it as a window that opens

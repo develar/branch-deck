@@ -61,8 +61,8 @@ pub enum ActionId {
   SafePushMainLine,
   OpenStackPullRequest,
   CreateStackPullRequest,
-  /// The open pull request of its stack branch closed with a comment (`Intent::ClosePullRequest`): offered while it is
-  /// open, shown by the page once it no longer matches the stack
+  /// The open pull request of its stack branch closed with a comment (`Intent::ClosePullRequest`): offered only while it
+  /// no longer matches the stack (a landing took the root, or the stack no longer forks)
   CloseStackPullRequest,
   ReviewWholeStack,
   // a robot

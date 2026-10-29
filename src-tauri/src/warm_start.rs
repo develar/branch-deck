@@ -9,9 +9,11 @@
 //! frame, a frame of another prefix (saved before the prefix changed) or schema, a repository whose git directory the
 //! files don't name, no prefix or no git: no model, the page starts as without a cache.
 //!
-//! A reload runs the same script: the page installs that seed again, and the session that still holds it catches the
-//! window up from it; a session that told a window the table of its first sync since (`View::told`), or one opened
-//! since (another epoch), answers its snapshot, whose run the page doesn't take for one that ended.
+//! A reload runs the same script: the page installs that seed again, and the session, which keeps it while it lives,
+//! catches the window up from it; one opened since (another epoch) answers its snapshot, whose run the page doesn't take
+//! for one that ended. The page ends the first sync in that catch-up only while no page of the window saw it end
+//! (`src/model/store.ts`, in `sessionStorage`): a channel to a page that went away takes its patches without a failure,
+//! so only the page knows what it got.
 
 use app_api::context::AppContext;
 use domain_types::session::CachedModel;

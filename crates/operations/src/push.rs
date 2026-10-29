@@ -18,7 +18,7 @@
 //! branch of a whole stack alone (`whole_stack_planned`). `bd push` plans one intent per branch it names over its
 //! one-shot session, the same plans, and sends them as one atomic push (`push_together`) through the same run.
 
-use crate::engine::{cached_frame_refusal, run, run_planned_in};
+use crate::engine::{frame_refusal, run, run_planned_in};
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef, refusal_of};
 use crate::land_session::push_start;
@@ -796,11 +796,13 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
     // the rewrites admitted before it (a move out of the branch): it sends what they leave, after the sync they ask
     let behind = guard.wait_behind(vec![Resource::Head], OperationStep::Checking).await;
     let synced = wait_for_running_sync(sessions, key, &guard.stepper()).await;
-    // the rows are still the frame of an earlier run (its first sync failed): no tip of this process to push
-    if sessions.read(key, |state, _| state.cached()).await.unwrap_or(false) {
-      return Err(cached_frame_refusal());
+    // the rows are still the frame of an earlier run: no tip of this process to push. Its first sync failed (the one it
+    // waited for, or one before it) or git deferred it, and that error says why: nothing waits for a sync any more
+    let frame = sessions.read(key, |state, _| state.cached().then(|| frame_refusal(state))).await.flatten();
+    if let Some(refusal) = frame {
+      return Err(synced.failed.unwrap_or(refusal));
     }
-    let waited = behind || synced || guard.queued();
+    let waited = behind || synced.waited || guard.queued();
     let checked = checked_holds(services, sessions, key, &push).await.map(Arc::new);
     let (prefix, intent, holds) = (key.prefix.clone(), push.clone(), checked.clone());
     let expect = if waited { ExpectRemote::OfSession } else { ExpectRemote::OfIntent };
@@ -841,27 +843,35 @@ async fn checked_holds(services: &dyn ServiceHost, sessions: &Sessions, key: &Se
 /// How many runs of a sync a push waits for: the one that runs and the quiet follow-up a rewrite asked during it
 const SYNCS_TO_WAIT: usize = 2;
 
+/// What a push found of the syncs it waited for (`wait_for_running_sync`)
+struct SyncWait {
+  waited: bool,
+  /// The error of the last sync it waited for, none when that one committed
+  failed: Option<ApiError>,
+}
+
 /// Waits for the sync of the session of `key` that runs, if one does (a rewrite's, a focus'), and for the follow-up that
 /// starts as it ends (the sync a rewrite asked during it), with the step `WaitingForSync`: they bring the tips into the
-/// table the push is checked on; a sync asked later is not waited for. Whether it waited
-async fn wait_for_running_sync(sessions: &Sessions, key: &SessionKey, stepper: &Stepper) -> bool {
-  let mut waited = false;
+/// table the push is checked on; a sync asked later is not waited for. Whether it waited, and how the last one failed
+async fn wait_for_running_sync(sessions: &Sessions, key: &SessionKey, stepper: &Stepper) -> SyncWait {
+  let mut wait = SyncWait { waited: false, failed: None };
   for _ in 0..SYNCS_TO_WAIT {
     if sessions.apply_with(key, |state| matches!(state.sync(), SyncState::Running { .. })).await != Some(true) {
       break;
     }
-    if !waited {
+    if !wait.waited {
       stepper.step(OperationStep::WaitingForSync);
     }
-    waited = true;
-    if let Err(error) = sessions.sync(key, SyncReason::Open).wait().await {
+    wait.waited = true;
+    wait.failed = sessions.sync(key, SyncReason::Open).wait().await.err();
+    if let Some(error) = &wait.failed {
       debug!(error = %error.message, "the push checks the table of the last successful sync");
     }
   }
-  if waited {
+  if wait.waited {
     stepper.step(OperationStep::Checking);
   }
-  waited
+  wait
 }
 
 #[cfg(test)]

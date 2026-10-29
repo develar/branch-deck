@@ -25,7 +25,6 @@ const { engine } = vi.hoisted(() => {
 vi.mock("@/lib/run-intent", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/run-intent")>()), runIntent: engine.runIntent }))
 vi.mock("@/presenters/pull-request-url", () => ({ openNewPullRequest: (url: string) => engine.said.push(`open ${url}`) }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
-vi.mock("@/stores/landed-stacks", () => ({ forgetLandedStackRoot: (root: string) => engine.said.push(`forget ${root}`) }))
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 
 const PULL_REQUEST = { number: 12, url: "https://github.com/acme/monorepo/pull/12", reviewers: [] } as unknown as PullRequest
@@ -33,7 +32,6 @@ const PULL_REQUEST = { number: 12, url: "https://github.com/acme/monorepo/pull/1
 /** The dialog of auth, opened in /other while the main window shows another repository */
 const CONTEXT = {
   repositoryPath: "/other",
-  branchPrefix: "user",
   branchName: "auth",
   label: "auth",
   wholeStack: null,

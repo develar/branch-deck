@@ -7,9 +7,8 @@ import { closePullRequest } from "@/lib/pull-request-run"
 import { showToast } from "@/lib/toast-message"
 import { describeOrphanedStackPullRequest, stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
-import { useStackBranch } from "@/stores/branch-sync"
+import { useLandedState } from "@/stores/branch-sync"
 import { closeInline, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
-import { useStackLandedBy } from "@/stores/landed-stacks"
 import { useStackPullRequest } from "@/stores/pull-requests"
 import { getFullStackBranchName, getSelectedProject } from "@/stores/repository"
 
@@ -20,10 +19,10 @@ import { getFullStackBranchName, getSelectedProject } from "@/stores/repository"
  */
 export function InlineCloseStackPullRequest({ root }: { root: string }) {
   const pullRequest = useStackPullRequest(root)
-  const reason = describeOrphanedStackPullRequest(root, pullRequest, useStackBranch(root), useStackLandedBy(root))
+  const actions = useRowPart(stackReadinessKey(root), "actions")
+  const reason = describeOrphanedStackPullRequest(root, pullRequest, actions, useLandedState(root))
   const processing = useInlineProcessing(root) !== null
   const number = pullRequest?.number
-  const actions = useRowPart(stackReadinessKey(root), "actions")
   // as Rust offers the close: on the frame of an earlier run it waits for the first sync
   const close = reason === null || number === undefined ? null : getCloseStackPullRequestItem(root, number, reason, actions)
   const held = close === null || (close.disabled === true && close.running !== true)

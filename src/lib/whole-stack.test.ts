@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { PullRequest } from "@/lib/bindings"
+import type { ActionState, Landed, PullRequest, RobotOf } from "@/lib/bindings"
 import {
   describeOrphanedStackPullRequest,
   describeStackBranchAlong,
@@ -82,11 +82,24 @@ describe("the whole stack", () => {
     expect(describeStackBranchPush("user/stack/air", members, ["air", "auth"])).toBe("Pushes only its stack branch user/stack/air: air and auth stay as they are on the remote.")
   })
 
-  it("has a pull request that no longer matches it once a piece landed the root or the stack no longer forks, an open one only", () => {
-    expect(describeOrphanedStackPullRequest("air", pullRequest, stack(), null)).toBeNull()
-    expect(describeOrphanedStackPullRequest("air", pullRequest, stack(), "auth")).toBe("#12 no longer matches the air stack: auth landed")
-    expect(describeOrphanedStackPullRequest("air", pullRequest, stack({ members: [], state: "Stale" }), null)).toBe("#12 no longer matches the air stack: it no longer forks")
-    expect(describeOrphanedStackPullRequest("air", { ...pullRequest, state: "closed" }, stack({ members: [] }), "auth")).toBeNull()
-    expect(describeOrphanedStackPullRequest("air", undefined, undefined, "auth")).toBeNull()
+  it("says why its pull request no longer matches it while Rust offers its close: what landed the root, or that it no longer forks", () => {
+    const close: ActionState[] = [{ id: "close-stack-pull-request", availability: { kind: "enabled" } }]
+    const robots = (...by: RobotOf[]): Landed => ({ by: { kind: "robots", by, own: false, target: "master" }, after: [] })
+    const robot = (branch: string, wholeStack = false): RobotOf => ({ branch, robotId: `${branch}-robot`, wholeStack })
+    // Rust doesn't offer it: the pull request matches the stack
+    expect(describeOrphanedStackPullRequest("air", pullRequest, [], robots(robot("auth")))).toBeNull()
+    expect(describeOrphanedStackPullRequest("air", undefined, close, undefined)).toBeNull()
+    expect(describeOrphanedStackPullRequest("air", pullRequest, close, robots(robot("auth"), robot("auth")))).toBe("#12 no longer matches the air stack: auth landed")
+    expect(describeOrphanedStackPullRequest("air", pullRequest, close, robots(robot("auth"), robot("side", true)))).toBe(
+      "#12 no longer matches the air stack: auth and the whole side stack landed",
+    )
+    expect(describeOrphanedStackPullRequest("air", pullRequest, close, { by: { kind: "baseline", upstream: "origin/master" }, after: [] })).toBe(
+      "#12 no longer matches the air stack: air landed in origin/master",
+    )
+    expect(describeOrphanedStackPullRequest("air", pullRequest, close, { by: { kind: "pullRequest", number: 7 }, after: [] })).toBe(
+      "#12 no longer matches the air stack: #7 of air is merged",
+    )
+    // no landing: the stack no longer forks, its stack branch kept for its remote branch
+    expect(describeOrphanedStackPullRequest("air", pullRequest, close, undefined)).toBe("#12 no longer matches the air stack: it no longer forks")
   })
 })

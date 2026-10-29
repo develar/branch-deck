@@ -98,7 +98,7 @@ test.describe("The warm start", () => {
     // a reload (F5, a dev reload): the init script hands the page the same seed, whose end the page before it handled
     await page.reload()
     await expect(findBranchRow(page, "oauth")).toBeVisible()
-    // the session answers its snapshot, the table of this run: the rows of the frame no more, and no run ended here
+    // the catch-up from the seed to the table of this run, whose end the page before the reload saw: no run ended here
     await expect(page.locator("[data-cached]")).toHaveCount(0)
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "0")
     expect(await branchTree(page)).toEqual(FRAME_TREE)

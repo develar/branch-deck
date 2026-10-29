@@ -417,6 +417,9 @@ pub struct StackFacts<'a> {
   pub repository: bool,
   /// What landed all of it
   pub landed: Option<&'a Landed>,
+  /// What landed its root (merged Safe Pushes of a piece, the fetched baseline, the merged pull request of the root): the
+  /// pull request of its stack branch shows a stack that is no more, and a new one would too
+  pub root_landed: Option<&'a Landed>,
   /// The repository lands by a push of the copy into the target (`LandingRoute::Push`): the push of its stack branch is
   /// its start
   pub push_route: bool,
@@ -477,10 +480,13 @@ pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
     && pull_request.is_none()
   {
     let reason = not_built.map(|reason| ActionBlocker::Rule { reason: reason.clone() });
-    offer(ActionId::CreateStackPullRequest, reason.or_else(|| landed_whole(facts.landed)));
+    let landed = landed_whole(facts.landed).or_else(|| facts.root_landed.map(|landed| ActionBlocker::Landed { landed: landed.clone() }));
+    offer(ActionId::CreateStackPullRequest, reason.or(landed));
   }
-  // the page shows it once the pull request no longer matches the stack (`describeOrphanedStackPullRequest`)
-  if pull_request.is_some_and(|pull_request| pull_request.state == PullRequestState::Open) {
+  // its open pull request no longer matches the stack: a landing took its root, or the stack no longer forks (its stack
+  // branch stays for its remote branch); the user closes it, nothing closes it by itself
+  let no_longer_forks = !matches!(facts.shape, StackShape::Forking { .. });
+  if pull_request.is_some_and(|pull_request| pull_request.state == PullRequestState::Open) && (no_longer_forks || facts.root_landed.is_some()) {
     offer(ActionId::CloseStackPullRequest, None);
   }
   match facts.shape {
