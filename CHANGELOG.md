@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.40.0](https://github.com/develar/branch-deck/compare/v0.39.0...v0.40.0) (2026-10-29)
+
+
+### Features
+
+* **lease:** a get takes over an idle lease whose work landed ([1c668e3](https://github.com/develar/branch-deck/commit/1c668e31c7feffda643a1eb1cec973e235c4e533)), closes [#154](https://github.com/develar/branch-deck/issues/154)
+
+
+### Bug Fixes
+
+* **lease:** a commit made anew lands by its author and subject when its lines are on the home branch ([6a0abfa](https://github.com/develar/branch-deck/commit/6a0abfa457fdfcb8c4d7b18213aef17384e1f0d5)), closes [#154](https://github.com/develar/branch-deck/issues/154)
+* **lease:** a return finds work that landed with a conflict resolution or under another subject ([a6012d5](https://github.com/develar/branch-deck/commit/a6012d50cdc49325f89b6887885b813d0d0724cb)), closes [#154](https://github.com/develar/branch-deck/issues/154)
+* **lease:** a twin that lacks only removals its parent no longer had proves the commit landed ([6146dd9](https://github.com/develar/branch-deck/commit/6146dd90e4ee1e61e1688eb4bfda5ca230362937)), closes [#154](https://github.com/develar/branch-deck/issues/154)
+* **presenters:** a presenter imports a store for its types only, the operations a surface words are selected only while one of its items names one ([a88bd45](https://github.com/develar/branch-deck/commit/a88bd45c128967e168dfd3c5be91d6ef632212d1))
+* **presenters:** an item that runs as an operation says the busy state of its row, the wait for the sync too ([e22082d](https://github.com/develar/branch-deck/commit/e22082dbd34a68684f89c58eec4aae4f1540cdeb))
+* **presenters:** one rule names an operation on every surface, the unused getSessionOperations and operationLabelOf deleted ([c628811](https://github.com/develar/branch-deck/commit/c6288116cf545826207f3d44d9797b6c41937daa))
+* **update:** the same patch of its author under another key is left out before the replay too ([d7497f6](https://github.com/develar/branch-deck/commit/d7497f682cb36b161c31fd4de467ba33fca91d6a)), closes [#153](https://github.com/develar/branch-deck/issues/153)
+
 ## [0.39.0](https://github.com/develar/branch-deck/compare/v0.38.0...v0.39.0) (2026-10-29)
 
 
