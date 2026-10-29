@@ -159,8 +159,12 @@ fn branch_issue_key(branch_name: &str, origin: BranchOrigin, commits: &[Commit])
   rest.iter().all(|c| find_issue_number(&c.stripped_subject) == Some(key)).then(|| key.to_string())
 }
 
-/// Prepare grouped commits for UI display with sorting and metadata; `stacks` places the branches with stacked
-/// branches on, `description_titles` (branch -> title) are the titles of their descriptions
+/// The grouped branches for the table and `bd`, newest first by where each begins in the history: the branch whose
+/// oldest commit is the newest comes first (`grouped_commits` is in the order of the oldest commit of each branch,
+/// oldest first). Not by a time: a rewrite keeps every commit it keeps in its place (a squash keeps the oldest commit, a
+/// fixup folds into an older target), but gives each commit above the oldest one it rewrites a new committer time,
+/// which would move the rows of the whole table (spec/branch/stacked-branches.spec.md, UI). `stacks` places the
+/// branches with stacked branches on, `description_titles` (branch -> title) are the titles of their descriptions
 pub(crate) fn prepare_branches_for_ui(
   grouped_commits: &IndexMap<String, Vec<Commit>>,
   branch_emails: &HashMap<String, Option<String>>,
@@ -169,7 +173,7 @@ pub(crate) fn prepare_branches_for_ui(
 ) -> Vec<GroupedBranchInfo> {
   let mut grouped_branches_for_ui = Vec::with_capacity(grouped_commits.len());
 
-  for (branch_name, commits) in grouped_commits {
+  for (branch_name, commits) in grouped_commits.iter().rev() {
     let origin = branch_origin(branch_name, commits);
     let issue_key = branch_issue_key(branch_name, origin, commits);
     let summary = if issue_key.is_some() || has_issue_reference(branch_name) {
@@ -218,14 +222,6 @@ pub(crate) fn prepare_branches_for_ui(
         .collect(),
     });
   }
-
-  // Sort branches by latest commit time (newest first). If committer times are equal (e.g.,
-  // after a rebase that rewrites many commits at once), tie-break by latest author time.
-  // Finally, use name for a stable ordering. The key is computed once per branch.
-  grouped_branches_for_ui.sort_by_cached_key(|branch| {
-    let latest_author_time = branch.commits.iter().map(|c| c.author_timestamp).max().unwrap_or(0);
-    (Reverse(branch.latest_commit_time), Reverse(latest_author_time), branch.name.clone())
-  });
 
   grouped_branches_for_ui
 }

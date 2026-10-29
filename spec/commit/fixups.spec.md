@@ -133,6 +133,7 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   folded into its target, as with rebase --autosquash. Your files are not touched." for one, "Each one is folded…"
   for more; "No fixups to squash" has no such sentence.
   [@test] ../../src/lib/autosquash.test.ts (`says what the squash does in the number of its fixups, one as one`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should keep every row in its place when the fixup of the branch that began first is squashed`)
 - The menu of a fixup commit with a target offers "Squash into “X”", which squashes that fixup only.
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
 - Success shows "Squashed N fixups" with Undo, as for a squash of selected commits (the rewrite `undo` of its
@@ -143,7 +144,7 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 
 - `pnpm test:backend`: `autosquash_test.rs`, `commit_grouper_test.rs`.
 - `pnpm test:unit`: `src/lib/autosquash.test.ts`.
-- `pnpm e2e`: `tests/e2e/squash-fixups` uses the `fixups` template.
+- `pnpm e2e`: `tests/e2e/squash-fixups` uses the `fixups` template, and `fixup_order` for the order of the rows.
 
 ## Open Questions / Risks
 

@@ -81,6 +81,13 @@ flowchart TD
 3. **Decision**: Archive by date (`archived/YYYY-MM-DD/branch-name`)
    **Rationale**: Natural organization, easy cleanup of old branches, clear timeline
 
+4. **Decision**: Order the branches newest first by where each begins in the history: the branch whose oldest commit
+   is the newest first (`prepare_branches_for_ui` in `crates/sync-core/src/sync.rs`, for the table and `bd status`)
+   **Rationale**: A row stays where it is while the user works on its commits. A rewrite keeps every commit it keeps in
+   its place but gives each commit above the oldest one it rewrites a new committer time; an order by the newest commit
+   time moved every row after a squash of one fixup, under the pointer that pressed Squash. A branch of new commits still
+   comes first ([Stacked Branches](../../spec/branch/stacked-branches.spec.md#ui))
+
 ### Grouping Rules
 
 `CommitGrouper` reads the subject line (`parse_subject` in `crates/sync-utils/src/commit_subject.rs`) and the issue

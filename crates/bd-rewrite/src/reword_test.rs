@@ -202,7 +202,8 @@ fn a_new_prefix_moves_the_commit_to_another_branch() {
     .iter()
     .map(|branch| branch["name"].as_str().unwrap())
     .collect();
-  assert_eq!(built, ["feat", "other"]);
+  // newest first by the oldest commit: other begins at the second commit, feat at the first
+  assert_eq!(built, ["other", "feat"]);
 
   let (_, status) = run_in(&repo, &["status"]);
   let other = status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("other")).unwrap();

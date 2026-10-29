@@ -237,13 +237,15 @@ what they listed.
 ```json
 {"schema":2,"repository":"/repo","prefix":"develar","prefix_source":"global_config",
  "head":{"id":"ff366ae0","branch":"master"},"baseline":"origin/master","branch_count":2,"unassigned_count":1,
- "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","latest_time":1700000400,"commit_count":2,
-   "tip":"2c1d0e93","commits":[{"id":"9f3a2b1c","subject":"Add logout"},{"id":"41c7d00e","subject":"Add login"}]},
-  {"name":"ABC-12","ref":"refs/heads/develar/virtual/ABC-12","issue_key":"ABC-12", "...": "..."}],
+ "branches":[{"name":"ABC-12","ref":"refs/heads/develar/virtual/ABC-12","issue_key":"ABC-12", "...": "..."},
+  {"name":"auth","ref":"refs/heads/develar/virtual/auth","latest_time":1700000400,"commit_count":2,
+   "tip":"2c1d0e93","commits":[{"id":"9f3a2b1c","subject":"Add logout"},{"id":"41c7d00e","subject":"Add login"}]}],
  "unassigned":[{"id":"77e01aa4","subject":"Tidy up"}]}
 ```
 
-- Branches are listed newest first, the same order as the UI. The commits of a branch are newest first too, and
+- Branches are listed newest first by where each begins in the history, the same order as the UI: the branch whose
+  oldest commit is the newest first, so no rewrite of the commits of a branch and no commit added to it moves it
+  ([Stacked Branches](../../spec/branch/stacked-branches.spec.md#ui)). The commits of a branch are newest first, and
   their subjects have the `(prefix)` stripped, as the virtual branch commits do (a prefix that is an issue key stays as
   the key). `resolved_by_words` (`{"conflicts","file_count"}`, from the mapping
   note) marks a commit whose virtual copy resolved a conflict of git by words (see `bd sync`).

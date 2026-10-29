@@ -35,7 +35,8 @@ pub struct BranchGrouping {
   pub listed: Vec<ListedBranch>,
   /// Full name -> tip of its remote branch on `origin`, of the branches under the prefix
   pub remote_tips: HashMap<String, String>,
-  /// Ordered as the UI shows them, newest first, each with its commits newest first
+  /// Ordered as the UI shows them, newest first by the oldest commit of each (`prepare_branches_for_ui`), each with its
+  /// commits newest first
   pub branches: Vec<GroupedBranchInfo>,
   /// Commits without a group, newest first
   pub unassigned: Vec<Commit>,

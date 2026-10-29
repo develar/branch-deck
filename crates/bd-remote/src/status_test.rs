@@ -57,7 +57,19 @@ fn status_shape() {
       "baseline": "origin/master",
       "branch_count": 2,
       "unassigned_count": 1,
+      // newest first by the oldest commit: auth began first, though its commit is the newest
       "branches": [
+        {
+          "name": "ABC-12",
+          "origin": "issue",
+          "ref": "refs/heads/test-user/virtual/ABC-12",
+          "issue_key": "ABC-12",
+          "latest_time": 1_700_000_200,
+          "commit_count": 1,
+          "tip": null,
+          "commits": [{ "id": short_id(&ids[1]), "subject": "ABC-12 Fix crash" }],
+          "next_step": pending_permission(),
+        },
         {
           "name": "auth",
           "origin": "prefix",
@@ -69,17 +81,6 @@ fn status_shape() {
             { "id": short_id(&ids[3]), "subject": "Add logout" },
             { "id": short_id(&ids[0]), "subject": "Add login" },
           ],
-          "next_step": pending_permission(),
-        },
-        {
-          "name": "ABC-12",
-          "origin": "issue",
-          "ref": "refs/heads/test-user/virtual/ABC-12",
-          "issue_key": "ABC-12",
-          "latest_time": 1_700_000_200,
-          "commit_count": 1,
-          "tip": null,
-          "commits": [{ "id": short_id(&ids[1]), "subject": "ABC-12 Fix crash" }],
           "next_step": pending_permission(),
         },
       ],
@@ -108,10 +109,11 @@ fn status_filters_and_pages() {
   assert_eq!(output.get("branches"), None);
   assert_eq!(output["unassigned"], json!([{ "id": short_id(&ids[2]), "subject": "Tidy up" }]));
 
+  // the second branch: auth began first
   let (exit_code, output) = run_in(&repo, &["status", "--limit", "1", "--offset", "1"]);
   assert_eq!(exit_code, 0, "{output}");
   let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
-  assert_eq!(names, [&json!("ABC-12")]);
+  assert_eq!(names, [&json!("auth")]);
 
   let (exit_code, output) = run_in(&repo, &["status", "--branch", "nope"]);
   assert_eq!(exit_code, 2);
@@ -408,10 +410,11 @@ fn brief_status() {
   // the fields of `bd status`, with the branches cut down
   let (_, full) = run_in(&repo, &["status"]);
   let mut expected = full;
+  // newest first by the oldest commit: auth began first, though its commit is the newest
   expected["branches"] = json!([
-    { "name": "auth", "commit_count": 2, "newest": "Add logout" },
     // the issue key is the name
     { "name": "ABC-12", "commit_count": 1, "newest": "ABC-12 Fix crash" },
+    { "name": "auth", "commit_count": 2, "newest": "Add logout" },
   ]);
   assert_eq!(output, expected);
 

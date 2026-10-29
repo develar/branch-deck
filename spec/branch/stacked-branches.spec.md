@@ -518,6 +518,18 @@ menu stacks, unstacks and renames branches.
 
 ### UI
 
+- The branches must come newest first by where each begins in the history ahead of the baseline, for the table and
+  `bd status` alike (`prepare_branches_for_ui`): the branch whose oldest commit is the newest comes first, a stack where
+  its root comes, an issue family where its first member comes. No time decides it. A rewrite keeps every commit it
+  keeps in its place (a reword, an amend and a move of a hunk keep each one, a squash keeps the oldest commit, a fixup
+  folds into its older target, Update Project and a pick keep the order of the commits), but gives each commit above
+  the oldest one it rewrites a new committer time: an order by the newest commit moved the rows of the whole table
+  after the user's own squash of one fixup, and the pointer that pressed Squash was over the push button of another
+  branch. A commit added to a branch moves no row either; a branch of new commits comes first, a branch grouped of
+  older commits (a name for unassigned commits) where its oldest commit is, and a move to another branch places again
+  only the branches whose oldest commit changes.
+  [@test] ../../crates/sync-core/src/grouping_test.rs (`the_branches_come_newest_first_by_their_oldest_commit_and_no_rewrite_of_their_commits_moves_one`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should keep every row in its place when the fixup of the branch that began first is squashed`)
 - The branch table must show each branch under the branch it stacks on, depth-first; among siblings the shortest
   chain comes first (ties newest first), so the longest chain comes last and continues its parent's line. It draws
   each stack as a graph, root on top, instead of a staircase: a straight chain is one line, a side child forks off on

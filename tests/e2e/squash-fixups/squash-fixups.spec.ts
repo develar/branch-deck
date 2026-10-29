@@ -1,7 +1,7 @@
 // @spec spec/commit/fixups.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { branchTree, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { editCommitMessage } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
@@ -85,6 +85,31 @@ test.describe("Squash fixups", () => {
     await runAndWaitForSync(page, () => clickContextMenuItem(page, "Squash into “Add build script”"))
     await expect(unassignedRows(page)).toHaveCount(1)
     await expect(page.getByTestId("unassigned-commits-section").getByTestId("squash-fixups-button")).toHaveCount(0)
+  })
+  // spec/branch/stacked-branches.spec.md: a rewrite of the commits of a branch moves no row
+  test("should keep every row in its place when the fixup of the branch that began first is squashed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("fixup_order")
+    await syncAndWaitForBranches()
+    // auth began first, so its fixup, the newest commit but one, does not lift it above docs and search
+    const rows = ["search@0", "docs@0", "auth@0", "session@1"]
+    expect(await branchTree(page)).toEqual(rows)
+    const authRow = findBranchRow(page, "auth")
+    await expandBranch(page, authRow)
+    await getBranchDetailsRow(page, "auth").getByTestId("squash-fixups-button").click()
+    const confirm = popover(page)
+    // one fixup reads as one
+    await expect(confirm).toHaveAccessibleName("Squash 1 fixup")
+    await expect(confirm).toHaveAccessibleDescription("It is folded into its target, as with rebase --autosquash. Your files are not touched.")
+    // below the first row, so a header that the facts of the sync move moves both
+    const offset = async () => (await authRow.boundingBox())!.y - (await findBranchRow(page, "search").boundingBox())!.y
+    const before = await offset()
+    await confirm.getByTestId("squash-fixups-confirm").click()
+
+    await expect(page.getByText("Squashed 1 fixup")).toBeVisible()
+    await verifyCommitCount(authRow, 1)
+    // every commit above the target got a new committer time: no row moved under the pointer
+    expect(await branchTree(page)).toEqual(rows)
+    expect(await offset()).toBe(before)
   })
   // spec/commit/commit-row.spec.md: the reword in the app checks the fixups as `bd reword` does
   test("should refuse a reword that strands a fixup, and keep the draft", async ({ page, setupRepo, syncAndWaitForBranches }) => {

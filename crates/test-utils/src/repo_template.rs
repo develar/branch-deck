@@ -580,6 +580,26 @@ pub mod templates {
       .commit_with_timestamp("fixup! Add build script", &[("build.js", "export function build(target) {}\n")], Some(1704130200))
   }
 
+  /// Stacked branches on: `auth` begins first and has the newest commit but one, a fixup of its oldest commit, `session`
+  /// stacks on `auth`, `docs` and `search` begin after them; a squash of the fixup gives every commit above the oldest a
+  /// new committer time
+  pub fn fixup_order() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("fixup_order")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Accounts\n")], Some(1704117600))
+      .commit_with_timestamp("(auth) IJAI-101 Validate the password", &[("auth.js", "export function validate() {}\n")], Some(1704119400))
+      .commit_with_timestamp("(auth/session) Keep the session", &[("session.js", "export const session = {}\n")], Some(1704121200))
+      .commit_with_timestamp("(docs) Write the guide", &[("guide.md", "# Guide\n")], Some(1704123000))
+      .commit_with_timestamp(
+        "fixup! (auth) IJAI-101 Validate the password",
+        &[("auth.js", "export function validate(password) {}\n")],
+        Some(1704124800),
+      )
+      .commit_with_timestamp("(search) Index the names", &[("search.js", "export function index() {}\n")], Some(1704126600))
+  }
+
   /// Stacked branches on: `login` stacks on `auth` and edits its file, `oauth` stacks on `login`, `session` (an issue
   /// key in its subject) on `auth`, and `docs` stands alone
   pub fn stacked_branches() -> RepoTemplate {

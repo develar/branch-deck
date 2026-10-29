@@ -30,6 +30,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("issue_groups", |path| templates::issue_groups().build(path)),
   ("issue_combine", |path| templates::issue_combine().build(path)),
   ("fixups", |path| templates::fixups().build(path)),
+  ("fixup_order", |path| templates::fixup_order().build(path)),
   ("long_subjects", |path| templates::long_subjects().build(path)),
   ("commit_tree", |path| templates::commit_tree().build(path)),
   ("commit_deleted", |path| templates::commit_deleted().build(path)),

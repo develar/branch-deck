@@ -358,9 +358,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd status`
 
-- It must print HEAD, the baseline, the prefix and its source (`prefix_source`), the branches newest first (name, ref, issue key, latest time, commit
-  count, the tip of the synced virtual branch or `null`, commits newest first without the prefix) and the unassigned
-  commits.
+- It must print HEAD, the baseline, the prefix and its source (`prefix_source`), the branches newest first by their
+  oldest commit, as the table orders them (name, ref, issue key, latest time, commit count, the tip of the synced
+  virtual branch or `null`, commits newest first without the prefix) and the unassigned commits.
   [@test] ../../crates/bd-remote/src/status_test.rs (`status_shape`)
 - Without a baseline (no upstream and no `origin/master` or `origin/main`, or no remote and no local `master` or
   `main`) it must be `no_baseline`, the message naming each branch it tried once.
