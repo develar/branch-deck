@@ -16,6 +16,7 @@ import { RelativeTime } from "@/components/shared/RelativeTime"
 import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useHasFilterBar } from "@/hooks/useBranchFilter"
+import { readsLater } from "@/lib/time"
 import { hasCustomTitleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
@@ -115,11 +116,13 @@ export function ConfigurationHeader() {
 
 /**
  * "Last synced 18 minutes ago", or "Checked just now" once a focus found nothing a sync reads changed since
- * (`setSessionWindowFocus`): the branches are as current as a sync would make them, which the age of the sync alone hides
+ * (`setSessionWindowFocus`): the branches are as current as a sync would make them, which the age of the sync alone hides.
+ * A check in the minute of the sync (a focus during the sync of the start checks once after it) says nothing "Last
+ * synced just now" does not (`readsLater`)
  */
 function LastSyncTime({ lastSyncTime }: { lastSyncTime: number }) {
   const checkedAt = useBranchSync(state => state.inputsCheckedAt)
-  if (checkedAt === null || checkedAt <= lastSyncTime) {
+  if (checkedAt === null || !readsLater(checkedAt, lastSyncTime)) {
     return (
       <>
         {"Last synced "}
@@ -129,7 +132,7 @@ function LastSyncTime({ lastSyncTime }: { lastSyncTime: number }) {
   }
   return (
     <Tooltip>
-      <TooltipTrigger render={<span data-testid="inputs-checked" />}>
+      <TooltipTrigger render={<span />}>
         {"Checked "}
         <RelativeTime time={checkedAt} />
       </TooltipTrigger>

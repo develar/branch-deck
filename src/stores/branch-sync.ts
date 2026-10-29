@@ -215,7 +215,7 @@ export interface BranchSyncState {
    * the conflict fix is looked for with. A push or the deletion of an archived branch changes `tableRevision`, not this
    */
   commitsRevision: number
-  /** When a focus last found the inputs as the last sync read them (ms): the header says "Checked just now" then */
+  /** When a focus last found the inputs as the last sync read them (ms): the header says "Checked just now" then, a minute after the sync */
   inputsCheckedAt: number | null
   /** Repository's baseline branch (e.g., "origin/master") */
   baselineBranch: string | null

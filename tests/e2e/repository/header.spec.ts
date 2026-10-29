@@ -79,7 +79,8 @@ test.describe("Header", () => {
     await waitForSyncComplete(page, previousCount)
     await expect.poll(() => syncAnswers.length).toBe(2)
     await expect(syncButton).toHaveAttribute("data-sync-count", String(previousCount + 1))
-    await expect(lastSync).toHaveText(/^(Last synced|Checked) just now$/)
+    // the check after it came in the minute of the sync: it says nothing "Last synced just now" does not
+    await expect(lastSync).toHaveText("Last synced just now")
   })
 
   test("should name the shortcut of Sync and keep the selected repository without a tooltip", async ({ page }) => {

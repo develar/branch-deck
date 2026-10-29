@@ -85,3 +85,12 @@ export function formatRelativeTime(timestamp: number, now: number = Date.now()):
   const years = Math.floor(months / 12)
   return years === 1 ? "1 year ago" : `${years} years ago`
 }
+
+/**
+ * Whether the time `later` says more than `earlier` (both in milliseconds) in relative words: when `later` came,
+ * `earlier` read no longer "just now". Decided at `later`, so it holds while both age; their texts compared now would
+ * flip at every edge of a bucket ("1 hour ago" beside "2 hours ago", then the same again)
+ */
+export function readsLater(later: number, earlier: number): boolean {
+  return formatRelativeTime(earlier, later) !== formatRelativeTime(later, later)
+}

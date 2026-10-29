@@ -170,9 +170,12 @@ test.describe("The warm start", () => {
     await asked
 
     await repo.holdRemoteAnswers({ release: ["sync"] })
-    await focus
+    expect(((await (await focus).json()) as { outcome: string }).outcome).toBe("unchanged")
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
     await expect(page.getByTestId("sync-button")).toBeEnabled()
     expect(await finishedSyncCount(page)).toBe(1)
+    // the check came right after the sync: the header says the sync, not the check, also once both aged
+    await page.clock.fastForward("01:15")
+    await expect(page.getByTestId("last-sync-time")).toHaveText("Last synced 1 minute ago")
   })
 })

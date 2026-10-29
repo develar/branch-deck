@@ -441,16 +441,26 @@ test.describe("Sync on focus", () => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
     const syncs = await finishedSyncCount(page)
-    // on by default: the window tells its session, which reads the inputs, and syncs nothing when none changed
+    const lastSync = page.getByTestId("last-sync-time")
+    // on by default: the window tells its session, which reads the inputs, and syncs nothing when none changed; a
+    // check in the minute of the sync says nothing "Last synced just now" does not, also once both aged
     expect((await focusWindow(page))?.outcome).toBe("unchanged")
-    await expect(page.getByTestId("inputs-checked")).toHaveText("Checked just now")
+    await page.clock.fastForward("01:15")
+    await expect(lastSync).toHaveText("Last synced 1 minute ago")
+
+    // a check a minute after the sync says that the branches are current, the age of the sync in its tooltip
+    expect((await focusWindow(page))?.outcome).toBe("unchanged")
+    await expect(lastSync).toHaveText("Checked just now")
+    await page.mouse.move(0, 0)
+    await lastSync.hover()
+    await expect(page.getByRole("tooltip")).toHaveText("Nothing a sync reads changed since the last sync, 1 minute ago")
     expect(await finishedSyncCount(page)).toBe(syncs)
 
     // a commit reworded in a terminal: the next focus syncs it
     await rewordDocsInTerminal(page, repo)
     await syncOnWindowFocus(page)
     await expect(findBranchRow(page, "feature-documentation")).toBeVisible()
-    await expect(page.getByTestId("inputs-checked")).toHaveCount(0)
+    await expect(lastSync).toHaveText("Last synced just now")
   })
 
   test("syncs nothing on the focus after its own push, the remote branch it moved known to the session", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -461,8 +471,10 @@ test.describe("Sync on focus", () => {
     await expectPushedToast(page, "feature-auth")
     const syncs = await finishedSyncCount(page)
 
+    // a minute after the sync, so the header says the check
+    await page.clock.fastForward("01:15")
     expect((await focusWindow(page))?.outcome).toBe("unchanged")
-    await expect(page.getByTestId("inputs-checked")).toHaveText("Checked just now")
+    await expect(page.getByTestId("last-sync-time")).toHaveText("Checked just now")
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(syncs))
   })
 

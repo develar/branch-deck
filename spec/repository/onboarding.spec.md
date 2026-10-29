@@ -47,6 +47,8 @@ targets:
   - ../../crates/app-api/src/session/view.rs
   - ../../crates/app-api/src/context.rs
   - ../../src/stores/branch-sync.ts
+  - ../../src/components/repository/ConfigurationHeader.tsx
+  - ../../src/lib/time.ts
   - ../../src-tauri/src/menu.rs
   - ../../src/pages/IndexPage.tsx
   - ../../src/hooks/useMenuSync.ts
@@ -257,12 +259,18 @@ alert with the reason and the next step, never a raw Git error.
   other than `master` or `main`) or a push elsewhere, a regroup or a description by `bd`, a changed prefix (the
   inputs are of the prefix Rust resolves). Otherwise the focus reads the inputs once (two git processes) and syncs nothing, and the header says "Checked just
   now" instead of "Last synced 18 minutes ago", the age of the sync in its tooltip: the branches are as current as a
-  sync would make them. A focus during a sync checks once after it, however many came. A user who turned the setting
+  sync would make them. It says so only where the two read apart: for a check that came when "Last synced" no longer
+  read "just now", a minute or more after the sync (`readsLater`). A check in the minute of the sync (the one after the
+  sync of the start, which a focus during it asks, 100 ms later) leaves "Last synced just now", which says as much, and
+  keeps it as both age; compared as they read now they would take turns at every edge of their buckets ("1 hour ago"
+  and "2 hours ago"). A focus during a sync checks once after it, however many came. A user who turned the setting
   off keeps it off: a focus then starts no git process.
+  [@test] ../../src/lib/time.test.ts (`says a check in the minute of the sync nothing "just now" does not: the check of the start, 100 ms after its sync`, `keeps its answer while both age, where their texts read the same now and apart a bucket later`)
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`, `changes_with_the_upstream_of_the_checked_out_branch`, `changes_with_the_prefix_alone`)
   [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_runs_only_when_the_inputs_changed`, `a_focus_during_a_run_checks_the_inputs_once_after_the_chain`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_with_unchanged_inputs_reads_only_the_fingerprint`, `a_focus_during_a_run_is_one_check_after_it`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
+  [@test] ../../tests/e2e/startup/warm-start.spec.ts (`checks a focus during the first sync once after it, with no second run`)
 - A sync that failed, or that git deferred, is not repeated by a focus while what a sync reads is as that sync read
   it, with which of the files git keeps during an operation exist (`rebase-merge`, `rebase-apply`, `MERGE_HEAD`,
   `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `sequencer`): the focus reads the inputs once and answers the error of that sync,
@@ -275,8 +283,8 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_after_a_failed_sync_reads_only_the_fingerprint`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`does not sync again on a focus after a failed sync while nothing changed, and syncs again on Sync`)
 - The app's own push is no change for the focus: it moves the remote branches it sent, which a sync reads, but the
-  table has its outcome already, and the session puts those remote branches into the inputs it knows, so the focus right
-  after a Push syncs nothing ("Checked just now"). A push that ends while a sync or the check of a focus runs counts
+  table has its outcome already, and the session puts those remote branches into the inputs it knows, so a focus after
+  a Push syncs nothing ("Checked just now" a minute after the sync). A push that ends while a sync or the check of a focus runs counts
   too; a remote branch moved by another clone or a fetch elsewhere still syncs.
   [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_after_the_sessions_own_push_runs_nothing`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_after_the_sessions_own_push_runs_no_sync`)
