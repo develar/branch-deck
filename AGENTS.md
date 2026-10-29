@@ -798,6 +798,9 @@ Authority](docs/design/rust-domain-authority.md#индекс-правил).
 - [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and copied into virtual branches
 - [Specs](spec/) - Requirement specs in the air format (spec/<area>/<name>.spec.md, [@test] links); start with spec/commit/commit-row.spec.md
 
+### Guides
+- [Runs on Another Mac](docs/guide/host-runs.md) - For a person: set up a host Mac for `bd-host`, the first runs, the slots, the upgrade, the refusals
+
 ### Contributing
 - [Adding a Git Operation](docs/contributing/adding-git-operation.md) - The layers of an operation and the helpers to reuse
 - [Agent CLI](docs/contributing/agent-cli.md) - The `bd` commands, their JSON, error codes and exit codes

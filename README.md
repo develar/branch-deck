@@ -203,6 +203,8 @@ the app binary (`branch-deck cli`), on Windows `bd.exe` next to it. See the [Age
   [Git Operations](docs/design/git-operations.md), [Integration Detection](docs/design/integration-detection.md),
   [Remote Status](docs/design/remote-status.md) and more.
 - [Specs](spec/): the exact behaviour of every feature.
+- [Guides](docs/guide/): [Runs on Another Mac](docs/guide/host-runs.md), a command of your checkout on your other
+  Mac with `bd-host`.
 - [DEVELOPMENT.md](DEVELOPMENT.md): building, testing and contributing.
 
 ## License

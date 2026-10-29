@@ -28,7 +28,8 @@ bundle carries it as a file (`BranchDeck.app/Contents/MacOS/bd-host`), and `bd i
 `~/.local/bin/bd-host`. The release build gets it through its own Tauri config, `tauri.macos-bd-host.conf.json`, as
 the Windows build gets `bd.exe`: Tauri merges `tauri.macos.conf.json` into every macOS build, and a plain `cargo build`
 of the app would then need the binary first. The contract of the CLI, the refusal codes and the report of a run are in
-[bd-host](../../spec/cli/host.spec.md).
+[bd-host](../../spec/cli/host.spec.md), the setup of a host for a person in
+[Runs on Another Mac](../guide/host-runs.md).
 
 ## Design
 

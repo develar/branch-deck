@@ -12,7 +12,7 @@ and a full `pnpm e2e` fails on timeouts. The heavy checks run on the Mac Studio,
 `~/.local/bin/bd-host` here, which `bd install` links to the app bundle, and `bd-host serve` there. A run ships the
 working tree as it is, committed or not, runs the command in a warm host slot that the Studio lends to that run,
 streams its output here and exits with the command's exit code. `bd-host skill install` writes the skill of the
-binary, with the spec as its reference.
+binary, with the spec as its reference. The setup of a host is in [Runs on Another Mac](../guide/host-runs.md).
 
 ```bash
 bd-host run studio -- cargo nextest run --workspace          # the Rust suite
