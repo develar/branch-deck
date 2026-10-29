@@ -6191,7 +6191,6 @@ dependencies = [
  "anyhow",
  "branch-integration",
  "criterion",
- "domain-policy",
  "domain-types",
  "git-executor",
  "git-ops",
@@ -7585,7 +7584,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "code-symbols",
- "domain-policy",
  "domain-types",
  "file-diffs",
  "git-executor",

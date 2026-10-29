@@ -1,5 +1,4 @@
 use crate::table::{RemoteSubject, TableState};
-use domain_policy::push;
 use domain_types::commit::{Commit, SubjectParts};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::branches_grouped;
@@ -84,7 +83,7 @@ pub(crate) fn remote_status(branch: &str, unpushed: &[&str]) -> RemoteStatusUpda
     unpushed_commits: unpushed.iter().map(ToString::to_string).collect(),
     ..domain_types::fixtures::remote_status(branch)
   };
-  status.action = push::action(&status);
+  status.action = status.push_action();
   status
 }
 

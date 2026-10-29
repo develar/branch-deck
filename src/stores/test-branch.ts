@@ -7,8 +7,9 @@ import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/b
 import { testSubject } from "@/test-support/subject-parts"
 
 /**
- * The actions of a push as Rust decides them of a remote status (`domain_policy::push::action`): a test of the page
- * states the action of the status it sets, as the counts it sets would make Rust answer (the table of `push_test.rs`)
+ * The actions of a push as Rust decides them of a remote status (`RemoteStatusUpdate::push_action`): a test of the
+ * page states the action of the status it sets, as the counts it sets would make Rust answer (the table of
+ * `remote_status_test.rs`)
  */
 export const CREATE: PushAction = { kind: "create" }
 export const PUSH: PushAction = { kind: "push" }

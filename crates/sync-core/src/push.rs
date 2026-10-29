@@ -3,7 +3,7 @@
 //! freezing its commits and leases (`PreparedPush::leased`) and sending them through one leased push (`PreparedPush::push_leased`).
 //! A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched and reported,
 //! never overwritten blindly: the push goes again over what it has now, once, only when nothing of it is lost
-//! (`domain_policy::push::over_moved_remote`, `PreparedPush::over_moved`, which `operations::push::send` runs for the
+//! (`RemoteStatusUpdate::pushes_again`, `PreparedPush::over_moved`, which `operations::push::send` runs for the
 //! app and `bd push` alike). The stack branch of a whole stack (`{prefix}/stack/<root>`) goes the same way.
 
 use crate::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, push_refs};
@@ -11,7 +11,6 @@ use crate::push_size::{PushTooLarge, check_push_size};
 use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_remote_statuses};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result};
-use domain_policy::push::over_moved_remote;
 use domain_types::RemoteStatusUpdate;
 use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -97,14 +96,14 @@ impl PreparedPush {
   /// The push again over what the remote has now, after `refused` (the answer of this push) found remote branches
   /// moved since the status the user saw: the same commits, every ref leased on the head fetched after the refusal,
   /// when the remote of each one that moved has no commits its branch lacks and the branch has work for it
-  /// (`domain_policy::push::over_moved_remote`); `None` for a push that went, or when a moved remote has someone's
+  /// (`RemoteStatusUpdate::pushes_again`); `None` for a push that went, or when a moved remote has someone's
   /// commits or the branch as it is, which the answer tells instead
   #[must_use]
   pub fn over_moved(&self, refused: &LeasedPush) -> Option<Self> {
     let LeasedPush::RemoteMoved { moved, remote_statuses } = refused else {
       return None;
     };
-    if remote_statuses.len() != self.branches.len() || !moved.iter().all(|index| remote_statuses.get(*index).is_some_and(over_moved_remote)) {
+    if remote_statuses.len() != self.branches.len() || !moved.iter().all(|index| remote_statuses.get(*index).is_some_and(RemoteStatusUpdate::pushes_again)) {
       return None;
     }
     let branches = self

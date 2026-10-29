@@ -3,7 +3,6 @@
 
 use crate::check::CheckSession;
 use crate::landing_gate::{check_landing_gate, landing_needs, landing_needs_of};
-use domain_policy::landing_needs::name_landing_robots;
 use domain_types::landing::{LandingFix, LandingRefusal, Subject};
 use domain_types::repository_view::RobotOf;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -84,7 +83,9 @@ fn a_landed_declaration_is_needed_by_nobody() {
 }
 
 /// While a Safe Push lands `util`, the refusal names it: its robot tests `util` without `flow`, so a start of `flow`
-/// beside it fails all the same
+/// beside it fails all the same. The trial check names no robot (`landing_in` stays `None`): the model names the robot
+/// of the branch that adds the name (`domain_policy::landing_needs::name_landing_robots`, tested there), and the
+/// reason says it
 #[test]
 fn a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason() {
   let (repo, _) = repo();
@@ -95,11 +96,11 @@ fn a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason()
     whole_stack: false,
   };
   let refusals = needs.get_mut("flow").unwrap();
-  name_landing_robots(refusals, |branch| (branch == "util").then(|| robot.clone()));
-  let LandingRefusal::MissingDeclaration { landing_in, .. } = &refusals[0] else {
+  let LandingRefusal::MissingDeclaration { landing_in, declared_by, .. } = &mut refusals[0] else {
     panic!("{refusals:?}")
   };
-  assert_eq!(landing_in.as_ref(), Some(&robot));
+  assert_eq!((landing_in.as_ref(), declared_by.branch.as_str()), (None, "util"));
+  *landing_in = Some(robot);
   assert_eq!(
     refusals[0].reason(),
     "\"Start with controlUrl\" of flow uses controlUrl in src/b/Use.kt, which \"Add controlUrl\" of util adds; util is landing in its Safe Push, which tests it without this start"

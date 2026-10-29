@@ -48,7 +48,6 @@ use domain_policy::landed::LandedFacts;
 use domain_policy::next_step::PatronusStanding;
 use domain_policy::parked::whole_stack_parked;
 use domain_policy::pull_request::{RulesAnswer, dismisses_approvals};
-use domain_policy::push::needs_push;
 use domain_policy::review::{CountsIn, ReviewState, review_state};
 use domain_policy::stack::WholeStack;
 use domain_types::branch_names::to_final_branch_name;
@@ -945,7 +944,7 @@ fn landing_of(context: &RepoContext, synced: &SyncOutput, table: &BranchTable, s
       let remote = update.remote.as_ref();
       let short = context.short_ids(remote.into_iter().flat_map(RemoteSummary::ids));
       let remotes = remote
-        .filter(|remote| remote.remote_exists && needs_push(remote))
+        .filter(|remote| remote.remote_exists && remote.needs_push())
         .map(|remote| ErrorBranch {
           name: update.branch_name.clone(),
           remote: RemoteSummary::new(remote, usize::try_from(update.commit_count).unwrap_or(usize::MAX), &short),

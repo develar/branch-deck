@@ -79,6 +79,7 @@ targets:
   - ../../src/lib/remote-status.ts
   - ../../src/lib/push-summary.ts
   - ../../crates/domain-policy/src/push.rs
+  - ../../crates/domain-types/src/remote_status.rs
   - ../../src/lib/status-chip.ts
   - ../../src/lib/ui-types.ts
   - ../../src/stores/branch-sync.ts
@@ -495,7 +496,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   Space keep working.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`)
   The preview footer keeps the labelled button. A branch with an error or without commits has no push button.
-  [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
+  [@test] ../../crates/domain-types/src/remote_status_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
   [@test] ../../src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
 - On Space (Patronus answered), the Safe Push slot must show the next step of the branch, the first row of the table

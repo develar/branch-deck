@@ -710,7 +710,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   on another remote can't be started.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
 - A branch whose commits the remote lacks is pushed first, decided by content as the push button decides it
-  (the `Push` effect of the decision, over the action Rust decides of the remote status, `domain_policy::push::action`, never by the hash of the tip). The push is part of the start: no note narrates
+  (the `Push` effect of the decision, over the action Rust decides of the remote status, `RemoteStatusUpdate::push_action`, never by the hash of the tip). The push is part of the start: no note narrates
   it; while it runs the slot button shows it as the compact push of the row does, the spinner and "45%" ("Pushing 45%"
   its name, "Pushing 2 branches 45%" for the one push of a stack in its hover and in the preview), at the width it had
   at rest, the
@@ -800,6 +800,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/presenters/landing.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
+  [@test] ../../crates/domain-policy/src/landing_needs_test.rs (`a_missing_declaration_names_the_safe_push_that_lands_the_branch_adding_the_name`)
   [@test] ../../src/presenters/landing.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once

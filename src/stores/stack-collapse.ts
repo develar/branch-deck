@@ -142,7 +142,7 @@ const sideStackStore = createStore<{ readonly overrides: ReadonlyMap<string, boo
 /**
  * A side stack whose branches have nothing wrong and nothing for the remote: collapsed until the user expands it. Each
  * synced without an error, is not blocked, and has no commits or a remote that has them as they are (the push action
- * Rust decides of its remote status, `domain_policy::push::action`); one whose remote status is not in yet is not quiet
+ * Rust decides of its remote status, `RemoteStatusUpdate::push_action`); one whose remote status is not in yet is not quiet
  */
 function isQuiet(state: BranchSyncState, root: string): boolean {
   return [root, ...structureIn(state, root).descendants].every(name => {

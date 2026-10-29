@@ -7,7 +7,6 @@ license.workspace = true
 [dependencies]
 history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types" }
-domain-policy = { path = "../domain-policy" }
 sync-utils = { path = "../sync-utils" }
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }

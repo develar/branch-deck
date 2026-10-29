@@ -5,7 +5,6 @@
 //! push times of all branches of an operation are one `reflog`.
 
 use anyhow::Result;
-use domain_policy::push;
 use domain_types::landed::LandedBranch;
 use domain_types::{DroppedCommit, LandedRemoteCommit, ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -563,7 +562,7 @@ impl CachedStatus {
       last_push_time,
       action: PushAction::UpToDate,
     };
-    status.action = push::action(&status);
+    status.action = status.push_action();
     status
   }
 }

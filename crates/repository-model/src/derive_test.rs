@@ -272,7 +272,7 @@ fn the_view_sends_push_up_to_here_only_where_it_differs_from_the_common_answer()
     ..remote_status("login", &["l"])
   };
   let rewritten = RemoteStatusUpdate {
-    action: domain_policy::push::action(&rewritten),
+    action: rewritten.push_action(),
     ..rewritten
   };
   table.apply(SyncEvent::RemoteStatusUpdate(rewritten));
@@ -575,7 +575,7 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
     // the remote branch has the commit of auth that the baseline has now: an older version
     auth.commits_landed = 1;
   }
-  auth.action = domain_policy::push::action(&auth);
+  auth.action = auth.push_action();
   let mut events = vec![grouping(branches.clone(), &[], &[])];
   events.extend(
     [remote_status("base", &["base-2"]), auth, remote_status("login", &["login-1"])]

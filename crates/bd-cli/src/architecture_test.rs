@@ -38,6 +38,10 @@ const TEST_FEATURES: &[&str] = &["fake", FIXTURES];
 const TAURI: &str = "tauri*";
 /// The engine of the operations of the remote, above the model and the facts: what it builds on never reaches it
 const OPERATIONS: &str = "operations";
+/// The rules of the domain: the model, the facts of the remote and the engine read them over what the crates of git
+/// found (`git-ops`, `history-rewrite`, `sync-core`, `trial-check`, `update-core`, `lease-pool`), which never reach
+/// them, so a change of a rule builds none of those crates again
+const POLICY: &str = "domain-policy";
 /// The crates of the remote runs (docs/design/host-runs.md): the link, the client, the agent and the binary `bd-host`,
 /// which neither `bd` nor the app links
 const HOST_RUNS: &[&str] = &["host-link", "host-client", "host-agent", "bd-host"];
@@ -61,7 +65,7 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "the crate of the types does no IO",
   },
   Unreachable {
-    from: "domain-policy",
+    from: POLICY,
     forbidden: &["git-ops", "git-executor", "object-cache", "reqwest", "tokio", TAURI, "clap"],
     why: "the rules are pure functions over facts: no git, no cache, no network, no runtime, no Tauri, no CLI",
   },
@@ -69,6 +73,16 @@ const UNREACHABLE: &[Unreachable] = &[
     from: "app-settings",
     forbidden: &["git-ops", "git-executor", "reqwest", "tokio", TAURI, "clap"],
     why: "the settings of the app are a file: no git, no network, no runtime, no Tauri, so bd reads them without the app",
+  },
+  Unreachable {
+    from: "git-ops",
+    forbidden: &[POLICY],
+    why: "git-ops has the git and decides no rule of the domain: the model, the facts and the engine read the rules",
+  },
+  Unreachable {
+    from: "history-rewrite",
+    forbidden: &[POLICY],
+    why: "the rewrites of the checked-out branch decide no rule of the domain: the model, the facts and the engine read the rules",
   },
   Unreachable {
     from: "patronus",
@@ -82,18 +96,18 @@ const UNREACHABLE: &[Unreachable] = &[
   },
   Unreachable {
     from: "sync-core",
-    forbidden: &["github", "patronus", "youtrack", "file-diffs", "code-symbols", OPERATIONS],
-    why: "the sync reads no remote service, no file diff and no symbol",
+    forbidden: &["github", "patronus", "youtrack", "file-diffs", "code-symbols", OPERATIONS, POLICY],
+    why: "the sync reads no remote service, no file diff and no symbol, and decides no rule of the domain (the model, the facts and the engine read the rules)",
   },
   Unreachable {
     from: "update-core",
-    forbidden: &["github", "patronus", "youtrack", OPERATIONS],
-    why: "Update Project, the pick and the resolve sessions read no remote service: the fetch is git's",
+    forbidden: &["github", "patronus", "youtrack", OPERATIONS, POLICY],
+    why: "Update Project, the pick and the resolve sessions read no remote service (the fetch is git's) and decide no rule of the domain",
   },
   Unreachable {
     from: "trial-check",
-    forbidden: &["github", "patronus", "youtrack", OPERATIONS],
-    why: "a trial check builds and reads the commits of the repository, never a remote service",
+    forbidden: &["github", "patronus", "youtrack", OPERATIONS, POLICY],
+    why: "a trial check builds and reads the commits of the repository, never a remote service, and decides no rule of the domain",
   },
   Unreachable {
     from: "review-plan",
@@ -122,11 +136,12 @@ const UNREACHABLE: &[Unreachable] = &[
       "file-diffs",
       "code-symbols",
       OPERATIONS,
+      POLICY,
       "host-link",
       "host-client",
       "host-agent",
     ],
-    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check, a diff or a remote run",
+    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check, a diff, a rule of the domain or a remote run",
   },
   Unreachable {
     from: "remote-facts",
@@ -721,6 +736,26 @@ fn the_architecture_check_keeps_app_api_to_the_app_and_the_e2e_server() {
       "  app-api depends on tauri-specta (Normal): only the app depends on Tauri".to_owned(),
       format!("  bd-core depends on app-api (Dev): {only}"),
       format!("  sync-core depends on app-api (Normal): {only}"),
+    ]
+  );
+}
+
+#[test]
+fn the_architecture_check_keeps_the_rules_out_of_the_crates_of_git() {
+  let graph = graph_of(&[
+    ("git-ops", POLICY, Kind::Normal, &[]),
+    ("update-core", "sync-core", Kind::Normal, &[]),
+    ("sync-core", POLICY, Kind::Normal, &[]),
+    ("repository-model", POLICY, Kind::Normal, &[]),
+    ("repository-model", "sync-core", Kind::Normal, &[]),
+  ]);
+  let sync = "the sync reads no remote service, no file diff and no symbol, and decides no rule of the domain (the model, the facts and the engine read the rules)";
+  assert_eq!(
+    violations(&graph, &[]),
+    [
+      "  git-ops reaches domain-policy (git-ops -> domain-policy): git-ops has the git and decides no rule of the domain: the model, the facts and the engine read the rules".to_owned(),
+      format!("  sync-core reaches domain-policy (sync-core -> domain-policy): {sync}"),
+      "  update-core reaches domain-policy (update-core -> sync-core -> domain-policy): Update Project, the pick and the resolve sessions read no remote service (the fetch is git's) and decide no rule of the domain".to_owned(),
     ]
   );
 }

@@ -3728,7 +3728,7 @@ repository and the `--repo` of `gh pr create`), and the committed Space settings
    remote-tracking refs.
 4. A rejection fetches every branch of the push (`fetch_remote_branches`, in `push_leased`) and computes their remote
    statuses (`compute_remote_statuses`). When each remote that moved has no commits its branch lacks and the branch
-   has work for it (`domain_policy::push::over_moved_remote`, the rule of the app's push), the push goes again at
+   has work for it (`RemoteStatusUpdate::pushes_again`, the rule of the app's push), the push goes again at
    once, once, leased on the fetched heads, the same commits (`operations::push::send`, `PreparedPush::over_moved`;
    with `--expect-remote` too, as the app's Force Push), and each such branch is `pushed_over`: one more `git push`.
    Otherwise, or when the remote moved again, it lists the ones whose fetched head is not their lease in
@@ -4312,7 +4312,7 @@ table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, reco
 mapping note read at the sync's start names the copy of before), the stack branches, the parked branches and the remote
 facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the remote tip of each branch from
 `SyncReport::remote_tips`, up to date when the `RemoteStatusUpdate` the sync emitted for it has a remote branch and no
-work for it, `domain_policy::push::needs_push`; of each stack branch its `StackBranchUpdate::remote`) and the branches
+work for it, `RemoteStatusUpdate::needs_push`; of each stack branch its `StackBranchUpdate::remote`) and the branches
 the fetched baseline has whole (`BranchTable::in_baseline`, of the landing report of `BaselineStatus`, none of their
 commits stays local: every reader of the rules over the table, the decision of a start, the view's holds, the pushes of
 its rows (`push_view`) and of an action, the guards and `bd`, leaves them out of a push alike, `push::kept`; never the

@@ -4,7 +4,6 @@
 //! whole. The app keeps the one of its last sync per repository; `bd` builds it from the report of its sync.
 
 use domain_policy::facts::{RemoteBranch, Repository};
-use domain_policy::push::needs_push;
 use domain_policy::stack::build_ancestors;
 use domain_types::GroupedBranchInfo;
 use domain_types::RemoteStatusUpdate;
@@ -182,7 +181,7 @@ pub fn remote_facts(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusU
 pub fn remote_fact(remote: &RemoteStatusUpdate) -> RemoteFact {
   RemoteFact {
     remote_tip: remote.remote_tip.clone(),
-    up_to_date: !needs_push(remote),
+    up_to_date: !remote.needs_push(),
     known: true,
     drops: remote.commits_behind,
     others: remote.others_behind,

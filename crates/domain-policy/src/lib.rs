@@ -1,7 +1,7 @@
 //! The rules of the domain that the app and `bd` decide alike, as pure functions over explicit slices of facts: no IO,
 //! no runtime, no git, only the types of `domain-types` (docs/design/rust-domain-authority.md, "Индекс правил"; the
-//! architecture test keeps the crate away from git, the network, tokio, Tauri and clap). One file per rule, each tested
-//! by tables of its own:
+//! architecture test keeps the crate away from git, the network, tokio, Tauri and clap, and the crates of git away from
+//! it: the model, the facts and the engine read the rules). One file per rule, each tested by tables of its own:
 //!
 //! - `admission`: how a new operation of the remote is admitted over those that run or wait (`admit`): it joins the same
 //!   intent, waits behind the newest one that holds a resource it needs, runs beside the rest; busy over another process
@@ -41,10 +41,9 @@
 //!   (`review_requested`)
 //! - `parked`: why a branch stays local (`parked_state`: its own line, or a parked branch it is built on), and the
 //!   parked member that keeps a stack branch local (`whole_stack_parked`)
-//! - `push`: what a push of a branch does to its remote branch (`action`: create, push, force, up to date), whether it
-//!   has work, replaces older versions or drops remote commits, whether a push over a remote that moved goes again
-//!   (`over_moved_remote`), what a push of several branches covers and what each of them does (`push_plan`: Push Stack,
-//!   Push with Children), the pushes of a branch the view sends (`branch_push`), the push an action that needs the
+//! - `push`: what keeps a branch out of a push (`kept`), what a push of several branches covers and what each of them
+//!   does (`push_plan`: Push Stack, Push with Children), what a start pushes (`start_push`), Push Up to Here
+//!   (`up_to_push`), the pushes of a branch the view sends (`branch_push`), the push an action that needs the
 //!   branch on the remote makes first (`action_push`: a pull request, a review request) and the stack branch Push with
 //!   Children of a root takes along (`stack_branch_along`)
 //! - `pull_request`: where an open pull request goes (`base_of`: the target, a virtual branch it leaves for the target,

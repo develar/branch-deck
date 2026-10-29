@@ -137,7 +137,7 @@ export interface CliToolsFixture {
  */
 /**
  * A remote status as a test sets it: its counts, never the action of a push, which the server derives from them as the
- * app's sync does (`domain_policy::push::action`, `test_remote_status` of the server)
+ * app's sync does (`RemoteStatusUpdate::push_action`, `test_remote_status` of the server)
  */
 export type TestRemoteStatus = Omit<RemoteStatusUpdate, "action">
 

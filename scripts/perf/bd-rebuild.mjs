@@ -7,7 +7,8 @@
 // command; `remote` (`list_pull_requests`), `check` (`check_plan`), `update` (`update_project_core`) and `lease_pool`
 // (`pool_dir`) change a core of sync-core, so the split of sync-core is measured by the same edit before and after;
 // `app_api` (`get_commit_files`) changes a body of the command registry of the app, which neither bd nor sync-core
-// builds on.
+// builds on; `policy` (`next_step`) changes a rule of domain-policy, which no crate of git builds on (B11: `rebuilt
+// policy` names neither sync-core nor trial-check nor git-ops).
 //   pnpm perf:bd-rebuild summarize <out>
 //   pnpm perf:bd-rebuild compare <out> <other out>
 //   pnpm perf:bd-rebuild rebuilt <edit>
@@ -21,7 +22,7 @@
 //   bin        cargo build -p bd-cli                       the `bd` binary
 //   host       cargo nextest run -p test-server --no-run   the tests of the e2e host of the registry (`app_api` only)
 //   workspace  cargo nextest run --workspace --no-run      with --workspace, 3 runs at most
-// An edit of a bd crate or of sync-core builds own, cli and bin; `app_api` own and host.
+// An edit of a bd crate, of sync-core or of domain-policy builds own, cli and bin; `app_api` own and host.
 //
 // `rebuilt` builds each scenario of the edit once, makes the edit and prints the crates each build compiles again
 // (its `Compiling` lines; the builds run in turn, so a crate one compiled is fresh for the next), then all of them, and
@@ -57,6 +58,7 @@ const EDITS = {
   update: ["update_project.rs", "pub fn update_project_core("],
   lease_pool: ["lease.rs", "pub fn pool_dir("],
   app_api: ["reads/commits.rs", "pub async fn get_commit_files(", ["own", "host"]],
+  policy: ["next_step.rs", "pub fn next_step("],
 }
 /** The build of each scenario of an edit whose crate is `owner` */
 const SCENARIOS = {

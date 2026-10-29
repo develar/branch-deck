@@ -18,7 +18,8 @@
 //! - `cli_tools`: the `teamcity` and `youtrack` CLIs of Settings → Tools
 //! - `commit`: a commit of the branch as `git-ops` reads it (`Commit`, its mapping note), and as the page names it
 //! - `conflict`: the merge conflict of a sync, its analysis, and the conflicts a copy resolved by words
-//! - `fixtures` (the feature of the same name, for the tests of other crates): builders of robots
+//! - `fixtures` (the feature of the same name, for the tests of other crates): builders of robots, pull requests,
+//!   remote statuses by their counts
 //! - `error`: the stable error codes of `bd` and the app (`ErrorCode`), their exit codes and retries, the error a command
 //!   of the app answers (`ApiError`)
 //! - `issue_navigation`: the issue links of the IntelliJ IDEA configuration
@@ -31,6 +32,8 @@
 //!   (`RunningOperation`) with the resources they hold and the admission of a new one (`Admission`)
 //! - `patronus`: the Patronus robots of the virtual branches, the parameters of their start, the review readiness
 //! - `pull_request`: the pull requests of the branches, their checks and reviews
+//! - `remote_status`: what a push of a branch does over its remote status, by the counts of the status alone
+//!   (`RemoteStatusUpdate::push_action`, `needs_push`, `pushes_again`), which the sync sets and the push orders read
 //! - `repository_view`: what Rust derives of the branch table for the page and `bd`
 //! - `review_request`: the review requests of Your Turn
 //! - `robot_failure`: why a robot failed and the commits it checked
@@ -68,7 +71,7 @@ pub mod commit;
 pub mod commit_body;
 pub mod conflict;
 pub mod error;
-#[cfg(feature = "fixtures")]
+#[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures;
 pub mod issue_navigation;
 pub mod landed;
@@ -79,6 +82,7 @@ pub mod operation;
 pub mod patronus;
 pub mod pull_request;
 pub mod reason;
+pub mod remote_status;
 pub mod repository_view;
 pub mod review_request;
 pub mod rewrite;
@@ -164,8 +168,8 @@ pub struct RemoteStatusUpdate {
   /// Of the commits behind, the ones whose author is not the user (`my_email` of the status, the branch's author):
   /// someone else's work on the remote branch, which the branch should take in (Pick Remote Commits) rather than drop
   pub others_behind: u32,
-  /// The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
-  /// only one more (`commits_behind` is the total)
+  /// The newest of the commits behind, newest first, at most `sync_core::remote_status::DROPPED_COMMITS_LIMIT`, all of
+  /// them when only one more (`commits_behind` is the total)
   pub dropped_commits: Vec<DroppedCommit>,
   /// Commits of the remote that are older versions of commits amended here (author, author time and subject match an
   /// unpushed commit of the branch, the changes differ; a copy with the same changes on moved lines counts nowhere): a
@@ -178,8 +182,8 @@ pub struct RemoteStatusUpdate {
   /// time and subject match a baseline commit, as Update Project finds landed commits; the changes may differ, as when a
   /// Safe Push landed them rebuilt on a newer target): a push replaces them
   pub commits_landed: u32,
-  /// The newest of the landed commits, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
-  /// only one more (`commits_landed` is the total)
+  /// The newest of the landed commits, newest first, at most `sync_core::remote_status::DROPPED_COMMITS_LIMIT`, all of
+  /// them when only one more (`commits_landed` is the total)
   pub landed_commits: Vec<LandedRemoteCommit>,
   /// Commits of the branch the remote has by content in another version: their message or author changed here (a
   /// reword), so a push replaces the remote's copies, which a robot would land as they are
@@ -194,14 +198,14 @@ pub struct RemoteStatusUpdate {
   pub fast_forward: bool,
   /// Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed)
   pub last_push_time: u32,
-  /// What a push of the branch does over this status: `domain_policy::push::action` of the counts above, set where the
-  /// status is computed (`sync_core::remote_status`), so the app and `bd` read one answer
+  /// What a push of the branch does over this status: `push_action` of the counts above (`remote_status`), set where
+  /// the status is computed (`sync_core::remote_status`), so the app and `bd` read one answer
   pub action: PushAction,
 }
 
-/// What a push of a branch does to its remote branch, by its remote status (`domain_policy::push::action`): the first
-/// push creates it, a fast-forward pushes, any other push forces, and a remote that has the branch as it is, by content,
-/// needs none
+/// What a push of a branch does to its remote branch, by its remote status (`RemoteStatusUpdate::push_action`, with
+/// the other predicates of the status in `remote_status`): the first push creates it, a fast-forward pushes, any other
+/// push forces, and a remote that has the branch as it is, by content, needs none
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]

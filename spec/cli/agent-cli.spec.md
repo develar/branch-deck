@@ -1099,7 +1099,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 - A remote branch that is not where the lease expects it refuses the push, the other branches of the push included
   (it is atomic), and bd fetches the branches of the push. When each remote that moved has no commits its branch lacks
   and the branch has work for it (deleted, moved back to an older commit of the branch, rebuilt older versions:
-  `domain_policy::push::over_moved_remote`, the rule of the app's push), bd must push again at once, once, leased on
+  `RemoteStatusUpdate::pushes_again`, the rule of the app's push), bd must push again at once, once, leased on
   the fetched heads, and mark each such branch `pushed_over` (its `lease` the head it went over, `null` for a deleted
   one), with `--expect-remote` too: one rule with the app's Force Push, which leases on the head its row showed and
   loses nothing of a remote that moved only to commits the branch has. Otherwise, or when the remote moved again, it must be `lease_rejected`
@@ -1112,7 +1112,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`, `a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved`, `a_push_the_remote_refuses_with_its_leases_holding_is_push_refused`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_push_over_a_moved_remote`)
-  [@test] ../../crates/domain-policy/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost`)
+  [@test] ../../crates/domain-types/src/remote_status_test.rs (`pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - A push whose commits add more files than the push size limit (`branchdeck.pushSizeLimit`, 50 MiB unless set, `0` or
   `off` for none) must be `push_too_large` (exit 4) before bd asks the remote, a `--dry-run` too, with nothing pushed:

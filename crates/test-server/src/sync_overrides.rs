@@ -18,7 +18,6 @@ use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use domain_policy::push;
 use domain_types::issue_navigation::IssueNavigationConfig;
 use domain_types::{ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
 use serde::Deserialize;
@@ -73,7 +72,7 @@ impl SyncOverrides {
           }
           let mut status = with_fields(&status, &remote.fields)?;
           // the counts are the test's, the action is the rule's on them, as the app's sync derives it
-          status.action = push::action(&status);
+          status.action = status.push_action();
           SyncEvent::RemoteStatusUpdate(status)
         }
       },
@@ -96,12 +95,12 @@ impl SyncOverrides {
 }
 
 /// A remote status as a test writes it, its counts without the `action`, which the server derives from them as the app's
-/// sync does (`domain_policy::push::action`): a test states what the remote has, never the rule's answer
+/// sync does (`RemoteStatusUpdate::push_action`): a test states what the remote has, never the answer of its counts
 fn test_remote_status(mut json: Value) -> anyhow::Result<RemoteStatusUpdate> {
   let object = json.as_object_mut().ok_or_else(|| anyhow::anyhow!("A remote status is no JSON object"))?;
   object.insert("action".to_string(), serde_json::to_value(PushAction::UpToDate)?);
   let mut status: RemoteStatusUpdate = serde_json::from_value(json)?;
-  status.action = push::action(&status);
+  status.action = status.push_action();
   Ok(status)
 }
 

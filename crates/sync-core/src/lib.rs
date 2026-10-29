@@ -14,6 +14,9 @@
 //! builds with `branch_processor` and `cache_memo` of this crate.
 //! The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`) are the crate
 //! `lease-pool`; it reads `repository_config`, `uncommitted_changes` and `baseline` of this crate.
+//! The rules of the domain (`domain-policy`) are read above this crate, by the model, the facts and the engine: no
+//! crate of git reaches them (`crates/bd-cli/src/architecture_test.rs`), so what the sync needs of what a push does is
+//! a method of the status it computes (`domain_types::remote_status`: `push_action`, `pushes_again`).
 //!
 //! The sync:
 //! - `sync`: `sync_branches`, the guards, the grouping, one build per branch and the detection of the archived ones
@@ -23,7 +26,8 @@
 //! - `grouping`: the grouping of a sync without its builds, for the reads of `bd`
 //! - `stack_branch`: the stack branch `{prefix}/stack/<root>` of a stack that forks: all its commits in one branch
 //! - `issue_navigation`: the issue key patterns of `.idea/vcs.xml`
-//! - `remote_status`: what a virtual branch has that its remote branch lacks and the reverse, by content
+//! - `remote_status`: what a virtual branch has that its remote branch lacks and the reverse, by content, and what a
+//!   push of it does (`RemoteStatusUpdate::push_action`, stored on the status)
 //! - `commit_owners`: where the commits of a sync go, so a conflict names the branch of each commit it likely needs
 //! - `cache_memo`: the merges, commit trees and conflict views in the object cache
 //! - `conflict_chain`: the copies of a conflicting branch before its conflict, kept by a ref and remembered
@@ -66,8 +70,8 @@
 //! Patronus, by the content of the repository (no HTTP):
 //! - `patronus`: the Space repository the virtual branches are pushed to, the commits and the paths of a review
 //! - `patronus_start`: whether a robot runs and pushes, the modes a profile allows, and the push that fails a running
-//!   Safe Push (which robot is a branch's is `domain_policy::robot_match`; whether a start can begin is
-//!   `repository_model::patronus_view`)
+//!   Safe Push (which robot is a branch's is the rule `domain_policy::robot_match`, read above this crate; whether a
+//!   start can begin is `repository_model::patronus_view`)
 //! - (the crate `repository-model` derives what the robots land, landed and hold of the branch table from these)
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
 //! - `robot_landing`: what a merged robot landed of the branches, by content: the commits it tested, and those after

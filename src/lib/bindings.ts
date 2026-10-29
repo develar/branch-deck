@@ -4960,9 +4960,9 @@ export type Push = {
 };
 
 /**
- *  What a push of a branch does to its remote branch, by its remote status (`domain_policy::push::action`): the first
- *  push creates it, a fast-forward pushes, any other push forces, and a remote that has the branch as it is, by content,
- *  needs none
+ *  What a push of a branch does to its remote branch, by its remote status (`RemoteStatusUpdate::push_action`, with
+ *  the other predicates of the status in `remote_status`): the first push creates it, a fast-forward pushes, any other
+ *  push forces, and a remote that has the branch as it is, by content, needs none
  */
 export type PushAction = 
 /**  No remote branch: the push creates it */
@@ -5300,8 +5300,8 @@ export type RemoteStatusUpdate = {
 	 */
 	othersBehind: number,
 	/**
-	 *  The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
-	 *  only one more (`commits_behind` is the total)
+	 *  The newest of the commits behind, newest first, at most `sync_core::remote_status::DROPPED_COMMITS_LIMIT`, all of
+	 *  them when only one more (`commits_behind` is the total)
 	 */
 	droppedCommits: DroppedCommit[],
 	/**
@@ -5322,8 +5322,8 @@ export type RemoteStatusUpdate = {
 	 */
 	commitsLanded: number,
 	/**
-	 *  The newest of the landed commits, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
-	 *  only one more (`commits_landed` is the total)
+	 *  The newest of the landed commits, newest first, at most `sync_core::remote_status::DROPPED_COMMITS_LIMIT`, all of
+	 *  them when only one more (`commits_landed` is the total)
 	 */
 	landedCommits: LandedRemoteCommit[],
 	/**
@@ -5344,8 +5344,8 @@ export type RemoteStatusUpdate = {
 	/**  Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed) */
 	lastPushTime: number,
 	/**
-	 *  What a push of the branch does over this status: `domain_policy::push::action` of the counts above, set where the
-	 *  status is computed (`sync_core::remote_status`), so the app and `bd` read one answer
+	 *  What a push of the branch does over this status: `push_action` of the counts above (`remote_status`), set where
+	 *  the status is computed (`sync_core::remote_status`), so the app and `bd` read one answer
 	 */
 	action: PushAction,
 };

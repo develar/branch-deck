@@ -209,7 +209,7 @@ pub struct RemoteSummary {
   /// `head` in full, for the lease
   #[serde(skip)]
   pub head_id: Option<String>,
-  /// What a push of the branch does over this status (`RemoteStatusUpdate::action`, `domain_policy::push::action`)
+  /// What a push of the branch does over this status (`RemoteStatusUpdate::action`, its `push_action`)
   #[serde(skip)]
   pub action: PushAction,
 }
@@ -266,13 +266,13 @@ impl RemoteSummary {
     }
   }
 
-  /// A push of the branch would change its remote branch (`domain_policy::push::needs_push`): its action is no
+  /// A push of the branch would change its remote branch (`RemoteStatusUpdate::needs_push`): its action is no
   /// `UpToDate`
   pub fn needs_push(&self) -> bool {
     self.action != PushAction::UpToDate
   }
 
-  /// The push drops remote commits the branch lacks, which needs `--force` (`domain_policy::push::drops_remote_commits`)
+  /// The push drops remote commits the branch lacks, which needs `--force` (`RemoteStatusUpdate::drops_remote_commits`)
   pub const fn drops_remote_commits(&self) -> bool {
     matches!(self.action, PushAction::Force { drops: true, .. })
   }

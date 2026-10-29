@@ -307,15 +307,17 @@ push's command answers.
   "replaced 7 landed commits".
 
 ### The action of a push
-What a push does over a remote status is one rule in Rust, `domain_policy::push` (`crates/domain-policy/src/push.rs`),
-for the app and `bd` alike: `action` answers create (no remote branch), push (a fast-forward), force (`drops`: remote
+What a push does over a remote status is one answer in Rust, the predicates of the status itself
+(`crates/domain-types/src/remote_status.rs`, methods of `RemoteStatusUpdate`, so the sync that computes it reaches no
+rule of `domain-policy`), for the app and `bd` alike: `push_action` answers create (no remote branch), push (a fast-forward), force (`drops`: remote
 commits the branch lacks; `replaces`: older versions of its commits, amended, reworded, restacked or landed ones, or an
 older piece of a stacked branch; neither: only rebased) or up to date (nothing to push, nothing amended, reworded,
 restacked, landed or dropped). `sync_core::remote_status` stores it on the status it computes
 (`RemoteStatusUpdate::action`), so every status that reaches the page (a row, a stack branch, an unapplied branch, a
 push's outcome) and `bd` carries the one answer; `needs_push`, `drops_remote_commits` and `replaces_older_versions` are
-its parts (`bd push`, `bd safe-push`, `bd status`), `over_moved_remote` the one retry of a push over a remote that
-moved ([Git Operations](git-operations.md#push-and-land)). A robot's restart reads the action too
+its parts (`bd push`, `bd safe-push`, `bd status`), `pushes_again` the one retry of a push over a remote that
+moved ([Git Operations](git-operations.md#push-and-land)). The orders of the pushes of several branches and what keeps
+a branch out of them are the rule `domain_policy::push` (`crates/domain-policy/src/push.rs`), which reads these answers. A robot's restart reads the action too
 (`domain_policy::holds::restart_action`, the view's `restarts`): a branch whose remote is not up to date is pushed first.
 
 ### Colours

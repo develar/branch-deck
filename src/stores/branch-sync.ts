@@ -89,7 +89,7 @@ export interface RemoteStatus {
   remoteTip: string | null
   /** The newest of the remote commits a push drops, newest first; `commitsBehind` counts them all */
   droppedCommits: readonly DroppedCommit[]
-  /** What a push of the branch does over this status, as Rust decides it (`domain_policy::push::action`) */
+  /** What a push of the branch does over this status, as Rust decides it (`RemoteStatusUpdate::push_action`) */
   action: PushAction
 }
 

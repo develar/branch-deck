@@ -1,5 +1,5 @@
 //! Builders of the types for the tests of other crates, behind the feature `fixtures` that only their dev-dependencies
-//! enable
+//! enable, and for the tests of this crate
 
 use crate::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use crate::pull_request::{PullRequest, PullRequestState};
@@ -162,6 +162,57 @@ pub fn remote_status(branch: &str) -> crate::RemoteStatusUpdate {
     last_push_time: 0,
     action: crate::PushAction::UpToDate,
   }
+}
+
+/// The counts of a remote status a case sets (`remote_status_with`); the rest is a pushed branch the remote has as it is
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RemoteCounts {
+  /// No remote branch
+  pub absent: bool,
+  /// Commits of the branch the remote lacks
+  pub ahead: usize,
+  /// Remote commits the branch lacks, someone's (Ann's)
+  pub behind: u32,
+  pub amended: u32,
+  pub restacked: u32,
+  pub landed: u32,
+  pub reworded: u32,
+  pub ancestors_ahead: u32,
+  /// The branch was rebased: no fast-forward of its remote
+  pub rebased: bool,
+}
+
+/// The remote status of `auth` with `counts`, its action the one they give (`RemoteStatusUpdate::push_action`)
+pub fn remote_status_with(counts: RemoteCounts) -> crate::RemoteStatusUpdate {
+  let mut status = crate::RemoteStatusUpdate {
+    branch_name: "auth".to_string(),
+    remote_exists: !counts.absent,
+    remote_tip: (!counts.absent).then(|| "remote-tip".to_string()),
+    unpushed_commits: (0..counts.ahead).map(|index| format!("commit-{index}")).collect(),
+    commits_behind: counts.behind,
+    others_behind: 0,
+    dropped_commits: (0..counts.behind)
+      .map(|index| crate::DroppedCommit {
+        id: format!("dropped-{index}"),
+        subject: "Fix".to_string(),
+        author: "Ann".to_string(),
+        author_email: "ann@example.com".to_string(),
+        author_time: 0,
+      })
+      .collect(),
+    commits_amended: counts.amended,
+    commits_restacked: counts.restacked,
+    commits_landed: counts.landed,
+    landed_commits: Vec::new(),
+    commits_reworded: counts.reworded,
+    ancestor_commits_ahead: counts.ancestors_ahead,
+    my_unpushed_count: 0,
+    fast_forward: !counts.rebased && counts.behind == 0,
+    last_push_time: 0,
+    action: crate::PushAction::UpToDate,
+  };
+  status.action = status.push_action();
+  status
 }
 
 /// The push of the branch `branch` alone, as the remote status showed no remote branch
