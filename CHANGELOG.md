@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.41.0](https://github.com/develar/branch-deck/compare/v0.40.0...v0.41.0) (2026-10-29)
+
+
+### Features
+
+* **settings:** a theme picker in Appearance: System, Light or Dark ([c9fcdc1](https://github.com/develar/branch-deck/commit/c9fcdc1d8c558006f0b2e675d045734571964a39))
+
 ## [0.40.0](https://github.com/develar/branch-deck/compare/v0.39.0...v0.40.0) (2026-10-29)
 
 
