@@ -17,6 +17,7 @@ import {
   expectNothingToPush,
 } from "../helpers/branch-helpers"
 import { pressCopyKey, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
+import { boxOf } from "../helpers/header-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -405,6 +406,36 @@ test.describe("Hover over rows that move", () => {
       await page.mouse.move(point.x + 1, point.y)
       await page.clock.fastForward(1000)
       await expect(submenu).toBeVisible()
+    },
+  )
+})
+
+test.describe("The room of the branch view", () => {
+  test(
+    "should say with children after the count of Push with Children while the branch view is at least 56rem wide, and only the count below",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // auth on the remote, the branches stacked on it not: its push is Push with Children
+      await setupRepo("stacked_branches", { syncOverrides: pushedRemote("auth") })
+      await syncAndWaitForBranches()
+      const push = getPushButton(findBranchRow(page, "auth"))
+      await expect(push).toHaveAccessibleName("Push with Children (3 branches)")
+      const view = page.getByTestId("branch-view")
+      // the width of the window whose branch view is 56rem (896px) wide: the page around the view keeps its margins
+      const { height, width } = page.viewportSize()!
+      const fits = 56 * 16 + width - (await boxOf(view)).width
+      await page.setViewportSize({ width: fits, height })
+      await expect.poll(async () => (await boxOf(view)).width).toBe(56 * 16)
+      await expect(push).toHaveText(/^\s*3\s*with children\s*$/, { useInnerText: true })
+
+      // a pixel narrower, the words go and the count stays; the name says the same
+      await page.setViewportSize({ width: fits - 1, height })
+      await expect(push).toHaveText(/^\s*3\s*$/, { useInnerText: true })
+      await expect(push).toHaveAccessibleName("Push with Children (3 branches)")
+
+      // as wide again, they are back
+      await page.setViewportSize({ width: fits, height })
+      await expect(push).toHaveText(/^\s*3\s*with children\s*$/, { useInnerText: true })
     },
   )
 })

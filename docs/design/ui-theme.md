@@ -482,6 +482,18 @@ shows.
   track itself.
 - **Per card**: the lane column of the stack graph stays the card's own (`--bd-lane-count`); the archived table keeps
   its own columns (Status and Integrated mean other things) and only its "⋯" lines up, 16px from the edge.
+- **Room, not a container query**: what a row shows only where the view has the room (the words "with children" of
+  Push with Children, from 56rem) reads `data-wide` of the root (`group-data-wide/branch-view:inline`), which
+  `ColumnRegistry` sets from the same `ResizeObserver`: the content box of the root against 56 times the font size of
+  the root element (`WIDE_REM`, both in CSS px at any page zoom), changed only when the width crosses it, so a resize
+  on either side restyles nothing. A query container restyled the rows at every width: with `@container/branch-view`
+  on the root (2026-10-26 to s15-1) a layout of the view after its width changed (`relayoutMs` of
+  `pnpm perf:table --project=webkit`, 141 rows) took 110.91 ms in WebKit against 6.68 ms in the tree of s0a, and on
+  the Studio in turns 111.5 and 125.6 ms against 6.25 and 7.59 ms with the flag (a load of 9 to 13); Chromium paid
+  nothing (0.71 ms). A text of a row laid out faster inside that container (0.37–0.40 ms against 2.63–2.84 without
+  it, 2.39 in the tree of s0a), which its containment alone (`contain: inline-size layout style`, no query) does not
+  keep (2.97 ms), so the view has no containment. The container of a cell stays one (the subject of
+  `branch-summary-slot`, dropped without room): its query restyles that cell alone, and the tree of s0a had it too.
 - **Why measured, not CSS subgrid**: one grid with every card, table and row a subgrid lines the columns up without
   code, but its track sizing reruns over every item of every card on any change. At 141 rows (`pnpm perf:table`,
   `tests/perf/branch-table.perf.ts`, the `branch_table_large` template) a text change cost 8.5–12.7 ms in WebKit, the

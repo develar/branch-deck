@@ -12,7 +12,7 @@ const ColumnRegistryContext = createContext<ColumnRegistry | null>(null)
  * The branch view: the table and its stack islands, one card after the other, whose columns line up
  * (`ColumnRegistry`): the widths of the tracks are CSS variables of this element. Until the facts of the remote are in,
  * the tracks are at least as wide as once they were in the last time (`useSettledLayout`); then the view keeps its
- * widths for the next start
+ * widths for the next start. `data-wide` while the view has the room for the words of a row (`WIDE_REM`)
  */
 export function BranchColumnsRoot({ children }: { children: ReactNode }) {
   const [registry] = useState(() => new ColumnRegistry())
@@ -23,8 +23,9 @@ export function BranchColumnsRoot({ children }: { children: ReactNode }) {
         registry.setRoot(element)
         return () => registry.setRoot(null)
       }}
-      // the container of the words a row shows where the view has the room ("with children" of a push)
-      className="@container/branch-view flex flex-col gap-2"
+      // the group of the words a row shows where the view has the room ("with children" of a push): `data-wide`, which
+      // the registry sets from the width of the view
+      className="group/branch-view flex flex-col gap-2"
       data-testid="branch-view"
     >
       <ColumnRegistryContext value={registry}>{children}</ColumnRegistryContext>

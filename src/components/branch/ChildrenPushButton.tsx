@@ -156,8 +156,11 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
   )
 }
 
-/** What the count of a row is: not the commits of the branch, which has none to push; the words where the view has the room */
-const WITH_CHILDREN = "hidden text-muted-foreground @4xl/branch-view:inline"
+/**
+ * What the count of a row is: not the commits of the branch, which has none to push; the words where the view has the
+ * room (`data-wide` of `BranchColumnsRoot`, at least 56rem)
+ */
+const WITH_CHILDREN = "hidden text-muted-foreground group-data-wide/branch-view:inline"
 
 /**
  * "↑ 4 with children" of a row, "⟳ 45% with children" while it pushes. One cell holds it and, invisible, the widest it

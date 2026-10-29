@@ -955,7 +955,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   with the `ArrowUpIcon` and the count in tabular figures, in the push colour
   (`ghostButtonColorClass`). Its description starts with the label in `font-medium`. Push with Children in its place
   adds "with children" in `text-muted-foreground` after the count where the branch view is at least 56rem wide
-  (`@container/branch-view` on `BranchColumnsRoot`).
+  (`data-wide` of `BranchColumnsRoot`, which the column registry sets as the width of the view crosses 56rem; no
+  container query: in WebKit a query container restyles every row at each change of its width,
+  [UI Theme](../../docs/design/ui-theme.md#branch-columns)); a pixel narrower, the count alone, the name the same.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should say with children after the count of Push with Children while the branch view is at least 56rem wide, and only the count below`)
 - The Safe Push slot is the track `step`, capped at `max-w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push" is a ghost `xs` button with
   the `ShieldCheckIcon` in the foreground colour, "Restart Safe Push" the same with the `RotateCcwIcon`, the pull request
   step with its icon; disabled, they are dimmed to `opacity-50` and keep their hover (`focusableWhenDisabled`). While a

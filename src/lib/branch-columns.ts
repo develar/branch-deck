@@ -50,6 +50,14 @@ export const TRACK_GROUP_CLASS: Readonly<Record<BranchTrackGroup, string>> = {
   actions: "min-w-(--bd-group-actions)",
 }
 
+/**
+ * The width of the branch view, in rem, from which a row has the room for its words ("with children" of a push): the
+ * registry sets `data-wide` on the root of the view from it, which an item reads as `group-data-wide/branch-view:`. Not
+ * a container query: WebKit restyles every row of a query container at each change of its width
+ * (docs/design/ui-theme.md#branch-columns, "Room, not a container query")
+ */
+const WIDE_REM = 56
+
 /** A track, or the label of a group's column */
 export type ColumnKey = BranchTrack | `group-${BranchTrackGroup}`
 
@@ -58,7 +66,8 @@ type Key = ColumnKey
 /**
  * The widths of the tracks of one branch view, written as CSS variables on its root; while the facts of a start are not
  * all in, at least the widths the view had once they were in the last time (`setFloors`), so a late answer that fills a
- * track the way it did before moves no column
+ * track the way it did before moves no column. The root itself is measured too: `data-wide` while it is at least
+ * `WIDE_REM` wide, changed only when its width crosses that, so a resize inside either side restyles nothing
  */
 export class ColumnRegistry {
   private readonly items = new Map<Element, { key: Key; width: number }>()
@@ -66,24 +75,42 @@ export class ColumnRegistry {
   private root: HTMLElement | null = null
   private scheduled = false
   private floors: Readonly<Partial<Record<Key, number>>> | null = null
+  private wide: boolean | null = null
   private readonly observer: ResizeObserver | null =
     typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver(entries => {
+          let resized = false
           for (const entry of entries) {
+            if (entry.target === this.root) {
+              this.setWide(entry.contentBoxSize[0]?.inlineSize ?? entry.contentRect.width)
+              continue
+            }
             const item = this.items.get(entry.target)
             if (item !== undefined) {
               // the width as laid out, a fraction too: a track as wide as its content moves nothing when the report of
               // a wider content comes a frame after the content (rounded up it would, by the fraction)
               item.width = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
+              resized = true
             }
           }
-          this.write()
+          if (resized) {
+            this.write()
+          }
         })
 
   setRoot(root: HTMLElement | null): void {
+    if (this.root !== null) {
+      this.observer?.unobserve(this.root)
+    }
     this.root = root
     this.written.clear()
+    this.wide = null
+    // its first report comes before the first paint, as the items' do: the first frame has the words where they fit
+    // (the content box, as a container query compares)
+    if (root !== null) {
+      this.observer?.observe(root)
+    }
     this.write()
   }
 
@@ -132,6 +159,22 @@ export class ColumnRegistry {
           this.write()
         })
       }
+    }
+  }
+
+  /**
+   * `data-wide` on the root while its content box is at least `WIDE_REM` wide. The observer and the font size of the
+   * root element both answer in CSS px, which the page zoom of the webview leaves as they are
+   */
+  private setWide(width: number): void {
+    const root = this.root
+    if (root === null) {
+      return
+    }
+    const wide = width >= WIDE_REM * Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+    if (this.wide !== wide) {
+      this.wide = wide
+      root.toggleAttribute("data-wide", wide)
     }
   }
 

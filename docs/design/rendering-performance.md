@@ -367,13 +367,16 @@ and the parts of its one row), and a flush that changes nothing sends no patch.
 [@test] ../../crates/repository-model/src/patch_bytes_test.rs (`the_patches_of_the_view_of_141_rows_stay_within_their_bytes`)
 
 WebKit, the engine of the app, lost one thing on the way: a layout of the view after its width changed (`relayoutMs`,
-what each frame of a resize of the window costs) takes 110.91 ms against 6.68 ms in the tree of s0a. The cause is the
+what each frame of a resize of the window costs) took 110.91 ms against 6.68 ms in the tree of s0a. The cause was the
 container of the view, `@container/branch-view` on `BranchColumnsRoot` (`src/components/branch/BranchColumns.tsx`,
-since 2026-10-26, for the words "with children" of `ChildrenPushButton` at `@4xl`): without it the same tree takes
-5.43 ms (three runs), and the layouts of a text that changes (`widerTextMs`, `sameWidthTextMs`) go back from 0.37 and
-0.35 ms to 2.07 and 1.44 ms, as the inline-size containment of the container keeps them inside the view. Chromium
-pays nothing for it (0.71 ms). The lever is a query that no width change of the whole view re-evaluates for every
-row: a container per cell, or the width the column registry measures already.
+from 2026-10-26, for the words "with children" of `ChildrenPushButton` at `@4xl`): without it the same tree took
+5.43 ms (three runs), and the layouts of a text that changes (`widerTextMs`, `sameWidthTextMs`) went back from 0.37 and
+0.35 ms to 2.07 and 1.44 ms. Chromium paid nothing for it (0.71 ms). Since s15-1 the words read `data-wide` of the
+root, which the column registry sets as the width of the view crosses 56rem, and the view is no container
+([Branch columns](ui-theme.md#branch-columns), "Room, not a container query"): on the Mac Studio in turns, five runs
+each at a load of 9 to 13, the container 111.5 and 125.6 ms, the flag 6.25 and 7.59 ms; a text 2.63–2.84 and
+1.76–2.03 ms against 0.37–0.40 inside the container (the tree of s0a: 2.39 and 1.71 ms). The tree of s0a and this one
+in turns come with the final measurements of s15.
 
 ### The IPC of the branch view
 

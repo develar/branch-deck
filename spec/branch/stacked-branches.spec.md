@@ -372,7 +372,7 @@ menu stacks, unstacks and renames branches.
   when both apply. A branch whose own push is up to date (the root of a stack pushed before its children) has Push
   with Children as its push button, the push of the header of an island (`ChildrenPushButton`): "↑ 3", the commits it
   sends, in the push colour, then the muted "with children" where the branch view is at least 56rem wide
-  (`@4xl/branch-view`), its name "Push with Children (3 branches)", its hover the pushes it sends, the graph circling
+  (`data-wide` of the view, [Branch Row](branch-row.spec.md#actions)), its name "Push with Children (3 branches)", its hover the pushes it sends, the graph circling
   their nodes. P and the push item of its menu stay
   the push of the branch, disabled as up to date; the root row of an island leaves it to the header. It shows once
   Patronus and GitHub answered, as a first push waits for them: a robot of theirs holds the children, a merged one
