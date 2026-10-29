@@ -27,8 +27,8 @@ was copied from, `v-commit-source-v1:<parent tree> <tree>`, and for a copy resol
 Hard rules in one place; the linked section says why and what to do instead.
 - Never edit, build or commit in the main checkout: every session, a background job too, works in its own lease
   ([Worktrees](#worktrees)).
-- Never `git stash` in a lease, and never a file rerere resolved left unread: every worktree of the pool shares the
-  stash and the rerere cache of the repository ([Agent Pitfalls](#agent-pitfalls)).
+- Never `git stash` in a lease, never rerere: every worktree of the pool shares the stash and the rerere cache of the
+  repository, and `rerere.enabled` stays `false` ([Agent Pitfalls](#agent-pitfalls)).
 - Never `cargo test`: always `cargo nextest run` ([Verification](#verification)).
 - Never a merge commit, `--no-ff`, `--no-verify`, or `commit-tree` with two `-p` ([Commits and History](#commits-and-history)).
 - Never a behaviour change without its spec, `[@test]` links and docs in the same commit ([Specs and Docs](#specs-and-docs)).
@@ -236,12 +236,13 @@ Mistakes agents made here; each cost a session.
   `target/`, is a stale cargo fingerprint: `touch` the crate's files and rebuild.
 - **One stash and one rerere cache for every lease**: `refs/stash` and `.git/rr-cache` belong to the common git dir, so
   every worktree of the lease pool shares them, and a `git stash pop` in one lease can apply the entry another lease
-  pushed meanwhile. Rerere is on without any config, because the `rr-cache` directory exists (132 resolutions on
-  2026-10-29): a resolution recorded at a commit in one lease is replayed into the same conflict of a `git rebase`,
-  `cherry-pick`, `merge` or `stash pop` in another ("Resolved '<path>' using previous resolution.", the file left for
-  `git add`); a conflict of `bd lease pick` opens its resolve session, which rerere never touches. Never `git stash` in
-  a lease: keep work in progress as a WIP commit of the lease or a patch file in `notes.local/`; after a conflicted
-  rebase or cherry-pick, check every file rerere resolved as if you wrote it.
+  pushed meanwhile. Rerere replays a resolution recorded in one lease into the same conflict of a `git rebase`,
+  `cherry-pick`, `merge` or `stash pop` in another ("Resolved '<path>' using previous resolution.", no markers left),
+  matched by the text of the conflict alone, whatever that lease meant; git turns it on without any config once the
+  `rr-cache` directory exists, and agents had filled it with 132 resolutions by 2026-10-29. So the clone sets
+  `rerere.enabled false` ([Commits and History](#commits-and-history)), which no directory overrides; a conflict of
+  `bd lease pick` opens its resolve session, which rerere never touched. Never `git stash` in a lease: keep work in
+  progress as a WIP commit of the lease or a patch file in `notes.local/`.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config
@@ -321,7 +322,9 @@ How agents commit to this repository; "Git Operations" below is about the git th
   and integrate it with `git merge --ff-only <branch>`. Rebasing your own branch in your worktree is fine: the
   "never write to the working tree" rule is about the app's code.
 - `.githooks/` enforces it (`pre-merge-commit`, and `pre-commit` while `MERGE_HEAD` exists). Enable it once per clone,
-  every worktree shares the setting: `git config core.hooksPath .githooks && git config merge.ff only`.
+  every worktree shares the setting: `git config core.hooksPath .githooks && git config merge.ff only`; with it
+  `git config rerere.enabled false`, which keeps rerere off even where an `rr-cache` directory exists
+  ([Agent Pitfalls](#agent-pitfalls)).
 - Never `--no-ff`, never `--no-verify`, never `commit-tree` with two `-p`.
 
 ### Git Operations
