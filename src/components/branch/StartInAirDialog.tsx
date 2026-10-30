@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -24,14 +25,18 @@ import {
   formatRefusal,
   formatStartHint,
   initialForm,
+  isModeLocked,
   launchInAir,
   launchRequest,
+  modesOf,
   readAirTargets,
   targetKey,
   withModel,
+  withPlan,
   withTarget,
 } from "@/lib/air-launch"
 import type { AirLaunchForm, AirRefusal } from "@/lib/air-launch"
+import { followAirSession } from "@/lib/air-session-toast"
 import type { AirIde, AirStartKind, AirTarget, PatronusRobot } from "@/lib/bindings"
 import { getErrorDetails, notifyError } from "@/lib/errors"
 import { formatPushMode, formatRobotSubject } from "@/lib/patronus"
@@ -41,8 +46,11 @@ import { showToast } from "@/lib/toast-message"
 import { closeAirLaunchDialog, useAirLaunchDialog } from "@/stores/air-launch-dialog"
 import { updateProject, useRecentProjects } from "@/stores/settings/repositorySettings"
 
-/** The default of the agent in the effort picker: a launch without an effort */
+/** The default of the agent in the effort pickers: a launch without an effort */
 const DEFAULT_EFFORT = "default"
+
+/** The default of the agent in the mode picker: a launch without a mode; no id of a mode has parentheses */
+const DEFAULT_MODE = "(default)"
 
 type TargetsState =
   | { status: "loading" }
@@ -54,9 +62,10 @@ type TargetsState =
 type PromptState = { status: "loading" } | { status: "loaded" } | { status: "error"; message: string }
 
 /**
- * "Start in Air" of a failed robot: the agents of the IDE with Air that has the repository open, a model and an effort
- * of the agent, Run or Draft, and the prompt the robot's "Copy Prompt for Agent" copies, to edit; ⌘↵ starts it. The IDE
- * may ask the user first. Without an IDE it says so, and Copy Prompt stays.
+ * "Start in Air" of a failed robot: the agents of the IDE with Air that has the repository open, a model, an effort and
+ * a mode of the agent, Plan with its effort, Run or Draft, and the prompt the robot's "Copy Prompt for Agent" copies, to
+ * edit; ⌘↵ starts it. The IDE may ask the user first. Without an IDE it says so, and Copy Prompt stays. A started
+ * session with an id is followed in a toast (`followAirSession`).
  *
  * Loaded on the first open, then kept mounted (see `PreviewDialogFrame`); each opening reads the agents and the prompt
  * anew.
@@ -193,13 +202,17 @@ function StartInAirForm({
       case "refused":
         setRefusal({ code: answer.code, message: answer.message, form, prompt })
         return
-      case "accepted":
+      case "accepted": {
         updateProject(repositoryPath, { airLaunch: choiceOf(form, target) })
         closeAirLaunchDialog()
-        showToast({
-          title: form.start === "run" ? `Started ${target.name} in Air` : `Opened a draft for ${target.name} in Air`,
-          description: `${title} · ${formatIde(answer.ide)}`,
-        })
+        const description = `${title} · ${formatIde(answer.ide)}`
+        // a draft and an agent of a terminal without an id yet have nothing to watch
+        if (answer.sessionId !== null) {
+          followAirSession(repositoryPath, answer.sessionId, target.name, description)
+          return
+        }
+        showToast({ title: form.start === "run" ? `Started ${target.name} in Air` : `Opened a draft for ${target.name} in Air`, description })
+      }
     }
   }
 
@@ -305,7 +318,7 @@ function TargetsNotice({ state, onRetry }: { state: TargetsState; onRetry: () =>
   )
 }
 
-/** The agent, its model and effort, and Run or Draft */
+/** The agent, its model and effort, its mode, Plan and the plan effort, and Run or Draft */
 function Pickers({
   targets,
   target,
@@ -322,6 +335,8 @@ function Pickers({
   const agents = targets.map(it => ({ value: targetKey(it), label: it.name }))
   const models = (target.models ?? []).map(it => ({ value: it.id, label: formatModel(it) }))
   const efforts = [{ value: DEFAULT_EFFORT, label: "Default" }, ...effortsOf(target, form.model).map(it => ({ value: it, label: formatEffort(it) }))]
+  const modes = modesOf(target)
+  const modeItems = [{ value: DEFAULT_MODE, label: "Default" }, ...modes.map(it => ({ value: it.id, label: it.name }))]
   return (
     <div className="flex flex-wrap items-end gap-4">
       <Field label="Agent">
@@ -355,6 +370,43 @@ function Pickers({
           onChange={next => onChange({ ...form, effort: next === DEFAULT_EFFORT ? null : next })}
         />
       </Field>
+      {modes.length > 0 && (
+        <Field label="Mode">
+          <ItemSelect
+            items={modeItems}
+            value={isModeLocked(form, target) ? DEFAULT_MODE : (form.mode ?? DEFAULT_MODE)}
+            disabled={disabled || isModeLocked(form, target)}
+            className="w-40"
+            testId="start-in-air-mode"
+            onChange={next => onChange({ ...form, mode: next === DEFAULT_MODE ? null : next })}
+          />
+        </Field>
+      )}
+      {target.plan === true && (
+        <Field label="Plan">
+          <span className="flex h-7 items-center">
+            <Switch
+              aria-label="Plan"
+              data-testid="start-in-air-plan"
+              checked={form.plan}
+              disabled={disabled}
+              onCheckedChange={checked => onChange(withPlan(form, target, checked))}
+            />
+          </span>
+        </Field>
+      )}
+      {form.plan && (
+        <Field label="Plan Effort">
+          <ItemSelect
+            items={efforts}
+            value={form.planEffort ?? DEFAULT_EFFORT}
+            disabled={disabled || efforts.length === 1}
+            className="w-32"
+            testId="start-in-air-plan-effort"
+            onChange={next => onChange({ ...form, planEffort: next === DEFAULT_EFFORT ? null : next })}
+          />
+        </Field>
+      )}
       <Field label="Start">
         <ToggleGroup
           aria-label="Start"

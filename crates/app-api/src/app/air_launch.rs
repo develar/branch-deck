@@ -1,17 +1,25 @@
 //! Start in Air (spec/branch/start-in-air.spec.md): the agents of the IDE that has the repository open
-//! (`air_launch_targets`), and the launch of a session with the prompt of a robot (`air_launch`), over the local launch
-//! socket of Air (`air_launch`, protocol v1). The directory of the instance files is the host's (`AppHost::air_instances`):
-//! the user's in the app, none in the e2e server, so no test reaches an IDE of the user. A refusal of the IDE and no IDE
-//! at all are answers the dialog words; a connection that fails is an error.
+//! (`air_launch_targets`), the launch of a session with the prompt of a robot (`air_launch`), and the watch of the
+//! session it started (`air_watch_session`), over the local launch socket of Air (`air_launch`, protocol v1). The
+//! directory of the instance files is the host's (`AppHost::air_instances`): the user's in the app, none in the e2e
+//! server, so no test reaches an IDE of the user. A refusal of the IDE and no IDE at all are answers the page words; a
+//! connection that fails is an error.
+//!
+//! A watch holds its connection until the IDE ends it, the page stops it (`stop_air_watch`), or the page of its window
+//! goes away (`AirWatches::forget_window`): a Tauri channel of a page that went away never fails its send.
 
 use crate::context::AppContext;
 use crate::operation::run_blocking;
-use air_launch::client::{Client, ClientError};
+use crate::transport::{Call, EventSink, Sink, WindowId};
+use air_launch::client::{Client, ClientError, WatchStopper};
 use air_launch::discovery::{Instance, find_instance};
-use air_launch::protocol::{Launch, LaunchRequest, Refusal, Target, Targets};
+use air_launch::protocol::{Activity, Launch, LaunchRequest, Refusal, Session, Target, Targets, WatchLine};
 use domain_types::error::ApiError;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tracing::instrument;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use tracing::{debug, instrument};
 
 /// What `air_launch_targets` asks
 #[derive(Debug, serde::Deserialize, specta::Type)]
@@ -125,3 +133,173 @@ pub async fn air_launch(ctx: &AppContext, params: LaunchRequest) -> Result<AirLa
   })
   .await
 }
+
+/// What `air_watch_session` asks
+#[derive(Debug, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AirWatchParams {
+  /// The absolute path of the directory the session works in, as the launch named it
+  pub project: String,
+  /// The id of the session, as the accepted launch answered it
+  pub session_id: String,
+}
+
+/// The status of the watched session, now and after each change
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+pub struct AirSessionStatus {
+  /// The title of the session list, if the IDE names one
+  pub title: Option<String>,
+  pub activity: Activity,
+}
+
+/// How a watch ended
+#[derive(Debug, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum AirWatchEnd {
+  NoIde,
+  /// Before the first status any code of the protocol (`BUSY`); after it `NO_SESSION`: the session is gone
+  Refused {
+    code: String,
+    message: Option<String>,
+  },
+  /// The IDE ended the watch: `timeout` after 4 h
+  Ended {
+    reason: String,
+  },
+  /// The IDE closed the connection without an end
+  Closed,
+  /// The page stopped it, or the page of its window went away
+  Stopped,
+}
+
+/// A watch that runs: its connection and whether the page stopped it
+struct RunningWatch {
+  ticket: u64,
+  stopper: WatchStopper,
+  stopped: AtomicBool,
+}
+
+impl RunningWatch {
+  fn stop(&self) {
+    self.stopped.store(true, Ordering::SeqCst);
+    self.stopper.stop();
+  }
+}
+
+/// The watches that run, by the window that asked and the session: a newer watch of the same session of a window stops
+/// the one before
+#[derive(Default)]
+pub struct AirWatches {
+  last_ticket: AtomicU64,
+  running: Mutex<HashMap<(WindowId, String), Arc<RunningWatch>>>,
+}
+
+impl AirWatches {
+  fn running(&self) -> MutexGuard<'_, HashMap<(WindowId, String), Arc<RunningWatch>>> {
+    self.running.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  fn start(&self, window: &WindowId, session_id: &str, stopper: WatchStopper) -> Arc<RunningWatch> {
+    let watch = Arc::new(RunningWatch {
+      ticket: self.last_ticket.fetch_add(1, Ordering::SeqCst) + 1,
+      stopper,
+      stopped: AtomicBool::new(false),
+    });
+    let before = self.running().insert((window.clone(), session_id.to_owned()), Arc::clone(&watch));
+    if let Some(before) = before {
+      before.stop();
+    }
+    watch
+  }
+
+  fn end(&self, window: &WindowId, session_id: &str, ticket: u64) {
+    let mut running = self.running();
+    let key = (window.clone(), session_id.to_owned());
+    if running.get(&key).is_some_and(|watch| watch.ticket == ticket) {
+      running.remove(&key);
+    }
+  }
+
+  fn stop(&self, window: &WindowId, session_id: String) {
+    let watch = self.running().remove(&(window.clone(), session_id));
+    if let Some(watch) = watch {
+      watch.stop();
+    }
+  }
+
+  /// The page of `window` went away: its watches stop
+  pub fn forget_window(&self, window: &WindowId) {
+    let mut running = self.running();
+    running.retain(|(of, _), watch| {
+      let keep = of != window;
+      if !keep {
+        watch.stop();
+      }
+      keep
+    });
+  }
+}
+
+/// Watches the session `params.session_id` in the IDE that has `params.project` open: each status to `statuses`, now
+/// and after each change, until the IDE ends the watch, the page stops it (`stop_air_watch`) or its page goes away. No
+/// timeout: the IDE ends a watch after 4 h
+#[instrument(skip_all, fields(window = %call.window, session_id = %params.session_id))]
+pub async fn air_watch_session(ctx: &AppContext, call: &Call, params: AirWatchParams, statuses: Sink<AirSessionStatus>) -> Result<AirWatchEnd, ApiError> {
+  let dir: Option<PathBuf> = ctx.host.air_instances();
+  let watches = Arc::clone(&ctx.air_watches);
+  let window = call.window.clone();
+  run_blocking(move || -> Result<AirWatchEnd, ApiError> {
+    let Some((_, client)) = connect(dir.as_deref(), &params.project) else {
+      return Ok(AirWatchEnd::NoIde);
+    };
+    let watch = client.watch(&params.project, &params.session_id).map_err(|error| exchange_error(&error))?;
+    let running = watches.start(&window, &params.session_id, watch.stopper().map_err(|error| exchange_error(&error))?);
+    let end = follow(watch, &|| running.stopped.load(Ordering::SeqCst), &*statuses);
+    // the page that went away ends the watch here; a closed connection takes it as it is
+    running.stopper.stop();
+    watches.end(&window, &params.session_id, running.ticket);
+    end
+  })
+  .await
+}
+
+/// Sends each status of `lines` to `statuses` until the end of the watch; `is_stopped`: the page stopped it
+pub(crate) fn follow(
+  lines: impl Iterator<Item = Result<WatchLine, ClientError>>,
+  is_stopped: &dyn Fn() -> bool,
+  statuses: &dyn EventSink<AirSessionStatus>,
+) -> Result<AirWatchEnd, ApiError> {
+  for line in lines {
+    match line {
+      Ok(WatchLine::Session {
+        session: Session { title, activity, .. },
+      }) => {
+        if statuses.send(AirSessionStatus { title, activity }).is_err() {
+          debug!("the page of the watch went away");
+          return Ok(AirWatchEnd::Stopped);
+        }
+      }
+      Ok(WatchLine::End { reason }) => return Ok(AirWatchEnd::Ended { reason }),
+      Ok(WatchLine::Refused(Refusal { code, message })) => {
+        return Ok(AirWatchEnd::Refused {
+          code: code.as_str().to_owned(),
+          message,
+        });
+      }
+      // the read of a connection the page stopped may fail rather than end
+      Err(_) if is_stopped() => return Ok(AirWatchEnd::Stopped),
+      Err(error) => return Err(exchange_error(&error)),
+    }
+  }
+  Ok(if is_stopped() { AirWatchEnd::Stopped } else { AirWatchEnd::Closed })
+}
+
+/// Stops the watch of the session `session_id` that the calling window runs, if any: it answers `stopped`
+#[instrument(skip_all, fields(window = %call.window, session_id = %session_id))]
+pub fn stop_air_watch(ctx: &AppContext, call: &Call, session_id: String) {
+  ctx.air_watches.stop(&call.window, session_id);
+}
+
+#[cfg(test)]
+#[path = "air_launch_test.rs"]
+mod air_launch_test;

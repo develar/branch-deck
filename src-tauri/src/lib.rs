@@ -239,6 +239,7 @@ pub fn run() {
         },
         sub_windows: Arc::new(SubWindowState::default()),
         cli_tools: app_api::app::cli_tools::CliToolsState::default(),
+        air_watches: Arc::default(),
         runtime: tauri::async_runtime::handle().inner().clone(),
       });
       app.manage(settings_service);

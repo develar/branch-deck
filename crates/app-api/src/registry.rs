@@ -30,7 +30,7 @@
 //!   -> Result<output, ApiError>`, for what the app does on its main thread (a native menu, the restart);
 //! - the arguments are what the page sends, by name (`params`, `repository_path` as `repositoryPath`);
 //! - the channel, for a command that tells the page its events while it runs (`[channel events: OperationEvent]`, of a
-//!   `json` or a `session` command), is the last argument of the body (`Sink<event>`) and of the bindings
+//!   `json`, a `window` or a `session` command), is the last argument of the body (`Sink<event>`) and of the bindings
 //!   (`Channel<event>`); `open`: it stays open after the answer (the patches of a subscription). The page mock of the e2e
 //!   server knows each channel from the table of the registry, `crates/app-api/commands.json` (`commands_json_test.rs`).
 
@@ -257,6 +257,9 @@ macro_rules! api_command {
     let () = $sink;
     $body($ctx, $call, $($args.$arg),*)
   }};
+  (@call window $name:ident [] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident [$($channel:tt)+]) => {
+    $body($ctx, $call, $($args.$arg,)* $sink)
+  };
   (@call $kind:ident $name:ident [] $body:path, $ctx:ident, $call:ident, $args:ident($($arg:ident),*), $sink:ident []) => {{
     let (_, ()) = ($call, $sink);
     $body($ctx, $($args.$arg),*)

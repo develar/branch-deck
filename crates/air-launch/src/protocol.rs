@@ -1,5 +1,5 @@
-//! The messages of the launch socket, protocol v1: a request line (`targets`, `launch`) and its response line, and the
-//! refusal codes. A response field the protocol adds later is ignored; a refusal code this client does not know stays
+//! The messages of the launch socket, protocol v1: a request line (`targets`, `launch`, `watch`) and its response
+//! lines, and the refusal codes. A response field the protocol adds later is ignored; a refusal code this client does not know stays
 //! as its text (`RefusalCode::Other`). The types the page gets are `Air…` in its bindings (`serde(rename)`), beside the
 //! types of the app.
 
@@ -23,6 +23,36 @@ pub struct Target {
   /// Empty when the agent reports no list: then a launch names no model, and any effort passes to the agent
   #[serde(default)]
   pub models: Vec<Model>,
+  /// The modes a launch can name (`LaunchRequest::mode`); empty when the agent has none
+  #[serde(default)]
+  pub modes: Vec<Mode>,
+  /// A launch can start in Plan (`LaunchRequest::plan`)
+  #[serde(default)]
+  pub plan: bool,
+}
+
+/// A mode of a target
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename = "AirMode", rename_all = "camelCase")]
+pub struct Mode {
+  pub id: String,
+  pub name: String,
+  pub kind: ModeKind,
+}
+
+/// What a mode does. A target whose Plan is a mode has a mode of kind `plan`: `plan` of a launch takes it
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename = "AirModeKind", rename_all = "snake_case")]
+pub enum ModeKind {
+  Plan,
+  AutoReview,
+  Standard,
+  FullAccess,
+  /// A kind of a later protocol
+  #[serde(other)]
+  Other,
 }
 
 /// A model of a target
@@ -69,6 +99,16 @@ pub struct LaunchRequest {
   /// One effort id; none keeps the default of the agent
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub effort: Option<String>,
+  /// The id of a mode of the target; none keeps the default of the agent
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub mode: Option<String>,
+  /// The session starts in Plan; false is not sent. With a mode of kind `plan` of the target, Plan is that mode, and
+  /// another `mode` beside it is `MODE_CONFLICT`
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub plan: bool,
+  /// The effort id of Plan; only with `plan` (else `BAD_REQUEST`), none keeps the default of the agent
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub plan_effort: Option<String>,
   /// Required for `run`, optional for `draft`
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub prompt: Option<String>,
@@ -93,6 +133,14 @@ pub(crate) struct TargetsRequest<'a> {
   pub(crate) project: &'a str,
 }
 
+/// The fields of a `watch` request
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WatchRequest<'a> {
+  pub(crate) project: &'a str,
+  pub(crate) session_id: &'a str,
+}
+
 /// The response to `targets`
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -108,13 +156,64 @@ pub enum Targets {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum Launch {
-  /// The session started; `session_id` is the id of its provider, none for a draft
+  /// The session started; `session_id` is the id of its provider, none for a draft and for an agent of a terminal
+  /// that has no id yet: then there is nothing to watch
   #[serde(rename_all = "camelCase")]
   Accepted {
     #[serde(default)]
     session_id: Option<String>,
   },
   Refused(Refusal),
+}
+
+/// A line of a `watch`: the status of the session now and after each change, then at most one end. A refusal before
+/// the first status is any refusal of v1; after it, `NO_SESSION`
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum WatchLine {
+  Session {
+    session: Session,
+  },
+  /// The IDE stopped the watch: `timeout` after 4 h; a reason of a later protocol stays as its text
+  End {
+    reason: String,
+  },
+  Refused(Refusal),
+}
+
+/// The status of a session as a watch reports it
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Session {
+  pub session_id: String,
+  #[serde(default)]
+  pub title: Option<String>,
+  pub activity: Activity,
+  /// Unix milliseconds of the last change, if the IDE knows it
+  #[serde(default)]
+  pub updated_at: Option<u64>,
+}
+
+/// What a session does now
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename = "AirSessionActivity", rename_all = "snake_case")]
+pub enum Activity {
+  /// The agent waits for a prompt: the turn is done, and the user read it
+  Ready,
+  /// A New Session tab that sent nothing yet
+  Draft,
+  /// The agent works
+  Processing,
+  /// The changes of the agent wait for the review of the user
+  Reviewing,
+  /// The agent asks the user
+  NeedsInput,
+  /// The turn is done, and the user did not read it yet
+  Unread,
+  /// An activity of a later protocol
+  #[serde(other)]
+  Other,
 }
 
 /// Why the IDE did not do what a request asked
@@ -156,6 +255,15 @@ pub enum RefusalCode {
   EmptyPrompt,
   /// The launch did not start; the message says why
   LaunchFailed,
+  /// The target has no mode of this id
+  ModeUnavailable,
+  /// `plan` with another `mode`, while Plan is a mode of the target
+  ModeConflict,
+  /// `plan` for a target that cannot start in Plan
+  PlanUnavailable,
+  InvalidPlanReasoningEffort,
+  /// The watched session is gone, or never was there
+  NoSession,
   /// A code of a later protocol
   Other(String),
 }
@@ -179,6 +287,11 @@ impl RefusalCode {
       Self::InvalidReasoningEffort => "INVALID_REASONING_EFFORT",
       Self::EmptyPrompt => "EMPTY_PROMPT",
       Self::LaunchFailed => "LAUNCH_FAILED",
+      Self::ModeUnavailable => "MODE_UNAVAILABLE",
+      Self::ModeConflict => "MODE_CONFLICT",
+      Self::PlanUnavailable => "PLAN_UNAVAILABLE",
+      Self::InvalidPlanReasoningEffort => "INVALID_PLAN_REASONING_EFFORT",
+      Self::NoSession => "NO_SESSION",
       Self::Other(code) => code,
     }
   }
@@ -202,6 +315,11 @@ impl From<String> for RefusalCode {
       "INVALID_REASONING_EFFORT" => Self::InvalidReasoningEffort,
       "EMPTY_PROMPT" => Self::EmptyPrompt,
       "LAUNCH_FAILED" => Self::LaunchFailed,
+      "MODE_UNAVAILABLE" => Self::ModeUnavailable,
+      "MODE_CONFLICT" => Self::ModeConflict,
+      "PLAN_UNAVAILABLE" => Self::PlanUnavailable,
+      "INVALID_PLAN_REASONING_EFFORT" => Self::InvalidPlanReasoningEffort,
+      "NO_SESSION" => Self::NoSession,
       _ => Self::Other(code),
     }
   }

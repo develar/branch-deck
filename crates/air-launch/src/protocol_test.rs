@@ -19,6 +19,11 @@ fn every_refusal_code_of_protocol_v1_reads_back_as_its_text() {
     "INVALID_REASONING_EFFORT",
     "EMPTY_PROMPT",
     "LAUNCH_FAILED",
+    "MODE_UNAVAILABLE",
+    "MODE_CONFLICT",
+    "PLAN_UNAVAILABLE",
+    "INVALID_PLAN_REASONING_EFFORT",
+    "NO_SESSION",
   ];
   for code in codes {
     let parsed = RefusalCode::from(code.to_string());

@@ -127,7 +127,7 @@ macro_rules! tauri_command {
       <app_api::commands::$name::Command as app_api::registry::Command>::call(&ctx, &call, args, ()).await
     }
   };
-  // `session`, `json`: the call of the webview and the channel
+  // `session`, `window`, `json`: the call of the webview and the channel
   ($(#[doc = $doc:literal])* $kind:ident $name:ident($($arg:ident: $type:ty),*) [$channel:ident: $event:ty] [$output:ty] = $body:path) => {
     $(#[doc = $doc])*
     #[tauri::command]

@@ -1,11 +1,13 @@
-//! One request and one response over the socket of an IDE: the client writes one line of JSON, reads one line within
-//! the timeout of the response (`RESPONSE_TIMEOUT`, the consent dialog and the launch of the session), and closes.
-//! Blocking: a caller of an async runtime runs it on a blocking thread.
+//! One request and its response over the socket of an IDE: the client writes one line of JSON, reads one line within
+//! the timeout of the response (`RESPONSE_TIMEOUT`, the consent dialog and the launch of the session), and closes. A
+//! `watch` reads its lines one by one without a timeout, until its end or a close (`Watch`). Blocking: a caller of an
+//! async runtime runs it on a blocking thread.
 
-use crate::protocol::{Envelope, Launch, LaunchRequest, PROTOCOL_VERSION, Targets, TargetsRequest};
+use crate::protocol::{Envelope, Launch, LaunchRequest, PROTOCOL_VERSION, Targets, TargetsRequest, WatchLine, WatchRequest};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::io::{self, Read, Write};
+use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -77,7 +79,27 @@ impl Client {
     self.exchange("launch", request)
   }
 
+  /// Watches the session `session_id` of the project of `project`: the IDE holds the connection and sends a line now
+  /// and after each change, with no timeout of the client; the watch ends with its last line or a close
+  pub fn watch(&self, project: &str, session_id: &str) -> Result<Watch, ClientError> {
+    let stream = self.send("watch", &WatchRequest { project, session_id })?;
+    stream.set_read_timeout(None).map_err(ClientError::Io)?;
+    Ok(Watch {
+      stream,
+      lines: Lines::default(),
+      ended: false,
+    })
+  }
+
   fn exchange<T: Serialize, R: DeserializeOwned>(&self, method: &'static str, fields: &T) -> Result<R, ClientError> {
+    let deadline = Instant::now() + self.timeout;
+    let mut stream = self.send(method, fields)?;
+    let response = Lines::default().next(&mut stream, Some((deadline, self.timeout)))?.ok_or(ClientError::Closed)?;
+    parse(&response)
+  }
+
+  /// Connects and writes the request line of `method`
+  fn send<T: Serialize>(&self, method: &'static str, fields: &T) -> Result<UnixStream, ClientError> {
     let mut line = serde_json::to_vec(&Envelope {
       v: PROTOCOL_VERSION,
       method,
@@ -89,57 +111,120 @@ impl Client {
     }
     line.push(b'\n');
 
-    let deadline = Instant::now() + self.timeout;
     let mut stream = UnixStream::connect(&self.socket).map_err(|source| ClientError::Connect {
       socket: self.socket.clone(),
       source,
     })?;
     stream.set_write_timeout(Some(self.timeout)).map_err(ClientError::Io)?;
-    stream.write_all(&line).map_err(|error| self.io_error(error))?;
-    stream.flush().map_err(|error| self.io_error(error))?;
-    let response = self.read_line(&mut stream, deadline)?;
-    serde_json::from_slice(&response).map_err(|error| ClientError::BadResponse(error.to_string()))
+    stream.write_all(&line).map_err(|error| io_error(error, self.timeout))?;
+    stream.flush().map_err(|error| io_error(error, self.timeout))?;
+    Ok(stream)
   }
+}
 
-  /// The first line of the response, without its `\n`; a response the server closed without a `\n` is taken whole
-  fn read_line(&self, stream: &mut UnixStream, deadline: Instant) -> Result<Vec<u8>, ClientError> {
-    let mut response = Vec::new();
+fn parse<R: DeserializeOwned>(line: &[u8]) -> Result<R, ClientError> {
+  serde_json::from_slice(line).map_err(|error| ClientError::BadResponse(error.to_string()))
+}
+
+fn io_error(error: io::Error, timeout: Duration) -> ClientError {
+  match error.kind() {
+    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => ClientError::Timeout(timeout),
+    _ => ClientError::Io(error),
+  }
+}
+
+/// A watch of one session: its lines one by one. Blocking: each `next` waits for the IDE as long as it takes
+#[derive(Debug)]
+pub struct Watch {
+  stream: UnixStream,
+  lines: Lines,
+  /// The IDE sent the end or a refusal: no line comes after it
+  ended: bool,
+}
+
+impl Watch {
+  /// What stops the watch from another thread: the `next` that waits then answers none
+  ///
+  /// # Errors
+  /// The socket cannot be shared
+  pub fn stopper(&self) -> Result<WatchStopper, ClientError> {
+    self.stream.try_clone().map(WatchStopper).map_err(ClientError::Io)
+  }
+}
+
+impl Iterator for Watch {
+  type Item = Result<WatchLine, ClientError>;
+
+  /// The next line; none after the end, a refusal or a close (also a close of `WatchStopper::stop`)
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.ended {
+      return None;
+    }
+    let line = self.lines.next(&mut self.stream, None).transpose()?.and_then(|line| parse::<WatchLine>(&line));
+    self.ended = !matches!(line, Ok(WatchLine::Session { .. }));
+    Some(line)
+  }
+}
+
+/// Stops a watch from another thread
+#[derive(Debug)]
+pub struct WatchStopper(UnixStream);
+
+impl WatchStopper {
+  /// Closes the connection: the IDE ends the watch, and the `next` that waits answers none
+  pub fn stop(&self) {
+    // the IDE may have closed it already
+    let _ = self.0.shutdown(Shutdown::Both);
+  }
+}
+
+/// The lines of one connection: the bytes after a line wait in `buffer` for the next one
+#[derive(Debug, Default)]
+struct Lines {
+  buffer: Vec<u8>,
+}
+
+impl Lines {
+  /// The next line, without its `\n`, within the deadline if any; the rest of a connection the server closed without a
+  /// `\n` is taken whole, none after the last line
+  fn next(&mut self, stream: &mut UnixStream, deadline: Option<(Instant, Duration)>) -> Result<Option<Vec<u8>>, ClientError> {
+    let mut scanned = 0;
     let mut chunk = [0; 16 * 1024];
     loop {
-      let left = deadline.saturating_duration_since(Instant::now());
-      if left.is_zero() {
-        return Err(ClientError::Timeout(self.timeout));
+      if let Some(end) = self.buffer[scanned..].iter().position(|byte| *byte == b'\n').map(|end| scanned + end) {
+        if end > MAX_LINE_BYTES {
+          return Err(ClientError::ResponseTooLarge);
+        }
+        let mut line: Vec<u8> = self.buffer.drain(..=end).collect();
+        line.pop();
+        return Ok(Some(line));
       }
-      match stream.set_read_timeout(Some(left)) {
-        // macOS refuses the option once the server closed its end: the read then returns at once
-        Err(error) if error.kind() != io::ErrorKind::InvalidInput => return Err(ClientError::Io(error)),
-        _ => {}
+      scanned = self.buffer.len();
+      if scanned > MAX_LINE_BYTES {
+        return Err(ClientError::ResponseTooLarge);
+      }
+      // a read without a deadline blocks: it never times out
+      let timeout = deadline.map_or(Duration::ZERO, |(_, timeout)| timeout);
+      if let Some((deadline, timeout)) = deadline {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+          return Err(ClientError::Timeout(timeout));
+        }
+        match stream.set_read_timeout(Some(left)) {
+          // macOS refuses the option once the server closed its end: the read then returns at once
+          Err(error) if error.kind() != io::ErrorKind::InvalidInput => return Err(ClientError::Io(error)),
+          _ => {}
+        }
       }
       let read = match stream.read(&mut chunk) {
         Ok(read) => read,
         Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-        Err(error) => return Err(self.io_error(error)),
+        Err(error) => return Err(io_error(error, timeout)),
       };
       if read == 0 {
-        return if response.is_empty() { Err(ClientError::Closed) } else { Ok(response) };
+        return Ok((!self.buffer.is_empty()).then(|| std::mem::take(&mut self.buffer)));
       }
-      let start = response.len();
-      response.extend_from_slice(&chunk[..read]);
-      let end = response[start..].iter().position(|byte| *byte == b'\n').map(|end| start + end);
-      if end.unwrap_or(response.len()) > MAX_LINE_BYTES {
-        return Err(ClientError::ResponseTooLarge);
-      }
-      if let Some(end) = end {
-        response.truncate(end);
-        return Ok(response);
-      }
-    }
-  }
-
-  fn io_error(&self, error: io::Error) -> ClientError {
-    match error.kind() {
-      io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => ClientError::Timeout(self.timeout),
-      _ => ClientError::Io(error),
+      self.buffer.extend_from_slice(&chunk[..read]);
     }
   }
 }

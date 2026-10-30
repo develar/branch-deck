@@ -1,7 +1,8 @@
 //! The instance files of the running IDEs with Air: one `<pid>.json` per IDE process in the directory of the user
 //! (`instance_dir`), which names its socket and the base directories of its open projects. A file of a process that
 //! no longer runs, one that does not parse and one of another schema are skipped. The IDE of a directory is the one
-//! whose project holds it, the deepest project first, then the newest file (`pick`).
+//! whose project holds it, the deepest project first, then the IDE whose window got the focus last, then the newest
+//! file (`pick`).
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,8 @@ pub struct Instance {
   pub socket: PathBuf,
   /// The base directories of the open projects, absolute and normalized
   pub projects: Vec<PathBuf>,
+  /// Unix milliseconds of the last focus of a window of the IDE; none when the file does not say
+  pub focused_at: Option<u64>,
   /// When the IDE wrote the file last
   pub modified: SystemTime,
 }
@@ -48,6 +51,8 @@ struct InstanceFile {
   build: String,
   socket: PathBuf,
   projects: Vec<PathBuf>,
+  #[serde(default)]
+  focused_at: Option<u64>,
 }
 
 /// The directory of the instance files: `~/Library/Application Support/JetBrains/air/launch` on macOS,
@@ -102,12 +107,14 @@ fn read_instance(file: &Path) -> Option<Instance> {
     build: parsed.build,
     socket: parsed.socket,
     projects: parsed.projects,
+    focused_at: parsed.focused_at,
     modified,
   })
 }
 
 /// The IDE of `directory`: the instance with a project that is `directory` or one of its parents, the deepest project
-/// first, then the newest file. The paths compare by their components, without a read of the file system
+/// first, then the newest focus (an IDE that names none is older than any), then the newest file. The paths compare by
+/// their components, without a read of the file system
 pub fn pick<'a>(instances: &'a [Instance], directory: &Path) -> Option<Match<'a>> {
   instances
     .iter()
@@ -120,7 +127,10 @@ pub fn pick<'a>(instances: &'a [Instance], directory: &Path) -> Option<Match<'a>
     })
     .max_by(|a, b| {
       let depth = |it: &Match<'_>| it.project.components().count();
-      depth(a).cmp(&depth(b)).then_with(|| a.instance.modified.cmp(&b.instance.modified))
+      depth(a)
+        .cmp(&depth(b))
+        .then_with(|| a.instance.focused_at.cmp(&b.instance.focused_at))
+        .then_with(|| a.instance.modified.cmp(&b.instance.modified))
     })
 }
 

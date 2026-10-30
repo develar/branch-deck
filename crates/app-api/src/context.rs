@@ -5,6 +5,7 @@
 //! command (`registry.rs`).
 
 use crate::api_error::{api_error, no_branch_prefix};
+use crate::app::air_launch::AirWatches;
 use crate::app::cli_tools::CliToolsState;
 use crate::app::windows::SubWindowState;
 use crate::operation::run_blocking;
@@ -76,6 +77,8 @@ pub struct AppContext {
   pub sub_windows: Arc<SubWindowState>,
   /// The CLIs of Settings → Tools: the actions that run, the statuses read last
   pub cli_tools: CliToolsState,
+  /// The watches of the sessions that Start in Air started, by window
+  pub air_watches: Arc<AirWatches>,
   /// The runtime of what a command leaves running after it answered: the deadlines of the windows built hidden
   pub runtime: tokio::runtime::Handle,
 }
@@ -113,8 +116,9 @@ impl AppContext {
     self.windows.call(label)
   }
 
-  /// The page of `window` went away (it loads again): its subscriptions end
+  /// The page of `window` went away (it loads again): its subscriptions and its watches of Air sessions end
   pub fn forget_page(&self, window: &WindowId) {
+    self.air_watches.forget_window(window);
     for subscription in self.windows.forget_page(window) {
       self.sessions.unsubscribe(subscription);
     }

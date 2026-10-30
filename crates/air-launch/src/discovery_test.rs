@@ -15,9 +15,17 @@ fn absolute(path: &str) -> PathBuf {
 }
 
 fn write_instance(dir: &Path, pid: u32, projects: &[&str], modified_at: u64) -> PathBuf {
+  write_focused_instance(dir, pid, projects, modified_at, None)
+}
+
+/// The instance file of an IDE whose window got the focus at `focused_at` (Unix milliseconds), none without the field
+fn write_focused_instance(dir: &Path, pid: u32, projects: &[&str], modified_at: u64, focused_at: Option<u64>) -> PathBuf {
   let file = dir.join(format!("{pid}.json"));
   let projects: Vec<PathBuf> = projects.iter().map(|project| absolute(project)).collect();
-  let text = json!({"schemaVersion": 1, "pid": pid, "product": "IU", "build": "IU-263.1", "socket": format!("/tmp/air-{pid}/launch.sock"), "projects": projects});
+  let mut text = json!({"schemaVersion": 1, "pid": pid, "product": "IU", "build": "IU-263.1", "socket": format!("/tmp/air-{pid}/launch.sock"), "projects": projects});
+  if let Some(focused_at) = focused_at {
+    text["focusedAt"] = json!(focused_at);
+  }
   std::fs::write(&file, text.to_string()).unwrap();
   set_modified(&file, modified_at);
   file
@@ -59,6 +67,7 @@ fn reads_the_files_of_running_processes_and_skips_dead_garbled_and_later_ones() 
   assert_eq!(instance.build, "IU-263.1");
   assert_eq!(instance.socket, PathBuf::from("/tmp/air-10/launch.sock"));
   assert_eq!(instance.projects, vec![absolute("/work/idea")]);
+  assert_eq!(instance.focused_at, None);
   assert_eq!(instance.modified, SystemTime::UNIX_EPOCH + Duration::from_secs(1_000));
 }
 
@@ -93,6 +102,31 @@ fn of_two_ides_with_the_same_project_the_newest_file_wins() {
   write_instance(dir.path(), 32, &["/work/idea"], 1_500);
   let instances = read_instances(dir.path(), |_| true);
   assert_eq!(pick(&instances, &absolute("/work/idea")).unwrap().instance.pid, 31);
+}
+
+#[test]
+fn of_two_ides_with_the_same_project_the_last_focused_wins_and_one_without_a_focus_is_older_than_any() {
+  let dir = tempfile::tempdir().unwrap();
+  // the newest file, but no focus
+  write_focused_instance(dir.path(), 50, &["/work/idea"], 3_000, None);
+  write_focused_instance(dir.path(), 51, &["/work/idea"], 1_000, Some(2_000_000));
+  write_focused_instance(dir.path(), 52, &["/work/idea"], 2_000, Some(1_000_000));
+  let instances = read_instances(dir.path(), |_| true);
+  let found = pick(&instances, &absolute("/work/idea")).unwrap();
+  assert_eq!((found.instance.pid, found.instance.focused_at), (51, Some(2_000_000)));
+  // the same focus: the newest file
+  write_focused_instance(dir.path(), 52, &["/work/idea"], 2_000, Some(2_000_000));
+  let instances = read_instances(dir.path(), |_| true);
+  assert_eq!(pick(&instances, &absolute("/work/idea")).unwrap().instance.pid, 52);
+}
+
+#[test]
+fn the_deepest_project_wins_over_the_last_focus() {
+  let dir = tempfile::tempdir().unwrap();
+  write_focused_instance(dir.path(), 60, &["/work"], 1_000, Some(9_000_000));
+  write_focused_instance(dir.path(), 61, &["/work/idea"], 1_000, None);
+  let instances = read_instances(dir.path(), |_| true);
+  assert_eq!(pick(&instances, &absolute("/work/idea/community")).unwrap().instance.pid, 61);
 }
 
 #[test]

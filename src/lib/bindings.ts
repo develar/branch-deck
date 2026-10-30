@@ -349,6 +349,14 @@ export const commands = {
 	 *  no IDE and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
 	 */
 	airLaunch: (params: AirLaunchRequest) => typedError<AirLaunchAnswer, ApiError>(__TAURI_INVOKE("air_launch", { params })),
+	/**
+	 *  Watches the session that a launch of Start in Air started in the IDE with Air that has `params.project` open: its
+	 *  status to `statuses` now and after each change, until the IDE ends the watch, `stop_air_watch`, or the page of the
+	 *  window goes away. No IDE and a refusal of the IDE are answers
+	 */
+	airWatchSession: (params: AirWatchParams, statuses: Channel<AirSessionStatus>) => typedError<AirWatchEnd, ApiError>(__TAURI_INVOKE("air_watch_session", { params, statuses })),
+	/**  Stops the watch of the session `session_id` that the calling window runs, if any */
+	stopAirWatch: (sessionId: string) => __TAURI_INVOKE<void>("stop_air_watch", { sessionId }),
 	/**  The skill files of `bd install` that exist, without writing anything */
 	agentCliStatus: () => __TAURI_INVOKE<AgentCliStatus>("agent_cli_status"),
 	/**
@@ -594,12 +602,33 @@ export type AirLaunchRequest = {
 	model?: string | null,
 	/**  One effort id; none keeps the default of the agent */
 	effort?: string | null,
+	/**  The id of a mode of the target; none keeps the default of the agent */
+	mode?: string | null,
+	/**
+	 *  The session starts in Plan; false is not sent. With a mode of kind `plan` of the target, Plan is that mode, and
+	 *  another `mode` beside it is `MODE_CONFLICT`
+	 */
+	plan?: boolean,
+	/**  The effort id of Plan; only with `plan` (else `BAD_REQUEST`), none keeps the default of the agent */
+	planEffort?: string | null,
 	/**  Required for `run`, optional for `draft` */
 	prompt?: string | null,
 	/**  The title the session list shows */
 	title?: string | null,
 	start: AirStartKind,
 };
+
+/**  A mode of a target */
+export type AirMode = {
+	id: string,
+	name: string,
+	kind: AirModeKind,
+};
+
+/**  What a mode does. A target whose Plan is a mode has a mode of kind `plan`: `plan` of a launch takes it */
+export type AirModeKind = "plan" | "auto_review" | "standard" | "full_access" | 
+/**  A kind of a later protocol */
+string;
 
 /**  A model of a target */
 export type AirModel = {
@@ -611,6 +640,30 @@ export type AirModel = {
 	isDefault?: boolean,
 	/**  The lowercase effort ids the model takes; `auto` is not one: a launch without an effort keeps the agent's default */
 	reasoningEfforts?: string[],
+};
+
+/**  What a session does now */
+export type AirSessionActivity = 
+/**  The agent waits for a prompt: the turn is done, and the user read it */
+"ready" | 
+/**  A New Session tab that sent nothing yet */
+"draft" | 
+/**  The agent works */
+"processing" | 
+/**  The changes of the agent wait for the review of the user */
+"reviewing" | 
+/**  The agent asks the user */
+"needs_input" | 
+/**  The turn is done, and the user did not read it yet */
+"unread" | 
+/**  An activity of a later protocol */
+string;
+
+/**  The status of the watched session, now and after each change */
+export type AirSessionStatus = {
+	/**  The title of the session list, if the IDE names one */
+	title: string | null,
+	activity: AirSessionActivity,
 };
 
 /**  What a launch does in the IDE */
@@ -630,6 +683,10 @@ export type AirTarget = {
 	name: string,
 	/**  Empty when the agent reports no list: then a launch names no model, and any effort passes to the agent */
 	models?: AirModel[],
+	/**  The modes a launch can name (`LaunchRequest::mode`); empty when the agent has none */
+	modes?: AirMode[],
+	/**  A launch can start in Plan (`LaunchRequest::plan`) */
+	plan?: boolean,
 };
 
 /**  The agents of the IDE of a directory */
@@ -643,6 +700,25 @@ export type AirTargetsAnswer =
 export type AirTargetsParams = {
 	/**  The absolute path of the directory the session works in */
 	project: string,
+};
+
+/**  How a watch ended */
+export type AirWatchEnd = { status: "noIde" } | 
+/**  Before the first status any code of the protocol (`BUSY`); after it `NO_SESSION`: the session is gone */
+{ status: "refused"; code: string; message: string | null } | 
+/**  The IDE ended the watch: `timeout` after 4 h */
+{ status: "ended"; reason: string } | 
+/**  The IDE closed the connection without an end */
+{ status: "closed" } | 
+/**  The page stopped it, or the page of its window went away */
+{ status: "stopped" };
+
+/**  What `air_watch_session` asks */
+export type AirWatchParams = {
+	/**  The absolute path of the directory the session works in, as the launch named it */
+	project: string,
+	/**  The id of the session, as the accepted launch answered it */
+	sessionId: string,
 };
 
 /**  Result type for amend command that can be properly serialized by Tauri */

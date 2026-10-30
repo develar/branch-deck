@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 
 /// The number of commands of the registry, every command of the app: a new command raises it, and it proves the macro
 /// listed them all
-const COMMAND_COUNT: usize = 80;
+const COMMAND_COUNT: usize = 82;
 
 #[test]
 fn every_command_is_registered_once() {

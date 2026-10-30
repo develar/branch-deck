@@ -17,6 +17,9 @@ const AirLaunchChoiceSchema = z.object({
   interactionSurfaceId: z.string(),
   model: z.string().nullable(),
   effort: z.string().nullable(),
+  mode: z.string().nullable().optional(),
+  plan: z.boolean().optional(),
+  planEffort: z.string().nullable().optional(),
   start: z.enum(["run", "draft"]),
 }) satisfies z.ZodType<AirLaunchChoice>
 
@@ -30,7 +33,7 @@ export const ProjectMetadataSchema = z.object({
   collapsedStacks: z.array(z.string()).optional(),
   /** A malformed value is dropped, never the recent projects */
   issueNavigationConfig: IssueNavigationConfigSchema.optional().catch(undefined),
-  /** The last agent, model, effort and start that Start in Air launched in the repository; a malformed value is dropped */
+  /** The last agent, model, effort, mode, Plan, plan effort and start that Start in Air launched in the repository; a malformed value is dropped */
   airLaunch: AirLaunchChoiceSchema.optional().catch(undefined),
 })
 

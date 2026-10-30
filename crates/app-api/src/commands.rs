@@ -329,6 +329,14 @@ macro_rules! for_each_command {
       /// no IDE and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
       app(AgentLaunch) json air_launch(params: air_launch::protocol::LaunchRequest) -> $crate::app::air_launch::AirLaunchAnswer = $crate::app::air_launch::air_launch;
 
+      /// Watches the session that a launch of Start in Air started in the IDE with Air that has `params.project` open: its
+      /// status to `statuses` now and after each change, until the IDE ends the watch, `stop_air_watch`, or the page of the
+      /// window goes away. No IDE and a refusal of the IDE are answers
+      read window air_watch_session(params: $crate::app::air_launch::AirWatchParams) [channel statuses: $crate::app::air_launch::AirSessionStatus] -> $crate::app::air_launch::AirWatchEnd = $crate::app::air_launch::air_watch_session;
+
+      /// Stops the watch of the session `session_id` that the calling window runs, if any
+      app(CanceledRead) now stop_air_watch(session_id: String) = $crate::app::air_launch::stop_air_watch;
+
       /// The skill files of `bd install` that exist, without writing anything
       read now agent_cli_status() -> $crate::app::agent_cli::AgentCliStatus = $crate::app::agent_cli::agent_cli_status;
 

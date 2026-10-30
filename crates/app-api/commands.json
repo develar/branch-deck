@@ -393,6 +393,19 @@
     "transport": "json"
   },
   {
+    "name": "air_watch_session",
+    "class": "read",
+    "transport": {
+      "channel": "statuses",
+      "open": false
+    }
+  },
+  {
+    "name": "stop_air_watch",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "agent_cli_status",
     "class": "read",
     "transport": "json"
