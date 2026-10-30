@@ -44,3 +44,4 @@ playwright-report/
 # the console bd that scripts/build-bd.mjs builds for the Windows bundle
 src-tauri/binaries/
 .vitest/
+.junie/plans/
