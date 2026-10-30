@@ -70,6 +70,8 @@ export interface CommitReviewProps {
    * the end of the tree; the plain tree without them
    */
   reviewFacts?: ReviewFacts | null
+  /** Drops `pathFilter`: a file the filter hides is shown when a link of a badge selects it */
+  onShowAllPaths?: () => void
 }
 
 /**
@@ -94,6 +96,7 @@ export function CommitReview({
   codeTop,
   neighbours,
   reviewFacts = null,
+  onShowAllPaths,
 }: CommitReviewProps) {
   const subjectId = diffSubjectId(subject)
   const commitFiles = useFilesOfCommit(subjectId)
@@ -109,6 +112,35 @@ export function CommitReview({
     setFileCount(filteredFiles.length)
   }
   const isSearchShown = filterText !== "" || fileCount >= FILE_FILTER_MIN_FILES
+
+  // a file a link of a badge selects while a filter hides it: only the filter that hides it is dropped, then it is
+  // selected once shown; another subject, search or owner filter forgets it
+  const pathFilterKey = pathFilter === null ? null : [...pathFilter].join("\n")
+  const [reveal, setReveal] = useState<PendingReveal | null>(null)
+  if (reveal !== null && (reveal.subjectId !== subjectId || reveal.filterText !== filterText || (pathFilterKey !== null && pathFilterKey !== reveal.pathFilterKey))) {
+    setReveal(null)
+  }
+  const revealHidden = useCallback(
+    (path: string) => {
+      const file = commitFiles?.files.find(it => it.path === path)
+      if (file === undefined) {
+        return
+      }
+      if (filterFiles([file], pathFilter).length === 0) {
+        if (onShowAllPaths === undefined) {
+          return
+        }
+        onShowAllPaths()
+      }
+      const hiddenBySearch = filterFilesByText([file], filterText).length === 0
+      if (hiddenBySearch) {
+        setFilterText("")
+      }
+      setReveal({ subjectId, path, filterText: hiddenBySearch ? "" : filterText, pathFilterKey })
+    },
+    [commitFiles, pathFilter, pathFilterKey, filterText, onShowAllPaths, subjectId],
+  )
+  const revealPath = reveal !== null && shownFiles?.some(file => file.path === reveal.path) === true ? reveal.path : null
 
   // by the id: the subject object may be new on every render
   useEffect(() => {
@@ -185,13 +217,14 @@ export function CommitReview({
   } else {
     loaded = {
       // the selection and the collapsed directories belong to one commit or range, and to one filter
-      key: pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`,
+      key: pathFilterKey === null ? subjectId : `${subjectId}|${pathFilterKey}`,
       // the counts of the engine, none until its diffs are read: git's numstat counts what the policy ignores too
       files: withEngineCounts(shownFiles, entry?.kind === "loaded" ? entry.files : undefined),
       totalCount: filteredFiles?.length ?? shownFiles.length,
       diffs: entry?.kind === "loaded" ? entry.files : null,
       diffsComplete: entry?.kind === "loaded" && entry.complete,
-      initialPath: initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null,
+      initialPath: revealPath ?? (initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null),
+      revealPath,
       // the commits of the sides: a declaration outside the review is read at them
       revisions: subject.kind === "commit" ? { old: `${subject.id}^`, new: subject.id } : { old: subject.base, new: subject.head },
       reviewFacts,
@@ -215,6 +248,7 @@ export function CommitReview({
         filesHeader={filesHeader}
         codeTop={codeTop}
         search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
+        onRevealHidden={revealHidden}
       />
     </ReviewRoot>
   )
@@ -264,6 +298,16 @@ function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<strin
   return files.filter(file => pathFilter.has(file.path) || (file.oldPath !== null && pathFilter.has(file.oldPath)))
 }
 
+/** A file a link of a badge selected while a filter hid it, and the filters that show it */
+interface PendingReveal {
+  subjectId: string
+  path: string
+  /** The search after the click: empty when the search hid the file */
+  filterText: string
+  /** The owner filter at the click; the parent drops it when it hid the file */
+  pathFilterKey: string | null
+}
+
 /** The files of the shown subject once read, and their diffs once read too: the tree does not wait for the diffs */
 interface LoadedReview {
   /** The subject and the filter: a new key starts the tree and the diffs over */
@@ -277,6 +321,8 @@ interface LoadedReview {
   /** Every diff of the subject arrived: a file without one has none */
   diffsComplete: boolean
   initialPath: string | null
+  /** The file a link of a badge selected while a filter hid it, now shown: the tree selects it */
+  revealPath: string | null
   revisions: DiffRevisions
   /** The facts of the review plan: the badges, the Mechanical group */
   reviewFacts: ReviewFacts | null
@@ -298,6 +344,8 @@ interface ReviewLayoutProps {
   filesHeader: CommitReviewProps["filesHeader"]
   codeTop: ReactNode
   search: FileSearch | null
+  /** A link of a badge selects a changed file that a filter hides */
+  onRevealHidden: (path: string) => void
 }
 
 /** The tree state of one loaded subject (`LoadedReview.key`) and one search text */
@@ -329,9 +377,13 @@ function initialSelection(loaded: LoadedReview | null, filterText: string, nodes
   }
 }
 
-/** Another search text: the directories as a new tree has them, the selected file kept while the search keeps it */
-function searchedSelection(previous: TreeSelection, filterText: string, nodes: readonly FileTreeNode[], files: readonly CommitFile[]): TreeSelection {
-  const selectedPath = files.some(file => file.path === previous.selectedPath) ? previous.selectedPath : (files[0]?.path ?? null)
+/**
+ * Another search text: the directories as a new tree has them, the selected file kept while the search keeps it; the
+ * file a link revealed (`revealPath`) selected
+ */
+function searchedSelection(previous: TreeSelection, filterText: string, nodes: readonly FileTreeNode[], files: readonly CommitFile[], revealPath: string | null): TreeSelection {
+  const kept = revealPath ?? previous.selectedPath
+  const selectedPath = files.some(file => file.path === kept) ? kept : (files[0]?.path ?? null)
   const collapsed = filterText.trim() === "" ? getInitiallyCollapsed(nodes, files.length) : new Set<string>()
   return { ...previous, filterText, collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes), selectedPath, grouped: hasMechanicalGroup(nodes) }
 }
@@ -358,7 +410,7 @@ const SIDEBAR_WIDTH = "19rem"
  * The sidebar beside the diffs, in every state of the review: the parts of the sidebar (the commits, the header of the
  * files) stay mounted, only the tree and the diffs start over for another subject or filter.
  */
-function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search }: ReviewLayoutProps) {
+function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search, onRevealHidden }: ReviewLayoutProps) {
   const diffViewMode = useDiffViewMode()
   const sidebarShown = useAppSettings(state => state.reviewSidebar)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
@@ -382,7 +434,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   if (selection.key !== loadedKey) {
     setSelection(initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
   } else if (selection.filterText !== filterText) {
-    setSelection(searchedSelection(selection, filterText, nodes, files))
+    setSelection(searchedSelection(selection, filterText, nodes, files, loaded?.revealPath ?? null))
   } else if (selection.grouped !== hasMechanicalGroup(nodes)) {
     setSelection(groupedSelection(selection, nodes))
   }
@@ -448,12 +500,14 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     }
     const onSelectPath = (path: string) => {
       const file = files.find(it => it.path === path)
-      if (file !== undefined) {
+      if (file === undefined) {
+        onRevealHidden(path)
+      } else {
         selectInTree(file)
       }
     }
     return { files: presentFileBadges(reviewFacts), dependencies, onSelectPath }
-  }, [reviewFacts, nodes, files, selectInTree])
+  }, [reviewFacts, nodes, files, selectInTree, onRevealHidden])
 
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
   useEffect(() => {

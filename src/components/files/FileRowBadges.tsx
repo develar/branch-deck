@@ -180,8 +180,9 @@ export function DependencyBadgeView({ badge }: { badge: DependencyBadge }) {
       </TooltipTrigger>
       <TooltipContent>
         <span className="flex flex-col" data-testid="directory-dependency-changes">
-          {badge.lines.map(line => (
-            <span key={line}>{line}</span>
+          {badge.lines.map((line, index) => (
+            // two changes can read the same: the same name in two scopes of one module
+            <span key={index}>{line}</span>
           ))}
         </span>
       </TooltipContent>

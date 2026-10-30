@@ -80,6 +80,13 @@ async function openPlanWindow(page: Page, syncAndWaitForBranches: () => Promise<
   return window
 }
 
+/** The tree of the files of the review, and the rows of the three files of `plan` */
+function planRows(window: Page) {
+  const tree = window.getByRole("tree", { name: "Changed files" })
+  const row = (name: string) => tree.getByRole("treeitem", { name })
+  return { tree, reader: row("Reader.kt"), cache: row("Cache.kt"), store: row("Store.kt") }
+}
+
 /** Mark Reviewed of the title bar of the window: it keeps the base and the tip of `plan` and says so */
 async function markReviewed(window: Page): Promise<void> {
   await runAndWaitForAnswer(window, "mark_branch_reviewed", () => window.getByTestId("branch-review-mark-reviewed").click())
@@ -114,10 +121,7 @@ test.describe("The review plan in the branch review", () => {
   test("should badge each file with its links, the uses it breaks and no test, and select a linked file from its popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
     const window = await openPlanWindow(page, syncAndWaitForBranches)
-    const tree = window.getByRole("tree", { name: "Changed files" })
-    const reader = tree.getByRole("treeitem", { name: "Reader.kt" })
-    const cache = tree.getByRole("treeitem", { name: "Cache.kt" })
-    const store = tree.getByRole("treeitem", { name: "Store.kt" })
+    const { tree, reader, cache, store } = planRows(window)
 
     // Reader imports the new Cache: a link the change added; Store's `helper` keeps 3 uses outside the change
     await expect(reader.getByTestId("file-links-badge")).toHaveText("uses 1+1 new")
@@ -142,6 +146,57 @@ test.describe("The review plan in the branch review", () => {
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect(popover).toHaveCount(0)
     await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+  })
+
+  test("should select a linked file that a filter hides, and drop only the filter that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    // five notes more, so the window has the search of the files; the owners of the baseline, src/b its own
+    const notes = Object.fromEntries([1, 2, 3, 4, 5].map(number => [`docs/note${number}.txt`, `note ${number}\n`]))
+    await repo.commit("(plan) add the notes", notes, 1704124800)
+    await repo.commitOnRemote("master", {
+      subject: "Add the owners",
+      author: "Jane <jane@example.com>",
+      timestamp: 1704110400,
+      files: { OWNERSHIP: "owner 'Monorepo'\n", "src/b/OWNERSHIP": "owner 'Cache Team'\n" },
+    })
+    await repo.fetchInTerminal()
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    const { reader, cache } = planRows(window)
+    const owner = (name: string) => window.getByTestId("branch-review-owner").filter({ hasText: name })
+    const search = window.getByRole("textbox", { name: "Filter files" })
+    const selectCacheFromReader = async () => {
+      await reader.getByTestId("file-links-badge").click()
+      await window.getByTestId("file-links-badge-popover").getByTestId("file-link").click()
+    }
+
+    // the owner filter hides Cache: a click on its link shows all files and selects it
+    await owner("Monorepo").click()
+    await expect(cache).toHaveCount(0)
+    await selectCacheFromReader()
+    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
+    await expect(cache).toBeVisible()
+    await expect(cache).toHaveAttribute("aria-selected", "true")
+    await expect(window.getByTestId("branch-review-position")).toHaveText(/File 7 \/ 8$/)
+
+    // a search that shows Cache stays
+    await search.fill(".kt")
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt"])
+    // the name of the row: its middle is a badge
+    await reader.getByText("Reader.kt", { exact: true }).click()
+    await expect(reader).toHaveAttribute("aria-selected", "true")
+    await selectCacheFromReader()
+    await expect(cache).toHaveAttribute("aria-selected", "true")
+    await expect(search).toHaveValue(".kt")
+
+    // a search that hides Cache is cleared, and Cache selected
+    await search.fill("Reader")
+    await expect(cache).toHaveCount(0)
+    await selectCacheFromReader()
+    await expect(search).toHaveValue("")
+    await expect(cache).toBeVisible()
+    await expect(cache).toHaveAttribute("aria-selected", "true")
+    await expect(window.getByTestId("branch-review-position")).toHaveText(/File 7 \/ 8$/)
   })
 
   test("should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module", async ({

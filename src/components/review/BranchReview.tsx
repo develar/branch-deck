@@ -160,6 +160,7 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       scopeTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
       commitTop={loaded.plan === null || !loaded.sinceShown ? undefined : <ReviewPlanCard state={loaded.plan} />}
       reviewFacts={loaded.reviewFacts}
+      onShowAllPaths={() => model.setFilter({ kind: "all" })}
       commitMenu={commit => {
         // the commit's branch: the segment that has it
         const branch = loaded.segments.find(segment => segment.commits.some(it => it.id === commit.id))?.name

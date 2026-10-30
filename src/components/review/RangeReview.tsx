@@ -50,6 +50,8 @@ export interface RangeReviewProps {
   commitTop?: ReactNode
   /** The facts of the review plan of the scope: the badges of the files, the Mechanical group */
   reviewFacts?: CommitReviewProps["reviewFacts"]
+  /** Drops `pathFilter` for a file a link of a badge selects */
+  onShowAllPaths?: () => void
 }
 
 /**
@@ -75,6 +77,7 @@ export function RangeReview({
   scopeTop,
   commitTop,
   reviewFacts,
+  onShowAllPaths,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
@@ -104,6 +107,7 @@ export function RangeReview({
         sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} commitMenu={commitMenu} />}
         filesHeader={filesHeader}
         reviewFacts={reviewFacts}
+        onShowAllPaths={onShowAllPaths}
         codeTop={
           shown?.kind === "commit" ? (
             <>
