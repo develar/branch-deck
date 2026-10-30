@@ -1,7 +1,7 @@
 # Rendering Performance
 
 **Status:** Implemented  
-**Updated:** 2026-10-27  
+**Updated:** 2026-10-30  
 **Tags:** [frontend, react, zustand, performance]
 
 ## Problem
@@ -386,8 +386,16 @@ from 2026-10-26, for the words "with children" of `ChildrenPushButton` at `@4xl`
 root, which the column registry sets as the width of the view crosses 56rem, and the view is no container
 ([Branch columns](ui-theme.md#branch-columns), "Room, not a container query"): on the Mac Studio in turns, five runs
 each at a load of 9 to 13, the container 111.5 and 125.6 ms, the flag 6.25 and 7.59 ms; a text 2.63–2.84 and
-1.76–2.03 ms against 0.37–0.40 inside the container (the tree of s0a: 2.39 and 1.71 ms). The tree of s0a and this one
-in turns come with the final measurements of s15.
+1.76–2.03 ms against 0.37–0.40 inside the container (the tree of s0a: 2.39 and 1.71 ms). In the final turns of s15
+([Итог s15](rust-domain-authority.md#итог-s15), two tours of five runs each at a load of 6 to 8) the view took 6.05 and
+5.86 ms against 6.86 and 6.47 ms of the tree of s0a, 9–12 % less. A text of the same width took 1.60–1.89 against
+1.58–1.86 ms, the same within the noise; a wider text 2.65 and 2.45 against 2.40 and 2.21 ms, and 2.67–2.74 against
+2.50–2.55 ms in six more turns of the same measure: 7 % more, the one measure of Итог s14 in which the page is slower
+than the tree of s0a. That floor is older than s15: master without the container took 2.75–2.77 ms in turns with the
+stage's 2.81–2.84, so it came with the rows of the rework, which the container hid. Its cause is not named; it is not
+the wrapper of the Safe Push button (`display: contents` on it changed nothing), the fractional widths of the tracks
+(the tree of s0a wrote whole pixels; rounded up, the same) or the words of `data-wide` (off, the same), and a row has
+47 elements against 46.
 
 Since s15-2 `perf:table` also says where the task time of a sync goes and what a sync renders. The main thread of
 each sync has the layouts and the style recalcs of the page beside its script and task time, with their time
@@ -400,7 +408,8 @@ sync that changes nothing renders, and `oneBranchSyncRows`, those of a sync that
 with the renders of the table card and of the island cards in that sync. In its first runs (2026-10-29, on the Mac
 Studio at a load of 7 to 32, which says nothing of the times) a sync of one more commit on `feature-050` rendered that
 row alone, in Chromium and in WebKit, and neither the table nor an island (B3: one row); a sync that changes nothing
-rendered all 141 rows, as the status of each went from `Created` to `Unchanged` (B5).
+rendered all 141 rows, as the status of each went from `Created` to `Unchanged` (B5). The final turns of s15 counted the
+same in both engines and both tours, after s15-4 with no row of a sync that changes nothing (below).
 
 Since s15-4 a row reads what it shows beside its status (`Branch.row`, Key Decision 3) and its status is a leaf of its
 own: a sync that changes nothing renders the 141 statuses and no row (`resyncRows` 0), a sync of one more commit on one
@@ -461,7 +470,22 @@ than before the step and 6–8 % less than the tree of s0a in the same turns, it
 it asked (3 commands until its rows, nothing on a hover or a menu, one `set_demand` for a popover), and the patches stay
 the session's, one per 16 ms as the run goes, none coalesced (B15). The style recalcs cost about what they cost in the
 tree of s0a; what that tree is still spared is the layout and the paint of the progress, 40 to 70 frames. The tree of
-s0a measured 616 / 646 ms in Итог s14 and 652 to 680 ms in these turns: the final comparison comes with Итог s15.
+s0a measured 616 / 646 ms in Итог s14 and 652 to 680 ms in these turns.
+
+The final turns of s15 ([Итог s15](rust-domain-authority.md#итог-s15)) ran the tree of s0a and the stage in turn on the
+Mac Studio, two tours of five runs each in Chromium at a load of 6 to 8 (the first side of s0a began at 15, the tail of
+another's run, and measured what its second tour did), the layouts and the style recalcs of the tree of s0a and the
+sync that changes nothing by both waits from one throwaway copy of the attribution in each tree:
+
+| 2026-10-30 | first sync, script / task | its layouts, its style recalcs | sync that changes nothing, script / task: in the page; by the locators | first rows |
+|---|---|---|---|---|
+| the tree of s0a `66938306` | 402.8 / 666, 397.4 / 653 ms | 12–13 in 21–23 ms, 33–38 in 103–108 ms | 59.5 / 95, 56.5 / 94 ms; 59.3 / 128, 61.1 / 130 ms | 1961, 1934 ms |
+| s15 `310045a89` | 231.6 / 561, 231.4 / 607 ms | 37–40 in 36–41 ms, 61–65 in 93–127 ms | 8.4 / 36, 8.4 / 30 ms; 13.0 / 69, 13.0 / 64 ms | 1537, 1554 ms |
+
+The first sync costs 42 % less script and 7–16 % less task than the tree of s0a: its style recalcs cost what they cost
+there, its layouts 15–18 ms more, those of the 40 to 70 frames of the progress, which the tree of s0a did not render. A
+sync that changes nothing costs 85 % less script waited for in the page (B5, at most 10 ms) and 78 % less by the
+locators, which add about 4 ms of their own; the first rows come 20 % sooner (23 % in WebKit).
 
 ### The IPC of the branch view
 
@@ -494,6 +518,9 @@ budgets of `patch_bytes_test.rs` (above), which prints them:
 | master `21e7e183`, Chromium, in the same turns | 61–63 / 1 | 26384–26388 | 1 / 0 / 1 |
 | 2026-10-29, the review read as its window opens (s15), Chromium, Mac Studio, two runs at load 48 | 68 / 3 | 26360 | 0 / 0 / 1 |
 | 2026-10-29, the same runs, WebKit | 70 / 3 | 25272 | 0 / 0 / 1 |
+| 2026-10-30, s15 landed ([Итог s15](rust-domain-authority.md#итог-s15)), Chromium, Mac Studio, two tours | 65 / 3 | 26356 | 0 / 0 / 1 |
+| the same tours, WebKit | 67 / 3 | 25272 | 0 / 0 / 1 |
+| the tree of s0a `66938306` in the same tours, both engines | 432 / 8 | 201670 | 1 / 0 / 0 |
 
 A sync on the `SyncEvent` channel sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
 `remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
@@ -648,7 +675,9 @@ the total beside the budget of B13 (719,284 bytes, the tree of s0a), and from th
 package, of each module of the page (`--top`) and of the bundler's own code, which no map names: the imports and
 exports between the chunks, the list of their dependencies and the preload helper. `tests/results/perf/eager-js.json`
 keeps the report. On 2026-10-29, after s15-1: 806,609 bytes (263,474 gzipped), 87,325 over the budget; on
-2026-10-30, after s15-6: 681,308 (221,764), 37,976 under it; after s15-7: 587,718 (192,248), 131,566 under it.
+2026-10-30, after s15-6: 681,308 (221,764), 37,976 under it; after s15-7: 587,718 (192,248), 131,566 under it; in the
+final measurement of s15, 587,747 (192,258) against 719,284 (235,088) of the tree of s0a by the same script (its build
+read with `--dist`), 18.3 % less.
 
 `preloadInterFont` (`vite.config.ts`) adds a `<link rel="preload">` for the upright InterVariable face to the built
 `index.html`. Without it the browser finds the font only after the CSS applies, and a window paints first in the
