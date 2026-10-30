@@ -39,9 +39,14 @@ const TAURI: &str = "tauri*";
 /// The engine of the operations of the remote, above the model and the facts: what it builds on never reaches it
 const OPERATIONS: &str = "operations";
 /// The rules of the domain: the model, the facts of the remote and the engine read them over what the crates of git
-/// found (`git-ops`, `history-rewrite`, `sync-core`, `trial-check`, `update-core`, `lease-pool`), which never reach
-/// them, so a change of a rule builds none of those crates again
+/// found (`GIT_CRATES`)
 const POLICY: &str = "domain-policy";
+/// The crates of git, which find what the rules read: neither they nor their tests reach the rules (`POLICY`), so a
+/// change of a rule builds none of them again, their test binaries neither
+const GIT_CRATES: &[&str] = &["git-ops", "history-rewrite", "sync-core", "trial-check", "update-core", "lease-pool"];
+/// Why `GIT_CRATES` never reach `POLICY`
+const RULES_ABOVE_GIT: &str =
+  "the crates of git and their tests decide no rule of the domain (the model, the facts and the engine read the rules), so a change of a rule builds none of them again";
 /// The crates of the remote runs (docs/design/host-runs.md): the link, the client, the agent and the binary `bd-host`,
 /// which neither `bd` nor the app links
 const HOST_RUNS: &[&str] = &["host-link", "host-client", "host-agent", "bd-host"];
@@ -75,16 +80,6 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "the settings of the app are a file: no git, no network, no runtime, no Tauri, so bd reads them without the app",
   },
   Unreachable {
-    from: "git-ops",
-    forbidden: &[POLICY],
-    why: "git-ops has the git and decides no rule of the domain: the model, the facts and the engine read the rules",
-  },
-  Unreachable {
-    from: "history-rewrite",
-    forbidden: &[POLICY],
-    why: "the rewrites of the checked-out branch decide no rule of the domain: the model, the facts and the engine read the rules",
-  },
-  Unreachable {
     from: "patronus",
     forbidden: &["git-ops", "git-executor"],
     why: "the Patronus client runs no git",
@@ -96,18 +91,18 @@ const UNREACHABLE: &[Unreachable] = &[
   },
   Unreachable {
     from: "sync-core",
-    forbidden: &["github", "patronus", "youtrack", "file-diffs", "code-symbols", OPERATIONS, POLICY],
-    why: "the sync reads no remote service, no file diff and no symbol, and decides no rule of the domain (the model, the facts and the engine read the rules)",
+    forbidden: &["github", "patronus", "youtrack", "file-diffs", "code-symbols", OPERATIONS],
+    why: "the sync reads no remote service, no file diff and no symbol",
   },
   Unreachable {
     from: "update-core",
-    forbidden: &["github", "patronus", "youtrack", OPERATIONS, POLICY],
-    why: "Update Project, the pick and the resolve sessions read no remote service (the fetch is git's) and decide no rule of the domain",
+    forbidden: &["github", "patronus", "youtrack", OPERATIONS],
+    why: "Update Project, the pick and the resolve sessions read no remote service (the fetch is git's)",
   },
   Unreachable {
     from: "trial-check",
-    forbidden: &["github", "patronus", "youtrack", OPERATIONS, POLICY],
-    why: "a trial check builds and reads the commits of the repository, never a remote service, and decides no rule of the domain",
+    forbidden: &["github", "patronus", "youtrack", OPERATIONS],
+    why: "a trial check builds and reads the commits of the repository, never a remote service",
   },
   Unreachable {
     from: "review-plan",
@@ -136,12 +131,11 @@ const UNREACHABLE: &[Unreachable] = &[
       "file-diffs",
       "code-symbols",
       OPERATIONS,
-      POLICY,
       "host-link",
       "host-client",
       "host-agent",
     ],
-    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check, a diff, a rule of the domain or a remote run",
+    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check, a diff or a remote run",
   },
   Unreachable {
     from: "remote-facts",
@@ -391,8 +385,10 @@ fn is_family(name: &str) -> bool {
 }
 
 /// Every crate that `from` reaches over normal edges outside `allowed` (an optional edge as `follows` decides, with the
-/// features the edges of the reach enable on each crate), with its first path from `from`
-fn reach<'g>(graph: &'g Graph, allowed: &[&Allowed], from: &str) -> BTreeMap<String, Vec<String>> {
+/// features the edges of the reach enable on each crate), with its first path from `from`. With `tests`, what the test
+/// binaries of `from` reach: its own dev-dependencies too, the first edge of a path (cargo builds the dev-dependencies of
+/// no other crate for them), marked `(dev)` in the path
+fn reach<'g>(graph: &'g Graph, allowed: &[&Allowed], from: &str, tests: bool) -> BTreeMap<String, Vec<String>> {
   let mut paths = BTreeMap::from([(from.to_owned(), vec![from.to_owned()])]);
   let mut enabled: BTreeMap<String, BTreeSet<&'g str>> = BTreeMap::new();
   let mut queue = VecDeque::from([from.to_owned()]);
@@ -403,7 +399,8 @@ fn reach<'g>(graph: &'g Graph, allowed: &[&Allowed], from: &str) -> BTreeMap<Str
     };
     let closure = enabled_closure(package, enabled.get(&name).into_iter().flatten().copied());
     for dependency in &package.dependencies {
-      if dependency.kind != Kind::Normal || !follows(package, &closure, dependency) || is_allowed(allowed, &name, &dependency.name) {
+      let built = dependency.kind == Kind::Normal || (tests && name == from && dependency.kind == Kind::Dev);
+      if !built || !follows(package, &closure, dependency) || is_allowed(allowed, &name, &dependency.name) {
         continue;
       }
       let on = enabled_on(package, &closure, dependency);
@@ -418,7 +415,11 @@ fn reach<'g>(graph: &'g Graph, allowed: &[&Allowed], from: &str) -> BTreeMap<Str
         continue;
       }
       let mut next = path.clone();
-      next.push(dependency.name.clone());
+      next.push(if dependency.kind == Kind::Dev {
+        format!("{} (dev)", dependency.name)
+      } else {
+        dependency.name.clone()
+      });
       paths.insert(dependency.name.clone(), next);
       queue.push_back(dependency.name.clone());
     }
@@ -456,10 +457,15 @@ fn direct_rule(from: &str, dependency: &Dependency) -> Option<&'static str> {
 fn violations(graph: &Graph, allowed: &[&Allowed]) -> Vec<String> {
   let mut report = Vec::new();
   for rule in UNREACHABLE {
-    for (name, path) in reach(graph, allowed, rule.from) {
+    for (name, path) in reach(graph, allowed, rule.from, false) {
       if rule.forbidden.iter().any(|pattern| matches(pattern, &name)) {
         report.push(format!("  {} reaches {name} ({}): {}", rule.from, path.join(" -> "), rule.why));
       }
+    }
+  }
+  for from in GIT_CRATES {
+    if let Some(path) = reach(graph, allowed, from, true).get(POLICY) {
+      report.push(format!("  {from} reaches {POLICY} ({}): {RULES_ABOVE_GIT}", path.join(" -> ")));
     }
   }
   for (from, package) in graph {
@@ -513,7 +519,11 @@ fn every_allowed_edge_exists_and_breaks_a_rule() {
 #[test]
 fn the_rules_of_the_architecture_name_crates_of_the_workspace() {
   let graph = workspace_graph();
-  let named = UNREACHABLE.iter().map(|rule| rule.from).chain([APP, APP_API, TEST_SERVER, BD_CORE, BD_CLI]);
+  let named = UNREACHABLE
+    .iter()
+    .map(|rule| rule.from)
+    .chain(GIT_CRATES.iter().copied())
+    .chain([APP, APP_API, TEST_SERVER, BD_CORE, BD_CLI]);
   let unknown: Vec<&str> = named.filter(|name| !graph.contains_key(*name)).collect();
   assert!(unknown.is_empty(), "the architecture rules name crates the workspace lacks (renamed?): {unknown:?}");
 }
@@ -740,22 +750,32 @@ fn the_architecture_check_keeps_app_api_to_the_app_and_the_e2e_server() {
   );
 }
 
+/// The crates of git reach the rules neither over their dependencies nor in their tests: a dev-dependency of a crate of
+/// git on the rules, or on a crate that reaches them, builds its test binaries again at a change of a rule. A
+/// dev-dependency of a crate below is built for no test of the crate above
 #[test]
-fn the_architecture_check_keeps_the_rules_out_of_the_crates_of_git() {
+fn the_architecture_check_keeps_the_rules_out_of_the_crates_of_git_and_their_tests() {
   let graph = graph_of(&[
     ("git-ops", POLICY, Kind::Normal, &[]),
     ("update-core", "sync-core", Kind::Normal, &[]),
     ("sync-core", POLICY, Kind::Normal, &[]),
+    ("trial-check", POLICY, Kind::Dev, &[]),
+    ("lease-pool", "test-utils", Kind::Dev, &[]),
+    ("test-utils", "repository-model", Kind::Normal, &[]),
     ("repository-model", POLICY, Kind::Normal, &[]),
     ("repository-model", "sync-core", Kind::Normal, &[]),
+    ("history-rewrite", "git-executor", Kind::Normal, &[]),
+    ("git-executor", "fixtures-of-the-rules", Kind::Dev, &[]),
+    ("fixtures-of-the-rules", POLICY, Kind::Normal, &[]),
   ]);
-  let sync = "the sync reads no remote service, no file diff and no symbol, and decides no rule of the domain (the model, the facts and the engine read the rules)";
   assert_eq!(
     violations(&graph, &[]),
     [
-      "  git-ops reaches domain-policy (git-ops -> domain-policy): git-ops has the git and decides no rule of the domain: the model, the facts and the engine read the rules".to_owned(),
-      format!("  sync-core reaches domain-policy (sync-core -> domain-policy): {sync}"),
-      "  update-core reaches domain-policy (update-core -> sync-core -> domain-policy): Update Project, the pick and the resolve sessions read no remote service (the fetch is git's) and decide no rule of the domain".to_owned(),
+      format!("  git-ops reaches domain-policy (git-ops -> domain-policy): {RULES_ABOVE_GIT}"),
+      format!("  sync-core reaches domain-policy (sync-core -> domain-policy): {RULES_ABOVE_GIT}"),
+      format!("  trial-check reaches domain-policy (trial-check -> domain-policy (dev)): {RULES_ABOVE_GIT}"),
+      format!("  update-core reaches domain-policy (update-core -> sync-core -> domain-policy): {RULES_ABOVE_GIT}"),
+      format!("  lease-pool reaches domain-policy (lease-pool -> test-utils (dev) -> repository-model -> domain-policy): {RULES_ABOVE_GIT}"),
     ]
   );
 }

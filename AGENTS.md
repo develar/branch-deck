@@ -320,9 +320,9 @@ Every rule of the domain is one file of `crates/domain-policy/src/` (its `//!` h
 `targets:` list it; a table test `<rule>_test.rs` beside it), a pure function the app and `bd` both call; the session
 derives its answer into the view (`repository_model::derive`), which the page only words (`src/presenters/`). A rule
 never goes into `src/lib` or `src/hooks` (`pnpm lint:arch`). The crates of git (`git-ops`, `history-rewrite`, `sync-core`,
-`trial-check`, `update-core`, `lease-pool`) never reach `domain-policy` (`crates/bd-cli/src/architecture_test.rs`): what
-they need of a rule is a fact, or a method of its type in `domain-types` (`RemoteStatusUpdate::push_action`). The table
-of the rules: [Code Map](docs/contributing/code-map.md#rule-index).
+`trial-check`, `update-core`, `lease-pool`) and their tests never reach `domain-policy`
+(`crates/bd-cli/src/architecture_test.rs`): what they need of a rule is a fact, or a method of its type in
+`domain-types` (`RemoteStatusUpdate::push_action`). The table of the rules: [Code Map](docs/contributing/code-map.md#rule-index).
 
 ### Documents
 Design (`docs/design/`): [Landing](docs/design/landing.md) (the product model),
