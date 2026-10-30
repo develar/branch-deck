@@ -170,6 +170,15 @@ test.describe("The review plan in the branch review", () => {
       await window.getByTestId("file-links-badge-popover").getByTestId("file-link").click()
     }
 
+    const position = window.getByTestId("branch-review-position")
+    const ownerAwayAndBack = async () => {
+      await owner("Monorepo").click()
+      await expect(cache).toHaveCount(0)
+      await owner("All").click()
+      await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
+      await expect(cache).toBeVisible()
+    }
+
     // the owner filter hides Cache: a click on its link shows all files and selects it
     await owner("Monorepo").click()
     await expect(cache).toHaveCount(0)
@@ -177,26 +186,42 @@ test.describe("The review plan in the branch review", () => {
     await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toBeVisible()
     await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(window.getByTestId("branch-review-position")).toHaveText(/File 7 \/ 8$/)
+    await expect(position).toHaveText(/File 7 \/ 8$/)
+    // the link selects Cache once: the owner filter away and back starts at the first file
+    await ownerAwayAndBack()
+    await expect(cache).toHaveAttribute("aria-selected", "false")
+    await expect(position).toHaveText(/File 1 \/ 8$/)
 
-    // a search that shows Cache stays
+    // the owner filter hides Cache and the search shows it: the owner filter goes, the search stays
+    // the search first: the owner filter leaves too few files for its field
     await search.fill(".kt")
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt"])
-    // the name of the row: its middle is a badge
-    await reader.getByText("Reader.kt", { exact: true }).click()
-    await expect(reader).toHaveAttribute("aria-selected", "true")
+    await owner("Monorepo").click()
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/Store.kt"])
     await selectCacheFromReader()
-    await expect(cache).toHaveAttribute("aria-selected", "true")
+    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
     await expect(search).toHaveValue(".kt")
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt"])
+    await expect(cache).toBeVisible()
+    await expect(cache).toHaveAttribute("aria-selected", "true")
+    await expect(position).toHaveText(/File 2 \/ 3$/)
 
-    // a search that hides Cache is cleared, and Cache selected
+    // a search that hides Cache is cleared, and Cache selected; the search does not select it again
     await search.fill("Reader")
     await expect(cache).toHaveCount(0)
     await selectCacheFromReader()
     await expect(search).toHaveValue("")
     await expect(cache).toBeVisible()
     await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(window.getByTestId("branch-review-position")).toHaveText(/File 7 \/ 8$/)
+    await expect(position).toHaveText(/File 7 \/ 8$/)
+    // the name of the row: its middle is a badge
+    await reader.getByText("Reader.kt", { exact: true }).click()
+    await expect(reader).toHaveAttribute("aria-selected", "true")
+    await search.fill(".kt")
+    await expect(reader).toHaveAttribute("aria-selected", "true")
+    await search.fill("")
+    await expect(reader).toHaveAttribute("aria-selected", "true")
+    await ownerAwayAndBack()
+    await expect(cache).toHaveAttribute("aria-selected", "false")
   })
 
   test("should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module", async ({

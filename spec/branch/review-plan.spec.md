@@ -472,6 +472,7 @@ group at the end.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and select a linked file from its popover`)
 - A click on a file in a popover must select it also when a filter hides it. The owner filter then goes back to All
   when it hides the file, and the search is cleared when it hides the file. A filter that shows the file stays.
+  The click selects the file once: a later change of the owner filter or the search must not select it again.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select a linked file that a filter hides, and drop only the filter that hides it`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line and its state`)
 - A file row must show `breaks N` in the warning tone for the uses left outside the change of the API it removes or

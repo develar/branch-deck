@@ -114,19 +114,22 @@ export function CommitReview({
   const isSearchShown = filterText !== "" || fileCount >= FILE_FILTER_MIN_FILES
 
   // a file a link of a badge selects while a filter hides it: only the filter that hides it is dropped, then it is
-  // selected once shown; another subject, search or owner filter forgets it
+  // selected once, and the tree reports that (`onRevealApplied`); a subject, search or owner filter other than those
+  // the click left forgets it before
   const pathFilterKey = pathFilter === null ? null : [...pathFilter].join("\n")
   const [reveal, setReveal] = useState<PendingReveal | null>(null)
-  if (reveal !== null && (reveal.subjectId !== subjectId || reveal.filterText !== filterText || (pathFilterKey !== null && pathFilterKey !== reveal.pathFilterKey))) {
+  if (reveal !== null && (reveal.subjectId !== subjectId || reveal.filterText !== filterText || reveal.pathFilterKey !== pathFilterKey)) {
     setReveal(null)
   }
+  const forgetReveal = useCallback(() => setReveal(null), [])
   const revealHidden = useCallback(
     (path: string) => {
       const file = commitFiles?.files.find(it => it.path === path)
       if (file === undefined) {
         return
       }
-      if (filterFiles([file], pathFilter).length === 0) {
+      const hiddenByOwner = filterFiles([file], pathFilter).length === 0
+      if (hiddenByOwner) {
         if (onShowAllPaths === undefined) {
           return
         }
@@ -136,7 +139,8 @@ export function CommitReview({
       if (hiddenBySearch) {
         setFilterText("")
       }
-      setReveal({ subjectId, path, filterText: hiddenBySearch ? "" : filterText, pathFilterKey })
+      // the parent drops its filter in the same batch: All has no path filter
+      setReveal({ subjectId, path, filterText: hiddenBySearch ? "" : filterText, pathFilterKey: hiddenByOwner ? null : pathFilterKey })
     },
     [commitFiles, pathFilter, pathFilterKey, filterText, onShowAllPaths, subjectId],
   )
@@ -249,6 +253,7 @@ export function CommitReview({
         codeTop={codeTop}
         search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
         onRevealHidden={revealHidden}
+        onRevealApplied={forgetReveal}
       />
     </ReviewRoot>
   )
@@ -304,7 +309,7 @@ interface PendingReveal {
   path: string
   /** The search after the click: empty when the search hid the file */
   filterText: string
-  /** The owner filter at the click; the parent drops it when it hid the file */
+  /** The owner filter after the click: none when it hid the file, as the parent then drops it */
   pathFilterKey: string | null
 }
 
@@ -346,6 +351,8 @@ interface ReviewLayoutProps {
   search: FileSearch | null
   /** A link of a badge selects a changed file that a filter hides */
   onRevealHidden: (path: string) => void
+  /** The tree selected `LoadedReview.revealPath`: it is not selected again */
+  onRevealApplied: () => void
 }
 
 /** The tree state of one loaded subject (`LoadedReview.key`) and one search text */
@@ -356,6 +363,10 @@ interface TreeSelection {
   selectedPath: string | null
   /** The tree has the Mechanical group: a plan that comes after the files folds it once */
   grouped: boolean
+  /** The file the diffs of this key open at (`LoadedReview.initialPath` at the start of the key) */
+  initialPath: string | null
+  /** The file of a link this selection selected (`LoadedReview.revealPath`) */
+  revealed: string | null
 }
 
 function hasMechanicalGroup(nodes: readonly FileTreeNode[]): boolean {
@@ -364,7 +375,7 @@ function hasMechanicalGroup(nodes: readonly FileTreeNode[]): boolean {
 
 function initialSelection(loaded: LoadedReview | null, filterText: string, nodes: readonly FileTreeNode[], fileCount: number, firstPath: string | null): TreeSelection {
   if (loaded === null) {
-    return { key: null, filterText, collapsed: new Set(), selectedPath: null, grouped: false }
+    return { key: null, filterText, collapsed: new Set(), selectedPath: null, grouped: false, initialPath: null, revealed: null }
   }
   // what a search found shows whole: its directories open
   const initial = filterText.trim() === "" ? getInitiallyCollapsed(nodes, fileCount) : new Set<string>()
@@ -374,6 +385,8 @@ function initialSelection(loaded: LoadedReview | null, filterText: string, nodes
     collapsed: loaded.initialPath === null ? initial : revealInTree(initial, loaded.initialPath, nodes),
     selectedPath: loaded.initialPath ?? firstPath,
     grouped: hasMechanicalGroup(nodes),
+    initialPath: loaded.initialPath,
+    revealed: loaded.revealPath,
   }
 }
 
@@ -385,7 +398,14 @@ function searchedSelection(previous: TreeSelection, filterText: string, nodes: r
   const kept = revealPath ?? previous.selectedPath
   const selectedPath = files.some(file => file.path === kept) ? kept : (files[0]?.path ?? null)
   const collapsed = filterText.trim() === "" ? getInitiallyCollapsed(nodes, files.length) : new Set<string>()
-  return { ...previous, filterText, collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes), selectedPath, grouped: hasMechanicalGroup(nodes) }
+  return {
+    ...previous,
+    filterText,
+    collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
+    selectedPath,
+    grouped: hasMechanicalGroup(nodes),
+    revealed: revealPath,
+  }
 }
 
 /** The plan came, or went: the Mechanical group starts collapsed unless it holds the selected file */
@@ -410,7 +430,7 @@ const SIDEBAR_WIDTH = "19rem"
  * The sidebar beside the diffs, in every state of the review: the parts of the sidebar (the commits, the header of the
  * files) stay mounted, only the tree and the diffs start over for another subject or filter.
  */
-function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search, onRevealHidden }: ReviewLayoutProps) {
+function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search, onRevealHidden, onRevealApplied }: ReviewLayoutProps) {
   const diffViewMode = useDiffViewMode()
   const sidebarShown = useAppSettings(state => state.reviewSidebar)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
@@ -439,6 +459,13 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     setSelection(groupedSelection(selection, nodes))
   }
   const { collapsed, selectedPath } = selection
+  // the file of a link is selected once: a later key or search does not select it again
+  const revealApplied = loaded !== null && loaded.revealPath !== null && selection.revealed === loaded.revealPath
+  useEffect(() => {
+    if (revealApplied) {
+      onRevealApplied()
+    }
+  }, [revealApplied, onRevealApplied])
   const code = useRef<CommitReviewCodeHandle>(null)
   const tree = useRef<HTMLDivElement>(null)
 
@@ -624,7 +651,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                   ref={code}
                   files={viewFiles}
                   diffViewMode={diffViewMode}
-                  initialPath={loaded.initialPath}
+                  initialPath={selection.initialPath}
                   onVisibleFileChange={select}
                   onFirstScreen={showWindow}
                   fileOwners={fileOwners}
