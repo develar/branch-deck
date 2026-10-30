@@ -28,7 +28,7 @@ function storeText(helper: string): string {
 
 const READER = (body: string) => `package a\n\nimport b.Cache\n\nclass Reader {\n  fun read(cache: Cache) = ${body}\n}\n`
 
-/** The review plan on for the repository: the flag is on when unset, but the global config of the test machine turns it off (`TEST_IDENTITY` of the server) */
+/** The review plan on for the repository: the flag is off when unset, and the global config of the test machine says so too (`TEST_IDENTITY` of the server) */
 function turnOnReviewPlan(repo: TestRepositoryBuilder): void {
   // `git config branchdeck.reviewExperimental true` in a terminal: the next sync reads it, and it wins over the global
   appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")

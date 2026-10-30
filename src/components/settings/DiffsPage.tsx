@@ -114,7 +114,7 @@ function onOff(value: boolean): string {
   return value ? "On" : "Off"
 }
 
-/** A switch of the global git config that is on by default (`resolveByWords`, `reviewExperimental`) */
+/** A switch of the global git config (`resolveByWords`, on by default; `reviewExperimental`, off by default) */
 type EveryRepositoryKey = "resolveByWords" | "reviewExperimental"
 
 interface EveryRepositorySwitchProps {
@@ -129,7 +129,7 @@ interface EveryRepositorySwitchProps {
 }
 
 /**
- * A switch with one value for every repository in the global git config, which bd reads too, on by default. A
+ * A switch with one value for every repository in the global git config, which bd reads too, of the default Rust gives. A
  * repository whose `.git/config` sets the key keeps its own value: the switch changes it there, and "Use Global" or
  * "Use Default" removes it. The worktree config and the command line win over both, so the switch is disabled then,
  * with that reason.

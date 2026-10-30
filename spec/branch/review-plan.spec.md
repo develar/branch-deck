@@ -467,11 +467,11 @@ the repeated edits and the new API.
   kill its queries of accio and answer `canceled`; the two slots, and a symbol search of the window, must never
   supersede each other.
   [@test] ../../crates/app-api/src/session/windows_test.rs (`a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other`, `a_closed_window_supersedes_its_request`, `the_plan_of_a_commit_and_the_plan_of_its_scope_never_supersede_each_other`)
-- `branchdeck.reviewExperimental` must be on unless git config turns it off, read and written like the other keys of
-  Settings; a value git refuses must be off with its reason and fail no sync: an experiment never turns on from a
-  broken value.
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_review_experiments_are_on_until_the_config_turns_them_off`, `nothing_set_is_the_defaults`)
-  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_review_experiments_are_on_unless_the_config_turns_them_off`)
+- `branchdeck.reviewExperimental` must be off unless git config turns it on (Settings → Diffs & Merge → Review), read
+  and written like the other keys of Settings; a value git refuses must be off with its reason and fail no sync: an
+  experiment never turns on from a broken value.
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_review_experiments_are_off_until_the_config_turns_them_on`, `nothing_set_is_the_defaults`)
+  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_review_experiments_are_off_unless_the_config_turns_them_on`)
 - The switch "Review plan (experimental)" of Settings → Diffs & Merge → Review must turn it on and off for every
   repository in the global git config, and a repository's own `.git/config` value must win over it, as
   `branchdeck.resolveByWords` does (spec/repository/settings.spec.md).

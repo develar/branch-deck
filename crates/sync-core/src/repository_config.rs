@@ -52,7 +52,8 @@ pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch
 
 /// Whether the review windows show the review plan (spec/branch/review-plan.spec.md, Status: Experimental): Mark
 /// Reviewed and the local Since Your Review, the Review Summary card, the badges and the Mechanical group of the tree.
-/// A git boolean, on when unset, and a value git refuses is off: an experiment never turns on from a broken value.
+/// A git boolean, off when unset (it is an experiment, turned on in Settings), and a value git refuses is off: an
+/// experiment never turns on from a broken value.
 /// Settings → Diffs & Merge → Review writes it; `bd review-plan` and `bd mark-reviewed` work without it
 pub const REVIEW_EXPERIMENTAL_CONFIG_KEY: &str = "branchdeck.reviewExperimental";
 
@@ -158,7 +159,7 @@ pub struct RepositoryConfig {
   pub agent_lease: ConfigSetting<bool>,
   /// `branchdeck.agentSubjectBranch`, off by default
   pub agent_subject_branch: ConfigSetting<bool>,
-  /// `branchdeck.reviewExperimental`, on by default, off for a value git refuses
+  /// `branchdeck.reviewExperimental`, off by default and for a value git refuses
   pub review_experimental: ConfigSetting<bool>,
   /// The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set
   pub detected_github_repository: Option<DetectedGitHubRepository>,
@@ -428,7 +429,7 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
     landing: landing_setting(entries),
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
     agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, true, |value| bool_setting(value, true)),
-    review_experimental: resolve_setting(entries, RepositoryConfigKey::ReviewExperimental, true, |value| bool_setting(value, false)),
+    review_experimental: resolve_setting(entries, RepositoryConfigKey::ReviewExperimental, false, |value| bool_setting(value, false)),
     detected_github_repository: origin.detected_github_repository,
     landing_default: LandingDefault::of(origin.on_space),
     stacks_off_clashes: Vec::new(),

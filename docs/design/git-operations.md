@@ -4170,8 +4170,8 @@ unset, `0` or `off` for none: see [Push size](#push-size); one value for every r
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
 lands each commit with `bd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
 each subject with its `(branch)`, which the copies of the virtual branches drop), and, on Settings → Diffs & Merge →
-Review, the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, on when unset and
-off for a value git refuses: Mark Reviewed, the local Since Your Review, the Review Summary card and the badges of the files,
+Review, the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, off when unset and
+for a value git refuses: Mark Reviewed, the local Since Your Review, the Review Summary card and the badges of the files,
 [Review Plan](../../spec/branch/review-plan.spec.md); one value for every repository in the global config, as
 `resolveByWords`; `bd review-plan` and `bd mark-reviewed` work without it). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
 two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspace.spec.md)), and their global values

@@ -57,7 +57,7 @@ fn nothing_set_is_the_defaults() {
   assert_eq!(config.agent_lease, unset(true));
   assert_eq!(config.agent_subject_branch, unset(true));
   // the review windows show the review plan
-  assert_eq!(config.review_experimental, unset(true));
+  assert_eq!(config.review_experimental, unset(false));
   assert_eq!(config.detected_github_repository, None);
   assert_eq!(config.landing_default, LandingDefault::of(false));
 }
@@ -508,19 +508,19 @@ fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
 }
 
 /// `branchdeck.reviewExperimental` is read with the other keys in the one `git config` of the settings, and written to the
-/// local config like them; unset is on, and a value git refuses is off, with the reason
+/// local config like them; unset is off, and a value git refuses is off, with the reason
 #[test]
-fn the_review_experiments_are_on_until_the_config_turns_them_off() {
+fn the_review_experiments_are_off_until_the_config_turns_them_on() {
   let test_repo = TestRepo::new();
   let path = test_repo.path_str();
   let git = test_repo.git_executor();
-  let config = set_config(git, path, &RepositoryConfigChange::ReviewExperimental(Some(false)), WriteScope::Local).unwrap();
-  assert_eq!((config.review_experimental.value, config.review_experimental.scope), (false, Some(ConfigScope::Local)));
-  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("false"))]);
+  let config = set_config(git, path, &RepositoryConfigChange::ReviewExperimental(Some(true)), WriteScope::Local).unwrap();
+  assert_eq!((config.review_experimental.value, config.review_experimental.scope), (true, Some(ConfigScope::Local)));
+  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("true"))]);
 
   // "Use Default": the local value goes, the default applies again
   let config = set_config(git, path, &RepositoryConfigChange::ReviewExperimental(None), WriteScope::Local).unwrap();
-  assert_eq!(config.review_experimental, unset(true));
+  assert_eq!(config.review_experimental, unset(false));
 
   let config = repository_config_from_entries(&[entry(ConfigScope::Local, "branchdeck.reviewExperimental", Some("maybe"))], OriginFacts::default());
   assert_eq!(

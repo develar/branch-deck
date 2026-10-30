@@ -34,7 +34,7 @@ async fn a_global_write_goes_to_the_own_file_of_the_repository() {
   let other = invoke(&client, addr, &other_id, "get_repository_config", json!({ "repositoryPath": other_path })).await;
   assert_eq!(other["resolveByWords"]["value"], true, "{other}");
   assert_eq!(other["resolveByWords"]["scope"], Value::Null, "{other}");
-  // the review plan is on when unset, off on the test machine: the review windows of the other tests stay as they were
+  // the review plan is off when unset and on the test machine: the review windows of the other tests stay as they were
   assert_eq!(other["reviewExperimental"]["value"], false, "{other}");
   assert_eq!(other["reviewExperimental"]["scope"], "global", "{other}");
 
