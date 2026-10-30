@@ -495,7 +495,7 @@ rowParts.of = (key, part) => {
   return enabled(
     ...(robot.status === "failure" ? (["restart-robot"] as const) : []),
     ...(robot.status === "running" ? (["cancel-robot"] as const) : []),
-    ...(prompts ? (["copy-robot-prompt", "copy-robot-full-prompt"] as const) : []),
+    ...(prompts ? (["start-robot-in-air", "copy-robot-prompt", "copy-robot-full-prompt"] as const) : []),
     "open-robot",
   )
 }
@@ -1088,11 +1088,11 @@ describe("failed robots", () => {
     return shownToasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction?.label])
   }
 
-  it("tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read", async () => {
+  it("tells once that a robot failed, with Start in Air and Copy Prompt for Agent beside it, and the failed checks, once its problems are read", async () => {
     patronus.problems = []
     const stop = watchFailures()
     await failRunningRobot()
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air…", "Copy Prompt for Agent"]])
     // a later answer with the same robot tells nothing
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
     await poll()
@@ -1146,7 +1146,7 @@ describe("failed robots", () => {
     patronus.failureKind = "massive"
     const stop = watchFailures()
     await failRunningRobot()
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · many tests failed, check master · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · many tests failed, check master · auth → master", "Start in Air…", "Copy Prompt for Agent"]])
     stop()
   })
 
@@ -1172,7 +1172,7 @@ describe("failed robots", () => {
     const stop = watchFailures()
     await failRunningRobot()
     await vi.advanceTimersByTimeAsync(0)
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air…", "Copy Prompt for Agent"]])
     stop()
   })
 
@@ -1197,8 +1197,8 @@ describe("failed robots", () => {
     patronus.problems = "offline"
     const stop = watchFailures()
     await failRunningRobot()
-    // the session's news says why is unknown: a plain failure
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
+    // the session's news says why is unknown: a plain failure, with Start in Air first and Copy Prompt for Agent second
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air…", "Copy Prompt for Agent"]])
     stop()
   })
 })

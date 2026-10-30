@@ -82,6 +82,8 @@ test.describe("Prompt for an agent of a failed Safe Push", () => {
   }) => {
     await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: failedFastTests("failed-robot") }, RUNNING, FAILED)
     const popover = await hoverStatusChip(page, findBranchRow(page, "ABC-123").getByTestId("patronus-chip"), "patronus-popover")
+    // Start in Air first (the primary way to fix), Copy Prompt for Agent beside it
+    await expect(popover.getByRole("button", { name: "Start in Air…" })).toBeVisible()
     await popover.getByRole("button", { name: "Copy Prompt for Agent" }).click()
     await expect.poll(() => readClipboard(page)).toContain("Safe Push of `ABC-123` into `master` failed")
     expect(await readClipboard(page)).not.toContain("## Failed builds")

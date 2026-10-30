@@ -553,7 +553,11 @@ pub struct RobotFacts<'a> {
   pub cached: bool,
 }
 
-/// The actions of a robot, one list for every surface that shows it, in the order of the enum
+/// The actions of a robot, one list for every surface that shows it: its restart (it pushes first while the branch has
+/// work the remote lacks, also for a running robot, which it cancels first) and its cancel first, then "Start in Air…"
+/// (it opens a session in the IDE to fix the failure, the primary proposal), "Copy Prompt for Agent" and "Copy Prompt
+/// with CI Details" for a failed or failing robot (for a user who copies them into an agent elsewhere), and "Open in
+/// Patronus"; "Open Pull Request #12" for a robot of a pull request
 #[must_use]
 pub fn robot_actions(facts: &RobotFacts<'_>) -> Vec<ActionState> {
   let robot = facts.robot;
@@ -585,9 +589,11 @@ pub fn robot_actions(facts: &RobotFacts<'_>) -> Vec<ActionState> {
     facts.failing && robot.status == PatronusRobotStatus::Running
   };
   if prompt {
+    // "Start in Air" first: it opens a session in the IDE to fix the failure (the primary proposal), the prompts
+    // second for a user who copies them into an agent elsewhere
+    actions.push(state(ActionId::StartRobotInAir, problems.clone()));
     actions.push(state(ActionId::CopyRobotPrompt, problems.clone()));
-    actions.push(state(ActionId::CopyRobotFullPrompt, problems.clone()));
-    actions.push(state(ActionId::StartRobotInAir, problems));
+    actions.push(state(ActionId::CopyRobotFullPrompt, problems));
   }
   actions.push(state(ActionId::OpenRobot, None));
   if robot.pull_request.is_some() {

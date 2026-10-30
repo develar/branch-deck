@@ -91,9 +91,10 @@ one dialog.
 
 ### The action
 
-- A failed or failing robot that has "Copy Prompt for Agent" also has "Start in Air…", after the prompts and before
-  "Open in Patronus", with the same blocker, in every form of the robot's actions; the robot details show it as a
-  button beside the prompts.
+- A failed or failing robot that has "Copy Prompt for Agent" also has "Start in Air…", before the prompts and after
+  the restart or the cancel, with the same blocker, in every form of the robot's actions: it is the primary way to fix
+  the failure (it opens a session in the IDE that has the repository open), the prompts are for a user who copies them
+  into an agent elsewhere; the robot details show it as the primary button, the prompts beside it.
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
 
 ### The dialog

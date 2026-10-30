@@ -807,9 +807,9 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
     table(&robot_actions(&robot_facts(&failed, Some(&again)))),
     [
       (RestartRobot, None),
+      (StartRobotInAir, None),
       (CopyRobotPrompt, None),
       (CopyRobotFullPrompt, None),
-      (StartRobotInAir, None),
       (OpenRobot, None)
     ]
   );
@@ -822,9 +822,9 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
     })),
     [
       (RestartRobot, pending.clone()),
+      (StartRobotInAir, pending.clone()),
       (CopyRobotPrompt, pending.clone()),
-      (CopyRobotFullPrompt, pending.clone()),
-      (StartRobotInAir, pending),
+      (CopyRobotFullPrompt, pending),
       (OpenRobot, None)
     ]
   );
@@ -876,9 +876,9 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
     [
       PushAndRestartRobot,
       CancelRobot,
+      StartRobotInAir,
       CopyRobotPrompt,
       CopyRobotFullPrompt,
-      StartRobotInAir,
       OpenRobot,
       OpenRobotPullRequest
     ]
@@ -893,9 +893,9 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
     [
       (RestartRobot, None),
       (CancelRobot, None),
+      (StartRobotInAir, None),
       (CopyRobotPrompt, None),
       (CopyRobotFullPrompt, None),
-      (StartRobotInAir, None),
       (OpenRobot, None),
       (OpenRobotPullRequest, None)
     ]

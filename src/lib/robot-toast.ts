@@ -85,6 +85,11 @@ export interface RobotToast {
    * repository, whose branch of the same name is another one); none, or a disabled one, offers nothing
    */
   readonly stepOf?: (current: PatronusRobot, branch: Branch | null) => MenuItem | null
+  /**
+   * The secondary step, in place of "Open in Patronus" where it is set (a failure offers "Copy Prompt for Agent" beside
+   * its primary "Start in Air"); none, or a disabled one, offers "Open in Patronus" instead
+   */
+  readonly secondaryStepOf?: (current: PatronusRobot, branch: Branch | null) => MenuItem | null
   /** The step after "Open in Patronus", as the Cancel of a start; by default it comes first */
   readonly stepLast?: boolean
   /** Only in place of the open toast of the robot, as a state no news of its own (a failure told failing before) */
@@ -103,7 +108,7 @@ function stepAction(step: MenuItem | null): EventToastAction | undefined {
 }
 
 /** Shows the toast of a robot, which follows the robot from then on; nothing while a newer robot of its subject holds the subject's toast */
-export function showRobotEventToast({ repositoryPath, robot, type, title, description, stepOf, stepLast = false, replaceOnly = false }: RobotToast): void {
+export function showRobotEventToast({ repositoryPath, robot, type, title, description, stepOf, secondaryStepOf, stepLast = false, replaceOnly = false }: RobotToast): void {
   const keys = robotToastKeys(repositoryPath, robot)
   const [subjectKey] = keys.aliases as [string]
   if (isReplaced(subjectKey, robot)) {
@@ -122,10 +127,12 @@ export function showRobotEventToast({ repositoryPath, robot, type, title, descri
       }
       const branch = current.branchName === null || !isSelectedRepository(repositoryPath) ? null : (branchSyncStore.getState().branches[current.branchName] ?? null)
       const step = stepAction(stepOf?.(current, branch) ?? null)
+      const secondary = secondaryStepOf !== undefined ? stepAction(secondaryStepOf(current, branch)) : undefined
       const patronus: EventToastAction = { label: "Open in Patronus", onClick: () => openRobot(current) }
+      const secondaryAction = secondary ?? patronus
       return stepLast || step === undefined
-        ? { type, title, description, action: patronus, secondaryAction: step }
-        : { type, title, description, action: step, secondaryAction: patronus }
+        ? { type, title, description, action: patronus, secondaryAction: step ?? undefined }
+        : { type, title, description, action: step, secondaryAction }
     },
   })
 }

@@ -291,9 +291,9 @@ export function RobotOpenButton({ actions }: { actions: readonly RobotAction[] }
 /**
  * The actions of a robot below its details, named as in the branch menu (a bare "Cancel" reads like closing the
  * popover), "Open in Patronus" aside (`RobotOpenButton`): what decides the robot first, its restart as the primary button
- * (it pushes a change not pushed yet first, cancels a running robot first) and its cancel, after `leading`; then the
- * prompt for an agent, its variant with the CI details in the menu of its split button, and the pull request it was
- * started from
+ * (it pushes a change not pushed yet first, cancels a running robot first) and its cancel, after `leading`; then
+ * "Start in Air" as the primary way to fix (it opens a session in the IDE that has the repository open), the prompt for
+ * an agent, its variant with the CI details in the menu of its split button, and the pull request it was started from
  */
 export function RobotActionRows({ actions, leading = null }: { actions: readonly RobotAction[]; leading?: ReactNode }) {
   const of = (id: RobotAction["id"]) => actions.find(action => action.id === id)
@@ -319,8 +319,8 @@ export function RobotActionRows({ actions, leading = null }: { actions: readonly
       )}
       {more && (
         <div className="flex flex-wrap gap-2">
+          {startInAir !== undefined && <RobotActionButton action={startInAir} variant="default" />}
           {prompt !== undefined && (fullPrompt === undefined ? <RobotActionButton action={prompt} /> : <PromptSplitButton prompt={prompt} fullPrompt={fullPrompt} />)}
-          {startInAir !== undefined && <RobotActionButton action={startInAir} />}
           {pullRequest !== undefined && <RobotActionButton action={pullRequest} />}
         </div>
       )}

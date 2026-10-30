@@ -144,7 +144,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   news of the session, which the page records.
   [@test] ../../src/presenters/activity.test.ts (`says the robot a start started in the words of its toast, and the comment Patronus accepted`, `says a restart and a cancel of a robot, and the pull request a creation opened`)
   [@test] ../../src/stores/activity.test.ts (`records the news of a robot with its page`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
 - A new review request ([Review Requests](review-requests.spec.md#new-requests)), one entry per request also when one
   toast told several: "dave requested your review on #104" / its title, kind `review`, with "Open Pull Request", the
   name of the action everywhere ([UX Writing](../../docs/contributing/ux-writing.md#actions)).

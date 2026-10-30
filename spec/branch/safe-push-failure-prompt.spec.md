@@ -143,11 +143,13 @@ with the user.
 
 ### Copying
 
-- A failed robot (not for missing approvals) and a running one whose required check failed have "Copy Prompt for
-  Agent" and "Copy Prompt with CI Details", after the restart or the cancel and before "Open in Patronus", in every form
-  of the robot's actions (`getRobotActionItems`, as Rust offers them): the branch menu, the robot details and the
-  [landing overview](../repository/landing-overview.spec.md#overview). The robot details show them as one split
-  button: "Copy Prompt for Agent", and "Copy Prompt with CI Details" in the menu of its chevron ("More Prompts").
+- A failed robot (not for missing approvals) and a running one whose required check failed have "Start in Air…" first,
+  then "Copy Prompt for Agent" and "Copy Prompt with CI Details", after the restart or the cancel and before "Open in
+  Patronus", in every form of the robot's actions (`getRobotActionItems`, as Rust offers them): the branch menu, the
+  robot details and the [landing overview](../repository/landing-overview.spec.md#overview). "Start in Air" is the
+  primary way to fix the failure (it opens a session in the IDE that has the repository open); the prompts are for a
+  user who copies them into an agent elsewhere. The robot details show "Start in Air" as the primary button, "Copy
+  Prompt for Agent" beside it, and "Copy Prompt with CI Details" in the menu of its chevron ("More Prompts").
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../tests/e2e/patronus/robot-prompt.spec.ts (`should offer both prompts in the details of the failed robot, the one with the CI details in the menu of its split button`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should restart a failed robot from the overview, and open the pull request it was started from`)
@@ -159,11 +161,12 @@ with the user.
 
 ### The failed toast
 
-- The toast "Safe Push of auth failed" offers "Copy Prompt for Agent" first; it turns in place into "Copied the prompt
-  for auth" / "Paste it into your coding agent". Builds that never started (`infrastructure`) offer "Restart Safe Push"
-  first instead. A massive failure adds "many tests failed, check master" to the description. The failure is read
-  with the details before the toast shows, which warms the cache of the copy.
-  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot whose builds never started with Restart Safe Push: the CI failed, not the branch`, `tells a massive failure to check the target first`)
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`, `should restart from the toast a Safe Push whose builds never started`)
+- The toast "Safe Push of auth failed" offers "Start in Air" first (it opens a session in the IDE to fix the failure),
+  with "Copy Prompt for Agent" as the second option (for a user who copies the prompt into an agent elsewhere); it
+  turns in place into "Started Codex in Air" / "Paste it into your coding agent". Builds that never started
+  (`infrastructure`) offer "Restart Safe Push" first instead. A massive failure adds "many tests failed, check master"
+  to the description. The failure is read with the details before the toast shows, which warms the cache of the copy.
+  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Start in Air and Copy Prompt for Agent beside it, and the failed checks, once its problems are read`, `tells a robot whose builds never started with Restart Safe Push: the CI failed, not the branch`, `tells a massive failure to check the target first`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`, `should restart from the toast a Safe Push whose builds never started`)
 - The toast of a running robot whose required check failed keeps "Cancel Safe Push" first; its prompt is in the
   menu ([Patronus](patronus.spec.md#failing)).

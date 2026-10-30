@@ -152,11 +152,30 @@ function showFailedToast(
         }
         return branch === null ? null : getPullRequestItem(branch)
       }
-      // as Rust offers them now: a restart, the prompt of a robot that didn't fail for the approvals
+      // as Rust offers them now: Start in Air first (it opens a session in the IDE to fix), the prompts second
       const actions = getRobotActionItemsNow(current)
       const restart = actions.find(isRestart) ?? null
+      const startInAir = actions.find(action => action.id === "start-robot-in-air")
       const copy = actions.find(action => action.id === "copy-robot-prompt")
-      return kind === "infrastructure" || copy === undefined ? restart : copyInPlace(repositoryPath, copy, current)
+      if (kind === "infrastructure") {
+        // the CI failed, not the branch: restart it
+        return restart
+      }
+      // Start in Air primary (open a session to fix), Copy Prompt for Agent second (for an agent elsewhere)
+      return startInAir ?? (copy !== undefined ? copyInPlace(repositoryPath, copy, current) : restart)
+    },
+    secondaryStepOf: (current, _branch) => {
+      if (needsReview || kind === "infrastructure") {
+        return null
+      }
+      const actions = getRobotActionItemsNow(current)
+      // offer the copy prompt as the secondary only when Start in Air is available (else the toast shows it twice)
+      const startInAir = actions.find(action => action.id === "start-robot-in-air")
+      if (startInAir === undefined) {
+        return null
+      }
+      const copy = actions.find(action => action.id === "copy-robot-prompt")
+      return copy !== undefined ? copyInPlace(repositoryPath, copy, current) : null
     },
   })
 }
