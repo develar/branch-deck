@@ -14,7 +14,10 @@ const ColumnRegistryContext = createContext<ColumnRegistry | null>(null)
  * (`ColumnRegistry`): the widths of the tracks are CSS variables of this element. Until the facts of the remote are in,
  * the tracks are at least as wide as once they were in the last time (`useSettledLayout`); then the view keeps its
  * widths for the next start. A running sync moves no column: while it runs a track only widens. `data-wide` while the
- * view has the room for the words of a row (`WIDE_REM`)
+ * view has the room for the words of a row (`WIDE_REM`). The view contains its layout and its inline size: a text of a
+ * row that changes its width lays out the view, not the boxes of the window around it (the panels of the main window,
+ * the scroller), as the width of the view comes from the window and not from its rows
+ * (docs/design/ui-theme.md#branch-columns, "Contained")
  */
 export function BranchColumnsRoot({ children }: { children: ReactNode }) {
   const [registry] = useState(() => new ColumnRegistry())
@@ -26,8 +29,9 @@ export function BranchColumnsRoot({ children }: { children: ReactNode }) {
         return () => registry.setRoot(null)
       }}
       // the group of the words a row shows where the view has the room ("with children" of a push): `data-wide`, which
-      // the registry sets from the width of the view
-      className="group/branch-view flex flex-col gap-2"
+      // the registry sets from the width of the view; contained, but no query container (one restyles every row at
+      // each width)
+      className="group/branch-view flex flex-col gap-2 contain-inline-size contain-layout"
       data-testid="branch-view"
     >
       <ColumnRegistryContext value={registry}>{children}</ColumnRegistryContext>

@@ -502,9 +502,20 @@ shows.
   `pnpm perf:table --project=webkit`, 141 rows) took 110.91 ms in WebKit against 6.68 ms in the tree of s0a, and on
   the Studio in turns 111.5 and 125.6 ms against 6.25 and 7.59 ms with the flag (a load of 9 to 13); Chromium paid
   nothing (0.71 ms). A text of a row laid out faster inside that container (0.37–0.40 ms against 2.63–2.84 without
-  it, 2.39 in the tree of s0a), which its containment alone (`contain: inline-size layout style`, no query) does not
-  keep (2.97 ms), so the view has no containment. The container of a cell stays one (the subject of
-  `branch-summary-slot`, dropped without room): its query restyles that cell alone, and the tree of s0a had it too.
+  it, 2.39 in the tree of s0a): its containment, which the root keeps without the query (**Contained**). The container
+  of a cell stays one (the subject of `branch-summary-slot`, dropped without room): its query restyles that cell
+  alone, and the tree of s0a had it too.
+- **Contained**: the root contains its layout and its inline size (`contain-inline-size contain-layout`, the
+  containment of a query container without its query), as the width of the view comes from the window and never
+  from its rows. A text of a row that changes its width then lays out the view and stops there; without it the change
+  went up through every box of the window to its root, the four of the panel group around `main` (the Activity side
+  panel, `ResizablePanelGroup`, from 2026-10-22) among them, and the layout that followed laid the islands out again
+  too. In WebKit (`pnpm perf:table --project=webkit`, 141 rows, the Mac Studio, two tours in turns with the tree of
+  s0a, the second under another run's load) a wider text takes 1.40 and 1.74 ms against 2.53 and 2.89, a text of the
+  same width 1.23 and 1.50 against 1.82 and 2.20, a relayout of the view 4.67 and 5.38 against 6.72 and 7.21;
+  Chromium the same as before (0.18 ms a text). The view lays out as it did: every table, row and track has the same
+  box with and without the containment at 768, 900, 1100 and 1516 px in both engines (the tables give up a subject
+  before they outgrow the view).
 - **Why measured, not CSS subgrid**: one grid with every card, table and row a subgrid lines the columns up without
   code, but its track sizing reruns over every item of every card on any change. At 141 rows (`pnpm perf:table`,
   `tests/perf/branch-table.perf.ts`, the `branch_table_large` template) a text change cost 8.5–12.7 ms in WebKit, the

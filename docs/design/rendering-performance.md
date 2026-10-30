@@ -390,12 +390,19 @@ each at a load of 9 to 13, the container 111.5 and 125.6 ms, the flag 6.25 and 7
 ([Итог s15](rust-domain-authority.md#итог-s15), two tours of five runs each at a load of 6 to 8) the view took 6.05 and
 5.86 ms against 6.86 and 6.47 ms of the tree of s0a, 9–12 % less. A text of the same width took 1.60–1.89 against
 1.58–1.86 ms, the same within the noise; a wider text 2.65 and 2.45 against 2.40 and 2.21 ms, and 2.67–2.74 against
-2.50–2.55 ms in six more turns of the same measure: 7 % more, the one measure of Итог s14 in which the page is slower
-than the tree of s0a. That floor is older than s15: master without the container took 2.75–2.77 ms in turns with the
-stage's 2.81–2.84, so it came with the rows of the rework, which the container hid. Its cause is not named; it is not
-the wrapper of the Safe Push button (`display: contents` on it changed nothing), the fractional widths of the tracks
-(the tree of s0a wrote whole pixels; rounded up, the same) or the words of `data-wide` (off, the same), and a row has
-47 elements against 46.
+2.50–2.55 ms in six more turns of the same measure: 7 % more, then the one measure of Итог s14 in which the page was
+slower than the tree of s0a. That floor was older than s15 (master without the container took as long) and not of the
+rows: hiding the content of any column, the other rows or the islands in both trees alike kept the gap (a throwaway
+attribution, three tours of five runs each at a load of 4 to 7). A text that changes its width invalidates the
+intrinsic widths of every box up to the root of the window, and the layout that follows goes up through all of them
+and lays the islands out again; since 2026-10-22 four more boxes stand between the view and the column of the window,
+the panel group of the Activity side panel around `main` (`ResizablePanelGroup`), and taking them out of the layout
+(`display: contents`) took 0.19–0.39 ms off the stage's tree, the size of the gap (the tree of s0a has none). Since the
+review of s15 the view contains its layout and its inline size (`contain-inline-size contain-layout` on
+`BranchColumnsRoot`, [Branch columns](ui-theme.md#branch-columns), "Contained"), and the change stops at the view: in
+two tours of `pnpm perf:table --project=webkit` in turns with the tree of s0a a wider text took 1.40 and 1.74 ms
+against 2.53 and 2.89, a text of the same width 1.23 and 1.50 against 1.82 and 2.20, a relayout of the view 4.67 and
+5.38 against 6.72 and 7.21 (the second tour under another run's load, 9 to 31); Chromium 0.18 ms a text, as before.
 
 Since s15-2 `perf:table` also says where the task time of a sync goes and what a sync renders. The main thread of
 each sync has the layouts and the style recalcs of the page beside its script and task time, with their time
