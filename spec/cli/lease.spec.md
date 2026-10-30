@@ -27,6 +27,7 @@ targets:
   - ../../crates/lease-pool/src/check_record.rs
   - ../../crates/lease-pool/src/clone_dir.rs
   - ../../crates/lease-pool/src/free_space.rs
+  - ../../crates/lease-pool/src/bazel_servers.rs
   - ../../crates/bd-core/src/error.rs
   - ../../.branchdeck.toml
   - ../../crates/sync-utils/src/process_scan.rs
@@ -80,7 +81,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A fetch: the slot moves to the HEAD of the source as it is.
 - A reset of a returned slot to master: the next get moves it.
 - A walk of the tree for `.worktreeinclude`: only literal paths and globs in one directory are seeded.
-- The process scan on Windows: there it is reported as not checked, and a lease never waits for it.
+- The process scan on Windows: there it is reported as not checked, and a lease never waits for it; only the Bazel
+  servers of a slot are found there, by their output base.
 
 ## Requirements
 
@@ -115,7 +117,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A get must stop the Bazel servers of a free slot it reserved (`--workspace_directory` in the slot, wherever their
   working directory is) with SIGTERM, wait up to 30 s, name them in `stopped_servers` and lease the slot: the slot is
   the pool's, a server serves only it, and a `--watchfs` server could miss the events of the checkout and build
-  stale. A server that does not exit gives the slot back free and skips it as busy.
+  stale. A server that does not exit gives the slot back free and skips it as busy. On Windows the get finds and
+  stops them by their output base, as the return does ([Return](#return)).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_stops_the_bazel_server_of_a_free_slot_and_leases_it`)
 - A get must record the process it runs for, the nearest ancestor that is no shell or wrapper (the coding agent, the
   terminal), with its start time (`holder_pid`, `holder_started`): the `pid` of a lease is of the get, which exits at
@@ -342,14 +345,36 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - The return must find the Bazel servers of the slot (a process whose argv has `--workspace_directory=<dir>`, `<dir>`
   the slot or inside it, such as `<slot>/community`), ask each to exit with SIGTERM once nothing else refuses, wait up
   to 30 s, and name them in `stopped_servers` (pid, workspace, output base). A server that does not exit keeps the
-  slot busy (`slot_busy`, the message saying it did not exit on SIGTERM). No other process is ever signalled: any
-  other process in the slot refuses as `slot_busy` before a server is signalled, and the message says that the
-  return stops the servers itself. Bazel derives the output base from the workspace path, so a server serves only its
-  slot, and the output base stays on disk: the next lease of the slot gets the same one, with its disk action cache.
+  slot busy (`slot_busy`, the message saying it did not exit on SIGTERM, on `bazel shutdown` on Windows). No other
+  process is ever signalled: any other process in the slot refuses as `slot_busy` before a server is signalled, and
+  the message says that the return stops the servers itself. Bazel derives the output base from the workspace path,
+  so a server serves only its slot, and the output base stays on disk: the next lease of the slot gets the same one,
+  with its disk action cache.
   There is no flag to keep a server: with one, a return under a running server could never pass, the trap agents
   fell into.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_stops_the_bazel_servers_of_the_slot`, `a_return_signals_no_other_process_and_a_server_that_does_not_exit_keeps_the_slot_busy`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`the_argv_comes_from_the_procargs_buffer_without_the_environment`)
+- Where no process scan runs (Windows), the return, the get of a free slot, the takeover and the reclaim must find
+  the Bazel servers of the slot by their output base: a workspace is the slot or a directory right in it with
+  `MODULE.bazel`, `WORKSPACE.bazel` or `WORKSPACE`; its `bazel-out` link (`<ws>/bazel-out`, or `<ws>/out/bazel-out`
+  with `--symlink_prefix=out/bazel-`; a junction or a symlink, never a directory) names `<output
+  base>/execroot/<name>/bazel-out`; the pid in `<output base>/server/server.pid.txt` runs and started before the file
+  was written (a pid that is gone, or that the system gave to a later process, is no server). Each is asked to exit
+  with `bazel --output_base=<output base> shutdown` in its workspace, without a console window and killed after the
+  30 s, then waited for as SIGTERM is elsewhere: `stopped_servers` names the ones that exited (pid, workspace, output
+  base), one that does not exit keeps the slot busy, and the pid itself is never signalled. A workspace whose link is
+  missing or named otherwise shows no server, and its server keeps running. Other processes stay unchecked
+  (`processes_checked: false`).
+  [@test] ../../crates/lease-pool/src/bazel_servers_test.rs (`a_server_is_told_by_the_pid_file_of_the_output_base_its_bazel_out_link_leads_to`, `no_server_is_told_without_a_running_pid_of_the_pid_file`)
+  [@test] ../../crates/lease-pool/src/bazel_servers_test.rs (`the_stop_of_a_server_told_by_its_output_base_names_it_stopped`, `a_server_that_does_not_exit_when_asked_is_not_stopped`)
+- `bazel` must be found as `cmd` finds it: by the directories of the `PATH` and, on Windows, the extensions of
+  `PATHEXT` (`bazel.exe`, a `bazel.cmd` of an npm Bazelisk, a `bazel.bat`), which `CreateProcess` alone does not try.
+  A `bazel shutdown` that can't run (no `bazel` there, a program that does not start) or that fails (a non-zero exit,
+  killed at the timeout) must not be waited for: its server, unless it exited anyway, keeps the slot busy as one that
+  does not exit, and its process in the refusal (`slot_busy` of a return; the `busy` skip of a get or a reclaim) has
+  `stop_error`, the error naming the program, which the message words too. Its pid is still never signalled.
+  [@test] ../../crates/lease-pool/src/bazel_servers_test.rs (`a_bazel_shutdown_that_cannot_run_or_fails_says_why_and_names_the_program`, `a_server_whose_bazel_shutdown_cannot_run_or_fails_is_named_running_with_why`)
+  [@test] ../../crates/lease-pool/src/bazel_servers_test.rs (`a_bare_program_is_found_by_the_path_and_the_extensions_of_pathext`, `the_stop_of_a_server_told_by_its_output_base_names_it_stopped`)
 - git's background maintenance in the slot must keep neither a return nor a get from it, and the return names its
   pids (`maintenance`): a commit in a slot starts `git maintenance run --auto --detach`, whose repack keeps the slot as
   its working directory for minutes in a large repository (2 to 17 minutes in idea-1) and writes only the shared
@@ -848,7 +873,8 @@ and one `write-tree`. Both give the same commit for the same tree.
   be copied half written, and the checkout and the clean keep ignored files. A free slot is the preferred template
   for this reason; the source checkout, where the user and the IDE write, is the last one.
 
-- On Windows the scan of the processes is not available: a slot with a shell in it can be leased.
+- On Windows the scan of the processes is not available: a slot with a shell in it can be leased, and a Bazel server
+  whose workspace has no `bazel-out` link where the return looks (another `--symlink_prefix`) keeps running.
 - The clones lock is per pool: two repositories whose pools share a volume clone at the same time, and the minimum
   free space of one does not count the clone of the other until it is done.
 - A get that waits behind a queue of clones can still run past the deadline of its caller; the queue makes the clones

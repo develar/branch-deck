@@ -257,7 +257,8 @@ pub struct LeaseGetOutput {
   /// The free slots passed over
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub skipped: Vec<SkippedOutput>,
-  /// The Bazel servers of the free slot that exited on the get's SIGTERM; their output bases stay on disk
+  /// The Bazel servers of the free slot that exited when the get asked them (SIGTERM; `bazel shutdown` on Windows);
+  /// their output bases stay on disk
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stopped_servers: Vec<StoppedServerOutput>,
   /// The free bytes of the volume of the pool before the get, for a new slot measured again once no other get added
@@ -602,6 +603,7 @@ fn processes_output(processes: &[BusyProcess]) -> Vec<ProcessOutput> {
         ProcessKind::Other
       },
       workspace: process.bazel_workspace.clone(),
+      stop_error: process.stop_error.clone(),
     })
     .collect()
 }
@@ -638,6 +640,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     branch: args.branch.clone(),
     min_free,
     server_timeout: context.server_stop_timeout,
+    bazel: None,
     lock_timeout: context.lock_timeout,
     progress: Some(progress),
   };
@@ -742,7 +745,8 @@ pub struct LeaseReturnOutput {
   /// by it, and changed nothing
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub joined: bool,
-  /// The Bazel servers of the worktree that exited on the return's SIGTERM; their output bases stay on disk
+  /// The Bazel servers of the worktree that exited when the return asked them (SIGTERM; `bazel shutdown` on Windows);
+  /// their output bases stay on disk
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stopped_servers: Vec<StoppedServerOutput>,
   /// The pids of git's background maintenance in the worktree (a repack after a commit), which keeps no worktree busy
@@ -895,6 +899,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     confirm_preserved: args.confirm_preserved,
     clean: if args.no_clean { None } else { Some(args.overrides.overrides()?) },
     server_timeout: context.server_stop_timeout,
+    bazel: None,
     lock_timeout: context.lock_timeout,
   };
   let returned = lease_return_core(&context.git, &params).map_err(lease_error)?;
@@ -1244,6 +1249,7 @@ pub fn lease_reclaim(context: &LeaseContext, args: &LeaseReclaimArgs) -> Result<
     apply: !args.dry_run,
     clean: args.overrides.overrides()?,
     server_timeout: context.server_stop_timeout,
+    bazel: None,
     lock_timeout: context.lock_timeout,
   };
   let reclaimed = lease_reclaim_core(&context.git, &params).map_err(lease_error)?;

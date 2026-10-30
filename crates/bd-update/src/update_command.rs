@@ -1151,6 +1151,7 @@ fn classified(error: anyhow::Error, undo: bool) -> CliError {
           argv: holder.command.clone(),
           kind: ProcessKind::Other,
           workspace: None,
+          stop_error: None,
         })
         .collect(),
       ..ErrorExtra::default()

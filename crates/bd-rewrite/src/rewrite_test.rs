@@ -1,7 +1,9 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, repo_with_commits, subcommand};
-use bd_cli::fixture_test::{assert_refused_during, commit_all, git, hold_the_lock, repo_on_baseline, run_in, start_cherry_pick, sync_statuses, with_header, write};
+use bd_cli::fixture_test::{LockSpanGit, subcommand};
+use bd_cli::fixture_test::{
+  assert_refused_during, commit_all, git, hold_the_lock, repo_on_baseline, repo_with_commits, run_in, start_cherry_pick, sync_statuses, with_header, write,
+};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};

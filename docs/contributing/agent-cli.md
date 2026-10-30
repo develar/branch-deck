@@ -973,8 +973,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   process is gone. It leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch
   there): one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with
   local changes is skipped and marked dirty, one with a process of another session in it is skipped as busy
-  (`skipped`, `processes`); the Bazel servers of a free slot are stopped with SIGTERM (`stopped_servers`). No free
-  slot: an idle lease, its holder process gone for an hour, is taken over when every commit its home branch lacks is
+  (`skipped`, `processes`); the Bazel servers of a free slot are stopped with SIGTERM (`bazel shutdown` on Windows;
+  `stopped_servers`). No free slot: an idle lease, its holder process gone for an hour, is taken over when every commit its home branch lacks is
   proven there (the landed rule of the return) and its tree is clean (`took_over`: `lease_id`, `holder`, `branch`,
   which stays, `landed` with the proof of each commit); one with work is skipped (`reason: "idle_with_work"`, `idle`
   with `commits`, `paths`, `operation`) and never touched, the user decides. Else a new one, `<pool>/<n>/<repository name>` (`reused: false`): on macOS an APFS clone of a free slot or of the
@@ -1019,7 +1019,7 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   repository: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
   its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `resolve_in_progress` (a resolve session of the slot is
   open: finish it with `bd update --continue` or close it with `--abort`), `slot_busy` (a process of another session
-  in it: `processes` [{`pid`, `command`, `argv`, `kind`: `bazel_server` or `other`, `workspace`}]), `unlanded_commits`
+  in it: `processes` [{`pid`, `command`, `argv`, `kind`: `bazel_server` or `other`, `workspace`, `stop_error`}]), `unlanded_commits`
   (`commits` that no branch, tag or remote branch holds and that no proof finds on the branch of the source: a dry run
   of the pick onto it, a patch id, the identity and the twin of `bd update`, the mapping note of a sync; land them with
   `bd -C <dir> lease pick`),
@@ -1029,7 +1029,10 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   with `git config branchdeck.leaseMaintenance true` the return starts `git maintenance run --auto --detach` once the
   slot is free, `maintenance_started`, for a repository whose `maintenance.auto` is false) and
   `caffeinate`. A Bazel server of the worktree (`--workspace_directory` in it) is asked to exit with SIGTERM once no
-  other process is there, up to 30 s, and named in `stopped_servers`; one that does not exit is `slot_busy`.
+  other process is there, up to 30 s, and named in `stopped_servers`; one that does not exit is `slot_busy`. On
+  Windows, which has no process scan, the server is found by the pid file of the output base its `bazel-out` link
+  leads to, and asked with `bazel shutdown` (`bazel` of the `PATH` with the extensions of `PATHEXT`); one whose
+  `bazel shutdown` can't run or fails is `slot_busy` at once, its `stop_error` naming the program and the error.
   `landed_check` says which check found the work landed: `reachability` or `content`
   (`landed_branch`), and `landed` names each commit the content check proved, with its `proof` (`picked`, `patch_id`,
   `replayed`, `changed_lines`, `twin`, `twin_removed_before` (the twin lacks only removals of lines its parent no

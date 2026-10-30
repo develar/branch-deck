@@ -241,6 +241,10 @@ pub struct ProcessOutput {
   /// The `--workspace_directory` of a Bazel server
   #[serde(skip_serializing_if = "Option::is_none")]
   pub workspace: Option<String>,
+  /// Why a Bazel server that still runs was not asked to exit (Windows): its `bazel shutdown` could not run, as with
+  /// no `bazel` on the `PATH`, or failed; the message names the program and the error
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub stop_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]

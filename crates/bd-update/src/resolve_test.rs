@@ -3,7 +3,9 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
 use test_utils::git_test_utils::{TestRepo, append_config};
-use test_utils::history::{HistoryCommit, numbered_lines, one_file_each};
+#[cfg(unix)]
+use test_utils::history::HistoryCommit;
+use test_utils::history::{numbered_lines, one_file_each};
 
 const SHARED: &str = "one\ntwo\nthree\n";
 

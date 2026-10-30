@@ -2,7 +2,9 @@
 //! (spec/cli/lease.spec.md, "Takeover"): an idle lease is faked by a holder process that is gone and a get and a HEAD
 //! older than the quiet time
 use crate::lease_test::{Fixture, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states};
-use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, make_lease_idle, run_in};
+#[cfg(unix)]
+use bd_cli::fixture_test::PREFIX;
+use bd_cli::fixture_test::{assert_covered, assert_error, make_lease_idle, run_in};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;

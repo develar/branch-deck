@@ -48,7 +48,7 @@ impl ProcessInfo {
   }
 
   /// When it started, on the wall clock: to the microsecond on macOS, on Linux by the clock ticks since the boot, whose
-  /// time `/proc/stat` gives to the second; `None` elsewhere and when unknown
+  /// time `/proc/stat` gives to the second, on Windows to the 100 ns; `None` elsewhere and when unknown
   pub fn started_at(&self) -> Option<SystemTime> {
     scan::started_at(self.started?)
   }
@@ -336,10 +336,20 @@ use platform as scan;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 use unscanned as scan;
 
-/// What only the scans of macOS and Linux tell, where a platform has none (Windows and the rest): no wall clock of a
-/// start without a `ProcessInfo`, no holders of a file (no signals either: `signal`)
+/// What only the scans of macOS and Linux tell, where a platform has none (Windows and the rest): no holders of a file
+/// (no signals either: `signal`), and the wall clock of a start only on Windows, whose start is a time already
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod unscanned {
+  /// The 100 ns since 1601 of `GetProcessTimes`, on the wall clock
+  #[cfg(windows)]
+  pub(super) fn started_at(started: u64) -> Option<std::time::SystemTime> {
+    // the seconds from 1601 to 1970
+    const UNIX_EPOCH_SINCE_1601: u64 = 11_644_473_600;
+    let since_1601 = std::time::Duration::from_nanos(started.checked_mul(100)?);
+    std::time::UNIX_EPOCH.checked_add(since_1601.checked_sub(std::time::Duration::from_secs(UNIX_EPOCH_SINCE_1601))?)
+  }
+
+  #[cfg(not(windows))]
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
   pub(super) fn started_at(_started: u64) -> Option<std::time::SystemTime> {
     None
