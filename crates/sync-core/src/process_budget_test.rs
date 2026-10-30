@@ -47,6 +47,8 @@ async fn a_first_sync() {
   let (repo, _) = alpha_and_beta_on_origin();
   let git = counting();
   sync(&git, &repo).await;
+  // jscpd:ignore-start: the sync of `bd sync`, `bd push` and the Safe Push check (crates/bd-cli/src/process_budget_test.rs),
+  // so their budgets end in the same processes: a change of one count shows in both
   assert_processes(
     &git,
     &[
@@ -67,6 +69,7 @@ async fn a_first_sync() {
       ("var", 1),
     ],
   );
+  // jscpd:ignore-end
 }
 
 #[tokio::test]
@@ -175,6 +178,8 @@ async fn a_first_sync_of_a_forking_stack() {
   let git = counting();
   sync(&git, &repo).await;
   assert!(repo.branch_exists("test/stack/alpha"));
+  // jscpd:ignore-start: the sync of `bd sync` and the Safe Push check of a stack (crates/bd-cli/src/process_budget_test.rs),
+  // so their budgets end in the same processes: a change of one count shows in both
   assert_processes(
     &git,
     &[
@@ -195,6 +200,7 @@ async fn a_first_sync_of_a_forking_stack() {
       ("var", 1),
     ],
   );
+  // jscpd:ignore-end
 }
 
 /// An unchanged sync of a stack that forks runs no git for its stack branch: the build of the same commits is
