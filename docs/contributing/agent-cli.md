@@ -676,7 +676,7 @@ only the added and the rewritten commits, and reads the API and the files from t
 `api` lists the public declarations the reviewed commits add, remove or change in form (`kind`, `changes`, the form
 `before` and `after`), no override, the most usages left outside the change first. `usages` comes from `accio
 references` at the head, asked by `Owner.name` for a member and by `package.name` for a top-level Kotlin or Java
-declaration, for the first 20 queries: `inside` counts the uses in the changed files, `outside` the others, with the
+declaration, for the first 20 queries: `inside` counts the uses on the lines the commits changed, `outside` the others (also on a line of a changed file that the change left), with the
 first 5 as `outside_sites`, and `complete: false` past 100 hits. An import, a doc mention and a hit in another
 language family are no use, and of a type whose constructors are its only change only a call and a subtype are. A
 name that nearly

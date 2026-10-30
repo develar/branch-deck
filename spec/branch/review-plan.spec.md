@@ -239,9 +239,13 @@ the repeated edits and the new API.
   [@test] ../../crates/review-plan/src/api_test.rs (`a_rust_constructor_is_asked_by_its_type`)
 - The plan must ask at most 20 queries (`MAX_USAGE_QUERIES`), for the first entries of the card, in parallel.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`at_most_twenty_queries_per_plan`)
-- A usage must be `inside` when its file is one that the reviewed commits change and still exists after them: this
-  change updated it. Else it is `outside`, and the first 5 outside usages must be listed as `outside_sites` by path
-  and line.
+- A usage must be `inside` when its line at the head is one the reviewed commits changed: a line of the blocks of its
+  file from the blob before the first commit that changes it to the blob after the last one, as the diffs of the
+  range show them; any line of a file they add. This change wrote or rewrote it. Else it is `outside`, a use on a line
+  of a changed file that the change left as it was too, and the first 5 outside usages must be listed as
+  `outside_sites` by path and line. A use whose name sits on a line the change left counts as outside even when the
+  change edited the rest of its call: an alarm too many, never a wrong `updated`.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_use_is_inside_only_on_a_line_the_commits_changed`)
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_usages_split_into_those_inside_the_change_and_those_left_outside`)
   [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`)
   [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
@@ -655,8 +659,8 @@ the repeated edits and the new API.
 - accio keeps a call of `Owner.member` whose receiver it cannot type and does not tell it from a typed one
   (JetBrains/accio#72); the owner check of `STOP_NAMES` stays until it does.
 - A member of `STOP_NAMES` counts only the lines that name its owner: `store.close()` through a variable is missed.
-- A usage is inside when its file is changed, not when its line is: a use in a changed file that the change left as
-  it was counts as updated. With `--since-reviewed`, a use that an earlier reviewed commit of the branch updated
+- A usage is inside by the line of its name: a call whose arguments the change rewrote on the next lines, its name's
+  line left, counts as outside. With `--since-reviewed`, a use that an earlier reviewed commit of the branch updated
   counts as outside.
 - An answer cut at 100 hits splits only those 100: `outside` is then a lower bound, and `complete` is false.
 - The module roots of the summaries are read at the checked out HEAD, not at the head of the range.

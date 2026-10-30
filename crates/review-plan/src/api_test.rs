@@ -328,7 +328,7 @@ fn a_member_is_asked_by_its_type_and_an_override_is_no_entry() {
       ("src/a/User.kt", "package a\n\nfun use(store: Store): Int = store.open(1, 2)\n"),
     ],
   );
-  let index = Counts::at(&[("Store.open", Ok(vec!["src/a/User.kt", "lib/Other.kt"])), ("Store.of", Ok(vec!["src/a/User.kt"]))]);
+  let index = Counts::calls(&[("Store.open", vec![("src/a/User.kt", 3), ("lib/Other.kt", 1)]), ("Store.of", vec![("src/a/User.kt", 3)])]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   assert_eq!(index.queries(), ["Store.of", "Store.open"]);
   let entries: Vec<Counted<'_>> = plan
@@ -392,13 +392,13 @@ fn a_rust_constructor_is_asked_by_its_type() {
       ("src/user.rs", "pub fn user() {\n  let _ = Store::new(1, 2);\n}\n"),
     ],
   );
-  let index = Counts::hits(&[(
+  let index = Counts::lines(&[(
     "Store.new",
-    Ok(vec![
-      ("src/user.rs", "call", "let _ = Store::new(1, 2);"),
-      ("lib/cache.rs", "call", "let _ = Cache::new(1);"),
-      ("lib/other.rs", "call", "let _ = Store::new(3);"),
-    ]),
+    vec![
+      ("src/user.rs", 2, "call", "let _ = Store::new(1, 2);"),
+      ("lib/cache.rs", 1, "call", "let _ = Cache::new(1);"),
+      ("lib/other.rs", 1, "call", "let _ = Store::new(3);"),
+    ],
   )]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   assert_eq!(index.queries(), ["Store.new"]);

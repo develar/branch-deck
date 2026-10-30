@@ -50,7 +50,7 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
 
   let head = commit_api(&path, "pub fn sum(a: i32, b: i32) -> i32 {\n  a + b\n}\n", "Take b");
   let usage = |file: &str, line: u32| json!({ "file": file, "line": line, "column": 3, "snippet": "sum(1, 2)", "kind": "call" });
-  let usages = [usage("src/main.rs", 3), usage("src/api.rs", 9), usage("src/main.rs", 7)];
+  let usages = [usage("src/main.rs", 3), usage("src/api.rs", 1), usage("src/main.rs", 7)];
   std::fs::write(Path::new(&path).join(".git/branch-deck-accio.json"), json!({ "references": { "sum": usages } }).to_string()).unwrap();
 
   let subject = json!({ "kind": "branch", "name": branch, "base": base });

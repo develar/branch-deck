@@ -6,6 +6,7 @@
 //! - `api`: the public declarations the reviewed commits add, remove or change in form
 //! - `fan_in`: the usages of the removed and changed ones at the head, from accio, updated in this change or left
 //!   outside
+//! - `pair`: the lines at the head the reviewed commits changed, which tell a use updated from one left outside
 //! - `order`: the changed files in dependency order, a declaration before its uses, a test after its subject
 //! - `links`: which changed file uses which, added, removed or kept by the commits
 //! - `dependencies`: the entries the commits add to, remove from or change in the build files, and the build files they
@@ -24,6 +25,7 @@ pub mod interdiff;
 pub mod links;
 pub mod mark_reviewed;
 pub mod order;
+pub mod pair;
 
 use crate::api::{ApiChange, api_changes};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
@@ -33,6 +35,7 @@ use crate::interdiff::{Interdiff, PairState, commits_of, interdiff};
 use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base};
 use crate::order::{ReviewOrder, review_order};
+use crate::pair::changed_lines;
 use anyhow::Result;
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
@@ -193,8 +196,8 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     let ReviewOrder { order, links: uses } = review_order(&input, &changed);
     (api_changes(&input, &diffs), order, link_files(&input, &changed, &uses))
   };
-  let after_paths: HashSet<&str> = changed.iter().filter(|file| file.after.is_some()).map(|file| file.path).collect();
-  let index_note = add_usages(sources.index, repository_path, &head, &after_paths, &mut api)?;
+  let lines = || changed_lines(git, repository_path, sources.cache, sources.file_diffs, &changed);
+  let index_note = add_usages(sources.index, repository_path, &head, lines, &mut api)?;
   let Dependencies { changes: dependencies, states } = dependency_changes(&changed, &texts);
   let (files, repeated_edits) = file_facts(&changed, &texts, &states, &links, &api);
   let interdiff = interdiff.map(|mut found| {

@@ -1,21 +1,28 @@
 use crate::api::{ApiChange, ApiChangeKind, FormChange, UsageSite, Usages};
 use crate::fan_in::{MAX_USAGE_QUERIES, NO_ACCIO, NO_INDEX, OUTSIDE_SITES, add_usages};
+use crate::pair::ChangedLines;
+use crate::test_support::{plan_of, range};
 use file_diffs::accio::{ReferenceHit, References, SearchCanceled, SymbolHit, SymbolIndex};
 use pretty_assertions::assert_eq;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use test_utils::git_test_utils::TestRepo;
 use std::sync::Mutex;
 use test_log::test;
 
-/// A hit after the declaration: path, kind, snippet
+/// A hit after the declaration: path, kind, snippet; its line is its place in the answer, from 1
 type Hit<'a> = (&'a str, &'a str, &'a str);
+/// A hit after the declaration: path, line, kind, snippet
+type Line = (String, u32, String, String);
+/// A hit as a test writes it: path, line, kind, snippet
+type LineRef<'a> = (&'a str, u32, &'a str, &'a str);
 /// The answer of a query: its hits, or the error that fails it
 type Answer<'a> = Result<Vec<Hit<'a>>, &'a str>;
 
 /// An index of usages by query: a query it does not know has none, an `Err` fails it, `canceled` is canceled; it keeps
 /// the revision of each query and the query
 pub(crate) struct Counts {
-  /// query -> the hits after the declaration: (path, kind, snippet)
-  answers: HashMap<String, Result<Vec<[String; 3]>, String>>,
+  /// query -> the hits after the declaration
+  answers: HashMap<String, Result<Vec<Line>, String>>,
   indexed: bool,
   queries: Mutex<Vec<(String, Option<String>)>>,
 }
@@ -43,19 +50,40 @@ impl Counts {
     Self::hits(&answers)
   }
 
-  /// The hits of each query: (path, kind, snippet)
+  /// The hits of each query: (path, kind, snippet), each on the line of its place in the answer
   pub(crate) fn hits(answers: &[(&str, Answer<'_>)]) -> Self {
-    Self {
-      answers: answers
+    let lines = |hits: Vec<Hit<'_>>| -> Vec<Line> {
+      (1..)
+        .zip(hits)
+        .map(|(line, (path, kind, snippet))| (path.to_string(), line, kind.to_string(), snippet.to_string()))
+        .collect()
+    };
+    Self::answers(answers.iter().map(|(query, answer)| (*query, answer.clone().map(lines))))
+  }
+
+  /// A call at each path and line of each query
+  pub(crate) fn calls(answers: &[(&str, Vec<(&str, u32)>)]) -> Self {
+    let calls: Vec<(&str, Vec<LineRef<'_>>)> = answers
+      .iter()
+      .map(|(query, calls)| (*query, calls.iter().map(|(path, line)| (*path, *line, "call", "")).collect()))
+      .collect();
+    Self::lines(&calls)
+  }
+
+  /// The hits of each query: (path, line, kind, snippet)
+  pub(crate) fn lines(answers: &[(&str, Vec<LineRef<'_>>)]) -> Self {
+    let lines = |hits: &[LineRef<'_>]| -> Vec<Line> {
+      hits
         .iter()
-        .map(|(query, answer)| {
-          let answer = answer
-            .clone()
-            .map(|hits| hits.into_iter().map(|hit| <[&str; 3]>::from(hit).map(str::to_string)).collect())
-            .map_err(str::to_string);
-          ((*query).to_string(), answer)
-        })
-        .collect(),
+        .map(|(path, line, kind, snippet)| ((*path).to_string(), *line, (*kind).to_string(), (*snippet).to_string()))
+        .collect()
+    };
+    Self::answers(answers.iter().map(|(query, hits)| (*query, Ok(lines(hits)))))
+  }
+
+  fn answers<'a>(answers: impl Iterator<Item = (&'a str, Result<Vec<Line>, &'a str>)>) -> Self {
+    Self {
+      answers: answers.map(|(query, answer)| (query.to_string(), answer.map_err(str::to_string))).collect(),
       indexed: true,
       queries: Mutex::default(),
     }
@@ -109,10 +137,7 @@ impl SymbolIndex for Counts {
       None => Vec::new(),
     };
     // the declaration itself is a hit too, which no usage counts
-    let usages = answer
-      .iter()
-      .enumerate()
-      .map(|(index, [path, kind, snippet])| hit(path, u32::try_from(index).unwrap() + 1, kind, snippet));
+    let usages = answer.iter().map(|(path, line, kind, snippet)| hit(path, *line, kind, snippet));
     let hits: Vec<ReferenceHit> = std::iter::once(hit("src/Api.kt", 1, "declaration", "")).chain(usages).take(LIMIT).collect();
     Ok(Some(References {
       hits,
@@ -161,9 +186,18 @@ fn counts(api: &[ApiChange]) -> Vec<(&str, Option<(u32, u32)>)> {
     .collect()
 }
 
-/// `add_usages` with no changed path
+/// `add_usages` with no changed line
 fn add(index: Option<&dyn SymbolIndex>, api: &mut [ApiChange]) -> anyhow::Result<Option<String>> {
-  add_usages(index, "/repo", "head", &HashSet::new(), api)
+  add_usages(index, "/repo", "head", || Ok(ChangedLines::default()), api)
+}
+
+/// The lines of `paths` changed as a whole
+fn whole(paths: &[&str]) -> ChangedLines {
+  let mut lines = ChangedLines::default();
+  for path in paths {
+    lines.add_whole(path);
+  }
+  lines
 }
 
 /// A removal and a change are asked at the head and ranked by their usages left outside; an addition is never asked
@@ -191,8 +225,8 @@ fn the_usages_split_into_those_inside_the_change_and_those_left_outside() {
     ("open", Ok([&["src/A.kt"][..], &outside].concat())),
   ]);
   let mut api = vec![change("helper", ApiChangeKind::Removed), change("open", ApiChangeKind::Changed)];
-  let changed: HashSet<&str> = ["src/A.kt", "src/B.kt"].into_iter().collect();
-  add_usages(Some(&index), "/repo", "head", &changed, &mut api).unwrap();
+  let changed = whole(&["src/A.kt", "src/B.kt"]);
+  add_usages(Some(&index), "/repo", "head", || Ok(changed), &mut api).unwrap();
   assert_eq!(counts(&api), [("open", Some((1, 7))), ("helper", Some((3, 0)))]);
   let sites: Vec<UsageSite> = (2..=6)
     .map(|line| UsageSite {
@@ -267,8 +301,8 @@ fn a_member_of_a_name_of_the_stop_list_counts_the_lines_that_name_its_owner() {
     },
     member("get", ApiChangeKind::Removed),
   ];
-  let changed: HashSet<&str> = std::iter::once("src/user.rs").collect();
-  add_usages(Some(&index), "/repo", "head", &changed, &mut api).unwrap();
+  let changed = whole(&["src/user.rs"]);
+  add_usages(Some(&index), "/repo", "head", || Ok(changed), &mut api).unwrap();
   assert_eq!(index.queries(), ["Store.get", "Store.new"]);
   assert_eq!(counts(&api), [("new", Some((1, 1))), ("get", Some((0, 1)))]);
   assert!(api.iter().all(|change| !change.usages.as_ref().unwrap().complete));
@@ -305,8 +339,8 @@ fn only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes() {
     policy(ApiChangeKind::Changed, vec![FormChange::Constructors, FormChange::Open]),
     policy(ApiChangeKind::Removed, Vec::new()),
   ];
-  let changed: HashSet<&str> = std::iter::once("src/E.kt").collect();
-  add_usages(Some(&index), "/repo", "head", &changed, &mut api).unwrap();
+  let changed = whole(&["src/E.kt"]);
+  add_usages(Some(&index), "/repo", "head", || Ok(changed.clone()), &mut api).unwrap();
   let usages: Vec<Split<'_>> = api
     .iter()
     .map(|change| {
@@ -335,7 +369,7 @@ fn only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes() {
   // no call and no subtype outside: every use is updated in this change
   let index = Counts::hits(&[("a.Policy", Ok(vec![("src/E.kt", "call", "Policy(id = 1)"), ("lib/A.kt", "type", "val p: Policy")]))]);
   let mut api = vec![policy(ApiChangeKind::Changed, vec![FormChange::Constructors])];
-  add_usages(Some(&index), "/repo", "head", &changed, &mut api).unwrap();
+  add_usages(Some(&index), "/repo", "head", || Ok(changed.clone()), &mut api).unwrap();
   let usages = api[0].usages.as_ref().unwrap();
   assert_eq!((usages.inside, usages.outside, usages.complete), (1, 0, true));
 }
@@ -401,13 +435,49 @@ pub(crate) fn outside(outside: u32) -> Usages {
 /// or one of a member of `STOP_NAMES` at 0 is not, nor a count with a use outside
 #[test]
 fn an_api_is_updated_only_by_a_complete_count_with_no_use_left_outside() {
-  let changed: HashSet<&str> = std::iter::once("src/inside.kt").collect();
+  let changed = whole(&["src/inside.kt"]);
   let index = Counts::hits(&[
     ("inside", Ok(vec![("src/inside.kt", "call", "open(1)")])),
     ("outside", Ok(vec![("src/inside.kt", "call", "open(1)"), ("src/other.kt", "call", "open(2)")])),
   ]);
   let mut api = vec![change("inside", ApiChangeKind::Changed), change("outside", ApiChangeKind::Changed)];
-  add_usages(Some(&index), "/repo", "head", &changed, &mut api).unwrap();
+  add_usages(Some(&index), "/repo", "head", || Ok(changed), &mut api).unwrap();
   let updated: Vec<(&str, bool)> = api.iter().map(|change| (change.name.as_str(), change.usages.as_ref().unwrap().updated)).collect();
   assert_eq!(updated, [("outside", false), ("inside", true)]);
+}
+
+/// A use is inside only on a line the commits changed: of a file one commit changes, a line of its hunks; of a file two
+/// commits change, a line of the blocks of its first blob against its last; of an added file, any line. A use on a line
+/// the change left as it was is outside, in a changed file too
+#[test]
+fn a_use_is_inside_only_on_a_line_the_commits_changed() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add api",
+    &[
+      ("src/a/Api.kt", "package a\n\nfun open(x: Int) {}\n"),
+      ("src/a/Twice.kt", "open(1)\nopen(2)\nopen(3)\n"),
+      ("src/a/Once.kt", "open(1)\nopen(2)\nopen(3)\n"),
+    ],
+  );
+  repo.create_commit_with_files(
+    "Change api",
+    &[("src/a/Api.kt", "package a\n\nfun open(x: Int, y: Int) {}\n"), ("src/a/Twice.kt", "open(1)\nopen(2, 0)\nopen(3)\n")],
+  );
+  let head = repo.create_commit_with_files(
+    "Use api",
+    &[
+      ("src/a/Twice.kt", "open(1)\nopen(2, 2)\nopen(3)\n"),
+      ("src/a/Once.kt", "open(1)\nopen(2)\nopen(3, 3)\n"),
+      ("src/a/New.kt", "open(4, 4)\n"),
+    ],
+  );
+  let index = Counts::calls(&[(
+    "a.open",
+    vec![("src/a/Twice.kt", 1), ("src/a/Twice.kt", 2), ("src/a/Once.kt", 2), ("src/a/Once.kt", 3), ("src/a/New.kt", 1)],
+  )]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  let usages = plan.api[0].usages.as_ref().unwrap();
+  let sites: Vec<(&str, u32)> = usages.outside_sites.iter().map(|site| (site.path.as_str(), site.line)).collect();
+  assert_eq!((usages.inside, usages.outside, sites), (3, 2, vec![("src/a/Twice.kt", 1), ("src/a/Once.kt", 2)]));
 }

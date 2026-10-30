@@ -73,8 +73,8 @@ pub struct UsageSite {
   pub line: u32,
 }
 
-/// The usages of a declaration at the head of the range, from the index of the repository (`fan_in`): in the files the
-/// reviewed commits change (updated in this change), and in the other files (left outside)
+/// The usages of a declaration at the head of the range, from the index of the repository (`fan_in`): on the lines the
+/// reviewed commits changed (updated in this change), and on the other lines (left outside)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

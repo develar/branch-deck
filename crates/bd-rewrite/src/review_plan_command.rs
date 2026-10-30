@@ -130,9 +130,9 @@ pub struct ApiChangeOutput {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UsagesOutput {
-  /// In the files the reviewed commits change: updated in this change
+  /// On the lines the reviewed commits changed: updated in this change
   pub inside: u32,
-  /// In the other files: left outside the change, where a removal or a change may break the code
+  /// On the other lines, of a changed file too: left outside the change, where a removal or a change may break the code
   pub outside: u32,
   /// The first 5 usages left outside
   pub outside_sites: Vec<UsageSite>,

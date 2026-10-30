@@ -18,15 +18,17 @@
 //!   family of languages than the declaration (a Python `.get(` is no use of a Kotlin `Key.get`). Of a type whose
 //!   constructors are its only change, only the `call` hits (`Type(…)`, `new Type(…)`, a Kotlin `class Sub : Type(…)`)
 //!   and the `supertype` hits (a Java `extends Type`, whose `super(…)` calls a constructor) count: a use of the type as
-//!   a type or an import still compiles. It is **inside** when its path is one of the
-//!   changed paths after the commits, else **outside**; the first `OUTSIDE_SITES` outside ones are kept, by path and
-//!   line. The index answers at most 100 hits, and a cut answer is `complete: false`.
+//!   a type or an import still compiles. It is **inside** when its line is one the commits changed
+//!   (`pair::ChangedLines`, read only when a query is asked): this change wrote or rewrote it. A use on a line it left
+//!   as it was is **outside**, in a changed file too; the first `OUTSIDE_SITES` outside ones are kept, by path and line.
+//!   The index answers at most 100 hits, and a cut answer is `complete: false`.
 
 use crate::api::{ApiChange, ApiChangeKind, FormChange, UsageSite, Usages, rank};
+use crate::pair::ChangedLines;
 use anyhow::Result;
 use code_symbols::language::language_of;
 use file_diffs::accio::{Lenient, ReferenceHit, References, SymbolIndex};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use sync_utils::span::in_current_span;
 use tracing::debug;
 
@@ -126,8 +128,8 @@ fn uses(change: &ApiChange, hit: &ReferenceHit) -> bool {
   by_owner(change).is_none_or(|owner| names(&hit.snippet, owner))
 }
 
-/// The usages of `change` in `references` (`uses`), inside `changed` (the paths after the commits) or not
-fn usages_of(change: &ApiChange, references: &References, changed: &HashSet<&str>) -> Usages {
+/// The usages of `change` in `references` (`uses`), on a line the commits changed (`changed`) or not
+fn usages_of(change: &ApiChange, references: &References, changed: &ChangedLines) -> Usages {
   let mut usages = Usages {
     inside: 0,
     outside: 0,
@@ -136,7 +138,7 @@ fn usages_of(change: &ApiChange, references: &References, changed: &HashSet<&str
     updated: false,
   };
   for hit in references.hits.iter().filter(|hit| uses(change, hit)) {
-    if changed.contains(hit.path.as_str()) {
+    if changed.contains(&hit.path, hit.line) {
       usages.inside += 1;
       continue;
     }
@@ -153,9 +155,16 @@ fn usages_of(change: &ApiChange, references: &References, changed: &HashSet<&str
 }
 
 /// Add the usages at `head` to the removals and changes of `api` (at most `MAX_USAGE_QUERIES` distinct queries, no name
-/// of `STOP_NAMES` asked bare), split by `changed` (the paths after the commits), and rank it again (`api::rank`); the answer is
-/// why some have none, `None` when every query answered or none was asked. Fails only when the index was canceled
-pub fn add_usages(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &str, changed: &HashSet<&str>, api: &mut [ApiChange]) -> Result<Option<String>> {
+/// of `STOP_NAMES` asked bare), split by the lines the commits changed (`changed`, called once the index answered), and
+/// rank it again (`api::rank`); the answer is why some have none, `None` when every query answered or none was asked.
+/// Fails when the index was canceled or `changed` fails
+pub fn add_usages(
+  index: Option<&dyn SymbolIndex>,
+  repository_path: &str,
+  head: &str,
+  changed: impl FnOnce() -> Result<ChangedLines>,
+  api: &mut [ApiChange],
+) -> Result<Option<String>> {
   // query -> the entries it answers, in the order of the card
   let mut asked: BTreeMap<String, Vec<usize>> = BTreeMap::new();
   let mut queries: Vec<String> = Vec::new();
@@ -189,11 +198,13 @@ pub fn add_usages(index: Option<&dyn SymbolIndex>, repository_path: &str, head: 
       .map(|thread| thread.join().unwrap_or_else(|_| Err(anyhow::anyhow!("a query of the index panicked"))))
       .collect()
   });
+  let answers: Vec<Option<References>> = answers.into_iter().collect::<Result<_>>()?;
+  let changed = if answers.iter().any(Option::is_some) { changed()? } else { ChangedLines::default() };
   let mut answered = 0;
   for (query, answer) in queries.iter().zip(answers) {
-    if let Some(references) = answer? {
+    if let Some(references) = answer {
       for &position in &asked[query] {
-        api[position].usages = Some(usages_of(&api[position], &references, changed));
+        api[position].usages = Some(usages_of(&api[position], &references, &changed));
       }
       answered += 1;
     }
