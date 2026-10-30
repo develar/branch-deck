@@ -97,7 +97,8 @@ impl From<UpdateCommit> for TargetCommit {
 /// How the fetch of the target before the check went
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TargetFetch {
-  Fetched,
+  /// The upstream fetched, e.g. `origin/master`
+  Fetched { upstream: String },
   /// Why the fetch failed: the check uses the last fetched tip
   Failed(String),
 }
@@ -106,7 +107,18 @@ impl TargetFetch {
   /// Why the fetch failed; `None` after a fetch
   pub fn into_error(self) -> Option<String> {
     match self {
-      Self::Fetched => None,
+      Self::Fetched { .. } => None,
+      Self::Failed(error) => Some(error),
+    }
+  }
+
+  /// Why the fetch did not fetch `upstream`, the upstream of the baseline the check replays onto (`None` for a local
+  /// baseline): it failed, or it fetched the upstream of another baseline, because HEAD switched to another branch
+  /// while it ran. The check then uses the last fetched tip of `upstream`; `None` after a fetch of `upstream`
+  pub fn error_for(self, upstream: Option<&str>) -> Option<String> {
+    match self {
+      Self::Fetched { upstream: fetched } if Some(fetched.as_str()) == upstream => None,
+      Self::Fetched { upstream: fetched } => Some(format!("HEAD switched to another branch while {fetched} was fetched")),
       Self::Failed(error) => Some(error),
     }
   }
@@ -124,7 +136,7 @@ pub fn fetch_target(git_executor: &GitCommandExecutor, repository_path: &str, kn
     fetch_baseline_core(git_executor, &params, &mut |_| {})
   };
   match fetched {
-    Ok(_) => TargetFetch::Fetched,
+    Ok(fetched) => TargetFetch::Fetched { upstream: fetched.upstream },
     Err(error) => {
       warn!(error = %format!("{error:#}"), "the target conflict check uses the last fetched target");
       TargetFetch::Failed(format!("{error:#}"))

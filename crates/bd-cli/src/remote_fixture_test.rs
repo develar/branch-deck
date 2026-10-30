@@ -110,17 +110,22 @@ impl Space {
 
   /// A commit of another developer on the remote's `master`, which the repository hasn't fetched
   pub fn land_on_target(&self, file: &str, content: &str, subject: &str) -> String {
+    self.land_on("master", file, content, subject)
+  }
+
+  /// A commit of another developer on the remote's `branch`, which the repository hasn't fetched
+  pub fn land_on(&self, branch: &str, file: &str, content: &str, subject: &str) -> String {
     let clone = tempfile::tempdir().unwrap();
     let run = |args: &[&str]| {
       let output = git_command().args(args).current_dir(clone.path()).output().unwrap();
       assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
       String::from_utf8(output.stdout).unwrap().trim().to_string()
     };
-    run(&["clone", "--quiet", self.remote.path().to_str().unwrap(), "."]);
+    run(&["clone", "--quiet", "--branch", branch, self.remote.path().to_str().unwrap(), "."]);
     std::fs::write(clone.path().join(file), content).unwrap();
     run(&["add", "-A"]);
     run(&["-c", "user.name=Alice", "-c", "user.email=alice@example.com", "commit", "--quiet", "-m", subject]);
-    run(&["push", "--quiet", "origin", "HEAD:master"]);
+    run(&["push", "--quiet", "origin", &format!("HEAD:{branch}")]);
     run(&["rev-parse", "HEAD"])
   }
 }

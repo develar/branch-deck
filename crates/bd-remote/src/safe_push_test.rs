@@ -1712,16 +1712,7 @@ fn a_target_that_moved_without_a_conflict_starts() {
   // no target on the remote: the fetch fails, the check uses the last fetched target
   let (exit_code, output) = space.run(&["auth", "--check"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(
-    (output["target_check"]["result"].clone(), output["target_check"]["fetched"].clone()),
-    (json!("clean"), json!(false)),
-    "{output}"
-  );
-  let message = output["target_check"]["message"].as_str().unwrap();
-  assert!(
-    message.starts_with("The fetch of origin/master failed, so the check used the last fetched origin/master: "),
-    "{message}"
-  );
+  assert_clean_on_the_last_fetched(&output, "origin/master");
 
   space.publish_target();
   let target = space.land_on_target("other.txt", "theirs", "Add other")[..8].to_string();
@@ -1740,15 +1731,69 @@ fn a_target_that_moved_without_a_conflict_starts() {
 fn a_head_detached_during_the_fetch_of_the_target_defers_the_sync() {
   let space = Space::new(&["(auth) Add auth"]);
   space.publish_target();
-  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&space.repo, &test_utils::wrapped_git::WrappedGit::move_head_before("fetch", 1, "git switch -q --detach"));
-  let environment = Environment {
-    git: wrapped.environment.git.clone(),
-    ..space.environment()
-  };
-  let (exit_code, output) = run_json(&environment, &["--prefix", PREFIX, "safe-push", "auth"]);
-  assert!(wrapped.dir().join("moved").exists(), "HEAD was detached during the fetch: {:#?}", wrapped.commands());
+  let (wrapped, exit_code, output) = safe_push_with_head_moved_before_the_fetch(&space, "git switch -q --detach", &["auth"]);
   assert_error(&output, exit_code, (4, "detached_head"));
   assert_eq!(wrapped.locked_runs("symbolic-ref").last(), Some(&true), "{:#?}", wrapped.commands());
   assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
   assert_eq!(space.remote_tip(AUTH), "");
+}
+
+/// The fetch of the target is of the baseline HEAD's branch had before the lock: the user switches to `release`, which
+/// tracks `origin/253`, while it runs, and the sync under the lock is of `release`. The check replays onto the last
+/// fetched `origin/253`, so `fetched` is false and the message says which baseline was fetched instead; the next check,
+/// which fetches `origin/253`, finds the conflict the stale tip hid
+#[cfg(unix)]
+#[test_log::test]
+fn a_branch_switched_during_the_fetch_of_the_target_is_checked_as_not_fetched() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.publish_target();
+  git(&space.repo, &["push", "--quiet", "origin", "refs/remotes/origin/master:refs/heads/253"]);
+  git(&space.repo, &["branch", "--quiet", "release"]);
+  git(&space.repo, &["branch", "--quiet", "--set-upstream-to=origin/253", "release"]);
+  let target = space.land_on("253", "f0.txt", "theirs", "Change f0")[..8].to_string();
+  let (_wrapped, exit_code, output) = safe_push_with_head_moved_before_the_fetch(&space, "git switch -q release", &["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let message = assert_clean_on_the_last_fetched(&output, "origin/253");
+  assert!(message.ends_with("HEAD switched to another branch while origin/master was fetched"), "{message}");
+
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (
+      output["target_check"]["result"].clone(),
+      output["target_check"]["fetched"].clone(),
+      output["target_check"]["target_tip"].clone()
+    ),
+    (json!("conflict"), json!(true), json!(target)),
+    "{output}"
+  );
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
+}
+
+/// `bd safe-push <args>` whose git runs `other` once, before the fetch of the target; the run moved HEAD
+#[cfg(unix)]
+fn safe_push_with_head_moved_before_the_fetch(space: &Space, other: &str, args: &[&str]) -> (bd_cli::fixture_test::LockSpanGit, i32, Value) {
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&space.repo, &test_utils::wrapped_git::WrappedGit::move_head_before("fetch", 1, other));
+  let environment = Environment {
+    git: wrapped.environment.git.clone(),
+    ..space.environment()
+  };
+  let (exit_code, output) = run_json(&environment, &[&["--prefix", PREFIX, "safe-push"], args].concat());
+  assert!(wrapped.dir().join("moved").exists(), "`{other}` ran during the fetch: {:#?}", wrapped.commands());
+  (wrapped, exit_code, output)
+}
+
+/// A clean check of a fetch of `baseline` that did not fetch it: on its last fetched tip, `fetched` false; its message
+fn assert_clean_on_the_last_fetched(output: &Value, baseline: &str) -> String {
+  assert_eq!(
+    (output["target_check"]["result"].clone(), output["target_check"]["fetched"].clone()),
+    (json!("clean"), json!(false)),
+    "{output}"
+  );
+  let message = output["target_check"]["message"].as_str().unwrap();
+  assert!(
+    message.starts_with(&format!("The fetch of {baseline} failed, so the check used the last fetched {baseline}: ")),
+    "{message}"
+  );
+  message.to_string()
 }

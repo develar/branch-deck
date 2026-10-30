@@ -3818,7 +3818,9 @@ sync, before anything is asked of Patronus.
    never runs under the lock. It fetches the upstream of the baseline of the command (`RepoContext::baseline`: one
    `for-each-ref` with HEAD's branch and the remotes, `fetch_target` of a known `Baseline`). The sync after it takes
    the remotes; HEAD's branch does not outlive the fetch (`RepoContext::over_network`), and its guards read it again
-   under the lock (one `symbolic-ref`).
+   under the lock (one `symbolic-ref`). A HEAD switched during the fetch to a branch of another baseline leaves that
+   baseline unfetched: the check counts the fetch only for the upstream the sync read (`TargetFetch::error_for`); for
+   another it is a failed fetch (`fetched: false`, the message names the upstream fetched).
    `--create-pull-request` starts no robot and fetches nothing.
 1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, of the remotes the sync took, which
    the push and the GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
@@ -3899,7 +3901,8 @@ of `bd safe-push` and of the app (`sync_core::target_conflict`, one core for bot
    fetches it): `symbolic-ref`, `remote` and one `for-each-ref` for the baseline and its upstream (`read_baseline`;
    `bd` passes the `Baseline` of its command, whose remotes its sync takes, so only the listing is
    the check's), then one `fetch`. Never under the repository lock. A failed fetch is no error: the check uses the last fetched tip, and the
-   result says why the fetch failed (`fetch_error`).
+   result says why the fetch failed (`fetch_error`). A fetch of the upstream of another baseline than the one the check
+   replays onto (HEAD switched while it ran) is such a failed fetch (`TargetFetch::error_for`).
 2. The replay of what the robot lands onto the target tip, as a plain `git rebase` replays it, with no resolution by
    words, because Patronus can't resolve by words (`git_ops::trial_rebase`): one `git replay --onto=<target>
    <tip> ^<target>`, objects only, never a ref. The app's start takes the tip from the table of its session and the

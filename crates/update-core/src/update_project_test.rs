@@ -1081,7 +1081,7 @@ fn assert_the_switch_to_other_is_refused(clone: &TestRepo, plan: &UpdatePlan, he
 
 /// A detached HEAD (an update onto a local branch, `bd lease pick`) switched after the check to a new branch at another
 /// commit: the transaction fails on the old value of HEAD, and the check after it names the branch (`HeadAttached`);
-/// nothing moved
+/// nothing moved, the files of the lane those of `other`, clean
 #[test]
 fn a_detached_head_switched_to_a_branch_at_another_commit_since_the_check_is_refused() {
   let repo = TestRepo::new();
@@ -1104,6 +1104,8 @@ fn a_detached_head_switched_to_a_branch_at_another_commit_since_the_check_is_ref
   let attached = error.downcast_ref::<HeadAttached>().unwrap_or_else(|| panic!("not HeadAttached: {error:#}"));
   assert_eq!(attached.actual, "other");
   assert_eq!(lane_git(&["rev-parse", "other", "master"]), format!("{base}\n{tip}"));
+  assert_eq!(lane_git(&["status", "--porcelain"]), "");
+  assert!(!std::path::Path::new(&lane.path).join("a.txt").exists());
 }
 
 /// A process killed between the move and the files leaves HEAD at the new head and the index and the files at the

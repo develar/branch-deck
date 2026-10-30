@@ -1218,7 +1218,8 @@ fn plan(
   // Patronus rebases what it lands onto the newest target before any check, and fails the robot on a conflict
   let rerun = format!("bd safe-push {name}{}", if landing.stack.is_some() { " --whole-stack" } else { "" });
   let target_check = target_fetch.map(|fetch| {
-    let fetch_error = fetch.into_error();
+    // the fetch ran before the lock, of the baseline HEAD's branch had then: a HEAD switched during it has another
+    let fetch_error = fetch.error_for(synced.report.upstream.as_ref().map(|upstream| upstream.name.as_str()));
     let check = match landing.local_tip.as_deref() {
       Some(tip) => check_target(&context.git, &context.repository, &synced.baseline, &synced.report.baseline_commit, tip, fetch_error),
       None => TargetCheck {
