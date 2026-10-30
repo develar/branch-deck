@@ -215,6 +215,16 @@ async fn a_lost_comment_is_found_by_its_text_and_settled_by_the_reply_of_the_bot
   assert_eq!(fake.requests_to("GET", COMMENTS).len(), searched);
 }
 
+/// The registry of `fixture`'s repository (written without a flush of the drive) and the key of its session
+fn registry_of(fixture: &StartFixture) -> (ProcessRegistry, SessionKey) {
+  let files = ProcessRegistry::of(&fixture.services.git_common_dir).unflushed();
+  let key = SessionKey {
+    worktree: fixture.repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  (files, key)
+}
+
 /// The admission of `fixture`'s Safe Push of alpha into `files`, as the app's (`HolderTool::App`), over the Patronus of the
 /// fixture at `now`
 async fn admit_again(fixture: &StartFixture, files: &ProcessRegistry, key: &SessionKey, now: u32) -> crate::reconcile::SettledAdmission {
@@ -258,11 +268,7 @@ async fn a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_
   fixture.fake.lose_start_answers.store(true, Ordering::SeqCst);
   *fixture.fake.robots.lock().unwrap() = Some(Vec::new());
   let host = StartFixture::host(fixture.planned(start_effects()));
-  let files = ProcessRegistry::of(&fixture.services.git_common_dir).unflushed();
-  let key = SessionKey {
-    worktree: fixture.repo.path_str().to_string(),
-    prefix: "test".to_string(),
-  };
+  let (files, key) = registry_of(&fixture);
   let entry = files
     .admit(&OperationId("op".to_string()), HolderTool::Bd, &key, &request_of("test", &host.planned))
     .unwrap();
@@ -323,11 +329,7 @@ async fn a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_
 async fn a_lost_start_patronus_does_not_list_once_it_settled_leaves_and_the_admission_goes_in() {
   let fixture = start_fixture().await;
   *fixture.fake.robots.lock().unwrap() = Some(Vec::new());
-  let files = ProcessRegistry::of(&fixture.services.git_common_dir).unflushed();
-  let key = SessionKey {
-    worktree: fixture.repo.path_str().to_string(),
-    prefix: "test".to_string(),
-  };
+  let (files, key) = registry_of(&fixture);
   let mut record = lost_record(api());
   record.session = key.clone();
   record.resources = request_of("test", &fixture.planned(start_effects())).resources;
