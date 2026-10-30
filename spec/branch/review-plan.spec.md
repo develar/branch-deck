@@ -318,7 +318,7 @@ the files: a file that declares what another uses before it, a test right after 
 - A pair must count as a change beside the dependencies when its form without the version and the scope differs, or
   when it moves to another table of the same scope. This applies also to a `changed` pair: a new version together
   with new features of a crate is a `changed` entry, and its build file stays real work.
-  [@test] ../../crates/review-plan/src/dependencies_test.rs (`a_new_version_with_new_features_keeps_the_manifest_in_the_tree`, `the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`)
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`a_new_version_with_new_features_keeps_the_manifest_in_the_tree`, `an_entry_that_moves_to_another_table_of_the_same_scope_keeps_the_manifest_in_the_tree`)
 - A build file the commits add must be one `newModule` entry `added`, named by its module. A build file the commits
   delete must be one `newModule` entry `removed`.
   [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`)
@@ -484,7 +484,10 @@ the files: a file that declares what another uses before it, a test right after 
 - A dependency change that is no version or scope stays out of `dependencies`, such as the features of a crate,
   `exported` or `optional`. Its build file then stays real work, also when the same entry gets a new version.
 - An entry that moves to another table of the same scope gives no entry, such as a crate that moves into a
-  `target` table, or a `depends` that becomes a `dependencies` `plugin`. Its build file stays real work.
+  `target` table, or a `depends` that becomes a `dependencies` `plugin`. Its build file stays real work, also
+  beside another dependency change of the same file.
+- An entry that moves to another table and to another scope is one `changed` entry of the scope. The entry does not
+  tell the new table, such as the condition of a `target` table, and its build file can be `buildModel`.
 - `optionalDependencies` of a `package.json`, `[patch]` of a `Cargo.toml` and an unnamed module library of an
   `*.iml` are part of the remainder: a change of them keeps the build file real work, with no entry.
 - A plugin descriptor is told by its path and its root: an `idea-plugin` elsewhere is no build file.

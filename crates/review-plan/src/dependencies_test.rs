@@ -375,3 +375,32 @@ fn the_dependencies_and_the_content_of_a_plugin_descriptor_are_its_dependency_ch
     ]
   );
 }
+
+/// An entry that moves to another table of the same scope gives no dependency change, and its build file stays in
+/// the tree also beside a dependency change of its own: a crate that moves from `[dependencies]` into a `target`
+/// table next to a new version, and a `depends` of a plugin descriptor that becomes a `plugin` of its `dependencies`
+/// next to a new module
+#[test]
+fn an_entry_that_moves_to_another_table_of_the_same_scope_keeps_the_manifest_in_the_tree() {
+  let cargo = "[package]\nname = \"a\"\nversion = \"0.1.0\"\n\n[dependencies]\nserde = \"1\"\nlog = \"0.4\"\n";
+  let cargo_after = "[package]\nname = \"a\"\nversion = \"0.1.0\"\n\n[dependencies]\nlog = \"0.4.20\"\n\n[target.'cfg(windows)'.dependencies]\nserde = \"1\"\n";
+  let plugin = PLUGIN_XML.replace("  <depends>com.intellij.modules.platform</depends>\n", "").replace(
+    "    <plugin id=\"com.intellij.java\"/>\n",
+    "    <plugin id=\"com.intellij.java\"/>\n    <plugin id=\"com.intellij.modules.platform\"/>\n    <module name=\"intellij.platform.y\"/>\n",
+  );
+  let x = "plugins/x/resources/META-INF/plugin.xml";
+  let plan = plan_of_change(
+    &[("crates/a/Cargo.toml", cargo), (x, PLUGIN_XML)],
+    &[("crates/a/Cargo.toml", Some(cargo_after)), (x, Some(&plugin))],
+  );
+  let log = DependencyChange {
+    version_before: Some("0.4".to_string()),
+    version_after: Some("0.4.20".to_string()),
+    ..change("crates/a/Cargo.toml", "a", DependencyKind::Crate, "log", DependencyChangeKind::Changed)
+  };
+  assert_eq!(
+    plan.dependencies,
+    [log, change(x, "com.example.x", DependencyKind::Module, "intellij.platform.y", DependencyChangeKind::Added)]
+  );
+  assert_eq!(mechanical(&plan), [("crates/a/Cargo.toml", None), (x, None)]);
+}
