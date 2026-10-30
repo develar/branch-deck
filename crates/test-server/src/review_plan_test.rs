@@ -66,7 +66,7 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
     (&json!(reviewed), &json!(head), &json!("added"), Some(1)),
     "{plan}"
   );
-  assert_eq!(interdiff["scope"], json!({ "base": reviewed, "head": head }), "{plan}");
+  assert_eq!(interdiff["scope"], json!({ "base": reviewed, "head": head, "carried": false }), "{plan}");
   let api = &plan["api"][0];
   assert_eq!(
     (&api["name"], &api["kind"], &api["usages"], &plan["indexNote"]),

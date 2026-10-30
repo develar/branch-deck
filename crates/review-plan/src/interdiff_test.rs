@@ -60,9 +60,20 @@ fn commits(plan: &ReviewPlan) -> Vec<Row<'_>> {
     .collect()
 }
 
-/// The scope of the interdiff, which each test checks is there by its `commits` first
-fn scope(plan: &ReviewPlan) -> Option<(&str, &str)> {
-  plan.interdiff.as_ref()?.scope.as_ref().map(|RangeScope { base, head }| (base.as_str(), head.as_str()))
+/// The scope of the interdiff, which each test checks is there by its `commits` first: its base, its head, and whether
+/// its base is the reviewed change carried onto the base
+fn scope(plan: &ReviewPlan) -> Option<(&str, &str, bool)> {
+  plan
+    .interdiff
+    .as_ref()?
+    .scope
+    .as_ref()
+    .map(|RangeScope { base, head, carried }| (base.as_str(), head.as_str(), *carried))
+}
+
+/// The paths of the files of `plan`
+fn paths(plan: &ReviewPlan) -> Vec<&str> {
+  plan.files.iter().map(|file| file.path.as_str()).collect()
 }
 
 #[test]
@@ -88,17 +99,17 @@ fn commits_added_after_the_mark_are_the_range_on_top() {
     commits(&whole),
     [kept(&login, "(auth) Add login"), kept(&logout, "(auth) Add logout"), added(&session, SESSION)]
   );
-  assert_eq!(scope(&whole), Some((logout.as_str(), session.as_str())));
+  assert_eq!(scope(&whole), Some((logout.as_str(), session.as_str(), false)));
   let interdiff = whole.interdiff.as_ref().unwrap();
   assert_eq!((interdiff.reviewed_tip.as_str(), interdiff.commits[2].changes.as_ref()), (logout.as_str(), None));
 
   let since = plan(&repo, true);
   assert_eq!(commits(&since), [added(&session, SESSION)]);
-  assert_eq!(scope(&since), Some((logout.as_str(), session.as_str())));
+  assert_eq!(scope(&since), Some((logout.as_str(), session.as_str(), false)));
 }
 
 /// An amend keeps the identity of the commit and changes its lines: `rewritten`, with what each version changes that
-/// the other does not, and no plain range
+/// the other does not; on the same base the scope is the diff from the reviewed tip to the tip
 #[test]
 fn an_amended_commit_is_rewritten_with_its_lines() {
   let (repo, _, [login, logout]) = repo();
@@ -127,13 +138,48 @@ fn an_amended_commit_is_rewritten_with_its_lines() {
       reviewed_only: lines("+fn logout() {}"),
     })
   );
-  assert_eq!(scope(&whole), None);
+  assert_eq!(scope(&whole), Some((logout.as_str(), amended.as_str(), true)));
 
   let since = plan(&repo, true);
   assert_eq!(
     commits(&since),
     [(Some(amended.as_str()), Some(logout.as_str()), "(auth) Add logout", PairState::Rewritten)]
   );
+  assert_eq!(paths(&since), ["logout.rs"]);
+}
+
+/// A commit on `master` and the branch rebased onto it, as a sync onto a new baseline: the commit
+fn move_the_baseline(repo: &TestRepo) -> String {
+  repo.git(&["switch", "-q", "master"]);
+  let moved = repo.create_commit_with_timestamp("Change readme", "README.md", "readme 2\n", Some(1_700_000_400));
+  repo.git(&["switch", "-q", "jane/virtual/auth"]);
+  repo.rebase("master").unwrap();
+  moved
+}
+
+/// A rebase onto a moved baseline with an amend: the scope is the diff from the reviewed change carried onto the new base
+/// to the tip, so it holds the amend alone, not the move of the baseline nor the reviewed lines
+#[test]
+fn after_a_rebase_with_an_amend_the_scope_holds_the_amend_alone() {
+  let (repo, _, [_, logout]) = repo();
+  mark(&repo);
+  let moved = move_the_baseline(&repo);
+  std::fs::write(repo.path().join("logout.rs"), "fn logout() { clear(); }\n").unwrap();
+  let amended = repo.commit_with(&["--amend", "--no-edit", "-a"], &[("GIT_COMMITTER_DATE", "1700000500 +0000")]);
+
+  let since = plan(&repo, true);
+  assert_eq!(since.base, moved);
+  assert_eq!(
+    commits(&since),
+    [(Some(amended.as_str()), Some(logout.as_str()), "(auth) Add logout", PairState::Rewritten)]
+  );
+  let (carried, head, true) = scope(&since).unwrap() else {
+    panic!("no carried scope: {:?}", scope(&since))
+  };
+  assert_eq!(head, amended);
+  assert_eq!(repo.git(&["rev-parse", &format!("{carried}^")]), moved);
+  assert_eq!(repo.git(&["diff", "--name-only", carried, &amended]), "logout.rs");
+  assert_eq!(paths(&since), ["logout.rs"]);
 }
 
 /// A move of the baseline copies every commit with the same changes: all `unchanged`, and the scope is empty
@@ -141,10 +187,7 @@ fn an_amended_commit_is_rewritten_with_its_lines() {
 fn a_baseline_move_alone_leaves_every_commit_unchanged() {
   let (repo, _, [login, logout]) = repo();
   mark(&repo);
-  repo.git(&["switch", "-q", "master"]);
-  let moved = repo.create_commit_with_timestamp("Change readme", "README.md", "readme 2\n", Some(1_700_000_400));
-  repo.git(&["switch", "-q", "jane/virtual/auth"]);
-  repo.rebase("master").unwrap();
+  let moved = move_the_baseline(&repo);
   let tip = repo.head();
 
   let whole = plan(&repo, false);
@@ -158,12 +201,13 @@ fn a_baseline_move_alone_leaves_every_commit_unchanged() {
     ]
   );
   assert_ne!(whole.interdiff.as_ref().unwrap().commits[1].id.as_deref(), Some(logout.as_str()));
-  assert_eq!(scope(&whole), Some((tip.as_str(), tip.as_str())));
+  assert_eq!(scope(&whole), Some((tip.as_str(), tip.as_str(), false)));
   assert_eq!(commits(&plan(&repo, true)), []);
 }
 
 /// A reword changes the identity but not the lines: paired by its lines, `unchanged`. A commit taken out of the branch
-/// is `dropped`, listed after the commits of the branch, and a commit added in its place leaves no plain range
+/// is `dropped`, listed after the commits of the branch, and a commit added in its place leaves no plain range: the
+/// scope is the diff from the reviewed tip, which removes the dropped file and adds the new one
 #[test]
 fn a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed() {
   let (repo, _, [login, logout]) = repo();
@@ -185,7 +229,8 @@ fn a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed() {
       (None, Some(logout.as_str()), "(auth) Add logout", PairState::Dropped),
     ]
   );
-  assert_eq!(scope(&whole), None);
+  assert_eq!(scope(&whole), Some((logout.as_str(), session.as_str(), true)));
+  assert_eq!(paths(&plan(&repo, true)), ["session.rs", "logout.rs"]);
 }
 
 /// A range has no reviewed pair: no interdiff, and `since_reviewed` or a rev that names no commit is the caller's error

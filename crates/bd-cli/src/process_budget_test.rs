@@ -553,15 +553,55 @@ fn a_mark_reviewed_on_a_base() {
   assert_processes(&context, &[("for-each-ref", 1), ("merge-base", 1), ("rev-parse", 2), ("update-ref", 1)]);
 }
 
-/// `bd review-plan auth --since-reviewed` after a mark, an amend of a reviewed commit and a commit added on top, whatever
-/// the number of commits: the baseline (`remote`, the `@{u}` probe, a `for-each-ref` of its candidates), one
-/// `for-each-ref` of the reviewed refs with the branches, one `merge-base`, one `rev-list` per side, one `diff-tree` with
-/// one `patch-id` for the changed lines of the commits that are not the same on both sides, and one `diff-tree` for the
-/// interdiff of the rewritten ones; then for the API and the files of the rewritten and the added commits one `log` of
-/// their changes and one `cat-file` of their blobs (text files: no summary to read, and the text of the hunks of the
-/// rewritten one from that read)
+/// `bd review-plan auth --since-reviewed` after a mark, an amend of the reviewed `(auth) Add c` and a new commit on top:
+/// a fixed number of git processes, whatever the number of commits: the baseline (`remote`, the `@{u}` probe, a `for-each-ref` of its candidates), one `for-each-ref` of the reviewed refs
+/// with the branches, one `merge-base`, one `rev-list` per side, one `diff-tree` with one `patch-id` for the changed
+/// lines of the commits that are not the same on both sides, and one `diff-tree` for the interdiff of the rewritten
+/// ones; then for the API and the files one `diff-tree` from the reviewed change carried onto the base (the reviewed tip
+/// on the same base) to the tip, and one `cat-file` of their blobs (text files: no summary to read)
 #[test]
 fn a_review_plan_since_the_review() {
+  let repo = amended_since_the_review();
+  write(&repo, "f3.txt", "(auth) Add d");
+  commit_all(&repo, "(auth) Add d", 1_700_000_400);
+
+  let (context, states, carried) = plan_since_the_review(&repo);
+  assert_eq!(states, ["Rewritten", "Added"]);
+  assert!(carried);
+  assert_processes(&context, SINCE_THE_REVIEW);
+}
+
+/// The processes of `bd review-plan auth --since-reviewed` after an amend on the same base: the reviewed tip is the
+/// reviewed change carried onto it, and the diff from it to the tip one `diff-tree`
+const SINCE_THE_REVIEW: &[(&str, u32)] = &[
+  ("cat-file", 1),
+  ("diff-tree", 3),
+  ("for-each-ref", 2),
+  ("merge-base", 1),
+  ("patch-id", 1),
+  ("remote", 1),
+  ("rev-list", 2),
+  ("rev-parse", 2),
+];
+
+/// `bd review-plan auth --since-reviewed` after an amend and a move of the baseline: the reviewed change carried onto the
+/// new base adds one `merge-tree` and one `fast-import`
+#[test]
+fn a_review_plan_since_the_review_on_a_moved_baseline() {
+  let repo = amended_since_the_review();
+  let tree = git(&repo, &["rev-parse", "origin/master^{tree}"]);
+  let moved = git(&repo, &["commit-tree", &tree, "-p", "origin/master", "-m", "Move the baseline"]);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", &moved]);
+  repo.rebase("origin/master").unwrap();
+
+  let (context, states, carried) = plan_since_the_review(&repo);
+  assert_eq!(states, ["Rewritten"]);
+  assert!(carried);
+  assert_processes(&context, &with_more(SINCE_THE_REVIEW, &[("fast-import", 1), ("merge-tree", 1)]));
+}
+
+/// `repo_with_branches` synced, `auth` marked reviewed, then its `(auth) Add c` amended in the working branch
+fn amended_since_the_review() -> TestRepo {
   let repo = repo_with_branches();
   sync(&context(&repo)).unwrap();
   let mark = MarkReviewedArgs {
@@ -572,33 +612,22 @@ fn a_review_plan_since_the_review() {
   write(&repo, "f2.txt", "(auth) Add c, amended");
   git(&repo, &["add", "-A"]);
   repo.commit_with(&["--amend", "--no-edit"], &[("GIT_COMMITTER_DATE", "1700000300 +0000")]);
-  write(&repo, "f3.txt", "(auth) Add d");
-  commit_all(&repo, "(auth) Add d", 1_700_000_400);
-  sync(&context(&repo)).unwrap();
+  repo
+}
 
-  let context = context(&repo);
+/// A sync, then `bd review-plan auth --since-reviewed` in a new context: the context, whose processes it counted, the
+/// states of the commits since the review, and whether the scope is carried
+fn plan_since_the_review(repo: &TestRepo) -> (RepoContext, Vec<String>, bool) {
+  sync(&context(repo)).unwrap();
+  let context = context(repo);
   let args = ReviewPlanArgs {
     subject: "auth".to_string(),
     base: None,
     since_reviewed: true,
   };
-  let output = review_plan(&context, &args).unwrap();
-  let states: Vec<String> = output.interdiff.unwrap().commits.iter().map(|commit| format!("{:?}", commit.state)).collect();
-  assert_eq!(states, ["Rewritten", "Added"]);
-  assert_processes(
-    &context,
-    &[
-      ("cat-file", 1),
-      ("diff-tree", 2),
-      ("for-each-ref", 2),
-      ("log", 1),
-      ("merge-base", 1),
-      ("patch-id", 1),
-      ("remote", 1),
-      ("rev-list", 2),
-      ("rev-parse", 2),
-    ],
-  );
+  let interdiff = review_plan(&context, &args).unwrap().interdiff.unwrap();
+  let states = interdiff.commits.iter().map(|commit| format!("{:?}", commit.state)).collect();
+  (context, states, interdiff.scope.is_some_and(|scope| scope.carried))
 }
 
 /// The review of the commits of the branch above the baseline, `origin/master..HEAD`

@@ -43,7 +43,7 @@ use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tracing::instrument;
-use trial_check::diff_scan::read_commit_diffs_cached;
+use trial_check::diff_scan::{read_commit_diffs_cached, read_pair_diff};
 use trial_check::symbol_scan::read_symbol_input_with;
 
 /// What a plan is asked for
@@ -163,11 +163,19 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     }
   };
 
-  let reviewed = reviewed_commits(git, repository_path, &base, &head, interdiff.as_ref(), params.since_reviewed)?;
-  let diffs = if reviewed.is_empty() {
-    Vec::new()
+  let carried = interdiff
+    .as_ref()
+    .and_then(|found| found.scope.as_ref())
+    .filter(|scope| params.since_reviewed && scope.carried);
+  let diffs = if let Some(scope) = carried {
+    vec![read_pair_diff(git, repository_path, sources.cache, sources.file_diffs, &scope.base, &scope.head)?]
   } else {
-    read_commit_diffs_cached(git, repository_path, sources.cache, sources.file_diffs, &reviewed)?
+    let reviewed = reviewed_commits(git, repository_path, &base, &head, interdiff.as_ref(), params.since_reviewed)?;
+    if reviewed.is_empty() {
+      Vec::new()
+    } else {
+      read_commit_diffs_cached(git, repository_path, sources.cache, sources.file_diffs, &reviewed)?
+    }
   };
   let changed = changed_files(&diffs);
   let mut seen: HashSet<String> = HashSet::new();
@@ -211,7 +219,8 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
 }
 
 /// The commits the API, the order and the files are read from, oldest first: of `base..head`, or with `since_reviewed`
-/// only those added or rewritten since the review, adjacent or not, each read against its own parent. A branch never
+/// (and no carried scope, whose one diff the plan reads instead) only those added or rewritten since the review,
+/// adjacent or not, each read against its own parent. A branch never
 /// marked reviewed has no reviewed commit, so all of its commits are new. The commits of the interdiff are those of
 /// `base..head` already; else one `rev-list`
 fn reviewed_commits(git: &GitCommandExecutor, repository_path: &str, base: &str, head: &str, interdiff: Option<&Interdiff>, since_reviewed: bool) -> Result<Vec<String>> {

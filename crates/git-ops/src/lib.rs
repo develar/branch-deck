@@ -26,6 +26,7 @@
 //! - `ref_transaction`: `RefTransaction`, every ref move in one `update-ref --stdin` with compare-and-swap
 //! - `commit_writer`: commits, store commits and notes from one `fast-import`, with exact metadata, and temporary refs
 //! - `reviewed_refs`: the base and the tip a local branch had when the user marked it reviewed
+//! - `carried_review`: the reviewed change of a branch carried onto its base now, for the diff since the review
 //!   (`refs/branch-deck/reviewed/`), listed with the branches and written with compare-and-swap
 //!
 //! The copies of a sync:
@@ -83,6 +84,7 @@ pub mod amend_operations;
 pub mod attributes;
 pub mod autosquash_targets;
 pub mod branch_description;
+pub mod carried_review;
 pub mod cat_file_batch;
 pub mod cherry_pick;
 pub mod commit_chain;
@@ -179,6 +181,9 @@ mod notes_test;
 
 #[cfg(test)]
 mod object_texts_test;
+
+#[cfg(test)]
+mod carried_review_test;
 
 #[cfg(test)]
 mod ownership_test;

@@ -80,6 +80,24 @@ async function openPlanWindow(page: Page, syncAndWaitForBranches: () => Promise<
   return window
 }
 
+/**
+ * The review window of `plan` with five notes more, so it has the search of the files, and the owners of the baseline,
+ * src/b its own, so it has the owner chips
+ */
+async function openPlanWindowWithFilters(page: Page, repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<unknown>): Promise<Page> {
+  await setupPlan(repo, { experimental: true })
+  const notes = Object.fromEntries([1, 2, 3, 4, 5].map(number => [`docs/note${number}.txt`, `note ${number}\n`]))
+  await repo.commit("(plan) add the notes", notes, 1704124800)
+  await repo.commitOnRemote("master", {
+    subject: "Add the owners",
+    author: "Jane <jane@example.com>",
+    timestamp: 1704110400,
+    files: { OWNERSHIP: "owner 'Monorepo'\n", "src/b/OWNERSHIP": "owner 'Cache Team'\n" },
+  })
+  await repo.fetchInTerminal()
+  return openPlanWindow(page, syncAndWaitForBranches)
+}
+
 /** The tree of the files of the review, and the rows of the three files of `plan` */
 function planRows(window: Page) {
   const tree = window.getByRole("tree", { name: "Changed files" })
@@ -185,18 +203,7 @@ test.describe("The review plan in the branch review", () => {
 
   test("should select a linked file that a filter hides, and drop only the filter that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
-    await setupPlan(repo, { experimental: true })
-    // five notes more, so the window has the search of the files; the owners of the baseline, src/b its own
-    const notes = Object.fromEntries([1, 2, 3, 4, 5].map(number => [`docs/note${number}.txt`, `note ${number}\n`]))
-    await repo.commit("(plan) add the notes", notes, 1704124800)
-    await repo.commitOnRemote("master", {
-      subject: "Add the owners",
-      author: "Jane <jane@example.com>",
-      timestamp: 1704110400,
-      files: { OWNERSHIP: "owner 'Monorepo'\n", "src/b/OWNERSHIP": "owner 'Cache Team'\n" },
-    })
-    await repo.fetchInTerminal()
-    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)
     const { reader, cache } = planRows(window)
     const owner = (name: string) => window.getByTestId("branch-review-owner").filter({ hasText: name })
     const search = window.getByRole("textbox", { name: "Filter files" })
@@ -261,18 +268,7 @@ test.describe("The review plan in the branch review", () => {
 
   test("should select the file of a card entry while a filter hides every file, and drop only the filter that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
-    await setupPlan(repo, { experimental: true })
-    // five notes more, so the window has the search of the files; the owners of the baseline, src/b its own
-    const notes = Object.fromEntries([1, 2, 3, 4, 5].map(number => [`docs/note${number}.txt`, `note ${number}\n`]))
-    await repo.commit("(plan) add the notes", notes, 1704124800)
-    await repo.commitOnRemote("master", {
-      subject: "Add the owners",
-      author: "Jane <jane@example.com>",
-      timestamp: 1704110400,
-      files: { OWNERSHIP: "owner 'Monorepo'\n", "src/b/OWNERSHIP": "owner 'Cache Team'\n" },
-    })
-    await repo.fetchInTerminal()
-    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)
     const { cache, store } = planRows(window)
     const owner = (name: string) => window.getByTestId("branch-review-owner").filter({ hasText: name })
     const search = window.getByRole("textbox", { name: "Filter files" })
@@ -424,12 +420,14 @@ test.describe("The review plan in the branch review", () => {
     await expect(window.getByTestId("review-plan-since")).toHaveText("Since your review: 1 new")
     await expect(window.getByTestId("branch-review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
 
-    // the commit of nav joins plan below the reviewed ones: the new commits are not one range, the column lists only them
+    // the commit of nav joins plan below the reviewed ones: the new commits are not one range of the branch, so Since
+    // Your Review is the diff from the reviewed change, both new commits together
     await repo.reword(await repo.revision("HEAD~3"), "(plan) use the store and the queue")
     await syncAndWaitForBranches()
     await expect(findBranchRow(page, "nav")).toHaveCount(0)
     await expect.poll(() => commitColumn(window)).toEqual(["All Changes4 commits", "Since Your Review2 commits", "read the cache twiceNew", "use the store and the queueNew"])
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt"])
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/Queue.kt", "src/Store.kt", "src/Uses.kt"])
+    await expect(window.getByTestId("review-plan-since")).toHaveText("Since your review: 2 new")
     await window.getByTestId("range-review-commit").filter({ hasText: "use the store and the queue" }).click()
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Queue.kt", "src/Store.kt", "src/Uses.kt"])
 
@@ -440,7 +438,11 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => commitColumn(window)).toEqual(["All Changes4 commits", "read the cache twice", "add the cache", "scale the helper", "use the store and the queue"])
   })
 
-  test("should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const repo = await setupRepo("symbol_navigation")
     await setupPlan(repo, { experimental: true })
     const window = await openPlanWindow(page, syncAndWaitForBranches)
@@ -461,12 +463,15 @@ test.describe("The review plan in the branch review", () => {
     await expect(since).toContainText("Since your review: 1 rewritten")
     await expect(since).toContainText("Rewritten scale the helper: src/Store.kt +1 −1")
 
-    // Since Your Review: no range, the rewritten commit alone, and above its heading the card with that difference
+    // Since Your Review: one diff from the reviewed version, the amend alone: the reviewed line against the new one,
+    // never the line before the branch, under the card with that difference
     await window.getByTestId("range-review-commit").filter({ hasText: "Since Your Review" }).click()
+    await expect(window.getByTestId("branch-review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
     await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits", "Since Your Review1 commit", "scale the helperRewritten"])
-    await expect(window.getByTestId("range-review-commit-header")).toContainText("scale the helper")
-    await expect(window.getByTestId("branch-review-position")).not.toHaveText(/^Since Your Review/)
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
+    const code = window.getByTestId("diff-view")
+    await expect(code).toContainText("value * scale * 2")
+    await expect(code).not.toContainText("helper(value: Int)")
     await expect(since).toContainText("Rewritten scale the helper: src/Store.kt +1 −1")
     await captureHtmlSnapshot(window.getByTestId("review-plan-since"), "review-plan-since-rewritten")
   })

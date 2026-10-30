@@ -324,9 +324,10 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    another session made is the user's to approve. The user reviews what the sessions landed: `bd mark-reviewed
    <branch>` (experimental, no rewrite) keeps the base and the tip of a branch as reviewed, so that the next review
    starts there (`mark-reviewed --base <parent>` for a stacked branch: only its own commits); run it only when the
-   user says they reviewed the branch. `bd review-plan <branch> --since-reviewed` (reads only; `review-plan --base
-   <parent>` as for the mark) lists the commits added or rewritten since then, and `scope`, the plain range to review
-   when commits were only added on top; its `api` names the public declarations they change, ranked by their usages
+   user says they reviewed the branch. `bd review-plan <branch> --since-reviewed` (moves no ref; `review-plan --base
+   <parent>` as for the mark) lists the commits added or rewritten since then, and `scope`, what changed since as one
+   diff: `git diff <base> <head>` of it, the plain range of commits added on top, or with `carried` the reviewed
+   change carried onto the base, also after an amend or a rebase; its `api` names the public declarations they change, ranked by their usages
    from accio, `files` the facts of each file (mechanical, untested, its links), `links` which file uses which and
    `dependencies` the entries the commits add to, remove from or change in the build files;
    `order` lists the files to read, each declaration before its uses.

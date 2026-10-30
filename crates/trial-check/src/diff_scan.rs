@@ -54,6 +54,24 @@ pub fn read_commit_changes(git: &GitCommandExecutor, repository: &str, ids: &[St
   parse_commit_diffs(&output)
 }
 
+/// The changes from `base` to `head` (full commit ids) as one diff, as `read_commit_diffs` reads a commit: the files from
+/// one `diff-tree --raw`, their blocks from the caches of the diff views or one `cat-file --batch`; its id is
+/// `<base>..<head>`. Not cached: a pair is no commit
+#[instrument(skip(git, cache, file_diffs))]
+pub fn read_pair_diff(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, file_diffs: &FileDiffs, base: &str, head: &str) -> Result<CommitDiff> {
+  let mut args = vec!["diff-tree", "-r", "-z", "--raw", "--no-abbrev", "-M"];
+  args.extend(DIFF_OPTIONS);
+  args.extend(["--end-of-options", base, head]);
+  let output = git.cmd(&args, repository).bytes()?;
+  let id = format!("{base}..{head}");
+  let mut fields = Fields { data: &output, pos: 0 };
+  let files = parse_raw_files(&mut fields, &id)?;
+  let mut diffs = [CommitDiff { id, files }];
+  add_blocks(git, repository, cache, file_diffs, &mut diffs)?;
+  let [diff] = diffs;
+  Ok(diff)
+}
+
 /// The hunks and the counts of the text files of `diffs`, from the blocks of the diff views under `Default`; a file
 /// without text (binary, a symlink, a submodule, over 8 MiB) is binary. A change of only the line ends is one hunk of
 /// the whole file, as git sees it
@@ -158,9 +176,13 @@ fn parse_record(record: &[u8]) -> Result<CommitDiff> {
   let id = fields.until_nul().ok_or_else(|| anyhow!("commit record without an id"))?;
   let id = String::from_utf8_lossy(id).trim().to_string();
   fields.skip_while(b'\n');
+  let files = parse_raw_files(&mut fields, &id)?;
+  Ok(CommitDiff { id, files })
+}
 
-  // the raw part: `:<old mode> <new mode> <old oid> <new oid> <status>` NUL `<path>` NUL, and a second path for a
-  // rename or copy
+/// The raw part of a diff at `fields`: `:<old mode> <new mode> <old oid> <new oid> <status>` NUL `<path>` NUL, and a
+/// second path for a rename or copy; `id` names the diff in an error
+fn parse_raw_files(fields: &mut Fields<'_>, id: &str) -> Result<Vec<FileChange>> {
   let mut files = Vec::new();
   while fields.peek() == Some(b':') {
     let meta = fields.until_nul().ok_or_else(|| anyhow!("truncated raw entry in {id}"))?;
@@ -192,7 +214,7 @@ fn parse_record(record: &[u8]) -> Result<CommitDiff> {
       hunks: Vec::new(),
     });
   }
-  Ok(CommitDiff { id, files })
+  Ok(files)
 }
 
 /// Whether a file of `mode` (`--raw`, octal) has content to read as source: a regular file, executable or not; not a

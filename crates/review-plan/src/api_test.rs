@@ -1,8 +1,8 @@
+use crate::ReviewPlan;
 use crate::api::{ApiChange, ApiChangeKind, FormChange, Usages};
 use crate::fan_in_test::{Counts, outside};
 use crate::interdiff::PairState;
-use crate::test_support::{mark, plan_of, range};
-use crate::{ReviewPlan, ReviewPlanParams, ReviewSubject};
+use crate::test_support::{branch, mark, plan_of, range};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -133,18 +133,6 @@ fn kotlin_function(name: &str, parameters: &str) -> String {
   format!("package a\n\nfun {name}({parameters}): Int = 1\n")
 }
 
-fn branch_params(repo: &TestRepo, since_reviewed: bool) -> ReviewPlanParams {
-  ReviewPlanParams {
-    repository_path: repo.path_str().to_string(),
-    subject: ReviewSubject::Branch {
-      name: "auth".to_string(),
-      base: None,
-      baseline_branch: Some("master".to_string()),
-    },
-    since_reviewed,
-  }
-}
-
 /// The files of `plan` in its order: the path, the usages of the API it removes or changes, and whether it is untested
 fn facts(plan: &ReviewPlan) -> Vec<(&str, u32, bool)> {
   plan.files.iter().map(|file| (file.path.as_str(), file.breaks, file.untested)).collect()
@@ -154,10 +142,19 @@ fn names(plan: &ReviewPlan) -> Vec<(&str, ApiChangeKind)> {
   plan.api.iter().map(|change| (change.name.as_str(), change.kind)).collect()
 }
 
-/// With `since_reviewed`, the API and the files are those of the rewritten and the added commits, each against its own
-/// parent, though an unchanged commit lies between them
+/// The plan of `auth` since its review, whose first commit was rewritten and another added
+fn rewritten_and_added_since_the_review(repo: &TestRepo) -> ReviewPlan {
+  let since = plan_of(repo, None, &branch(repo, true)).unwrap();
+  let states: Vec<PairState> = since.interdiff.as_ref().unwrap().commits.iter().map(|commit| commit.state).collect();
+  assert_eq!(states, [PairState::Rewritten, PairState::Added]);
+  since
+}
+
+/// With `since_reviewed`, the API and the files are those of the diff from the reviewed change to the tip: a rewritten
+/// commit counts against its reviewed version, so a declaration it changed is changed, not added again, and an
+/// unchanged commit between it and an added one adds nothing
 #[test]
-fn since_the_review_the_api_is_that_of_the_added_and_rewritten_commits() {
+fn since_the_review_the_api_is_that_of_the_diff_from_the_reviewed_change() {
   let repo = TestRepo::new();
   let base = repo.create_commit_with_timestamp("Add readme", "README.md", "readme\n", Some(1_700_000_000));
   repo.git(&["switch", "-q", "-c", "jane/virtual/auth"]);
@@ -171,17 +168,45 @@ fn since_the_review_the_api_is_that_of_the_added_and_rewritten_commits() {
   repo.git(&["cherry-pick", "--allow-empty", &logout]);
   repo.create_commit_with_timestamp("(auth) Add session", "src/a/Session.kt", &kotlin_function("session", ""), Some(1_700_000_300));
 
-  let since = plan_of(&repo, None, &branch_params(&repo, true)).unwrap();
-  let states: Vec<PairState> = since.interdiff.as_ref().unwrap().commits.iter().map(|commit| commit.state).collect();
-  assert_eq!(states, [PairState::Rewritten, PairState::Added]);
-  assert_eq!(names(&since), [("login", ApiChangeKind::Added), ("session", ApiChangeKind::Added)]);
+  let since = rewritten_and_added_since_the_review(&repo);
+  assert_eq!(names(&since), [("login", ApiChangeKind::Changed), ("session", ApiChangeKind::Added)]);
   assert_eq!(facts(&since), [("src/a/Login.kt", 0, true), ("src/a/Session.kt", 0, true)]);
 
-  let whole = plan_of(&repo, None, &branch_params(&repo, false)).unwrap();
+  let whole = plan_of(&repo, None, &branch(&repo, false)).unwrap();
   assert_eq!(
     names(&whole),
     [("login", ApiChangeKind::Added), ("logout", ApiChangeKind::Added), ("session", ApiChangeKind::Added)]
   );
+}
+
+/// With `since_reviewed`, an unchanged commit between a rewritten and an added one adds nothing to the API, also when all
+/// three change the same file: the diff from the reviewed change holds the rewrite and the addition alone
+#[test]
+fn since_the_review_an_unchanged_commit_between_two_of_one_file_adds_nothing() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_timestamp("Add readme", "README.md", "readme\n", Some(1_700_000_000));
+  repo.git(&["switch", "-q", "-c", "jane/virtual/auth"]);
+  let path = "src/a/Api.kt";
+  let file = |functions: &[&str]| {
+    functions.iter().fold("package a\n\n".to_string(), |mut text, function| {
+      text.push_str("fun ");
+      text.push_str(function);
+      text.push_str(": Int = 1\n\n");
+      text
+    })
+  };
+  repo.create_commit_with_timestamp("(auth) Add login", path, &file(&["login()"]), Some(1_700_000_100));
+  repo.create_commit_with_timestamp("(auth) Add logout", path, &file(&["login()", "logout()"]), Some(1_700_000_200));
+  mark(&repo);
+
+  // the first commit rewritten, the second the same lines, a third on top
+  repo.git(&["reset", "-q", "--hard", &base]);
+  repo.create_commit_with_timestamp("(auth) Add login", path, &file(&["login(user: String)"]), Some(1_700_000_100));
+  repo.create_commit_with_timestamp("(auth) Add logout", path, &file(&["login(user: String)", "logout()"]), Some(1_700_000_200));
+  repo.create_commit_with_timestamp("(auth) Add session", path, &file(&["login(user: String)", "logout()", "session()"]), Some(1_700_000_300));
+
+  let since = rewritten_and_added_since_the_review(&repo);
+  assert_eq!(names(&since), [("login", ApiChangeKind::Changed), ("session", ApiChangeKind::Added)]);
 }
 
 /// Outside the JVM the header holds the parameters: a new parameter of a `pub fn` changes its header, and a

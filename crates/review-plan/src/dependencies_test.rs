@@ -1,7 +1,7 @@
 use crate::ReviewPlan;
 use crate::dependencies::{DependencyChange, DependencyChangeKind, DependencyKind, DependencyScope};
 use crate::files::MechanicalKind;
-use crate::test_support::{plan_of, range};
+use crate::test_support::{branch, mark, plan_of, range};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -403,4 +403,41 @@ fn an_entry_that_moves_to_another_table_of_the_same_scope_keeps_the_manifest_in_
     [log, change(x, "com.example.x", DependencyKind::Module, "intellij.platform.y", DependencyChangeKind::Added)]
   );
   assert_eq!(mechanical(&plan), [("crates/a/Cargo.toml", None), (x, None)]);
+}
+
+/// With `since_reviewed`, the dependency changes are those of the diff from the reviewed change to the tip: the entry
+/// a rewritten commit replaced, the one it adds instead, the one a new commit adds; an unchanged commit between them adds
+/// no entry, also in the same build file
+#[test]
+fn since_the_review_an_unchanged_commit_between_two_of_one_manifest_adds_no_entry() {
+  let repo = TestRepo::new();
+  let manifest = |dependencies: &[&str]| {
+    dependencies.iter().fold("[package]\nname = \"app\"\n\n[dependencies]\n".to_string(), |mut text, name| {
+      text.push_str(name);
+      text.push_str(" = \"1\"\n");
+      text
+    })
+  };
+  let base = repo.create_commit_with_timestamp("Add manifest", "Cargo.toml", &manifest(&[]), Some(1_700_000_000));
+  repo.git(&["switch", "-q", "-c", "jane/virtual/auth"]);
+  repo.create_commit_with_timestamp("(auth) Add a", "Cargo.toml", &manifest(&["a"]), Some(1_700_000_100));
+  repo.create_commit_with_timestamp("(auth) Add b", "Cargo.toml", &manifest(&["a", "b"]), Some(1_700_000_200));
+  mark(&repo);
+
+  // the first commit rewritten, the second the same lines, a third on top
+  repo.git(&["reset", "-q", "--hard", &base]);
+  repo.create_commit_with_timestamp("(auth) Add a", "Cargo.toml", &manifest(&["aa"]), Some(1_700_000_100));
+  repo.create_commit_with_timestamp("(auth) Add b", "Cargo.toml", &manifest(&["aa", "b"]), Some(1_700_000_200));
+  repo.create_commit_with_timestamp("(auth) Add c", "Cargo.toml", &manifest(&["aa", "b", "c"]), Some(1_700_000_300));
+
+  let since = plan_of(&repo, None, &branch(&repo, true)).unwrap();
+  let changes: Vec<(&str, DependencyChangeKind)> = since.dependencies.iter().map(|change| (change.name.as_str(), change.change)).collect();
+  assert_eq!(
+    changes,
+    [
+      ("a", DependencyChangeKind::Removed),
+      ("aa", DependencyChangeKind::Added),
+      ("c", DependencyChangeKind::Added)
+    ]
+  );
 }

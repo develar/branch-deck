@@ -662,13 +662,15 @@ lock ("Review plan" in [Git Operations](../design/git-operations.md#review-plan)
 
 ### `bd review-plan <branch | base..head> [--base <parent>] [--since-reviewed]`
 
-The plan of a review, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)); reads only. The branch is
+The plan of a review, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)); moves no ref. The branch is
 named as for `bd mark-reviewed`, on the same base (`--base <parent>` for a stacked branch); `base..head` is a range.
 For a branch marked reviewed, `interdiff` pairs each commit of `base..head` with a reviewed one: `unchanged` (the same
 commit, or a copy with the same identity and the same changed lines, or a reword), `rewritten` (the same identity,
-other lines: `new_only` and `reviewed_only` per path), `added` or `dropped` (listed last). `scope` is the plain range
-of the commits added on top when nothing else changed, `null` otherwise; `--since-reviewed` lists only the added and
-the rewritten commits. A branch never marked and a range have `"interdiff": null` ("Review plan" in
+other lines: `new_only` and `reviewed_only` per path), `added` or `dropped` (listed last). `scope` is what changed
+since the review as one diff, `git diff <base> <head>`: the plain range of the commits added on top when nothing else
+changed; else (`carried: true`) from the reviewed change carried onto the base, a commit on no ref, so an amend shows
+against its reviewed version and a rebase adds nothing; `null` when that carry conflicts. `--since-reviewed` lists
+only the added and the rewritten commits, and reads the API and the files from the diff of the scope. A branch never marked and a range have `"interdiff": null` ("Review plan" in
 [Git Operations](../design/git-operations.md#review-plan)).
 
 `api` lists the public declarations the reviewed commits add, remove or change in form (`kind`, `changes`, the form

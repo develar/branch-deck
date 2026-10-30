@@ -3161,8 +3161,9 @@ export type Interdiff = {
 	commits: PairedCommit[],
 	/**
 	 *  The commits added on top as a plain range, `<parent of the first added>..tip`, when every other commit is
-	 *  unchanged and none is dropped; `tip..tip`, empty, when nothing changed; `None` when a commit was rewritten,
-	 *  dropped or added below an unchanged one
+	 *  unchanged and none is dropped; `tip..tip`, empty, when nothing changed; else, after a rewrite, a drop or a commit
+	 *  added below an unchanged one, `<carried>..tip` from the reviewed change carried onto the base; `None` when that
+	 *  carry conflicts
 	 */
 	scope: RangeScope | null,
 };
@@ -5218,10 +5219,15 @@ export type PushUpTo = {
 	blocker?: Reason | null,
 };
 
-/**  A plain range, `base..head` */
+/**  What changed since the review, as the diff of `base..head` */
 export type RangeScope = {
 	base: string,
 	head: string,
+	/**
+	 *  `base` is the reviewed change carried onto the base of the branch, a commit on no ref: the range is one diff, not
+	 *  commits of the branch
+	 */
+	carried: boolean,
 };
 
 export type ReapplyBranchResult = {

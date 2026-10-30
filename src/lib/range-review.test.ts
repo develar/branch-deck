@@ -67,7 +67,7 @@ describe("the local Since Your Review", () => {
 
   it("offers no scope for a branch never marked, nor when nothing was added or rewritten", () => {
     expect(localSinceReview(null)).toBeNull()
-    expect(localSinceReview({ ...interdiff, commits: [interdiff.commits[1]!], scope: { base: "c2", head: "c2" } })).toBeNull()
+    expect(localSinceReview({ ...interdiff, commits: [interdiff.commits[1]!], scope: { base: "c2", head: "c2", carried: false } })).toBeNull()
   })
 
   it("marks the added and the rewritten commits, and lists only them, adjacent or not, under the scope", () => {
@@ -79,8 +79,8 @@ describe("the local Since Your Review", () => {
   })
 
   it("keeps the plain range of the commits added on top, and the column of one new commit", () => {
-    const onTop = localSinceReview({ ...interdiff, commits: [interdiff.commits[1]!, interdiff.commits[2]!], scope: { base: "c2", head: "c4" } })!
-    expect(onTop.scope).toEqual({ base: "c2", head: "c4" })
+    const onTop = localSinceReview({ ...interdiff, commits: [interdiff.commits[1]!, interdiff.commits[2]!], scope: { base: "c2", head: "c4", carried: false } })!
+    expect(onTop.scope).toEqual({ base: "c2", head: "c4", carried: false })
     const items = segmentItems([segment("auth", [commit("c4", "Log out")])], onTop)
     expect(words(items)).toEqual(["All Changes 1 commit", "Since Your Review 1 commit", "Log out (New)"])
     // two scopes to choose from: the column stays

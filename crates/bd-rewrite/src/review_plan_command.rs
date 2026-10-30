@@ -195,8 +195,9 @@ pub struct InterdiffOutput {
   /// The commits of the branch, oldest first, then the dropped ones; with `--since-reviewed`, only the added and the
   /// rewritten ones
   pub commits: Vec<PairedCommitOutput>,
-  /// The commits added on top as a plain range when nothing else changed (`head..head`, empty, when nothing changed);
-  /// `null` when a commit was rewritten, dropped or added below a reviewed one
+  /// What changed since the review as one diff, `base..head`: the commits added on top as a plain range when nothing
+  /// else changed (`head..head`, empty, when nothing changed); after a rewrite, a drop or a commit added below a
+  /// reviewed one, from the reviewed change carried onto the base (`carried`); `null` when that carry conflicts
   pub scope: Option<RangeOutput>,
 }
 
@@ -222,6 +223,9 @@ pub struct PairedCommitOutput {
 pub struct RangeOutput {
   pub base: String,
   pub head: String,
+  /// `base` is the reviewed change carried onto the base of the branch, a commit on no ref (`git diff base head` shows
+  /// what changed since the review); else a commit of the branch or its base
+  pub carried: bool,
 }
 
 /// The subject of `args`: a range when it holds `..`, else a branch
@@ -261,7 +265,8 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
   })?;
   let interdiff_ids = plan.interdiff.iter().flat_map(|interdiff| {
     let commits = interdiff.commits.iter().flat_map(|commit| commit.id.iter().chain(&commit.reviewed_id));
-    [&interdiff.reviewed_base, &interdiff.reviewed_tip].into_iter().chain(commits)
+    let scope = interdiff.scope.iter().flat_map(|scope| [&scope.base, &scope.head]);
+    [&interdiff.reviewed_base, &interdiff.reviewed_tip].into_iter().chain(commits).chain(scope)
   });
   let short = context.short_ids([&plan.base, &plan.head].into_iter().chain(interdiff_ids).map(String::as_str));
   Ok(ReviewPlanOutput {
@@ -355,6 +360,7 @@ fn interdiff_output(interdiff: &Interdiff, short: &ShortIds) -> InterdiffOutput 
     scope: interdiff.scope.as_ref().map(|scope| RangeOutput {
       base: short.get(&scope.base).to_string(),
       head: short.get(&scope.head).to_string(),
+      carried: scope.carried,
     }),
   }
 }

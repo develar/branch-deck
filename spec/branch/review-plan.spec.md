@@ -17,6 +17,8 @@ targets:
   - ../../crates/trial-check/src/symbol_scan.rs
   - ../../crates/file-diffs/src/accio.rs
   - ../../crates/git-ops/src/reviewed_refs.rs
+  - ../../crates/git-ops/src/carried_review.rs
+  - ../../crates/trial-check/src/diff_scan.rs
   - ../../crates/bd-rewrite/src/mark_reviewed_command.rs
   - ../../crates/bd-rewrite/src/review_plan_command.rs
   - ../../crates/bd-cli/src/lib.rs
@@ -57,7 +59,9 @@ windows show it behind a flag.
 
 Its first parts are Mark Reviewed, the base and the tip of a local branch kept when the user says they reviewed it,
 and Since Your Review: the commits of the branch paired with the reviewed ones, unchanged, rewritten, added or
-dropped, and the plain range of the commits added on top (`bd review-plan`). Then the API surface: the public
+dropped, and what changed since the review as one diff (`bd review-plan`): the plain range of the commits added on
+top, else the diff from the reviewed change carried onto the base of the branch to its tip, whatever the branch went
+through. Then the API surface: the public
 declarations the reviewed commits add, remove or change in form, ranked by their usages at the head of the range from
 accio that the change left outside, and the facts of each changed file: which other changed files it uses and which use it, whether its change
 is mechanical, the edit it shares with other files, the usages of the API it removes or changes, and whether it
@@ -146,30 +150,42 @@ the repeated edits and the new API.
 - A move of the baseline alone (a rebase, a sync onto a new baseline) must leave every commit `unchanged`.
   [@test] ../../crates/review-plan/src/interdiff_test.rs (`a_baseline_move_alone_leaves_every_commit_unchanged`)
 - When commits were only added on top, the scope must be the plain range `<first added>^..<tip>`; `<tip>..<tip>` when
-  nothing changed; none after a rewrite, a drop or a commit added below a reviewed one.
-  [@test] ../../crates/review-plan/src/interdiff_test.rs (`commits_added_after_the_mark_are_the_range_on_top`, `a_baseline_move_alone_leaves_every_commit_unchanged`, `a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed`)
+  nothing changed.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`commits_added_after_the_mark_are_the_range_on_top`, `a_baseline_move_alone_leaves_every_commit_unchanged`)
+- After a rewrite, a drop or a commit added below a reviewed one, the scope must be `<carried>..<tip>`, `carried`: the
+  carried commit has the base of the branch as its parent and the tree of `merge-tree --merge-base <reviewed base>
+  <base> <reviewed tip>`, on no ref, in the name and at the author time of the reviewed tip, so the same carry writes
+  the same commit; it is the reviewed tip itself when the base did not move. Its diff to the tip is what changed since
+  the review: after a rebase with an amend, the amend alone. A merge that conflicts must give no scope.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`an_amended_commit_is_rewritten_with_its_lines`, `after_a_rebase_with_an_amend_the_scope_holds_the_amend_alone`, `a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed`)
+  [@test] ../../crates/git-ops/src/carried_review_test.rs (`the_reviewed_tip_is_its_own_carry_on_the_same_base`, `the_reviewed_change_is_merged_onto_a_moved_base_as_a_commit_of_it`, `a_reviewed_change_that_conflicts_with_the_base_carries_nothing`)
 - `--since-reviewed` must list only the `added` and the `rewritten` commits; of a range, or with `--base` of a range,
   or a range rev that names no commit, it is `invalid_arguments` (exit 2).
   [@test] ../../crates/review-plan/src/interdiff_test.rs (`a_range_has_no_interdiff`)
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`, `a_branch_never_marked_and_a_range_have_no_interdiff`)
 - `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
-  `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope`), with
+  `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope` with `base`, `head`
+  and `carried`), with
   `"schema": 3`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`; the other outputs of `bd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
-- The plan must read only and run a fixed number of git processes, whatever the number of commits: the listing and
+- The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
   the base of a mark, one `rev-list` per side, one `diff-tree` with one `patch-id` for the commits that are not the
-  same on both sides, one `diff-tree` for the rewritten ones; never `git range-diff`, never a process per commit.
-  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_since_the_review`)
+  same on both sides, one `diff-tree` for the rewritten ones, one `merge-tree` and one `fast-import` for a carry onto
+  a base that moved; never `git range-diff`, never a process per commit.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_since_the_review`, `a_review_plan_since_the_review_on_a_moved_baseline`)
 
 ### API Surface
 
-- The reviewed commits must be those of `base..head`; with `--since-reviewed` only the `added` and the `rewritten`
-  ones, adjacent or not, each read against its own parent, so an unchanged commit between them adds nothing; a branch
-  never marked has no reviewed commit, so all of its commits are read. The `api`, the `files`, the `links`, the
-  `repeated_edits` and the `order` must be computed from these commits alone.
-  [@test] ../../crates/review-plan/src/api_test.rs (`since_the_review_the_api_is_that_of_the_added_and_rewritten_commits`)
+- The reviewed commits must be those of `base..head`; with `--since-reviewed` the diff of the scope: the commits added
+  on top, or the one diff from the carried commit to the tip, so a rewritten commit counts against its reviewed
+  version (a declaration it changed is changed, not added again) and an unchanged commit between two new ones adds
+  nothing; only without a scope (the carry conflicted) the `added` and the `rewritten` commits, each read against its
+  own parent. A branch never marked has no reviewed commit, so all of its commits are read. The `api`, the `files`,
+  the `links`, the `dependencies`, the `repeated_edits` and the `order` must be computed from these alone.
+  [@test] ../../crates/review-plan/src/api_test.rs (`since_the_review_the_api_is_that_of_the_diff_from_the_reviewed_change`, `since_the_review_an_unchanged_commit_between_two_of_one_file_adds_nothing`)
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`since_the_review_an_unchanged_commit_between_two_of_one_manifest_adds_no_entry`)
 - `api` must list the public declarations (it and every declaration around it public, Java's `protected` too, none
   around it a function) that the commits add, remove or change in form, as the syntax summaries read them: the
   header, the parameters of a JVM function, the reach, `open`, the constructors of a type, what Java sees; a change
@@ -448,11 +464,12 @@ the repeated edits and the new API.
   whole stack has no Mark Reviewed.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
 - "Since Your Review" must follow "All Changes" in the commit column only while the part is one branch, marked, with
-  a commit added or rewritten since; each such commit says "New" or "Rewritten". Chosen, it shows the range of the
-  commits added on top when the plan has that scope; otherwise the column lists only the added and rewritten commits,
-  adjacent or not, and shows the newest of them. "All Changes", another part or a mark leaves it.
+  a commit added or rewritten since; each such commit says "New" or "Rewritten". Chosen, the column lists only the
+  added and the rewritten commits, adjacent or not, and the diffs show the scope: the commits added on top, or the
+  diff from the carried commit, a rewrite against its reviewed version and new commits apart together; without a
+  scope (the carry conflicted) the newest of them. "All Changes", another part or a mark leaves it.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
   [@test] ../../src/lib/range-review.test.ts (`offers no scope for a branch never marked, nor when nothing was added or rewritten`, `marks the added and the rewritten commits, and lists only them, adjacent or not, under the scope`, `keeps the plain range of the commits added on top, and the column of one new commit`)
 - The Review Summary card must head the diffs of a scope, and in "Since Your Review" also a shown commit above its
   heading (a rewritten commit shows its whole diff, the card what it changes against its reviewed version). Its
@@ -461,7 +478,7 @@ the repeated edits and the new API.
   rewritten commit with the lines per path it changes against its reviewed version), and the `index_note` last when
   the usages are missing.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `sums the card up in its title, what can break first`)
 - "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless every use is
   updated in this change: its kind, its name, `path:line`, the parts that changed, the form before and the form after
@@ -535,7 +552,8 @@ the repeated edits and the new API.
   to review the branch on"}}`, exit 2.
 - `bd review-plan auth --since-reviewed` after one commit on top → `{"branch": "jane/virtual/auth", "base": …, "head":
   …, "interdiff": {"reviewed_base": …, "reviewed_tip": …, "commits": [{"id": …, "reviewed_id": null, "subject": "Add
-  logout", "state": "added"}], "scope": {"base": <reviewed tip>, "head": <tip>}}}`.
+  logout", "state": "added"}], "scope": {"base": <reviewed tip>, "head": <tip>, "carried": false}}}`; after an amend
+  of a reviewed commit, `"scope": {"base": <carried>, "head": <tip>, "carried": true}`.
 - `bd review-plan base..head` of a new parameter → `"api": [{"path": "src/a/Api.kt", "line": 3, "name": "open",
   "kind": "changed", "changes": ["parameters"], "before": "fun open(path:String) : Int", "after": "fun
   open(path:String, mode:Int) : Int", "usages": {"inside": 2, "outside": 12, "outside_sites": [{"path":
@@ -576,8 +594,12 @@ the repeated edits and the new API.
 - A commit both reworded and amended has neither its identity nor its changed lines: it shows as `added`, and its
   reviewed version as `dropped`, which errs toward showing too much.
 - Two commits of one author with the same subject in the same second share an identity; they pair in order.
-- A rewritten commit is read against its own parent, not against its reviewed version: a declaration it adds shows as
-  added even when its reviewed version added it too.
+- A carry that conflicts with the moved base (the baseline changed the lines the reviewed change changes) gives no
+  scope: the commits are then read one at a time, a rewritten one against its own parent, so a declaration it adds
+  shows as added even when its reviewed version added it too.
+- The carried commit is on no ref: a `git gc` may prune it once it is old enough, and the next plan writes it again.
+- A drop alone, no commit added or rewritten, offers no "Since Your Review", though the diff from the carried commit
+  would show the removal.
 - The usages of a top-level Rust or TypeScript declaration, and of a Kotlin or Java one in no package, are asked by
   the bare name, so a namesake of the same family of languages counts too. accio resolves `Owner.name` by the text
   and the types it knows, and it keeps a call on a receiver that it cannot type: a namesake can count there too. A
@@ -630,8 +652,6 @@ the repeated edits and the new API.
   nothing, as in the symbol dependencies.
 - The tree order of `order` (`compare_tree_paths`, as the work order of the diffs) approximates the collator of the
   page's file tree for ASCII names; a name with accents may sort elsewhere.
-- The diffs show a commit or a range only: "Since Your Review" of commits that are not one range lists them in the
-  column and shows one at a time, never their changes together.
 - A part of several branches of a stack reads the plan of the reviewed branch on the base of the part, but offers no
   "Since Your Review" and its card no "since": the reviewed pair is on the base of the branch alone.
 - The card heads the diffs of a scope, and a commit only in "Since Your Review": a commit chosen under "All Changes"

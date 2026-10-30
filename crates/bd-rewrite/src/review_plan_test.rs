@@ -3,7 +3,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 /// After a mark, a commit added on top is the only commit since the review, its range the scope; after a second mark,
-/// an amend of that commit is `rewritten` with the lines of each version, and no plain range
+/// an amend of that commit is `rewritten` with the lines of each version, and the scope is the diff from the reviewed
+/// tip, the base of the branch the same
 #[test_log::test]
 fn prints_the_commits_since_the_review() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -30,7 +31,7 @@ fn prints_the_commits_since_the_review() {
       "reviewed_base": base,
       "reviewed_tip": reviewed,
       "commits": [{ "id": tip, "reviewed_id": null, "subject": "Add logout", "state": "added" }],
-      "scope": { "base": reviewed, "head": tip },
+      "scope": { "base": reviewed, "head": tip, "carried": false },
     })
   );
 
@@ -53,9 +54,11 @@ fn prints_the_commits_since_the_review() {
         "new_only": [{ "path": "logout.txt", "lines": ["+logout everywhere"] }],
         "reviewed_only": [{ "path": "logout.txt", "lines": ["+logout"] }],
       }]),
-      &json!(null)
+      &json!({ "base": tip, "head": amended, "carried": true })
     )
   );
+  let files: Vec<&str> = output["files"].as_array().unwrap().iter().map(|file| file["path"].as_str().unwrap()).collect();
+  assert_eq!(files, ["logout.txt"]);
 }
 
 /// A branch never marked and a range have no interdiff; `--since-reviewed` or `--base` of a range, and a range rev that

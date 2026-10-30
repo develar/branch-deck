@@ -10,12 +10,17 @@
 //! 3. the rest by the same changed lines, a reworded commit: `unchanged`;
 //! 4. what is left: `added` on the side of the tip, `dropped` on the side of the reviewed tip.
 //!
+//! The scope is the plain range of the commits added on top when nothing else changed; else the reviewed change carried
+//! onto the base (`git_ops::carried_review`), whose diff to the tip is what changed since the review, also after a
+//! rewrite, a drop or a commit added below; none when that carry conflicts.
+//!
 //! One `rev-list` per side, one `diff-tree --stdin -p` with one `patch-id` for the commits that are not the same on both
-//! sides, one `diff-tree --stdin -p` for the rewritten pairs; none of the last three without such commits. No `git
-//! range-diff`: no translated text is read.
+//! sides, one `diff-tree --stdin -p` for the rewritten pairs; none of the last three without such commits; one
+//! `merge-tree` and one `fast-import` for a carry onto a moved base. No `git range-diff`: no translated text is read.
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::carried_review::{CarryIdentity, carry_reviewed};
 use git_ops::landed_pairing::{CommitKey, PathLines, WalkedCommit, change_ids, interdiffs, walk_commits};
 use git_ops::reviewed_refs::ReviewedPair;
 use serde::Serialize;
@@ -66,13 +71,16 @@ pub struct PairedCommit {
   pub changes: Option<CommitChanges>,
 }
 
-/// A plain range, `base..head`
+/// What changed since the review, as the diff of `base..head`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RangeScope {
   pub base: String,
   pub head: String,
+  /// `base` is the reviewed change carried onto the base of the branch, a commit on no ref: the range is one diff, not
+  /// commits of the branch
+  pub carried: bool,
 }
 
 /// What changed in a branch since its review
@@ -86,8 +94,9 @@ pub struct Interdiff {
   /// The commits of the branch, oldest first, then the dropped ones in their reviewed order
   pub commits: Vec<PairedCommit>,
   /// The commits added on top as a plain range, `<parent of the first added>..tip`, when every other commit is
-  /// unchanged and none is dropped; `tip..tip`, empty, when nothing changed; `None` when a commit was rewritten,
-  /// dropped or added below an unchanged one
+  /// unchanged and none is dropped; `tip..tip`, empty, when nothing changed; else, after a rewrite, a drop or a commit
+  /// added below an unchanged one, `<carried>..tip` from the reviewed change carried onto the base; `None` when that
+  /// carry conflicts
   pub scope: Option<RangeScope>,
 }
 
@@ -195,7 +204,10 @@ pub fn interdiff(git: &GitCommandExecutor, repository_path: &str, reviewed: &Rev
       }
     })
     .collect();
-  let scope = scope_of(&commits, taken.iter().all(|taken| *taken), base, tip);
+  let scope = match scope_of(&commits, taken.iter().all(|taken| *taken), base, tip) {
+    Some(scope) => Some(scope),
+    None => carried_scope(git, repository_path, reviewed, old.last(), base, tip)?,
+  };
   commits.extend(old.iter().zip(&taken).filter(|(_, taken)| !**taken).map(|(commit, _)| PairedCommit {
     id: None,
     reviewed_id: Some(commit.id.clone()),
@@ -228,7 +240,34 @@ fn scope_of(commits: &[PairedCommit], none_dropped: bool, base: &str, tip: &str)
   Some(RangeScope {
     base: below.unwrap_or(tip).to_string(),
     head: tip.to_string(),
+    carried: false,
   })
+}
+
+/// `<carried>..tip`: the change of the `reviewed` pair carried onto `base`, in the name of the author of the reviewed tip
+/// (`reviewed_tip`, the last reviewed commit), so the same carry writes the same commit; `None` when it conflicts or
+/// the review has no commit
+fn carried_scope(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  reviewed: &ReviewedPair,
+  reviewed_tip: Option<&WalkedCommit>,
+  base: &str,
+  tip: &str,
+) -> Result<Option<RangeScope>> {
+  let Some(reviewed_tip) = reviewed_tip else { return Ok(None) };
+  let identity = CarryIdentity {
+    name: &reviewed_tip.author,
+    email: &reviewed_tip.key.email,
+    time: reviewed_tip.key.time,
+  };
+  Ok(
+    carry_reviewed(git, repository_path, &reviewed.base, &reviewed.tip, base, identity)?.map(|carried| RangeScope {
+      base: carried,
+      head: tip.to_string(),
+      carried: true,
+    }),
+  )
 }
 
 /// The changed lines of each rewritten commit against its reviewed version: one `interdiffs`, none without rewrites

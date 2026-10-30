@@ -33,6 +33,19 @@ pub(crate) fn range(repo: &TestRepo, base: &str, head: &str) -> ReviewPlanParams
   }
 }
 
+/// The params of the plan of the branch `auth` on the baseline `master`, since its review or whole
+pub(crate) fn branch(repo: &TestRepo, since_reviewed: bool) -> ReviewPlanParams {
+  ReviewPlanParams {
+    repository_path: repo.path_str().to_string(),
+    subject: crate::ReviewSubject::Branch {
+      name: "auth".to_string(),
+      base: None,
+      baseline_branch: Some("master".to_string()),
+    },
+    since_reviewed,
+  }
+}
+
 /// Mark the branch `auth` of `repo` reviewed, on the baseline `master`
 pub(crate) fn mark(repo: &TestRepo) {
   let params = MarkReviewedParams {
