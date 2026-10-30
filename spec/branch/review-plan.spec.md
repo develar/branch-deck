@@ -48,7 +48,7 @@ targets:
   - ../../src/components/review/BranchReview.tsx
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/files/FileTree.tsx
-  - ../../src/components/files/FileRowBadges.tsx
+  - ../../src/components/files/FileRowMark.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
 ---
 
@@ -579,38 +579,48 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../src/presenters/review-plan.test.ts (`groups the dependency changes by build file in Rust's order, and lists only the links the commits added between modules`, `words each repeated edit with its files, and the new API per file in the order of its first declaration`)
 - A click on an entry of the card must select its file in the review and show its place in the diffs, its name
-  selected, as a link of a badge does: the declaration of an API (a removal on the side before the commits, by its old
-  path too), the first use of a link between modules in the file that uses, the first declaration of the new API of a
-  file; the build file of a module and a file of a repeated edit at its header. A filter that hides the file is
-  dropped as for a badge, also when the filters hide every file, and the place is shown once the file is.
+  selected, as a link of the card of a row's mark does: the declaration of an API (a removal on the side before the
+  commits, by its old path too), the first use of a link between modules in the file that uses, the first declaration
+  of the new API of a file; the build file of a module and a file of a repeated edit at its header. A filter that hides
+  the file is dropped as for a link of a mark, also when the filters hide every file, and the place is shown once the
+  file is.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of a card entry while a filter hides every file, and drop only the filter that hides it`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
 - The tree must list the concerns of the plan, in All Changes and in "Since Your Review" as one range, and the story
   of the diffs follow them ([Review Concerns](review-concerns.spec.md#in-the-review-window)); with no concern but the
-  rest, the files stay in tree order, the plan adds badges and the Mechanical group. There is no switch of the
+  rest, the files stay in tree order, the plan adds the marks of the rows and the Mechanical group. There is no switch of the
   order: one tree tells the finished review. A commit of the column shows its plain tree. The facts apply once the
   plan of the shown scope is read, not while the next one is read.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
-- A file row must show `uses N` and `used by M`, the links among the changed files after the commits, with `+K new`
-  for the links it uses that the commits added. Its popover must list each link it uses, then each link that uses it,
+- A row of the tree must show at most one small mark, where its facts are: those of its file and the dependency
+  changes the row carries. The mark must be in the warning tone when the file breaks uses left outside the change
+  (`breaks N` or `breaks N+`), else muted. Details are on demand: the hover of the mark (300 ms, only after a move of
+  the pointer) must open its card, with the sections that apply in this order: Breaks, Uses, Used by, Same edit,
+  Dependencies. The mark is no tab stop: the description of the row must say every fact in words (`uses 1, +1 new,
+  breaks 3, new module`).
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`)
+  [@test] ../../src/presenters/review-plan.test.ts (`merges the facts of a row into one mark, in the warning tone only when it breaks uses outside, and its card sections what can break first`, `puts the dependency changes a row carries into the same mark, after the facts of its file`)
+- The card of a file must say `Uses N · +K new` and `Used by M`, the links among the changed files after the commits,
+  `+K new` for the links it uses that the commits added. It must list each link it uses, then each link that uses it,
   a removed one too: the other file, the names and the line of the first use (`Cache, get · Reader.kt:3`), and the
-  state Added, Removed or Kept. A click on a link must select that file, close the popover and show the file: a file
+  state Added, Removed or Kept. A click on a link must select that file, close the card and show the file: a file
   that uses this one at its first use, the name selected, a file it uses at its header.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links and the uses it breaks, and show a linked file from its popover, a file that uses at its first use`)
-- A click on a file in a popover must select it also when a filter hides it. The owner filter then goes back to All
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`)
+- A click on a file in a card must select it also when a filter hides it. The owner filter then goes back to All
   when it hides the file, and the search is cleared when it hides the file. A filter that shows the file stays.
   The click selects the file once: a later change of the owner filter or the search must not select it again.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select a linked file that a filter hides, and drop only the filter that hides it`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line, its state and its place`)
-- A file row must show `breaks N` in the warning tone for the uses left outside the change of the API it removes or
-  changes. When `breaks_complete` is false it must show `breaks N+`, or a quiet `breaks ?` at 0: a lower bound never
-  reads as safe. A row has no `no test`: the tests that name the code of a change are those of its step
+- The card of a file must say under Breaks `breaks N` in the warning tone and why, for the uses left outside the
+  change of the API it removes or changes. When `breaks_complete` is false it must say `breaks N+` ("At least 3 uses
+  left outside the change: the count is incomplete"), or a quiet `breaks ?` at 0, whose mark is muted: a lower bound
+  never reads as safe. A row has no `no test`: the tests that name the code of a change are those of its step
   ([Review Tour](review-tour.spec.md#tests-that-name-it)); `untested` stays in `bd review-plan`.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links and the uses it breaks, and show a linked file from its popover, a file that uses at its first use`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`, `should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../src/presenters/review-plan.test.ts (`says the uses an API leaves outside, as a lower bound where Rust says the count is, never a safe 0`, `lists no file without a badge`)
-- A file of a repeated edit must show `same edit ×N`. Its popover must name the edit (the first line removed and the
-  first added, `a → b`) and list the other files of the group; a click selects one.
+- The card of a file of a repeated edit must say `Same edit ×N`, name the edit (the first line removed and the first
+  added, `a → b`) and list the other files of the group; a click selects one.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`names the same edit of a group of files and the other files that get it`)
 - The mechanical files must leave the tree for one group at its end, `Mechanical (N)` (a generated file that follows
@@ -648,8 +658,8 @@ the repeated edits and the new API. The vision of the review, its progress and t
   code that needs the dependency, [Review Concerns](review-concerns.spec.md#the-rest)), else on the directory row whose
   chain holds the directory of the build file, else on the row of the build file (one at the root), which the
   Mechanical group stands for while it folds the build file, so that a collapsed group hides no dependency change:
-  `+N deps −M ~K`, `new module`, `deleted module`. Its tooltip must list each change, a changed version as
-  `1.2 → 1.3` and a changed scope as `test → main`.
+  the mark of that row, whose card says `Dependencies · +N deps −M ~K` (`new module`, `deleted module`) and lists
+  each change, a changed version as `1.2 → 1.3` and a changed scope as `test → main`.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/lib/file-tree.test.ts (`shows the dependency changes of a build file on the row of its concern, else on the directory row of its module, else on the Mechanical group that folds it`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts the dependency changes of a module, a version change as one changed entry with both versions`, `words a version, a scope and a new module`)
@@ -686,9 +696,10 @@ the repeated edits and the new API. The vision of the review, its progress and t
   use updated in this change"; under Dependencies `b src/b/b.iml` "New module b" and "New links between modules
   Reader.kt → Cache.kt"; collapsed "Repeated Edits 1" and "New API 2"; "No usages: no index of this
   repository"; "Cannot read the review plan: …".
-- The tree, flag on: `Reader.kt` `uses 1 +1 new` `same edit ×3` `no test`; its popover "Uses: Cache.kt Added, Cache,
-  get · Reader.kt:3"; `Store.kt` `breaks 2`, or `breaks 2+` and `breaks ?` for a lower bound; the directory `b`
-  `new module`, its tooltip "New module b"; last, the collapsed `Mechanical (2)` with `Build files (1)`
+- The tree, flag on: `Reader.kt` with a muted mark, its card "Uses 1 · +1 new: Cache.kt Added, Cache, get ·
+  Reader.kt:3" and "Same edit ×3"; `Store.kt` with a warning mark, its card "Breaks: breaks 2 · 2 uses left outside
+  the change", or `breaks 2+` and a muted `breaks ?` for a lower bound; the directory `b` with a muted mark, its card
+  "Dependencies · new module: New module b"; last, the collapsed `Mechanical (2)` with `Build files (1)`
   and `Whitespace only (1)`; a branch with rendered files ends with `Generated (5)`, the header of a rendering "Generated
   by tools/render.mjs; edit src/guide.md", of a lock file "Lock file".
 

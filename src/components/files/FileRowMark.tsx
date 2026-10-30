@@ -1,0 +1,180 @@
+import { useState } from "react"
+import type { MouseEvent } from "react"
+import { cn } from "cn"
+import { InfoIcon, TriangleAlertIcon } from "lucide-react"
+import { PopoverContent, PopoverSectionTitle, PopoverTrigger } from "@/components/ui/popover"
+import { HoverDescription } from "@/components/shared/HoverDescription"
+import type { ReviewPlace } from "@/lib/review-place"
+import { fileTop } from "@/lib/review-place"
+import type { LinkEntry, RowFacts, RowFactsSection } from "@/presenters/review-plan"
+
+/*
+ * The one mark of a row of the tree of a review with its plan (spec/branch/review-plan.spec.md, In the Review Window):
+ * details on demand. The row shows at most one small mark, in the warning tone when its file breaks uses left outside
+ * the change; its hover opens the card of the facts: what it breaks, its links among the changed files, the same edit
+ * as other files, and the dependency changes the row carries. The presenter words them (`presentRowFacts`); a click on
+ * a file in the card selects it and closes the card. The tests that name its code are those of its step
+ * (spec/branch/review-tour.spec.md).
+ */
+
+/** A click on the mark or in its card acts there only: the row under it does not select or toggle */
+function keepFromRow(event: MouseEvent) {
+  event.stopPropagation()
+}
+
+/**
+ * The mark of a row; its hover opens the card of its facts (`HoverDescription`, after a move of the pointer). Not a tab
+ * stop: the description of the row says every fact, and the links are in the diffs and the Review Summary too
+ */
+export function FileRowMark({ facts, onSelectPlace }: { facts: RowFacts; onSelectPlace: (place: ReviewPlace) => void }) {
+  const [open, setOpen] = useState(false)
+  const Icon = facts.tone === "warning" ? TriangleAlertIcon : InfoIcon
+  return (
+    <HoverDescription lazy open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        openOnHover
+        delay={300}
+        nativeButton={false}
+        tabIndex={-1}
+        aria-label={facts.description}
+        render={
+          <span
+            className={cn("flex size-4 shrink-0 items-center justify-center", facts.tone === "warning" ? "text-warning" : "text-muted-foreground")}
+            data-testid="file-row-mark"
+            data-tone={facts.tone}
+            onClick={keepFromRow}
+          />
+        }
+      >
+        <Icon className="size-3.5" />
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-80 gap-3 p-3"
+        data-testid="file-facts-card"
+        // the popup is in a portal, but React bubbles its events through the row: a click here must not toggle it
+        onClick={keepFromRow}
+        onContextMenu={keepFromRow}
+      >
+        <FileFactsCard
+          facts={facts}
+          onSelectPlace={place => {
+            setOpen(false)
+            onSelectPlace(place)
+          }}
+        />
+      </PopoverContent>
+    </HoverDescription>
+  )
+}
+
+/** The sections of the card of a row's mark, each under its title; `onSelectPlace` shows another changed file */
+export function FileFactsCard({ facts, onSelectPlace }: { facts: RowFacts; onSelectPlace: (place: ReviewPlace) => void }) {
+  return (
+    <>
+      {facts.sections.map(section => (
+        <div key={section.kind} className="flex flex-col gap-1" data-testid="file-facts-section" data-kind={section.kind}>
+          <PopoverSectionTitle className="px-2">{section.title}</PopoverSectionTitle>
+          <FactsSectionBody section={section} onSelectPlace={onSelectPlace} />
+        </div>
+      ))}
+    </>
+  )
+}
+
+function FactsSectionBody({ section, onSelectPlace }: { section: RowFactsSection; onSelectPlace: (place: ReviewPlace) => void }) {
+  switch (section.kind) {
+    case "breaks":
+      return (
+        <p className="px-2 text-xs" data-testid="file-facts-breaks" data-tone={section.tone}>
+          <span className={cn("font-medium", section.tone === "warning" ? "text-warning" : "text-muted-foreground")}>{section.label}</span>
+          <span className="text-muted-foreground">{` · ${section.why}`}</span>
+        </p>
+      )
+    case "uses":
+    case "usedBy":
+      return <LinkList links={section.links} onSelectPlace={onSelectPlace} />
+    case "sameEdit":
+      return (
+        <>
+          <p className="truncate px-2 font-mono text-xs" title={section.edit} data-testid="file-same-edit">
+            {section.edit}
+          </p>
+          {section.files.map(path => (
+            <PopoverFile
+              key={path}
+              path={path}
+              name={path.slice(path.lastIndexOf("/") + 1)}
+              detail={path}
+              testId="file-same-edit-file"
+              onSelect={() => onSelectPlace(fileTop(path))}
+            />
+          ))}
+        </>
+      )
+    case "dependencies":
+      return (
+        <span className="flex flex-col px-2 text-xs" data-testid="file-facts-dependencies">
+          {section.lines.map((line, index) => (
+            // two changes can read the same: the same name in two scopes of one module
+            <span key={index} data-testid="file-facts-dependency">
+              {line}
+            </span>
+          ))}
+        </span>
+      )
+  }
+}
+
+/** Each link of a file: the other file, the names and the line of the first use, its state; a click shows the other file */
+function LinkList({ links, onSelectPlace }: { links: readonly LinkEntry[]; onSelectPlace: (place: ReviewPlace) => void }) {
+  return links.map(link => (
+    <PopoverFile
+      key={link.key}
+      path={link.path}
+      name={link.name}
+      detail={link.symbols}
+      aside={link.stateWord}
+      state={link.state}
+      testId="file-link"
+      onSelect={() => onSelectPlace(link.place)}
+    />
+  ))
+}
+
+/** A changed file in the card: its name, what it says of it; a click selects it */
+function PopoverFile({
+  path,
+  name,
+  detail,
+  aside,
+  onSelect,
+  testId,
+  state,
+}: {
+  path: string
+  name: string
+  detail: string
+  aside?: string
+  onSelect: () => void
+  testId: string
+  state?: string
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-2 py-1 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+      title={path}
+      onClick={onSelect}
+      data-testid={testId}
+      data-path={path}
+      data-state={state}
+    >
+      <span className="flex w-full min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        {aside !== undefined && <span className="shrink-0 text-xs text-muted-foreground">{aside}</span>}
+      </span>
+      <span className="w-full min-w-0 truncate font-mono text-xs text-muted-foreground">{detail}</span>
+    </button>
+  )
+}

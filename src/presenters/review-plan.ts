@@ -535,6 +535,56 @@ export function presentDependencyBadge(changes: readonly DependencyChange[]): De
   return { label: parts.join(" · "), lines: changes.map(formatDependencyChange) }
 }
 
+/** A section of the card of a row's mark, under its title ("Uses 1 · +1 new", "Breaks", "Same edit ×3", "Dependencies · new module") */
+export type RowFactsSection =
+  | { readonly kind: "breaks"; readonly title: string; readonly label: string; readonly why: string; readonly tone: "warning" | "muted" }
+  | { readonly kind: "uses" | "usedBy"; readonly title: string; readonly links: readonly LinkEntry[] }
+  | { readonly kind: "sameEdit"; readonly title: string; readonly edit: string; readonly files: readonly string[] }
+  | { readonly kind: "dependencies"; readonly title: string; readonly lines: readonly string[] }
+
+/** The one mark of a row of the tree and the card its hover opens: the facts of its file and the dependency changes it carries */
+export interface RowFacts {
+  /** `warning` when the file breaks uses left outside the change (a lower bound above 0 too), else `muted` */
+  readonly tone: "warning" | "muted"
+  /** "uses 1, +1 new, breaks 3, new module": every fact in words, for the description of the row */
+  readonly description: string
+  /** What can break first, then the links, the same edit and the dependency changes; only those that apply */
+  readonly sections: readonly RowFactsSection[]
+}
+
+function capitalized(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`
+}
+
+/** The mark of a row from the badges of its file and the dependency changes it carries; null when it has neither */
+export function presentRowFacts(file?: FileBadges, dependency?: DependencyBadge): RowFacts | null {
+  if (file === undefined && dependency === undefined) {
+    return null
+  }
+  const sections: RowFactsSection[] = []
+  if (file?.breaks != null) {
+    sections.push({ kind: "breaks", title: "Breaks", label: file.breaks.label, why: file.breaks.title, tone: file.breaks.tone })
+  }
+  if (file !== undefined && file.usesLinks.length > 0) {
+    const title = [capitalized(file.uses ?? "uses"), file.newLinks].filter(part => part !== null).join(" · ")
+    sections.push({ kind: "uses", title, links: file.usesLinks })
+  }
+  if (file !== undefined && file.usedByLinks.length > 0) {
+    sections.push({ kind: "usedBy", title: capitalized(file.usedBy ?? "used by"), links: file.usedByLinks })
+  }
+  if (file?.sameEdit != null) {
+    sections.push({ kind: "sameEdit", title: capitalized(file.sameEdit.label), edit: file.sameEdit.edit, files: file.sameEdit.files })
+  }
+  if (dependency !== undefined) {
+    sections.push({ kind: "dependencies", title: `Dependencies · ${dependency.label}`, lines: dependency.lines })
+  }
+  return {
+    tone: file?.breaks?.tone === "warning" ? "warning" : "muted",
+    description: [file?.description, dependency?.label].filter(word => word !== undefined && word !== "").join(", "),
+    sections,
+  }
+}
+
 /** The toast of Mark Reviewed: "Marked auth reviewed", or that it was already */
 export function formatMarkedReviewed(branch: string, changed: boolean): string {
   return changed ? `Marked ${branch} reviewed` : `${branch} was already marked reviewed at this commit`

@@ -68,8 +68,9 @@ flowchart LR
 ```
 
 The plan is computed in Rust once for `bd` and the app, from the git processes the review reads already (its
-budget is a test, `process_budget_test.rs`). The window only words it: the card (`ReviewPlanCard.tsx`), the badges and
-groups of the tree (`file-tree.ts`), the story of the diffs (`presentNarrative`). The concerns are the next part
+budget is a test, `process_budget_test.rs`). The window only words it: the card (`ReviewPlanCard.tsx`), the one mark
+of a row and its card (`FileRowMark.tsx`, `presentRowFacts`) and the groups of the tree (`file-tree.ts`), the story
+of the diffs (`presentNarrative`). The concerns are the next part
 ([Next](#next)).
 
 ## Research
@@ -126,6 +127,7 @@ the review.
 | Units and the story of the diffs | Landed | 7658a56f7, 9734e000b, a75281f1d | every block in one unit; about 40% of the units are a change of a body alone, which no part showed before | a file of no parsed language (Markdown, JSON, TOML, Python) is one unit as a whole |
 | Concerns (untangling) | Landed: in the plan, `bd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 85.4 vs 84.7, Java 95.3 vs 89.9) and than `inspect`; build files and imports follow their concern; a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
 | The story: the brief and the steps | Landed in the plan and `bd` (schema 10), and in the window | 3b9fb5275, this change | a step per commit whose body tells it, the units that land by the commit of their lines, rounds and rewritten commits glued, mechanical parts with the commit that wrote them; every block in one stop on 38 real ranges; the brief quotes the rules of the specs with the tests their test links name | a follow-up by its lines joins 2 of 8 tasks of their own to the step that made their file; "unnamed" lists a helper a test reaches through an entry (JetBrains/accio#107) |
+| The window, round two: one mark per row | Landed | this change | up to four badges a row (links, `+1 new`, breaks, same edit) and a dependency badge became one mark, warning only when the file breaks uses left outside; its hover card lists Breaks, Uses, Used by, Same edit, Dependencies, a link selects its file; the description of the row keeps every fact | the card opens by the pointer only: the mark is no tab stop, a keyboard reaches the links in the diffs and the Review Summary |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`bd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -153,6 +155,11 @@ the review.
    commits without a body, has no such story. The plan decides per commit, no switch; a long branch keeps its commits,
    since its concerns were no shorter a list. This narrows "a commit is a weak unit when agents work": a commit is a
    weak unit to join a concern by, and the strongest unit of the why.
+8. **Details on demand, one mark per row** (2026-10-31). A row of the tree carried up to four badges (`uses 1+1 new`,
+   `breaks 3`, `same edit ×3`, `+2 deps`), each its own popover or tooltip: a third spine of counts that competed with
+   the story for the eye. A row now shows at most one mark, its links, breaks, same edit and dependency changes in
+   the card of its hover. Only what can break keeps a tone of its own (warning), so it still stands out at a glance;
+   the rest is one hover away, and the description of the row says it all in words.
 
 ## Review Rounds
 

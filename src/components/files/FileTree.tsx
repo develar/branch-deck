@@ -5,7 +5,7 @@ import { ChevronRightIcon, FolderIcon, FolderOpenIcon, LayersIcon, TargetIcon } 
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
-import { DependencyBadgeView, FileRowBadges } from "@/components/files/FileRowBadges"
+import { FileRowMark } from "@/components/files/FileRowMark"
 import type { CommitFile } from "@/lib/bindings"
 import { copyText, isCopyKey } from "@/lib/clipboard"
 import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
@@ -13,6 +13,7 @@ import { copiedText } from "@/lib/file-actions"
 import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
 import type { FileTreeAlso, FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 import type { ReviewPlace } from "@/lib/review-place"
+import { presentRowFacts } from "@/presenters/review-plan"
 import type { DependencyBadge, FileBadges } from "@/presenters/review-plan"
 
 interface FileTreeBaseProps {
@@ -23,7 +24,7 @@ interface FileTreeBaseProps {
   onToggleDirectory: (key: string) => void
   /** The code owner of a file by its path, in the hover of its row (the header of its diff shows it) */
   fileOwners?: ReadonlyMap<string, string>
-  /** The badges of the review plan on the rows (`FileRowBadges`); none without a plan */
+  /** The facts of the review plan on the rows, one mark each (`FileRowMark`); none without a plan */
   badges?: FileTreeBadges | null
 }
 
@@ -32,7 +33,7 @@ export interface FileTreeBadges {
   readonly files: ReadonlyMap<string, FileBadges>
   /** The dependency changes of a module, on its directory row or on the row of its build file */
   readonly dependencies: ReadonlyMap<string, DependencyBadge>
-  /** Shows another file from a popover of a badge; must keep its identity: the rows are memoized */
+  /** Shows another file from the card of a row's mark; must keep its identity: the rows are memoized */
   readonly onSelectPlace: (place: ReviewPlace) => void
 }
 
@@ -232,7 +233,7 @@ interface FileTreeRowProps {
   onFocusRow: (key: string) => void
   /** The code owner of a file */
   owner: string | undefined
-  /** The badges of the review plan */
+  /** The facts of the review plan, the row's one mark */
   fileBadges: FileBadges | undefined
   dependencyBadge: DependencyBadge | undefined
   onSelectPlace: ((place: ReviewPlace) => void) | undefined
@@ -255,10 +256,13 @@ const FileTreeRow = memo(function FileTreeRow({
   content,
 }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
-  const description =
+  const facts = presentRowFacts(fileBadges, dependencyBadge)
+  const counts =
     node.kind === "directory"
       ? `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}`
-      : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}${fileBadges === undefined ? "" : `, ${fileBadges.description}`}`
+      : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
+  // the mark is no tab stop: the description says every fact of its card
+  const description = facts === null || facts.description === "" ? counts : `${counts}, ${facts.description}`
   // a file of a review also in another concern: the row tells it from the row of the file
   const label = node.kind === "also" ? `${node.name}, ${node.also}` : node.name
   return (
@@ -327,8 +331,7 @@ const FileTreeRow = memo(function FileTreeRow({
         ) : (
           <FileRowContent node={node} owner={owner} />
         )}
-        {dependencyBadge !== undefined && <DependencyBadgeView badge={dependencyBadge} />}
-        {fileBadges !== undefined && onSelectPlace !== undefined && <FileRowBadges badges={fileBadges} onSelectPlace={onSelectPlace} />}
+        {facts !== null && onSelectPlace !== undefined && <FileRowMark facts={facts} onSelectPlace={onSelectPlace} />}
         {node.kind === "directory" ? <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
       </FileContextMenu>
       {content !== null && (

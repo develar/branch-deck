@@ -20,6 +20,7 @@ export default defineConfig({
     "branch-row-layout/branch-row-layout.spec.ts",
     "branch-row-layout/column-widths.spec.ts",
     "repository/repository-lock.spec.ts",
+    "branch-review/review-plan.spec.ts",
   ],
   grep: [/drag|dropped|new branch zone/i, /@webkit/],
   ignoreSnapshots: true,

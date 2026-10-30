@@ -16,6 +16,7 @@ import {
   presentFileBadges,
   presentNewApi,
   presentRepeatedEdits,
+  presentRowFacts,
 } from "@/presenters/review-plan"
 
 function paired(state: PairedCommit["state"], id: string): PairedCommit {
@@ -337,6 +338,46 @@ describe("the badges of the files in the tree", () => {
 
   it("lists no file without a badge", () => {
     expect(presentFileBadges({ files: [facts({})], links: [], dependencies: [], repeatedEdits: [] }).size).toBe(0)
+  })
+
+  it("merges the facts of a row into one mark, in the warning tone only when it breaks uses outside, and its card sections what can break first", () => {
+    const badges = presentFileBadges({
+      files: [facts({ path: "src/a/Reader.kt", uses: 1, newLinks: 1, breaks: 3, repeatedEdit: 0 }), facts({ path: "src/b/Cache.kt", usedBy: 1, repeatedEdit: 0 })],
+      links: [link("src/a/Reader.kt", "src/b/Cache.kt", "added")],
+      dependencies: [],
+      repeatedEdits: [{ files: ["src/a/Reader.kt", "src/b/Cache.kt"], removed: [], added: ["// read"] }],
+    })
+    const reader = presentRowFacts(badges.get("src/a/Reader.kt"))!
+    expect(reader.tone).toBe("warning")
+    expect(reader.description).toBe("uses 1, +1 new, breaks 3, same edit ×2")
+    expect(reader.sections.map(section => [section.kind, section.title])).toEqual([
+      ["breaks", "Breaks"],
+      ["uses", "Uses 1 · +1 new"],
+      ["sameEdit", "Same edit ×2"],
+    ])
+    expect(reader.sections[0]).toMatchObject({ label: "breaks 3", why: "3 uses left outside the change", tone: "warning" })
+    expect(reader.sections[2]).toMatchObject({ edit: "+ // read", files: ["src/b/Cache.kt"] })
+
+    // no break: a muted mark, the links that use it
+    const cache = presentRowFacts(badges.get("src/b/Cache.kt"))!
+    expect(cache.tone).toBe("muted")
+    expect(cache.sections.map(section => section.title)).toEqual(["Used by 1", "Same edit ×2"])
+    // a lower bound at 0 is no safe 0, but no warning either
+    const unknown = presentFileBadges({ files: [facts({ breaksComplete: false })], links: [], dependencies: [], repeatedEdits: [] }).get("src/Store.kt")
+    expect(presentRowFacts(unknown)).toMatchObject({ tone: "muted", description: "breaks ?" })
+    const lowerBound = presentFileBadges({ files: [facts({ breaks: 2, breaksComplete: false })], links: [], dependencies: [], repeatedEdits: [] }).get("src/Store.kt")
+    expect(presentRowFacts(lowerBound)?.tone).toBe("warning")
+  })
+
+  it("puts the dependency changes a row carries into the same mark, after the facts of its file", () => {
+    const dependencyBadge = presentDependencyBadge([dependency({ kind: "newModule", name: "b" })])!
+    const module = presentRowFacts(undefined, dependencyBadge)!
+    expect(module).toEqual({ tone: "muted", description: "new module", sections: [{ kind: "dependencies", title: "Dependencies · new module", lines: ["New module b"] }] })
+    // the build file at the root: its own facts and the changes of its module, one mark
+    const file = presentFileBadges({ files: [facts({ breaks: 1 })], links: [], dependencies: [], repeatedEdits: [] }).get("src/Store.kt")
+    const both = presentRowFacts(file, dependencyBadge)!
+    expect([both.tone, both.description, both.sections.map(section => section.kind)]).toEqual(["warning", "breaks 1, new module", ["breaks", "dependencies"]])
+    expect(presentRowFacts(undefined, undefined)).toBeNull()
   })
 
   it("names the Mechanical group and its groups by kind", () => {

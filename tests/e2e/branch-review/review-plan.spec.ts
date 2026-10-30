@@ -1,7 +1,7 @@
 // @spec spec/branch/review-plan.spec.md
 import { writeFileSync } from "node:fs"
 import path from "node:path"
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
@@ -84,6 +84,16 @@ function planRows(window: Page) {
   return { tree, reader: row("Reader.kt"), cache: row("Cache.kt"), store: row("Store.kt") }
 }
 
+/** The card of the one mark of a row: the pointer leaves the card open before, then moves onto the mark of `row` */
+async function openFactsCard(window: Page, row: Locator): Promise<Locator> {
+  const card = window.getByTestId("file-facts-card")
+  await window.mouse.move(0, 0)
+  await expect(card).toHaveCount(0)
+  await row.getByTestId("file-row-mark").hover()
+  await expect(card).toBeVisible()
+  return card
+}
+
 /** Mark Reviewed of the title bar of the window: it keeps the base and the tip of `plan` and says so */
 async function markReviewed(window: Page): Promise<void> {
   await runAndWaitForAnswer(window, "mark_branch_reviewed", () => window.getByTestId("branch-review-mark-reviewed").click())
@@ -164,45 +174,60 @@ test.describe("The review plan in the branch review", () => {
     await expect(helper.getByTestId("review-plan-outside")).toHaveText("The uses are unknown")
     await expect(card.getByTestId("review-plan-updated")).toHaveCount(0)
     await expect(card.getByTestId("review-plan-index-note")).toContainText("No usages:")
-    await expect(planRows(window).store.getByTestId("file-breaks-badge")).toHaveText("breaks ?")
+    // a lower bound at 0: a quiet mark, never a safe one
+    const { store } = planRows(window)
+    await expect(store.getByTestId("file-row-mark")).toHaveAttribute("data-tone", "muted")
+    await expect(store).toHaveAttribute("aria-description", /, breaks \?$/)
+    const storeCard = await openFactsCard(window, store)
+    await expect(storeCard.getByTestId("file-facts-breaks")).toHaveText("breaks ? · The uses left outside the change are unknown, or their count is incomplete")
   })
 
-  test("should badge each file with its links and the uses it breaks, and show a linked file from its popover, a file that uses at its first use", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
-    const window = await openPlanWindow(page, syncAndWaitForBranches)
-    const { tree, reader, cache, store } = planRows(window)
+  test(
+    "should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
+      const window = await openPlanWindow(page, syncAndWaitForBranches)
+      const { tree, reader, cache, store } = planRows(window)
 
-    // Reader imports the new Cache: a link the change added; Store's `helper` keeps 3 uses outside the change
-    await expect(reader.getByTestId("file-links-badge")).toHaveText("uses 1+1 new")
-    await expect(cache.getByTestId("file-links-badge")).toHaveText("used by 1")
-    await expect(store.getByTestId("file-breaks-badge")).toHaveText("breaks 3")
-    await expect(store.getByTestId("file-links-badge")).toHaveCount(0)
-    await captureHtmlSnapshot(tree, "review-plan-tree-badges")
+      // Reader imports the new Cache: a link the change added; Store's `helper` keeps 3 uses outside the change: one mark
+      // a row, the warning on Store, every fact in the description of the row
+      await expect(tree.getByTestId("file-row-mark")).toHaveCount(3)
+      await expect(reader.getByTestId("file-row-mark")).toHaveAttribute("data-tone", "muted")
+      await expect(cache.getByTestId("file-row-mark")).toHaveAttribute("data-tone", "muted")
+      await expect(store.getByTestId("file-row-mark")).toHaveAttribute("data-tone", "warning")
+      await expect(reader).toHaveAttribute("aria-description", /, uses 1, \+1 new$/)
+      await expect(cache).toHaveAttribute("aria-description", /, used by 1$/)
+      await expect(store).toHaveAttribute("aria-description", /, breaks 3$/)
+      await captureHtmlSnapshot(tree, "review-plan-tree-badges")
 
-    // the popover of Reader lists the link to Cache with its name and state; a click selects Cache
-    await reader.getByTestId("file-links-badge").click()
-    const popover = window.getByTestId("file-links-badge-popover")
-    const linked = popover.getByTestId("file-link")
-    await expect(linked).toHaveCount(1)
-    await expect(linked).toHaveAttribute("data-path", "src/b/Cache.kt")
-    await expect(linked).toHaveAttribute("data-state", "added")
-    await expect(linked).toContainText("Cache, get · Reader.kt:3")
-    await expect(cache).toHaveAttribute("aria-selected", "false")
-    await linked.click()
-    await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(popover).toHaveCount(0)
-    await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+      // the card of Store says what it breaks and why, and nothing else
+      const storeCard = await openFactsCard(window, store)
+      await expect(storeCard.getByRole("heading")).toHaveText(["Breaks"])
+      await expect(storeCard.getByTestId("file-facts-breaks")).toHaveText("breaks 3 · 3 uses left outside the change")
 
-    // the popover of Cache lists Reader, which uses it: a click shows its first use, the name selected
-    await cache.getByTestId("file-links-badge").click()
-    await popover.getByTestId("file-link").click()
-    await expect(reader).toHaveAttribute("aria-selected", "true")
-    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/a/Reader.kt" })
-  })
+      // the card of Reader lists the link to Cache with its name and state; a click selects Cache and closes the card
+      const popover = await openFactsCard(window, reader)
+      await expect(popover.getByRole("heading")).toHaveText(["Uses 1 · +1 new"])
+      const linked = popover.getByTestId("file-link")
+      await expect(linked).toHaveCount(1)
+      await expect(linked).toHaveAttribute("data-path", "src/b/Cache.kt")
+      await expect(linked).toHaveAttribute("data-state", "added")
+      await expect(linked).toContainText("Cache, get · Reader.kt:3")
+      await expect(cache).toHaveAttribute("aria-selected", "false")
+      await linked.click()
+      await expect(cache).toHaveAttribute("aria-selected", "true")
+      await expect(popover).toHaveCount(0)
+      await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+
+      // the card of Cache lists Reader, which uses it: a click shows its first use, the name selected
+      const cacheCard = await openFactsCard(window, cache)
+      await expect(cacheCard.getByRole("heading")).toHaveText(["Used by 1"])
+      await cacheCard.getByTestId("file-link").click()
+      await expect(reader).toHaveAttribute("aria-selected", "true")
+      await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/a/Reader.kt" })
+    },
+  )
 
   test("should select a linked file that a filter hides, and drop only the filter that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
@@ -211,8 +236,7 @@ test.describe("The review plan in the branch review", () => {
     const owner = (name: string) => window.getByTestId("branch-review-owner").filter({ hasText: name })
     const search = window.getByRole("textbox", { name: "Filter files" })
     const selectCacheFromReader = async () => {
-      await reader.getByTestId("file-links-badge").click()
-      await window.getByTestId("file-links-badge-popover").getByTestId("file-link").click()
+      await (await openFactsCard(window, reader)).getByTestId("file-link").click()
     }
 
     const position = window.getByTestId("branch-review-position")
@@ -258,7 +282,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(cache).toBeVisible()
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/File 7 \/ 8$/)
-    // the name of the row: its middle is a badge
+    // the name of the row: its end is the mark
     await reader.getByText("Reader.kt", { exact: true }).click()
     await expect(reader).toHaveAttribute("aria-selected", "true")
     await search.fill(".kt")
@@ -353,10 +377,12 @@ test.describe("The review plan in the branch review", () => {
     await expect(tree.getByRole("treeitem", { name: "src/Base.kt" })).toHaveCount(0)
     // the new module shows on the directory of its module, its build file folded
     const module = tree.getByRole("treeitem", { name: "b", exact: true })
-    await expect(module.getByTestId("directory-dependency-badge")).toHaveText("new module")
-    await module.getByTestId("directory-dependency-badge").hover()
-    await expect(window.getByTestId("directory-dependency-changes")).toHaveText("New module b")
+    await expect(module.getByTestId("file-row-mark")).toHaveAttribute("data-tone", "muted")
+    await expect(module).toHaveAttribute("aria-description", /, new module$/)
     await captureHtmlSnapshot(tree, "review-plan-tree-mechanical")
+    const moduleCard = await openFactsCard(window, module)
+    await expect(moduleCard.getByRole("heading")).toHaveText(["Dependencies · new module"])
+    await expect(moduleCard.getByTestId("file-facts-dependency")).toHaveText(["New module b"])
     // their diffs start collapsed, the header saying why
     for (const [file, name, why] of [
       ["src/b/b.iml", "b.iml", "Build file"],
@@ -369,9 +395,9 @@ test.describe("The review plan in the branch review", () => {
 
     // the same edit of three files: a click on another file of the group selects it
     const reader = tree.getByRole("treeitem", { name: "Reader.kt" })
-    await expect(reader.getByTestId("file-same-edit-badge")).toHaveText("same edit ×3")
-    await reader.getByTestId("file-same-edit-badge").click()
-    const popover = window.getByTestId("file-same-edit-badge-popover")
+    await expect(reader).toHaveAttribute("aria-description", /, same edit ×3$/)
+    const popover = await openFactsCard(window, reader)
+    await expect(popover.getByRole("heading", { name: "Same edit ×3" })).toBeVisible()
     await expect(popover.getByTestId("file-same-edit")).toHaveText("+ // read by the review plan of the branch")
     await expect(popover.getByTestId("file-same-edit-file")).toHaveText([/^Cache\.kt/, /^Store\.kt/])
     await popover.getByTestId("file-same-edit-file").filter({ hasText: "Store.kt" }).click()
@@ -430,7 +456,7 @@ test.describe("The review plan in the branch review", () => {
     // other generated files in the order of the tree
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/guide.md", "docs/AGENTS.md", "AGENTS.md", "src/App.kt", "config/mcp.json", "dist/app.min.js", "pnpm-lock.yaml"])
     // the echo of the guide is no edit a person repeated: no group, no badge
-    await expect(tree.getByTestId("file-same-edit-badge")).toHaveCount(0)
+    await expect(tree.getByRole("treeitem", { name: "src/guide.md" })).not.toHaveAttribute("aria-description", /same edit/)
     await expect(window.getByTestId("review-plan-repeated-file")).toHaveCount(0)
     // the first file of the tree without the plan, a generated one, gave way to the first of the real work
     await expect(tree.getByRole("treeitem", { name: "src/guide.md" })).toHaveAttribute("aria-selected", "true")
@@ -557,7 +583,12 @@ test.describe("The review plan in the branch review", () => {
     const section = (name: string, group: boolean) =>
       window.locator(`[data-testid="diff-view-file"][data-path="src/a/${name}.kt"]${group ? '[data-section^="group:"]' : `[data-section="file:src/a/${name}.kt"]`}`)
     const header = (name: string, group: boolean) => section(name, group).getByTestId("review-file-header")
-    await expect(window.getByRole("tree", { name: "Changed files" }).getByTestId("file-same-edit-badge").first()).toHaveText("same edit ×4")
+    await expect(
+      window
+        .getByRole("tree", { name: "Changed files" })
+        .getByRole("treeitem", { name: /Alpha\.kt$/ })
+        .first(),
+    ).toHaveAttribute("aria-description", /same edit ×4/)
     // the story: the edit once, under its heading on Alpha; then the change of Delta's own
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Alpha.kt", "src/a/Beta.kt", "src/a/Delta.kt", "src/a/Gamma.kt", "src/a/Delta.kt"])
     await expect(header("Alpha", true).getByTestId("review-section-heading")).toHaveText("Same edit in 4 files")
@@ -776,7 +807,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "Store.kt" })).toBeVisible()
     await expect(page.getByTestId("branch-review-mark-reviewed")).toHaveCount(0)
     await expect(page.getByTestId("review-plan-card")).toHaveCount(0)
-    await expect(page.getByTestId("file-badges")).toHaveCount(0)
+    await expect(page.getByTestId("file-row-mark")).toHaveCount(0)
     await expect.poll(() => commitColumn(page)).toEqual(["All Changes2 commits", "add the cache", "scale the helper"])
     expect(plans).toBe(0)
   })
