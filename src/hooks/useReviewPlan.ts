@@ -2,6 +2,8 @@ import { useEffect, useState } from "react"
 import { Channel } from "@tauri-apps/api/core"
 import type { ReviewPlan, ReviewPlanEvent, ReviewSubject } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import type { DiffSubject } from "@/lib/commit-files"
+import type { ReviewFacts } from "@/presenters/review-plan"
 
 /*
  * The review plan of a review window (spec/branch/review-plan.spec.md, Status: Experimental): `get_review_plan` of the
@@ -89,4 +91,24 @@ export function useReviewPlan(request: ReviewPlanRequest | null): ReviewPlanStat
   // the plan without its usages is shown already: `pending` says the rest comes
   const loading = answer.requestKey !== requestKey || (!answer.done && answer.plan === null && !answer.disabled)
   return { plan: answer.plan, loading, pending: answer.pending, disabled: answer.disabled, error: answer.error }
+}
+
+/**
+ * The plan of the diffs a window shows that has no session of its branch (the review of a commit, of a pull request):
+ * of a range or a commit, as the diffs read it. Rust answers `disabled` for a repository that turns the plan off, so the
+ * window needs no flag of its own
+ */
+export function useSubjectPlan(repositoryPath: string, subject: DiffSubject | null): ReviewPlanState {
+  const request: ReviewPlanRequest | null =
+    subject === null
+      ? null
+      : subject.kind === "commit"
+        ? { repositoryPath, subject: { kind: "commit", id: subject.id }, sinceReviewed: false, head: subject.id, generation: 0 }
+        : { repositoryPath, subject: { kind: "range", base: subject.base, head: subject.head }, sinceReviewed: false, head: subject.head, generation: 0 }
+  return useReviewPlan(request)
+}
+
+/** The facts of the plan for the tree and the story of the diffs, once read: a plan still read again may be of another subject */
+export function planFacts(state: ReviewPlanState): ReviewFacts | null {
+  return state.plan === null || state.loading ? null : state.plan
 }

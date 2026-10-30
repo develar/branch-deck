@@ -1,6 +1,6 @@
 import { lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
-import { NEW, OLD, rowAt } from "@/lib/diff/rows"
+import { isLineRow, NEW, OLD, rowAt } from "@/lib/diff/rows"
 import type { FileRows, LineRow } from "@/lib/diff/rows"
 
 /*
@@ -53,7 +53,7 @@ export function copyText(files: readonly CopyFile[], anchor: CopyPoint, focus: C
     const last = file === end.file ? end.row : rows.rowCount - 1
     for (let index = first; index <= last && index < rows.rowCount; index++) {
       const row = rowAt(rows, index)
-      if (row.kind === "fold") {
+      if (!isLineRow(row)) {
         continue
       }
       const side = copySide(row, sideBySide, selectionSide)

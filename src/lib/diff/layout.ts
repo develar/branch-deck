@@ -1,4 +1,4 @@
-import { NEW, rowAt as fileRowAt, rowOfLine } from "@/lib/diff/rows"
+import { isLineRow, NEW, rowAt as fileRowAt, rowOfLine } from "@/lib/diff/rows"
 import type { FileRows } from "@/lib/diff/rows"
 
 /*
@@ -173,13 +173,13 @@ export class DiffLayout {
     const row = fileRowAt(rows, index)
     // the new side (the middle of a merge) first, else the first side with a line
     const side =
-      row.kind === "fold" || row.lines[NEW] != null
+      !isLineRow(row) || row.lines[NEW] != null
         ? NEW
         : Math.max(
             row.lines.findIndex(line => line != null),
             0,
           )
-    const line = { side, line: (row.kind === "fold" ? row.lines[side]![0] : row.lines[side]) ?? 0 }
+    const line = { side, line: (isLineRow(row) ? row.lines[side] : row.lines[side]![0]) ?? 0 }
     return { key, line, offset: scrollTop - this.rowTop(file, index) }
   }
 

@@ -63,7 +63,37 @@ export interface FoldRow {
   label: string | null
 }
 
-export type Row = LineRow | FoldRow
+/**
+ * A row of words between the lines of a section of a review: `unit` the heading of the change a block starts
+ * (`SectionUnits.marks`), `elsewhere` a block another section shows (`SectionUnits.elsewhere`), which a click opens
+ */
+export interface NoteRow {
+  kind: "note"
+  tone: "unit" | "elsewhere"
+  label: string
+  /** The block it stands before or for */
+  block: number
+  /** The lines of each side the row stands for: [start, end), empty for the heading of a change */
+  lines: readonly (readonly [number, number])[]
+}
+
+export type Row = LineRow | FoldRow | NoteRow
+
+/** A row that shows no line of a side: a fold or a note */
+export function isLineRow(row: Row): row is LineRow {
+  return row.kind !== "fold" && row.kind !== "note"
+}
+
+/**
+ * What a section of a review shows of a file's diff (docs/design/diff-view.md, "Sections"): the blocks it shows with
+ * the heading of the change each one starts, and a row for each block another section shows
+ */
+export interface SectionUnits {
+  /** The heading before a block: the change it starts */
+  readonly marks: ReadonlyMap<number, string>
+  /** The blocks another section shows, each with where: a row of words stands for its lines */
+  readonly elsewhere: ReadonlyMap<number, string>
+}
 
 type Item =
   /** Lines equal on every side, from `starts` */
@@ -72,9 +102,11 @@ type Item =
   | { kind: "block"; block: DiffBlock; index: number; quiet: boolean }
   /** A block of a merge: its lines on each side, from `starts` */
   | { kind: "merge"; block: MergeBlock; index: number; starts: readonly number[]; counts: readonly number[] }
+  /** A block another section shows: one row of words for its lines */
+  | { kind: "elsewhere"; block: DiffBlock; index: number; label: string }
 
-/** Rows `[from, from + count)` of an item, or a fold */
-type Segment = { kind: "lines"; item: Item; from: number; count: number } | { kind: "fold"; row: FoldRow }
+/** Rows `[from, from + count)` of an item, a fold, or the heading of a change */
+type Segment = { kind: "lines"; item: Item; from: number; count: number } | { kind: "fold"; row: FoldRow } | { kind: "note"; row: NoteRow }
 
 /** The unchanged rows between two changes, which fold together */
 export interface FoldGap {
@@ -118,13 +150,16 @@ function pushEqual(items: Item[], starts: readonly number[], count: number): voi
  * The items of a diff in order: runs of equal lines and the blocks; an ignored block with equal sides is equal text.
  * The empty last line that the engine counts and no block touches is left out.
  */
-function itemsOf(diff: TextDiff, quiet: ReadonlySet<number>): Item[] {
+function itemsOf(diff: TextDiff, quiet: ReadonlySet<number>, elsewhere: ReadonlyMap<number, string>): Item[] {
   const items: Item[] = []
   let oldLine = 0
   let newLine = 0
   diff.blocks.forEach((block, index) => {
     pushEqual(items, [oldLine, newLine], block.newStart - newLine)
-    if (block.kind === "ignored" && block.oldEnd - block.oldStart === block.newEnd - block.newStart) {
+    const label = elsewhere.get(index)
+    if (label !== undefined) {
+      items.push({ kind: "elsewhere", block, index, label })
+    } else if (block.kind === "ignored" && block.oldEnd - block.oldStart === block.newEnd - block.newStart) {
       pushEqual(items, [block.oldStart, block.newStart], block.newEnd - block.newStart)
     } else {
       items.push({ kind: "block", block, index, quiet: quiet.has(index) })
@@ -189,6 +224,9 @@ function itemRowCount(item: Item, mode: RowsMode): number {
   if (item.kind === "equal") {
     return item.count
   }
+  if (item.kind === "elsewhere") {
+    return 1
+  }
   if (item.kind === "merge") {
     return Math.max(...item.counts)
   }
@@ -205,7 +243,11 @@ function itemRowCount(item: Item, mode: RowsMode): number {
 }
 
 /** Row `row` of an item in a mode */
-function itemRow(item: Item, row: number, mode: RowsMode): LineRow {
+function itemRow(item: Item, row: number, mode: RowsMode): LineRow | NoteRow {
+  if (item.kind === "elsewhere") {
+    const { block, index, label } = item
+    return { kind: "note", tone: "elsewhere", label, block: index, lines: blockLines(block) }
+  }
   if (item.kind === "equal") {
     return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full" }
   }
@@ -248,10 +290,21 @@ function mergeTintOf(block: MergeBlock): LineTint {
   return block.ignored || block.leftRanges.length > 0 || block.baseRanges.length > 0 || block.rightRanges.length > 0 ? "pale" : "full"
 }
 
+/** The lines of each side of a block: [start, end) */
+function blockLines(block: DiffBlock): [number, number][] {
+  return [
+    [block.oldStart, block.oldEnd],
+    [block.newStart, block.newEnd],
+  ]
+}
+
 /** The lines of each side that rows `[from, from + count)` of an item cover */
 function itemLines(item: Item, from: number, count: number, mode: RowsMode): [number, number][] {
   if (item.kind === "equal") {
     return item.starts.map(start => [start + from, start + from + count])
+  }
+  if (item.kind === "elsewhere") {
+    return blockLines(item.block)
   }
   const clip = (start: number, length: number): [number, number] => [start + Math.min(from, length), start + Math.min(from + count, length)]
   if (item.kind === "merge") {
@@ -259,10 +312,7 @@ function itemLines(item: Item, from: number, count: number, mode: RowsMode): [nu
   }
   const { block } = item
   if (from === 0 && count === itemRowCount(item, mode)) {
-    return [
-      [block.oldStart, block.oldEnd],
-      [block.newStart, block.newEnd],
-    ]
+    return blockLines(block)
   }
   return [clip(block.oldStart, block.oldEnd - block.oldStart), clip(block.newStart, block.newEnd - block.newStart)]
 }
@@ -306,12 +356,16 @@ interface Labels {
  * The rows of a file's diff in a mode. The gaps between the changes fold as IntelliJ's `FoldingModelSupport` nests
  * them: at `levels[gap]` 0, 1 and 2 they keep 4, 8 and 16 lines next to each change, at `EXPANDED` all. A file
  * without a change has no rows. With `quietImports` (the review plan), a block of the imports alone (`importBlocks`
- * of Rust) is pale and N and P pass it.
+ * of Rust) is pale and N and P pass it. `units` makes the rows of a section of a review: a heading before each block
+ * it marks, one row for each block another section shows, which is no change of this section.
  */
-export function buildFileRows(diff: TextDiff, mode: DiffViewMode, levels: ArrayLike<number> = [], quietImports = false): FileRows {
+export function buildFileRows(diff: TextDiff, mode: DiffViewMode, levels: ArrayLike<number> = [], quietImports = false, units: SectionUnits | null = null): FileRows {
   const quiet = new Set(quietImports ? diff.importBlocks : [])
-  return rowsOf(itemsOf(diff, quiet), mode, levels, { scopes: [diff.oldScopes, diff.newScopes], order: [NEW, OLD] })
+  const items = itemsOf(diff, quiet, units?.elsewhere ?? NO_LABELS)
+  return rowsOf(items, mode, levels, { scopes: [diff.oldScopes, diff.newScopes], order: [NEW, OLD] }, units?.marks ?? NO_LABELS)
 }
+
+const NO_LABELS: ReadonlyMap<number, string> = new Map()
 
 /** The rows of a file's merge in three columns: left, the middle (`middle`), right. The gaps between the blocks fold as in a diff. */
 export function buildMergeRows(merge: TextMerge, middle: MergeMiddle, levels: ArrayLike<number> = []): FileRows {
@@ -320,7 +374,7 @@ export function buildMergeRows(merge: TextMerge, middle: MergeMiddle, levels: Ar
   return rowsOf(mergeItemsOf(merge, middle), "merge", levels, { scopes: [merge.leftScopes, middleScopes, merge.rightScopes], order: [MIDDLE, LEFT, RIGHT] })
 }
 
-function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number>, labels: Labels): FileRows {
+function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number>, labels: Labels, marks: ReadonlyMap<number, string> = NO_LABELS): FileRows {
   const { gaps, changes } = gapsOf(items, mode)
   const segments: Segment[] = []
   const starts: number[] = []
@@ -348,6 +402,14 @@ function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number
         pushRows(gap, before + hidden, gap.rows)
       }
       const change = changes[index]
+      const mark = change?.kind === "block" ? marks.get(change.index) : undefined
+      if (change?.kind === "block" && mark !== undefined) {
+        const at: [number, number][] = [
+          [change.block.oldStart, change.block.oldStart],
+          [change.block.newStart, change.block.newStart],
+        ]
+        push({ kind: "note", row: { kind: "note", tone: "unit", label: mark, block: change.index, lines: at } }, 1)
+      }
       if (change !== undefined) {
         // N and P pass a block of the imports alone
         if (!(change.kind === "block" && change.quiet)) {
@@ -406,13 +468,16 @@ function segmentAt(rows: FileRows, row: number): number {
 export function rowAt(rows: FileRows, row: number): Row {
   const index = segmentAt(rows, row)
   const segment = rows.segments[index]!
-  return segment.kind === "fold" ? segment.row : itemRow(segment.item, segment.from + row - rows.segmentStarts[index]!, rows.mode)
+  return segment.kind === "lines" ? itemRow(segment.item, segment.from + row - rows.segmentStarts[index]!, rows.mode) : segment.row
 }
 
 /** The row of an item where `line` of a side, or a later line of it, shows; the row count when no row does */
 function itemRowOfLine(item: Item, side: number, line: number, mode: RowsMode): number {
   if (item.kind === "equal") {
     return Math.max(line - item.starts[side]!, 0)
+  }
+  if (item.kind === "elsewhere") {
+    return line < blockLines(item.block)[side]![1] ? 0 : 1
   }
   if (item.kind === "merge") {
     const start = item.starts[side]!
@@ -447,6 +512,9 @@ export function rowOfLine(rows: FileRows, side: number, line: number): number {
       if (line < segment.row.lines[side]![1]) {
         return start
       }
+    } else if (segment.kind === "note") {
+      // the heading of a change: the lines of its block are on the rows after it
+      continue
     } else {
       const offset = itemRowOfLine(segment.item, side, line, rows.mode)
       if (offset < segment.from + segment.count) {
@@ -474,14 +542,37 @@ export function nextFoldLevel(rows: FileRows, gap: number, level: number): numbe
   return Math.min(next, EXPANDED)
 }
 
-// the levels of the folds of a diff or a merge while the store keeps it, so the lines it expanded stay expanded
-const foldLevels = new WeakMap<TextDiff | TextMerge, readonly number[]>()
+/**
+ * What the levels of the folds are kept by: a diff or a merge, or a section of a review that shows some blocks of a
+ * diff (`sectionFoldKey`), whose gaps are its own
+ */
+export type FoldKey = TextDiff | TextMerge | { readonly section: string }
 
-/** The levels of the folds of a diff or a merge, by gap; a missing one is 0 */
-export function getFoldLevels(model: TextDiff | TextMerge): readonly number[] {
+// the levels of the folds of a diff or a merge while the store keeps it, so the lines it expanded stay expanded
+const foldLevels = new WeakMap<FoldKey, readonly number[]>()
+// the key of the folds of each section of a review of a diff, while the store keeps the diff
+const sectionKeys = new WeakMap<TextDiff, Map<string, { readonly section: string }>>()
+
+/** The key of the folds of the section `section` of `diff`: the same object while the store keeps the diff */
+export function sectionFoldKey(diff: TextDiff, section: string): FoldKey {
+  let keys = sectionKeys.get(diff)
+  if (keys === undefined) {
+    keys = new Map()
+    sectionKeys.set(diff, keys)
+  }
+  let key = keys.get(section)
+  if (key === undefined) {
+    key = { section }
+    keys.set(section, key)
+  }
+  return key
+}
+
+/** The levels of the folds of a diff, a merge or a section, by gap; a missing one is 0 */
+export function getFoldLevels(model: FoldKey): readonly number[] {
   return foldLevels.get(model) ?? []
 }
 
-export function setFoldLevels(model: TextDiff | TextMerge, levels: readonly number[]): void {
+export function setFoldLevels(model: FoldKey, levels: readonly number[]): void {
   foldLevels.set(model, levels)
 }

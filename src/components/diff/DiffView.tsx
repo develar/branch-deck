@@ -22,8 +22,22 @@ import { getLineTable, lineText, maxColumns } from "@/lib/diff/line-table"
 import { DIFF_FONT_SIZE, DIFF_TAB_SIZE, measureFont, rowHeightOf, textMetricsOf } from "@/lib/diff/metrics"
 import { diffCells, fileLayoutOf, mergeCells, oneSideOf } from "@/lib/diff/row-cells"
 import type { RowCells } from "@/lib/diff/row-cells"
-import { buildFileRows, buildMergeRows, EXPANDED, getFoldLevels, MIDDLE, NEW, nextFoldLevel, OLD, rowAt, rowOfLine, setFoldLevels } from "@/lib/diff/rows"
-import type { FileRows, FoldRow } from "@/lib/diff/rows"
+import {
+  buildFileRows,
+  buildMergeRows,
+  EXPANDED,
+  getFoldLevels,
+  isLineRow,
+  MIDDLE,
+  NEW,
+  nextFoldLevel,
+  OLD,
+  rowAt,
+  rowOfLine,
+  sectionFoldKey,
+  setFoldLevels,
+} from "@/lib/diff/rows"
+import type { FileRows, FoldKey, FoldRow, SectionUnits } from "@/lib/diff/rows"
 import { blobText, fileNotice, isEmptyNotice, languageOf, mergeNotice, startsCollapsed } from "@/lib/diff/view-files"
 import { visualLineCount } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
@@ -61,6 +75,20 @@ export interface DiffViewFile {
   folded?: string
   /** The review plays down the blocks of the imports alone: pale, and N and P pass them (`buildFileRows`) */
   quietImports?: boolean
+  /**
+   * A section of a review (docs/design/diff-view.md, "Sections"): the key that tells it from another section of the same
+   * file, the heading of the change each block starts, and for each block another section shows the key of that section,
+   * which a click on its row opens
+   */
+  section?: DiffSection
+}
+
+export interface DiffSection {
+  readonly key: string
+  readonly units: SectionUnits
+  readonly targets: ReadonlyMap<number, string>
+  /** The words of the header: the group the section is of ("Same edit in 3 files") */
+  readonly heading: string | null
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -79,6 +107,8 @@ export interface DiffHeaderProps {
   empty: boolean
   /** Why the review folds the file (`DiffViewFile.folded`) */
   folded: string | null
+  /** The group of a section of a review (`DiffSection.heading`) */
+  heading: string | null
   collapsed: boolean
   onToggle: () => void
   /** Shows all the unchanged lines of the file; undefined when it folds none */
@@ -93,6 +123,8 @@ export interface DiffViewHandle {
    * the next file at the end of one. Collapsed files are skipped. Returns the path of the file it shows
    */
   moveChange: (direction: 1 | -1) => string | undefined
+  /** Shows the next (1) or previous (-1) section at the top, from the one at the top now; returns the path of its file */
+  moveSection: (direction: 1 | -1) => string | undefined
   focus: () => void
   /**
    * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
@@ -163,14 +195,18 @@ function viewMetrics(): ViewMetrics {
 
 interface PreparedFile {
   kind: "diff" | "merge"
+  /** The key of its section: its path, or the key of a section of a review (`DiffSection`) */
+  key: string
   path: string
   /** The file of git's list, for the header; a stand-in for a merge */
   file: CommitFile
   diff: FileDiff | undefined
   merge: FileMerge | undefined
   pending: boolean
-  /** The text diff or the text merge whose rows show: the key of their fold levels */
+  /** The text diff or the text merge whose rows show */
   model: TextDiff | TextMerge | null
+  /** What the levels of its folds are kept by: the model, or of a section its own key */
+  foldKey: FoldKey | null
   cells: RowCells | null
   rows: FileRows | null
   /** The blob id of the text of each side the rows show; the result of a merge is a text the view composes */
@@ -184,6 +220,7 @@ interface PreparedFile {
   collapsed: boolean
   /** Why the review folds the file (`DiffViewFile.folded`) */
   folded: string | null
+  section: DiffSection | null
   /** The columns of the line numbers: the digits of the largest one, and its padding */
   gutterColumns: number
 }
@@ -191,7 +228,7 @@ interface PreparedFile {
 interface PrepareOptions {
   mode: DiffViewMode
   middle: MergeMiddle
-  folds: ReadonlyMap<TextDiff | TextMerge, readonly number[]>
+  folds: ReadonlyMap<FoldKey, readonly number[]>
   /** The files start collapsed or open as `startsCollapsed` says, except these */
   toggled: ReadonlySet<string> | null
   worktree: boolean
@@ -212,12 +249,14 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
     const file = mergeStandIn(entry.path)
     return {
       kind: "merge",
+      key: entry.path,
       path: entry.path,
       file,
       diff: undefined,
       merge,
       pending,
       model: text,
+      foldKey: text,
       cells: text === null ? null : mergeCells(text, middle),
       rows,
       ids,
@@ -226,17 +265,21 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
       reads,
       collapsed: false,
       folded: null,
+      section: null,
       gutterColumns: digits + 2,
     }
   }
   const { file, diff } = entry
+  const section = entry.section ?? null
+  const key = section?.key ?? file.path
   const text = diff?.content.kind === "text" ? diff.content : null
+  const foldKey = text === null ? null : section === null ? text : sectionFoldKey(text, section.key)
   // an added or a deleted file shows its one side, as IntelliJ's one-sided viewer: no empty half beside it in Split
   const oneSide = diff === undefined ? null : oneSideOf(diff)
-  const rows = text === null ? null : buildFileRows(text, fileLayoutOf(mode, oneSide), folds.get(text) ?? getFoldLevels(text), entry.quietImports)
+  const rows = text === null ? null : buildFileRows(text, fileLayoutOf(mode, oneSide), folds.get(foldKey!) ?? getFoldLevels(foldKey!), entry.quietImports, section?.units ?? null)
   const digits = String(Math.max(text?.oldLineCount ?? 0, text?.newLineCount ?? 0, 1)).length
   // without a header nothing collapses: the row above the view is the header
-  const collapsed = toggled !== null && !pending && (startsCollapsed(file, diff) || entry.folded !== undefined) !== toggled.has(file.path)
+  const collapsed = toggled !== null && !pending && (startsCollapsed(file, diff) || entry.folded !== undefined) !== toggled.has(key)
   const ids = diff === undefined ? [] : [diff.oldId, diff.newId]
   const reads: BlobRequest[] = []
   if (text !== null && diff!.oldId !== null) {
@@ -247,12 +290,14 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
   }
   return {
     kind: "diff",
+    key,
     path: file.path,
     file,
     diff,
     merge: undefined,
     pending,
     model: text,
+    foldKey,
     cells: text === null ? null : diffCells(text, mode, oneSide),
     rows,
     ids,
@@ -262,8 +307,39 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
     reads,
     collapsed,
     folded: entry.folded ?? null,
+    section,
     gutterColumns: digits + 2,
   }
+}
+
+/** Whether a section shows `line` of a side: no other section of its file shows the block of it */
+function showsLine(file: PreparedFile, side: number, line: number): boolean {
+  const blocks = file.diff?.content.kind === "text" ? file.diff.content.blocks : []
+  for (const index of file.section?.units.elsewhere.keys() ?? []) {
+    const block = blocks[index]
+    const [start, end] = side === OLD ? [block?.oldStart ?? 0, block?.oldEnd ?? 0] : [block?.newStart ?? 0, block?.newEnd ?? 0]
+    if (start <= line && line < end) {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * The section of `files` that shows `path`: the one that shows its `line` of a side; without a line its first open
+ * section (the change of its own before a group a section folds); else its first
+ */
+function sectionOf(files: readonly PreparedFile[], path: string, at?: { side: number; line: number }): number {
+  const first = files.findIndex(file => file.path === path)
+  if (first < 0) {
+    return first
+  }
+  if (at === undefined) {
+    const open = files.findIndex(file => file.path === path && !file.collapsed)
+    return open < 0 ? first : open
+  }
+  const showing = files.findIndex(file => file.path === path && showsLine(file, at.side, at.line))
+  return showing < 0 ? first : showing
 }
 
 /** The file of git's list a merge stands for in a header */
@@ -307,7 +383,7 @@ export function DiffView({
   // the files the user expanded or collapsed against the way they start
   const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set())
   // the fold levels this view changed; `setFoldLevels` keeps them for the next view of the same diff
-  const [folds, setFolds] = useState<ReadonlyMap<TextDiff | TextMerge, readonly number[]>>(() => new Map())
+  const [folds, setFolds] = useState<ReadonlyMap<FoldKey, readonly number[]>>(() => new Map())
   const [windowRange, setWindowRange] = useState<readonly [number, number]>([0, 0])
   const [metrics, setMetrics] = useState<ViewMetrics>(() => ({ rowHeight: 20, columnWidth: 7.8, text: { columnWidth: 7.8, tabSize: DIFF_TAB_SIZE, widthOf: () => 7.8 } }))
   const [viewWidth, setWidth] = useState(0)
@@ -315,8 +391,10 @@ export function DiffView({
   const width = cards ? Math.max(viewWidth - 2 * (CARD_INSET + CARD_BORDER), 0) : viewWidth
   const scroller = useRef<HTMLDivElement>(null)
   const visiblePath = useRef<string | undefined>(initialPath ?? (files[0] === undefined ? undefined : pathOf(files[0])))
-  // the block of changed lines N and P stepped to last, in the file at the top
-  const changeCursor = useRef<{ path: string; index: number } | null>(null)
+  // the section at the top: of a file its path, of a section of a review its key
+  const visibleKey = useRef<string | undefined>(files[0] === undefined ? undefined : keyOf(files[0]))
+  // the block of changed lines N and P stepped to last, in the section at the top
+  const changeCursor = useRef<{ key: string; index: number } | null>(null)
   const [painter] = useState(() => new DiffPainter(EMPTY_CALLBACKS, getHighlightClientOrNull, () => blobTextsStore.getState().byId))
   // the find in the diffs of a view with its own scroller (⌘F): the query, the folded lines, the current hit (-1 before
   // the first step)
@@ -358,7 +436,7 @@ export function DiffView({
       const sideBySide = cells.columns.length > 1
       return visualLinePrefix(rows.rowCount, row => {
         const value = rowAt(rows, row)
-        if (value.kind === "fold") {
+        if (!isLineRow(value)) {
           return 1
         }
         if (value.kind === "inline") {
@@ -389,7 +467,7 @@ export function DiffView({
     () =>
       new DiffLayout(
         prepared.map((file, index) => ({
-          key: file.path,
+          key: file.key,
           rows: file.collapsed || file.rows === null || file.rows.rowCount === 0 ? null : file.rows,
           notice: notices[index] !== null,
           visualLines: visualLines[index],
@@ -420,7 +498,7 @@ export function DiffView({
   // the painter gets the model before the paint, so the anchor keeps its place in the new layout
   useLayoutEffect(() => {
     const painterFiles = prepared.map((file, index): PainterFile => ({
-      key: file.path,
+      key: file.key,
       ids: file.ids,
       cells: file.cells,
       rows: layout.files[index]!.rows,
@@ -486,7 +564,7 @@ export function DiffView({
     }
     const next = current < 0 ? (direction === 1 ? 0 : hits.length - 1) : (current + direction + hits.length) % hits.length
     const hit = hits[next]!
-    const text = prepared[hit.file]?.model ?? null
+    const text = prepared[hit.file]?.foldKey ?? null
     if (hit.gap >= 0 && text !== null && (getFoldLevels(text)[hit.gap] ?? 0) < EXPANDED) {
       const levels = Array.from({ length: Math.max(getFoldLevels(text).length, hit.gap + 1) }, (_, gap) => getFoldLevels(text)[gap] ?? 0)
       levels[hit.gap] = EXPANDED
@@ -520,7 +598,7 @@ export function DiffView({
 
   // every fold of a file shows all its lines: "Expand All" of the header, ⌥-click on a fold
   const expandAll = (file: PreparedFile | undefined) => {
-    const text = file?.model ?? null
+    const text = file?.foldKey ?? null
     const gapCount = file?.rows?.gapCount ?? 0
     if (text === null || gapCount === 0) {
       return
@@ -531,7 +609,7 @@ export function DiffView({
   }
 
   const expandFold = (file: PreparedFile | undefined, fold: FoldRow) => {
-    const text = file?.model ?? null
+    const text = file?.foldKey ?? null
     if (text === null || file?.rows == null) {
       return
     }
@@ -539,6 +617,24 @@ export function DiffView({
     levels[fold.gap] = nextFoldLevel(file.rows, fold.gap, fold.level)
     setFoldLevels(text, levels)
     setFolds(previous => new Map(previous).set(text, levels))
+  }
+
+  const toggleFile = (key: string) =>
+    setToggled(previous => {
+      const next = new Set(previous)
+      if (!next.delete(key)) {
+        next.add(key)
+      }
+      return next
+    })
+
+  /** Shows the section at `index` at the top, N and P from its top */
+  const showSection = (index: number) => {
+    const file = prepared[index]!
+    changeCursor.current = { key: file.key, index: -1 }
+    visibleKey.current = file.key
+    visiblePath.current = file.path
+    painter.scrollTo(layout.fileTop(index))
   }
 
   useLayoutEffect(() => {
@@ -554,17 +650,35 @@ export function DiffView({
         }
       },
       onTopFile: index => {
-        const path = prepared[index]?.path
-        if (path !== undefined && path !== visiblePath.current) {
-          visiblePath.current = path
-          // the user scrolled into another file: N starts from its top
-          if (changeCursor.current?.path !== path) {
+        // the section the view showed last (a file of the tree, N, J) stays the one shown while it is on screen: a
+        // section near the end, which a scroll to it cannot bring to the top, is not the one above it
+        const cursor = changeCursor.current === null ? -1 : layout.indexOf(changeCursor.current.key)
+        const element = scroller.current
+        const bottom = element === null ? index : layout.fileAt(element.scrollTop + element.clientHeight)
+        const file = prepared[cursor >= index && cursor <= bottom ? cursor : index]
+        if (file !== undefined && file.key !== visibleKey.current) {
+          visibleKey.current = file.key
+          // the user scrolled into another section: N starts from its top
+          if (changeCursor.current?.key !== file.key) {
             changeCursor.current = null
           }
-          onVisibleFileChange?.(path)
+        }
+        if (file !== undefined && file.path !== visiblePath.current) {
+          visiblePath.current = file.path
+          onVisibleFileChange?.(file.path)
         }
       },
       onFold: (index, fold, all) => (all ? expandAll(prepared[index]) : expandFold(prepared[index], fold)),
+      onNote: (index, note) => {
+        const target = prepared[index]?.section?.targets.get(note.block)
+        const shown = target === undefined ? -1 : layout.indexOf(target)
+        if (shown >= 0) {
+          if (prepared[shown]!.collapsed) {
+            toggleFile(prepared[shown]!.key)
+          }
+          showSection(shown)
+        }
+      },
       onFirstScreen: () => onFirstScreen?.(),
       // the corrected widths are in the cache of the text metrics: a new object lays the rows out again
       onWidthsCorrected: () => setMetrics(previous => ({ ...previous, text: { ...previous.text } })),
@@ -593,7 +707,7 @@ export function DiffView({
 
   // only when the view mounts: a later file is the tree's or the keys'
   const scrollToInitialFile = useEffectEvent(() => {
-    const index = initialPath === null ? -1 : layout.indexOf(initialPath)
+    const index = initialPath === null ? -1 : sectionOf(prepared, initialPath)
     if (index > 0) {
       painter.scrollTo(layout.fileTop(index))
     }
@@ -632,15 +746,6 @@ export function DiffView({
     const top = layout.rowTop(file, row) - layout.stickyTop - headerHeight - 4 * metrics.rowHeight
     painter.scrollTo(Math.max(top, layout.fileTop(file)))
   }
-
-  const toggleFile = (path: string) =>
-    setToggled(previous => {
-      const next = new Set(previous)
-      if (!next.delete(path)) {
-        next.add(path)
-      }
-      return next
-    })
 
   // Go to Declaration: the name under the pointer with the modifier held, its underline, the jump, Back and Forward
   const links = useRef<HTMLDivElement>(null)
@@ -688,16 +793,16 @@ export function DiffView({
 
   /** Shows a place of the view: its file open, its fold expanded, then (`revealTick`) scrolled to and selected */
   const revealPlace = (place: DeclarationPlace): boolean => {
-    const index = layout.indexOf(place.path)
+    const side = place.side === "old" ? OLD : NEW
+    const index = sectionOf(prepared, place.path, { side, line: place.line })
     const file = prepared[index]
     if (file === undefined) {
       return false
     }
     if (file.collapsed) {
-      toggleFile(file.path)
+      toggleFile(file.key)
     }
-    const side = place.side === "old" ? OLD : NEW
-    const text = file.model
+    const text = file.foldKey
     const fold = file.rows?.segments.find(segment => segment.kind === "fold" && segment.row.lines[side]![0] <= place.line && place.line < segment.row.lines[side]![1])
     if (text !== null && fold?.kind === "fold" && (getFoldLevels(text)[fold.row.gap] ?? 0) < EXPANDED) {
       const levels = Array.from({ length: Math.max(getFoldLevels(text).length, fold.row.gap + 1) }, (_, gap) => getFoldLevels(text)[gap] ?? 0)
@@ -718,7 +823,7 @@ export function DiffView({
         found.site,
         at,
         place => {
-          if (layout.indexOf(place.path) < 0) {
+          if (sectionOf(prepared, place.path) < 0) {
             return false
           }
           history.current.back.push(found.place)
@@ -767,29 +872,29 @@ export function DiffView({
   const initialShown = useRef(false)
   const revealInitial = useEffectEvent((place: DeclarationPlace) => revealPlace(place))
   useLayoutEffect(() => {
-    if (initialPlace !== undefined && !initialShown.current && layout.indexOf(initialPlace.path) >= 0) {
+    if (initialPlace !== undefined && !initialShown.current && sectionOf(prepared, initialPlace.path) >= 0) {
       initialShown.current = true
       revealInitial(initialPlace)
     }
-  }, [layout, initialPlace])
+  }, [layout, prepared, initialPlace])
 
   // the place a reveal waits for: scrolled to a third of the viewport below the header, then its name selected
   useLayoutEffect(() => {
     const place = pendingReveal.current
-    const index = place === null ? -1 : layout.indexOf(place.path)
+    const side = place?.side === "old" ? OLD : NEW
+    const index = place === null ? -1 : sectionOf(prepared, place.path, { side, line: place.line })
     const rows = index < 0 ? null : layout.files[index]!.rows
     if (place === null || rows === null) {
       return
     }
     pendingReveal.current = null
-    const side = place.side === "old" ? OLD : NEW
     const top = layout.rowTop(index, rowOfLine(rows, side, place.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
     painter.scrollTo(Math.max(top, layout.fileTop(index)))
     // the keys of the view (Back) work at the place shown, whether a choice closed or a view of a file opened
     scroller.current?.focus({ preventScroll: true })
     // once the row of the name is painted with its text, whenever that is
     painter.selectWord(index, side, place.line, place.column, place.endColumn, place.name ?? null)
-  }, [layout, revealTick, painter, headerHeight])
+  }, [layout, prepared, revealTick, painter, headerHeight])
 
   /** Back (⌘[) and Forward (⌘]): the places of the jumps */
   const stepHistory = (direction: "back" | "forward") => {
@@ -832,17 +937,15 @@ export function DiffView({
 
   useImperativeHandle(ref, () => ({
     scrollToFile: path => {
-      const index = layout.indexOf(path)
+      const index = sectionOf(prepared, path)
       if (index >= 0) {
-        changeCursor.current = { path, index: -1 }
-        visiblePath.current = path
-        painter.scrollTo(layout.fileTop(index))
+        showSection(index)
       }
     },
     moveChange: direction => {
-      const order = prepared.map(file => file.path)
-      const start = changeCursor.current ?? { path: visiblePath.current ?? order[0] ?? "", index: -1 }
-      let fileIndex = order.indexOf(start.path)
+      const order = prepared.map(file => file.key)
+      const start = changeCursor.current ?? { key: visibleKey.current ?? order[0] ?? "", index: -1 }
+      let fileIndex = order.indexOf(start.key)
       let index = start.index + direction
       if (fileIndex === -1) {
         // the file at the top is filtered out: from the first file, or back from the last one
@@ -858,8 +961,9 @@ export function DiffView({
         const clamped = index === Number.MAX_SAFE_INTEGER ? targets.length - 1 : index
         const target = targets[clamped]
         if (target !== undefined && clamped >= 0) {
-          const path = order[fileIndex]!
-          changeCursor.current = { path, index: clamped }
+          const { key, path } = prepared[fileIndex]!
+          changeCursor.current = { key, index: clamped }
+          visibleKey.current = key
           visiblePath.current = path
           scrollToChange(fileIndex, target)
           return path
@@ -869,9 +973,18 @@ export function DiffView({
       }
       return undefined
     },
+    moveSection: direction => {
+      const at = prepared.findIndex(file => file.key === visibleKey.current)
+      const next = prepared[at + direction] === undefined || at < 0 ? -1 : at + direction
+      if (next < 0) {
+        return undefined
+      }
+      showSection(next)
+      return prepared[next]!.path
+    },
     focus: () => scroller.current?.focus(),
     revealDeclaration: (place, from) => {
-      if (layout.indexOf(place.path) < 0) {
+      if (sectionOf(prepared, place.path) < 0) {
         return false
       }
       if (from !== null) {
@@ -891,8 +1004,8 @@ export function DiffView({
       return id === null || text === null ? 0 : (maxColumns(getLineTable(id, text), DIFF_TAB_SIZE) + 2) * metrics.columnWidth
     }
     return (
-      <DiffSection
-        key={file.path}
+      <FileSection
+        key={file.key}
         index={index}
         file={file}
         rows={rows}
@@ -1016,7 +1129,7 @@ export function DiffView({
   )
 }
 
-interface DiffSectionProps {
+interface FileSectionProps {
   index: number
   file: PreparedFile
   rows: FileRows | null
@@ -1045,7 +1158,7 @@ interface DiffSectionProps {
 }
 
 /** The section of a file: as tall as the file, its header sticky, the rows element the painter fills */
-const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
+const FileSection = memo(function FileSection(props: FileSectionProps) {
   const {
     index,
     file,
@@ -1073,6 +1186,7 @@ const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
       aria-label={file.path}
       data-testid="diff-view-file"
       data-path={file.path}
+      data-section={file.section?.key}
       // the colours a plugin of IntelliJ gives a role in its language only (diff-view.css)
       data-language={languageOf(file.path)}
       // a card with its header alone (diff-view.css): an attribute, as a `:has()` of the rows costs Chromium a style
@@ -1087,8 +1201,9 @@ const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
             notice,
             empty: file.pending || isEmptyNotice(file.diff, file.rows),
             folded: file.folded,
+            heading: file.section?.heading ?? null,
             collapsed: file.collapsed,
-            onToggle: () => onToggle(file.path),
+            onToggle: () => onToggle(file.key),
             onExpandAll: rows !== null && rows.segments.some(segment => segment.kind === "fold") ? () => onExpandAll(file) : undefined,
           })}
         </div>
@@ -1156,6 +1271,11 @@ function pathOf(entry: DiffViewFile | MergeViewFile): string {
   return "merge" in entry ? entry.path : entry.file.path
 }
 
+/** The key of the section of a file of the props (`PreparedFile.key`) */
+function keyOf(entry: DiffViewFile | MergeViewFile): string {
+  return "merge" in entry ? entry.path : (entry.section?.key ?? entry.file.path)
+}
+
 const NOTICE_SEPARATOR = "\u0001"
 
 /** The notice of a file: "Loading…" while its diff or merge is pending */
@@ -1200,6 +1320,7 @@ const EMPTY_CALLBACKS: PainterCallbacks = {
   onWindow: () => {},
   onTopFile: () => {},
   onFold: () => {},
+  onNote: () => {},
   onFirstScreen: () => {},
   onWidthsCorrected: () => {},
 }

@@ -396,6 +396,47 @@
   color: var(--foreground);
 }
 
+/*
+ * A note of a section of a review: the heading of the change a block starts, in the font of the code and the weight of a
+ * label; a block another section shows, a button to it, as quiet as a fold
+ */
+.dv-note {
+  display: flex;
+  align-items: center;
+  padding-inline-start: calc(var(--dv-gutter, 4ch) + 1ch);
+  user-select: none;
+}
+
+.dv-note[data-tone="unit"] {
+  border-top: 1px solid var(--border);
+}
+
+.dv-note-label {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+
+.dv-note[data-tone="elsewhere"] {
+  background: var(--diff-separator);
+}
+
+.dv-note-button {
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.dv-note-button:hover {
+  color: var(--foreground);
+}
+
 .dv-eof {
   margin-inline-start: 1ch;
   color: var(--muted-foreground);

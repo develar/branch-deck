@@ -10,8 +10,8 @@ import type { InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
 import { getLineTable, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
 import type { RowCells } from "@/lib/diff/row-cells"
-import { NEW, OLD, rowAt, rowOfLine } from "@/lib/diff/rows"
-import type { FileRows, FoldRow, LineRow, LineTint } from "@/lib/diff/rows"
+import { isLineRow, NEW, OLD, rowAt, rowOfLine } from "@/lib/diff/rows"
+import type { FileRows, FoldRow, LineRow, LineTint, NoteRow, Row } from "@/lib/diff/rows"
 import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
@@ -74,6 +74,8 @@ export interface PainterCallbacks {
   onTopFile: (index: number) => void
   /** A click on a fold; with ⌥ (Alt) it asks for all the lines of the file */
   onFold: (file: number, fold: FoldRow, all: boolean) => void
+  /** A click on the row of a block another section shows (`NoteRow`, `elsewhere`) */
+  onNote: (file: number, note: NoteRow) => void
   /** The rows of the first screen are painted with their texts; the tokens of their pages are there or overdue */
   onFirstScreen: () => void
   /** A wrapped line came out wider in the DOM than measured: the widths are corrected, the heights need a layout */
@@ -486,11 +488,11 @@ export class DiffPainter {
       const rowTop = layout.rowTop(file, row)
       const inView = rowTop < viewBottom && rowTop + layout.rowHeight(file, row) > viewTop
       const value = rowAt(rows, row)
-      if (inView && value.kind !== "fold" && value.lines.some((line, side) => line !== null && ids[side] != null && tables[side] == null)) {
+      if (inView && isLineRow(value) && value.lines.some((line, side) => line !== null && ids[side] != null && tables[side] == null)) {
         ready = false
       }
       // the pages this row shows, in view first
-      if (value.kind !== "fold") {
+      if (isLineRow(value)) {
         value.lines.forEach((line, side) => {
           const id = ids[side]
           const table = tables[side]
@@ -531,7 +533,7 @@ export class DiffPainter {
     return ready
   }
 
-  private paintRow(file: number, painterFile: PainterFile, row: number, value: LineRow | FoldRow, tables: readonly (LineTable | null)[], top: number, height: number): PaintedRow {
+  private paintRow(file: number, painterFile: PainterFile, row: number, value: Row, tables: readonly (LineTable | null)[], top: number, height: number): PaintedRow {
     const rowElement = element("div", "dv-row")
     rowElement.style.top = `${top}px`
     if (height !== this.model!.layout.metrics.rowHeight) {
@@ -542,6 +544,13 @@ export class DiffPainter {
       rowElement.classList.add("dv-fold")
       rowElement.dataset.kind = "fold"
       rowElement.append(this.foldButton(file, value))
+      return { element: rowElement, cells: [], textsRead: true }
+    }
+    if (value.kind === "note") {
+      rowElement.classList.add("dv-note")
+      rowElement.dataset.kind = "note"
+      rowElement.dataset.tone = value.tone
+      rowElement.append(this.note(file, value))
       return { element: rowElement, cells: [], textsRead: true }
     }
     rowElement.dataset.kind = value.kind
@@ -621,6 +630,23 @@ export class DiffPainter {
       label.textContent = fold.label
       button.append(label)
     }
+    return button
+  }
+
+  /** The words of a note row: the heading of a change, or a button to the section that shows a block */
+  private note(file: number, note: NoteRow): HTMLElement {
+    if (note.tone === "unit") {
+      const heading = element("span", "dv-note-label")
+      heading.textContent = note.label
+      heading.dataset.testid = "diff-unit-heading"
+      return heading
+    }
+    const button = element("button", "dv-note-button")
+    button.setAttribute("type", "button")
+    button.tabIndex = -1
+    button.dataset.file = String(file)
+    button.dataset.testid = "diff-unit-elsewhere"
+    button.textContent = note.label
     return button
   }
 
@@ -935,7 +961,7 @@ export class DiffPainter {
       return null
     }
     const value = rowAt(painterFile.rows, point.row)
-    const line = value.kind === "fold" ? null : value.lines[point.side]
+    const line = isLineRow(value) ? value.lines[point.side] : null
     const table = this.tablesOf(painterFile)[point.side]
     if (line == null || table == null) {
       return null
@@ -1026,7 +1052,7 @@ export class DiffPainter {
   }
 
   private onClick(event: MouseEvent): void {
-    const button = event.target instanceof Element ? event.target.closest<HTMLElement>(".dv-fold-button") : null
+    const button = event.target instanceof Element ? event.target.closest<HTMLElement>(".dv-fold-button, .dv-note-button") : null
     const model = this.model
     if (button === null || model === null) {
       return
@@ -1044,6 +1070,8 @@ export class DiffPainter {
         this.root?.focus({ preventScroll: true })
       }
       this.callbacks.onFold(file, value, event.altKey)
+    } else if (value.kind === "note") {
+      this.callbacks.onNote(file, value)
     }
   }
 }

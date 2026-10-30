@@ -5,7 +5,8 @@ import type { Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { findBranchRow } from "../helpers/branch-helpers"
+import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
+import { openCommitPreview } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -52,9 +53,11 @@ async function setupPlan(repo: TestRepositoryBuilder, { experimental }: { experi
   )
 }
 
-/** The paths of the diffs the review shows, in their order */
+/** The paths of the diffs the review shows of its files, in their order: no use left outside */
 async function reviewedPaths(page: Page): Promise<string[]> {
-  return page.getByTestId("review-file-header").evaluateAll(headers => headers.map(header => header.getAttribute("data-path")!))
+  return page
+    .locator('[data-testid="diff-view-file"]:not([data-section^="ghost:"]) [data-testid="review-file-header"]')
+    .evaluateAll(headers => headers.map(header => header.getAttribute("data-path")!))
 }
 
 /** The rows of the commit column: a scope by its label, a commit by its subject with what it is since the review */
@@ -171,8 +174,8 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })
     await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
 
-    // the files stay in the tree: the directories first, no order to choose
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt"])
+    // the diffs are the story: Cache, which Reader reads, before Reader; the tree keeps its order, no order to choose
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Store.kt"])
     await expect(window.getByRole("group", { name: "Order" })).toHaveCount(0)
   })
 
@@ -274,7 +277,7 @@ test.describe("The review plan in the branch review", () => {
     await selectCacheFromReader()
     await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
     await expect(search).toHaveValue(".kt")
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt"])
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Store.kt"])
     await expect(cache).toBeVisible()
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/File 2 \/ 3$/)
@@ -375,8 +378,8 @@ test.describe("The review plan in the branch review", () => {
     const window = await openPlanWindow(page, syncAndWaitForBranches)
     const tree = window.getByRole("tree", { name: "Changed files" })
 
-    // the real work in the tree, the build file and the reindented file last, in a group that starts collapsed
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt", "src/b/b.iml", "src/Base.kt"])
+    // the real work in the order of the story, the build file and the reindented file last, in a group that starts collapsed
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Store.kt", "src/b/b.iml", "src/Base.kt"])
     const group = tree.getByRole("treeitem", { name: "Mechanical (2)" })
     await expect(group).toHaveAttribute("aria-expanded", "false")
     await expect(tree.getByRole("treeitem", { name: "src/Base.kt" })).toHaveCount(0)
@@ -445,7 +448,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(tree.getByRole("treeitem", { name: "src/b/b.iml" })).toHaveAttribute("aria-selected", "true")
   })
 
-  test("should fold in the diffs a file whose whole change is a repeated edit after the first file of the edit, its header saying so", async ({
+  test("should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -453,47 +456,132 @@ test.describe("The review plan in the branch review", () => {
     // the same edit in Alpha, Beta, Gamma and Delta, Delta with a change of its own
     turnOnReviewPlan(await setupRepo("repeated_edit"))
     const window = await openPlanWindow(page, syncAndWaitForBranches, "rename")
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Alpha.kt", "src/a/Beta.kt", "src/a/Delta.kt", "src/a/Gamma.kt"])
-    const header = (name: string) => window.locator(`[data-testid="review-file-header"][data-path="src/a/${name}.kt"]`)
+    const section = (name: string, group: boolean) =>
+      window.locator(`[data-testid="diff-view-file"][data-path="src/a/${name}.kt"]${group ? '[data-section^="group:"]' : `[data-section="file:src/a/${name}.kt"]`}`)
+    const header = (name: string, group: boolean) => section(name, group).getByTestId("review-file-header")
     await expect(window.getByRole("tree", { name: "Changed files" }).getByTestId("file-same-edit-badge").first()).toHaveText("same edit ×4")
+    // the story: the edit once, under its heading on Alpha; then the change of Delta's own
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Alpha.kt", "src/a/Beta.kt", "src/a/Delta.kt", "src/a/Gamma.kt", "src/a/Delta.kt"])
+    await expect(header("Alpha", true).getByTestId("review-section-heading")).toHaveText("Same edit in 4 files")
+    await expect(header("Alpha", true).getByRole("button", { name: "Collapse Alpha.kt" })).toHaveAttribute("aria-expanded", "true")
+    for (const name of ["Beta", "Gamma", "Delta"]) {
+      await expect(header(name, true).getByTestId("review-file-folded")).toHaveText("Same edit as Alpha.kt")
+      await expect(header(name, true).getByRole("button", { name: `Expand ${name}.kt` })).toHaveAttribute("aria-expanded", "false")
+    }
 
-    // Alpha shows the edit; Beta and Gamma, the edit alone, are folded under its name; Delta, more than the edit, is open
-    for (const name of ["Alpha", "Delta"]) {
-      await expect(header(name).getByRole("button", { name: `Collapse ${name}.kt` })).toHaveAttribute("aria-expanded", "true")
-      await expect(header(name).getByTestId("review-file-folded")).toHaveCount(0)
-    }
-    for (const name of ["Beta", "Gamma"]) {
-      await expect(header(name).getByTestId("review-file-folded")).toHaveText("Same edit as Alpha.kt")
-      await expect(header(name).getByRole("button", { name: `Expand ${name}.kt` })).toHaveAttribute("aria-expanded", "false")
-    }
+    // Delta in the tree shows its own change, open; its edit is one row there, which opens Delta in the group
+    await window.getByRole("treeitem", { name: "Delta.kt" }).click()
+    await expect(header("Delta", false).getByRole("button", { name: "Collapse Delta.kt" })).toHaveAttribute("aria-expanded", "true")
+    await expect(header("Delta", false).getByTestId("review-file-folded")).toHaveCount(0)
+    await section("Delta", false).getByTestId("diff-unit-elsewhere").click()
+    await expect(header("Delta", true).getByRole("button", { name: "Collapse Delta.kt" })).toHaveAttribute("aria-expanded", "true")
+
+    // K and J step through the sections, the tree following
+    const tree = window.getByRole("tree", { name: "Changed files" })
+    await window.getByTestId("commit-review-code").locator("[aria-label='Changes of the commit']").focus()
+    await window.keyboard.press("k")
+    await expect(tree.getByRole("treeitem", { name: "Beta.kt" })).toHaveAttribute("aria-selected", "true")
+    await window.keyboard.press("j")
+    await expect(tree.getByRole("treeitem", { name: "Delta.kt" })).toHaveAttribute("aria-selected", "true")
 
     // the chevron opens a folded file
-    await header("Beta").getByRole("button", { name: "Expand Beta.kt" }).click()
-    await expect(header("Beta").getByRole("button", { name: "Collapse Beta.kt" })).toHaveAttribute("aria-expanded", "true")
+    await header("Beta", true).getByRole("button", { name: "Expand Beta.kt" }).click()
+    await expect(header("Beta", true).getByRole("button", { name: "Collapse Beta.kt" })).toHaveAttribute("aria-expanded", "true")
     await expect(window.getByTestId("diff-view")).toContainText("class Beta")
   })
 
-  test("should play down a block of the imports alone in the diff of a file of real work, and pass it with N", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show a block of the imports alone in the group of the imports, in its file's section one row that opens it, and pass it with N", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const repo = await setupRepo("symbol_navigation")
     await setupPlan(repo, { experimental: true })
     // Base.kt gets an import above its function and a function below it: two blocks, the first of the imports alone
     await repo.commit("(plan) add other", { "src/Base.kt": "import kotlin.math.max\n\nfun outsider(value: Int) = helper(value)\n\nfun other() = max(1, 2)\n" }, 1704124800)
     const window = await openPlanWindow(page, syncAndWaitForBranches)
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Base.kt", "src/Store.kt"])
-    const base = window.locator('[data-testid="diff-view-file"][data-path="src/Base.kt"]')
-    await expect(base).toContainText("import kotlin.math.max")
-    // the import is pale, as whitespace alone; the new function is not
-    await expect(base.locator('[data-tint="whitespace"]')).toHaveCount(2)
+    const own = window.locator('[data-testid="diff-view-file"][data-section="file:src/Base.kt"]')
+    const imports = window.locator('[data-testid="diff-view-file"][data-section="group:mechanical:importsOnly:src/Base.kt"]')
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Base.kt", "src/Store.kt", "src/Base.kt"])
 
-    // from the top of Base.kt, N passes the imports: the function, then Store.kt
+    // Base.kt in the tree: its new function under its heading, the import one row that names the group
     const position = window.getByTestId("branch-review-position")
     await window.getByRole("treeitem", { name: "Base.kt" }).click()
     await expect(position).toHaveText(/File 3 \/ 4$/)
+    await expect(own.getByTestId("diff-unit-heading")).toHaveText("other — new")
+    await expect(own).toContainText("fun other() = max(1, 2)")
+    await expect(own).not.toContainText("import kotlin.math.max")
+    await expect(own.getByTestId("diff-unit-elsewhere")).toHaveText("Shown in Imports only (1)")
+
+    // from the top of Base.kt, N goes to the function, then to Store.kt: the import is no change of this section
     await window.getByTestId("commit-review-code").locator("[aria-label='Changes of the commit']").focus()
     await window.keyboard.press("n")
     await expect(position).toHaveText(/File 3 \/ 4$/)
     await window.keyboard.press("n")
     await expect(position).toHaveText(/File 4 \/ 4$/)
+
+    // the row opens the group of the imports, collapsed until then: the import is pale there, as whitespace alone
+    await expect(imports.getByTestId("review-file-folded")).toHaveText("Imports only")
+    await own.getByTestId("diff-unit-elsewhere").click()
+    await expect(imports).toContainText("import kotlin.math.max")
+    await expect(imports.locator('[data-tint="whitespace"]')).toHaveCount(2)
+  })
+
+  test("should show after a changed API the uses it left outside, each its file at the head around the use, none that the head lacks", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    // after Store.kt, where `helper` takes a scale: its use in Base.kt, which the change left as it was; the index names
+    // two more in files the head lacks, which show nothing
+    const ghosts = window.locator('[data-testid="diff-view-file"][data-section^="ghost:"]')
+    // once the plan came: the story is laid out
+    await expect(window.getByTestId("review-plan-summary")).toHaveText(/possible break/)
+    // the name of the file, beside its badges, which open their popovers
+    await window.getByRole("treeitem", { name: "Store.kt" }).getByText("Store.kt", { exact: true }).click()
+    await expect.poll(() => ghosts.evaluateAll(sections => sections.map(section => section.getAttribute("data-path")))).toEqual(["src/Base.kt"])
+    const base = ghosts.first()
+    await expect(base.getByTestId("review-section-heading")).toHaveText("Left outside")
+    await expect(base.getByTestId("diff-unit-heading")).toHaveText("helper — left outside: src/Base.kt:1")
+    await expect(base).toContainText("helper(value)")
+    // the tree keeps the selected file of the review, a use outside has no row there
+    await expect(window.getByRole("treeitem", { name: "Store.kt" })).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should show the plan of a commit chosen in the column: its card and the story of its diffs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    await window.getByTestId("range-review-commit").filter({ hasText: "scale the helper" }).click()
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
+    // the plan of that commit alone: the change of `helper` under its heading, its uses left outside on the card
+    const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
+    await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — form changed: parameters")
+    const card = window.getByTestId("review-plan-card")
+    await expect(card.getByTestId("review-plan-breakage-entry")).toHaveCount(1)
+    await expect(card.getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
+    await expect(card.getByTestId("review-plan-summary")).toHaveText("1 possible break")
+    // All Changes again: the plan of the branch, with the declarations the other commit adds
+    await window.getByTestId("range-review-commit").filter({ hasText: "All Changes" }).click()
+    await expect(card.getByTestId("review-plan-summary")).toHaveText("1 possible break · 2 new declarations")
+  })
+
+  test("should show the plan of a commit in the review window of a commit: its card and the story of its diffs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    // a commit of no branch: D opens the review window of the commit
+    await repo.commit("scale the helper again", { "src/Store.kt": storeText("fun helper(value: Int, scale: Int, offset: Int) = value * scale + offset") }, 1704124800)
+    await syncAndWaitForBranches()
+    await openCommitPreview(page, getUnassignedCommitRow(page, "scale the helper again"))
+    await page.keyboard.press("d")
+    await expect.poll(async () => (await getOpenedSubWindows(page)).map(opened => opened.windowId)).toEqual(["commit-review"])
+    const window = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[0]!)
+    const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
+    await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — form changed: parameters")
+    await expect(window.getByTestId("review-plan-card").getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
   })
 
   test("should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart", async ({ page, setupRepo, syncAndWaitForBranches }) => {

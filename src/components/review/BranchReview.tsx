@@ -158,7 +158,7 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       rangeNoun="branch"
       filesHeader={count => <BranchReviewFilesHeader model={model} count={count} />}
       scopeTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
-      commitTop={loaded.plan === null || !loaded.sinceShown ? undefined : <ReviewPlanCard state={loaded.plan} />}
+      commitTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
       reviewFacts={loaded.reviewFacts}
       onShowAllPaths={() => model.setFilter({ kind: "all" })}
       commitMenu={commit => {

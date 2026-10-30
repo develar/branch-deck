@@ -1,4 +1,4 @@
-use crate::session::windows::{WindowRequests, WindowSubscriptions, Windows};
+use crate::session::windows::{PlanSlot, WindowRequests, WindowSubscriptions, Windows};
 use crate::transport::WindowId;
 use domain_types::operation::OperationId;
 use repository_model::session::SubscriptionId;
@@ -90,7 +90,7 @@ fn a_closed_window_supersedes_its_request() {
 fn a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other() {
   let review = WindowId::new("branch-review");
   let windows = Windows::default();
-  let plan = windows.begin_plan(&review);
+  let plan = windows.begin_plan(&review, PlanSlot::Scope);
   // Go to Declaration while the plan reads, and its cancel: the plan goes on
   let search = windows.begin_search(&review);
   windows.cancel_search(&review);
@@ -98,11 +98,26 @@ fn a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other() {
   assert!(!plan.is_superseded());
   // a newer plan of the window supersedes the one before, not the search after it
   let search = windows.begin_search(&review);
-  let newer = windows.begin_plan(&review);
+  let newer = windows.begin_plan(&review, PlanSlot::Scope);
   assert!(plan.is_superseded());
   assert!(!search.is_superseded());
   // the close (`AppContext::forget_window`) supersedes the plan and the search
   windows.forget_reads(&review);
   assert!(newer.is_superseded());
   assert!(search.is_superseded());
+}
+
+/// The plan of a commit of the column and the plan of the scope of a window never supersede each other; each slot
+/// supersedes its own, and the close supersedes both
+#[test]
+fn the_plan_of_a_commit_and_the_plan_of_its_scope_never_supersede_each_other() {
+  let review = WindowId::new("branch-review");
+  let windows = Windows::default();
+  let scope = windows.begin_plan(&review, PlanSlot::Scope);
+  let commit = windows.begin_plan(&review, PlanSlot::Commit);
+  assert!(!scope.is_superseded());
+  let next = windows.begin_plan(&review, PlanSlot::Commit);
+  assert_eq!((commit.is_superseded(), scope.is_superseded()), (true, false));
+  windows.forget_reads(&review);
+  assert!(next.is_superseded() && scope.is_superseded());
 }

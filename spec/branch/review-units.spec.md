@@ -8,6 +8,13 @@ targets:
   - ../../crates/trial-check/src/declaration_checks.rs
   - ../../crates/file-diffs/src/service.rs
   - ../../crates/bd-rewrite/src/review_plan_command.rs
+  - ../../src/presenters/review-units.ts
+  - ../../src/lib/diff/rows.ts
+  - ../../src/components/diff/DiffView.tsx
+  - ../../src/components/commit/CommitReview.tsx
+  - ../../src/hooks/useReviewPlan.ts
+  - ../../src/pages/CommitReviewPage.tsx
+  - ../../src/components/review/PullRequestReview.tsx
 ---
 
 # Review Units
@@ -114,6 +121,41 @@ is anchored to.
   and its `fingerprint`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
+### In the Review Window
+- With the plan, the diffs of All Changes and of Since Your Review must be the story of the units, in their order
+  (`presentNarrative`): a run of units of one file is one section, each change under its heading ("open — form
+  changed: parameters", "close — body changed", "fresh — new", "Changes outside a declaration"), a unit with no block
+  of its own beside the heading before it; a group is a section per file of it.
+  [@test] ../../src/presenters/review-units.test.ts (`makes a run of changes of one file one section with a heading per change, and a group a section per file`, `words a change by its kind`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a block of the imports alone in the group of the imports, in its file's section one row that opens it, and pass it with N`)
+- A mechanical group must start collapsed on every file, its header saying the kind; a repeated edit must show on its
+  first file under "Same edit in N files", the other files collapsed, "Same edit as Alpha.kt".
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
+- A block that another section shows must be one row in the section of its file, "Shown in Imports only (1)", no
+  change for N and P; a click must open that section, expanded. A heading and a row of words have the height of a line.
+  [@test] ../../src/lib/diff/rows.test.ts (`makes the rows of a section of a review: a heading before each change it marks, one row for a block another section shows`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a block of the imports alone in the group of the imports, in its file's section one row that opens it, and pass it with N`, `should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
+- A file of the tree must open its first open section, a place of the card the section that shows its line; J and K
+  step through the sections, the tree following the section at the top.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
+- After the section of a change of a form or a removal, each of its first 5 uses left outside (`outside_sites` of its
+  API entry, by its key and file) must be a section of its own, "Left outside": the file at the head of the review
+  around the line of the use (`get_outside_place`, the lines of context of a change before and after it), under the
+  heading "helper — left outside: src/Base.kt:1"; no change for N and P, no row of the tree, which keeps the file of the
+  review selected. A use in a file the head lacks shows nothing.
+  [@test] ../../src/presenters/review-units.test.ts (`follow the section of the change: each its file around the use, at most five`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show after a changed API the uses it left outside, each its file at the head around the use, none that the head lacks`)
+- The story must show in every review window with the plan: a commit chosen in the column of the branch review has
+  its own plan (`ReviewSubject::Commit`, the commit against its first parent) for its card and its diffs, beside the
+  plan of the part, which stays the card under Since Your Review; the review window of a commit and the review of a
+  pull request read the plan of what they show, and show none for a repository that turns it off (`disabled`).
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit chosen in the column: its card and the story of its diffs`, `should show the plan of a commit in the review window of a commit: its card and the story of its diffs`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on`)
+  [@test] ../../crates/review-plan/src/units_test.rs (`a_commit_is_read_against_its_first_parent`)
+- A file whose blocks are not those of the units (the window reads another whitespace policy than `Default`) and a
+  file no unit names must show whole, in the place of its first unit, else after the story.
+  [@test] ../../src/presenters/review-units.test.ts (`shows a file whole where its blocks are not those of the units, and a file no unit names after the story`)
+
 ## User Experience
 
 `bd review-plan` prints, after `repeated_edits`:
@@ -129,6 +171,10 @@ is anchored to.
   {"id": "mechanical:importsOnly", "kind": "mechanical", "mechanical": "importsOnly", "public": false, "slices": […]}
 ]
 ```
+
+The section of a run: `diff-unit-heading` before a change (the font of the code, bold, a top border), and a block of
+another section one `diff-unit-elsewhere` row in the tint of a fold. The header of the first file of a group shows the
+group first (`review-section-heading`): "Same edit in 4 files", "Imports only (2)".
 
 ## Open Questions / Risks
 

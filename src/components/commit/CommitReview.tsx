@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitReviewCode"
 import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
+import type { DiffViewFile } from "@/components/diff/DiffView"
 import { FileTree } from "@/components/files/FileTree"
 import type { FileTreeBadges } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
@@ -13,22 +14,24 @@ import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { SelectReviewFileContext } from "@/hooks/useSelectReviewFile"
 import type { ReviewNavigator } from "@/hooks/useSelectReviewFile"
-import type { CommitFile, DiffRevisions, MechanicalKind } from "@/lib/bindings"
+import type { CommitFile, DeclarationTarget, DiffRevisions, MechanicalKind } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import type { FileDiff } from "@/lib/diff/file-diff-model"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
+import type { SectionUnits } from "@/lib/diff/rows"
 import { withEngineCounts } from "@/lib/diff/view-files"
 import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
 import { buildFileTree, buildReviewTree, dependencyRows, flattenTreeFiles, getInitiallyCollapsed, MECHANICAL_GROUP_KEY, revealInTree, toggleInSet } from "@/lib/file-tree"
 import type { FileTreeNode } from "@/lib/file-tree"
 import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPlace } from "@/lib/review-place"
-import { readOutsidePlace } from "@/lib/review-plan"
+import { readOutsideExcerpt, readOutsidePlace } from "@/lib/review-plan"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
-import { presentDependencyBadge, presentFileBadges, presentFoldedFiles } from "@/presenters/review-plan"
+import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
+import { presentNarrative } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { getDiffRepositoryPath } from "@/stores/repository"
@@ -438,6 +441,48 @@ function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[
 
 const NO_MECHANICAL: ReadonlyMap<string, MechanicalKind> = new Map()
 
+/** A section of the story that shows its file whole */
+const NO_UNITS: SectionUnits = { marks: new Map(), elsewhere: new Map() }
+
+/**
+ * A use a change left outside (`ghost`), as a section of the story: its file at the head (`target`, unread while
+ * undefined) around its line, the lines before and after it as context, a heading before the line; no change, so N
+ * and P pass it (an empty block played down as the imports are)
+ */
+function ghostFile(key: string, path: string, ghost: { line: number; heading: string }, target: DeclarationTarget | undefined): DiffViewFile {
+  const blobId = target?.outside?.blobId ?? null
+  const lineCount = target?.outside?.lineCount ?? 0
+  const at = ghost.line - 1
+  const file: CommitFile = { path, status: "modified", oldPath: null, additions: 0, deletions: 0, binary: false, oldId: blobId, newId: blobId, submodule: false }
+  const section = { key, units: { marks: new Map([[0, ghost.heading]]), elsewhere: new Map() }, targets: new Map(), heading: "Left outside" }
+  if (target === undefined || blobId === null) {
+    return { file, diff: undefined, pending: true, section }
+  }
+  const diff: FileDiff = {
+    path,
+    oldPath: null,
+    status: "modified",
+    oldId: blobId,
+    newId: blobId,
+    content: {
+      kind: "text",
+      oldLineCount: lineCount,
+      newLineCount: lineCount,
+      additions: 0,
+      deletions: 0,
+      lineEnds: null,
+      finalNewline: null,
+      emptyLastLine: { old: true, new: true },
+      lineLevelOnly: false,
+      blocks: [{ oldStart: at, oldEnd: at, newStart: at, newEnd: at, kind: "changed", inlinePairs: false, oldRanges: [], newRanges: [] }],
+      oldScopes: [],
+      newScopes: [],
+      importBlocks: [0],
+    },
+  }
+  return { file, diff, quietImports: true, section }
+}
+
 /** The diffs show `place` of a shown file: its line with its name selected, or its header without one */
 function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): void {
   const line = place.line === null ? null : { path: place.path, side: place.side, line: place.line - 1, column: 0, endColumn: 0, ...(place.name !== null && { name: place.name }) }
@@ -513,31 +558,69 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   // window shows once the rows of the first screen are painted (`onFirstScreen`)
   const diffs = loaded?.diffs ?? null
   const diffsComplete = loaded?.diffsComplete ?? false
+  // with the plan, the story of its units (spec/branch/review-units.spec.md): each run of changes of a file one section,
+  // each group a section per file, the mechanical ones collapsed, the uses a change left outside after it
+  const narrative = useMemo(() => {
+    if (diffs === null || reviewFacts === null) {
+      return null
+    }
+    const byPath = new Map(diffs.map(diff => [diff.path, diff]))
+    const shown = files.map(file => {
+      const diff = byPath.get(file.path)
+      return { path: file.path, blocks: diff?.content.kind === "text" ? diff.content.blocks : null }
+    })
+    return presentNarrative(reviewFacts.units, shown, reviewFacts.api)
+  }, [diffs, files, reviewFacts])
+  // the file at the head of each use left outside, read once per review
+  const revision = loaded?.revisions.new ?? null
+  const [outside, setOutside] = useState<ReadonlyMap<string, DeclarationTarget | null>>(() => new Map())
+  useEffect(() => {
+    const repositoryPath = getDiffRepositoryPath()
+    if (narrative === null || revision === null || repositoryPath === undefined) {
+      return
+    }
+    let current = true
+    for (const section of narrative) {
+      if (section.ghost !== null && !outside.has(section.key)) {
+        void readOutsideExcerpt(repositoryPath, revision, section.path, section.ghost.line, section.ghost.name).then(target => {
+          if (current) {
+            setOutside(previous => new Map(previous).set(section.key, target))
+          }
+        })
+      }
+    }
+    return () => {
+      current = false
+    }
+  }, [narrative, revision, outside])
   const viewFiles = useMemo(() => {
     if (diffs === null) {
       return null
     }
     const byPath = new Map(diffs.map(diff => [diff.path, diff]))
-    // the files the review plan folds start collapsed, their headers saying why
-    const folded =
-      reviewFacts === null
-        ? null
-        : presentFoldedFiles(
-            reviewFacts,
-            files.map(file => file.path),
-          )
-    return withEngineCounts(files, diffs).map(file => {
-      const why = folded?.get(file.path)
-      // with the plan, the blocks of the imports alone are played down too
-      return {
-        file,
-        diff: byPath.get(file.path),
-        pending: !diffsComplete && !byPath.has(file.path),
-        ...(why !== undefined && { folded: why }),
-        ...(reviewFacts !== null && { quietImports: true }),
+    const counted = withEngineCounts(files, diffs)
+    if (narrative === null) {
+      return counted.map(file => ({ file, diff: byPath.get(file.path), pending: !diffsComplete && !byPath.has(file.path) }))
+    }
+    const fileOf = new Map(counted.map(file => [file.path, file]))
+    return narrative.flatMap((section): DiffViewFile[] => {
+      if (section.ghost !== null) {
+        const target = outside.get(section.key)
+        // a use the head lacks shows nothing; one not read yet its header
+        return target === null ? [] : [ghostFile(section.key, section.path, section.ghost, target)]
       }
+      return [
+        {
+          file: fileOf.get(section.path)!,
+          diff: byPath.get(section.path),
+          pending: !diffsComplete && !byPath.has(section.path),
+          quietImports: true,
+          ...(section.folded !== null && { folded: section.folded }),
+          section: { key: section.key, units: section.units ?? NO_UNITS, targets: section.targets, heading: section.heading },
+        },
+      ]
     })
-  }, [diffs, diffsComplete, files, reviewFacts])
+  }, [diffs, diffsComplete, files, narrative, outside])
   const showWindow = useCallback(() => {
     markSubWindowOpenPhase("painted")
     markWindowContentReady()
@@ -552,6 +635,9 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     },
     [nodes],
   )
+
+  // the section at the top selects its file in the tree; a use left outside has no row there
+  const selectShown = useCallback((path: string) => files.some(file => file.path === path) && select(path), [files, select])
 
   const selectInTree = useCallback(
     (file: CommitFile) => {
@@ -577,7 +663,6 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   )
 
   // a use the change left outside: its file at the head of the review opens over it
-  const revision = loaded?.revisions.new ?? null
   const showOutside = useCallback(
     (place: ReviewPlace) => {
       const repositoryPath = getDiffRepositoryPath()
@@ -624,6 +709,14 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     switch (event.code) {
       case "KeyJ":
       case "KeyK": {
+        // with the plan the diffs are the story: J and K step through its sections, the tree follows
+        if (reviewFacts !== null) {
+          const path = code.current?.moveSection(event.code === "KeyJ" ? 1 : -1)
+          if (path !== undefined) {
+            selectShown(path)
+          }
+          break
+        }
         const next = files[selectedIndex + (event.code === "KeyJ" ? 1 : -1)]
         if (next !== undefined) {
           selectInTree(next)
@@ -726,7 +819,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                   files={viewFiles}
                   diffViewMode={diffViewMode}
                   initialPath={selection.initialPath}
-                  onVisibleFileChange={select}
+                  onVisibleFileChange={selectShown}
                   onFirstScreen={showWindow}
                   fileOwners={fileOwners}
                 />

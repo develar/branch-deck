@@ -3179,7 +3179,7 @@ and the `rewritten` ones, each against its own parent:
 the other outputs of `bd` with 2. The app reads the plan with `get_review_plan`, a `window` read
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
 fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the window asks a newer plan or closes
-(`Windows::begin_plan`, a slot of its own, so a Go to Declaration of the window never cancels its plan); a plan
+(`Windows::begin_plan`, a slot for the plan of a scope and one for the plan of a commit of the column, `ReviewSubject::Commit` against its first parent, so neither cancels the other and a Go to Declaration of the window cancels neither); a plan
 superseded after its last query answers `canceled` too. Its channel carries the plan without the usages before the
 index is asked (`review_plan_of`'s `pending`), then the plan with them, or `disabled` after one `git config` read
 (`ConfigSnapshot`) when the repository turns the plan off; a plan whose every query answered is kept by its subject

@@ -53,6 +53,9 @@ export function findHits(files: readonly CopyFile[], query: string, { sideBySide
         }
         continue
       }
+      if (row.kind === "note") {
+        continue
+      }
       const sides = sideBySide ? (row.kind === "context" ? [NEW] : row.lines.map((_, side) => side)) : [copySide(row, false, NEW)]
       for (const side of sides) {
         const line = row.lines[side]

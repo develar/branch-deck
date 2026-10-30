@@ -6342,7 +6342,9 @@ base?: string | null;
 /**  The baseline as the sync detected it, used without a `base`; `None` detects that of the checked out branch */
 baselineBranch?: string | null } | 
 /**  The commits of `base..head`; no reviewed pair */
-{ kind: "range"; base: string; head: string };
+{ kind: "range"; base: string; head: string } | 
+/**  One commit against its first parent, as the diffs of a commit show it; no reviewed pair */
+{ kind: "commit"; id: string };
 
 /**  A change a reviewer reads once */
 export type ReviewUnit = {

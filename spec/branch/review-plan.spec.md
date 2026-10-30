@@ -462,10 +462,11 @@ the repeated edits and the new API.
 - An unknown branch must answer `unknown_branch`; a base that names no commit, a branch that shares no history with
   its base, an unknown revision of a range and `sinceReviewed` of a range must answer `invalid_arguments`.
   [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
-- A window must read one plan at a time: a newer plan of the window and its close must supersede the plan in flight,
-  kill its queries of accio and answer `canceled`; a symbol search of the window and a plan must never supersede each
-  other.
-  [@test] ../../crates/app-api/src/session/windows_test.rs (`a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other`, `a_closed_window_supersedes_its_request`)
+- A window must read one plan at a time per slot, the plan of a scope (a branch, a range) and the plan of a commit
+  (`ReviewSubject::Commit`): a newer plan of the slot and the close of the window must supersede the plan in flight,
+  kill its queries of accio and answer `canceled`; the two slots, and a symbol search of the window, must never
+  supersede each other.
+  [@test] ../../crates/app-api/src/session/windows_test.rs (`a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other`, `a_closed_window_supersedes_its_request`, `the_plan_of_a_commit_and_the_plan_of_its_scope_never_supersede_each_other`)
 - `branchdeck.reviewExperimental` must be on unless git config turns it off, read and written like the other keys of
   Settings; a value git refuses must be off with its reason and fail no sync: an experiment never turns on from a
   broken value.
@@ -576,20 +577,20 @@ the repeated edits and the new API.
   order Build files, Imports only, Whitespace only, Renamed, Deleted, each file by its path. The group must start
   collapsed, also when the plan comes after the files, unless it holds the selected file. The diffs, J and K must
   reach these files last, and a file selected in it opens it. Its menu and ⌘C copy its changed paths.
-- In the diffs a mechanical file must start collapsed, its header saying why: "Build file", "Imports only",
-  "Whitespace only", "Renamed only", "Deleted". A file that is `repeated_edit_only` must start collapsed too, "Same
-  edit as Alpha.kt", the first file of its group in the order of the diffs, which shows the edit once and stays open;
-  a file of the group with more than the edit stays open. The chevron of the header opens either.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`, `should fold in the diffs a file whose whole change is a repeated edit after the first file of the edit, its header saying so`)
-  [@test] ../../src/presenters/review-plan.test.ts (`folds a mechanical file by its kind, and a file of a repeated edit that is that edit alone after the first file of its group`)
+- The diffs must be the story of the units ([Review Units](review-units.spec.md#in-the-review-window)): a mechanical
+  change starts collapsed, its header saying why ("Build file", "Imports only", "Whitespace only", "Renamed only",
+  "Deleted"), and a repeated edit shows once, the other files of it collapsed, "Same edit as Alpha.kt". The chevron
+  of the header opens either.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`, `should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/lib/file-tree.test.ts (`folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last`, `starts with the Mechanical group collapsed, and opens it to reveal a file in it`, `copies the paths of a group, which has no path of its own`)
   [@test] ../../src/presenters/review-plan.test.ts (`names the Mechanical group and its groups by kind`)
-- In the diffs of a file of real work, a block whose every changed line of each side is an import or a package
-  statement or blank (`TextDiff::import_blocks`, from the syntax of the texts: the import and package statements of
-  Kotlin, Java, Rust and TypeScript, a Rust `pub use` and a TypeScript `export … from` none) must be pale, as a change
-  of whitespace alone, and N and P must pass it. A block with a line of code beside them is a change as any.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should play down a block of the imports alone in the diff of a file of real work, and pass it with N`)
+- A block whose every changed line of each side is an import or a package statement or blank
+  (`TextDiff::import_blocks`, from the syntax of the texts: the import and package statements of Kotlin, Java, Rust and
+  TypeScript, a Rust `pub use` and a TypeScript `export … from` none) must be pale, as a change of whitespace alone,
+  and N and P must pass it; in the story it is in the unit of the imports, and the section of its file shows one row
+  for it. A block with a line of code beside them is a change as any.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a block of the imports alone in the group of the imports, in its file's section one row that opens it, and pass it with N`)
   [@test] ../../src/lib/diff/rows.test.ts (`plays down a block of the imports alone in a review: pale, and N and P pass it; elsewhere it is a change as any`)
   [@test] ../../crates/file-diffs/src/service_test.rs (`a_block_of_import_statements_alone_is_marked_by_the_syntax`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`the_import_lines_are_the_import_and_package_statements`)

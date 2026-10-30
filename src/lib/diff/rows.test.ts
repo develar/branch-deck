@@ -13,10 +13,12 @@ import { block, mergeBlock, NESTED_SCOPES, textDiff, textMerge } from "@/test-su
  */
 function describeRow(row: Row): string {
   const line = (value: number | null | undefined) => (value === null || value === undefined ? "_" : String(value))
-  const tint = row.kind === "fold" || row.tint === "full" ? "" : ` ${row.tint}`
+  const tint = row.kind === "fold" || row.kind === "note" || row.tint === "full" ? "" : ` ${row.tint}`
   switch (row.kind) {
     case "fold":
       return `fold ${row.lines[1]![0]}-${row.lines[1]![1]}${row.label === null ? "" : ` ${row.label}`}`
+    case "note":
+      return `${row.tone} ${row.label}`
     case "context":
       return row.lines.map(line).join(":")
     case "deleted":
@@ -188,6 +190,27 @@ describe("buildFileRows", () => {
     expect(describeRow(rowAt(quiet, 2))).toBe("-2 whitespace")
     const plain = buildFileRows(diff, "unified", [EXPANDED, EXPANDED, EXPANDED])
     expect(plain.changeStarts.map(start => describeRow(rowAt(plain, start)))).toEqual(["-2", "-20"])
+  })
+
+  it("makes the rows of a section of a review: a heading before each change it marks, one row for a block another section shows", () => {
+    const diff = textDiff(40, 40, [block(2, 3, 2, 3), block(20, 21, 20, 21), block(30, 31, 30, 31)])
+    const units = { marks: new Map([[1, "Policy.check — body changed"]]), elsewhere: new Map([[2, "Imports — in Imports (3 files)"]]) }
+    const rows = buildFileRows(diff, "unified", [EXPANDED, EXPANDED, EXPANDED, EXPANDED], false, units)
+    const all = outline(rows)
+    const heading = all.indexOf("unit Policy.check — body changed")
+    expect(all.slice(heading - 1, heading + 3)).toEqual(["19:19", "unit Policy.check — body changed", "-20", "+20"])
+    expect(outline(rows)).toContain("elsewhere Imports — in Imports (3 files)")
+    // N and P step to the changes of the section alone; a folded section keeps its heading next to its change
+    expect(rows.changeStarts.map(start => describeRow(rowAt(rows, start)))).toEqual(["-2", "-20"])
+    expect(outline(buildFileRows(diff, "unified", [], false, units)).filter(row => !/^\d/.test(row))).toEqual([
+      "-2",
+      "+2",
+      "fold 7-16",
+      "unit Policy.check — body changed",
+      "-20",
+      "+20",
+      "fold 25-40",
+    ])
   })
 
   it("finds each row from its segment, and keeps the fold levels of a diff object", () => {

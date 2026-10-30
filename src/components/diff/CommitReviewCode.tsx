@@ -73,6 +73,10 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
       setFileViews([])
       return review.current?.moveChange(direction)
     },
+    moveSection: direction => {
+      setFileViews([])
+      return review.current?.moveSection(direction)
+    },
     focus: () => review.current?.focus(),
     revealDeclaration: (place, from) => {
       setFileViews([])
@@ -147,7 +151,7 @@ export function PendingFileHeaders({ files, fileOwners }: { files: readonly Comm
       {files.slice(0, PENDING_HEADERS).map(file => (
         <div key={file.path} className="dv-card">
           <div className="dv-header">
-            <ReviewFileHeader file={file} notice={null} empty folded={null} collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} />
+            <ReviewFileHeader file={file} notice={null} empty folded={null} heading={null} collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} />
           </div>
         </div>
       ))}
@@ -166,7 +170,7 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
  * All, its owner and counts, and the menu of the file. The insets are IntelliJ's: 12 px above and below, 10 px at the
  * sides
  */
-function ReviewFileHeader({ file, notice, empty, folded, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
+function ReviewFileHeader({ file, notice, empty, folded, heading, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
@@ -184,6 +188,11 @@ function ReviewFileHeader({ file, notice, empty, folded, pending = false, owner,
       >
         <FileHeaderChevron open={!collapsed} />
       </Button>
+      {heading !== null && (
+        <span data-testid="review-section-heading" className="shrink-0 font-medium">
+          {heading}
+        </span>
+      )}
       <span className="flex min-w-0" title={formatCommitFilePath(file)}>
         <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} emphasis />
       </span>

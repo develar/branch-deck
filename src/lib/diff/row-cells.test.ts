@@ -6,8 +6,8 @@ import type { LineRow } from "@/lib/diff/rows"
 import { block, mergeBlock, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 const lineRow = (row: ReturnType<typeof rowAt>): LineRow => {
-  if (row.kind === "fold") {
-    throw new Error("a fold")
+  if (row.kind === "fold" || row.kind === "note") {
+    throw new Error("no line row")
   }
   return row
 }

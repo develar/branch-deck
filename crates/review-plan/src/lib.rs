@@ -88,6 +88,8 @@ pub enum ReviewSubject {
   },
   /// The commits of `base..head`; no reviewed pair
   Range { base: String, head: String },
+  /// One commit against its first parent, as the diffs of a commit show it; no reviewed pair
+  Commit { id: String },
 }
 
 /// The plan of a review
@@ -127,6 +129,11 @@ pub struct ReviewPlan {
   pub index_note: Option<String>,
 }
 
+/// The commit `rev` names (`rev-parse --verify`), `UnknownRevision` when none
+fn resolved(git: &GitCommandExecutor, repository_path: &str, rev: &str) -> Result<String> {
+  resolve_commit(git, repository_path, rev)?.ok_or_else(|| UnknownRevision(rev.to_string()).into())
+}
+
 /// What the plan of a window tells it, in order (`get_review_plan` of the app)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -155,7 +162,7 @@ pub struct UnknownRevision(pub String);
 
 /// `since_reviewed` was asked of a range, which has no reviewed pair
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("Only a branch has a review to compare with, not the range {0}")]
+#[error("Only a branch has a review to compare with, not {0}")]
 pub struct SinceReviewedOfRange(pub String);
 
 /// The plan of the subject of `params`. For a branch: one `for-each-ref` of the reviewed refs with the branches, its base
@@ -183,7 +190,8 @@ pub struct ResolvedSubject {
 }
 
 /// The subject of `params` resolved (`review_plan_core`): for a branch one `for-each-ref` of the reviewed refs with
-/// the branches, its base, then its interdiff when it was marked; for a range one `rev-parse --verify` per rev
+/// the branches, its base, then its interdiff when it was marked; for a range one `rev-parse --verify` per rev, for a
+/// commit one for it and one for its first parent
 pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &ReviewPlanParams) -> Result<ResolvedSubject> {
   let repository_path = params.repository_path.as_str();
   match &params.subject {
@@ -202,11 +210,22 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
       if params.since_reviewed {
         return Err(SinceReviewedOfRange(format!("{base}..{head}")).into());
       }
-      let resolved = |rev: &str| -> Result<String> { resolve_commit(git, repository_path, rev)?.ok_or_else(|| UnknownRevision(rev.to_string()).into()) };
       Ok(ResolvedSubject {
         branch: None,
-        base: resolved(base)?,
-        head: resolved(head)?,
+        base: resolved(git, repository_path, base)?,
+        head: resolved(git, repository_path, head)?,
+        interdiff: None,
+      })
+    }
+    ReviewSubject::Commit { id } => {
+      if params.since_reviewed {
+        return Err(SinceReviewedOfRange(id.clone()).into());
+      }
+      // a root commit has no parent to read it against: `UnknownRevision` of `<id>^`
+      Ok(ResolvedSubject {
+        branch: None,
+        base: resolved(git, repository_path, &format!("{id}^"))?,
+        head: resolved(git, repository_path, id)?,
         interdiff: None,
       })
     }

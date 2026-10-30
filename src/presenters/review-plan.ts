@@ -74,7 +74,7 @@ export function formatRewrittenChanges(changes: CommitChanges): string {
 
 const KIND_WORDS: Readonly<Record<ApiChangeKind, string>> = { removed: "Removed", changed: "Changed", added: "Added" }
 
-const FORM_WORDS: Readonly<Record<FormChange, string>> = {
+export const FORM_WORDS: Readonly<Record<FormChange, string>> = {
   header: "header",
   parameters: "parameters",
   reach: "visibility",
@@ -307,9 +307,13 @@ export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "dependencies" 
 }
 
 /** What the tree of a review shows of its plan: the facts of each file, the links between the files, the dependency changes */
-export type ReviewFacts = Pick<ReviewPlan, "files" | "links" | "dependencies" | "repeatedEdits">
+/** What the tree reads of the plan: the facts of the files, their links, the dependency changes, the repeated edits */
+export type FileFactsOfPlan = Pick<ReviewPlan, "files" | "links" | "dependencies" | "repeatedEdits">
 
-const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
+/** What the review window reads of the plan: the facts of the files and the units of the story */
+export type ReviewFacts = FileFactsOfPlan & Pick<ReviewPlan, "units" | "api">
+
+export const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
   buildModel: "Build files",
   importsOnly: "Imports only",
   whitespace: "Whitespace only",
@@ -318,37 +322,12 @@ const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
 }
 
 /** Why the diffs fold a mechanical file, in its header */
-const FOLDED_WORDS: Readonly<Record<MechanicalKind, string>> = {
+export const FOLDED_WORDS: Readonly<Record<MechanicalKind, string>> = {
   buildModel: "Build file",
   importsOnly: "Imports only",
   whitespace: "Whitespace only",
   renamed: "Renamed only",
   deleted: "Deleted",
-}
-
-/**
- * The files the diffs fold, by path, with why their header says: a mechanical file by its kind ("Imports only"); a file
- * whose whole change is a repeated edit ("Same edit as Reader.kt"), except the first file of its group in `order` (the
- * paths as the diffs show them), which shows the edit once
- */
-export function presentFoldedFiles(facts: ReviewFacts, order: readonly string[]): ReadonlyMap<string, string> {
-  const folded = new Map<string, string>()
-  const place = new Map(order.map((path, index) => [path, index]))
-  for (const file of facts.files) {
-    if (file.mechanical !== null) {
-      folded.set(file.path, FOLDED_WORDS[file.mechanical])
-    }
-  }
-  facts.repeatedEdits.forEach((group, index) => {
-    const members = facts.files.filter(file => file.repeatedEdit === index).sort((a, b) => (place.get(a.path) ?? Infinity) - (place.get(b.path) ?? Infinity))
-    const first = members[0]
-    for (const file of members.slice(1)) {
-      if (file.repeatedEditOnly && !folded.has(file.path)) {
-        folded.set(file.path, `Same edit as ${fileName(first!.path)}`)
-      }
-    }
-  })
-  return folded
 }
 
 /** "Mechanical (5)", the group at the end of the tree; "Imports only (2)", a group of one kind in it */
@@ -448,7 +427,7 @@ function breaksBadge(file: FileFacts): FileBadges["breaks"] {
 }
 
 /** The badges of each file row, by its path; a file with none is not listed */
-export function presentFileBadges(facts: ReviewFacts): ReadonlyMap<string, FileBadges> {
+export function presentFileBadges(facts: FileFactsOfPlan): ReadonlyMap<string, FileBadges> {
   const badges = new Map<string, FileBadges>()
   for (const file of facts.files) {
     const usesLinks = facts.links.filter(link => link.from === file.path).map(link => linkEntry(link, link.to))

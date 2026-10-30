@@ -2,11 +2,13 @@ import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
 import { WindowTitle } from "@/components/shared/WindowTitleBar"
+import { planFacts, useSubjectPlan } from "@/hooks/useReviewPlan"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { useWindowTitle } from "@/hooks/useWindowTitle"
 import { commitReviewTitle, commitReviewWindowKey } from "@/lib/commit-review-window"
@@ -44,6 +46,10 @@ function CommitReviewWindow({ data }: { data: CommitReviewWindowData }) {
 
   // the native title names the commit shown, the title bar the list and the commit
   const commit = data.commits.find(it => it.id === selected)
+  // the plan of the commit (spec/branch/review-units.spec.md): its card and the story of its diffs, unless the repository
+  // turns the plan off
+  const subject = { kind: "commit", id: selected } as const
+  const plan = useSubjectPlan(data.repositoryPath, subject)
   useWindowTitle(commit === undefined ? null : commitReviewTitle(commit))
 
   return (
@@ -78,10 +84,12 @@ function CommitReviewWindow({ data }: { data: CommitReviewWindowData }) {
             items={items}
             selected={selected}
             onSelect={setSelected}
-            subject={{ kind: "commit", id: selected }}
+            subject={subject}
             initialPath={lastPath}
             onPositionChange={showPosition}
             rangeNoun="commit"
+            commitTop={plan.plan === null ? undefined : <ReviewPlanCard state={plan} />}
+            reviewFacts={planFacts(plan)}
           />
         </div>
       </Card>

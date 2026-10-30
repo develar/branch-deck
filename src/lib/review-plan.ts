@@ -40,3 +40,12 @@ export async function readOutsidePlace(repositoryPath: string, revision: string,
   }
   return result.data
 }
+
+/**
+ * The file of a use left outside at `revision`, for its excerpt in the story (`get_outside_place`): `null` when the
+ * revision lacks the file or the line, or the read failed; no toast, the story shows the uses it read
+ */
+export async function readOutsideExcerpt(repositoryPath: string, revision: string, path: string, line: number, name: string): Promise<DeclarationTarget | null> {
+  const result = await commands.getOutsidePlace({ repositoryPath, revision, path, line, name })
+  return result.status === "ok" ? result.data : null
+}

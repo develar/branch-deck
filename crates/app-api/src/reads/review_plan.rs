@@ -8,9 +8,9 @@
 //! - **On the channel** of the command: `disabled` when the repository turns the review plan off
 //!   (`branchdeck.reviewExperimental`), else the plan without the usages while the index is asked (`pending`), then the
 //!   plan with them; the page replaces what it shows with each, and orders nothing itself.
-//! - **One plan per window** (`Windows::begin_plan`): a newer one of the window or its close supersedes the one in
-//!   flight, whose queries of the index are killed, and it answers `canceled`; a symbol search of the window goes on
-//!   beside it.
+//! - **One plan per window and slot** (`Windows::begin_plan`): a newer one of the window or its close supersedes the one
+//!   in flight, whose queries of the index are killed, and it answers `canceled`; the plan of a commit of the column
+//!   (`PlanSlot::Commit`) and the plan of its scope go on beside each other, and a symbol search beside both.
 //! - **The memory of the plans** (`ReviewPlans`): a plan whose every query answered is kept by what it is of, so the
 //!   window that opens it again, or another window of it, reads no git past the resolve of its subject and asks the
 //!   index nothing
@@ -21,7 +21,8 @@ use crate::transport::{Call, Sink};
 use domain_types::error::ApiError;
 use file_diffs::accio::SearchCanceled;
 use moka::sync::Cache;
-use review_plan::{PlanSources, ResolvedSubject, ReviewPlan, ReviewPlanEvent, ReviewPlanParams, resolve_subject, review_plan_of};
+use crate::session::windows::PlanSlot;
+use review_plan::{PlanSources, ResolvedSubject, ReviewPlan, ReviewPlanEvent, ReviewPlanParams, ReviewSubject, resolve_subject, review_plan_of};
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
@@ -76,7 +77,8 @@ impl Default for ReviewPlans {
 /// repository (`PrefixInputs`), through its object cache, as the plan of the window of `call`
 #[instrument(skip_all, fields(repository_path = %params.repository_path, subject = ?params.subject, since_reviewed = params.since_reviewed))]
 pub async fn get_review_plan(ctx: &AppContext, call: &Call, params: ReviewPlanParams, events: Sink<ReviewPlanEvent>) -> Result<(), ApiError> {
-  let request = ctx.windows.begin_plan(&call.window);
+  let slot = if matches!(params.subject, ReviewSubject::Commit { .. }) { PlanSlot::Commit } else { PlanSlot::Scope };
+  let request = ctx.windows.begin_plan(&call.window, slot);
   let (inputs, repository_state, file_diffs, indexes, plans) = (
     ctx.prefix_inputs(),
     ctx.repository_state.clone(),

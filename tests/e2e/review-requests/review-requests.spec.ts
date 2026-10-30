@@ -1,4 +1,6 @@
 // @spec spec/repository/review-requests.spec.md
+import { appendFileSync } from "node:fs"
+import path from "node:path"
 import type { Page } from "@playwright/test"
 import type { ReviewWindowRequest } from "../../../src/lib/pull-request-review"
 import { test, expect } from "../fixtures/test-fixtures"
@@ -417,6 +419,18 @@ test.describe("Review window", () => {
     const review = reviewPage.getByTestId("review-window")
     await expect(review.getByTestId("commit-review")).toBeVisible()
     await expect(review.getByTestId("review-dialog-review")).toHaveAttribute("data-active")
+  })
+
+  test("should show the review plan of the pull request above its changes once the repository turns it on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    // the flag of the repository, which the global config of the test machine turns off (`TEST_IDENTITY` of the server)
+    appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
+    await getReviewRow(page, 101).focus()
+    await page.keyboard.press("d")
+    const review = (await openLinkedSubWindow(page, await openedReviewWindow(page))).getByTestId("review-window")
+    await expect(review.getByTestId("commit-review")).toBeVisible()
+    // the plan of what the window shows: its card, Rust's words
+    await expect(review.getByTestId("review-plan-card").getByTestId("review-plan-summary")).toHaveText(/possible break/)
   })
 
   test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {

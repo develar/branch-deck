@@ -255,3 +255,20 @@ fn a_member_of_a_new_type_is_part_of_the_type() {
   let plan = plan(&repo, &base, &head);
   assert_eq!(units(&plan), [(UnitKind::Added, Some("Span"), vec![("src/a/Open.kt", vec![0])])]);
 }
+
+/// A commit is read against its first parent, as the diffs of a commit show it: its plan is that of `<id>^..<id>`; a
+/// root commit has no parent to read it against
+#[test]
+fn a_commit_is_read_against_its_first_parent() {
+  let repo = TestRepo::new();
+  let root = repo.create_commit("Add open", "src/a/Open.kt", "package a\n\nfun open(x: Int): Int {\n  return x\n}\n");
+  let head = repo.create_commit("Change open", "src/a/Open.kt", "package a\n\nfun open(x: Int): Int {\n  return x + 1\n}\n");
+  let commit = |id: &str| crate::ReviewPlanParams {
+    subject: crate::ReviewSubject::Commit { id: id.to_string() },
+    ..range(&repo, &root, &head)
+  };
+  let of_commit = plan_of(&repo, None, &commit(&head)).unwrap();
+  assert_eq!(of_commit, plan(&repo, &root, &head));
+  let error = plan_of(&repo, None, &commit(&root)).unwrap_err();
+  assert!(error.downcast_ref::<crate::UnknownRevision>().is_some(), "{error:#}");
+}

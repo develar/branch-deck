@@ -22,7 +22,16 @@ pub struct Windows {
   subscriptions: Mutex<WindowSubscriptions>,
   fetches: WindowFetches,
   searches: WindowRequests,
+  /// The plans of a scope (a branch, a range) and of a commit of the column apart: one never supersedes the other
   plans: WindowRequests,
+  commit_plans: WindowRequests,
+}
+
+/// What a plan of a window is of: a scope (a branch, a range) or a commit, each one plan at a time
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanSlot {
+  Scope,
+  Commit,
 }
 
 /// The review fetches each window runs (`Intent::FetchReview`), by its label
@@ -91,16 +100,20 @@ impl Windows {
     self.searches.cancel(window);
   }
 
-  /// Starts a read of the review plan of `window`, which supersedes the one before; a symbol search of the window
-  /// goes on
-  pub fn begin_plan(&self, window: &WindowId) -> WindowRequest {
-    self.plans.begin(window)
+  /// Starts a read of the review plan of `window` for `slot`, which supersedes the one before of the slot; a symbol
+  /// search and a plan of the other slot go on
+  pub fn begin_plan(&self, window: &WindowId, slot: PlanSlot) -> WindowRequest {
+    match slot {
+      PlanSlot::Scope => self.plans.begin(window),
+      PlanSlot::Commit => self.commit_plans.begin(window),
+    }
   }
 
   /// `window` closed: its symbol search and its read of a review plan are superseded and forgotten
   pub fn forget_reads(&self, window: &WindowId) {
     self.searches.forget(window);
     self.plans.forget(window);
+    self.commit_plans.forget(window);
   }
 
   /// Every window with a page or a fetch

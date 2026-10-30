@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
-import { useReviewPlan } from "@/hooks/useReviewPlan"
+import { planFacts, useReviewPlan } from "@/hooks/useReviewPlan"
 import type { ReviewPlanState } from "@/hooks/useReviewPlan"
 import type { BranchReviewSegment, ReviewSubject } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -228,6 +228,12 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   } else if (selected !== ALL_CHANGES && selected !== SINCE_REVIEW) {
     subject = { kind: "commit", id: selected }
   }
+  // a commit of the column has its own plan, read beside the plan of the part (a slot of its own in Rust): its card and
+  // the story of its diffs
+  const commitId = subject?.kind === "commit" ? subject.id : null
+  const commitPlan = useReviewPlan(
+    experimental && commitId !== null ? { repositoryPath, subject: { kind: "commit", id: commitId }, sinceReviewed: false, head: commitId, generation: planGeneration } : null,
+  )
   const files = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
   const paths = useMemo(() => files?.map(file => file.path) ?? [], [files])
   const owners = useFileOwners(repositoryPath, baselineBranch, paths)
@@ -276,9 +282,16 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
       owners,
       target: target.name,
       position: formatReviewPosition({ file: position, ...rangePosition(items, selected) }),
-      plan: experimental ? (plan.plan === null || plan.plan.interdiff === interdiff ? plan : { ...plan, plan: { ...plan.plan, interdiff } }) : null,
+      // the card of a commit is its own plan; under Since Your Review the plan of the part, which says what is new
+      plan: !experimental
+        ? null
+        : commitId !== null && !sinceShown
+          ? commitPlan
+          : plan.plan === null || plan.plan.interdiff === interdiff
+            ? plan
+            : { ...plan, plan: { ...plan.plan, interdiff } },
       sinceShown,
-      reviewFacts: experimental && (selected === ALL_CHANGES || selected === SINCE_REVIEW) ? planFacts(plan) : null,
+      reviewFacts: !experimental ? null : commitId !== null ? planFacts(commitPlan) : selected === ALL_CHANGES || selected === SINCE_REVIEW ? planFacts(plan) : null,
       markReviewed:
         planPart?.markable === true
           ? () =>
@@ -324,11 +337,6 @@ function reviewPlanPart(
     return { subject: { kind: "range", base: first.base, head: last.head }, ownBranch: false, markable: false }
   }
   return { subject: { kind: "branch", name: last.name, base: first.base }, ownBranch: range.from === range.to, markable: true }
-}
-
-/** The facts of the plan for the tree, once read: a plan still read again may be of the other scope */
-function planFacts(state: ReviewPlanState): ReviewFacts | null {
-  return state.plan === null || state.loading ? null : state.plan
 }
 
 /** ⌥↑/⌥↓ step through the commits of the part (it has a column) */

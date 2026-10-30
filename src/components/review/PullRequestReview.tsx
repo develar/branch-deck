@@ -10,6 +10,7 @@ import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
 import { ReviewHeader, ReviewNavigation, ReviewToolbarActions } from "@/components/review/ReviewHeader"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { Callout } from "@/components/shared/Callout"
@@ -17,6 +18,7 @@ import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
 import { useOperationWords } from "@/hooks/useOperationWords"
+import { planFacts, useSubjectPlan } from "@/hooks/useReviewPlan"
 import type { ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -154,6 +156,10 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
           ? { kind: "range", base: request.reviewedCommit!, head: range.head }
           : { kind: "commit", id: selectedKey }
   const reviewing = tab === "changes" && subject !== null
+  // the plan of what the review shows (spec/branch/review-units.spec.md): its card and the story of its diffs, unless the
+  // repository turns the plan off; "Since Your Review" stays GitHub's
+  const plan = useSubjectPlan(repositoryPath, reviewing ? subject : null)
+  const planCard = plan.plan === null ? undefined : <ReviewPlanCard state={plan} />
   // back in the overview, the keys go to its body again
   useEffect(() => {
     if (!reviewing) {
@@ -382,6 +388,9 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
           initialPath={lastPath}
           onPositionChange={showPosition}
           rangeNoun="pull request"
+          scopeTop={planCard}
+          commitTop={planCard}
+          reviewFacts={planFacts(plan)}
         />
       ) : (
         overview
