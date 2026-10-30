@@ -85,20 +85,11 @@ const POLL: Duration = Duration::from_millis(100);
 /// or a stop
 const PACK_RECHECK: Duration = Duration::from_secs(1);
 
-/// A wait for the pack that is longer than this gets a progress line
-const PACK_WAIT_SAY: Duration = Duration::from_secs(1);
-
 /// How long the supervisor reads the pipes of a command group that has ended. A daemon can keep them open
 const DRAIN: Duration = Duration::from_secs(5);
 
 /// How long the supervisor waits for the command after SIGKILL
 const KILL_WAIT: Duration = Duration::from_secs(10);
-
-/// How long the group of a command that has exited can take to empty by itself
-const GROUP_SETTLE: Duration = Duration::from_millis(500);
-
-/// How long the other processes of the group have after SIGTERM, once the command has exited
-const GROUP_TERM_WAIT: Duration = Duration::from_secs(5);
 
 /// The exit code of a run that a cancel ended before its command started: 128 plus SIGINT
 const INTERRUPTED: i32 = 128 + libc::SIGINT;
@@ -573,7 +564,7 @@ pub(crate) struct PackLimits {
 /// the client sends none then. Else the wait ends when the pack wrote `packed` in the run directory, after the ref of
 /// the run: so the delete of the ref at the end of the run comes after it. The wait fails at the deadline of `limits`, or
 /// after its stall time without a chunk, which a client that is gone sends no more. Answers `false` when `stop` ended
-/// the wait. A wait longer than [`PACK_WAIT_SAY`] says so once
+/// the wait. A wait longer than [`tuning::pack_wait_say`] says so once
 pub(crate) fn wait_for_pack(
   run: &RunDir,
   repo: &Path,
@@ -591,6 +582,7 @@ pub(crate) fn wait_for_pack(
   let mut watch = crate::watch::Watch::new(&[run.path()]);
   let started = Instant::now();
   let started_at = SystemTime::now();
+  let say_after = tuning::pack_wait_say();
   let mut said = false;
   loop {
     if run.packed() {
@@ -617,7 +609,7 @@ pub(crate) fn wait_for_pack(
         format!("the pack of the run {} {failure}, and {} is missing in {}", spec.run, spec.commit, repo.display()),
       ));
     }
-    if !said && started.elapsed() > PACK_WAIT_SAY {
+    if !said && started.elapsed() > say_after {
       say(&format!("waiting for the pack of {}", spec.commit));
       said = true;
     }
@@ -713,17 +705,17 @@ fn wait_up_to(child: &mut Child, deadline: Duration) -> Option<ExitStatus> {
   None
 }
 
-/// Ends the processes that the command left in its group: SIGTERM, then SIGKILL after [`GROUP_TERM_WAIT`]. A group that
-/// empties within [`GROUP_SETTLE`] counts as empty: the system can need a moment to remove an ended process
+/// Ends the processes that the command left in its group: SIGTERM, then SIGKILL after [`tuning::group_term_wait`]. A
+/// group that empties within [`tuning::group_settle`] counts as empty: the system can need a moment to remove an ended process
 fn end_group(group: u32, log: &EventLog) {
   if settle(group) {
     return;
   }
   log.write(Stream::Stderr, &format!("{SAY}the command left processes in its group; SIGTERM"));
   sys::signal_group(group, libc::SIGTERM);
-  let started = Instant::now();
+  let (started, term_wait) = (Instant::now(), tuning::group_term_wait());
   while sys::group_alive(group) {
-    if started.elapsed() >= GROUP_TERM_WAIT {
+    if started.elapsed() >= term_wait {
       log.write(Stream::Stderr, &format!("{SAY}the processes of the group did not end after SIGTERM; SIGKILL"));
       sys::signal_group(group, libc::SIGKILL);
       settle(group);
@@ -733,11 +725,11 @@ fn end_group(group: u32, log: &EventLog) {
   }
 }
 
-/// Waits up to [`GROUP_SETTLE`] for the group to empty. Answers whether it is empty
+/// Waits up to [`tuning::group_settle`] for the group to empty. Answers whether it is empty
 fn settle(group: u32) -> bool {
-  let started = Instant::now();
+  let (started, settle) = (Instant::now(), tuning::group_settle());
   while sys::group_alive(group) {
-    if started.elapsed() >= GROUP_SETTLE {
+    if started.elapsed() >= settle {
       return false;
     }
     thread::sleep(Duration::from_millis(10));

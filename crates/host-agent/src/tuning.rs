@@ -31,6 +31,40 @@ pub(crate) fn pack_stall() -> Duration {
   from_env("BD_HOST_TEST_PACK_STALL_MS", Duration::from_secs(PACK_STALL_SECONDS))
 }
 
+/// The shortest time between two notes of the chunks of a pack, which keep the wait of its run alive:
+/// `BD_HOST_TEST_PACK_PROGRESS_MS`, else 1 s
+pub(crate) fn pack_progress_every() -> Duration {
+  from_env("BD_HOST_TEST_PACK_PROGRESS_MS", Duration::from_secs(1))
+}
+
+/// How long a run waits for its pack before it says so: `BD_HOST_TEST_PACK_SAY_MS`, else 1 s
+pub(crate) fn pack_wait_say() -> Duration {
+  from_env("BD_HOST_TEST_PACK_SAY_MS", Duration::from_secs(1))
+}
+
+/// How long the processes that a command left in its group have after SIGTERM, before SIGKILL:
+/// `BD_HOST_TEST_GROUP_TERM_MS`, else 5 s
+pub(crate) fn group_term_wait() -> Duration {
+  from_env("BD_HOST_TEST_GROUP_TERM_MS", Duration::from_secs(5))
+}
+
+/// How long a group whose command ended can take to empty and still count as empty: `BD_HOST_TEST_GROUP_SETTLE_MS`,
+/// else 500 ms
+pub(crate) fn group_settle() -> Duration {
+  from_env("BD_HOST_TEST_GROUP_SETTLE_MS", Duration::from_millis(500))
+}
+
+/// The pause of a wait for a change of the run files without a kqueue: `BD_HOST_TEST_WATCH_POLL_MS`, else 200 ms
+pub(crate) fn watch_poll() -> Duration {
+  from_env("BD_HOST_TEST_WATCH_POLL_MS", Duration::from_millis(200))
+}
+
+/// The longest wait of a follow for a change of the run files. A run that lost its supervisor changes no file, so this
+/// bounds the time until the follow ends it: `BD_HOST_TEST_FOLLOW_RECHECK_MS`, else 1 s
+pub(crate) fn follow_recheck() -> Duration {
+  from_env("BD_HOST_TEST_FOLLOW_RECHECK_MS", Duration::from_secs(1))
+}
+
 /// How long an upgraded `serve` waits for its other requests before it exits: `BD_HOST_TEST_UPGRADE_DRAIN_MS`, else
 /// [`UPGRADE_DRAIN_SECONDS`]
 pub(crate) fn upgrade_drain() -> Duration {

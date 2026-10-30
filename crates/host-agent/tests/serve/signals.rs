@@ -52,9 +52,20 @@ fn a_command_that_ignores_sigint_gets_sigkill_after_the_grace_time() {
 #[test]
 fn a_process_that_the_command_leaves_in_its_group_gets_sigterm_and_sigkill_before_the_exit() {
   let world = World::new(1, &[]);
-  let agent = world.serve();
+  // the process ignores SIGTERM, so it outlives both windows whatever their length
+  let agent = world.serve_with(&[("BD_HOST_TEST_GROUP_SETTLE_MS", "50"), ("BD_HOST_TEST_GROUP_TERM_MS", "100")]);
   let pid_file = world.home.path().join("left.pid");
-  agent.start(world.spec("3-1", &format!("(trap '' TERM; {LOOP}) & echo $! > '{}'; echo done", pid_file.display())));
+  // the command ends only once the process ignores SIGTERM, so a short settle never signals it before its trap
+  let trapped = world.home.path().join("trapped");
+  agent.start(world.spec(
+    "3-1",
+    &format!(
+      "(trap '' TERM; : > '{}'; {LOOP}) & echo $! > '{}'; {}; echo done",
+      trapped.display(),
+      pid_file.display(),
+      wait_for(&trapped)
+    ),
+  ));
   let followed = agent.follow("3-1");
   assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("3-1"));
   assert!(followed.has_line("bd-host: the command left processes in its group; SIGTERM"), "{followed:?}");

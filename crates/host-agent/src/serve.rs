@@ -53,9 +53,6 @@ pub(crate) const MAX_HANDSHAKES_PER_PEER: usize = 8;
 /// chunk every `HEARTBEAT_SECONDS` while it builds
 const PACK_READ_DEADLINE: Duration = Duration::from_secs(60);
 
-/// The shortest time between two progress notes of a pack
-const PACK_PROGRESS_EVERY: Duration = Duration::from_secs(1);
-
 /// The most commits of one `Request::Have`
 const MAX_HAVE: usize = 1024;
 
@@ -665,7 +662,7 @@ fn handshake(socket: TcpStream, tls: &ServerTls) -> Result<Channel, LinkError> {
   accepted
 }
 
-/// The progress notes of the pack of a run, at most one per [`PACK_PROGRESS_EVERY`]
+/// The progress notes of the pack of a run, at most one per [`tuning::pack_progress_every`]
 struct PackProgress {
   run: Option<RunDir>,
   noted: Mutex<Option<Instant>>,
@@ -681,7 +678,7 @@ impl PackProgress {
       return;
     };
     let mut noted = self.noted.lock().unwrap_or_else(PoisonError::into_inner);
-    if noted.is_some_and(|at| at.elapsed() < PACK_PROGRESS_EVERY) {
+    if noted.is_some_and(|at| at.elapsed() < tuning::pack_progress_every()) {
       return;
     }
     *noted = Some(Instant::now());

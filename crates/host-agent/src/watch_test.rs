@@ -76,5 +76,5 @@ fn a_watch_of_a_missing_file_polls() {
   let started = Instant::now();
   watch.wait(Duration::from_secs(5));
   let waited = started.elapsed();
-  assert!(waited >= POLL && waited < Duration::from_secs(2), "{waited:?}");
+  assert!(waited >= tuning::watch_poll() && waited < Duration::from_secs(2), "{waited:?}");
 }

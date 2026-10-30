@@ -29,10 +29,6 @@ use sync_utils::child_process::windowless_command;
 use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
 
-/// The longest wait of a follow for a change of the run files. A run that lost its supervisor changes no file, so this
-/// bounds the time until the follow ends it
-const FOLLOW_RECHECK: Duration = Duration::from_secs(1);
-
 /// How often a held follow looks at its hold file, see [`tuning::follow_hold`]
 const HOLD_POLL: Duration = Duration::from_millis(10);
 
@@ -263,7 +259,7 @@ fn follow_to_end(run: &RunDir, offset: u64, channel: &FollowChannel<'_>, watch: 
     if run.end_if_lost() {
       continue;
     }
-    watch.wait(FOLLOW_RECHECK);
+    watch.wait(tuning::follow_recheck());
   }
 }
 

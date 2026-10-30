@@ -1,17 +1,15 @@
 //! The wait of a follow for a change in its run: a write to `events.log`, or a new file in the run directory, such as
 //! `exit.json`. On macOS a kqueue watches both, with `EVFILT_VNODE` (`sys::kqueue`). Elsewhere, and after any kqueue
-//! error, the wait is a poll of [`POLL`].
+//! error, the wait is a poll of [`tuning::watch_poll`].
 //!
 //! A follow makes its watch before its first read of the run files. A change after the watch exists ends the next wait,
 //! also when it came before that wait started
 
 use crate::sys::kqueue::Queue;
+use crate::tuning;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-
-/// The pause of a wait without a kqueue
-pub(crate) const POLL: Duration = Duration::from_millis(200);
 
 /// The watch of one run
 #[derive(Debug)]
@@ -32,7 +30,7 @@ impl Watch {
     self.queue.is_some()
   }
 
-  /// Waits for a change, up to `timeout`. A poll waits up to [`POLL`]. A kqueue error turns this watch into a poll
+  /// Waits for a change, up to `timeout`. A poll waits up to [`tuning::watch_poll`]. A kqueue error turns this watch into a poll
   pub(crate) fn wait(&mut self, timeout: Duration) {
     if let Some(queue) = &self.queue {
       if queue.wait(timeout).is_ok() {
@@ -40,7 +38,7 @@ impl Watch {
       }
       self.queue = None;
     }
-    thread::sleep(timeout.min(POLL));
+    thread::sleep(timeout.min(tuning::watch_poll()));
   }
 }
 

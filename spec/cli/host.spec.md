@@ -386,6 +386,11 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   then log on stderr. It answers the requests of the protocol, starts one supervisor per `Start`, and runs the keeper
   thread.
   [@test] ../../crates/host-agent/tests/serve.rs (`serve_answers_a_run_on_the_loopback_with_a_real_pool`)
+- A follow must send a new event of its run as the supervisor writes it: on macOS a change of the run directory wakes
+  it (a kqueue), elsewhere it looks every 200 ms. A run that lost its supervisor changes no file, so the follow looks at
+  it at least every 1 s and ends it.
+  [@test] ../../crates/host-agent/tests/serve/link.rs (`a_new_event_is_pushed_to_the_follow_on_macos_and_polled_elsewhere`)
+  [@test] ../../crates/host-agent/tests/serve/signals.rs (`a_killed_supervisor_ends_the_run_for_cancel_and_follow`)
 - The supervisor must lend a slot through `lease_pool::host_slots::lend_waiting` with its own pid and the affinity of
   the spec, up to 1 h (`slot_timeout`). It writes the queue line to the log once a minute
   (`lease_pool::host_runs::queue_line`). A lend that git refuses below its floor ends the run with `old_git` and the

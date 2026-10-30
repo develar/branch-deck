@@ -91,22 +91,24 @@ impl World {
   }
 }
 
-/// A `Have` is a git user of the host, so it waits while another process upgrades git, and its heartbeats go on
+/// A `Have` is a git user of the host, so it waits while another process upgrades git, and its heartbeats go on. The
+/// upgrade ends at the third heartbeat, so the `Have` waited for it however late it came
 #[test]
 fn a_have_sends_heartbeats_while_it_waits_for_an_upgrade_of_git() {
   let world = World::new(1, &[]);
   let agent = world.serve_with(&[("BD_HOST_TEST_HEARTBEAT_MS", "100")]);
   record_live_upgrade(&world.repo);
-  let (heartbeats, last) = thread::scope(|scope| {
-    scope.spawn(|| {
-      thread::sleep(Duration::from_millis(600));
-      remove_upgrade(&world.repo);
-    });
-    agent.reply_after_heartbeats(&Request::Have {
+  let (heartbeats, last) = agent.reply_beating(
+    &Request::Have {
       repo: world.repo.path_str().to_owned(),
       commits: vec![world.repo.head()],
-    })
-  });
+    },
+    &mut |heartbeats| {
+      if heartbeats == 3 {
+        remove_upgrade(&world.repo);
+      }
+    },
+  );
   assert_eq!(last, Reply::Have { commits: vec![world.repo.head()] });
   assert!(heartbeats >= 3, "{heartbeats} heartbeats");
 }

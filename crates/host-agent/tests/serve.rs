@@ -213,16 +213,19 @@ impl Agent<'_> {
 
   /// The last reply of `request`; the heartbeats before it are skipped
   fn reply(&self, request: &Request) -> Reply {
-    self.reply_after_heartbeats(request).1
+    self.reply_beating(request, &mut |_| {}).1
   }
 
-  /// The last reply of `request`, and the count of the heartbeats before it
-  fn reply_after_heartbeats(&self, request: &Request) -> (u32, Reply) {
+  /// The last reply of `request`, and the count of the heartbeats before it. `beat` gets the count at each heartbeat
+  fn reply_beating(&self, request: &Request, beat: &mut dyn FnMut(u32)) -> (u32, Reply) {
     let mut channel = self.ask(request);
     let mut heartbeats = 0;
     loop {
       match channel.recv().expect("the reply") {
-        Reply::Heartbeat { .. } => heartbeats += 1,
+        Reply::Heartbeat { .. } => {
+          heartbeats += 1;
+          beat(heartbeats);
+        }
         reply => return (heartbeats, reply),
       }
     }

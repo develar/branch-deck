@@ -47,10 +47,17 @@ fn a_start_whose_pack_never_comes_ends_with_pack_missing() {
 /// start whose pack connection never comes ends with `pack_missing` at the stall time, long before the deadline
 #[test]
 fn the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_the_stall() {
-  // the agent notes a chunk at most once a second, so the stall time is a few times that
-  let stall = Duration::from_secs(3);
+  // the run says that it waits only after twice the stall time, so its line is the agent's word that the chunks kept
+  // the wait alive past the stall. The heartbeats of the ingest note the progress after the last chunk, so they come far
+  // more often than the stall, as in the product (15 s against 120 s)
+  let stall = Duration::from_millis(1000);
   let world = World::new(1, &[]);
-  let agent = world.serve_with(&[("BD_HOST_TEST_PACK_STALL_MS", "3000")]);
+  let agent = world.serve_with(&[
+    ("BD_HOST_TEST_PACK_STALL_MS", "1000"),
+    ("BD_HOST_TEST_PACK_SAY_MS", "2000"),
+    ("BD_HOST_TEST_PACK_PROGRESS_MS", "20"),
+    ("BD_HOST_TEST_HEARTBEAT_MS", "20"),
+  ]);
   let (_client, commit, pack) = client_commit(&world, "b.txt", "from the client\n");
   agent.start(RunSpec {
     commit: commit.clone(),
@@ -61,20 +68,12 @@ fn the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_th
     commit,
     target: PackTarget::Run("2-1".to_owned()),
   });
-  // an empty chunk every 100 ms until the run waited past the stall time: it says that it waits after a second of its
-  // wait, and the chunks go on for the stall time after that, whenever a loaded agent started the wait
-  let mut keepalive = || {
-    channel.send_keepalive().expect("an empty chunk");
-    thread::sleep(Duration::from_millis(100));
-  };
+  // an empty chunk every 10 ms, as a client sends one while git builds the pack, until the run says that it waits
   let building = Instant::now();
   while !events(&world, "2-1").contains("waiting for the pack") {
     assert!(building.elapsed() < Duration::from_mins(1), "the run never waited: {}", agent.dump("2-1"));
-    keepalive();
-  }
-  let said = Instant::now();
-  while said.elapsed() < stall {
-    keepalive();
+    channel.send_keepalive().expect("an empty chunk");
+    thread::sleep(Duration::from_millis(10));
   }
   channel.send_stream(&mut &pack[..], &mut |_| {}).expect("the pack");
   let packed = loop {
@@ -88,7 +87,7 @@ fn the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_th
   assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("2-1"));
   assert_eq!(followed.of(Stream::Stdout), ["from the client"]);
   let waited = followed.phases.iter().find(|phase| phase.name == "pack_wait").map_or(0, |phase| phase.ms);
-  assert!(u128::from(waited) >= stall.as_millis(), "the wait outlived the stall time: {followed:?}");
+  assert!(u128::from(waited) >= 2 * stall.as_millis(), "the wait outlived the stall time: {followed:?}");
 
   // the deadline is 30 min: the stall, not the deadline, ended it
   agent.start(RunSpec {
@@ -97,7 +96,7 @@ fn the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_th
   });
   let stalled = agent.follow("2-2");
   assert!(
-    matches!(&stalled.end, Reply::Refused { code, message } if code == "pack_missing" && message.contains("sent no chunk for 3 s, so its client is gone")),
+    matches!(&stalled.end, Reply::Refused { code, message } if code == "pack_missing" && message.contains("sent no chunk for 1 s, so its client is gone")),
     "{stalled:?}"
   );
 }
