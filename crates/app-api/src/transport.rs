@@ -24,6 +24,7 @@ use remote_facts::sign_in::SignIns;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use youtrack::service::YouTrackService;
@@ -157,6 +158,10 @@ pub trait AppHost: Send + Sync {
   /// The sign-in of the app's YouTrack as it is now; none where there is none to ask (a test repository whose fake
   /// services never started)
   fn youtrack_status(&self) -> Option<YouTrackAuthStatus>;
+
+  /// The directory of the instance files of the IDEs with Air (Start in Air): the user's
+  /// (`air_launch::discovery::instance_dir`); none where no IDE may answer (a test repository)
+  fn air_instances(&self) -> Option<PathBuf>;
 }
 
 /// What the app does on the desktop, beside its windows' pages: each a host of its own, the app's with Tauri, the e2e

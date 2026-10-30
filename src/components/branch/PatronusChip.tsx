@@ -301,9 +301,10 @@ export function RobotActionRows({ actions, leading = null }: { actions: readonly
   const cancel = of("cancel-robot")
   const prompt = of("copy-robot-prompt")
   const fullPrompt = of("copy-robot-full-prompt")
+  const startInAir = of("start-robot-in-air")
   const pullRequest = of("open-robot-pull-request")
   const decides = leading !== null || restart !== undefined || cancel !== undefined
-  const more = prompt !== undefined || pullRequest !== undefined
+  const more = prompt !== undefined || startInAir !== undefined || pullRequest !== undefined
   if (!decides && !more) {
     return null
   }
@@ -319,6 +320,7 @@ export function RobotActionRows({ actions, leading = null }: { actions: readonly
       {more && (
         <div className="flex flex-wrap gap-2">
           {prompt !== undefined && (fullPrompt === undefined ? <RobotActionButton action={prompt} /> : <PromptSplitButton prompt={prompt} fullPrompt={fullPrompt} />)}
+          {startInAir !== undefined && <RobotActionButton action={startInAir} />}
           {pullRequest !== undefined && <RobotActionButton action={pullRequest} />}
         </div>
       )}

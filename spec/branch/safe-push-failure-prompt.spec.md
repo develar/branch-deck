@@ -48,7 +48,7 @@ with the user.
 
 ## Non-goals
 
-- Running the agent from the app.
+- Running the agent from the app: [Start in Air](start-in-air.spec.md) hands the prompt to the IDE, which runs it.
 - A TeamCity client or token of the app's own: the full version asks Patronus with the Space token, and uses the user's
   `teamcity` CLI only when it is installed and logged in to the server of the build. Settings → Tools starts the CLI's
   own browser sign-in; the app never reads its token ([Command-Line Tools](../repository/cli-tools.spec.md#sign-in)).

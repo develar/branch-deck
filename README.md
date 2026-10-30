@@ -134,6 +134,7 @@ publisher: choose More info → Run anyway.
   it failed, against everyone else ([statistics](spec/repository/main-views.spec.md)).
   A branch you keep only locally, waiting for a proper fix, can be parked with a note: no push sends it and it is not
   your move ([parked branches](spec/branch/parked-branches.spec.md)).
+  A failed Safe Push starts its fix as an agent session in the IDE with Air ([Start in Air](spec/branch/start-in-air.spec.md)).
 - **Staying up to date**: Update Project (⌘T / Ctrl+T) fetches the baseline and rebases your commits, and says
   beforehand whether that is clean. On a conflict nothing changes, and a coding agent can resolve it commit by commit
   outside the working tree. Branches that were merged, rebased or squashed upstream are detected and archived, and

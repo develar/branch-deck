@@ -339,6 +339,16 @@ export const commands = {
 	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
 	 */
 	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, ApiError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
+	/**
+	 *  The agents of the IDE with Air that has `params.project` open, with their models and efforts (Start in Air); no IDE
+	 *  and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
+	 */
+	airLaunchTargets: (params: AirTargetsParams) => typedError<AirTargetsAnswer, ApiError>(__TAURI_INVOKE("air_launch_targets", { params })),
+	/**
+	 *  Starts an agent session in the IDE with Air that has `params.project` open, or opens a draft of it (Start in Air);
+	 *  no IDE and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
+	 */
+	airLaunch: (params: AirLaunchRequest) => typedError<AirLaunchAnswer, ApiError>(__TAURI_INVOKE("air_launch", { params })),
 	/**  The skill files of `bd install` that exist, without writing anything */
 	agentCliStatus: () => __TAURI_INVOKE<AgentCliStatus>("agent_cli_status"),
 	/**
@@ -445,7 +455,9 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  *  The open pull request of its stack branch closed with a comment (`Intent::ClosePullRequest`): offered only while it
  *  no longer matches the stack (a landing took the root, or the stack no longer forks)
  */
-"close-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
+"close-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | 
+/**  Opens the dialog that starts an agent session in Air with the prompt (spec/branch/start-in-air.spec.md) */
+"start-robot-in-air" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
 /**  Approve and Safe Push, or the Safe Push alone after an approval of the head */
 "safe-push-pull-request" | "request-changes" | 
 /**  The branch of the table an own pull request is of */
@@ -550,6 +562,82 @@ export type AgentRules = {
 	lease: boolean,
 	/**  `branchdeck.agentSubjectBranch`: `(branch)` at the start of each subject */
 	subject_branch: boolean,
+};
+
+/**  The IDE that answered */
+export type AirIde = {
+	/**  The product code (`IU`) */
+	product: string,
+	/**  The build (`IU-263.1234`) */
+	build: string,
+	/**  The base directory of its project that holds the directory */
+	project: string,
+};
+
+/**  How a launch went */
+export type AirLaunchAnswer = { status: "noIde" } | 
+/**  The session started; `session_id` is the id of its provider, none for a draft */
+{ status: "accepted"; ide: AirIde; sessionId: string | null } | { status: "refused"; ide: AirIde; code: string; message: string | null };
+
+/**  The fields of a `launch` request */
+export type AirLaunchRequest = {
+	/**  The absolute path of the directory: the base of an open project, or a directory in it */
+	project: string,
+	launchTargetId: string,
+	interactionSurfaceId: string,
+	/**  An id or a name of a model of the target; none for a target without models */
+	model?: string | null,
+	/**  One effort id; none keeps the default of the agent */
+	effort?: string | null,
+	/**  Required for `run`, optional for `draft` */
+	prompt?: string | null,
+	/**  The title the session list shows */
+	title?: string | null,
+	start: AirStartKind,
+};
+
+/**  A model of a target */
+export type AirModel = {
+	id: string,
+	name: string,
+	/**  What tells two models of the same name apart, if anything */
+	qualifier?: string | null,
+	/**  The model the agent takes when a launch names none */
+	isDefault?: boolean,
+	/**  The lowercase effort ids the model takes; `auto` is not one: a launch without an effort keeps the agent's default */
+	reasoningEfforts?: string[],
+};
+
+/**  What a launch does in the IDE */
+export type AirStartKind = 
+/**  Starts the session and sends the prompt */
+"run" | 
+/**  Opens a New Session tab with the agent, the model, the effort and the prompt, and sends nothing */
+"draft";
+
+/**  An agent that Air can start, with the models it reports */
+export type AirTarget = {
+	/**  The agent (`codex`); two targets can have the same agent on another surface */
+	agentId: string,
+	launchTargetId: string,
+	interactionSurfaceId: string,
+	/**  The name to show ("Codex") */
+	name: string,
+	/**  Empty when the agent reports no list: then a launch names no model, and any effort passes to the agent */
+	models?: AirModel[],
+};
+
+/**  The agents of the IDE of a directory */
+export type AirTargetsAnswer = 
+/**  No running IDE with Air has the directory or a parent of it open */
+{ status: "noIde" } | { status: "listed"; ide: AirIde; targets: AirTarget[] } | 
+/**  The code of the protocol (`DENIED`), and its English text for a log */
+{ status: "refused"; ide: AirIde; code: string; message: string | null };
+
+/**  What `air_launch_targets` asks */
+export type AirTargetsParams = {
+	/**  The absolute path of the directory the session works in */
+	project: string,
 };
 
 /**  Result type for amend command that can be properly serialized by Tauri */

@@ -8,6 +8,7 @@ import { formatRobotSubject } from "@/lib/patronus"
 import { buildRobotPrompt } from "@/lib/robot-prompt"
 import { openSettings } from "@/lib/settings-window"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
+import { openAirLaunchDialog } from "@/stores/air-launch-dialog"
 import { branchSyncStore, structureIn } from "@/stores/branch-sync"
 import { patronusRequest } from "@/stores/patronus"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
@@ -83,6 +84,11 @@ export async function copyRobotPrompt(robot: PatronusRobot): Promise<boolean> {
     notifyCopyFailed(robot, error)
     return false
   }
+}
+
+/** "Start in Air…": the dialog that starts the fast prompt in the IDE with Air that has the repository open */
+export function startRobotInAir(robot: PatronusRobot): void {
+  openAirLaunchDialog(patronusRequest().repositoryPath, robot)
 }
 
 /** "3 failed tests · log of 2 builds", of what the full prompt holds */

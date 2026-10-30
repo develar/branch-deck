@@ -16,6 +16,7 @@ import {
   CirclePlayIcon,
   ClipboardCopyIcon,
   ClipboardListIcon,
+  BotIcon,
   CombineIcon,
   DownloadIcon,
   EraserIcon,
@@ -52,7 +53,7 @@ import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { formatPushMode, formatRobotRestartLabel, formatRobotSubject, openRobot } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
-import { copyRobotFullPrompt, copyRobotPrompt } from "@/lib/robot-prompt-copy"
+import { copyRobotFullPrompt, copyRobotPrompt, startRobotInAir } from "@/lib/robot-prompt-copy"
 import { cancelRobot, forgetStart, openUnknownStart, restartRobot } from "@/lib/robot-run"
 import { formatAskFirst } from "@/lib/stack"
 import { formatPendingFact, formatProblemsFailure, formatStepBlocker } from "@/presenters/next-step"
@@ -110,6 +111,7 @@ export const ACTION_LOOKS = {
   "cancel-robot": { label: "Cancel Safe Push", icon: ShieldOffIcon },
   "copy-robot-prompt": { label: "Copy Prompt for Agent", icon: ClipboardCopyIcon },
   "copy-robot-full-prompt": { label: "Copy Prompt with CI Details", icon: ClipboardListIcon },
+  "start-robot-in-air": { label: "Start in Air…", icon: BotIcon },
   "open-robot": { label: "Open in Patronus", icon: ExternalLinkIcon },
   "open-robot-pull-request": { label: "Open Pull Request", icon: GitPullRequestIcon },
   review: { label: "Review", icon: UserCheckIcon },
@@ -330,7 +332,7 @@ export function presentAction(actions: readonly ActionState[] | undefined, id: A
 
 /** An action of a robot (`getRobotActionItems`), named by its `id` */
 export interface RobotAction extends MenuItem {
-  id: "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request"
+  id: "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "start-robot-in-air" | "open-robot" | "open-robot-pull-request"
 }
 
 /** What each action of a robot runs and how the facts of the robot name it */
@@ -370,6 +372,8 @@ function robotActionItem(robot: PatronusRobot, id: RobotAction["id"]): ActionIte
       return { onSelect: () => void copyRobotPrompt(robot) }
     case "copy-robot-full-prompt":
       return { onSelect: () => void copyRobotFullPrompt(robot) }
+    case "start-robot-in-air":
+      return { onSelect: () => startRobotInAir(robot) }
     case "open-robot":
       return { onSelect: () => openRobot(robot) }
     case "open-robot-pull-request": {
@@ -391,8 +395,8 @@ export interface RobotItemsOf extends OperationWords {
  * The actions of a robot as Rust offers them (`robot:<id>` of `RepositoryView.actions`, `domain_policy::actions`), one
  * list for every surface that shows it (the branch menu, the robot details, the robots indicator, a toast), in this
  * order: "Restart Safe Push" (it pushes first while the branch has work the remote lacks, also for a running robot,
- * which it cancels first; of a running robot a failed required check dooms, it cancels it and starts it again), "Cancel Safe Push" while it runs, "Copy Prompt for Agent" and "Copy Prompt with CI Details"
- * for a failed or failing robot, "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. Rust
+ * which it cancels first; of a running robot a failed required check dooms, it cancels it and starts it again), "Cancel Safe Push" while it runs, "Copy Prompt for Agent", "Copy Prompt with CI Details"
+ * and "Start in Air…" for a failed or failing robot, "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. Rust
  * disables a restart and the prompts while Patronus didn't tell why the robot failed, a restart while the approvals the
  * step of its branch misses (`stepReason`) or what refuses it stands in its way. A restart and a cancel run in the
  * session (`restartRobot`, `cancelRobot`): Rust lays them over the actions of the robot, so the item of the one that runs

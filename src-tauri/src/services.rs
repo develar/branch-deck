@@ -312,6 +312,10 @@ impl AppHost for AppServices {
   fn youtrack_status(&self) -> Option<YouTrackAuthStatus> {
     Some(self.app.state::<YouTrackState>().service.status())
   }
+
+  fn air_instances(&self) -> Option<PathBuf> {
+    air_launch::discovery::instance_dir()
+  }
 }
 
 /// The rewrites of the app read the diffs of its windows and answer a failure as its commands do

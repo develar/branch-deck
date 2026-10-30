@@ -39,6 +39,7 @@
     "cancel-robot",
     "copy-robot-prompt",
     "copy-robot-full-prompt",
+    "start-robot-in-air",
     "open-robot",
     "open-robot-pull-request",
     "review",

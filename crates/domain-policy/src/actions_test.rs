@@ -17,7 +17,7 @@ use ActionId::{
   AddIssueReference, AmendChanges, CancelAutoMerge, CancelRobot, CheckApprovals, CloseStackPullRequest, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest,
   CreateStackPullRequest, DryRun, DryRunWholeStack, ForgetStart, MergePullRequest, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest,
   OpenUnknownStart, Park, Push, PushAndRestartRobot, PushToBaseline, PushWithChildren, Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack,
-  SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, Unapply, Ungroup, Unpark, Unstack,
+  SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, StartRobotInAir, Unapply, Ungroup, Unpark, Unstack,
 };
 
 /// The actions as the table reads them: the id and why it can't run, `None` when it can
@@ -804,7 +804,13 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
   let again = restart(RestartAction::Restart, None);
   assert_eq!(
     table(&robot_actions(&robot_facts(&failed, Some(&again)))),
-    [(RestartRobot, None), (CopyRobotPrompt, None), (CopyRobotFullPrompt, None), (OpenRobot, None)]
+    [
+      (RestartRobot, None),
+      (CopyRobotPrompt, None),
+      (CopyRobotFullPrompt, None),
+      (StartRobotInAir, None),
+      (OpenRobot, None)
+    ]
   );
   let pending = Some(ActionBlocker::Pending { fact: StepFact::RobotProblems });
   assert_eq!(
@@ -816,7 +822,8 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
     [
       (RestartRobot, pending.clone()),
       (CopyRobotPrompt, pending.clone()),
-      (CopyRobotFullPrompt, pending),
+      (CopyRobotFullPrompt, pending.clone()),
+      (StartRobotInAir, pending),
       (OpenRobot, None)
     ]
   );
@@ -865,7 +872,15 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
       failing: true,
       ..robot_facts(&running, Some(&push_and_restart))
     })),
-    [PushAndRestartRobot, CancelRobot, CopyRobotPrompt, CopyRobotFullPrompt, OpenRobot, OpenRobotPullRequest]
+    [
+      PushAndRestartRobot,
+      CancelRobot,
+      CopyRobotPrompt,
+      CopyRobotFullPrompt,
+      StartRobotInAir,
+      OpenRobot,
+      OpenRobotPullRequest
+    ]
   );
   // a failed required check dooms it on the commit the remote has: its restart (which cancels it first) comes first
   let again_running = restart(RestartAction::Restart, None);
@@ -879,6 +894,7 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
       (CancelRobot, None),
       (CopyRobotPrompt, None),
       (CopyRobotFullPrompt, None),
+      (StartRobotInAir, None),
       (OpenRobot, None),
       (OpenRobotPullRequest, None)
     ]

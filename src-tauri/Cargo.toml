@@ -43,6 +43,8 @@ history-rewrite = { path = "../crates/history-rewrite", features = ["specta"] }
 domain-types = { path = "../crates/domain-types", features = ["specta"] }
 # `api_error`: a core's error as the `ApiError` of a command, the same as the e2e server answers
 app-api = { path = "../crates/app-api" }
+# the directory of the instance files of Start in Air (`AppHost::air_instances`)
+air-launch = { path = "../crates/air-launch" }
 sync-utils = { path = "../crates/sync-utils" }
 cli-tools = { path = "../crates/cli-tools" }
 # the system time zone of the statistics (`get_robot_stats`)

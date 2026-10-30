@@ -12,10 +12,12 @@
 //! And the app itself, beside its repositories: its windows (`windows`: the opens and the first frame of every window,
 //! spec/repository/title-bar.spec.md), what it does on the desktop (`desktop`: the folder dialog, the native menu, the
 //! restart, the updater), its agent CLI (`agent_cli`, spec/cli/agent-cli.spec.md) and the CLIs of Settings → Tools
-//! (`cli_tools`, spec/repository/cli-tools.spec.md).
+//! (`cli_tools`, spec/repository/cli-tools.spec.md); beside the app, Start in Air: the launch of an agent session in the
+//! IDE (`air_launch`, spec/branch/start-in-air.spec.md).
 
 pub mod activity;
 pub mod agent_cli;
+pub mod air_launch;
 pub mod cli_tools;
 pub mod desktop;
 pub mod mark_reviewed;

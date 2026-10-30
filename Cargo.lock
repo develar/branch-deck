@@ -24,6 +24,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "air-launch"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "specta",
+ "sync-utils",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+ "uds_windows",
+]
+
+[[package]]
 name = "alloc-no-stdlib"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -139,6 +154,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "app-api"
 version = "0.1.0"
 dependencies = [
+ "air-launch",
  "anyhow",
  "app-settings",
  "branch-integration",
@@ -829,6 +845,7 @@ dependencies = [
 name = "branch-deck"
 version = "0.1.0"
 dependencies = [
+ "air-launch",
  "anyhow",
  "app-api",
  "app-settings",
@@ -6925,6 +6942,7 @@ dependencies = [
 name = "test-server"
 version = "0.1.0"
 dependencies = [
+ "air-launch",
  "anyhow",
  "app-api",
  "app-settings",

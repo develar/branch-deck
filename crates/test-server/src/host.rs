@@ -37,6 +37,7 @@ use remote_facts::sign_in::SignIns;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use sync_core::branch_name_suggestion::clean_names;
@@ -156,6 +157,11 @@ impl AppHost for TestHost {
   /// The fake YouTrack a test started
   fn youtrack_status(&self) -> Option<YouTrackAuthStatus> {
     self.existing_remote().map(|remote| remote.youtrack_service().status())
+  }
+
+  /// No IDE: a test never reaches an IDE of the user
+  fn air_instances(&self) -> Option<PathBuf> {
+    None
   }
 }
 

@@ -45,6 +45,8 @@ domain-types = { path = "../domain-types" }
 domain-policy = { path = "../domain-policy" }
 # `api_error`: a core's error as the `ApiError` the app answers
 app-api = { path = "../app-api" }
+# the types of the commands of Start in Air, which the registry names by their path
+air-launch = { path = "../air-launch" }
 # the writer of the settings of a test repository (`TestRepository::store`), as the app's
 app-settings = { path = "../app-settings" }
 cli-tools = { path = "../cli-tools" }

@@ -71,6 +71,8 @@ pub enum ActionId {
   CancelRobot,
   CopyRobotPrompt,
   CopyRobotFullPrompt,
+  /// Opens the dialog that starts an agent session in Air with the prompt (spec/branch/start-in-air.spec.md)
+  StartRobotInAir,
   OpenRobot,
   OpenRobotPullRequest,
   // a pull request to review (Your Turn, Reviews and the review window)
@@ -92,7 +94,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 49] = [
+  pub const ALL: [Self; 50] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -132,6 +134,7 @@ impl ActionId {
     Self::CancelRobot,
     Self::CopyRobotPrompt,
     Self::CopyRobotFullPrompt,
+    Self::StartRobotInAir,
     Self::OpenRobot,
     Self::OpenRobotPullRequest,
     Self::Review,

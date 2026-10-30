@@ -383,6 +383,16 @@
     "transport": "json"
   },
   {
+    "name": "air_launch_targets",
+    "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "air_launch",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "agent_cli_status",
     "class": "read",
     "transport": "json"

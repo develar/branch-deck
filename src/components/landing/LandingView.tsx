@@ -3,7 +3,6 @@ import type { ReactNode, RefObject } from "react"
 import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { HourChart } from "@/components/landing/charts/HourChart"
 import { KindChart } from "@/components/landing/charts/KindChart"
@@ -13,6 +12,7 @@ import { Sparkline } from "@/components/landing/charts/Sparkline"
 import { TimeChart } from "@/components/landing/charts/TimeChart"
 import { WeekChart } from "@/components/landing/charts/WeekChart"
 import { Callout } from "@/components/shared/Callout"
+import { ItemSelect } from "@/components/shared/ItemSelect"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { useRobotStats } from "@/hooks/useRobotStats"
@@ -93,20 +93,7 @@ export function LandingView({ visible, headingRef }: { visible: boolean; heading
 /** The period of the numbers: every chart and figure below counts it */
 function PeriodSelect({ period, onChange }: { period: StatsPeriod; onChange: (period: StatsPeriod) => void }) {
   const items = STATS_PERIODS.map(value => ({ value, label: `Last ${formatStatsPeriod(value)}` }))
-  return (
-    <Select items={items} value={period} onValueChange={next => next !== null && onChange(next)}>
-      <SelectTrigger size="sm" aria-label="Period" data-testid="landing-period">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent alignItemWithTrigger={false} align="start">
-        {items.map(item => (
-          <SelectItem key={item.value} value={item.value}>
-            {item.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
+  return <ItemSelect items={items} value={period} onChange={onChange} testId="landing-period" ariaLabel="Period" align="start" />
 }
 
 function formatProgress(progress: RobotStatsProgress): string {

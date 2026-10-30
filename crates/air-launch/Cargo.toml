@@ -1,0 +1,35 @@
+[package]
+name = "air-launch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The client of the local launch socket of Air (protocol v1): the instance files of the IDEs, the IDE of a directory, the targets and the launch of a session"
+publish = false
+
+[dependencies]
+# the instance files, the requests and the responses (`discovery`, `protocol`)
+serde.workspace = true
+serde_json.workspace = true
+# the types the page gets through the commands of app-api
+specta = { workspace = true, optional = true }
+# the errors of the exchange (`client`)
+thiserror.workspace = true
+tracing.workspace = true
+# whether the process of an instance file still runs (`process_scan::is_running`)
+sync-utils = { path = "../sync-utils" }
+
+# AF_UNIX on Windows 10 1803 and later, which std does not have: the crate of zbus, already in the lock, with the API of
+# `std::os::unix::net`
+[target.'cfg(windows)'.dependencies]
+uds_windows = "1.2.1"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+
+[features]
+default = []
+specta = ["dep:specta"]
+
+[lints]
+workspace = true

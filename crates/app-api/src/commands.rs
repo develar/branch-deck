@@ -321,6 +321,14 @@ macro_rules! for_each_command {
       /// the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
       read json agent_cli_command(repository_path: String) -> $crate::app::agent_cli::AgentCliCommand = $crate::app::agent_cli::agent_cli_command;
 
+      /// The agents of the IDE with Air that has `params.project` open, with their models and efforts (Start in Air); no IDE
+      /// and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
+      read json air_launch_targets(params: $crate::app::air_launch::AirTargetsParams) -> $crate::app::air_launch::AirTargetsAnswer = $crate::app::air_launch::air_launch_targets;
+
+      /// Starts an agent session in the IDE with Air that has `params.project` open, or opens a draft of it (Start in Air);
+      /// no IDE and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
+      app(AgentLaunch) json air_launch(params: air_launch::protocol::LaunchRequest) -> $crate::app::air_launch::AirLaunchAnswer = $crate::app::air_launch::air_launch;
+
       /// The skill files of `bd install` that exist, without writing anything
       read now agent_cli_status() -> $crate::app::agent_cli::AgentCliStatus = $crate::app::agent_cli::agent_cli_status;
 

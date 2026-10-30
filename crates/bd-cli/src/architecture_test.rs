@@ -80,6 +80,11 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "the settings of the app are a file: no git, no network, no runtime, no Tauri, so bd reads them without the app",
   },
   Unreachable {
+    from: "air-launch",
+    forbidden: &["git-ops", "git-executor", "reqwest", "tokio", TAURI, "clap"],
+    why: "the client of the launch socket of Air is one blocking exchange over a local socket: no git, no network, no runtime",
+  },
+  Unreachable {
     from: "patronus",
     forbidden: &["git-ops", "git-executor"],
     why: "the Patronus client runs no git",

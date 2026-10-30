@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 domain-types = { path = "../domain-types", features = ["specta"] }
+# Start in Air: the client of the local launch socket of Air, its types in the bindings
+air-launch = { path = "../air-launch", features = ["specta"] }
 # the cores the bodies of the commands call, and their typed errors that reach a command of the app
 app-settings = { path = "../app-settings" }
 branch-integration = { path = "../branch-integration" }

@@ -207,6 +207,7 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::CancelRobot
       | ActionId::CopyRobotPrompt
       | ActionId::CopyRobotFullPrompt
+      | ActionId::StartRobotInAir
       | ActionId::OpenRobot
       | ActionId::OpenRobotPullRequest
       | ActionId::Review

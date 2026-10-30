@@ -580,7 +580,8 @@ pub fn robot_actions(facts: &RobotFacts<'_>) -> Vec<ActionState> {
   };
   if prompt {
     actions.push(state(ActionId::CopyRobotPrompt, problems.clone()));
-    actions.push(state(ActionId::CopyRobotFullPrompt, problems));
+    actions.push(state(ActionId::CopyRobotFullPrompt, problems.clone()));
+    actions.push(state(ActionId::StartRobotInAir, problems));
   }
   actions.push(state(ActionId::OpenRobot, None));
   if robot.pull_request.is_some() {
