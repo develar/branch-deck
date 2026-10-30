@@ -237,8 +237,9 @@ fn a_sync_with_the_prefix_of_the_config() {
 }
 
 /// `bd status` of the synced branches: HEAD, the grouping, whose one listing has the virtual tips too, the stack
-/// setting and the descriptions from the one `git config` of the command, and the push URL of `origin` (`remote
-/// get-url`), which tells whether Patronus is asked what merged Safe Pushes landed (`landed_by`); not on Space here
+/// setting and the descriptions from the one `git config` of the command, and the remotes of the command (`remote -v`),
+/// which the listing and the push URL of `origin` share: whether Patronus is asked what merged Safe Pushes landed
+/// (`landed_by`); not on Space here
 #[test]
 fn a_status() {
   let repo = repo_with_branches();
@@ -248,7 +249,7 @@ fn a_status() {
   assert_eq!(output.branch_count, 2);
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 2), ("rev-parse", 2)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 2)],
   );
 }
 
@@ -264,16 +265,17 @@ fn a_status_of_a_forking_stack() {
   assert_eq!(output.stacks.len(), 1);
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 2), ("rev-parse", 2)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 2)],
   );
 }
 
 /// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
-/// stack, the tips, the remote tips, the remotes and the descriptions from the sync's report; besides the push only the
-/// push URL of `origin` (`remote`, for the Space and the GitHub repository), the Space settings (`cat-file`, for the
-/// GitHub mirror `--repo` names: the remote is no GitHub URL) and the size check of the files the push adds (`log` and
-/// `cat-file`; the limit is the sync's `config`). A dry run moves nothing, so it reads no witness of its plan: the tips
-/// and the leases are the ones the plan was decided on
+/// stack, the tips, the remote tips, the remotes and the descriptions from the sync's report, the push URL of `origin`
+/// (for the Space and the GitHub repository) from the remotes of the command, which the sync took (`remote -v`, one
+/// `remote` for both); besides the push only the Space settings (`cat-file`, for the GitHub mirror `--repo` names: the
+/// remote is no GitHub URL) and the size check of the files the push adds (`log` and `cat-file`; the limit is the
+/// sync's `config`). A dry run moves nothing, so it reads no witness of its plan: the tips and the leases are the ones
+/// the plan was decided on
 #[test]
 fn a_push() {
   let (repo, _remote) = repo_with_remote(&["(auth) Add login", "(ui) Add form"]);
@@ -304,7 +306,7 @@ fn a_push() {
       ("merge-tree", 1),
       ("notes", 1),
       ("push", 1),
-      ("remote", 2),
+      ("remote", 1),
       ("rev-list", 2),
       ("rev-parse", 1),
       ("show-ref", 1),
@@ -346,7 +348,7 @@ fn a_push_over_a_moved_remote() {
       ("notes", 1),
       ("push", 2),
       ("reflog", 2),
-      ("remote", 2),
+      ("remote", 1),
       ("rev-list", 4),
       ("rev-parse", 1),
       ("show-ref", 1),
@@ -400,7 +402,7 @@ fn a_push_beside_a_robot_started_before_a_restack() {
       ("log", 5),
       ("merge-base", 1),
       ("push", 1),
-      ("remote", 2),
+      ("remote", 1),
       ("rev-list", 2),
       ("rev-parse", 1),
       ("symbolic-ref", 1),
@@ -1308,10 +1310,11 @@ fn a_pick_into_a_branch_the_target_has() {
   );
 }
 
-/// The processes of the target conflict check of `bd safe-push`: before the lock, the fetch of the target reads the
-/// baseline and its upstream once (`read_baseline`: `symbolic-ref`, `remote`, one `for-each-ref`), then fetches it
-/// (`fetch`); after the sync, one `replay` of the branch onto the target tip that the sync read
-const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("remote", 1), ("replay", 1), ("symbolic-ref", 1)];
+/// The processes of the target conflict check of `bd safe-push`: before the lock, the fetch of the target takes the
+/// baseline and its upstream of the command (`RepoContext::baseline`: one `for-each-ref` beside HEAD's branch and the
+/// remotes, which the sync takes too), then fetches it (`fetch`); after the sync, one `replay` of the branch onto the
+/// target tip that the sync read
+const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("replay", 1)];
 
 /// What `bd safe-push auth --check` runs besides the target conflict check (`a_safe_push_check`)
 const SAFE_PUSH_CHECK: &[(&str, u32)] = &[
@@ -1324,7 +1327,7 @@ const SAFE_PUSH_CHECK: &[(&str, u32)] = &[
   ("merge-base", 1),
   ("merge-tree", 1),
   ("notes", 1),
-  ("remote", 2),
+  ("remote", 1),
   ("rev-list", 2),
   ("rev-parse", 1),
   ("show-ref", 1),
@@ -1354,13 +1357,14 @@ fn assert_safe_push_processes(context: &RepoContext, expected: &[(&str, u32)]) {
 }
 
 /// `bd safe-push auth --check` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
-/// stack and the tips come from the sync's report, the Space and the GitHub repository from one push URL of `origin`
-/// (`remote`) and the Space settings (`cat-file`); the dangling references take the grouping from the report too and
-/// read the commits with their new mapping notes (`log`) and the branch tips (`for-each-ref`) for the trial; the
-/// landing gate reads the names the commits use and add for the missing declarations, in the same trial session: the
-/// changes of the commits (`log`) and the summaries of their source blobs (`cat-file`); the session takes the commit
-/// the sync built on and the baseline commit from the report (`SyncReport::base`, `baseline_commit`), not from git; the
-/// review (`log`, `diff-tree`) reads its own; and the target conflict check (`TARGET_CHECK`)
+/// stack and the tips come from the sync's report, the Space and the GitHub repository from the push URL of `origin` in
+/// the remotes of the command (`remote -v`, which the sync takes too) and the Space settings (`cat-file`); the dangling
+/// references take the grouping from the report too and read the commits with their new mapping notes (`log`) and the
+/// branch tips (`for-each-ref`) for the trial; the landing gate reads the names the commits use and add for the missing
+/// declarations, in the same trial session: the changes of the commits (`log`) and the summaries of their source blobs
+/// (`cat-file`); the session takes the commit the sync built on and the baseline commit from the report
+/// (`SyncReport::base`, `baseline_commit`), not from git; the review (`log`, `diff-tree`) reads its own; and the target
+/// conflict check (`TARGET_CHECK`)
 #[test]
 fn a_safe_push_check() {
   let space = Space::new(&["(auth) Add login", "(ui) Add form"]);
@@ -1427,8 +1431,9 @@ fn a_land_check_by_a_push() {
 
 /// `bd land auth --without-checks`: what `a_land_check_by_a_push` decides on, then the run of the engine: the witness
 /// before the lock and under it (`for-each-ref` each, the checked out branch `symbolic-ref`), the push of the copy into
-/// master by the push URL of `origin` (the upstream of the baseline and its URL: `for-each-ref`, `remote` twice; `push`,
-/// with the size check of what it adds: `log`, `cat-file`)
+/// master by the push URL of `origin` (the upstream of the baseline and its URL, read again after the lock, where the
+/// engine refuses a baseline that tracks another branch now: `for-each-ref`, `remote` twice; `push`, with the size
+/// check of what it adds: `log`, `cat-file`)
 #[test]
 fn a_land_by_a_push() {
   let (context, output) = land_by_push(|args| args.without_checks = true);
@@ -1437,9 +1442,10 @@ fn a_land_by_a_push() {
   assert_processes(&context, &with_more(LAND_CHECK, &run));
 }
 
-/// What `bd land auth --check` runs by a push (`a_land_check_by_a_push`): the sync (its listing of the remotes with
-/// their push URLs, `remote`), the push URL of `origin` for Space (`remote`), and the trial of the landing gate in the
-/// session of the sync's report (`log`, `cat-file`); no fetch, no check against the newest target: a push is its own
+/// What `bd land auth --check` runs by a push (`a_land_check_by_a_push`): the sync, with the remotes of the command and
+/// their push URLs (`remote -v`), from which the push URL of `origin` for Space comes too, and the trial of the landing
+/// gate in the session of the sync's report (`log`, `cat-file`); no fetch, no check against the newest target: a push
+/// is its own
 const LAND_CHECK: &[(&str, u32)] = &[
   ("cat-file", 3),
   ("config", 1),
@@ -1448,7 +1454,7 @@ const LAND_CHECK: &[(&str, u32)] = &[
   ("log", 6),
   ("merge-base", 1),
   ("notes", 1),
-  ("remote", 2),
+  ("remote", 1),
   ("rev-list", 1),
   ("rev-parse", 1),
   ("show-ref", 1),
@@ -1513,7 +1519,7 @@ fn a_safe_push_check_of_the_whole_stack() {
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),
-      ("remote", 2),
+      ("remote", 1),
       ("rev-list", 4),
       ("rev-parse", 1),
       ("show-ref", 2),
@@ -1556,7 +1562,7 @@ fn a_safe_push_of_the_whole_stack_over_a_moved_remote() {
       ("merge-base", 1),
       ("push", 2),
       ("reflog", 1),
-      ("remote", 2),
+      ("remote", 1),
       ("rev-list", 2),
       ("rev-parse", 1),
       ("symbolic-ref", 1),
@@ -1576,8 +1582,8 @@ fn space_context(environment: &bd_core::context::Environment) -> RepoContext {
 }
 
 /// `bd robot auth` of a synced branch without a robot: the grouping (HEAD, then the baseline and the branches under the
-/// prefix with their local and pushed tips in one listing, `log`, the stores) and the Space repository (`remote`,
-/// `cat-file`)
+/// prefix with their local and pushed tips in one listing, `log`, the stores) and the Space repository (`cat-file`);
+/// the listing and the push URL of `origin` share the remotes of the command (`remote -v`)
 #[test]
 fn a_robot() {
   let space = Space::new(&["(auth) Add login"]);
@@ -1596,19 +1602,20 @@ fn a_robot() {
   assert!(output.robot.is_none(), "{output:?}");
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 2), ("rev-parse", 2)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 2)],
   );
 }
 
-/// `bd robot-stats`: the Space repository (`remote`), the baseline (`remote`, the `@{u}` probe, one `for-each-ref`) and
-/// the branch of origin it tracks (`remote`, `symbolic-ref`, `rev-parse`, `for-each-ref`); no grouping, no sync
+/// `bd robot-stats`: the Space repository from the remotes of the command (`remote -v`), the baseline and the branch of
+/// origin it tracks from HEAD's branch (`symbolic-ref`) and one listing with the same remotes (`for-each-ref`); no
+/// grouping, no sync
 #[test]
 fn a_robot_stats() {
   let space = Space::new(&["(auth) Add login"]);
   let environment = space.environment();
   let context = space_context(&environment);
   robot_stats(&context, &RobotStatsArgs::default(), &environment).unwrap();
-  assert_processes(&context, &[("for-each-ref", 2), ("remote", 3), ("rev-parse", 2), ("symbolic-ref", 1)]);
+  assert_processes(&context, &[("for-each-ref", 1), ("remote", 1), ("rev-parse", 1), ("symbolic-ref", 1)]);
 }
 
 /// `bd request-review auth --push --check`: the sync, which says the remote lacks auth, the plan of its push, and the
@@ -1634,7 +1641,7 @@ fn a_request_review_check() {
       ("for-each-ref", 1),
       ("log", 5),
       ("merge-base", 1),
-      ("remote", 2),
+      ("remote", 1),
       ("rev-parse", 1),
       ("symbolic-ref", 1),
     ],

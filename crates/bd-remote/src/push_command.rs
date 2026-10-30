@@ -1057,7 +1057,7 @@ pub(crate) fn github_repository_of(context: &RepoContext, config: &ConfigSnapsho
       &context.git,
       &context.repository,
       config.github_repository(),
-      context.origin_url()?,
+      context.origin_url()?.as_deref(),
     )?)
   })
 }
@@ -1069,7 +1069,7 @@ fn github_repository_option(context: &RepoContext, report: &SyncReport) -> Resul
   let Some(repository) = github_repository(context, report)? else {
     return Ok(String::new());
   };
-  if context.origin_url()?.and_then(parse_github_repository).as_ref() == Some(&repository) {
+  if context.origin_url()?.as_deref().and_then(parse_github_repository).as_ref() == Some(&repository) {
     return Ok(String::new());
   }
   Ok(format!(" --repo {}", shell_quote(&format!("{}/{}", repository.owner, repository.name))))

@@ -82,9 +82,9 @@ pub fn stack_issues(branch: &str, stack: &BranchStack, short: &ShortIds) -> Vec<
 /// Group the commits ahead of the baseline; a missing baseline is `no_baseline`, a `branch` that is not a group is
 /// `unknown_branch`
 pub fn read_grouping(context: &RepoContext, branch: Option<&str>) -> Result<BranchGrouping, CliError> {
-  // the stack setting of the command's config
+  // the stack setting of the command's config, the remotes of the command (the push URL of `origin` comes from them too)
   let stacks = context.config()?.stacks()?;
-  let grouping = group_commits_ahead_of_baseline_with(&context.git, &context.repository, &context.prefix, stacks)?;
+  let grouping = group_commits_ahead_of_baseline_with(&context.git, &context.repository, &context.prefix, stacks, Some(context.remotes()?))?;
   if let Some(name) = branch
     && !grouping.branches.iter().any(|candidate| candidate.name == name)
   {

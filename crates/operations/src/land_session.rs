@@ -140,7 +140,7 @@ fn target_check(git: &GitCommandExecutor, path: &str, baseline: &str, tip: Optio
   let Some(tip) = tip else {
     return (None, Vec::new());
   };
-  let fetch_error = fetch_target(git, path).into_error();
+  let fetch_error = fetch_target(git, path, None).into_error();
   let mut notes: Vec<StartNote> = fetch_error
     .iter()
     .map(|error| StartNote::TargetFetchFailed {

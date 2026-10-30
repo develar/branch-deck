@@ -13,7 +13,7 @@ use test_utils::git_test_utils::{TestRepo, TestWorktree, git_command};
 fn facts(repo: &TestRepo) -> (anyhow::Result<RepoFacts>, u32) {
   let git = GitCommandExecutor::new().with_process_stats("test");
   let branch = repo.current_branch().unwrap();
-  let facts = read_repo_facts(&git, repo.path_str(), &branch, "test");
+  let facts = read_repo_facts(&git, repo.path_str(), &branch, "test", None);
   let processes = git.process_stats().unwrap().total();
   (facts, processes)
 }
@@ -103,9 +103,9 @@ fn an_operation_that_knows_its_directories_reads_no_paths_and_no_commits() {
   repo.git(&["config", "branch.lane.remote", "origin"]);
   repo.git(&["config", "branch.lane.merge", "refs/heads/master"]);
   for (path, branch, processes) in [(repo.path_str(), "master", 3), (lane.path.as_str(), "lane", 2)] {
-    let read = read_repo_facts(&GitCommandExecutor::new(), path, branch, "test").unwrap();
+    let read = read_repo_facts(&GitCommandExecutor::new(), path, branch, "test", None).unwrap();
     let git = with_dirs_of(&GitCommandExecutor::new(), path).unwrap().with_process_stats("test");
-    let known = read_repo_facts(&git, path, branch, "test").unwrap();
+    let known = read_repo_facts(&git, path, branch, "test", None).unwrap();
     assert_eq!(
       (&known.head, &known.baseline, &known.baseline_commit, &known.upstream, &known.remotes),
       (&read.head, &read.baseline, &read.baseline_commit, &read.upstream, &read.remotes)
@@ -123,7 +123,7 @@ fn a_detached_head_tracks_nothing() {
   repo.git(&["checkout", "-q", "--detach"]);
 
   let git = GitCommandExecutor::new().with_process_stats("test");
-  let listing = read_baseline_listing(&git, repo.path_str(), None, Some("test"), false).unwrap();
+  let listing = read_baseline_listing(&git, repo.path_str(), None, Some("test"), false, None).unwrap();
   // the upstream of master is not HEAD's: the first candidate, as `detect_baseline_branch` says
   assert_eq!(listing.baseline, detect_baseline_branch(repo.git_executor(), repo.path_str()).unwrap());
   assert_eq!((listing.baseline.as_str(), listing.baseline_ref.as_str()), ("origin/master", "refs/remotes/origin/master"));
@@ -160,13 +160,13 @@ fn no_baseline_and_no_commits() {
   let empty = TestRepo::new_empty();
   empty.git(&["init", "-q", "-b", "master"]);
   let git = GitCommandExecutor::new();
-  let error = read_repo_facts(&git, empty.path_str(), "master", "test").unwrap_err();
+  let error = read_repo_facts(&git, empty.path_str(), "master", "test", None).unwrap_err();
   assert_eq!(error.downcast_ref::<NoBaseline>(), Some(&NoBaseline::NoCommits));
   // a remote baseline that exists does not hide the missing commits
   empty.git(&["remote", "add", "origin", "."]);
   repo.git(&["update-ref", "refs/remotes/origin/master", &repo.head()]);
   empty.git(&["fetch", "-q", repo.path_str(), "+refs/heads/master:refs/remotes/origin/master"]);
-  let error = read_repo_facts(&git, empty.path_str(), "master", "test").unwrap_err();
+  let error = read_repo_facts(&git, empty.path_str(), "master", "test", None).unwrap_err();
   assert_eq!(error.downcast_ref::<NoBaseline>(), Some(&NoBaseline::NoCommits));
 }
 
@@ -216,10 +216,11 @@ fn the_remotes_come_with_their_push_urls() {
   ]
   .map(str::to_string)
   .to_vec();
-  let (remotes, push_urls) = parse_remotes(&lines);
-  assert_eq!(remotes, ["origin", "fork"]);
-  assert_eq!(push_urls["origin"], "ssh://git@git.jetbrains.team/ij/app.git");
-  assert_eq!(push_urls["fork"], "https://github.com/jane/app");
+  let remotes = parse_remotes(&lines);
+  assert_eq!(remotes.names, ["origin", "fork"]);
+  assert_eq!(remotes.push_url("origin"), Some("ssh://git@git.jetbrains.team/ij/app.git"));
+  assert_eq!(remotes.push_url("fork"), Some("https://github.com/jane/app"));
+  assert_eq!(remotes.push_url("upstream"), None);
 }
 
 /// The route is decided on what the listing read: the setting, `origin` on Space, the github.com repository the remote
@@ -249,7 +250,7 @@ fn the_landing_remote_is_read_with_the_facts_of_a_sync() {
   );
 
   repo.git(&["config", "remote.origin.pushurl", "https://git.jetbrains.team/ij/app.git"]);
-  let facts = read_repo_facts(repo.git_executor(), repo.path_str(), "master", "test").unwrap();
+  let facts = read_repo_facts(repo.git_executor(), repo.path_str(), "master", "test", None).unwrap();
   let landing = facts.landing_remote(None);
   assert_eq!((landing.on_space, landing.push_repository), (true, None));
 }

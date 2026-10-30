@@ -8,7 +8,7 @@ use domain_types::settings::{AppSettings, PrefixSource};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
-use git_ops::revs::{repository_dirs, with_repository_dirs};
+use git_ops::revs::{current_branch, repository_dirs, with_repository_dirs};
 use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
@@ -22,7 +22,7 @@ use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
-use sync_core::remote_url::origin_push_url;
+use sync_core::repo_facts::{Baseline, CommandFacts, Remotes, read_baseline_of, read_remotes};
 use sync_utils::operation_id::OperationId;
 use tokio::runtime::Runtime;
 use youtrack::service::EnvironmentToken;
@@ -136,6 +136,17 @@ pub struct RepoOptions<'a> {
   pub no_cache: bool,
 }
 
+/// The repository facts of a command that `RepoContext` keeps: `None` until the first that asks reads it
+#[derive(Default)]
+struct Facts {
+  remotes: Option<Remotes>,
+  head: Option<HeadBranch>,
+  baseline: Option<Baseline>,
+}
+
+/// The branch HEAD is on as `symbolic-ref` read it: `None` inside for a detached HEAD
+struct HeadBranch(Option<String>);
+
 /// The repository a command runs on
 pub struct RepoContext {
   pub git: GitCommandExecutor,
@@ -163,9 +174,9 @@ pub struct RepoContext {
   file_diffs: OnceLock<FileDiffs>,
   /// The git config, read once (`config`)
   config: Mutex<Option<ConfigSnapshot>>,
-  /// The push URL of `origin` (`None` without it), read by the first that asks: the Space repository, the GitHub
-  /// repository and the `--repo` of a `gh pr create` are all found by it
-  origin_url: OnceLock<Option<String>>,
+  /// The repository facts of the command, each read by the first that asks and forgotten after a wait for the
+  /// repository lock (`forget_facts`)
+  facts: Mutex<Facts>,
   /// The GitHub repository of the branches (`None` when unknown), resolved by the first that asks: a git process for the
   /// Space mirror, and `bd push` asks before its push and again for the retargets after it
   github_repository: OnceLock<Option<GitHubRepository>>,
@@ -230,7 +241,7 @@ impl RepoContext {
       cache: OnceLock::new(),
       file_diffs: OnceLock::new(),
       config: Mutex::new(config),
-      origin_url: OnceLock::new(),
+      facts: Mutex::new(Facts::default()),
       github_repository: OnceLock::new(),
       runtime: OnceLock::new(),
     })
@@ -261,6 +272,55 @@ impl RepoContext {
     *self.config.lock().unwrap_or_else(PoisonError::into_inner) = None;
   }
 
+  /// The remotes with their push URLs (`remote -v`): one process for the whole command, the sync's listing, the push
+  /// URL of `origin` and the landing route included; read by the first that asks, again after `forget_facts`
+  pub fn remotes(&self) -> Result<Remotes, CliError> {
+    let mut facts = self.facts.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(remotes) = &facts.remotes {
+      return Ok(remotes.clone());
+    }
+    let remotes = read_remotes(&self.git, &self.repository)?;
+    facts.remotes = Some(remotes.clone());
+    Ok(remotes)
+  }
+
+  /// The branch HEAD is on, `None` for a detached HEAD (`symbolic-ref`): one process for the whole command, the guards
+  /// of its sync included; read by the first that asks, again after `forget_facts`
+  pub fn head_branch(&self) -> Result<Option<String>, CliError> {
+    let mut facts = self.facts.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(HeadBranch(branch)) = &facts.head {
+      return Ok(branch.clone());
+    }
+    let branch = current_branch(&self.git, &self.repository)?;
+    facts.head = Some(HeadBranch(branch.clone()));
+    Ok(branch)
+  }
+
+  /// HEAD's branch and the remotes, as the sync takes them (`SyncOptions::facts`)
+  pub fn command_facts(&self) -> Result<CommandFacts, CliError> {
+    Ok(CommandFacts {
+      branch: self.head_branch()?,
+      remotes: self.remotes()?,
+    })
+  }
+
+  /// The baseline of HEAD's branch and its upstream (`read_baseline_of` the `command_facts`): one `for-each-ref` more
+  /// for the whole command; read by the first that asks, again after `forget_facts`
+  pub fn baseline(&self) -> Result<Baseline, CliError> {
+    if let Some(baseline) = &self.facts.lock().unwrap_or_else(PoisonError::into_inner).baseline {
+      return Ok(baseline.clone());
+    }
+    let baseline = read_baseline_of(&self.git, &self.repository, &self.command_facts()?)?;
+    self.facts.lock().unwrap_or_else(PoisonError::into_inner).baseline = Some(baseline.clone());
+    Ok(baseline)
+  }
+
+  /// The next `remotes`, `head_branch` and `baseline` read them again: another process may have changed them while this
+  /// one waited for the repository lock
+  pub fn forget_facts(&self) {
+    *self.facts.lock().unwrap_or_else(PoisonError::into_inner) = Facts::default();
+  }
+
   /// The one runtime of the command: the sync runs on it, and the requests to Patronus and GitHub
   pub fn runtime(&self) -> Result<&Runtime, CliError> {
     if let Some(runtime) = self.runtime.get() {
@@ -273,14 +333,10 @@ impl RepoContext {
     Ok(self.runtime.get_or_init(|| runtime))
   }
 
-  /// The push URL of `origin`, `None` without that remote: one `remote get-url --push` for the whole command. A failed
-  /// read is not remembered
-  pub fn origin_url(&self) -> Result<Option<&str>, CliError> {
-    if let Some(url) = self.origin_url.get() {
-      return Ok(url.as_deref());
-    }
-    let url = origin_push_url(&self.git, &self.repository)?;
-    Ok(self.origin_url.get_or_init(|| url).as_deref())
+  /// The push URL of `origin`, `None` without that remote, from the `remotes` of the command: the Space repository, the
+  /// GitHub repository and the `--repo` of a `gh pr create` are all found by it
+  pub fn origin_url(&self) -> Result<Option<String>, CliError> {
+    Ok(self.remotes()?.push_url("origin").map(str::to_string))
   }
 
   /// The GitHub repository of the branches: `resolve` finds it the first time, every later ask has its answer. A failed
@@ -295,7 +351,7 @@ impl RepoContext {
 
   /// The Space repository `origin` pushes to; `None` when it is not on Space
   pub fn space_repository(&self) -> Result<Option<SpaceRepository>, CliError> {
-    Ok(self.origin_url()?.and_then(parse_space_repository))
+    Ok(self.origin_url()?.as_deref().and_then(parse_space_repository))
   }
 
   /// The diffs of the scans of this command (`FileDiffs::for_scans`): the changes of the commits and their patches read

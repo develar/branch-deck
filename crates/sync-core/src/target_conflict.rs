@@ -4,7 +4,8 @@
 //! with no resolution by words (`git_ops::trial_rebase`). A fetch that fails does not stop the check: it replays onto
 //! the last fetched tip, and the result says so (docs/design/git-operations.md, "Target conflict check").
 
-use crate::baseline_fetch::{FetchBaselineParams, fetch_baseline_core};
+use crate::baseline_fetch::{FetchBaselineParams, fetch_baseline_core, fetch_baseline_of};
+use crate::repo_facts::Baseline;
 use anyhow::{Result, anyhow};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::update_project::UpdateCommit;
@@ -111,13 +112,18 @@ impl TargetFetch {
   }
 }
 
-/// Fetches only the baseline's remote branch, the target of the robot, as Update Project does. Never under the
-/// repository lock
-pub fn fetch_target(git_executor: &GitCommandExecutor, repository_path: &str) -> TargetFetch {
-  let params = FetchBaselineParams {
-    repository_path: repository_path.to_string(),
+/// Fetches only the baseline's remote branch, the target of the robot, as Update Project does: of the baseline the
+/// caller read (`known`, `bd`), else read now. Never under the repository lock
+pub fn fetch_target(git_executor: &GitCommandExecutor, repository_path: &str, known: Option<Baseline>) -> TargetFetch {
+  let fetched = if let Some(baseline) = known {
+    fetch_baseline_of(git_executor, repository_path, baseline, &mut |_| {})
+  } else {
+    let params = FetchBaselineParams {
+      repository_path: repository_path.to_string(),
+    };
+    fetch_baseline_core(git_executor, &params, &mut |_| {})
   };
-  match fetch_baseline_core(git_executor, &params, &mut |_| {}) {
+  match fetched {
     Ok(_) => TargetFetch::Fetched,
     Err(error) => {
       warn!(error = %format!("{error:#}"), "the target conflict check uses the last fetched target");
@@ -155,7 +161,7 @@ pub fn check_target(git_executor: &GitCommandExecutor, repository_path: &str, ba
 /// The check of the app's Safe Push start: the fetch of the target, then `check_branch_target`
 #[instrument(skip(git_executor))]
 pub fn target_conflict_core(git_executor: &GitCommandExecutor, branch_prefix: &str, params: &TargetConflictParams) -> TargetCheck {
-  let fetch_error = fetch_target(git_executor, &params.repository_path).into_error();
+  let fetch_error = fetch_target(git_executor, &params.repository_path, None).into_error();
   check_branch_target(git_executor, branch_prefix, params, fetch_error)
 }
 

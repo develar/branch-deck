@@ -12,7 +12,7 @@ use crate::conflict_chain::{ChainMemo, conflict_ref, move_conflict_refs};
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::remote_status::RemoteStatusMemo;
-use crate::repo_facts::{RepoFacts, read_repo_facts};
+use crate::repo_facts::{CommandFacts, RepoFacts, read_repo_facts};
 use crate::stack_branch::{BuildResult, FinishedStacks, StackBranchSync, StackBuilds, StackFinish, build_planned, finish_stack_branches, plan_stack_branches};
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
@@ -78,6 +78,10 @@ pub struct SyncOptions {
   /// The git config the caller read for the same operation (`bd` and the app's command, which resolve the branch prefix
   /// from it); `None`: the sync reads it
   pub config: Option<ConfigSnapshot>,
+  /// HEAD's branch and the remotes the caller read for the same operation (`bd`, `RepoContext::command_facts`): the
+  /// guards and the facts of the sync take them instead of a `symbolic-ref` and a `remote -v`; `None`: the sync reads
+  /// them (the app's session)
+  pub facts: Option<CommandFacts>,
 }
 
 impl Default for SyncOptions {
@@ -89,6 +93,7 @@ impl Default for SyncOptions {
       verify_mapping_notes: false,
       object_cache: ObjectCache::disabled(),
       config: None,
+      facts: None,
     }
   }
 }
@@ -360,10 +365,20 @@ impl SyncDeferred {
 /// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on; returns the branch. One
 /// `symbolic-ref`, and a `rev-parse` when the operation knows no directories (`with_dirs_of`)
 pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String> {
+  check_sync_guards_on(git_executor, repository_path, None)
+}
+
+/// `check_sync_guards` with HEAD's branch of the facts the caller read (`known`): no `symbolic-ref` then
+fn check_sync_guards_on(git_executor: &GitCommandExecutor, repository_path: &str, known: Option<&CommandFacts>) -> Result<String> {
   if let Some(operation) = find_operation_in_progress(git_executor, repository_path)? {
     return Err(SyncDeferred::OperationInProgress(operation).into());
   }
-  current_branch(git_executor, repository_path)?.ok_or_else(|| SyncDeferred::DetachedHead.into())
+  let branch = if let Some(facts) = known {
+    facts.branch.clone()
+  } else {
+    current_branch(git_executor, repository_path)?
+  };
+  branch.ok_or_else(|| SyncDeferred::DetachedHead.into())
 }
 
 /// Phase 1 (blocking): issue config, baseline, commit grouping. Sends `IssueNavigationConfig`, `UnassignedCommits`
@@ -379,6 +394,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   branch_prefix: &str,
   issue_config: IssueConfigSource,
   config: Option<ConfigSnapshot>,
+  command_facts: Option<CommandFacts>,
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
   object_cache: &ObjectCache,
@@ -388,7 +404,8 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   // landed state in them
   let git_executor = &with_dirs_of(git_executor, repository_path)?;
   // before any event: a deferred sync reports nothing
-  let current_branch = check_sync_guards(git_executor, repository_path)?;
+  let current_branch = check_sync_guards_on(git_executor, repository_path, command_facts.as_ref())?;
+  let known_remotes = command_facts.map(|facts| facts.remotes);
   // Use cached issue config if available (including a cached "none"), otherwise load it
   let issue_config = match issue_config {
     IssueConfigSource::Cached(cached) => {
@@ -404,7 +421,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
 
   // the baseline (the upstream, origin/master, origin/main, or local master/main) with its commit, HEAD and the
   // branches under the prefix, once for every step below
-  let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix)?;
+  let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix, known_remotes)?;
   // the temporary refs of a process killed in a write (and the shared ref of Branch Deck 0.21 and earlier) keep their
   // objects alive; the listing found them, so the delete costs a process only when there are some
   delete_stale_temp_refs(git_executor, repository_path, &facts.stale_temp_refs);
@@ -968,6 +985,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     verify_mapping_notes,
     object_cache,
     config,
+    facts: command_facts,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
@@ -1011,6 +1029,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           branch_prefix,
           issue_config,
           config,
+          command_facts,
           detection_strategy,
           archive_retention_days,
           &object_cache,

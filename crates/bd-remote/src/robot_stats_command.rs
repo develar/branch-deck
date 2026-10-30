@@ -13,11 +13,10 @@ use domain_types::calendar::Calendar;
 use domain_types::error::ErrorCode;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::robot_stats::{RobotStats, StatsPeriod};
-use history_rewrite::baseline::detect_baseline_branch;
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::patronus::required_target_branch;
+use sync_core::patronus::target_branch_of;
 use sync_utils::timestamp::unix_now;
 
 #[derive(Debug, Default, clap::Args)]
@@ -54,8 +53,15 @@ pub fn robot_stats(context: &RepoContext, args: &RobotStatsArgs, environment: &E
   let space = context
     .space_repository()?
     .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus has no robots of it"))?;
-  let baseline = detect_baseline_branch(&context.git, &context.repository)?;
-  let target = required_target_branch(&context.git, &context.repository, &baseline).map_err(|e| CliError::new(ErrorCode::NoBaseline, format!("{e:#}")))?;
+  // the baseline and its upstream from the remotes the Space repository was read with: one `symbolic-ref` and one
+  // `for-each-ref` more
+  let baseline = context.baseline()?;
+  let target = target_branch_of(baseline.upstream.as_ref()).ok_or_else(|| {
+    CliError::new(
+      ErrorCode::NoBaseline,
+      format!("The baseline {} is not a branch of origin: Patronus pushes into a branch of origin", baseline.name),
+    )
+  })?;
   let cache = context.cache();
   let source = RobotStatsSource {
     service: &service,

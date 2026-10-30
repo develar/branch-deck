@@ -89,8 +89,10 @@ modules by area; the layers are the
   a move that the files follow takes `options.lock_prepared_move(..)`, and `bd pick` checks again under the lock
   (`recheck_pick`). An operation reads a repository fact once and passes it
   down: a step of a sync, or of a `bd` command after its sync, takes the facts `RepoFacts`, `ConfigSnapshot`,
-  `Snapshot` or the `SyncReport` hold instead of reading them again, the baseline with its upstream comes from one
-  `read_baseline` (with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`), and an operation that reads the directories in several steps takes them once at its entry
+  `Snapshot` or the `SyncReport` hold instead of reading them again, a `bd` command takes HEAD's branch, the remotes
+  (and the push URL of `origin` of them) and the baseline of its context (`RepoContext::command_facts`, `baseline`,
+  forgotten after a wait for the lock) and passes them to its sync (`SyncOptions::facts`) and its cores, the
+  baseline with its upstream comes from one `read_baseline` (with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`), and an operation that reads the directories in several steps takes them once at its entry
   (`with_dirs_of`); under the lock only the witness of what it read is read again. A remote only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
 - **The operation** (`crates/operations/src/<family>.rs`, for an action on the remote: a push, a start, a restart or a
   cancel of a robot, a write to a pull request or an issue): the intent of its family (`domain_types::operation::Intent`)

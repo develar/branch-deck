@@ -112,7 +112,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let reviewers = logins_of(&args.reviewers)?;
   // the push URL of origin is read once, for this and the Space repository of the review
   let configured = context.config()?.github_repository();
-  let repository = resolve_github_repository_with(&context.git, &context.repository, configured, context.origin_url()?)?
+  let repository = resolve_github_repository_with(&context.git, &context.repository, configured, context.origin_url()?.as_deref())?
     .ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY))?;
   // Patronus names the code owners (without --reviewer) and the robots that hold the push (--push)
   let space = context.space_repository()?;

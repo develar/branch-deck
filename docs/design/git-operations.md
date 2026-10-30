@@ -247,7 +247,8 @@ written, except by Update Project and the finish of its resolve session (their o
      (`a_sync_whose_notes_git_cannot_sign_fails_with_no_identity`).
 6. **Batch**: one process per operation phase, not one per item. **An operation reads a repository fact once** and
    passes it down: the baseline and its upstream come from `read_baseline` (`symbolic-ref`, `remote` and one
-   `for-each-ref`, as `read_baseline_listing` reads them for a sync), never from `detect_baseline_branch` and then
+   `for-each-ref`, as `read_baseline_listing` reads them for a sync; a `bd` command keeps HEAD's branch, the remotes
+   and the baseline in its `RepoContext` and passes them to its sync and its cores, `read_baseline_of`), never from `detect_baseline_branch` and then
    `resolve_baseline_upstream` (six processes; `the_baseline_and_its_upstream_are_read_once`); a check session and
    `bd move-hunk` take the baseline with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`
    (`remote` and one `for-each-ref`) and walk the commits between the two ids; the directories come from
@@ -841,7 +842,8 @@ names it, and one whose process the system won't describe (a sandbox that denies
 holder while `kill(pid, 0)` still finds the process: otherwise the app would wait for a live holder it can't see, say
 whom for nowhere, and refuse after 10 s. A core finds the file with one
 `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
-directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). A sync
+directory its context resolved, and a wait for it makes `bd` read the config and the facts of the command again
+(`RepoContext::forget_config`, `RepoContext::forget_facts`: HEAD's branch, the remotes, the baseline). A sync
 never waits for it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
 repository would make every writer fail with `locked`; only its drop of store lines takes it, while it is free (see
 "Regroup"). Within a session one sync
@@ -2386,7 +2388,10 @@ remote>/master`, `/main`, or the local ones) and the branches under the prefix, 
 `origin`. HEAD and the baseline commit are the tips that listing read, `FETCH_HEAD` and the landed state of the
 worktree (`branch-deck/landed.json`, which the update check records) paths in the git directory: no process of their
 own (without the directories, or for a branch without commits, one `rev-parse --git-path FETCH_HEAD --git-path
-branch-deck/landed.json HEAD^{commit} <baseline>^{commit}`).
+branch-deck/landed.json HEAD^{commit} <baseline>^{commit}`). A caller that read HEAD's branch and the remotes for the
+same operation passes them (`SyncOptions::facts`, `CommandFacts`: `bd`, from `RepoContext::command_facts`): the guards
+take the branch instead of their `symbolic-ref` and the listing the remotes instead of its `remote -v`; the app's
+session passes none, and its sync reads both.
 The listing reads refs, never a commit (`LISTED_BRANCH_ATOMS`): no `%(contents:subject)`, no `--sort=-committerdate`,
 which read the commit of every listed ref before the first rows. On the monorepo those were 452 refs (263 remote
 branches under the prefix, 162 archived ones): 0.09 s warm, 1 to 2 s from a cold pack, against 0.03 s for the refs
@@ -3718,8 +3723,9 @@ the freeze, then the effects); `--dry-run` asks the remote about the frozen comm
 no witness, no other effect). A branch another writer moved between the sync and the witness is `plan_changed` (exit
 3), nothing pushed. It reads nothing the sync read again: the stack, the tips the sync left, the remote tips of
 `origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push and the witness it reads only
-the push URL of `origin`, once per command (`RepoContext::origin_url`: the Space repository of the holds, the GitHub
-repository and the `--repo` of `gh pr create`), and the committed Space settings when neither
+the push URL of `origin` of the remotes the sync took (`RepoContext::origin_url` of `RepoContext::remotes`, one
+`remote -v` for the command: the Space repository of the holds, the GitHub repository and the `--repo` of
+`gh pr create`), and the committed Space settings when neither
 `branchdeck.githubRepository` nor that URL names the GitHub repository (one `cat-file`, once per command,
 `RepoContext::github_repository`):
 
@@ -3791,9 +3797,11 @@ branch, one built on a parked branch and a whole stack with a parked member are 
 sync, before anything is asked of Patronus.
 
 0. Before the lock, the fetch of the target for the target conflict check (below, "Target conflict check"): a fetch
-   never runs under the lock. `--create-pull-request` starts no robot and fetches nothing.
-1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, the one read the push and the
-   GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
+   never runs under the lock. It fetches the upstream of the baseline of the command (`RepoContext::baseline`: one
+   `for-each-ref` with HEAD's branch and the remotes the sync takes after it, `fetch_target` of a known `Baseline`).
+   `--create-pull-request` starts no robot and fetches nothing.
+1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, of the remotes the sync took, which
+   the push and the GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
    `target_branch_of`: no process), the stack and the tips from the sync's report, as for `bd push`.
 2. The facts of the remote are read as the app's session reads them, through its one reader
    (`remote_facts::service_sources::ServiceFactSources` over `bd_core::services::BdServices`, which answers the Space
@@ -3868,8 +3876,9 @@ the branch onto the newest target before any check (`REBASE_AUTOSQUASH`), and a 
 of `bd safe-push` and of the app (`sync_core::target_conflict`, one core for both).
 
 1. The fetch of the target's remote branch only (`fetch_target`, through `fetch_baseline_core`, as Update Project
-   fetches it): `remote`, `for-each-ref`, `symbolic-ref` and `rev-parse` for the baseline and its upstream, then one
-   `fetch`. Never under the repository lock. A failed fetch is no error: the check uses the last fetched tip, and the
+   fetches it): `symbolic-ref`, `remote` and one `for-each-ref` for the baseline and its upstream (`read_baseline`;
+   `bd` passes the `Baseline` of its command, whose HEAD's branch and remotes its sync takes, so only the listing is
+   the check's), then one `fetch`. Never under the repository lock. A failed fetch is no error: the check uses the last fetched tip, and the
    result says why the fetch failed (`fetch_error`).
 2. The replay of what the robot lands onto the target tip, as a plain `git rebase` replays it, with no resolution by
    words, because Patronus can't resolve by words (`git_ops::trial_rebase`): one `git replay --onto=<target>
@@ -4050,7 +4059,8 @@ Read-only, without the repository lock and without a sync: `bd robot` reads the 
    a stacked branch (`placements[..].effective_base`), and from the same listing the local and the pushed tips of the
    branches under the prefix (`BranchGrouping::listed`, `remote_tips`), which a robot of a temporary ref (the IDE, the
    Safe Push CLI) is matched by (`domain_policy::robot_match::RobotIndex`).
-2. The Space repository comes from the push URL of `origin` (`RepoContext::origin_url`).
+2. The Space repository comes from the push URL of `origin` (`RepoContext::origin_url`, of the remotes the grouping
+   listed with: one `remote -v`).
 3. For a failed or failing robot, the [robot commit map](../../spec/branch/safe-push-failure-prompt.spec.md#the-commit-map) and one `symbolic-ref --quiet HEAD`
    (`robot_failure_report`, the same as the app's `get_robot_failure`).
 

@@ -2,7 +2,7 @@
 //! (`BranchGrouping`): what `bd status`, `bd robot` and the other reads of `bd` start from.
 
 use crate::baseline::BaselineUpstream;
-use crate::repo_facts::{BaselineListing, landing_remote_of, read_baseline_listing};
+use crate::repo_facts::{BaselineListing, Remotes, landing_remote_of, read_baseline_listing};
 use crate::sync::prepare_branches_for_ui;
 use anyhow::Result;
 use branch_integration::common::ListedBranch;
@@ -70,22 +70,28 @@ pub struct BranchGrouping {
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
   let stacks = stacks_enabled(git_executor, repository_path)?;
-  group_commits_ahead_of_baseline_with(git_executor, repository_path, branch_prefix, stacks)
+  group_commits_ahead_of_baseline_with(git_executor, repository_path, branch_prefix, stacks, None)
 }
 
 /// `group_commits_ahead_of_baseline` with the stack setting read already (`ConfigSnapshot::stacks`): one `git config`
-/// fewer
-#[instrument(skip(git_executor))]
-pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, stacks: bool) -> Result<BranchGrouping> {
+/// fewer; with the remotes the caller read (`known_remotes`, `RepoContext::remotes` of `bd`) one `remote -v` fewer
+#[instrument(skip(git_executor, known_remotes))]
+pub fn group_commits_ahead_of_baseline_with(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  stacks: bool,
+  known_remotes: Option<Remotes>,
+) -> Result<BranchGrouping> {
   let (head, head_branch) = read_head(git_executor, repository_path)?.ok_or(NoBaseline::NoCommits)?;
   let BaselineListing {
     baseline: baseline_branch,
     upstream,
     branches: listed,
     remote_tips,
-    push_urls,
+    remotes,
     ..
-  } = read_baseline_listing(git_executor, repository_path, head_branch.as_deref(), Some(branch_prefix), false)?;
+  } = read_baseline_listing(git_executor, repository_path, head_branch.as_deref(), Some(branch_prefix), false, known_remotes)?;
   let commits = get_commit_list(git_executor, repository_path, &baseline_branch)?;
   let grouping = read_grouping_inputs_with(git_executor, repository_path, stacks)?;
   let mut grouper = CommitGrouper::new_with(&grouping);
@@ -112,7 +118,7 @@ pub fn group_commits_ahead_of_baseline_with(git_executor: &GitCommandExecutor, r
     )),
     _ => None,
   };
-  let landing = landing_remote_of(&push_urls, upstream.as_ref(), None);
+  let landing = landing_remote_of(&remotes.push_urls, upstream.as_ref(), None);
   Ok(BranchGrouping {
     landing,
     head,

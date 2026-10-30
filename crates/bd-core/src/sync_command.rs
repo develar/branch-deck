@@ -439,8 +439,11 @@ pub fn sync(context: &RepoContext) -> Result<SyncOutput, CliError> {
 
 /// The repository lock, `locked` after the timeout
 pub fn lock(context: &RepoContext) -> Result<RepositoryLock, CliError> {
-  // another process holds it: it may change the config the command read before
-  let on_wait = || context.forget_config();
+  // another process holds it: it may change the config and the facts the command read before
+  let on_wait = || {
+    context.forget_config();
+    context.forget_facts();
+  };
   lock_repository_in(&context.git_common_dir, context.lock_timeout, &on_wait).map_err(|e| match e.downcast_ref::<RepositoryLocked>() {
     Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
     None => CliError::from(e),
@@ -457,6 +460,7 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
     verify_mapping_notes: !context.use_cache,
     object_cache: context.cache(),
     config: Some(context.config()?),
+    facts: Some(context.command_facts()?),
     ..SyncOptions::default()
   };
   let report = runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;

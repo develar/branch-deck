@@ -100,14 +100,48 @@ pub(crate) fn landing_remote_of(push_urls: &HashMap<String, String>, upstream: O
 /// `rev-parse --abbrev-ref @{u}` prints it), then the atoms of a `ListedBranch`
 const FORMAT_PREFIX: &str = "%(refname)%00%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream:short)%00";
 
+/// The configured remotes with their push URLs, from one `remote -v` (`read_remotes`): what a command and its sync read
+/// of the remotes once, the push URL of `origin` (the Space and the GitHub repository) included
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Remotes {
+  /// The configured remotes, as `git remote` lists them
+  pub names: Vec<String>,
+  /// Remote -> the push URL `git remote -v` names first (`url.<base>.pushInsteadOf` applied), as `remote get-url
+  /// --push` answers it
+  pub push_urls: HashMap<String, String>,
+}
+
+impl Remotes {
+  /// The push URL of `remote`; `None` without that remote
+  #[must_use]
+  pub fn push_url(&self, remote: &str) -> Option<&str> {
+    self.push_urls.get(remote).map(String::as_str)
+  }
+}
+
+/// The remotes of the repository and their push URLs: one `remote -v`
+///
+/// # Errors
+/// git failing
+pub fn read_remotes(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Remotes> {
+  Ok(parse_remotes(&git_executor.execute_command_lines(&["remote", "-v"], repo_path)?))
+}
+
+/// What a command read of the repository before its sync, which the sync takes instead of reading it again
+/// (`SyncOptions::facts`): the branch HEAD is on (`None` for a detached HEAD) and the remotes. A command forgets them
+/// after a wait for the repository lock, when another process may have changed them (`RepoContext::forget_facts`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommandFacts {
+  pub branch: Option<String>,
+  pub remotes: Remotes,
+}
+
 /// The baseline and the branches under the prefix, as `detect_baseline_branch` and `list_branches` would read them, from
 /// `remote -v` and one `for-each-ref` (`read_baseline_listing`)
 #[derive(Debug, Clone)]
 pub(crate) struct BaselineListing {
-  /// The configured remotes, as `git remote` lists them
-  pub remotes: Vec<String>,
-  /// Remote -> its first push URL, as `git remote -v` names it
-  pub push_urls: HashMap<String, String>,
+  /// The configured remotes with their first push URLs, as `git remote -v` names them
+  pub remotes: Remotes,
   /// The baseline as `detect_baseline_branch` names it: `origin/master`, `origin/develop` (the upstream), `master`
   pub baseline: String,
   /// The full ref of the baseline: `refs/remotes/origin/master`, `refs/heads/master`
@@ -131,9 +165,9 @@ pub(crate) struct BaselineListing {
 
 /// The baseline of the checked out `branch` (`None` for a detached HEAD, which tracks nothing) and the branches under
 /// `branch_prefix`, local and on `origin`: `remote -v` (the remotes with their URLs, in the one process `remote`
-/// would cost) and one `for-each-ref` of the branch, the baseline candidates and the
-/// two namespaces, and with `sync_refs` the refs of the conflicting branches and the temporary refs. An upstream the
-/// listing lacks (not a candidate) costs one `rev-parse` more. The listing reads refs only, no commit
+/// would cost; none when the caller read them, `known_remotes`) and one `for-each-ref` of the branch, the baseline
+/// candidates and the two namespaces, and with `sync_refs` the refs of the conflicting branches and the temporary refs.
+/// An upstream the listing lacks (not a candidate) costs one `rev-parse` more. The listing reads refs only, no commit
 /// (`LISTED_BRANCH_ATOMS`)
 pub(crate) fn read_baseline_listing(
   git_executor: &GitCommandExecutor,
@@ -141,9 +175,13 @@ pub(crate) fn read_baseline_listing(
   branch: Option<&str>,
   branch_prefix: Option<&str>,
   sync_refs: bool,
+  known_remotes: Option<Remotes>,
 ) -> Result<BaselineListing> {
-  let (remotes, push_urls) = parse_remotes(&git_executor.execute_command_lines(&["remote", "-v"], repo_path)?);
-  let first_remote = remotes.first().map(String::as_str);
+  let remotes = match known_remotes {
+    Some(remotes) => remotes,
+    None => read_remotes(git_executor, repo_path)?,
+  };
+  let first_remote = remotes.names.first().map(String::as_str);
   let candidates = baseline_candidates(first_remote);
 
   let current_ref = branch.map(|branch| format!("refs/heads/{branch}"));
@@ -218,9 +256,8 @@ pub(crate) fn read_baseline_listing(
   let head_tip = current_ref.as_deref().and_then(|name| listed.get(name)).map(|tip| (*tip).to_string());
   let baseline_tip = listed.get(baseline_ref.as_str()).map(|tip| (*tip).to_string()).or(resolved_upstream);
   Ok(BaselineListing {
-    upstream: baseline_upstream_of(&remotes, &baseline, tracked),
+    upstream: baseline_upstream_of(&remotes.names, &baseline, tracked),
     remotes,
-    push_urls,
     baseline,
     baseline_ref,
     branches,
@@ -235,7 +272,7 @@ pub(crate) fn read_baseline_listing(
 /// The remotes of `git remote -v` in its order (that of `git remote`), each with its first push URL: a line
 /// `<name>\t<url> (fetch)` or `<name>\t<url> (push)` per URL. A remote without a URL has no line, and nothing to fetch
 /// or push either
-pub(crate) fn parse_remotes(lines: &[String]) -> (Vec<String>, HashMap<String, String>) {
+pub(crate) fn parse_remotes(lines: &[String]) -> Remotes {
   let mut remotes: Vec<String> = Vec::new();
   let mut push_urls = HashMap::new();
   for line in lines {
@@ -249,7 +286,7 @@ pub(crate) fn parse_remotes(lines: &[String]) -> (Vec<String>, HashMap<String, S
       push_urls.entry(name.to_string()).or_insert_with(|| url.to_string());
     }
   }
-  (remotes, push_urls)
+  Remotes { names: remotes, push_urls }
 }
 
 /// The baseline of the checked out branch, as `detect_baseline_branch` names it, and the remote branch behind it, as
@@ -272,11 +309,22 @@ pub struct Baseline {
 #[instrument(skip(git_executor))]
 pub fn read_baseline(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Baseline> {
   let branch = current_branch(git_executor, repo_path)?;
-  let listing = read_baseline_listing(git_executor, repo_path, branch.as_deref(), None, false)?;
+  let remotes = read_remotes(git_executor, repo_path)?;
+  read_baseline_of(git_executor, repo_path, &CommandFacts { branch, remotes })
+}
+
+/// `read_baseline` of the branch and the remotes the caller read (`CommandFacts`): one `for-each-ref`, a `rev-parse`
+/// more when the branch tracks a branch that is no candidate
+///
+/// # Errors
+/// A `NoBaseline` error when no baseline exists, as `detect_baseline_branch`'s
+#[instrument(skip(git_executor, facts))]
+pub fn read_baseline_of(git_executor: &GitCommandExecutor, repo_path: &str, facts: &CommandFacts) -> Result<Baseline> {
+  let listing = read_baseline_listing(git_executor, repo_path, facts.branch.as_deref(), None, false, Some(facts.remotes.clone()))?;
   Ok(Baseline {
     name: listing.baseline,
     upstream: listing.upstream,
-    branch,
+    branch: facts.branch.clone(),
   })
 }
 
@@ -310,7 +358,7 @@ pub fn read_listed_baseline(git_executor: &GitCommandExecutor, repo_path: &str, 
     head_tip,
     branches,
     ..
-  } = read_baseline_listing(git_executor, repo_path, Some(branch), branch_prefix, false)?;
+  } = read_baseline_listing(git_executor, repo_path, Some(branch), branch_prefix, false, None)?;
   let commit = baseline_tip.ok_or_else(|| anyhow!("Cannot resolve the baseline {baseline}"))?;
   Ok(ListedBaseline {
     name: baseline,
@@ -321,14 +369,13 @@ pub fn read_listed_baseline(git_executor: &GitCommandExecutor, repo_path: &str, 
 }
 
 /// Read the facts of a sync of `branch_prefix` on the checked out `branch`: the baseline and the branches of
-/// `read_baseline_listing`; HEAD and the baseline are the commits it listed, `FETCH_HEAD` and the landed state paths of
-/// the directories the operation read (`known_dirs`). Without them, one `rev-parse` of HEAD, the baseline,
-/// `FETCH_HEAD` and the landed state
-#[instrument(skip(git_executor))]
-pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, branch_prefix: &str) -> Result<RepoFacts> {
+/// `read_baseline_listing` (with the remotes the command read, `known_remotes`); HEAD and the baseline are the commits
+/// it listed, `FETCH_HEAD` and the landed state paths of the directories the operation read (`known_dirs`). Without
+/// them, one `rev-parse` of HEAD, the baseline, `FETCH_HEAD` and the landed state
+#[instrument(skip(git_executor, known_remotes))]
+pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, branch_prefix: &str, known_remotes: Option<Remotes>) -> Result<RepoFacts> {
   let BaselineListing {
-    remotes,
-    push_urls,
+    remotes: Remotes { names: remotes, push_urls },
     baseline,
     baseline_ref,
     upstream,
@@ -338,7 +385,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     stale_temp_refs,
     head_tip,
     baseline_tip,
-  } = read_baseline_listing(git_executor, repo_path, Some(branch), Some(branch_prefix), true)?;
+  } = read_baseline_listing(git_executor, repo_path, Some(branch), Some(branch_prefix), true, known_remotes)?;
   let (fetch_head, landed_state, head, baseline_commit) = match (known_dirs(git_executor, repo_path), head_tip, baseline_tip) {
     (Some(dirs), Some(head), Some(baseline_commit)) => (dirs.git_path("FETCH_HEAD"), dirs.git_path(STATE_FILE), head, baseline_commit),
     _ => read_head_and_baseline(git_executor, repo_path, &baseline, &baseline_ref)?,
