@@ -9,11 +9,13 @@
 //!   for a file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`),
 //!   else each change a pure rename (status `R`, no line added or removed), or each of its hunks the same text without
 //!   its whitespace, line ends included, so a wrapped or joined line too (`Whitespace`), or, in a source file, only
-//!   blank lines and lines of import statements, at least one (`ImportsOnly`). An import statement starts with an
-//!   `import`, `use` or `package` line and runs until the brackets it opens close, so a Rust
-//!   `use a::{` block or a TypeScript `import {` over several lines counts whole; the lines are read in the whole blob,
-//!   so a hunk inside such a block is an import hunk too. One import hunk makes the file `ImportsOnly`, else one
-//!   whitespace hunk `Whitespace`. A file without text (binary, too large, an added one) is only mechanical by name or
+//!   blank lines and lines of import statements, at least one (`ImportsOnly`). A file whose whitespace has a meaning
+//!   (Python, Starlark, YAML, a Makefile: `indentation_matters`) is never `Whitespace`. An import statement starts
+//!   with an `import`, `use` or `package` line and runs until the brackets it opens close, so a Rust `use a::{` block
+//!   or a TypeScript `import {` over several lines counts whole; a bracket in a string or a comment counts not, and a
+//!   statement that a `;`, the next import line or the end of the text ends with its brackets open counts as its first
+//!   line only. The lines are read in the whole blob, so a hunk inside such a block is an import hunk too. One import
+//!   hunk makes the file `ImportsOnly`, else one whitespace hunk `Whitespace`. A file without text (binary, too large, an added one) is only mechanical by name or
 //!   deletion.
 //! - **Repeated edits**: the key of a hunk is the text of its removed and of its added lines without whitespace; a
 //!   hunk of whitespace alone has none, nor one without a line of 10 or more characters. A key of 3 or more files
@@ -254,29 +256,78 @@ fn is_import(line: &str) -> bool {
   ["import ", "import{", "use ", "package "].iter().any(|keyword| line.starts_with(keyword))
 }
 
+/// The balance of the brackets in the code of `line`, outside its strings, backtick names and comments, and whether
+/// that code ends with `;`
+fn code_brackets(line: &str) -> (i32, bool) {
+  let (mut balance, mut last) = (0, ' ');
+  let (mut quote, mut comment): (Option<char>, bool) = (None, false);
+  let mut chars = line.chars().peekable();
+  while let Some(char) = chars.next() {
+    if comment {
+      if char == '*' && chars.peek() == Some(&'/') {
+        chars.next();
+        comment = false;
+      }
+      continue;
+    }
+    if let Some(open) = quote {
+      if char == '\\' {
+        chars.next();
+      } else if char == open {
+        quote = None;
+        last = char;
+      }
+      continue;
+    }
+    match char {
+      '/' if chars.peek() == Some(&'/') => break,
+      '/' if chars.peek() == Some(&'*') => {
+        chars.next();
+        comment = true;
+        continue;
+      }
+      '"' | '\'' | '`' => quote = Some(char),
+      '{' | '(' => balance += 1,
+      '}' | ')' => balance -= 1,
+      _ => {}
+    }
+    if !char.is_whitespace() {
+      last = char;
+    }
+  }
+  (balance, last == ';')
+}
+
 /// Per line of `lines`, whether it is of an import statement: its first line (`is_import`) and the lines up to the
 /// one that closes the brackets it opens, so a Rust `use a::{` block or a TypeScript `import {` over several lines
-/// counts whole
+/// counts whole. A bracket in a string or a comment counts not (`code_brackets`). A statement that a `;`, the next
+/// import line or the end of the text ends with its brackets open counts as its first line only
 fn import_lines(lines: &[&str]) -> Vec<bool> {
-  let mut open: i32 = 0;
-  lines
-    .iter()
-    .map(|line| {
-      let import = open > 0 || is_import(line);
-      if import {
-        let balance: i32 = line
-          .chars()
-          .map(|char| match char {
-            '{' | '(' => 1,
-            '}' | ')' => -1,
-            _ => 0,
-          })
-          .sum();
-        open = (open + balance).max(0);
-      }
-      import
-    })
-    .collect()
+  let mut imports = vec![false; lines.len()];
+  // the first line of the statement whose brackets are open, and their depth
+  let mut open: Option<(usize, i32)> = None;
+  for (index, line) in lines.iter().enumerate() {
+    let starts = is_import(line);
+    if let Some((first, _)) = open.filter(|_| starts) {
+      imports[first + 1..index].fill(false);
+      open = None;
+    }
+    if open.is_none() && !starts {
+      continue;
+    }
+    imports[index] = true;
+    let (balance, ends) = code_brackets(line);
+    let (first, depth) = open.take().map_or((index, balance), |(first, depth)| (first, depth + balance));
+    if depth > 0 && ends {
+      imports[first + 1..=index].fill(false);
+    } else if depth > 0 {
+      open = Some((first, depth));
+    }
+  }
+  if let Some((first, _)) = open {
+    imports[first + 1..].fill(false);
+  }
+  imports
 }
 
 /// What a hunk is, when mechanical
@@ -286,9 +337,21 @@ enum HunkKind {
   Imports,
 }
 
-/// The kind of `hunk`; `source`: of a file of a known language
-fn hunk_kind(hunk: &HunkText<'_>, source: bool) -> Option<HunkKind> {
-  if without_whitespace(&hunk.removed) == without_whitespace(&hunk.added) {
+/// The extensions of the files whose indentation has a meaning: Python, Starlark (`MODULE.bazel` too), YAML, Makefiles
+const INDENTED_EXTENSIONS: [&str; 8] = ["py", "pyi", "bzl", "star", "bazel", "yml", "yaml", "mk"];
+/// The names of the files whose indentation has a meaning, beside `INDENTED_EXTENSIONS`
+const INDENTED_NAMES: [&str; 5] = ["Makefile", "makefile", "GNUmakefile", "BUILD", "WORKSPACE"];
+
+/// Whether the whitespace of `path` has a meaning, so a change of it is no `Whitespace` change
+fn indentation_matters(path: &str) -> bool {
+  let name = path.rsplit('/').next().unwrap_or(path);
+  let extension = name.rsplit_once('.').map(|(_, extension)| extension);
+  INDENTED_NAMES.contains(&name) || extension.is_some_and(|extension| INDENTED_EXTENSIONS.iter().any(|known| extension.eq_ignore_ascii_case(known)))
+}
+
+/// The kind of `hunk`; `source`: of a file of a known language; `indented`: of a file whose whitespace has a meaning
+fn hunk_kind(hunk: &HunkText<'_>, source: bool, indented: bool) -> Option<HunkKind> {
+  if !indented && without_whitespace(&hunk.removed) == without_whitespace(&hunk.added) {
     return Some(HunkKind::Whitespace);
   }
   (source && hunk.imports).then_some(HunkKind::Imports)
@@ -303,6 +366,7 @@ pub(crate) fn mechanical_kind(file: &ChangedFile<'_>, texts: &HashMap<String, St
     return Some(MechanicalKind::BuildModel);
   }
   let source = language_of(file.path).is_some();
+  let indented = indentation_matters(file.path);
   let mut kinds: HashSet<HunkKind> = HashSet::new();
   for change in &file.changes {
     if change.status == 'R' && change.additions == 0 && change.deletions == 0 {
@@ -312,7 +376,7 @@ pub(crate) fn mechanical_kind(file: &ChangedFile<'_>, texts: &HashMap<String, St
       return None;
     }
     for hunk in hunk_lines(change, texts)? {
-      kinds.insert(hunk_kind(&hunk, source)?);
+      kinds.insert(hunk_kind(&hunk, source, indented)?);
     }
   }
   Some(if kinds.contains(&HunkKind::Imports) {

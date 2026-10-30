@@ -288,6 +288,69 @@ fn a_wrapped_line_and_a_line_in_an_import_block_are_mechanical() {
   assert_eq!(plan.repeated_edits, []);
 }
 
+/// A bracket inside a string or a comment of an import line opens no statement, and a statement whose brackets never
+/// close counts as its first line only: a change of code after such a line keeps the file in the tree
+#[test]
+fn an_unclosed_bracket_on_an_import_line_makes_no_import_of_the_code_after_it() {
+  let files = [
+    ("src/comment.ts", "import { load } from \"./io\" // (the old loader\n\nexport const value = load(1)\n"),
+    ("src/block.ts", "import { load } from \"./io\" /* { */\n\nexport const value = load(1)\n"),
+    ("src/string.ts", "import { load } from \"./io{\"\n\nexport const value = load(1)\n"),
+    ("src/a/Name.kt", "package a\n\nimport b.`odd(name`\n\nclass Name {\n  val value = 1\n}\n"),
+    ("src/open.ts", "import { load,\n\nexport const value = load(1)\n"),
+  ];
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add files", &files);
+  let changed: Vec<(&str, String)> = files.iter().map(|(path, text)| (*path, text.replace("load(1)", "load(2)").replace("= 1", "= 2"))).collect();
+  let changed: Vec<(&str, &str)> = changed.iter().map(|(path, text)| (*path, text.as_str())).collect();
+  let head = repo.create_commit_with_files("Change the code", &changed);
+  assert_eq!(
+    mechanical(&repo, &base, &head),
+    [
+      ("src/a/Name.kt".to_string(), None),
+      ("src/block.ts".to_string(), None),
+      ("src/comment.ts".to_string(), None),
+      ("src/open.ts".to_string(), None),
+      ("src/string.ts".to_string(), None),
+    ]
+  );
+}
+
+/// An indent of Python, Starlark, YAML or a Makefile changes what the file means, so it is no `Whitespace` change;
+/// the same indent of Kotlin is
+#[test]
+fn an_indent_where_the_indentation_has_a_meaning_is_no_whitespace_change() {
+  let files = [
+    ("tools/run.py", "def run():\n    start()\nstop()\n"),
+    ("tools/defs.bzl", "def run():\n    start()\nstop()\n"),
+    ("ci/build.yaml", "steps:\n  - run: build\nname: ci\n"),
+    ("Makefile", "build:\n\tcargo build\nVALUE = 1\n"),
+    ("src/a/Indent.kt", SERVICE),
+  ];
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add files", &files);
+  let head = repo.create_commit_with_files(
+    "Indent",
+    &[
+      ("tools/run.py", "def run():\n    start()\n    stop()\n"),
+      ("tools/defs.bzl", "def run():\n    start()\n    stop()\n"),
+      ("ci/build.yaml", "steps:\n  - run: build\n    name: ci\n"),
+      ("Makefile", "build:\n\tcargo build\n\tVALUE = 1\n"),
+      ("src/a/Indent.kt", &SERVICE.replace("    return 1\n", "      return 1\n")),
+    ],
+  );
+  assert_eq!(
+    mechanical(&repo, &base, &head),
+    [
+      ("Makefile".to_string(), None),
+      ("ci/build.yaml".to_string(), None),
+      ("src/a/Indent.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("tools/defs.bzl".to_string(), None),
+      ("tools/run.py".to_string(), None),
+    ]
+  );
+}
+
 /// A file is mechanical only when every commit that changes it is: an import change and then a change of code is not
 #[test]
 fn a_file_is_mechanical_only_when_every_hunk_of_every_commit_is() {

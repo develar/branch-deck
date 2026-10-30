@@ -253,6 +253,14 @@ right after its subject.
   close, read in the whole file: a line inside a Rust `use a::{` block or a TypeScript `import {` block over several
   lines is a line of an import statement. A `pub use` re-exports, so it is none.
   [@test] ../../crates/review-plan/src/files_test.rs (`a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`)
+- A bracket inside a string, a backtick name or a comment of an import line must not count. A statement whose
+  brackets are still open at a `;`, at the next import line or at the end of the file must count as its first line
+  only, so the code after it stays real work.
+  [@test] ../../crates/review-plan/src/files_test.rs (`an_unclosed_bracket_on_an_import_line_makes_no_import_of_the_code_after_it`)
+- A file whose whitespace has a meaning must never be `whitespace`: Python (`*.py`, `*.pyi`), Starlark (`*.bzl`,
+  `*.star`, `*.bazel`, `BUILD`, `WORKSPACE`), YAML (`*.yml`, `*.yaml`) and Makefiles (`Makefile`, `GNUmakefile`,
+  `*.mk`). Its indent stays real work.
+  [@test] ../../crates/review-plan/src/files_test.rs (`an_indent_where_the_indentation_has_a_meaning_is_no_whitespace_change`)
 - One hunk with an import line and a line of code, a commit that changes code, an added file, and a file without
   text must keep the file out of the mechanical ones.
   [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`, `a_file_is_mechanical_only_when_every_hunk_of_every_commit_is`)
@@ -411,8 +419,10 @@ right after its subject.
   listed.
 - `untested` sees only test files the commits change; a Rust test module inside its file does not count.
 - `breaks` counts the usages of a name at the head, a namesake and a use the commits already updated included.
-- An import statement ends where its brackets close. A bracket inside a string or a comment of the statement counts
-  too, and a Kotlin or Java import has no brackets, so a statement over several lines without brackets is not seen.
+- An import statement ends where its brackets close. A Kotlin or Java import has no brackets, so a statement over
+  several lines without brackets is not seen. A string or a comment over several lines is not seen either.
+- `whitespace` removes the line ends too. In Kotlin, TypeScript or Go, a joined line can change the meaning, and a
+  change of whitespace inside a string literal changes the value. Only the indentation-sensitive files are left out.
 - The text of the hunks is read only up to the size limit of the summaries: a larger file is never `whitespace` or
   `importsOnly`. A Python or Go file is of no known language, so it is never `importsOnly`.
 - The links before the commits read the module roots at the checked out HEAD too: a module the commits add or delete
