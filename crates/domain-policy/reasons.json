@@ -378,5 +378,16 @@
   {
     "code": "mergeHeadBehind",
     "number": 7
+  },
+  {
+    "code": "layerRebased",
+    "branch": "oauth",
+    "number": 9,
+    "target": "master"
+  },
+  {
+    "code": "layerNotLinked",
+    "number": 9,
+    "parent": "login"
   }
 ]

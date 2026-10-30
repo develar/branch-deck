@@ -199,6 +199,7 @@ pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Plan
     notes: Vec::new(),
     subject,
     mode: robot.push_mode,
+    stack_pull_requests: BTreeMap::new(),
   })
 }
 

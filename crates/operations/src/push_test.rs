@@ -1074,3 +1074,80 @@ async fn the_push_of_an_unapplied_branch_reads_no_robots() {
   assert_done(&fixture.execute_on(&alone("alpha", None), Vec::new(), &on_space, Arc::new(NoEvents)).await);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1);
 }
+
+/// A push of a layer of a stack of GitHub links the stack while it is out of line with its chain (`LinkStack`, after the
+/// push, over the open pull requests of the chain), nothing while it is in line; a layer GitHub moved onto the target
+/// after the layers below it merged waits for Update Project (`LayerRebased`) while the branch is still built on them
+#[test]
+fn a_push_of_a_layer_links_its_stack_and_one_github_moved_waits_for_the_update() {
+  use crate::robot::robot_test::Sources;
+  use domain_types::pull_request::{PullRequest, PullRequestStackEntry};
+  use domain_types::reason::Reason;
+  use domain_types::repository_view::RestartAction;
+  use domain_types::session::GitHubLayer;
+  use domain_types::stack::BranchStack;
+  let mut sources = Sources::new(Some("older"), false, Vec::new(), RestartAction::Restart);
+  sources.table.branches[0].stack = Some(BranchStack {
+    declared_parent: Some("root".to_owned()),
+    effective_base: Some("root".to_owned()),
+    ..BranchStack::default()
+  });
+  let chain = vec!["root".to_owned(), "auth".to_owned()];
+  sources.github_layers.insert(
+    "auth".to_owned(),
+    GitHubLayer {
+      chain: chain.clone(),
+      parent: Some("root".to_owned()),
+      creates: Vec::new(),
+    },
+  );
+  let pull_request = |branch: &str, number: u32, base: &str| PullRequest {
+    head_ref_name: format!("user/virtual/{branch}"),
+    base_ref_name: base.to_owned(),
+    ..domain_types::fixtures::pull_request(branch, number)
+  };
+  sources.pull_requests.pull_requests.insert("root".to_owned(), pull_request("root", 5, "master"));
+  sources.pull_requests.pull_requests.insert("auth".to_owned(), pull_request("auth", 7, "user/virtual/root"));
+  let push = PlannedEffect::Push {
+    branches: vec!["auth".to_owned()],
+    force: false,
+  };
+  // a plan whose one effect is the push of auth: a creation's, its effects replaced
+  let base = {
+    use crate::pull_request::pull_request_test::{create, created, pushes};
+    created(&Sources::new(Some("older"), true, Vec::new(), RestartAction::Restart), pushes(&[], None), &create(false))
+  };
+  let planned = || {
+    let mut planned = base.clone();
+    planned.plan.effects = vec![push.clone()];
+    planned
+  };
+  let linked = sources.with(|sources| super::linking_stacks(sources, planned()));
+  assert_eq!(linked.plan.effects, [push.clone(), PlannedEffect::LinkStack { chain }]);
+  assert_eq!(linked.stack_pull_requests.keys().collect::<Vec<_>>(), ["auth", "root"]);
+
+  let entry = |position| PullRequestStackEntry {
+    number: 4,
+    base_ref_name: "master".to_owned(),
+    size: 2,
+    position,
+  };
+  for (branch, position) in [("root", 1), ("auth", 2)] {
+    sources.pull_requests.pull_requests.get_mut(branch).unwrap().stack = Some(entry(position));
+  }
+  let in_line = sources.with(|sources| super::linking_stacks(sources, planned()));
+  assert_eq!((in_line.plan.effects, in_line.plan.blockers), (vec![push.clone()], Vec::new()));
+
+  // the layer below merged: GitHub moved auth's #7 onto master, and auth is still built on root
+  sources.pull_requests.pull_requests.remove("root");
+  sources.pull_requests.pull_requests.get_mut("auth").unwrap().base_ref_name = "master".to_owned();
+  let moved = sources.with(|sources| super::linking_stacks(sources, planned()));
+  assert_eq!(
+    moved.plan.blockers,
+    [Reason::LayerRebased {
+      branch: "auth".to_owned(),
+      number: 7,
+      target: "master".to_owned(),
+    }]
+  );
+}

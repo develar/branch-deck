@@ -176,6 +176,7 @@ impl Fixture {
       stack_pull_request: self.stack_pull_request.as_ref(),
       repository: self.repository,
       lands: self.lands,
+      listed: None,
     }
   }
 

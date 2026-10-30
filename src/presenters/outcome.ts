@@ -88,7 +88,7 @@ function refusedTitle(mode: PatronusPushMode, subject: string, pushInto: string 
  */
 export function pushTargetOf(effects: readonly PlannedEffect[]): string | null {
   for (const effect of effects) {
-    if (effect.kind === "pushBaseline" || effect.kind === "mergePullRequest" || effect.kind === "enableAutoMerge") {
+    if (effect.kind === "pushBaseline" || effect.kind === "mergePullRequest" || effect.kind === "enableAutoMerge" || effect.kind === "mergeStack") {
       return effect.target
     }
   }
@@ -101,7 +101,7 @@ export function pushTargetOf(effects: readonly PlannedEffect[]): string | null {
  * counted them at the start
  */
 function presentMergeOutcome(outcome: Pick<Outcome, "effects">, subject: string, merge: PlannedMerge, commits: number | null): LandToast {
-  const record = outcome.effects.find(it => it.effect.kind === "mergePullRequest" || it.effect.kind === "enableAutoMerge")
+  const record = outcome.effects.find(it => it.effect.kind === "mergePullRequest" || it.effect.kind === "enableAutoMerge" || it.effect.kind === "mergeStack")
   const status = record?.status
   const how = formatMergeMethod(merge.method)
   if (status?.kind === "done" && merge.auto) {

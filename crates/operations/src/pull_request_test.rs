@@ -12,11 +12,12 @@ use domain_types::patronus::{PatronusPushMode, Person, ReviewReadiness, ReviewRe
 use domain_types::pull_request::PullRequest;
 use domain_types::reason::Reason;
 use domain_types::repository_view::RestartAction;
-use domain_types::session::{Fact, FactState, SubjectReadiness};
+use domain_types::session::{Fact, FactState, GitHubLayer, SubjectReadiness};
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake_service};
 use pretty_assertions::assert_eq;
 use repository_model::derive::ActionPushView;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
 
@@ -29,14 +30,14 @@ fn sources(up_to_date: bool) -> Sources {
 }
 
 /// The push of `branches` the button of auth makes (`derive::action_push_of`)
-fn pushes(branches: &[&str], blocker: Option<Reason>) -> ActionPushView {
+pub(crate) fn pushes(branches: &[&str], blocker: Option<Reason>) -> ActionPushView {
   ActionPushView {
     branches: branches.iter().map(|branch| (*branch).to_owned()).collect(),
     blocker,
   }
 }
 
-fn create(on_github: bool) -> CreatePullRequest {
+pub(crate) fn create(on_github: bool) -> CreatePullRequest {
   CreatePullRequest {
     subject: Subject::branch("auth"),
     title: "Add auth".to_owned(),
@@ -47,8 +48,48 @@ fn create(on_github: bool) -> CreatePullRequest {
   }
 }
 
-fn created(sources: &Sources, push: ActionPushView, create: &CreatePullRequest) -> Planned {
+pub(crate) fn created(sources: &Sources, push: ActionPushView, create: &CreatePullRequest) -> Planned {
   sources.with(|sources| create_planned(&PullRequestFacts { sources, push }, create)).unwrap()
+}
+
+/// The creation of the pull request of a layer of a stack of GitHub (docs/design/github-stacks.md) opens the pull
+/// requests of the layers below it that have none first, bottom first, each into the branch below it, the bottom into the
+/// target; its own goes into its parent's branch, and the stack is linked last over the open pull requests of the chain
+#[test]
+fn the_creation_of_a_layer_opens_the_layers_below_it_its_own_into_its_parent_and_links_the_stack() {
+  let mut lagging = sources(false);
+  let open = PullRequest {
+    head_ref_name: "user/virtual/root".to_owned(),
+    ..pull_request("root", 5)
+  };
+  lagging.pull_requests.pull_requests.insert("root".to_owned(), open.clone());
+  let chain = vec!["base".to_owned(), "root".to_owned(), "auth".to_owned()];
+  lagging.github_layers.insert(
+    "auth".to_owned(),
+    GitHubLayer {
+      chain: chain.clone(),
+      parent: Some("root".to_owned()),
+      creates: vec!["base".to_owned()],
+    },
+  );
+  let planned = created(&lagging, pushes(&["auth"], None), &create(false));
+  assert_eq!(
+    planned.plan.effects[1..],
+    [
+      PlannedEffect::CreateLayerPullRequest {
+        branch: "base".to_owned(),
+        base: "master".to_owned(),
+      },
+      PlannedEffect::CreatePullRequest {
+        base: Some("user/virtual/root".to_owned()),
+      },
+      PlannedEffect::LinkStack { chain },
+    ]
+  );
+  assert_eq!(planned.stack_pull_requests, BTreeMap::from([("root".to_owned(), open)]));
+  // "Continue on GitHub" opens the one form: the push and the wait for the mirror, as of any branch
+  let on_github = created(&lagging, pushes(&["auth"], None), &create(true));
+  assert!(matches!(on_github.plan.effects[..], [PlannedEffect::Push { .. }, PlannedEffect::WaitForMirror { .. }]));
 }
 
 /// A creation of a branch its remote lags pushes it first, on the tips it was planned on, then opens the pull request;
@@ -63,7 +104,7 @@ fn a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request() {
     branches: vec!["auth".to_owned()],
     force: false,
   };
-  assert_eq!(planned.plan.effects, [push.clone(), PlannedEffect::CreatePullRequest]);
+  assert_eq!(planned.plan.effects, [push.clone(), PlannedEffect::CreatePullRequest { base: None }]);
   assert_eq!(planned.plan.blockers, [] as [Reason; 0]);
   let refs = [(AUTH.to_owned(), Some(TIP.to_owned())), (AUTH_REMOTE.to_owned(), Some("older".to_owned()))];
   assert_eq!(planned.witness.refs, refs.into_iter().collect());
@@ -75,7 +116,10 @@ fn a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request() {
   assert_eq!(on_github.plan.effects, [push, wait]);
 
   let pushed = sources(true);
-  assert_eq!(created(&pushed, pushes(&[], None), &create(false)).plan.effects, [PlannedEffect::CreatePullRequest]);
+  assert_eq!(
+    created(&pushed, pushes(&[], None), &create(false)).plan.effects,
+    [PlannedEffect::CreatePullRequest { base: None }]
+  );
   assert_eq!(created(&pushed, pushes(&[], None), &create(true)).plan.effects, [] as [PlannedEffect; 0]);
 
   let drops = Reason::DropsRemote {
@@ -273,7 +317,7 @@ fn alpha_planned(fixture: &Fixture, intent: Intent, effects: Vec<PlannedEffect>)
   let refs = if pushes {
     read_refs(&fixture.services.git, &fixture.services.repository_path, &names).unwrap()
   } else {
-    std::collections::BTreeMap::new()
+    BTreeMap::new()
   };
   let number = matches!(intent, Intent::RequestReview { .. }).then_some(7);
   Planned {
@@ -308,6 +352,7 @@ fn alpha_planned(fixture: &Fixture, intent: Intent, effects: Vec<PlannedEffect>)
     notes: Vec::new(),
     subject: Subject::branch("alpha"),
     mode: PatronusPushMode::RebaseAutosquash,
+    stack_pull_requests: BTreeMap::new(),
   }
 }
 
@@ -358,7 +403,7 @@ async fn a_creation_again_finds_the_pull_request_the_search_does_not_list_yet() 
   let exists = json!({"resource": "PullRequest", "code": "custom", "message": "A pull request already exists for acme:test/virtual/alpha."});
   fake.answer("POST", PULLS, FakeAnswer::status(422, json!({"message": "Validation Failed", "errors": [exists]})));
   fake.answer("GET", PULLS, FakeAnswer::ok(json!([alpha_pull_request()])));
-  let planned = alpha_planned(&fixture, alpha_creation(false), vec![PlannedEffect::CreatePullRequest]);
+  let planned = alpha_planned(&fixture, alpha_creation(false), vec![PlannedEffect::CreatePullRequest { base: None }]);
   let (started, told) = run(&fixture, planned).await;
   assert_eq!(started.outcome.effects[0].status, EffectStatus::Done);
   let OperationResult::PullRequest(created) = &started.outcome.result else {
@@ -440,4 +485,81 @@ async fn continue_on_github_pushes_and_waits_until_github_has_the_branch() {
   assert!(fixture.remote_alpha().is_some());
   assert_eq!(writes(&fake), [] as [String; 0]);
   assert_eq!(started.outcome.result, OperationResult::None);
+}
+
+/// The link of a stack of GitHub after the creation of its layers makes the stack of their pull requests, bottom first
+/// (`POST stacks`); GitHub's refusal of it fails the effect and leaves the pull requests as they are
+#[tokio::test(flavor = "multi_thread")]
+async fn the_link_of_a_stack_makes_the_stack_of_its_layers() {
+  let (fixture, fake) = on_github().await;
+  let stacks = "/repos/acme/monorepo/stacks";
+  fake.answer(
+    "POST",
+    stacks,
+    FakeAnswer::status(
+      201,
+      json!({"number": 13, "open": true, "base": {"ref": "master"}, "pull_requests": [{"number": 11}, {"number": 12}]}),
+    ),
+  );
+  let layer = |branch: &str, number: u32, base: &str| PullRequest {
+    head_ref_name: format!("test/virtual/{branch}"),
+    base_ref_name: base.to_owned(),
+    ..pull_request(branch, number)
+  };
+  let mut planned = alpha_planned(
+    &fixture,
+    alpha_creation(false),
+    vec![PlannedEffect::LinkStack {
+      chain: vec!["root".to_owned(), "alpha".to_owned()],
+    }],
+  );
+  planned.stack_pull_requests = BTreeMap::from([
+    ("root".to_owned(), layer("root", 11, "master")),
+    ("alpha".to_owned(), layer("alpha", 12, "test/virtual/root")),
+  ]);
+  let (started, _) = run(&fixture, planned.clone()).await;
+  assert_eq!(started.outcome.effects[0].status, EffectStatus::Done);
+  assert_eq!(writes(&fake), [format!("POST {stacks}")]);
+  let body = fake.requests_to("POST", stacks)[0].json();
+  assert_eq!(body, json!({"pull_requests": [11, 12]}));
+
+  let (fixture, fake) = on_github().await;
+  fake.answer("POST", stacks, FakeAnswer::status(422, json!({"message": "Pull request #12 is already part of a stack"})));
+  let (started, _) = run(&fixture, planned).await;
+  assert!(matches!(started.outcome.effects[0].status, EffectStatus::Failed { .. }), "{:?}", started.outcome.effects);
+}
+
+/// The merge of a piece of a stack of GitHub is the asynchronous merge of its top layer, its result asked until GitHub
+/// merged it: the layer and the layers below it go into the session as merged
+#[tokio::test(flavor = "multi_thread")]
+async fn the_merge_of_a_piece_of_a_stack_asks_its_result_until_github_merged_it() {
+  let (fixture, fake) = on_github().await;
+  let merge = "/repos/acme/monorepo/pulls/12/merge-async";
+  fake.answer(
+    "PUT",
+    merge,
+    FakeAnswer::status(202, json!({"status": "pending", "details": {"uuid": "u1", "message": "Merge request enqueued."}})),
+  );
+  fake.answer(
+    "GET",
+    &format!("{merge}/u1"),
+    FakeAnswer::ok(json!({"status": "merged", "details": {"message": "Pull request was merged.", "sha": "8c0930eb85dd1bb3ee7f19bd69db65f215afe72e"}})),
+  );
+  let head = "1".repeat(40);
+  let planned = alpha_planned(
+    &fixture,
+    alpha_creation(false),
+    vec![PlannedEffect::MergeStack {
+      subject: Subject::branch("alpha"),
+      number: 12,
+      method: domain_types::pull_request::MergeMethod::Rebase,
+      head: head.clone(),
+      target: "master".to_owned(),
+      layers: vec![11],
+    }],
+  );
+  let (started, told) = run(&fixture, planned).await;
+  assert_eq!(started.outcome.effects[0].status, EffectStatus::Done);
+  assert_eq!(fake.requests_to("PUT", merge)[0].json(), json!({"sha": head, "merge_method": "rebase"}));
+  assert_eq!(told.iter().filter(|told| told.starts_with("pull request Merged")).count(), 2, "{told:?}");
 }

@@ -63,10 +63,12 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::MergeChecksRunning { .. } => 46,
     Reason::MergeBlocked { .. } => 47,
     Reason::MergeHeadBehind { .. } => 48,
+    Reason::LayerRebased { .. } => 49,
+    Reason::LayerNotLinked { .. } => 50,
   }
 }
 
-const CODES: usize = 49;
+const CODES: usize = 51;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -270,6 +272,15 @@ fn examples() -> Vec<Reason> {
     Reason::MergeChecksRunning { number: 7 },
     Reason::MergeBlocked { number: 7 },
     Reason::MergeHeadBehind { number: 7 },
+    Reason::LayerRebased {
+      branch: "oauth".to_owned(),
+      number: 9,
+      target: "master".to_owned(),
+    },
+    Reason::LayerNotLinked {
+      number: 9,
+      parent: "login".to_owned(),
+    },
   ]
 }
 

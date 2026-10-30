@@ -28,7 +28,7 @@ use crate::land_session::pull_request_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
 use crate::witness::Witness;
-use domain_policy::pull_request::base_of;
+use domain_policy::pull_request::layer_base_of;
 use domain_policy::reasons::stack_not_built;
 use domain_policy::review::{Candidates, candidates};
 use domain_types::branch_names::{baseline_on_remote, to_final_branch_name};
@@ -293,7 +293,8 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
             .pull_requests
             .get(branch)
             .filter(|pull_request| pull_request.state == PullRequestState::Open)?;
-          matches!(base_of(pull_request, sources.target, sources.prefix), PullRequestBase::Virtual { .. }).then_some((branch, pull_request))
+          let layer_parent = sources.github_layers.get(branch).and_then(|layer| layer.parent.as_deref());
+          matches!(layer_base_of(pull_request, sources.target, sources.prefix, layer_parent), PullRequestBase::Virtual { .. }).then_some((branch, pull_request))
         })
         .collect();
       let mut effects: Vec<PlannedEffect> = retargets
@@ -387,6 +388,7 @@ fn planned(intent: Intent, subject: &Subject, first: PushStep<'_>, mut effects: 
     subject: subject.clone(),
     // no robot: the mode is of none
     mode: PatronusPushMode::RebaseAutosquash,
+    stack_pull_requests: BTreeMap::new(),
   }
 }
 
@@ -394,18 +396,62 @@ fn planned(intent: Intent, subject: &Subject, first: PushStep<'_>, mut effects: 
 /// work of it (`push_step`: the retargets, the push), then the creation (`PlannedEffect::CreatePullRequest`), or with
 /// `on_github` the wait until GitHub has the pushed branch (`PlannedEffect::WaitForMirror`, none without a push: GitHub
 /// has what the remote has). A pull request GitHub already has of the head is found by the creation (`created: false`),
-/// never refused here: the listing may lag. `None` for a subject the table lacks
+/// never refused here: the listing may lag. Of a layer of a stack of GitHub (`LandSources::github_layers`) the pull
+/// requests of the layers below it that have none come first, bottom first, each into the branch below it
+/// (`CreateLayerPullRequest`), its own goes into its parent's branch, and the stack of GitHub is linked last
+/// (`LinkStack`). `None` for a subject the table lacks
 #[must_use]
 pub fn create_planned(facts: &PullRequestFacts<'_, '_>, create: &CreatePullRequest) -> Option<Planned> {
   let first = push_step(facts, &create.subject)?;
   let blockers: Vec<Reason> = first.blocker.iter().cloned().collect();
   let pushes = !first.pushes.is_empty();
-  let then = match (create.on_github, pushes) {
-    (false, _) => vec![PlannedEffect::CreatePullRequest],
-    (true, true) => vec![PlannedEffect::WaitForMirror { branch: first.head.clone() }],
-    (true, false) => Vec::new(),
+  let sources = facts.sources;
+  let layer = match &create.subject {
+    Subject::Branch { name } => sources.github_layers.get(name),
+    Subject::WholeStack { .. } => None,
   };
-  Some(planned(Intent::CreatePullRequest(create.clone()), &create.subject, first, then, blockers, &[]))
+  let full = |branch: &str| to_final_branch_name(sources.prefix, branch).ok();
+  let then = match (create.on_github, pushes, layer) {
+    (false, _, None) => vec![PlannedEffect::CreatePullRequest { base: None }],
+    (false, _, Some(layer)) => {
+      let base_of_layer = |branch: &str| {
+        let at = layer.chain.iter().position(|name| name == branch)?;
+        match at.checked_sub(1) {
+          None => Some(sources.target.to_owned()),
+          Some(below) => full(&layer.chain[below]),
+        }
+      };
+      let mut effects: Vec<PlannedEffect> = layer
+        .creates
+        .iter()
+        .filter_map(|branch| {
+          Some(PlannedEffect::CreateLayerPullRequest {
+            branch: branch.clone(),
+            base: base_of_layer(branch)?,
+          })
+        })
+        .collect();
+      effects.push(PlannedEffect::CreatePullRequest {
+        base: layer.parent.as_deref().and_then(full),
+      });
+      effects.push(PlannedEffect::LinkStack { chain: layer.chain.clone() });
+      effects
+    }
+    (true, true, _) => vec![PlannedEffect::WaitForMirror { branch: first.head.clone() }],
+    (true, false, _) => Vec::new(),
+  };
+  let mut planned = planned(Intent::CreatePullRequest(create.clone()), &create.subject, first, then, blockers, &[]);
+  if let Some(layer) = layer {
+    planned.stack_pull_requests = layer
+      .chain
+      .iter()
+      .filter_map(|branch| {
+        let pull_request = sources.pull_requests.pull_requests.get(branch)?;
+        (pull_request.state == PullRequestState::Open).then(|| (branch.clone(), pull_request.clone()))
+      })
+      .collect();
+  }
+  Some(planned)
 }
 
 /// The open pull request of `subject` (of its branch, or of the stack branch of its whole stack) among `facts`
@@ -613,4 +659,4 @@ pub async fn execute_pull_request(registry: &Registry, key: &SessionKey, intent:
 
 #[cfg(test)]
 #[path = "pull_request_test.rs"]
-mod pull_request_test;
+pub(crate) mod pull_request_test;

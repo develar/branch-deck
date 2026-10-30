@@ -56,10 +56,13 @@ The specs are the contract of each part:
 
 ### Key Decisions
 
-- **The target is always master.** Branch Deck never starts a robot into another branch and never opens a pull
-  request into a virtual branch.
+- **Every piece lands into master.** Branch Deck never starts a robot into another branch. On the route of Patronus
+  it never opens a pull request into a virtual branch; elsewhere the layers of a stack of GitHub go into their
+  parents' branches, judged by the rules of master and merged into master with the layers below them
+  ([Stacks of GitHub](github-stacks.md)).
   - *Rationale:* Patronus merges a pull request into its base and counts only the approvals of the pull request that
-    started the robot. A pull request into a parent's branch can never land and its approvals never count.
+    started the robot. A pull request into a parent's branch outside a stack of GitHub can never land and its
+    approvals never count.
 - **One robot per piece, not per branch.** A stacked branch lands root..branch in one robot.
   - *Rationale:* a robot takes hours. Landing root first means one robot per branch. Each landing also rebuilds the
     children on master and force-pushes them, which dismisses their approvals.
@@ -389,7 +392,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
   - *Why not:* Patronus doesn't count their approvals and can't start from them, so every landing goes through the API
     without approvals, or waits for retargets after each parent lands. GitHub's own stacks, whose layers master's
     rules judge and whose merge lands a piece in one move, are the design of the routes without Patronus:
-    [Stacks of GitHub](github-stacks.md) (Draft).
+    [Stacks of GitHub](github-stacks.md).
 - **Root first: the Safe Push of a child leads to the Safe Push of its root.** Each branch lands after the one it is
   built on, its own start a muted alternative.
   - *Why not:* one robot per branch, hours each, and each landing rebuilds the children on master and force-pushes

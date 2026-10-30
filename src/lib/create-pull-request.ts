@@ -1,4 +1,4 @@
-import type { CreatedPullRequest, GitHubUser, PatronusReviewRequirement } from "@/lib/bindings"
+import type { CreatedPullRequest, GitHubLayer, GitHubUser, PatronusReviewRequirement } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
@@ -80,6 +80,17 @@ export interface PullRequestIncludes {
 export function formatPullRequestIncludes(branchName: string, includes: PullRequestIncludes): string {
   const count = formatBranchesAndCommits(includes.ancestors.length + 1, includes.commitCount)
   return `Includes the commits of ${joinNames(includes.ancestors)}, which ${branchName} is built on: ${count}`
+}
+
+/**
+ * What the pull request of a layer of a stack of GitHub (`GitHubLayer`, as Rust decides it) is, under the title: "A
+ * layer of the GitHub stack auth → login → oauth: it shows only the commits of oauth, into login. Also creates the pull
+ * requests of auth and login." ([Stacks of GitHub](docs/design/github-stacks.md))
+ */
+export function formatGitHubLayer(branchName: string, layer: GitHubLayer): string {
+  const into = layer.parent === null ? "" : `, into ${layer.parent}`
+  const creates = layer.creates.length === 0 ? "" : ` Also creates the pull ${layer.creates.length === 1 ? "request" : "requests"} of ${joinNames(layer.creates)}.`
+  return `A layer of the GitHub stack ${layer.chain.join(" → ")}: it shows only the commits of ${branchName}${into}.${creates}`
 }
 
 /**

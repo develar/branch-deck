@@ -64,6 +64,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     actions = { ...withoutKeys(actions, changes.removedActions ?? []), ...changes.actions }
   }
   const attention = keyed(view.attention, changes.attention, changes.removedAttention)
+  const githubLayers = keyed(view.githubLayers ?? {}, changes.githubLayers, changes.removedGithubLayers)
   const operations = keyed(view.operations, changes.operations, changes.removedOperations)
   const sections = view.sections
   const archived = changes.archived
@@ -82,6 +83,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     nextSteps,
     actions,
     attention,
+    githubLayers,
     operations,
     // null: the session offers no Undo now
     undo: changes.undo === undefined ? view.undo : changes.undo,

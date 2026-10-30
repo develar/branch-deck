@@ -10,7 +10,8 @@ use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobotStatus, PatronusStartOptions};
 use domain_types::pull_request::{
-  ChecksState, ChecksSummary, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestState, ReviewDecision, Reviewer, ReviewerState,
+  ChecksState, ChecksSummary, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState, ReviewDecision, Reviewer,
+  ReviewerState,
 };
 use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState, Parked, PullRequestsView};
@@ -673,4 +674,104 @@ fn the_update_follows_a_merge_of_the_pull_request_and_no_auto_merge() {
     target: "master".to_string(),
   };
   assert_eq!(update_after(&ran(auto, EffectStatus::Done)), None);
+}
+
+/// login as the layer #7 of a stack of GitHub above auth's #6 into master (`stack` 4), both on the tips of their copies;
+/// `auth` is auth's pull request as GitHub lists it
+fn stacked_world(auth: PullRequest) -> World {
+  let entry = |position| PullRequestStackEntry {
+    number: 4,
+    base_ref_name: "master".to_owned(),
+    size: 2,
+    position,
+  };
+  let login = PullRequest {
+    base_ref_name: "user/virtual/auth".to_owned(),
+    stack: Some(entry(2)),
+    ..merging(MergeStateStatus::Clean)
+  };
+  let auth = PullRequest { stack: Some(entry(1)), ..auth };
+  let mut pull_requests = listed(&[("auth", auth), ("login", login)]);
+  pull_requests.merge_methods = Some(ALL_METHODS);
+  World { pull_requests, ..world() }
+}
+
+/// The open #6 of auth, the layer below, with GitHub's `mergeStateStatus` `state`
+fn below(state: MergeStateStatus) -> PullRequest {
+  PullRequest {
+    merge_state: Some(state),
+    ..passing(pull_request("auth", 6))
+  }
+}
+
+/// A layer of a stack of GitHub merges with the layers below it in one asynchronous merge of its own pull request
+/// (docs/design/github-stacks.md): a piece in one move; the first layer below a merge can't take holds it by that
+/// layer's number, and no auto-merge is offered a stack
+#[test]
+fn a_layer_of_a_stack_merges_with_the_layers_below_it_and_the_first_one_that_cant_holds_it() {
+  let safe_push = land(PatronusPushMode::RebaseAutosquash);
+  let decision = stacked_world(below(MergeStateStatus::Clean)).merge(OPEN, &safe_push);
+  assert_eq!(
+    decision.effects,
+    vec![PlannedEffect::MergeStack {
+      subject: Subject::branch("login"),
+      number: 7,
+      method: MergeMethod::Rebase,
+      head: "login-tip".to_string(),
+      target: "master".to_string(),
+      layers: vec![6],
+    }]
+  );
+  assert_eq!(decision.pull_request, Some(7));
+
+  let mut approvals = below(MergeStateStatus::Blocked);
+  approvals.review_decision = Some(ReviewDecision::ReviewRequired);
+  assert_eq!(stacked_world(approvals).merge(OPEN, &safe_push).blockers, vec![Reason::MergeNeedsApprovals { number: 6 }]);
+  assert_eq!(
+    stacked_world(below(MergeStateStatus::Dirty)).merge(OPEN, &safe_push).blockers,
+    vec![Reason::MergeConflict { number: 6 }]
+  );
+  // GitHub has not computed the layer below: a wait, never "no"
+  let unknown = stacked_world(below(MergeStateStatus::Unknown)).merge(OPEN, &safe_push);
+  assert_eq!((unknown.blockers, unknown.effects), (Vec::new(), Vec::new()));
+  assert_eq!(
+    unknown.waits,
+    vec![FactWait {
+      fact: LandFact::MergeState { number: 6 },
+      failed: None
+    }]
+  );
+
+  // required checks that still run hold a stack: GitHub has no auto-merge of one
+  let mut running = merging(MergeStateStatus::Blocked);
+  running.checks = Some(ChecksSummary {
+    state: ChecksState::Pending,
+    passed: 0,
+    failed: 0,
+    pending: 1,
+    failed_names: Vec::new(),
+  });
+  let mut world = stacked_world(below(MergeStateStatus::Clean));
+  let login = world.pull_requests.pull_requests.get_mut("login").unwrap();
+  login.merge_state = running.merge_state;
+  login.checks = running.checks;
+  assert_eq!(world.merge(OPEN, &safe_push).blockers, vec![Reason::MergeChecksRunning { number: 7 }]);
+}
+
+/// A pull request into the branch of the layer below that GitHub lists in no stack would merge into that branch: its
+/// merge is refused until the stack is linked
+#[test]
+fn a_layer_outside_a_stack_is_not_merged() {
+  let safe_push = land(PatronusPushMode::RebaseAutosquash);
+  let mut world = stacked_world(below(MergeStateStatus::Clean));
+  world.pull_requests.pull_requests.get_mut("login").unwrap().stack = None;
+  // a pull request into a virtual branch outside a stack is retargeted to the target, as any such
+  assert_eq!(
+    world.merge(OPEN, &safe_push).blockers,
+    vec![Reason::OtherBase {
+      number: 7,
+      base: "auth".to_owned(),
+      target: "master".to_owned(),
+    }]
+  );
 }

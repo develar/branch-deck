@@ -2904,6 +2904,22 @@ export type GitHubAuthStatus = {
 	manageUrl: string | null,
 };
 
+/**  A branch as a layer of a stack of GitHub (`RepositoryView::github_layers`) */
+export type GitHubLayer = {
+	/**  The branches of the stack of GitHub, bottom first, this one among them */
+	chain: string[],
+	/**
+	 *  The branch below it, whose branch its pull request goes into; `None` for the bottom, whose pull request goes into
+	 *  the target
+	 */
+	parent: string | null,
+	/**
+	 *  The branches below it without an open pull request, bottom first: the creation of its pull request creates theirs
+	 *  too, as a stack of GitHub has a pull request on every layer
+	 */
+	creates: string[],
+};
+
 /**  Where `resolve_github_repository` found the GitHub repository */
 export type GitHubRepositorySource = 
 /**  `branchdeck.githubRepository` */
@@ -4651,8 +4667,23 @@ export type PlannedEffect =
 { kind: "push"; branches: string[]; force: boolean } | 
 /**  The robot starts */
 { kind: "startRobot"; route: StartRoute } | 
-/**  The pull request of the subject is opened, where the code owners approve (none is open) */
-{ kind: "createPullRequest" } | 
+/**
+ *  The pull request of the subject is opened, where the code owners approve (none is open): into `base`, the branch of
+ *  the layer below it in a stack of GitHub, else (`None`) into the target
+ */
+{ kind: "createPullRequest"; base?: string | null } | 
+/**
+ *  The pull request of `branch`, a branch below the subject in its stack of GitHub that has none, is opened into `base`
+ *  (the branch of the layer below it, the target for the bottom), its text of its own commits: a stack of GitHub has a
+ *  pull request on every layer
+ */
+{ kind: "createLayerPullRequest"; branch: string; base: string } | 
+/**
+ *  The stack of GitHub of `chain` (its branches, bottom first) is brought in line with it
+ *  (`domain_policy::github_stack::stack_writes` over its open pull requests as the run left them): the unstacks, the
+ *  retargets, then the create or the add
+ */
+{ kind: "linkStack"; chain: string[] } | 
 /**  The robot is restarted (`Intent::RestartRobot`): Patronus starts it again on the newest commit of its remote branch */
 { kind: "restartRobot"; robotId: string } | 
 /**
@@ -4712,6 +4743,13 @@ export type PlannedEffect =
  *  lands by a merge of the pull request (`domain_policy::land_direct`)
  */
 { kind: "mergePullRequest"; subject: Subject; number: number; method: MergeMethod; head: string; target: string } | 
+/**
+ *  GitHub merges the open pull request `number` of `subject`, a layer of a stack of GitHub, into `target` by `method`
+ *  with the layers below it (`layers`, bottom first), in one asynchronous merge while its head is `head`
+ *  (`merge-async`, which the legacy merge can't do for a stack); its result is asked until GitHub merged it, queued it
+ *  or refused it
+ */
+{ kind: "mergeStack"; subject: Subject; number: number; method: MergeMethod; head: string; target: string; layers: number[] } | 
 /**
  *  GitHub merges the open pull request `number` of `subject` into `target` by `method` once its checks pass
  *  (auto-merge), while its head is `head`: after the push before it, which restarts the checks, or while they still run
@@ -4871,7 +4909,13 @@ export type PullRequestBase =
  */
 { kind: "virtual"; from: string; retarget: string } | 
 /**  Into another base (a release branch), which may be meant: its approvals count only for a Safe Push into `base` */
-{ kind: "other"; base: string };
+{ kind: "other"; base: string } | 
+/**
+ *  A layer of a stack of GitHub into the target: into the virtual branch of `parent`, the layer below it, judged by the
+ *  rules of the target and merged with every layer below it (docs/design/github-stacks.md); never retargeted, GitHub
+ *  refuses the retarget of a member
+ */
+{ kind: "layer"; parent: string };
 
 /**  A field of a pull request an operation writes */
 export type PullRequestField = "base" | "reviewers" | 
@@ -5253,7 +5297,18 @@ export type Reason =
  *  The open pull request `number` shows another commit than its branch, and the repository allows no auto-merge, which
  *  would wait for the checks of the pushed commit: the push of the branch first
  */
-{ code: "mergeHeadBehind"; number: number };
+{ code: "mergeHeadBehind"; number: number } | 
+/**
+ *  The layers below `branch` in its stack of GitHub merged, and GitHub moved its pull request `number` onto `target`
+ *  with copies of its commits there; the branch is still built on what merged, so a push would put that back: Update
+ *  Project first, which builds it on `target`
+ */
+{ code: "layerRebased"; branch: string; number: number; target: string } | 
+/**
+ *  The open pull request `number` goes into the branch of `parent`, the layer below it, and GitHub lists it in no stack
+ *  yet: a merge now would merge it into that branch, not the target; the link of the stack first
+ */
+{ code: "layerNotLinked"; number: number; parent: string };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";
@@ -5498,6 +5553,12 @@ export type RepositoryView = {
 	 *  subject. The landing overview, Attention and the Dock badge count them; none before the first sync
 	 */
 	attention: { [key in string]: RobotAttention },
+	/**
+	 *  The branches that are layers of a stack of GitHub on a route without Patronus, by name, as
+	 *  `domain_policy::github_stack::chain_of` decides them over the table, what landed and the listing: the pull request
+	 *  of each goes into the branch of the one below it (docs/design/github-stacks.md); none on a route of Patronus
+	 */
+	githubLayers?: { [key in string]: GitHubLayer },
 	/**  The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them */
 	operations: { [key in OperationId]: RunningOperation },
 	/**
@@ -7248,6 +7309,8 @@ export type TableChanges = {
 	removedActions?: string[],
 	attention?: { [key in string]: RobotAttention },
 	removedAttention?: string[],
+	githubLayers?: { [key in string]: GitHubLayer },
+	removedGithubLayers?: string[],
 	operations?: { [key in OperationId]: RunningOperation },
 	removedOperations?: OperationId[],
 	/**  The rewrite whose Undo the session offers now, `null` for none; absent when it did not change */

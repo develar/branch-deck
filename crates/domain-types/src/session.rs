@@ -415,6 +415,11 @@ pub struct RepositoryView {
   /// decides it over the rows as they are and the robots: it failed on the subject as it is and nothing else holds the
   /// subject. The landing overview, Attention and the Dock badge count them; none before the first sync
   pub attention: BTreeMap<String, RobotAttention>,
+  /// The branches that are layers of a stack of GitHub on a route without Patronus, by name, as
+  /// `domain_policy::github_stack::chain_of` decides them over the table, what landed and the listing: the pull request
+  /// of each goes into the branch of the one below it (docs/design/github-stacks.md); none on a route of Patronus
+  #[serde(default)]
+  pub github_layers: BTreeMap<String, GitHubLayer>,
   /// The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them
   pub operations: BTreeMap<OperationId, RunningOperation>,
   /// The rewrite of this process whose Undo the session offers, by the operation its outcome named (`Outcome::undo`):
@@ -437,6 +442,21 @@ pub struct RepositoryView {
   /// The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
   /// that its first view had already
   pub news: Vec<News>,
+}
+
+/// A branch as a layer of a stack of GitHub (`RepositoryView::github_layers`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubLayer {
+  /// The branches of the stack of GitHub, bottom first, this one among them
+  pub chain: Vec<String>,
+  /// The branch below it, whose branch its pull request goes into; `None` for the bottom, whose pull request goes into
+  /// the target
+  pub parent: Option<String>,
+  /// The branches below it without an open pull request, bottom first: the creation of its pull request creates theirs
+  /// too, as a stack of GitHub has a pull request on every layer
+  pub creates: Vec<String>,
 }
 
 /// The robot of a subject that needs the user (`RepositoryView::attention`)
@@ -1239,6 +1259,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_attention: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub github_layers: BTreeMap<String, GitHubLayer>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_github_layers: Vec<String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub operations: BTreeMap<OperationId, RunningOperation>,

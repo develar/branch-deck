@@ -523,7 +523,7 @@ fn start_of<'a>(args: &LandArgs, synced: &'a SyncOutput, whole: Option<&WholeSta
 fn pushed_tip(plan: &Plan) -> Option<&str> {
   plan.effects.iter().find_map(|effect| match effect {
     PlannedEffect::PushBaseline { tip, .. } => Some(tip.as_str()),
-    PlannedEffect::MergePullRequest { head, .. } | PlannedEffect::EnableAutoMerge { head, .. } => Some(head.as_str()),
+    PlannedEffect::MergePullRequest { head, .. } | PlannedEffect::EnableAutoMerge { head, .. } | PlannedEffect::MergeStack { head, .. } => Some(head.as_str()),
     _ => None,
   })
 }

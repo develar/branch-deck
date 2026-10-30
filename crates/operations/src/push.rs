@@ -25,7 +25,8 @@ use crate::land_session::push_start;
 use crate::registry::{Answer, OperationRequest, Registry, Stepper};
 use crate::witness::Witness;
 use anyhow::Result;
-use domain_policy::pull_request::base_of;
+use domain_policy::github_stack::{rebased_by_github, stack_writes};
+use domain_policy::pull_request::layer_base_of;
 use domain_policy::push::{PushPlan as PolicyPlan, PushScope as PlanScope, PushState, Verdict, action_push, push_plan, verdict};
 use domain_policy::reasons::stack_not_built;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
@@ -166,14 +167,79 @@ pub fn push_planned(state: &TableState, facts: &FactStore, prefix: &str, push: &
       },
       CheckedHolds::holds,
     );
-    match (&push.subject, &push.scope) {
+    let planned = match (&push.subject, &push.scope) {
       (Subject::Branch { name }, PushScope::Alone) => alone_planned(state, facts, sources, holds, name, push, expect),
       (Subject::Branch { name }, PushScope::WithAncestors | PushScope::WithChildren | PushScope::UpTo { .. }) => stack_planned(state, facts, sources, holds, name, push, expect),
       (Subject::WholeStack { root }, PushScope::Alone) => whole_stack_planned(state, sources, holds, root, push, expect),
       (_, PushScope::Unapplied) | (Subject::WholeStack { .. }, _) => None,
-    }
+    };
+    planned.map(|planned| linking_stacks(sources, planned))
   })
   .flatten()
+}
+
+/// `planned` with the link of the stack of GitHub of each branch it pushes that is a layer of one (`LinkStack`, last),
+/// while the stack is out of line with its chain (`domain_policy::github_stack::stack_writes`), and the open pull requests
+/// of those chains its run links over
+fn linking_stacks(sources: &LandSources<'_>, mut planned: Planned) -> Planned {
+  let pushed: Vec<&String> = planned
+    .plan
+    .effects
+    .iter()
+    .filter_map(|effect| match effect {
+      PlannedEffect::Push { branches, .. } => Some(branches),
+      _ => None,
+    })
+    .flatten()
+    .collect();
+  let open = |branch: &str| {
+    sources
+      .pull_requests
+      .pull_requests
+      .get(branch)
+      .filter(|pull_request| pull_request.state == PullRequestState::Open)
+  };
+  let pushed_names: Vec<String> = pushed.iter().map(|branch| (*branch).clone()).collect();
+  let mut chains: Vec<&Vec<String>> = Vec::new();
+  for branch in pushed {
+    if let Some(layer) = sources.github_layers.get(branch.as_str())
+      && !chains.contains(&&layer.chain)
+    {
+      chains.push(&layer.chain);
+    }
+  }
+  let mut linked = false;
+  // a layer GitHub moved onto the target waits for the update that builds it there
+  for branch in &pushed_names {
+    let effective_base = sources
+      .table
+      .branch(branch)
+      .and_then(|info| info.stack.as_ref())
+      .and_then(|stack| stack.effective_base.as_deref());
+    if let Some(reason) = open(branch).and_then(|pull_request| rebased_by_github(branch, pull_request, effective_base, sources.target))
+      && !planned.plan.blockers.contains(&reason)
+    {
+      planned.plan.blockers.push(reason);
+      linked = true;
+    }
+  }
+  for chain in chains {
+    let names: Vec<&str> = chain.iter().map(String::as_str).collect();
+    if stack_writes(&names, open, sources.target, sources.prefix).is_empty() {
+      continue;
+    }
+    planned.plan.effects.push(PlannedEffect::LinkStack { chain: chain.clone() });
+    for branch in chain {
+      if let Some(pull_request) = open(branch) {
+        planned.stack_pull_requests.insert(branch.clone(), pull_request.clone());
+      }
+    }
+    linked = true;
+  }
+  if linked {
+    planned.plan.fingerprint = planned.witness.fingerprint(&planned.plan);
+  }
+  planned
 }
 
 /// A branch a push of a stack sends (`covered`)
@@ -413,12 +479,14 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
 /// The open pull request of `branch` that goes into a virtual branch: a push retargets it into the target first, where
 /// every pull request of a virtual branch goes (D3a)
 fn virtual_pull_request<'a>(sources: &LandSources<'a>, branch: &str) -> Option<&'a PullRequest> {
+  // a layer of a stack of GitHub goes into its parent's branch, linked or not yet
+  let layer_parent = sources.github_layers.get(branch).and_then(|layer| layer.parent.as_deref());
   sources
     .pull_requests
     .pull_requests
     .get(branch)
     .filter(|pull_request| !sources.target.is_empty() && pull_request.state == PullRequestState::Open)
-    .filter(|pull_request| matches!(base_of(pull_request, sources.target, sources.prefix), PullRequestBase::Virtual { .. }))
+    .filter(|pull_request| matches!(layer_base_of(pull_request, sources.target, sources.prefix, layer_parent), PullRequestBase::Virtual { .. }))
 }
 
 /// The plan of a push of a stack with its witness, fingerprinted
@@ -453,6 +521,7 @@ fn push_plan_of(
     notes: Vec::new(),
     subject: push.subject.clone(),
     mode: PatronusPushMode::RebaseAutosquash,
+    stack_pull_requests: BTreeMap::new(),
   }
 }
 
@@ -467,7 +536,7 @@ pub fn push_together(plans: Vec<Planned>, order: &[&str]) -> Option<Planned> {
   let mut plans = plans.into_iter();
   let mut together = plans.next()?;
   let rest: Vec<Planned> = plans.collect();
-  let (mut retargets, mut cancels, mut restarts) = (Vec::new(), Vec::new(), Vec::new());
+  let (mut retargets, mut cancels, mut restarts, mut links) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
   let mut force = false;
   for planned in std::iter::once(&together).chain(&rest) {
     for effect in &planned.plan.effects {
@@ -478,6 +547,7 @@ pub fn push_together(plans: Vec<Planned>, order: &[&str]) -> Option<Planned> {
         }
         PlannedEffect::CancelRobot { .. } => (!cancels.contains(effect)).then_some(&mut cancels),
         PlannedEffect::RestartRobot { .. } => (!restarts.contains(effect)).then_some(&mut restarts),
+        PlannedEffect::LinkStack { .. } => (!links.contains(effect)).then_some(&mut links),
         PlannedEffect::Push { force: forced, .. } => {
           force |= forced;
           None
@@ -507,8 +577,15 @@ pub fn push_together(plans: Vec<Planned>, order: &[&str]) -> Option<Planned> {
     effects.push(PlannedEffect::Push { branches, force });
   }
   effects.extend(restarts);
+  effects.extend(links);
   for planned in rest {
-    let Planned { plan, witness, .. } = planned;
+    let Planned {
+      plan,
+      witness,
+      stack_pull_requests,
+      ..
+    } = planned;
+    together.stack_pull_requests.extend(stack_pull_requests);
     together.witness.refs.extend(witness.refs);
     together.witness.leases.extend(witness.leases);
     together.witness.pull_requests.extend(witness.pull_requests);
@@ -710,6 +787,7 @@ impl PushPlan<'_> {
       notes: Vec::new(),
       subject: self.push.subject.clone(),
       mode: self.robot.map_or(PatronusPushMode::RebaseAutosquash, |robot| robot.push_mode),
+      stack_pull_requests: BTreeMap::new(),
     }
   }
 }

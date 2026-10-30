@@ -25,6 +25,7 @@ export function useCreatePullRequestContext(branch: Branch): CreatePullRequestCo
     patronusAvailable,
     review: usePatronusReviewRequirement(branch.name, patronusAvailable).state,
     withoutReview: nextStep === null ? null : getSafePushWithoutReviewItem(branch, nextStep),
+    layer: useBranchSync(state => state.githubLayers[branch.name] ?? null),
   })
 }
 
@@ -41,6 +42,7 @@ export function getCreatePullRequestContext(branch: Branch): CreatePullRequestCo
     patronusAvailable: isPatronusAvailable(),
     review: getReviewRequirementState(branch.name),
     withoutReview: getSafePushWithoutReviewItem(branch),
+    layer: branchSyncStore.getState().githubLayers[branch.name] ?? null,
   })
 }
 

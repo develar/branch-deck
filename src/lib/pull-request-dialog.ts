@@ -3,10 +3,10 @@
 // link of the window; what it sends to create the pull request (`CreatePullRequestInput`). The creation itself is the
 // intent of the engine (`pull-request-run.ts`).
 import type { ReviewRequirementState } from "@/hooks/usePatronusReviewRequirement"
-import type { PullRequest, PullRequestAvailability, StackMemberSubjects } from "@/lib/bindings"
+import type { GitHubLayer, PullRequest, PullRequestAvailability, StackMemberSubjects } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import type { PullRequestIncludes } from "@/lib/create-pull-request"
-import { formatPullRequestIncludes } from "@/lib/create-pull-request"
+import { formatGitHubLayer, formatPullRequestIncludes } from "@/lib/create-pull-request"
 import type { MenuItem } from "@/lib/menu"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { getBranchesGitHubRepository } from "@/lib/pull-request-now"
@@ -41,7 +41,10 @@ export interface CreatePullRequestContext {
   readonly wholeStack: { readonly members: readonly StackMemberSubjects[] } | null
   /** The remote branch, as GitHub takes it */
   readonly head: string
-  /** The base: the baseline as the remote names it (`master`), for every branch, stacked or not */
+  /**
+   * The base: the baseline as the remote names it (`master`); of a layer of a stack of GitHub the remote branch of the
+   * layer below it (`user/virtual/login`)
+   */
   readonly base: string
   /**
    * The remote branches of the branches it is built on, root first (`user/virtual/auth`): the text of the pull request
@@ -78,6 +81,8 @@ export interface CreatePullRequestFacts {
   readonly availability: PullRequestAvailability | null
   readonly patronusAvailable: boolean
   readonly review: ReviewRequirementState
+  /** The branch as a layer of a stack of GitHub (`BranchSyncState.githubLayers`, as Rust decides it); null for none */
+  readonly layer: GitHubLayer | null
   readonly withoutReview: MenuItem | null
 }
 
@@ -86,17 +91,23 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
   const ancestors = getStackAncestors(branch.name).flatMap(name => getBranch(name) ?? [])
   const existing = facts.pullRequest !== undefined && facts.pullRequest.state !== "closed" ? facts.pullRequest : null
   const withoutReview = facts.withoutReview
-  const includes = ancestors.length === 0 ? null : { ancestors: ancestors.map(it => it.name), commitCount: ancestors.reduce((sum, it) => sum + it.commitCount, branch.commitCount) }
+  // a layer of a stack of GitHub shows only its own commits, against the branch below it
+  const layer = facts.layer
+  const includes =
+    ancestors.length === 0 || layer !== null
+      ? null
+      : { ancestors: ancestors.map(it => it.name), commitCount: ancestors.reduce((sum, it) => sum + it.commitCount, branch.commitCount) }
+  const includesText = layer !== null ? formatGitHubLayer(branch.name, layer) : includes === null ? null : formatPullRequestIncludes(branch.name, includes)
   return {
     repositoryPath: facts.repositoryPath,
     branchName: branch.name,
     label: branch.name,
     wholeStack: null,
     head,
-    base: pullRequestBaseOf(facts.baselineBranch),
-    stackAncestors: ancestors.map(it => getFullBranchName(it.name)),
+    base: layer?.parent == null ? pullRequestBaseOf(facts.baselineBranch) : getFullBranchName(layer.parent),
+    stackAncestors: layer === null ? ancestors.map(it => getFullBranchName(it.name)) : [],
     includes,
-    includesText: includes === null ? null : formatPullRequestIncludes(branch.name, includes),
+    includesText,
     newPullRequestBlocker: formatNewPullRequestBlocker(branch.name, existing),
     existing,
     availability: facts.availability,

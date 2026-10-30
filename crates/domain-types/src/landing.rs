@@ -439,8 +439,21 @@ pub enum PlannedEffect {
   Push { branches: Vec<String>, force: bool },
   /// The robot starts
   StartRobot { route: StartRoute },
-  /// The pull request of the subject is opened, where the code owners approve (none is open)
-  CreatePullRequest,
+  /// The pull request of the subject is opened, where the code owners approve (none is open): into `base`, the branch of
+  /// the layer below it in a stack of GitHub, else (`None`) into the target
+  CreatePullRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    base: Option<String>,
+  },
+  /// The pull request of `branch`, a branch below the subject in its stack of GitHub that has none, is opened into `base`
+  /// (the branch of the layer below it, the target for the bottom), its text of its own commits: a stack of GitHub has a
+  /// pull request on every layer
+  CreateLayerPullRequest { branch: String, base: String },
+  /// The stack of GitHub of `chain` (its branches, bottom first) is brought in line with it
+  /// (`domain_policy::github_stack::stack_writes` over its open pull requests as the run left them): the unstacks, the
+  /// retargets, then the create or the add
+  LinkStack { chain: Vec<String> },
   /// The robot is restarted (`Intent::RestartRobot`): Patronus starts it again on the newest commit of its remote branch
   RestartRobot { robot_id: String },
   /// GitHub has the pushed branch `branch` (without `refs/heads/`): a mirror copies it a moment after the push, and
@@ -487,6 +500,18 @@ pub enum PlannedEffect {
     method: MergeMethod,
     head: String,
     target: String,
+  },
+  /// GitHub merges the open pull request `number` of `subject`, a layer of a stack of GitHub, into `target` by `method`
+  /// with the layers below it (`layers`, bottom first), in one asynchronous merge while its head is `head`
+  /// (`merge-async`, which the legacy merge can't do for a stack); its result is asked until GitHub merged it, queued it
+  /// or refused it
+  MergeStack {
+    subject: Subject,
+    number: u32,
+    method: MergeMethod,
+    head: String,
+    target: String,
+    layers: Vec<u32>,
   },
   /// GitHub merges the open pull request `number` of `subject` into `target` by `method` once its checks pass
   /// (auto-merge), while its head is `head`: after the push before it, which restarts the checks, or while they still run

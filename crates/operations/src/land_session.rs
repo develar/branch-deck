@@ -28,6 +28,7 @@ use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, LockWai
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
+use remote_facts::pull_request_create::{GetNewPullRequestParams, new_pull_request};
 use remote_facts::service_sources::ServiceHost;
 use repository_model::derive::{StartChecks, landing_route_of, with_checked_land_sources};
 use repository_model::facts::BaselineRefusal;
@@ -268,6 +269,23 @@ impl StartHost for SessionStart {
 
   fn baseline_fetched(&self) {
     drop(self.sessions.sync(&self.key, SyncReason::AfterRewrite));
+  }
+
+  /// The text of the pull request of a layer below the subject of Create Pull Request, of its own commits against `base`
+  /// (`remote_facts::pull_request_create::new_pull_request`), the summaries of its issues left out: no YouTrack is asked
+  fn layer_text<'a>(&'a self, repository_path: &'a str, head: &'a str, base: &'a str) -> Read<'a, Result<(String, String), ApiError>> {
+    Box::pin(async move {
+      let params = GetNewPullRequestParams {
+        repository_path: repository_path.to_owned(),
+        head: head.to_owned(),
+        base: base.to_owned(),
+        stack_ancestors: Vec::new(),
+      };
+      new_pull_request(&self.git, None, "origin", &params)
+        .await
+        .map(|text| (text.title, text.body))
+        .map_err(|error| ApiError::new(ErrorCode::GitError, format!("Cannot read the commits of {head}: {error:#}")))
+    })
   }
 
   /// A start of the app opens no pull request: Create Pull Request does, with its own text

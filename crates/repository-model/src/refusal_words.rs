@@ -97,6 +97,12 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::MergeChecksRunning { number } => format!("required checks of #{number} still run, and the repository allows no auto-merge"),
     Reason::MergeBlocked { number } => format!("the rules of the base hold the merge of #{number} back"),
     Reason::MergeHeadBehind { number } => format!("#{number} shows another commit than {subject}, and the repository allows no auto-merge: push the branch first"),
+    Reason::LayerRebased { branch, number, target } => {
+      format!("GitHub moved #{number} of {branch} onto {target} after the layers below it merged, and {branch} is still built on them: Update Project first")
+    }
+    Reason::LayerNotLinked { number, parent } => {
+      format!("#{number} goes into {parent}, and GitHub lists it in no stack: a merge would merge it into {parent}; link the stack first")
+    }
   }
 }
 

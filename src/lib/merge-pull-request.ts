@@ -38,10 +38,13 @@ export interface PlannedMerge {
   readonly auto: boolean
 }
 
-/** The merge `effects` name (`PlannedEffect::MergePullRequest`, `EnableAutoMerge`); null of a push or a robot */
+/**
+ * The merge `effects` name (`PlannedEffect::MergePullRequest`, `EnableAutoMerge`, `MergeStack` of a layer of a stack of
+ * GitHub); null of a push or a robot
+ */
 export function mergeOf(effects: readonly PlannedEffect[]): PlannedMerge | null {
   for (const effect of effects) {
-    if (effect.kind === "mergePullRequest" || effect.kind === "enableAutoMerge") {
+    if (effect.kind === "mergePullRequest" || effect.kind === "enableAutoMerge" || effect.kind === "mergeStack") {
       return { number: effect.number, method: effect.method, target: effect.target, auto: effect.kind === "enableAutoMerge" }
     }
   }

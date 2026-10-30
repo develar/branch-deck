@@ -11,19 +11,34 @@ use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, Pull
 use domain_types::session::{Fact, FactState};
 
 /// Where the pull request goes: `target` (or no base read), a virtual branch of `prefix` (`{prefix}/virtual/<name>`, any
-/// name: a parent's, another branch of the table, one that landed and is gone), else another base
+/// name: a parent's, another branch of the table, one that landed and is gone), else another base. A pull request into a
+/// virtual branch that GitHub lists in a stack into `target` is a layer of it: GitHub's membership decides, never a
+/// fact of the session that may change its answer (docs/design/github-stacks.md)
 #[must_use]
 pub fn base_of(pull_request: &PullRequest, target: &str, prefix: &str) -> PullRequestBase {
   let base = pull_request.base_ref_name.as_str();
   if base.is_empty() || base == target {
     return PullRequestBase::Target;
   }
+  let into_target = pull_request.stack.as_ref().is_some_and(|stack| stack.base_ref_name == target);
   match strip_branch_namespace(base, prefix, BranchKind::Virtual).filter(|name| !name.is_empty()) {
+    Some(parent) if into_target => PullRequestBase::Layer { parent: parent.to_string() },
     Some(from) => PullRequestBase::Virtual {
       from: from.to_string(),
       retarget: target.to_string(),
     },
     None => PullRequestBase::Other { base: base.to_string() },
+  }
+}
+
+/// Where the pull request of a branch goes (`base_of`), `layer_parent` the branch below it in its stack of GitHub
+/// (`RepositoryView::github_layers`): into that branch's virtual branch it is a layer too while GitHub doesn't list it in
+/// the stack yet (the link of the stack follows its creation, or failed), so nothing retargets it into the target
+#[must_use]
+pub fn layer_base_of(pull_request: &PullRequest, target: &str, prefix: &str, layer_parent: Option<&str>) -> PullRequestBase {
+  match base_of(pull_request, target, prefix) {
+    PullRequestBase::Virtual { from, .. } if layer_parent == Some(from.as_str()) => PullRequestBase::Layer { parent: from },
+    base => base,
   }
 }
 
@@ -40,10 +55,11 @@ pub fn start_base(pull_request: &PullRequest, target: &str, prefix: &str, whole_
 }
 
 /// A robot starts from a pull request that goes there: into the target, or into a virtual branch, which the start
-/// retargets into the target first (D11); never one into another base, whose approvals count for no start into the target
+/// retargets into the target first (D11); never one into another base, whose approvals count for no start into the target,
+/// nor a layer of a stack of GitHub, which Patronus would merge into the branch below it
 #[must_use]
 pub const fn starts_from(base: &PullRequestBase) -> bool {
-  !matches!(base, PullRequestBase::Other { .. })
+  !matches!(base, PullRequestBase::Other { .. } | PullRequestBase::Layer { .. })
 }
 
 /// The pull request a robot of the subject would start from (`whole_stack`: of the whole stack, else of a branch): its

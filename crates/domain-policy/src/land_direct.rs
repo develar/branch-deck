@@ -44,6 +44,7 @@
 //! GitHub completes later runs none: the news of the session tells it (`news::auto_merged`).
 
 use crate::facts::RemoteBranch;
+use crate::github_stack::layers_below;
 use crate::land::{BranchStart, LandFacts, Start, SubjectFacts, branch_lands, conflict_blocker, drops, gate_blockers, more_than_row, stack_lands, start_refusal, table_blocker};
 use crate::next_step::{Listing, changes_requested_by};
 use crate::pull_request::start_base;
@@ -189,7 +190,7 @@ pub enum MergeAnswer<'a> {
   Held { number: u32, reason: Reason },
   /// GitHub merges the open pull request `number` by `method` while it shows `head`: now, or (`auto`) once the checks of
   /// it pass; `push`: the branch is pushed first, `head` the commit it pushes; `unstable`: checks that are not required
-  /// fail or run
+  /// fail or run; `stacked`: a layer of a stack of GitHub, merged with every layer below it by the asynchronous merge
   Merge {
     number: u32,
     method: MergeMethod,
@@ -197,14 +198,23 @@ pub enum MergeAnswer<'a> {
     auto: bool,
     push: bool,
     unstable: bool,
+    stacked: bool,
   },
   /// The auto-merge of the open pull request `number` is enabled: GitHub merges it by `method` once its checks pass
   AutoMerging { number: u32, method: MergeMethod },
 }
 
+/// A layer below the one a merge takes, as `merge_of` reads it: one merge into the target with it
+const fn into_target(_: &PullRequest) -> PullRequestBase {
+  PullRequestBase::Target
+}
+
 /// What a merge of `pull_request`, the pull request of a subject in any state, does now (module docs): `base` where an
 /// open one goes (`pull_request::start_base`), `tip` the commit of the copy the merge would land, `methods` what the
-/// repository allows (the rebase while GitHub didn't tell)
+/// repository allows (the rebase while GitHub didn't tell). A layer of a stack of GitHub into the target merges with
+/// `below`, the open layers below it (`github_stack::layers_below`), in one asynchronous merge: the first of them a merge
+/// can't take now holds it, by its own number; no auto-merge, which GitHub offers no stack. A layer GitHub doesn't list
+/// in a stack yet would merge into the branch below it: refused until the stack is linked
 #[must_use]
 pub fn merge_of<'a>(
   pull_request: Option<&'a PullRequest>,
@@ -212,20 +222,51 @@ pub fn merge_of<'a>(
   tip: Option<&'a str>,
   methods: Option<MergeMethods>,
   target: &str,
+  below: &[&'a PullRequest],
 ) -> MergeAnswer<'a> {
   let Some(pull_request) = pull_request.filter(|pull_request| pull_request.state == PullRequestState::Open) else {
     return MergeAnswer::NoPullRequest;
   };
   let number = pull_request.number;
   let base = base(pull_request);
-  if base != PullRequestBase::Target {
-    return MergeAnswer::OtherBase { pull_request, base };
+  let stacked = match &base {
+    PullRequestBase::Target => false,
+    PullRequestBase::Layer { parent } if pull_request.stack.is_none() => {
+      return MergeAnswer::Held {
+        number,
+        reason: Reason::LayerNotLinked { number, parent: parent.clone() },
+      };
+    }
+    PullRequestBase::Layer { .. } => true,
+    PullRequestBase::Virtual { .. } | PullRequestBase::Other { .. } => return MergeAnswer::OtherBase { pull_request, base },
+  };
+  if stacked {
+    // the layers below merge with it: the first one a merge can't take holds it
+    for layer in below {
+      match merge_of(
+        Some(layer),
+        into_target,
+        None,
+        methods.map(|methods| MergeMethods { auto_merge: false, ..methods }),
+        target,
+        &[],
+      ) {
+        MergeAnswer::Merge { .. } => {}
+        held @ (MergeAnswer::Held { .. } | MergeAnswer::Waits { .. }) => return held,
+        MergeAnswer::NoPullRequest | MergeAnswer::OtherBase { .. } | MergeAnswer::AutoMerging { .. } => {
+          return MergeAnswer::Held {
+            number: layer.number,
+            reason: Reason::MergeBlocked { number: layer.number },
+          };
+        }
+      }
+    }
   }
   let held = |reason: Reason| MergeAnswer::Held { number, reason };
   if pull_request.is_draft || pull_request.merge_state == Some(MergeStateStatus::Draft) {
     return held(Reason::MergeDraft { number });
   }
-  let auto_merge = methods.is_some_and(|methods| methods.auto_merge);
+  let auto_merge = !stacked && methods.is_some_and(|methods| methods.auto_merge);
   let method = methods.and_then(MergeMethods::preferred).unwrap_or(MergeMethod::Rebase);
   if let Some(method) = pull_request.auto_merge {
     return MergeAnswer::AutoMerging { number, method };
@@ -237,6 +278,7 @@ pub fn merge_of<'a>(
     auto,
     push,
     unstable,
+    stacked,
   };
   // a merge now would merge the commit it shows, not the copy: the push, then the auto-merge on the pushed commit
   if let Some(tip) = tip.filter(|tip| *tip != pull_request.head_ref_oid) {
@@ -309,12 +351,13 @@ pub(crate) fn decide_merge(facts: &LandFacts<'_>, land: &Land, gate: &RouteGate)
   let methods = facts.pull_requests.merge_methods;
   let whole_stack = land.subject.is_whole_stack();
   let base = |pull_request: &PullRequest| start_base(pull_request, facts.target, facts.prefix, whole_stack);
-  match merge_of(pull_request, base, tip, methods, facts.target) {
+  let below = pull_request.map_or_default(|pull_request| layers_below(facts.pull_requests.pull_requests.values(), pull_request));
+  match merge_of(pull_request, base, tip, methods, facts.target, &below) {
     MergeAnswer::NoPullRequest => decision.blockers.push(Reason::NoPullRequestToMerge { branch: name.to_owned() }),
     MergeAnswer::OtherBase { pull_request, base } => decision.blockers.push(Reason::OtherBase {
       number: pull_request.number,
       base: match base {
-        PullRequestBase::Virtual { from, .. } => from,
+        PullRequestBase::Virtual { from, .. } | PullRequestBase::Layer { parent: from } => from,
         PullRequestBase::Other { base } => base,
         PullRequestBase::Target => facts.target.to_owned(),
       },
@@ -334,6 +377,7 @@ pub(crate) fn decide_merge(facts: &LandFacts<'_>, land: &Land, gate: &RouteGate)
       auto,
       push,
       unstable,
+      stacked,
     } => {
       decision.pull_request = Some(number);
       if unstable {
@@ -357,7 +401,16 @@ pub(crate) fn decide_merge(facts: &LandFacts<'_>, land: &Land, gate: &RouteGate)
         decision.confirmations.extend(forced);
       }
       let (head, target) = (head.to_owned(), facts.target.to_owned());
-      decision.effects.push(if auto {
+      decision.effects.push(if stacked {
+        PlannedEffect::MergeStack {
+          subject,
+          number,
+          method,
+          head,
+          target,
+          layers: below.iter().map(|layer| layer.number).collect(),
+        }
+      } else if auto {
         PlannedEffect::EnableAutoMerge {
           subject,
           number,
@@ -415,7 +468,7 @@ pub fn update_after(effects: &[EffectRecord]) -> Option<Intent> {
   effects
     .iter()
     .any(|record| match (&record.effect, &record.status) {
-      (PlannedEffect::PushBaseline { .. } | PlannedEffect::MergePullRequest { .. }, EffectStatus::Done) => true,
+      (PlannedEffect::PushBaseline { .. } | PlannedEffect::MergePullRequest { .. } | PlannedEffect::MergeStack { .. }, EffectStatus::Done) => true,
       (PlannedEffect::PushBaseline { .. }, EffectStatus::Failed { error }) => error.code == ErrorCode::BaselineMoved,
       _ => false,
     })

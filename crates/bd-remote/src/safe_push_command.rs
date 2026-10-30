@@ -1471,6 +1471,8 @@ pub(crate) fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start
     pull_requests,
     subject_readiness,
     &context.prefix,
+    // a Safe Push is of a route of Patronus, where no pull request is a layer of a stack of GitHub
+    |_| None,
   );
   let robots_of = Robots::new(read.session.robots());
   let landed = LandedFacts {
@@ -1660,7 +1662,9 @@ impl Told<'_> {
       | Reason::MergeChecksFail { .. }
       | Reason::MergeChecksRunning { .. }
       | Reason::MergeBlocked { .. }
-      | Reason::MergeHeadBehind { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
+      | Reason::MergeHeadBehind { .. }
+      | Reason::LayerRebased { .. }
+      | Reason::LayerNotLinked { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
       Reason::OtherBase { number, base, target } => {
         let message = format!(
           "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"

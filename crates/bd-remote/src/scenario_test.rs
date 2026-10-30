@@ -1386,7 +1386,7 @@ fn land_answer(decision: Option<&Plan>) -> Value {
       json!(if wait.failed.is_some() { format!("{fact}:failed") } else { fact })
     })
     .collect();
-  let start = if decision.effects.contains(&PlannedEffect::CreatePullRequest) {
+  let start = if decision.effects.contains(&PlannedEffect::CreatePullRequest { base: None }) {
     Some("createPullRequest".to_string())
   } else {
     decision.start_route().map(|route| match route {
@@ -1487,7 +1487,7 @@ fn start_differences(situation: &Situation, given: &Given, decision: &Plan) -> V
     json!({"landed": merges, "autoMerge": !merges})
   } else if starts {
     let via = match decision.start_route() {
-      Some(StartRoute::Api { .. }) if !decision.effects.contains(&PlannedEffect::CreatePullRequest) => "api",
+      Some(StartRoute::Api { .. }) if !decision.effects.contains(&PlannedEffect::CreatePullRequest { base: None }) => "api",
       _ => "pull_request",
     };
     let cancels = decision.effects.iter().any(|effect| matches!(effect, PlannedEffect::CancelRobot { .. }));

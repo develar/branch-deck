@@ -39,6 +39,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("symbol_navigation", |path| templates::symbol_navigation().build(path)),
   ("script_colors", |path| templates::script_colors().build(path)),
   ("stacked_branches", |path| templates::stacked_branches().build(path)),
+  ("stacked_chain", |path| templates::stacked_chain().build(path)),
   ("stack_island", |path| templates::stack_island().build(path)),
   ("readme_showcase", |path| templates::readme_showcase().build(path)),
   ("branch_table_large", |path| templates::branch_table_large().build(path)),

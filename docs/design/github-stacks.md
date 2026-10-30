@@ -1,6 +1,6 @@
 # Stacks of GitHub
 
-**Status:** Draft
+**Status:** Implemented
 **Updated:** 2026-10-30
 **Tags:** [product, stacks, pull-requests, github]
 
@@ -31,9 +31,8 @@ unit of [Landing](landing.md), with the narrow review the old stacked pull reque
   carry over nowhere.
 - The route decides, with no setting of its own; a repository where GitHub has no stacks keeps the pull requests into
   master.
-- Membership decides the base, not a probe: a pull request expects its parent's branch only while GitHub lists it in
-  a stack whose base is the target, directly above its parent's pull request. Nothing retargets a member; an existing
-  pull request into master keeps its base until the user takes it into the stack.
+- Membership decides the base, not a probe: a pull request into a virtual branch is a layer while GitHub lists it in a
+  stack whose base is the target. Nothing retargets a member; an existing pull request into master keeps its base.
 - Create Pull Request of a stacked branch creates the missing pull requests of the branches it is built on and the
   stack, as `gh stack submit` does, and says so first.
 - The merge of a piece on the `pull-request` route is the asynchronous merge of its top layer.
@@ -88,49 +87,74 @@ master, GitHub Enterprise Server.
 ### The chain
 
 A GitHub stack is the straight chain of a stack that does not fork: root → leaf by declared parent, starting above the
-ancestors that already landed (`domain_policy::landed::landed_state`). Each layer's build must take its declared
-parent, its effective base the parent's tip. A blocked, parked or unapplied member, or one built on master, ends the
-chain; the branches above it go into master as before, and the row says why. A chain of one branch is a plain pull
-request into master.
+branches that landed whole (`domain_policy::github_stack::chain_of`, over `landed_states`). Each layer's build must
+take its declared parent, its effective base the parent's tip: a blocked or parked member, or one built on another
+base, ends the chain, and the branches above it go into master as before. A chain of one branch is a plain pull request
+into master. The session derives it into the view (`RepositoryView.githubLayers`, `repository_model::derive::
+github_layers_of`): by branch, its chain, the branch below it, and the branches below it without an open pull request.
+`bd` derives the same over its one-shot facts (`github_layers_over`). None on the route of Patronus.
 
-### The expected base
+### The base of a layer
 
-The base a pull request of a branch should have: the parent's branch while GitHub lists the pull request in a stack
-whose base is the target, directly above the parent's pull request; else the target. `PullRequestBase` gains the state
-of a pull request into a virtual branch outside such a stack: its merge would land nothing, so it is refused and its
-next step links the stack or retargets it to master. Every reader of the base (the next step, the Safe Push decision,
-the merge decision, the push plan, the page) reads the expected base from the view.
+`PullRequestBase::Layer { parent }`: an open pull request into a virtual branch that GitHub lists in a stack whose base
+is the target (`domain_policy::pull_request::base_of`). GitHub's membership decides, never a fact of the session that
+may change its answer, so nothing retargets a member in bulk, and GitHub refuses the retarget of one anyway. A pull
+request into the branch below it in its chain that GitHub lists in no stack yet, between its creation and the link, or
+after a link GitHub refused, is a layer too for the push and the view (`layer_base_of` with the parent of
+`githubLayers`): a push links the stack instead of retargeting it into the target. Its merge is refused until the
+stack is linked (`LayerNotLinked`): it would merge into the branch below it. No robot starts from a layer
+(`starts_from`): Patronus would merge it into the branch below it.
 
 ### Availability
 
-A fact of the repository, `github_stacks`, in the pattern of the rules of the target: asked when a chain needs a pull
-request, kept for the repository. 200 is available; a 404 of a repository whose pull requests GitHub lists is
-unavailable; 422, 5xx and no answer are unknown, and an unknown fact waits. Settings → Landing says where the pull
-requests of stacked branches go and why.
+The listing of the pull requests asks the stack of each pull request on its own node (`stack`, `stackEntry`). A
+schema of GitHub that refuses those fields (`undefinedField`) is asked again without them and remembered for the
+process; the listing then says the repository has no stacks of GitHub (`PullRequestsResult.github_stacks`). The REST
+probe of the draft was dropped: no setting enables stacks on github.com, a 404 of `stacks` does not tell a missing
+feature from a repository the token cannot see, and the listing already answers once per refresh.
 
-### Creation and upkeep
+### Creation
 
-One rule lists the action of each branch of the chain: create its pull request, keep a member, offer the retarget of
-an old pull request into master, stop at a pull request into another base or in another stack. The effects run in the
-order GitHub requires: the push of the chain (one atomic push), the unstack, the retargets, the create of the missing
-pull requests bottom-up, then the create or the add of the stack. A stack write that fails after the pull requests
-exist leaves them as they are, a state with "Link Stack" as its next step.
+Create Pull Request of a layer (`operations::pull_request::create_planned`) pushes the chain below it first (the push
+of an action takes the ancestors with work), then opens the pull requests of the layers below it that have none,
+bottom first, each into the branch below it, the bottom into the target (`CreateLayerPullRequest`, the text of its own
+commits against that branch, `StartHost::layer_text`), then its own into its parent's branch (`CreatePullRequest {
+base }`, the text the dialog read of its own commits against that branch), then links the stack (`LinkStack`). The
+dialog says what it opens ("A layer of the GitHub stack auth → login → oauth: it shows only the commits of oauth, into
+login. Also creates the pull requests of auth and login."). "Continue on GitHub" opens GitHub's form of its own pull
+request into its parent's branch; the next push links the stack.
 
-A layer's text is its own commits and names the stack ("Part of the stack auth → login → oauth").
+### The link of a stack
 
-A push of a layer whose parent landed waits for Update Project: before the update the layer is still built on the
-parent's old copies, and its push would replace GitHub's rebase with them; the patch-equivalence of the remote status
-would not tell, since GitHub's copies carry the same patches.
+`domain_policy::github_stack::stack_writes` brings the stack of GitHub of a chain in line with it, by the open pull
+requests of its branches, in the order GitHub requires: nothing while it is in line (the layers left above a partial
+merge included); the new layers on top, retargeted first when they go into another virtual branch; else the unstack of
+what is there, the retargets and a new stack. The layers end at a branch without a pull request and at a pull request
+into the target or another base above the bottom: one of before the stacks of GitHub, which the user takes in. The run
+(`LinkStack`) decides the writes again over the open pull requests the plan read and the ones it opened, and GitHub's
+refusal of one fails the effect, the pull requests left as they are.
+
+A push of a layer links its stack after the push while it is out of line (`operations::push::linking_stacks`). A layer
+GitHub moved onto the target after the layers below it merged refuses the push while the branch is still built on them
+(`rebased_by_github`, `LayerRebased`: Update Project first): its push would replace GitHub's rebase with the old
+copies, and the patch-equivalence of the remote status would not tell, since GitHub's copies carry the same patches.
 
 ### Landing
 
-On the `pull-request` route the merge of a piece is the asynchronous merge of its top layer, after the decision read
-every layer (its merge state, its approvals, its checks, its head) and named the one that holds it back. The merge has
-states of its own (pending, merged, enqueued, failed); the merged write and Update Project wait for `merged`.
+On the `pull-request` route the merge of a piece is the asynchronous merge of its top layer (`PlannedEffect::
+MergeStack`, `land_direct::merge_of` with the layers below, `layers_below`): the first layer below that a merge can't
+take holds it by its own number; no auto-merge, which GitHub offers no stack. The run asks the result every 2 s, at
+most 2 minutes: merged, the layer and the layers below go into the session as merged, and Update Project follows as
+after any merge; enqueued, the merge queue of the base merges it later; failed, in GitHub's words.
 
-After a merge GitHub marks the merged layers merged, so the closing of landed pull requests leaves them to it. On the
-`push` route the layers above the bottom stay open after the push, so the closing by content closes them with the
-landing comment.
+### Not built yet
+
+- Joining an old pull request into master into its stack (a next step that retargets it into its parent's branch and
+  links the stack), and "Link Stack" as a next step of a layer outside a stack: today a push links it.
+- `bd push` prints its `gh pr create` drafts with `--base` the target; the drafts of a layer into its parent's branch
+  and the `gh stack link` line.
+- The words of Settings → Landing for where the pull requests of stacked branches go.
+- The closing of the layers above the bottom after a push into master on the `push` route, which GitHub leaves open.
 
 ### The client
 

@@ -122,7 +122,7 @@
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D6",
     "today": {
-      "app": ["crates/operations/src/pull_request.rs#(true, true) => vec![PlannedEffect::WaitForMirror { branch: first.head.clone() }],"],
+      "app": ["crates/operations/src/pull_request.rs#(true, true, _) => vec![PlannedEffect::WaitForMirror { branch: first.head.clone() }],"],
       "bd": ["crates/operations/src/land_execute.rs#wait_for_mirror: self.pushed.is_some()"]
     },
     "closed": "s9-engine-remote"

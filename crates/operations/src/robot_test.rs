@@ -14,7 +14,7 @@ use domain_types::pull_request::PullRequestState;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{PatronusView, RestartAction, RobotRestart};
 use domain_types::session::TableHeader;
-use domain_types::session::{Fact, FactState, LandedSection, PullRequestsView, SubjectReadiness, Version};
+use domain_types::session::{Fact, FactState, GitHubLayer, LandedSection, PullRequestsView, SubjectReadiness, Version};
 use history_rewrite::repository_lock::lock_repository_as_another_process;
 use pretty_assertions::assert_eq;
 use repository_model::branch_table::{BranchTable, RemoteFact};
@@ -41,6 +41,8 @@ pub(crate) struct Sources {
   profiles: Fact<PatronusStartOptions>,
   baseline: LandedSection,
   pub(crate) readiness: BTreeMap<String, Fact<SubjectReadiness>>,
+  /// The layers of the stacks of GitHub, by branch; none on the route of Patronus these sources are of
+  pub(crate) github_layers: BTreeMap<String, GitHubLayer>,
 }
 
 impl Sources {
@@ -69,6 +71,7 @@ impl Sources {
       profiles: Fact::default(),
       baseline: LandedSection::default(),
       readiness: BTreeMap::new(),
+      github_layers: BTreeMap::new(),
     }
   }
 
@@ -100,6 +103,7 @@ impl Sources {
       baseline: &self.baseline,
       gate: None,
       target_conflict: None,
+      github_layers: &self.github_layers,
     };
     decide(&sources)
   }

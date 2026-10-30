@@ -883,7 +883,7 @@ fn missing_approvals_refuse_unless_skipped_and_approvals_judged_at_the_start_con
   let decision = missing.decide(&opens);
   assert_eq!(
     (codes(&decision), decision.effects.last().cloned()),
-    (Vec::<String>::new(), Some(PlannedEffect::CreatePullRequest))
+    (Vec::<String>::new(), Some(PlannedEffect::CreatePullRequest { base: None }))
   );
   let skipping = World {
     last_profile: Some(PatronusRobotProfile {

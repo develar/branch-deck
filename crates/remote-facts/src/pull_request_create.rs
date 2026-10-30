@@ -133,7 +133,8 @@ fn virtual_name(full_name: &str) -> &str {
   full_name.rsplit("/virtual/").next().unwrap_or(full_name)
 }
 
-/// The description of `head`, and without one the commits of the local branch against `<remote>/<base>`: the commits
+/// The description of `head`, and without one the commits of the local branch against `<remote>/<base>`, or against the
+/// local virtual branch `base` of a layer of a stack of GitHub (its parent's, which the plan pushes first): the commits
 /// up to the tip of each of `ancestors` (the root first) are the ancestor's, the rest the branch's own. Two git
 /// processes: `config`, and without a description one `log` whose decorations are the tips of the ancestors.
 #[instrument(skip(git))]
@@ -146,7 +147,11 @@ pub fn read_new_pull_request(git: &GitCommandExecutor, repository_path: &str, re
       ancestors: Vec::new(),
     });
   }
-  let range = format!("refs/remotes/{remote}/{base}..refs/heads/{head}");
+  let range = if base.contains("/virtual/") {
+    format!("refs/heads/{base}..refs/heads/{head}")
+  } else {
+    format!("refs/remotes/{remote}/{base}..refs/heads/{head}")
+  };
   // the ancestors decorate their tips; the branch itself when there are none, so that no other ref is read
   let decorated: Vec<String> = if ancestors.is_empty() {
     vec![format!("--decorate-refs=refs/heads/{head}")]

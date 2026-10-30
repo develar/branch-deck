@@ -156,6 +156,13 @@ pub enum Reason {
   /// The open pull request `number` shows another commit than its branch, and the repository allows no auto-merge, which
   /// would wait for the checks of the pushed commit: the push of the branch first
   MergeHeadBehind { number: u32 },
+  /// The layers below `branch` in its stack of GitHub merged, and GitHub moved its pull request `number` onto `target`
+  /// with copies of its commits there; the branch is still built on what merged, so a push would put that back: Update
+  /// Project first, which builds it on `target`
+  LayerRebased { branch: String, number: u32, target: String },
+  /// The open pull request `number` goes into the branch of `parent`, the layer below it, and GitHub lists it in no stack
+  /// yet: a merge now would merge it into that branch, not the target; the link of the stack first
+  LayerNotLinked { number: u32, parent: String },
 }
 
 impl Reason {
@@ -210,7 +217,9 @@ impl Reason {
       | Self::MergeChecksFail { .. }
       | Self::MergeChecksRunning { .. }
       | Self::MergeBlocked { .. }
-      | Self::MergeHeadBehind { .. } => None,
+      | Self::MergeHeadBehind { .. }
+      | Self::LayerRebased { .. }
+      | Self::LayerNotLinked { .. } => None,
     }
   }
 }

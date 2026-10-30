@@ -373,7 +373,8 @@ fn the_view_reads_where_each_open_pull_request_goes_and_whom_request_review_offe
       |root| table.parts.stacks.contains_key(root),
       &pull_requests,
       readiness,
-      "user"
+      "user",
+      |_| None
     ),
     BTreeMap::from([
       ("auth".to_string(), view(7, PullRequestBase::Target, false, vec![alice])),
@@ -469,6 +470,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     baseline: &LandedSection::default(),
     gate: None,
     target_conflict: None,
+    github_layers: &BTreeMap::new(),
   };
   let lands = decide_lands(&sources);
   assert_eq!(lands.keys().collect::<Vec<_>>(), ["auth", "login", "oauth"]);
@@ -1038,4 +1040,64 @@ fn the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are() {
   assert_eq!(needs(&facts, &state), [pair("auth", "auth-failed")]);
   let patch = window.diff(&state, &facts).unwrap();
   assert_eq!(patch.changes.removed_attention, ["docs", "stack:auth"]);
+}
+
+/// The layers of the stacks of GitHub of a table (docs/design/github-stacks.md): each branch of a straight chain of two
+/// or more, its parent the branch below it and the branches below it without an open pull request, which its creation
+/// opens too; none of a stack that forks, of a lone branch, and none on a route of Patronus or where GitHub's schema has
+/// no stacks
+#[test]
+fn the_view_names_the_layers_of_the_stacks_of_github_of_a_straight_chain() {
+  use crate::derive::{github_layers, github_layers_over};
+  use domain_policy::facts::Robots;
+  use domain_policy::landed::LandedFacts;
+  use domain_types::landing_route::{LandingRoute, RouteGate};
+  use domain_types::session::{GitHubLayer, LandedSection};
+  let table = BranchTable {
+    branches: vec![on("oauth", Some("login")), on("docs", None), on("login", Some("auth")), on("auth", None)],
+    ..BranchTable::default()
+  };
+  let layers = github_layers(&table, |_| false, |branch| branch == "auth");
+  let layer = |parent: Option<&str>, creates: &[&str]| GitHubLayer {
+    chain: names(&["auth", "login", "oauth"]),
+    parent: parent.map(str::to_owned),
+    creates: names(creates),
+  };
+  assert_eq!(
+    layers,
+    BTreeMap::from([
+      ("auth".to_owned(), layer(None, &[])),
+      ("login".to_owned(), layer(Some("auth"), &[])),
+      ("oauth".to_owned(), layer(Some("login"), &["login"])),
+    ])
+  );
+  // the chain starts above what landed whole
+  let above = github_layers(&table, |branch| branch == "auth", |_| false);
+  assert_eq!(above["oauth"].chain, names(&["login", "oauth"]));
+  assert!(!above.contains_key("auth"));
+
+  let forking = BranchTable {
+    branches: vec![on("session", Some("auth")), on("login", Some("auth")), on("auth", None)],
+    ..BranchTable::default()
+  };
+  assert_eq!(github_layers(&forking, |_| false, |_| false), BTreeMap::new());
+
+  let robots = Robots::new(&[]);
+  let baseline = LandedSection::default();
+  let landed = LandedFacts {
+    baseline: &baseline,
+    view: None,
+    robots: &robots,
+    pushed: None,
+  };
+  let mut listing = PullRequestsView {
+    github_stacks: true,
+    ..PullRequestsView::default()
+  };
+  let merge = LandingRoute::PullRequest { merge: RouteGate::Open };
+  let patronus = LandingRoute::Patronus { gate: RouteGate::Open };
+  assert_eq!(github_layers_over(&merge, &table, &table.remote, &landed, &listing).len(), 3);
+  assert_eq!(github_layers_over(&patronus, &table, &table.remote, &landed, &listing), BTreeMap::new());
+  listing.github_stacks = false;
+  assert_eq!(github_layers_over(&merge, &table, &table.remote, &landed, &listing), BTreeMap::new());
 }

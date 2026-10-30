@@ -18,6 +18,7 @@ targets:
   - ../../crates/trial-check/src/check.rs
   - ../../crates/domain-types/src/stack.rs
   - ../../crates/domain-types/src/session.rs
+  - ../../crates/domain-policy/src/github_stack.rs
   - ../../crates/domain-policy/src/facts.rs
   - ../../crates/domain-policy/src/stack.rs
   - ../../crates/repository-model/src/derive.rs
@@ -108,13 +109,17 @@ menu stacks, unstacks and renames branches.
 
 ## Non-goals
 
-- A pull request into a parent's branch (stacked pull requests that show only the branch's own commits): Patronus
-  merges a pull request into its base and counts only the approvals of the pull request that started it, so such a
-  pull request can never land ([Landing](../../docs/design/landing.md#alternatives-considered)). Every pull request of a
-  virtual branch goes into the baseline; an open one into a virtual branch is retargeted ([Pull requests](#pull-requests)).
+- A pull request into a parent's branch outside a stack of GitHub: Patronus merges a pull request into its base and
+  counts only the approvals of the pull request that started it, and GitHub merges one into its base by the rules of
+  that base, so such a pull request can never land ([Landing](../../docs/design/landing.md#alternatives-considered)).
+  On the route of Patronus every pull request of a virtual branch goes into the baseline; elsewhere a straight chain is
+  a stack of GitHub, whose layers go into their parents' branches and are judged by the rules of the target
+  ([Stacks of GitHub](#stacks-of-github)). An open one into a virtual branch outside such a stack is retargeted
+  ([Pull requests](#pull-requests)).
 - The pull requests of every branch of a stack at once: "Create Pull Request…" creates the pull request of one branch
-  ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)). A stack that forks has one more, of its whole
-  stack ([Whole Stack](whole-stack.spec.md)). Branch Deck closes the pull requests a Safe Push landed
+  ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)), of a layer of a stack of GitHub with those of the
+  layers below it that have none, as a stack of GitHub has a pull request on every layer. A stack that forks has one
+  more, of its whole stack ([Whole Stack](whole-stack.spec.md)). Branch Deck closes the pull requests a Safe Push landed
   ([Pull requests](#pull-requests)).
 
 ## Requirements
@@ -463,6 +468,46 @@ menu stacks, unstacks and renames branches.
   oauth · 1 commit after it"). `bd safe-push` lands a stacked branch the same way, with its ancestors in one robot
   ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+
+### Stacks of GitHub
+
+On a route without Patronus GitHub's own stacks land a piece in one move with the review of each layer by its own diff
+([Stacks of GitHub](../../docs/design/github-stacks.md)).
+
+- The layers must be the branches of a straight chain of two or more by declared parent, on the route of a push or of
+  a merge of the pull request, where GitHub's schema has stacks (`PullRequestsView.githubStacks`): the chain starts
+  above the branches that landed whole, and a parked branch, a blocked one or one built on another base than its
+  declared parent ends it; a stack that forks and a branch alone have none, and the route of Patronus none at all
+  (`RepositoryView.githubLayers`, `domain_policy::github_stack::chain_of`). Each layer names its chain, the branch below
+  it and the branches below it without an open pull request.
+  [@test] ../../crates/domain-policy/src/github_stack_test.rs (`a_straight_chain_is_a_stack_of_github_and_a_branch_alone_is_none`, `a_stack_that_forks_is_none`, `the_chain_starts_above_what_landed`, `a_parked_a_blocked_or_a_rebased_branch_ends_the_chain`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_names_the_layers_of_the_stacks_of_github_of_a_straight_chain`)
+- An open pull request into a virtual branch that GitHub lists in a stack into the target must be a layer of it
+  (`PullRequestBase::Layer`), whatever the session says of the chain: GitHub's membership decides, and no push, start
+  or next step retargets it; GitHub refuses the retarget of a member. One into the branch below it in its chain that
+  GitHub lists in no stack yet is a layer too for a push (`layer_base_of`), which links the stack instead.
+  [@test] ../../crates/domain-policy/src/pull_request_test.rs (`a_member_of_a_stack_of_github_into_the_target_is_a_layer`)
+- Create Pull Request of a layer must open the pull requests of the layers below it that have none, bottom first,
+  each into the branch below it, the bottom into the target, with the text of its own commits; then its own into its
+  parent's branch, with the text of its own commits against that branch; then link the stack (`LinkStack`). The
+  dialog says it under the title: "A layer of the GitHub stack auth → login → oauth: it shows only the commits of
+  oauth, into login. Also creates the pull requests of auth and login."
+  [@test] ../../crates/operations/src/pull_request_test.rs (`the_creation_of_a_layer_opens_the_layers_below_it_its_own_into_its_parent_and_links_the_stack`, `the_link_of_a_stack_makes_the_stack_of_its_layers`)
+  [@test] ../../src/lib/pull-request-dialog.test.ts (`creates the pull request of a layer of a stack of GitHub into the branch below it, with its own commits`)
+  [@test] ../../tests/e2e/stacked-branches/github-stacks.spec.ts (`should create the pull request of a layer into its parent's branch with those of the layers below it, and link the stack`)
+- The link of a stack must bring the stack of GitHub in line with the chain by the open pull requests of its branches,
+  in the order GitHub requires (`stack_writes`): nothing while it is in line, the layers left above a partial merge
+  included; the new layers on top of it, retargeted first when they go into another virtual branch; else the unstack
+  of what is there, the retargets and a new stack. The layers end at a branch without a pull request and at one into
+  the target or another base above the bottom (a pull request of before, which the user takes in); fewer than two make
+  no stack. A refusal of GitHub fails the effect and leaves the pull requests as they are.
+  [@test] ../../crates/domain-policy/src/github_stack_test.rs (`layers_outside_a_stack_make_one`, `a_stack_in_line_needs_nothing_and_new_layers_go_on_top`, `the_layers_left_after_a_partial_merge_are_in_line`, `a_stack_out_of_line_is_made_anew`)
+- A push of a layer must link its stack after the push while the stack is out of line. A layer GitHub moved onto the
+  target after the layers below it merged, while the branch is still built on them, must refuse the push with
+  "GitHub moved #9 of oauth onto master after the layers below it merged: Update Project first" (`LayerRebased`): its
+  push would put the merged layers back over GitHub's rebase, whose copies have the same patches.
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_of_a_layer_links_its_stack_and_one_github_moved_waits_for_the_update`)
+  [@test] ../../crates/domain-policy/src/github_stack_test.rs (`a_layer_github_moved_onto_the_target_waits_for_the_update`)
 
 ### Push Up to Here
 

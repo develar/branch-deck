@@ -54,6 +54,23 @@ pub struct PullRequest {
   pub stack: Option<PullRequestStackEntry>,
 }
 
+/// A write that brings a stack of GitHub in line with the chain of its branches
+/// (`domain_policy::github_stack::stack_writes`), in the order GitHub requires: the unstacks, the retargets (GitHub refuses
+/// the retarget of a member), then the create or the add
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StackWrite {
+  /// Takes the unmerged layers out of the stack `stack`; the merged ones stay, and a stack left empty is dissolved
+  Unstack { stack: u32 },
+  /// The pull request `number` of `branch` goes into `to` (the head of the layer below, or the target for the bottom)
+  Retarget { branch: String, number: u32, from: String, to: String },
+  /// A new stack of these pull requests, bottom first
+  Create { pull_requests: Vec<u32> },
+  /// These pull requests go on top of the stack `stack`, the lowest first
+  Add { stack: u32, pull_requests: Vec<u32> },
+}
+
 /// A pull request's place in a stack of GitHub: a linear chain of pull requests, each into the branch of the one below,
 /// the bottom into `base_ref_name`, judged by the rules of that base and merged with every layer below it
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -565,6 +582,10 @@ pub enum PullRequestBase {
   Virtual { from: String, retarget: String },
   /// Into another base (a release branch), which may be meant: its approvals count only for a Safe Push into `base`
   Other { base: String },
+  /// A layer of a stack of GitHub into the target: into the virtual branch of `parent`, the layer below it, judged by the
+  /// rules of the target and merged with every layer below it (docs/design/github-stacks.md); never retargeted, GitHub
+  /// refuses the retarget of a member
+  Layer { parent: String },
 }
 
 /// A code owner Request Review… offers (`domain_policy::review::candidates`): suggested by Patronus for a group whose

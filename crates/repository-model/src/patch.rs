@@ -14,9 +14,9 @@ use domain_types::next_step::NextStepView;
 use domain_types::operation::{OperationId, RunningOperation};
 use domain_types::pull_request::PullRequestView;
 use domain_types::session::{
-  ArchivedChanges, BranchChange, BranchPush, BranchRemote, BranchStructure, BranchSync, BranchView, CommitSync, Fact, FactsChanges, FactsView, NEWS_KEPT, News, PatronusChange,
-  PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, ReviewsView, RobotAttention, RobotsChange, RobotsView, SyncState, TableChanges, TableHeader, TableSections,
-  Version, ViewPatch,
+  ArchivedChanges, BranchChange, BranchPush, BranchRemote, BranchStructure, BranchSync, BranchView, CommitSync, Fact, FactsChanges, FactsView, GitHubLayer, NEWS_KEPT, News,
+  PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, ReviewsView, RobotAttention, RobotsChange, RobotsView, SyncState, TableChanges, TableHeader,
+  TableSections, Version, ViewPatch,
 };
 use domain_types::stack::StackBranchUpdate;
 use std::collections::BTreeMap;
@@ -120,6 +120,8 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     removed_actions,
     attention,
     removed_attention,
+    github_layers,
+    removed_github_layers,
     operations,
     removed_operations,
     undo,
@@ -162,6 +164,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   apply_keyed(&mut view.next_steps, next_steps, &removed_next_steps);
   apply_keyed(&mut view.actions, actions, &removed_actions);
   apply_keyed(&mut view.attention, attention, &removed_attention);
+  apply_keyed(&mut view.github_layers, github_layers, &removed_github_layers);
   apply_keyed(&mut view.operations, operations, &removed_operations);
   set_if_some(&mut view.undo, undo);
   set_if_some(&mut view.reviews, reviews);
@@ -249,6 +252,8 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     removed_actions: _,
     attention: _,
     removed_attention: _,
+    github_layers: _,
+    removed_github_layers: _,
     operations,
     removed_operations,
     undo,
@@ -417,6 +422,7 @@ pub(crate) struct Now<'a> {
   pub(crate) next_steps: &'a BTreeMap<String, NextStepView>,
   pub(crate) actions: &'a BTreeMap<String, Vec<ActionState>>,
   pub(crate) attention: &'a BTreeMap<String, RobotAttention>,
+  pub(crate) github_layers: &'a BTreeMap<String, GitHubLayer>,
   /// In the order they were admitted
   pub(crate) operations: Vec<&'a RunningOperation>,
   pub(crate) undo: Option<&'a OperationId>,
@@ -447,6 +453,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
   let (next_steps, removed_next_steps) = diff_keyed(&last.next_steps, now.next_steps);
   let (actions, removed_actions) = diff_keyed(&last.actions, now.actions);
   let (attention, removed_attention) = diff_keyed(&last.attention, now.attention);
+  let (github_layers, removed_github_layers) = diff_keyed(&last.github_layers, now.github_layers);
   let (operations, removed_operations) = operations_change(&last.operations, &now.operations);
   let (last_archived, archived) = (&last.sections.archived, &now.sections.archived);
   let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
@@ -479,6 +486,8 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
     removed_actions,
     attention,
     removed_attention,
+    github_layers,
+    removed_github_layers,
     operations,
     removed_operations,
     undo: (last.undo.as_ref() != now.undo).then(|| now.undo.cloned()),
@@ -514,6 +523,7 @@ pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
     next_steps: &to.next_steps,
     actions: &to.actions,
     attention: &to.attention,
+    github_layers: &to.github_layers,
     operations: to.operations.values().collect(),
     undo: to.undo.as_ref(),
     reviews: &to.reviews,

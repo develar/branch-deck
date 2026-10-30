@@ -282,7 +282,7 @@ pub fn pushes_into_target(plan: &Plan) -> bool {
   plan.effects.iter().any(|effect| {
     matches!(
       effect,
-      PlannedEffect::PushBaseline { .. } | PlannedEffect::MergePullRequest { .. } | PlannedEffect::EnableAutoMerge { .. }
+      PlannedEffect::PushBaseline { .. } | PlannedEffect::MergePullRequest { .. } | PlannedEffect::EnableAutoMerge { .. } | PlannedEffect::MergeStack { .. }
     )
   })
 }
@@ -383,6 +383,11 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
         number: *number,
         field: PullRequestField::State,
       }),
+      // the state of the layer and of each layer below it, which the merge merges with it
+      PlannedEffect::MergeStack { number, layers, .. } => resources.extend(layers.iter().chain([number]).map(|number| Resource::PullRequest {
+        number: *number,
+        field: PullRequestField::State,
+      })),
       PlannedEffect::EnableAutoMerge { number, .. } => resources.push(Resource::PullRequest {
         number: *number,
         field: PullRequestField::AutoMerge,

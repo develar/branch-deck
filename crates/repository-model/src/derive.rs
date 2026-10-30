@@ -52,6 +52,7 @@ use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::table::{TableParts, TableState};
 use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, branch_attention, stack_attention};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
+use domain_policy::github_stack::chain_of;
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, is_pushing, push_blocker, restart_action, stack_branch_hold};
 use domain_policy::land::{
   BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, decide, offered_profiles, on_last_commit, restart_refusal,
@@ -62,7 +63,7 @@ use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
-use domain_policy::pull_request::base_of;
+use domain_policy::pull_request::layer_base_of;
 use domain_policy::push::{
   HeadedStack, Kept, PushState, StartAncestor, StartPush, UpToStop, Verdict, action_push, branch_push, kept, stack_branch_along, start_push, up_to_push, verdict,
 };
@@ -81,8 +82,8 @@ use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailabili
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, RobotAttention,
-  RobotsView, StackBranchAlong, SubjectReadiness, TableHeader, WholeStackView, stack_readiness_key,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, GitHubLayer, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo,
+  RobotAttention, RobotsView, StackBranchAlong, SubjectReadiness, TableHeader, WholeStackView, stack_readiness_key,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, PushAction};
@@ -204,19 +205,21 @@ pub(crate) fn push_view(parts: &TableParts, facts: &FactStore) -> BTreeMap<Strin
 /// (`readiness`, by subject): where it goes (`domain_policy::pull_request::base_of`, `target` the branch the baseline is
 /// on the remote, the virtual branches those of `prefix`), whether it is a draft, and the code owners Request Review…
 /// offers (`domain_policy::review::candidates`). A subject without an open pull request is not listed. The view derives
-/// it with each patch; `bd`'s scenario facts read it too
-pub fn open_pull_requests_view<'a>(
+/// it with each patch; `bd`'s scenario facts read it too. `layer_parent` names the branch below a branch in its stack of
+/// GitHub (`domain_policy::pull_request::layer_base_of`)
+pub fn open_pull_requests_view<'a, 'p>(
   target: &str,
   branches: impl Fn(&str) -> bool,
   stacks: impl Fn(&str) -> bool,
   pull_requests: &PullRequestsView,
   readiness: impl Fn(&str) -> Option<&'a ReviewReadiness>,
   prefix: &str,
+  layer_parent: impl Fn(&str) -> Option<&'p str>,
 ) -> BTreeMap<String, PullRequestView> {
   let view_of = |key: String, pull_request: &PullRequest| {
     let view = PullRequestView {
       number: pull_request.number,
-      base: base_of(pull_request, target, prefix),
+      base: layer_base_of(pull_request, target, prefix, layer_parent(&key)),
       draft: pull_request.is_draft,
       candidates: candidates(readiness(&key), pull_request).candidates,
     };
@@ -988,6 +991,80 @@ pub fn landing_route_of(header: &TableHeader, landed: &LandedSection, facts: &Fa
   })
 }
 
+/// The layers of the stacks of GitHub of `state` (`domain_policy::github_stack::chain_of`), by branch: on a route without
+/// Patronus, where GitHub's schema has stacks (the listing that stands says so), each branch of a straight chain of two or
+/// more above the branches that landed whole (`landed`, `landed_states_of`); none before the first sync
+#[must_use]
+pub fn github_layers_of(state: &TableState, facts: &FactStore, route: &LandingRoute, landed: &BTreeMap<String, Landed>) -> BTreeMap<String, GitHubLayer> {
+  let pull_requests = facts.pull_requests.view();
+  if matches!(route, LandingRoute::Patronus { .. }) || !pull_requests.github_stacks {
+    return BTreeMap::new();
+  }
+  let Some(table) = facts.table_facts(state) else {
+    return BTreeMap::new();
+  };
+  github_layers(
+    &table.table,
+    |branch| landed.get(branch).is_some_and(Landed::is_whole),
+    |branch| has_open(pull_requests, branch),
+  )
+}
+
+/// The layers of the stacks of GitHub of `table` on `route` (`github_layers_of`) over the landed facts `landed`, for a
+/// side without the derived parts of a session (`bd`)
+#[must_use]
+pub fn github_layers_over(
+  route: &LandingRoute,
+  table: &BranchTable,
+  remote: &RemoteFacts,
+  landed: &LandedFacts<'_>,
+  pull_requests: &PullRequestsView,
+) -> BTreeMap<String, GitHubLayer> {
+  if matches!(route, LandingRoute::Patronus { .. }) || !pull_requests.github_stacks {
+    return BTreeMap::new();
+  }
+  let landed = |branch: &str| landed_state(landed, &landed_subject(table, remote, Of::Branch(branch), Some(pull_requests))).is_some_and(|landed| landed.is_whole());
+  github_layers(table, landed, |branch| has_open(pull_requests, branch))
+}
+
+/// Whether `branch` has an open pull request in the listing `pull_requests`
+fn has_open(pull_requests: &PullRequestsView, branch: &str) -> bool {
+  pull_requests
+    .pull_requests
+    .get(branch)
+    .is_some_and(|pull_request| pull_request.state == PullRequestState::Open)
+}
+
+/// The layers of the stacks of GitHub of `table`, by branch, `landed` naming a branch that landed whole, `open` one with
+/// an open pull request
+pub fn github_layers(table: &BranchTable, landed: impl Fn(&str) -> bool, open: impl Fn(&str) -> bool) -> BTreeMap<String, GitHubLayer> {
+  let repo = Repository::of_grouping(&table.branches, &table.parked);
+  let forks = |root: &str| table.stack_branches.iter().any(|stack| stack.root == root && !stack.members.is_empty());
+  let mut layers = BTreeMap::new();
+  for branch in &table.branches {
+    if layers.contains_key(&branch.name) {
+      continue;
+    }
+    let Some(chain) = chain_of(&repo, forks, &landed, &branch.name) else {
+      continue;
+    };
+    let names: Vec<String> = chain.iter().map(|name| (*name).to_owned()).collect();
+    for (at, name) in chain.iter().enumerate() {
+      let parent = at.checked_sub(1).map(|below| chain[below].to_owned());
+      let creates = chain[..at].iter().filter(|below| !open(below)).map(|below| (*below).to_owned()).collect();
+      layers.insert(
+        (*name).to_owned(),
+        GitHubLayer {
+          chain: names.clone(),
+          parent,
+          creates,
+        },
+      );
+    }
+  }
+  layers
+}
+
 /// What landed each subject of `table` (`domain_policy::landed::landed_state`) over `landed` and the listing
 /// `pull_requests`, by subject key: every branch and every whole stack that forks
 #[must_use]
@@ -1049,6 +1126,8 @@ pub struct LandSources<'a> {
   /// A conflict the check of the deciding side against the newest target found; `None` without one, or when nothing
   /// checked (a session checks at the start)
   pub target_conflict: Option<TargetConflictFact<'a>>,
+  /// The branches that are layers of a stack of GitHub (`github_layers_of`), by name
+  pub github_layers: &'a BTreeMap<String, GitHubLayer>,
 }
 
 /// The decisions of the default intents of every subject of `state` (`LandDecisions`: a Safe Push with the default
@@ -1097,6 +1176,7 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
   let target = baseline_on_remote(&state.parts.header.baseline_branch);
   let readiness = |key: &str| facts.readiness.fact(key);
   let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts);
+  let github_layers = github_layers_of(state, facts, &route, &landed_states_of(state, facts));
   let sources = LandSources {
     route: &route,
     patronus: patronus_lands(facts.robots.view()),
@@ -1117,6 +1197,7 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
     baseline: &state.parts.sections.landed,
     gate: checks.gate.as_deref(),
     target_conflict: checks.target_conflict.as_ref().map(|(commit, files)| TargetConflictFact { commit, files }),
+    github_layers: &github_layers,
   };
   Some(decide(&sources))
 }
@@ -1464,6 +1545,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       repository,
       merge_methods: sources.pull_requests.merge_methods,
       lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
+      listed: Some(&sources.pull_requests.pull_requests),
     };
     let node = NodeFacts {
       step,
@@ -1534,6 +1616,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       repository,
       merge_methods: sources.pull_requests.merge_methods,
       lands: u32::try_from(lands).unwrap_or(u32::MAX),
+      listed: Some(&sources.pull_requests.pull_requests),
     };
     let node = NodeFacts {
       step,
@@ -1555,6 +1638,14 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
 /// requests and the readiness of the session of `prefix`
 #[must_use]
 pub fn session_open_pull_requests(state: &TableState, facts: &FactStore, prefix: &str) -> BTreeMap<String, PullRequestView> {
+  let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts);
+  let layers = github_layers_of(state, facts, &route, &landed_states_of(state, facts));
+  open_pull_requests_of(state, facts, prefix, &layers)
+}
+
+/// `session_open_pull_requests` over the layers of the stacks of GitHub the caller derived (`github_layers_of`)
+#[must_use]
+pub fn open_pull_requests_of(state: &TableState, facts: &FactStore, prefix: &str, layers: &BTreeMap<String, GitHubLayer>) -> BTreeMap<String, PullRequestView> {
   let parts = &state.parts;
   let readiness = |key: &str| facts.readiness.fact(key)?.value.as_ref().map(|subject| &subject.readiness);
   open_pull_requests_view(
@@ -1564,6 +1655,7 @@ pub fn session_open_pull_requests(state: &TableState, facts: &FactStore, prefix:
     facts.pull_requests.view(),
     readiness,
     prefix,
+    |name| layers.get(name).and_then(|layer| layer.parent.as_deref()),
   )
 }
 

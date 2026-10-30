@@ -605,11 +605,7 @@ pub mod templates {
   /// key in its subject) on `auth`, and `docs` stands alone
   pub fn stacked_branches() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
-    RepoTemplate::new("stacked_branches")
-      .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
-      .commit_with_timestamp("Initial project setup", &[("README.md", "# Auth\n")], Some(1704117600))
-      .commit_with_timestamp("(auth) Add auth module", &[("auth.js", "export function auth() {}\n")], Some(1704119400))
+    stacked_auth("stacked_branches")
       .commit_with_timestamp(
         "(auth/login) Add login form",
         &[("auth.js", "export function auth(user) {}\n"), ("login.js", "export function login() {}\n")],
@@ -622,6 +618,24 @@ pub mod templates {
         Some(1704124800),
       )
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704126600))
+  }
+
+  /// Stacked branches on, a straight chain: `oauth` on `login` on `auth`, one commit each, and `docs` alone; a stack of
+  /// GitHub on a route without Patronus (docs/design/github-stacks.md)
+  pub fn stacked_chain() -> RepoTemplate {
+    stacked_auth("stacked_chain")
+      .commit_with_timestamp("(auth/login) Add login form", &[("login.js", "export function login() {}\n")], Some(1704121200))
+      .commit_with_timestamp("(login/oauth) Add OAuth provider", &[("oauth.js", "export function oauth() {}\n")], Some(1704123000))
+      .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704126600))
+  }
+
+  /// The start of the templates of the `auth` stack: stacked branches on, the setup and `auth`
+  fn stacked_auth(name: &str) -> RepoTemplate {
+    RepoTemplate::new(name)
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Auth\n")], Some(1704117600))
+      .commit_with_timestamp("(auth) Add auth module", &[("auth.js", "export function auth() {}\n")], Some(1704119400))
   }
 
   /// Stacked branches on, a big stack: `air` heads a chain of five branches with a side chain of two off `bazel`, two

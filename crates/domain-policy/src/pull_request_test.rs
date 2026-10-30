@@ -1,7 +1,7 @@
 use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals, start_base, start_pull_request};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::pull_request;
-use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestState, Reviewer, ReviewerState};
+use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestStackEntry, PullRequestState, Reviewer, ReviewerState};
 use domain_types::session::{Fact, FactState};
 use pretty_assertions::assert_eq;
 
@@ -56,6 +56,37 @@ fn a_pull_request_goes_into_the_target_into_a_virtual_branch_it_leaves_or_into_a
   for base in ["jane/virtual/auth", "user/virtual/", "user/stack/auth", "release-252"] {
     assert_eq!(base_of(&into(base), "master", "user"), PullRequestBase::Other { base: base.to_owned() }, "{base}");
   }
+}
+
+/// A pull request into a virtual branch that GitHub lists in a stack into the target is a layer of it, never retargeted;
+/// one in a stack into another base is retargeted as any other, and no robot starts from a layer
+/// (docs/design/github-stacks.md)
+#[test]
+fn a_member_of_a_stack_of_github_into_the_target_is_a_layer() {
+  let layer = |stack_base: &str| PullRequest {
+    stack: Some(PullRequestStackEntry {
+      number: 4,
+      base_ref_name: stack_base.to_owned(),
+      size: 2,
+      position: 2,
+    }),
+    ..into("user/virtual/auth")
+  };
+  assert_eq!(base_of(&layer("master"), "master", "user"), PullRequestBase::Layer { parent: "auth".to_owned() });
+  assert_eq!(
+    base_of(&layer("user/virtual/zc"), "master", "user"),
+    PullRequestBase::Virtual {
+      from: "auth".to_owned(),
+      retarget: "master".to_owned(),
+    }
+  );
+  // the bottom layer goes into the target as any pull request
+  let bottom = PullRequest {
+    base_ref_name: "master".to_owned(),
+    ..layer("master")
+  };
+  assert_eq!(base_of(&bottom, "master", "user"), PullRequestBase::Target);
+  assert_eq!(start_pull_request(Some(&layer("master")), "master", "user", Some("acme/monorepo"), false), None);
 }
 
 #[test]

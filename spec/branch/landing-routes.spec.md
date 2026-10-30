@@ -323,6 +323,18 @@ target, read before anything is pushed.
   the session tells it as news (`NewsEvent::AutoMerged`, `news::auto_merged`).
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_update_follows_a_merge_of_the_pull_request_and_no_auto_merge`)
   [@test] ../../crates/domain-policy/src/news_test.rs (`a_pull_request_github_merged_by_its_auto_merge_is_news_once`)
+- A layer of a stack of GitHub ([Stacks of GitHub](stacked-branches.spec.md#stacks-of-github)) must merge with the
+  layers below it in one asynchronous merge of its own pull request (`merge-async` with the head the plan saw,
+  `PlannedEffect::MergeStack`, the layers below named), its result asked until GitHub merged it, queued it or refused
+  it: a piece in one move. The first layer below that a merge can't take now holds it, by that layer's number and
+  reason (approvals, a conflict, a state GitHub still computes: a wait); GitHub has no auto-merge of a stack, so
+  required checks that still run hold it. A pull request into the branch below it that GitHub lists in no stack would
+  merge into that branch: refused with "#9 goes into login outside a stack of GitHub: its merge would land nothing,
+  link the stack first" (`layerNotLinked`), or retargeted as one into a virtual branch. Once GitHub merged it, the layer
+  and each layer below go into the session as merged.
+  [@test] ../../crates/domain-policy/src/land_direct_test.rs (`a_layer_of_a_stack_merges_with_the_layers_below_it_and_the_first_one_that_cant_holds_it`, `a_layer_outside_a_stack_is_not_merged`)
+  [@test] ../../crates/operations/src/pull_request_test.rs (`the_merge_of_a_piece_of_a_stack_asks_its_result_until_github_merged_it`)
+  [@test] ../../tests/e2e/stacked-branches/github-stacks.spec.ts (`should merge a piece of a stack of GitHub with the layers below it in one asynchronous merge from the slot of the row`)
 - Cancel Auto-Merge must disable the auto-merge of the open pull request (`Intent::DisableAutoMerge`,
   `disablePullRequestAutoMerge`), the action `cancel-auto-merge` of a branch and of a whole stack while its step is
   `merge′`; the merge is `merge-pull-request` in place of the robot's starts.

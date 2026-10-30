@@ -14,6 +14,7 @@ import type {
   Commit,
   CommitSyncStatus,
   DroppedCommit,
+  GitHubLayer,
   IssueLead,
   LandDecisions,
   Landed,
@@ -319,6 +320,12 @@ export interface BranchSyncState {
    */
   attention: Readonly<Record<string, RobotAttention>>
   /**
+   * The branches that are layers of a stack of GitHub, by name, as Rust decides them (`RepositoryView.githubLayers`,
+   * `domain_policy::github_stack`): the pull request of each goes into the branch of the one below it
+   * ([Stacks of GitHub](docs/design/github-stacks.md)); none on a route of Patronus
+   */
+  githubLayers: Readonly<Record<string, GitHubLayer>>
+  /**
    * The operations of the remote that run or wait in the session, by id (`RepositoryView.operations`, written by
    * `operations::registry`): the moves of rows they make are laid over the nodes (`src/presenters/running-move.ts`)
    */
@@ -335,9 +342,12 @@ export const NO_OPERATIONS: BranchSyncState["operations"] = {}
 
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
- * `nextSteps`, `actions`, `attention`), its operations and its route
+ * `nextSteps`, `actions`, `attention`, `githubLayers`), its operations and its route
  */
-export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "operations" | "route"> = {
+export const NO_SUBJECT_PARTS: Pick<
+  BranchSyncState,
+  "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "githubLayers" | "operations" | "route"
+> = {
   pushes: {},
   openPullRequests: {},
   lands: {},
@@ -345,6 +355,7 @@ export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequest
   nextSteps: {},
   actions: {},
   attention: {},
+  githubLayers: {},
   operations: NO_OPERATIONS,
   route: null,
 }

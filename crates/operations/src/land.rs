@@ -24,7 +24,9 @@ use crate::facts::fill;
 use crate::land_execute::{Planned, PushLease, PushedRef};
 use crate::needs::{FactNeed, waits};
 use crate::witness::Witness;
+use domain_policy::facts::Robots;
 use domain_policy::land::TargetConflictFact;
+use domain_policy::landed::LandedFacts;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::{Land, LandDecision, LandProfiles, LandingRefusal, PlannedEffect, Subject};
 use domain_types::operation::{Fingerprint, Intent, Plan};
@@ -32,7 +34,7 @@ use domain_types::session::{Fact, LandedSection, SubjectReadiness};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::FactSources;
 use repository_model::branch_table::BranchTable;
-use repository_model::derive::{LandSources, land_decision, landing_route_of, patronus_lands, with_land_sources};
+use repository_model::derive::{LandSources, github_layers_over, land_decision, landing_route_of, patronus_lands, with_land_sources};
 use repository_model::facts::FactRecord;
 use repository_model::one_shot::OneShot;
 use repository_model::session::{SessionKey, Sessions};
@@ -103,6 +105,14 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
   let readiness = |key: &str| -> Option<&Fact<SubjectReadiness>> { facts.readiness.fact(key) };
   let header = session.state().header();
   let route = landing_route_of(header, &session.state().sections().landed, facts);
+  let robots = Robots::new(session.robots());
+  let landed = LandedFacts {
+    baseline: host.baseline,
+    view: Some(session.view()),
+    robots: &robots,
+    pushed: None,
+  };
+  let github_layers = github_layers_over(&route, host.table, &host.table.remote, &landed, facts.pull_requests.view());
   let sources = LandSources {
     route: &route,
     patronus: patronus_lands(session.facts().robots.view()),
@@ -124,6 +134,7 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
     baseline: host.baseline,
     gate: Some(host.gate),
     target_conflict: host.target_conflict,
+    github_layers: &github_layers,
   };
   decide(&sources)
 }
@@ -153,6 +164,7 @@ pub fn planned_of(sources: &LandSources<'_>, land: &Land) -> Option<Planned> {
     notes: Vec::new(),
     subject: land.subject.clone(),
     mode: land.mode,
+    stack_pull_requests: BTreeMap::new(),
   })
 }
 

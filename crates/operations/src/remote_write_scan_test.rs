@@ -82,6 +82,26 @@ const WRITES: &[Write] = &[
     callers: &[("crates/operations/src/land_execute.rs", 1, "the creation of a plan (`PlannedEffect::CreatePullRequest`)")],
   },
   Write {
+    call: "create_stack(",
+    callers: &[("crates/operations/src/land_execute.rs", 1, "the link of a stack of GitHub (`PlannedEffect::LinkStack`)")],
+  },
+  Write {
+    call: "add_to_stack(",
+    callers: &[("crates/operations/src/land_execute.rs", 1, "the link of a stack of GitHub (`PlannedEffect::LinkStack`)")],
+  },
+  Write {
+    call: " unstack(&github",
+    callers: &[("crates/operations/src/land_execute.rs", 1, "the link of a stack of GitHub (`PlannedEffect::LinkStack`)")],
+  },
+  Write {
+    call: "merge_async(",
+    callers: &[(
+      "crates/operations/src/land_execute.rs",
+      1,
+      "the merge of a piece of a stack of GitHub (`PlannedEffect::MergeStack`)",
+    )],
+  },
+  Write {
     call: ".set_state(",
     callers: &[("crates/operations/src/issue.rs", 1, "Mark Fixed and its undo (`Intent::SetIssueState`)")],
   },

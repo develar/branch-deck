@@ -46,6 +46,7 @@ use crate::push::{Sent, send};
 use crate::registry_file::{PendingStart, RecordHandle};
 use crate::robot_start::{ApiStart, CommentStart, Commented, NoRobot, RobotWait, follow_start_comment, patronus_failure, post_start_comment, start_through_api};
 use crate::witness::{Witness, check, plan_changed, read_refs};
+use domain_policy::github_stack::stack_writes;
 use domain_policy::holds::is_active;
 use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
@@ -56,8 +57,8 @@ use domain_types::operation::{
   StartComment, StartNote,
 };
 use domain_types::patronus::{PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot};
-use domain_types::pull_request::{CreatedPullRequest, MergeMethod, RequestedReviewers};
-use domain_types::pull_request::{PullRequest, PullRequestState};
+use domain_types::pull_request::{AsyncMergeStatus, CreatedPullRequest, MergeMethod, RequestedReviewers};
+use domain_types::pull_request::{PullRequest, PullRequestState, StackWrite};
 use domain_types::reason::Reason;
 use domain_types::repository_view::HoldKind;
 use domain_types::session::Version;
@@ -68,7 +69,9 @@ use history_rewrite::repository_lock::{LockHolder, RepositoryLock, RepositoryLoc
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::pull_request_create::{CreatePullRequestParams, MIRROR_WAIT, create_pull_request, wait_for_branch};
-use remote_facts::pull_request_writes::{MergeWhen, MergeWrite, merge_pull_request, request_pull_request_reviewers};
+use remote_facts::pull_request_writes::{
+  MergeWhen, MergeWrite, add_to_stack, create_stack, merge_async, merge_async_status, merge_pull_request, request_pull_request_reviewers, unstack,
+};
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::pull_requests::failure_message;
 use repository_model::branch_table::BranchTable;
@@ -76,6 +79,7 @@ use repository_model::facts::BaselineRefusal;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::ref_claims::claim_refs;
 use repository_model::refusal_words::start_refusal_text;
+use repository_model::runtime::sleep_until;
 use repository_model::table::{RemoteSubject, TableState};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -90,6 +94,11 @@ use sync_utils::clock::Clock;
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, instrument, warn};
+
+/// How often the result of the asynchronous merge of a layer of a stack of GitHub is asked
+const STACK_MERGE_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+/// How long the asynchronous merge of a layer is waited for: the merge of a stack took seconds where it was measured
+const STACK_MERGE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// A plan of a start as the facts have it now, with what the run needs of it besides: the witness it was decided on,
 /// the branches its push sends, the ref the robot starts from and the merge request whose approvals count
@@ -110,6 +119,9 @@ pub struct Planned {
   pub subject: Subject,
   /// The push mode of the robot it starts or restarts
   pub mode: PatronusPushMode,
+  /// The open pull requests of the branches of the stack of GitHub its `LinkStack` brings in line, by branch, as the
+  /// plan read them; the run adds the ones it opens
+  pub stack_pull_requests: BTreeMap<String, PullRequest>,
 }
 
 /// A branch a start pushes, before its commit and lease are frozen
@@ -252,6 +264,16 @@ pub trait StartHost: Send + Sync {
   /// The pull request a start opens (`PlannedEffect::CreatePullRequest`): what it says and who reviews it, after the
   /// push `sent` (its text names what the push sent)
   fn pull_request_text<'a>(&'a self, sent: Option<&'a Sent>) -> Read<'a, Result<PullRequestText, ApiError>>;
+
+  /// The title and the body of the pull request of `head` (its full name), a layer below the subject in its stack of
+  /// GitHub, into `base`: of its own commits against the branch below it (`CreateLayerPullRequest`); a host that opens no
+  /// pull request of a layer refuses it
+  fn layer_text<'a>(&'a self, _repository_path: &'a str, _head: &'a str, _base: &'a str) -> Read<'a, Result<(String, String), ApiError>> {
+    Box::pin(std::future::ready(Err(ApiError::new(
+      ErrorCode::InvalidArguments,
+      "This start opens no pull request of a layer of a stack of GitHub",
+    ))))
+  }
 
   /// The robot the start started or canceled goes into the facts: the version of the view after its patch
   fn write_robot(&self, robot: PatronusRobot) -> Read<'_, Option<Version>>;
@@ -653,8 +675,9 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     }
     // the gates of a push into the target (`domain_policy::landing_route`): the server would refuse it
     Reason::NoWriteAccess { .. } => ErrorCode::NoWriteAccess,
-    // the server would refuse it as no fast-forward: the update first, as after a target that moved
-    Reason::BaselineAhead { .. } => ErrorCode::BaselineMoved,
+    // the server would refuse it as no fast-forward: the update first, as after a target that moved; and GitHub moved
+    // the layer onto the target
+    Reason::BaselineAhead { .. } | Reason::LayerRebased { .. } => ErrorCode::BaselineMoved,
     Reason::BaselineRequiresPullRequest { .. } => ErrorCode::BaselineRequiresPullRequest,
     Reason::BaselineRequiresMergeQueue { .. } | Reason::BaselineRestrictsUpdates { .. } | Reason::BaselineRequiresSignatures { .. } | Reason::BaselineRefusedPush { .. } => {
       ErrorCode::BaselineRefused
@@ -678,7 +701,7 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     Reason::NotOnSpace | Reason::DryRunNeedsPatronus => ErrorCode::NotOnSpace,
     Reason::GitHubMirror { .. } | Reason::NotOnGitHub | Reason::NoPullRequestToMerge { .. } => ErrorCode::NoPullRequest,
     // GitHub can't merge it: a conflict, a head behind its base, a branch to push first
-    Reason::MergeConflict { .. } | Reason::MergeBehind { .. } | Reason::MergeHeadBehind { .. } => ErrorCode::NotMergeable,
+    Reason::MergeConflict { .. } | Reason::MergeBehind { .. } | Reason::MergeHeadBehind { .. } | Reason::LayerNotLinked { .. } => ErrorCode::NotMergeable,
     // the rules of the base hold it back until what they need comes
     Reason::MergeDraft { .. }
     | Reason::MergeNeedsApprovals { .. }
@@ -759,6 +782,8 @@ struct Run<'a> {
   /// Why the answer of the start is not known (`EffectStatus::Unknown`)
   lost: Option<ApiError>,
   created: Option<CreatedPullRequest>,
+  /// The pull requests of the layers below the subject it opened (`CreateLayerPullRequest`), in their order
+  created_layers: Vec<CreatedPullRequest>,
   requested: Option<RequestedReviewers>,
   version: Option<Version>,
   /// Once an effect failed or the facts changed: why the effects after it are skipped
@@ -787,6 +812,7 @@ impl<'a> Run<'a> {
       commented: None,
       lost: None,
       created: None,
+      created_layers: Vec::new(),
       requested: None,
       version: None,
       stopped: None,
@@ -810,13 +836,16 @@ impl<'a> Run<'a> {
           PlannedEffect::CancelRobot { robot_id } => self.cancel(robot_id).await,
           PlannedEffect::Push { .. } => self.push(prepared.take()).await,
           PlannedEffect::StartRobot { route } => self.start(route).await,
-          PlannedEffect::CreatePullRequest => self.create_pull_request().await,
+          PlannedEffect::CreatePullRequest { base } => self.create_pull_request(base.as_deref()).await,
+          PlannedEffect::CreateLayerPullRequest { branch, base } => self.create_layer_pull_request(branch, base).await,
+          PlannedEffect::LinkStack { chain } => self.link_stack(chain).await,
           PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
           PlannedEffect::PushBaseline { tip, remote, target, .. } => self.push_baseline(tip, remote, target).await,
           PlannedEffect::MergePullRequest { number, method, head, .. } => self.merge(*number, *method, head, false).await,
           PlannedEffect::EnableAutoMerge { number, method, head, .. } => self.merge(*number, *method, head, true).await,
+          PlannedEffect::MergeStack { number, method, head, layers, .. } => self.merge_stack(*number, *method, head, layers).await,
           // a close, a review, the state of an issue and a forget are operations of their own, never a step of a start
           PlannedEffect::ClosePullRequest { .. }
           | PlannedEffect::DisableAutoMerge { .. }
@@ -1101,6 +1130,60 @@ impl Run<'_> {
     }
   }
 
+  /// GitHub merges the layer `number` of a stack of GitHub with `layers` below it by `method` while its head is `head`
+  /// (`merge-async`), its result asked every `STACK_MERGE_POLL` until it is merged, enqueued or failed, at most
+  /// `STACK_MERGE_WAIT`: the merged layers go into the facts as merged
+  async fn merge_stack(&mut self, number: u32, method: MergeMethod, head: &str, layers: &[u32]) -> EffectStatus {
+    let (github, repository) = match self.before_write().await {
+      Ok(github) => github,
+      Err(status) => return status,
+    };
+    let path = self.services.repository_path.clone();
+    let cannot = |message: String| ApiError::new(ErrorCode::NotMergeable, format!("Cannot merge #{number}: {message}"));
+    let mut merge = match merge_async(&github, &path, &repository, number, head, method).await {
+      Ok(merge) => merge,
+      Err(GitHubWriteError::Refused(message)) => return self.fail(cannot(message)),
+      Err(error) => {
+        let failure = crate::robot_start::github_failure(error);
+        return self.fail(ApiError::new(failure.code, format!("Cannot merge #{number}: {}", failure.message)));
+      }
+    };
+    let deadline = self.services.clock.now() + STACK_MERGE_WAIT;
+    // asked at once first: the merge of a stack took seconds where it was measured
+    let mut asked = false;
+    while merge.status == AsyncMergeStatus::Pending {
+      let Some(uuid) = merge.uuid.clone() else {
+        return self.fail(cannot("GitHub named no merge to ask about".to_owned()));
+      };
+      if std::mem::replace(&mut asked, true) {
+        if self.services.clock.now() >= deadline {
+          return self.fail(cannot(format!("GitHub did not merge it within {} s; it may still merge", STACK_MERGE_WAIT.as_secs())));
+        }
+        sleep_until(self.services.clock.as_ref(), self.services.clock.now() + STACK_MERGE_POLL).await;
+      }
+      merge = match merge_async_status(&github, &path, &repository, number, &uuid).await {
+        Ok(merge) => merge,
+        Err(error) => {
+          let failure = crate::robot_start::github_failure(error);
+          return self.fail(ApiError::new(failure.code, format!("Cannot tell whether #{number} merged: {}", failure.message)));
+        }
+      };
+    }
+    match merge.status {
+      AsyncMergeStatus::Merged { .. } => {
+        for merged in layers.iter().chain([&number]) {
+          let write = PullRequestWrite::Merged { number: *merged };
+          self.version = self.host.write_pull_request(write).await.or(self.version);
+        }
+        EffectStatus::Done
+      }
+      // the merge queue of the base merges it later: its merge shows on the pull request
+      AsyncMergeStatus::Enqueued => EffectStatus::Done,
+      AsyncMergeStatus::Failed { message } => self.fail(cannot(message)),
+      AsyncMergeStatus::Pending => self.fail(cannot("GitHub still merges it".to_owned())),
+    }
+  }
+
   /// What a push of the copy at `tip` landed, by subject key: each branch the plan lands at the tip its witness froze, and
   /// the subject at `tip` (of a whole stack, `stack:<root>`)
   fn landed_by_push(&self, tip: &str) -> Vec<(String, PushedCopy)> {
@@ -1193,10 +1276,12 @@ fn short(full: &str) -> String {
 /// What the run of `plan` was planned on changed after its first effects, before its last one (`what`): no robot
 /// started, no pull request was opened or merged, nobody was asked; the effects before stay done
 fn changed_before_start(what: &str, plan: &Plan) -> ApiError {
-  let merges = plan
-    .effects
-    .iter()
-    .any(|effect| matches!(effect, PlannedEffect::MergePullRequest { .. } | PlannedEffect::EnableAutoMerge { .. }));
+  let merges = plan.effects.iter().any(|effect| {
+    matches!(
+      effect,
+      PlannedEffect::MergePullRequest { .. } | PlannedEffect::EnableAutoMerge { .. } | PlannedEffect::MergeStack { .. }
+    )
+  });
   let undone = match &plan.intent {
     Intent::Land(_) if merges => "nothing was merged",
     Intent::CreatePullRequest(create) if create.on_github => "GitHub's form was not opened",
@@ -1394,12 +1479,9 @@ impl Run<'_> {
     }
   }
 
-  /// The pull request of the subject is opened, after its push (GitHub may not know the branch for a moment)
-  async fn create_pull_request(&mut self) -> EffectStatus {
-    let (github, repository) = match self.before_write().await {
-      Ok(github) => github,
-      Err(status) => return status,
-    };
+  /// The pull request of the subject is opened into `base` (`None`: the target), after its push (GitHub may not know the
+  /// branch for a moment)
+  async fn create_pull_request(&mut self, base: Option<&str>) -> EffectStatus {
     // the text the user wrote, else the host's (`bd safe-push --create-pull-request`)
     let text = match &self.planned.plan.intent {
       Intent::CreatePullRequest(create) => PullRequestText {
@@ -1415,9 +1497,55 @@ impl Run<'_> {
         Err(error) => return self.fail(error),
       },
     };
+    let text = PullRequestText {
+      base: base.map_or(text.base, str::to_owned),
+      ..text
+    };
+    let branch = self.planned.plan_subject_name().to_string();
+    match self.open_pull_request(branch, text).await {
+      Ok(created) => {
+        self.created = Some(created);
+        EffectStatus::Done
+      }
+      Err(status) => status,
+    }
+  }
+
+  /// The pull request of `branch`, a layer below the subject in its stack of GitHub, is opened into `base` with the text
+  /// of its own commits the host reads, assigned as the subject's is, no reviewer asked: the subject's are asked for its
+  /// own layer
+  async fn create_layer_pull_request(&mut self, branch: &str, base: &str) -> EffectStatus {
+    let Ok(head) = to_final_branch_name(&self.services.prefix, branch) else {
+      return self.fail(ApiError::new(ErrorCode::InvalidArguments, format!("{branch} is no virtual branch name")));
+    };
+    let assign_self = matches!(&self.planned.plan.intent, Intent::CreatePullRequest(create) if create.assign_self);
+    let text = match self.host.layer_text(&self.services.repository_path, &head, base).await {
+      Ok((title, body)) => PullRequestText {
+        head,
+        base: base.to_owned(),
+        title,
+        body,
+        reviewers: Vec::new(),
+        assign_self,
+      },
+      Err(error) => return self.fail(error),
+    };
+    match self.open_pull_request(branch.to_owned(), text).await {
+      Ok(created) => {
+        self.created_layers.push(created);
+        EffectStatus::Done
+      }
+      Err(status) => status,
+    }
+  }
+
+  /// GitHub opens the pull request of `branch` as `text` says; it goes into the facts and the open pull requests of the
+  /// stack of GitHub the run links
+  async fn open_pull_request(&mut self, branch: String, text: PullRequestText) -> Result<CreatedPullRequest, EffectStatus> {
+    let (github, repository) = self.before_write().await?;
     let params = CreatePullRequestParams {
       repository_path: self.services.repository_path.clone(),
-      branch_name: self.planned.plan_subject_name().to_string(),
+      branch_name: branch.clone(),
       head: text.head,
       base: text.base,
       title: text.title,
@@ -1432,11 +1560,43 @@ impl Run<'_> {
           pull_request: Box::new(created.pull_request.clone()),
         };
         self.version = self.host.write_pull_request(write).await.or(self.version);
-        self.created = Some(created);
-        EffectStatus::Done
+        self.planned.stack_pull_requests.insert(branch, created.pull_request.clone());
+        Ok(created)
       }
-      Err(error) => self.fail(crate::robot_start::github_failure(error)),
+      Err(error) => Err(self.fail(crate::robot_start::github_failure(error))),
     }
+  }
+
+  /// The stack of GitHub of `chain` is brought in line with it (`domain_policy::github_stack::stack_writes`) over its
+  /// open pull requests as the plan read them and the run opened them: each write in its order, GitHub's refusal of one
+  /// fails the effect, the pull requests stay as they are
+  async fn link_stack(&mut self, chain: &[String]) -> EffectStatus {
+    let (github, repository) = match self.before_write().await {
+      Ok(github) => github,
+      Err(status) => return status,
+    };
+    let chain: Vec<&str> = chain.iter().map(String::as_str).collect();
+    let open = &self.planned.stack_pull_requests;
+    let writes = stack_writes(
+      &chain,
+      |branch| open.get(branch).filter(|pull_request| pull_request.state == PullRequestState::Open),
+      &self.services.target,
+      &self.services.prefix,
+    );
+    let path = self.services.repository_path.clone();
+    for write in writes {
+      let done = match &write {
+        StackWrite::Unstack { stack } => unstack(&github, &path, &repository, *stack).await.map(|_| ()),
+        StackWrite::Retarget { number, to, .. } => crate::pull_request::retarget(&github, &path, &repository, *number, to).await,
+        StackWrite::Create { pull_requests } => create_stack(&github, &path, &repository, pull_requests).await.map(|_| ()),
+        StackWrite::Add { stack, pull_requests } => add_to_stack(&github, &path, &repository, *stack, pull_requests).await.map(|_| ()),
+      };
+      if let Err(error) = done {
+        debug!(?write, "GitHub refused a write of the stack");
+        return self.fail(crate::robot_start::github_failure(error));
+      }
+    }
+    EffectStatus::Done
   }
 
   /// GitHub has the pushed `branch` (a mirror copies it a moment after the push), asked again for a while: GitHub's form

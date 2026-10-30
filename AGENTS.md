@@ -4,7 +4,8 @@
 The work of one local branch (the master of a large repository) is done when it is in master; in the IntelliJ
 monorepo it gets there through Patronus Safe Push. Branch Deck cuts that work into virtual branches, optionally
 stacked, only so that it can land in pieces: a piece is a branch and what it is built on, landed in one robot; a whole
-stack lands in one robot too; every pull request goes into master, holding what its Safe Push lands. Judge every
+stack lands in one robot too; on Patronus every pull request goes into master, holding what its Safe Push lands,
+elsewhere a straight chain is a stack of GitHub ([Stacks of GitHub](docs/design/github-stacks.md)). Judge every
 feature by what it lands into master and in how many robots ([Landing Work into Master](docs/design/landing.md)).
 
 A desktop app (React 19 + Vite SPA in a Tauri v2 shell), a Rust workspace under `crates/`, and `bd`, the agent CLI
@@ -333,7 +334,7 @@ Design (`docs/design/`): [Landing](docs/design/landing.md) (the product model),
 [UI Theme](docs/design/ui-theme.md), [Diff View](docs/design/diff-view.md), [Text Diff](docs/design/text-diff.md),
 [Symbol Dependencies](docs/design/symbol-dependencies.md), [Integration Detection](docs/design/integration-detection.md),
 [Remote Status](docs/design/remote-status.md), [E2E Testing](docs/design/e2e-testing.md),
-[Host Runs](docs/design/host-runs.md), [Stacks of GitHub](docs/design/github-stacks.md) (Draft); [Specs](spec/) (start with `spec/commit/commit-row.spec.md`).
+[Host Runs](docs/design/host-runs.md), [Stacks of GitHub](docs/design/github-stacks.md); [Specs](spec/) (start with `spec/commit/commit-row.spec.md`).
 
 Contributing (`docs/contributing/`): [Code Map](docs/contributing/code-map.md), [Checks](docs/contributing/checks.md),
 [Working in a Lease](docs/contributing/leases.md),

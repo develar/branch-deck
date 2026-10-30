@@ -19,6 +19,7 @@ use remote_facts::fact_sources::Read;
 use repository_model::facts::BaselineRefusal;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::table::RemoteSubject;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -193,6 +194,7 @@ impl Fixture {
       notes: Vec::new(),
       subject: alpha().subject,
       mode: PatronusPushMode::RebaseAutosquash,
+      stack_pull_requests: BTreeMap::new(),
     }
   }
 

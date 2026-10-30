@@ -13,6 +13,9 @@
 //! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
 //!   session or from the grouped branches of a sync, the robots of the user by id (`Robots`) and what is known of a
 //!   remote branch (`RemoteBranch`)
+//! - `github_stack`: the stacks of GitHub of a table on a route without Patronus: the chain of a stack that does not
+//!   fork whose layers' pull requests go into their parents' branches (`chain_of`, `layer_parent`), and what brings the
+//!   stack of GitHub in line with it (`stack_writes`)
 //! - `holds`: what holds the push of a branch (`branch_hold`: landed, its own Safe Push, one that lands it) and of the
 //!   stack branch of a whole stack (`stack_branch_hold`), the push an action can't make for the user (`push_blocker`),
 //!   and what a restart of a robot does (`restart_action`)
@@ -70,6 +73,7 @@ pub mod actions;
 pub mod admission;
 pub mod attention;
 pub mod facts;
+pub mod github_stack;
 pub mod holds;
 pub mod land;
 pub mod land_direct;

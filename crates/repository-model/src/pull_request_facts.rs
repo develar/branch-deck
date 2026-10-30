@@ -278,7 +278,8 @@ impl PullRequestsFact {
       .chain(self.view.stack_pull_requests.values())
       .filter(|pull_request| pull_request.state == PullRequestState::Open && pull_request.reviewers.iter().any(|reviewer| reviewer.state == ReviewerState::Approved))
       .filter_map(|pull_request| match base_of(pull_request, target.unwrap_or_default(), prefix) {
-        PullRequestBase::Target | PullRequestBase::Virtual { .. } => target,
+        // a layer of a stack of GitHub is judged by the rules of the target of its stack
+        PullRequestBase::Target | PullRequestBase::Virtual { .. } | PullRequestBase::Layer { .. } => target,
         PullRequestBase::Other { .. } => Some(pull_request.base_ref_name.as_str()),
       })
       .collect();

@@ -33,6 +33,7 @@
 //! `merge` "Merge #7" or "Auto-Merge #7", `merge′` its auto-merge enabled, `merge″` what holds the merge back.
 
 use crate::facts::RemoteBranch;
+use crate::github_stack::layers_below;
 use crate::holds::is_active;
 use crate::land::merges_on_github;
 use crate::land_direct::{MergeAnswer, merge_of};
@@ -48,6 +49,7 @@ use domain_types::pull_request::{MergeMethods, PullRequest, PullRequestAvailabil
 use domain_types::reason::Reason;
 use domain_types::repository_view::LandingNeeds;
 use domain_types::session::{Fact, FactState, Parked, RobotsHead, SubjectReadiness};
+use std::collections::BTreeMap;
 
 /// How Patronus answers for the repository, as the next step reads it
 #[derive(Clone, Copy, Debug)]
@@ -232,6 +234,9 @@ pub struct StepFacts<'a> {
   /// The branches a Safe Push of it lands now (1 for a lone branch): it and those it is built on that are not landed
   /// whole; of a whole stack what is left of it
   pub lands: u32,
+  /// The pull requests of the branches as GitHub listed them: the layers below the pull request of a layer of a stack
+  /// of GitHub, which its merge merges too (`github_stack::layers_below`); `None` before a listing
+  pub listed: Option<&'a BTreeMap<String, PullRequest>>,
 }
 
 /// The robot of the row, as its slot shows it (`getSafePushSlot` of the page before)
@@ -626,7 +631,8 @@ fn merge_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Opti
   let pull_request = facts.pull_request.map(|it| it.pull_request);
   let base = facts.pull_request.and_then(|it| it.base).cloned().unwrap_or(PullRequestBase::Target);
   let target = facts.target;
-  match merge_of(pull_request, |_| base, facts.tip, facts.merge_methods, target) {
+  let below = pull_request.map_or_default(|pull_request| facts.listed.map_or_default(|listed| layers_below(listed.values(), pull_request)));
+  match merge_of(pull_request, |_| base, facts.tip, facts.merge_methods, target, &below) {
     MergeAnswer::NoPullRequest => {
       let branch = facts.subject.name().to_owned();
       let blocker = blocker.or(Some(StepBlocker::Rule {
@@ -649,7 +655,7 @@ fn merge_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Opti
       };
       let (row, kind) = match base {
         PullRequestBase::Virtual { .. } => (StepRow::Five, StepKind::Retarget { number, base: base_name }),
-        PullRequestBase::Other { .. } | PullRequestBase::Target => (StepRow::FivePrime, StepKind::OtherBase { number, base: base_name }),
+        PullRequestBase::Other { .. } | PullRequestBase::Target | PullRequestBase::Layer { .. } => (StepRow::FivePrime, StepKind::OtherBase { number, base: base_name }),
       };
       NextStep {
         retarget,

@@ -35,6 +35,7 @@ const FACTS: CreatePullRequestFacts = {
   patronusAvailable: false,
   review: { status: "loading" },
   withoutReview: null,
+  layer: null,
 }
 
 /** A branch of `commitCount` commits on `parent`, on the remote as it is */
@@ -55,6 +56,20 @@ describe("the context of the Create pull request dialog", () => {
     expect(formatPullRequestIncludes("login", toCreatePullRequestContext(branches.login!, FACTS).includes!)).toBe(
       "Includes the commits of auth, which login is built on: 2 branches · 10 commits",
     )
+  })
+
+  it("creates the pull request of a layer of a stack of GitHub into the branch below it, with its own commits", () => {
+    add("auth", null, 4)
+    add("login", "auth", 6)
+    const oauth = add("oauth", "login", 2)
+    const layer = { chain: ["auth", "login", "oauth"], parent: "login", creates: ["auth", "login"] }
+    const context = toCreatePullRequestContext(oauth, { ...FACTS, layer })
+    expect(context).toMatchObject({ head: "user/virtual/oauth", base: "user/virtual/login", stackAncestors: [], includes: null })
+    expect(context.includesText).toBe(
+      "A layer of the GitHub stack auth → login → oauth: it shows only the commits of oauth, into login. Also creates the pull requests of auth and login.",
+    )
+    const bottom = toCreatePullRequestContext(branches.auth!, { ...FACTS, layer: { chain: ["auth", "login"], parent: null, creates: [] } })
+    expect(bottom).toMatchObject({ base: "master", includesText: "A layer of the GitHub stack auth → login: it shows only the commits of auth." })
   })
 
   it("includes nothing more for a branch built on the baseline", () => {

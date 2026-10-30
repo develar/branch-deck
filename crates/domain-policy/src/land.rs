@@ -515,7 +515,7 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
   if land.create_pull_request {
     decision.pull_request = found.map(|pull_request| pull_request.number);
     if found.is_none() {
-      decision.effects.push(PlannedEffect::CreatePullRequest);
+      decision.effects.push(PlannedEffect::CreatePullRequest { base: None });
     }
   } else {
     decision.pull_request = start_pull_request.map(|pull_request| pull_request.number);

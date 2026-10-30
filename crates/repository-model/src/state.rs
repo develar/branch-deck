@@ -15,7 +15,7 @@
 //! which page got the patch of the table of this run): it remembers the end it saw beside the seed (`src/model/store.ts`).
 
 use crate::action_view::{ActionSources, actions_of};
-use crate::derive::{attention_of, landed_states_of, landing_route_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
+use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, next_steps_of, open_pull_requests_of, push_view};
 use crate::facts::FactStore;
 use crate::patch::{Now, apply_changes, changed, changes, diff_views, kept_parts, keyed_facts_change, pull_requests_change, robots_change};
 use crate::review_view::{review_actions_of, reviews_view};
@@ -26,7 +26,9 @@ use domain_types::landing::{LandDecisions, Landed};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
 use domain_types::pull_request::PullRequestView;
-use domain_types::session::{BranchPush, FactsChanges, FactsView, RepositoryView, ReviewsView, RobotAttention, SyncState, TableChanges, Version, ViewPatch, ViewSubscription};
+use domain_types::session::{
+  BranchPush, FactsChanges, FactsView, GitHubLayer, RepositoryView, ReviewsView, RobotAttention, SyncState, TableChanges, Version, ViewPatch, ViewSubscription,
+};
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
 
@@ -173,6 +175,7 @@ struct Derived {
   steps: BTreeMap<String, NextStepView>,
   actions: BTreeMap<String, Vec<ActionState>>,
   attention: BTreeMap<String, RobotAttention>,
+  github_layers: BTreeMap<String, GitHubLayer>,
   reviews: ReviewsView,
   route: LandingRoute,
 }
@@ -187,11 +190,14 @@ impl Derived {
     // patch that ends it (a push waits for the sync), never resent with every status
     let syncing = matches!(state.sync, SyncState::Running { .. });
     let pushes = (!syncing).then(|| push_view(parts, facts));
-    let open = session_open_pull_requests(state, facts, prefix);
-    // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
-    let lands = (!syncing).then(|| lands_of(state, facts, prefix));
     // what landed each subject, as the starts: over the table a sync leaves, its landing report with it
     let landed = landed_states_of(state, facts);
+    let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
+    // the layers of the stacks of GitHub, over what landed: the bottom of a stack is the first branch not landed
+    let github_layers = github_layers_of(state, facts, &route, &landed);
+    let open = open_pull_requests_of(state, facts, prefix, &github_layers);
+    // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
+    let lands = (!syncing).then(|| lands_of(state, facts, prefix));
     // the next steps of the rows as they are, a sync of a branch included (row 1): over the table of the last sync
     let steps = next_steps_of(state, facts, &open, &landed);
     // the actions of the subjects as they are, a sync included (a reason): over the steps just derived, and the pushes
@@ -210,7 +216,6 @@ impl Derived {
     // the robots that need the user, over the rows as they are and the robots, a sync included (a row it builds has no
     // tip, so its robot asks nothing until it is built)
     let attention = attention_of(state, facts);
-    let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
     Self {
       syncing,
       pushes,
@@ -220,6 +225,7 @@ impl Derived {
       steps,
       actions,
       attention,
+      github_layers,
       reviews,
       route,
     }
@@ -244,6 +250,7 @@ impl Derived {
       next_steps: &self.steps,
       actions: &self.actions,
       attention: &self.attention,
+      github_layers: &self.github_layers,
       operations: state.operations().iter().collect(),
       undo: state.offered_undo(),
       reviews: &self.reviews,
@@ -271,6 +278,7 @@ impl Derived {
     view.next_steps = self.steps;
     view.actions = self.actions;
     view.attention = self.attention;
+    view.github_layers = self.github_layers;
     view.reviews = self.reviews;
     view.route = self.route;
   }
