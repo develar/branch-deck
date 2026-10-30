@@ -187,4 +187,13 @@ group first (`review-section-heading`): "Same edit in 4 files", "Imports only (2
 
 ## Measurements
 
-<!-- The corpus runs of `bd review-plan` with their units go here: the count of units, the share of `behaviour`. -->
+`bd review-plan` (release build) on `~/projects/idea-1`, branch `air-local-launch`, 2026-10-30, the summaries in the
+object cache (a next round of a branch: its blobs parsed before), accio answering every query:
+
+| Range | Files | Units | `behaviour` | Other kinds | API entries | Time |
+|---|---|---|---|---|---|---|
+| `HEAD~1..HEAD` | 31 | 43 | 17 (39%) | 8 `newFile`, 8 `added`, 8 `other`, 2 `mechanical` | 33 | 0.19 s |
+| `HEAD~3..HEAD` | 38 | 57 | 24 (42%) | 9 `newFile`, 10 `added`, 2 `removed`, 1 `shape`, 9 `other`, 2 `mechanical` | 36 | 0.22 s |
+| `HEAD~5..HEAD` | 40 | 67 | 29 (43%) | 9 `newFile`, 16 `added`, 1 `removed`, 1 `shape`, 9 `other`, 2 `mechanical` | 36 | 0.11 s |
+
+About 40% of the units are a change of a body alone, which the plan before the units did not show at all.
