@@ -5,7 +5,7 @@ import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { pressSyncHeld, releaseHeldSync, waitForBranchSyncComplete } from "../helpers/sync-helpers"
-import { waitForStorePersistence } from "../helpers/wait-helpers"
+import { resizeReportsDelivered, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The width of a track as the root of the branch view has it (`--bd-track-<track>`), in px */
 async function trackWidth(page: Page, track: string): Promise<number> {
@@ -126,6 +126,8 @@ test.describe("Branch table column widths", () => {
       .toBe("failed")
     const failedWidth = (await content.boundingBox())!.width
     expect(failedWidth).toBeLessThan(runningWidth)
+    // the observer reported the narrower chip: without the hold the track would follow it now
+    await resizeReportsDelivered(page)
     expect(await trackWidth(page, "state")).toBe(runningWidth)
 
     // the sync ended: the column follows its widest state once

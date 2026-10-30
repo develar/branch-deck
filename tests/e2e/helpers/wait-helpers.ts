@@ -31,6 +31,15 @@ export async function animationsEnded(elements: Locator): Promise<void> {
   )
 }
 
+/**
+ * Resolves once a rendering update of the page delivered its `ResizeObserver` reports of what changed before the call: a
+ * frame runs its animation frame callbacks before its layout and its reports, so the second callback is after them. A
+ * read of a width laid out (`boundingBox`) forces the layout at once and is no such update
+ */
+export async function resizeReportsDelivered(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+}
+
 /** The facts a step waits for (`PendingFact` of `src/presenters/next-step.ts`, `StepFact` of Rust), in the order they come */
 const STEP_FACTS = ["patronus", "pullRequests", "robotProblems", "landingNeeds", "readiness"] as const
 

@@ -333,7 +333,7 @@ export function formatLandedWith(landed: LandedBy): string | null {
 }
 
 /**
- * The robot of a branch row (`useRowRobot`):
+ * The robot of a branch row (`getSafePushSlot`, which a row with a robot asks through `useRowRobotSlot`):
  * - `start`: none to show, "Safe Push" starts one; also for a robot of an earlier state of the branch (the details of
  *   that robot stay in the preview and in the landing overview);
  * - `running`: the live robot, its time and how long it usually takes;

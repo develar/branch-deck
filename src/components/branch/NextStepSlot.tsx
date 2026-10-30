@@ -24,6 +24,9 @@ import { useLandRun, useSafePushAsk } from "@/stores/safe-push"
 
 const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover").then(it => ({ default: it.SafePushPopover })))
 
+/** What the slot reads of its branch: its name and the remote status Request Review… needs (`Branch.row` has them) */
+type SlotBranch = Pick<Branch, "name" | "remoteStatus">
+
 /**
  * The next step of a branch row, after the push button, in the step track of the Actions column, so the steps, the push
  * buttons and "⋯" line up down the table and its islands: the step of the first row of the
@@ -42,9 +45,6 @@ const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover")
  * Nothing in a repository that is not on Space, but the anchors of Request Review…, which asks GitHub
  * (`RequestReviewAnchors`).
  */
-/** What the slot reads of its branch: its name and the remote status Request Review… needs (`Branch.row` has them) */
-type SlotBranch = Pick<Branch, "name" | "remoteStatus">
-
 export interface NextStepSlotProps {
   branch: SlotBranch
   /**
