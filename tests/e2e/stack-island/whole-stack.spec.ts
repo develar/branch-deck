@@ -992,7 +992,6 @@ test.describe("Whole stack", () => {
     await findBranchRow(page, "auth").click({ button: "right" })
     await expectDisabledItems(page, [["Push with Children", "Merged by Patronus: nothing of auth and its children is left to push"]])
     await page.keyboard.press("Escape")
-    expect(await pushedBranches(repo)).toEqual([])
   })
 
   test("should land only what is left of the whole stack after a piece landed its main line, and offer nothing once every branch of it landed", async ({

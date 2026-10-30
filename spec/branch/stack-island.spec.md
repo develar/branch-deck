@@ -241,7 +241,7 @@ Rust places: at each fork the child with the longest chain), whose one robot lan
   focus; F2 and a reveal of a branch in a collapsed island expand it. S on the focused header opens the popover of the
   Safe Push of the whole stack, Enter starts it. A side stack of the island is a side stack of the table
   ([Stacked Branches](stacked-branches.spec.md#ui)).
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`, `should check the whole stack in a Dry Run from the island's ⋯, its popover at the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should step from the table into the island with the arrows, and collapse it with Alt+Left`)
 - Under the filter, an island must show its matches and, dimmed, the branches they stack on, and not collapse; an
   island without a match is not shown; the table without a row, while islands show matches, has no "No branches match".
