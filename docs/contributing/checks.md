@@ -27,7 +27,8 @@ config (`[experimental] record = true` and `[record] enabled = true` in `~/.conf
 (`add` and `commit`, the id from the summary, no `rev-parse HEAD`), a history of many commits `with_history` or
 `commit_history` (one `fast-import`); never a `git config` process per key, a sleep, or a wall-clock limit an
 assertion depends on. `pnpm perf:test-processes measure|summarize|compare` counts the git
-processes of every test, which the load of the machine does not change.
+processes of every test, which the load of the machine does not change, and splits the time of each test into its
+time in git and beside git (`pnpm test:perf` tests the script).
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
 `pnpm lint:backend` run as `bd-host run studio -- <command>` from the lease, on its working tree, committed or not
@@ -70,12 +71,13 @@ pnpm dev                  # Only the Vite frontend (port 1420)
 pnpm build                # The frontend into dist/ (E2E global setup runs it when its inputs changed)
 pnpm install-app          # Unsigned release build of the .app, copied to /Applications (macOS)
 
-pnpm test                 # test:backend + test:unit (Rust and Vitest; not E2E)
+pnpm test                 # test:backend + test:unit + test:perf (Rust, Vitest and the perf scripts; not E2E)
 pnpm test:backend         # cargo nextest run --workspace
 bd-host run studio -- cargo nextest run --workspace  # The same on the Mac Studio, on this working tree (75: run it here)
 bd-host run studio -- pnpm e2e  # The E2E suite there; --apply brings back what a command edits (pnpm e2e-up, cargo fmt)
 cargo nextest run -R latest  # Rerun what failed or did not run in the last run (record on in the user config)
 pnpm test:unit            # Vitest (`vp test run`; src/**/*.test.ts)
+pnpm test:perf            # node --test of scripts/perf/test-processes.test.mjs
 
 pnpm e2e                  # Playwright E2E tests (installs Chromium if needed; `pnpm setup:e2e` for every browser)
 pnpm e2e-up               # E2E tests that rewrite the snapshots
@@ -100,7 +102,7 @@ pnpm lint:e2e-pins        # the commands E2E tests answer in the page, pinned (c
 bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
 pnpm perf:bd-rebuild measure|summarize|compare  # the rebuild of the bd crates after a one-line edit (scripts/perf/bd-rebuild.mjs)
-pnpm perf:test-processes measure|summarize|compare  # the git processes of every Rust test (docs/contributing/rust-tests.md)
+pnpm perf:test-processes measure|summarize|compare  # the git processes of every Rust test, its time in and beside git (docs/contributing/rust-tests.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/contributing/agent-cli.md)
 ```
 

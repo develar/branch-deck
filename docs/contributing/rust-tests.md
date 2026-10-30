@@ -90,7 +90,14 @@ pnpm perf:test-processes compare notes.local/tp-before notes.local/tp-after
 ```
 
 `measure` runs the suite with `scripts/perf/test-git-runner.sh` as the cargo target runner, which gives each test
-process its own `GIT_TRACE2_EVENT` directory (macOS and Linux). The times of its run mean little: a time is measured on
+process its own `GIT_TRACE2_EVENT` directory (macOS and Linux). It also splits the time of each test (JUnit) into its
+time in git and beside git: a git process lasts from its `start` event to its first `atexit` by git's own clock
+(`t_abs`), the time in git of a test is the union of those spans (several at once count once), and what is left beside
+it is the test's own: its code, the start of the test process, the start of each git before git's clock runs (exec and
+the loader) and its reap, and the test's waits. `summarize` prints both by subcommand and by binary, the tests with the
+most processes and those with the most time beside git; `compare` the same of two runs. `pnpm test:perf` tests the script on trace lines of its own. On the Studio, a
+`--fetch` of the output directory brings back `summary.json`, `junit.xml` and `run.log` (the trace files, named by the
+test, do not come: `rm -rf <out>/traces` after the measure). The times of its run mean little: a time is measured on
 the Studio (`bd-host run studio -- cargo nextest run --workspace`, [Studio Runs](studio-runs.md)) when nothing else runs there,
 best as an A/B of two checkouts in turns. CI writes the 30 slowest tests of each platform and the time per binary into
 the job summary (`scripts/slowest-tests.mjs`).

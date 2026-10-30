@@ -9,6 +9,7 @@
     "build": "vp build",
     "test:backend": "cargo nextest run --workspace",
     "test:unit": "vp test run",
+    "test:perf": "node --test scripts/perf/test-processes.test.mjs",
     "setup:e2e": "playwright install --with-deps",
     "e2e": "playwright test",
     "e2e-up": "playwright test --update-snapshots",
