@@ -9,13 +9,22 @@ import { formatPairState } from "@/presenters/review-plan"
  * commit, the boundary of the user's last review.
  */
 export type RangeReviewItem =
-  | { readonly kind: "scope"; readonly key: string; readonly label: string; readonly detail?: string }
+  | {
+      readonly kind: "scope"
+      readonly key: string
+      readonly label: string
+      readonly detail?: string
+      /** The ids of the commits it diffs when they are not all those of the column: "Since Your Review" of a pull request */
+      readonly commits?: ReadonlySet<string>
+    }
   | {
       readonly kind: "commit"
       readonly key: string
       readonly commit: ReviewCommit
       readonly group?: string
       readonly divider?: string
+      /** "Your review": the commit of the user's last review, which `divider` heads in the column */
+      readonly review?: string
       /** The branch a commit of the whole stack came from: its commits are in the order of the history, not by branch */
       readonly branch?: string
       /** What it is since the user's review of a local branch: "New", "Rewritten" */
@@ -31,19 +40,42 @@ export const SINCE_REVIEW = "since-review"
 /**
  * The column of a pull request: "All Changes", "Since Your Review" while there is something after the user's last
  * review (`reviewedCommit`, a commit of the range below its head), then the commits newest first (the range lists them
- * oldest first), the reviewed one under "Your review · a1b2c3d"
+ * oldest first), the reviewed one under "Your review · a1b2c3d"; "Since Your Review" names the commits after it
  */
 export function pullRequestItems(commits: readonly ReviewCommit[], reviewedCommit: string | null): RangeReviewItem[] {
   const items: RangeReviewItem[] = [{ kind: "scope", key: ALL_CHANGES, label: "All Changes", detail: formatCommitCount(commits.length) }]
   const since = reviewedCommit === null ? -1 : commits.findIndex(commit => commit.id === reviewedCommit)
   if (since !== -1 && since < commits.length - 1) {
-    items.push({ kind: "scope", key: SINCE_REVIEW, label: "Since Your Review", detail: formatCommitCount(commits.length - 1 - since) })
+    const after = commits.slice(since + 1)
+    items.push({ kind: "scope", key: SINCE_REVIEW, label: "Since Your Review", detail: formatCommitCount(after.length), commits: new Set(after.map(commit => commit.id)) })
   }
   for (let index = commits.length - 1; index >= 0; index--) {
     const commit = commits[index]!
-    items.push({ kind: "commit", key: commit.id, commit, ...(index === since && { divider: `Your review · ${formatShortHash(commit.id)}` }) })
+    items.push({ kind: "commit", key: commit.id, commit, ...(index === since && { divider: `Your review · ${formatShortHash(commit.id)}`, review: "Your review" }) })
   }
   return items
+}
+
+/**
+ * The commits the tree of the scope `scopeKey` lists in its steps (spec/branch/review-tour.spec.md, "In the Review
+ * Window"): only those the scope diffs (`commits` of a scope that is not all of them), each with its branch, which
+ * the column says by the heading of a branch (`group`) and the tree, which orders them by step, on each row
+ */
+export function storyCommits(items: readonly RangeReviewItem[], scopeKey: string): Extract<RangeReviewItem, { kind: "commit" }>[] {
+  const scope = items.find(item => item.key === scopeKey)
+  const inScope = scope?.kind === "scope" ? scope.commits : undefined
+  let group: string | undefined
+  return items.flatMap(item => {
+    if (item.kind !== "commit") {
+      return []
+    }
+    group = item.group ?? group
+    if (inScope !== undefined && !inScope.has(item.commit.id)) {
+      return []
+    }
+    const branch = item.branch ?? group
+    return [branch === undefined ? item : { ...item, branch }]
+  })
 }
 
 /** The shown item: the chosen one while the range has it (a scope that is gone, a commit that left), else all changes */

@@ -183,11 +183,13 @@ keys.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`, `should offer the whole stack of a straight chain on a branch with branches built on it, as the last one from the root`)
 - The stack bar of the review of the whole stack must show the chain it came from (`from` of the window data; the
   main line from the island and the menus), each segment with its number of commits, none pressed, then "Whole
-  Stack", pressed; a segment reviews its branch (`{ review: "branch" }`). Each commit of the column names its branch,
-  muted after its subject, matched across the copies by author, author time and subject (`reviewCommitKey`: the stack
-  branch has no mapping notes; `stackCommits` of the window state), and the heading of the shown commit ends with
-  "Review side-fix", the review of its branch at the commit (`{ review: "commit" }`).
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`, `should go down from the review of the whole stack the island opens, along its main line`)
+  Stack", pressed; a segment reviews its branch (`{ review: "branch" }`). Each commit of the column (with the plan,
+  each commit row of the tree) names its branch, muted after its subject, matched across the copies by author, author
+  time and subject (`reviewCommitKey`: the stack branch has no mapping notes; `stackCommits` of the window state), and
+  the heading of the shown commit ends with
+  "Review side-fix", the review of its branch at the commit (`{ review: "commit" }`). With the plan a commit row of
+  the tree of a part of several branches names its branch too, which the column heads by branch.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`, `should go down from the review of the whole stack the island opens, along its main line`, `should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)
 - The stack bar of a stack of more than 6 branches must stay short: it shows the root, the ends of the selected
   part and the last two segments (the parent and the branch), and folds each run of two or more others into a ghost
   "… 14 more" button (in `text-primary` while the part covers it) with "14 branches · 120 commits · Click to show them"
@@ -263,7 +265,8 @@ keys.
   root; while the window is open it asks for the readiness of `stack:<root>`. Opened from the Safe Push popover, the
   review gets the reviewer groups of the code-owner check of the whole stack.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should start the Safe Push of the whole stack with S in its review, its popover at the header, and run ⋯ in the main window`, `should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then`)
-- A commit of the review must have the menu of its row: its right-click in the column and "⋯" at the end of its
+- A commit of the review must have the menu of its row: its right-click in the column, on its row in the steps of the
+  tree after Show Commit Alone ([Review Tour](review-tour.spec.md#in-the-review-window)), and "⋯" at the end of its
   heading (a part of one commit has no column, its heading has it), built when it opens, without key hints and
   without submenus: "Reword…", "Move to…", the way back ("Move to Unassigned", "Move Back to …"), the squash into its
   target, "Push Up to Here" (`getCommitMenuGroups`, the one builder of the menus of commits, every item by a stable
@@ -404,7 +407,11 @@ keys.
   "From Root" has a tooltip that sizes the part as the branch table does: "auth to login
   on origin/master: 2 branches · 3 commits, what the Safe Push of login lands · Shift+click a branch to extend". A
   commit of the column is its subject, truncated, and its muted `font-mono` hash on hover
-  (`range-review-commit-hash`). A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
+  (`range-review-commit-hash`); a commit row of the tree the same after its `GitCommitHorizontalIcon`, its role in
+  `text-xs text-muted-foreground` (`review-commit-role`), its "New"/"Rewritten" an `info` `Badge`
+  (`review-commit-since`), "Your review" of a pull request an `outline` `Badge` (`review-commit-review`), its branch
+  muted (`review-commit-branch`), its hash on hover (`review-commit-hash`). A
+  group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
   "Needs approval for a Safe Push".
 - In the Safe Push popover the groups are a list below the review line, a group per line in the foreground colour,
   indented to its text: "Air Plugin Release Team (suggested: Alice) · 2 files".

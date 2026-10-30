@@ -255,7 +255,8 @@ where a dialog would cover it.
 
 - The island of the review fills the window below its title bar; the panes scroll on their own. A 1px `bg-border`
   divider separates them.
-- The sidebar has the commits above a `border-b`, then the search of the files (`SearchField` `w-full`: the
+- The sidebar has the commits of a range above a `border-b` (with the plan only its scopes while the tree lists the
+  commits in its steps), then the search of the files (`SearchField` `w-full`: the
   `SearchIcon`, the placeholder "Filter files", `Kbd` `/` while empty, the X "Clear the filter text" once typed), then
   the header of the files ("Files 5", "Files 3 of 9" while searched, a muted `text-xs font-medium`
   `SectionLabel`, at least `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no

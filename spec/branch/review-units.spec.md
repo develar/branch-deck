@@ -157,12 +157,13 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
   review selected. A use in a file the head lacks shows nothing.
   [@test] ../../src/presenters/review-units.test.ts (`follow the section of the change: each its file around the use, at most five`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show after a changed API the uses it left outside, each its file at the head around the use, none that the head lacks`)
-- The story must show in every review window with the plan: a commit chosen in the column of the branch review has
-  its own plan (`ReviewSubject::Commit`, the commit against its first parent) for its card and its diffs, beside the
-  plan of the part, which stays the card under Since Your Review; the review window of a commit and the review of a
-  pull request read the plan of what they show, and show none for a repository that turns it off (`disabled`).
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit chosen in the column: its card and the story of its diffs`, `should show the plan of a commit in the review window of a commit: its card and the story of its diffs`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on`)
+- The story must show in every review window with the plan: a commit of the branch review shown alone (Enter or Show
+  Commit Alone on its row in the tree, ⌥↑/⌥↓) has its own plan (`ReviewSubject::Commit`, the commit against its first
+  parent) for its card and its diffs, beside the plan of the part, which stays the card under Since Your Review; the
+  review window of a commit and the review of a pull request read the plan of what they show, and show none for a
+  repository that turns it off (`disabled`).
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit shown alone from its row in the tree: its card and the story of its diffs @webkit`, `should show the plan of a commit in the review window of a commit: its card and the story of its diffs`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on, its commits in the tree`)
   [@test] ../../crates/review-plan/src/units_test.rs (`a_commit_is_read_against_its_first_parent`)
 - A file whose blocks are not those of the units (the window reads another whitespace policy than `Default`) and a
   file no unit names must show whole, in the place of its first unit, else after the story.

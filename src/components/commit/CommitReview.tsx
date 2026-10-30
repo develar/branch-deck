@@ -7,7 +7,7 @@ import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitRe
 import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
 import type { DiffViewFile } from "@/components/diff/DiffView"
 import { FileTree } from "@/components/files/FileTree"
-import type { FileTreeBadges, FileTreeMarks } from "@/components/files/FileTree"
+import type { FileTreeBadges, FileTreeCommitRows, FileTreeMarks } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
@@ -31,12 +31,14 @@ import {
   foldedGroups,
   getInitiallyCollapsed,
   hasReviewGroups,
+  listsCommits,
   mechanicalKindsOf,
   revealInTree,
   sectionRows,
   toggleInSet,
 } from "@/lib/file-tree"
-import type { FileTreeNode } from "@/lib/file-tree"
+import type { FileTreeCommit, FileTreeNode, ReviewCommitItem } from "@/lib/file-tree"
+import type { MenuItemGroups } from "@/lib/menu"
 import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPlace } from "@/lib/review-place"
 import { readOutsideExcerpt, readOutsidePlace } from "@/lib/review-plan"
@@ -44,7 +46,7 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
-import { formatStepPosition, presentBrief, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
+import { formatStepPosition, placeCommits, presentBrief, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
 import type { BriefStep, Chapter } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
@@ -72,6 +74,19 @@ export interface OwnerMarks {
   readonly paths: ReadonlySet<string>
 }
 
+/**
+ * The commits of a range shown whole with its plan (spec/branch/review-tour.spec.md, "In the Review Window"): the tree
+ * lists them in the steps they tell or follow up, above the files
+ */
+export interface CommitRows {
+  /** The commits of the range, as its column lists them */
+  readonly items: readonly ReviewCommitItem[]
+  /** Shows the commit of the key alone: Enter on its row */
+  readonly onShow: (key: string) => void
+  /** The right-click menu of a commit row: Show Commit Alone, then the menu of the commit */
+  readonly menu: (item: ReviewCommitItem) => MenuItemGroups
+}
+
 export interface CommitReviewProps {
   /** A commit, or the range of a pull request */
   subject: DiffSubject
@@ -85,8 +100,13 @@ export interface CommitReviewProps {
   fileOwners?: ReadonlyMap<string, string>
   /** What the range is, in the error: "Cannot read the changes of the pull request" */
   rangeNoun?: string
-  /** Above the files in the sidebar: the commits of a range (`RangeReview`) */
-  sidebarTop?: ReactNode
+  /**
+   * Above the files in the sidebar: the commits of a range (`RangeReview`), its scopes while the tree lists the commits
+   * (`treeListsCommits`: a search that keeps no group of a step, or no tree, gives them back to the column)
+   */
+  sidebarTop?: (treeListsCommits: boolean) => ReactNode
+  /** The commits the tree lists in the steps of the plan; none without */
+  commitRows?: CommitRows | null
   /**
    * The header of the files in the sidebar, of the number of files shown and of all of them (null while none show):
    * "Files 3 of 9" by default, the owner chips of a branch review
@@ -120,6 +140,7 @@ export function CommitReview({
   fileOwners,
   rangeNoun = "pull request",
   sidebarTop,
+  commitRows = null,
   filesHeader,
   codeTop,
   neighbours,
@@ -267,6 +288,7 @@ export function CommitReview({
         fileOwners={fileOwners}
         ownerMarks={ownerMarks}
         sidebarTop={sidebarTop}
+        commitRows={commitRows}
         filesHeader={filesHeader}
         codeTop={codeTop}
         search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
@@ -358,7 +380,8 @@ interface ReviewLayoutProps {
   onPositionChange: (position: ReviewPosition) => void
   fileOwners: ReadonlyMap<string, string> | undefined
   ownerMarks: OwnerMarks | null
-  sidebarTop: ReactNode
+  sidebarTop: CommitReviewProps["sidebarTop"]
+  commitRows: CommitRows | null
   filesHeader: CommitReviewProps["filesHeader"]
   codeTop: ReactNode
   search: FileSearch | null
@@ -521,6 +544,7 @@ function ReviewLayout({
   fileOwners,
   ownerMarks,
   sidebarTop,
+  commitRows,
   filesHeader,
   codeTop,
   search,
@@ -537,14 +561,22 @@ function ReviewLayout({
   // joined under Other changes, the mechanical ones in one group at the end, as Rust told, classed and ordered them
   const mechanical = useMemo(() => (reviewFacts === null ? NO_MECHANICAL : mechanicalKindsOf(reviewFacts)), [reviewFacts])
   const chapters = useMemo(() => (reviewFacts === null ? [] : presentChapters(reviewFacts)), [reviewFacts])
+  // the commits of a range shown whole, each in the step it tells or follows up
+  const commitItems = commitRows?.items
+  const commitPlaces = useMemo(
+    () => (reviewFacts === null || commitItems === undefined ? undefined : placeCommits(reviewFacts.steps.steps, commitItems)),
+    [reviewFacts, commitItems],
+  )
+  const filterText = search?.text ?? ""
+  // what a search found: the commits of the groups it keeps
+  const searched = filterText.trim() !== ""
   const nodes = useMemo(() => {
     if (loadedFiles === undefined) {
       return []
     }
-    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, chapters)
-  }, [loadedFiles, reviewFacts, mechanical, chapters])
+    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, chapters, commitPlaces, searched)
+  }, [loadedFiles, reviewFacts, mechanical, chapters, commitPlaces, searched])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
-  const filterText = search?.text ?? ""
   const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
   const loadedKey = loaded?.key ?? null
   if (selection.key !== loadedKey) {
@@ -743,6 +775,37 @@ function ReviewLayout({
     [narrative, showVisibleSection],
   )
   const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside, showStep }), [selectChangedFile, showOutside, showStep])
+
+  // a commit row: selected, its step's first section at the top of the diffs, as the step of the brief; Enter and Show
+  // Commit Alone the commit alone
+  const selectCommit = useCallback(
+    (node: FileTreeCommit) => {
+      const section = node.chapter === null ? undefined : narrative?.find(it => it.concern === node.chapter && it.ghost === null)
+      setSelection(previous => ({ ...previous, selectedPath: section?.path ?? previous.selectedPath, selectedRow: node.key }))
+      if (section !== undefined) {
+        setTopSection(section.key)
+        code.current?.scrollToSection(section.key)
+      }
+    },
+    [narrative],
+  )
+  const onShowCommit = commitRows?.onShow
+  const commitMenu = commitRows?.menu
+  const treeCommitRows = useMemo<FileTreeCommitRows | null>(
+    () =>
+      onShowCommit === undefined || commitMenu === undefined
+        ? null
+        : {
+            onSelect: selectCommit,
+            onOpen: node => {
+              if (node.commit.item !== undefined) {
+                onShowCommit(node.commit.item.key)
+              }
+            },
+            menu: node => (node.commit.item === undefined ? [] : commitMenu(node.commit.item)),
+          },
+    [onShowCommit, commitMenu, selectCommit],
+  )
   const brief = useMemo(() => (reviewFacts === null ? null : presentBrief(reviewFacts)), [reviewFacts])
   const topStep = useMemo(() => {
     const chapter = narrative?.find(it => it.key === topSection)?.concern ?? narrative?.find(it => it.concern !== null)?.concern
@@ -839,7 +902,7 @@ function ReviewLayout({
               {sidebarTop !== undefined && (
                 // what the user works in here keeps the focus when the diffs of the next subject mount
                 <div data-review-keeps-focus="" className="flex max-h-[40%] min-h-0 shrink-0 flex-col border-b border-border">
-                  {sidebarTop}
+                  {sidebarTop(listsCommits(nodes))}
                 </div>
               )}
               {search !== null && (
@@ -880,6 +943,7 @@ function ReviewLayout({
                     fileOwners={fileOwners}
                     badges={badges}
                     marks={treeMarks}
+                    commitRows={treeCommitRows}
                   />
                 )}
               </div>

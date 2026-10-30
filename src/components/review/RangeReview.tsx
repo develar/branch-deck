@@ -3,13 +3,12 @@ import type { KeyboardEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { CommitHeading } from "@/components/commit/CommitHeading"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitReview } from "@/components/commit/CommitReview"
 import type { CommitReviewProps } from "@/components/commit/CommitReview"
-import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
@@ -19,7 +18,7 @@ import type { DiffSubject } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
 import { handlePreviewItemSwitchKey } from "@/lib/preview-keys"
-import { isSingleCommit } from "@/lib/range-review"
+import { isSingleCommit, storyCommits } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
 import type { ReviewPosition } from "@/lib/review-position"
 
@@ -56,7 +55,10 @@ export interface RangeReviewProps {
  * The review of a range, a pull request or a part of a stack: its commits above the files in the sidebar of the commit
  * review, as the commit picker of a code review on GitHub or in IntelliJ. A scope ("All Changes") diffs the range, a
  * commit only itself, with its subject, meta line and message above the diffs. ⌥↑/⌥↓ step through the commits from
- * anywhere in the review, ↑/↓ inside their list. A range of one commit shows that commit without the list.
+ * anywhere in the review, ↑/↓ inside their list. A range of one commit shows that commit without the list. With the
+ * plan, a scope lists its commits in the steps of its tree (spec/branch/review-tour.spec.md, "In the Review Window"),
+ * and the column only the scopes: a commit row shows its step, Enter and Show Commit Alone the commit alone. The tree
+ * lists the commits of the scope only; while it lists none (no tree, a search that keeps no step) the column has them.
  */
 export function RangeReview({
   items,
@@ -88,6 +90,15 @@ export function RangeReview({
       handlePreviewItemSwitchKey(event, index, items.length, next => onSelect(items[next]!.key))
     }
   }
+  // the story lists the commits of a scope in its steps: the column keeps the scopes
+  const inStory = !single && shown?.kind === "scope" && reviewFacts != null
+  const commitRows: CommitReviewProps["commitRows"] = inStory
+    ? {
+        items: storyCommits(items, shown.key),
+        onShow: onSelect,
+        menu: item => [[{ id: "show-commit-alone", label: "Show Commit Alone", onSelect: () => onSelect(item.key) }], ...(commitMenu?.(item.commit) ?? [])],
+      }
+    : null
 
   return (
     <div className="h-full min-h-0" onKeyDown={handleKeyDown}>
@@ -99,7 +110,19 @@ export function RangeReview({
         fileOwners={fileOwners}
         rangeNoun={rangeNoun}
         neighbours={neighbours}
-        sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} commitMenu={commitMenu} />}
+        sidebarTop={
+          single
+            ? undefined
+            : treeListsCommits => (
+                <CommitColumn
+                  items={inStory && treeListsCommits ? items.filter(item => item.kind === "scope") : items}
+                  selected={selected}
+                  onSelect={onSelect}
+                  commitMenu={commitMenu}
+                />
+              )
+        }
+        commitRows={commitRows}
         filesHeader={filesHeader}
         reviewFacts={reviewFacts}
         codeTop={
@@ -262,30 +285,7 @@ function withCommitMenu(commit: ReviewCommit, commitMenu: RangeReviewProps["comm
   if (commitMenu === undefined) {
     return option
   }
-  return <CommitContextMenu commit={commit} commitMenu={commitMenu} option={option} />
-}
-
-function CommitContextMenu({ commit, commitMenu, option }: { commit: ReviewCommit; commitMenu: NonNullable<RangeReviewProps["commitMenu"]>; option: ReactElement }) {
-  const [groups, setGroups] = useState<MenuItemGroups>([])
-  return (
-    <ContextMenu
-      onOpenChange={(open, eventDetails) => {
-        if (open) {
-          const next = commitMenu(commit)
-          if (next.every(group => group.length === 0)) {
-            eventDetails.cancel()
-            return
-          }
-          setGroups(next)
-        }
-      }}
-    >
-      <ContextMenuTrigger render={option} />
-      <ContextMenuContent finalFocus={false}>
-        <ContextMenuItems groups={groups} />
-      </ContextMenuContent>
-    </ContextMenu>
-  )
+  return <LazyContextMenu menu={() => commitMenu(commit)} render={option} />
 }
 
 /** "⋯" at the end of the heading of the shown commit: the menu its right-click opens in the column */

@@ -128,7 +128,8 @@ the review.
 | Concerns (untangling) | Landed: in the plan, `bd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 85.4 vs 84.7, Java 95.3 vs 89.9) and than `inspect`; build files and imports follow their concern; a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
 | The story: the brief and the steps | Landed in the plan and `bd` (schema 10), and in the window | 3b9fb5275, this change | a step per commit whose body tells it, the units that land by the commit of their lines, rounds and rewritten commits glued, mechanical parts with the commit that wrote them; every block in one stop on 38 real ranges; the brief quotes the rules of the specs with the tests their test links name | a follow-up by its lines joins 2 of 8 tasks of their own to the step that made their file; "unnamed" lists a helper a test reaches through an entry (JetBrains/accio#107) |
 | The window, round two: one mark per row | Landed | b4b5babc0 | up to four badges a row (links, `+1 new`, breaks, same edit) and a dependency badge became one mark, warning only when the file breaks uses left outside; its hover card lists Breaks, Uses, Used by, Same edit, Dependencies, a link selects its file; the description of the row keeps every fact | the card opens by the pointer only: the mark is no tab stop, a keyboard reaches the links in the diffs and the Review Summary |
-| The window, round two: owner chips mark | Landed | this change | a chip hides no file: the files of other owners and the steps without the chosen owner's files are muted, a step with them says "Design 2", J/K and N/P move through the owner's sections only; a link of a mark selects a file of another owner without dropping the chip, so the reveal that undid the filter is gone (only the search keeps one); a chip at 0 mutes nothing and says so | the footer still counts every file ("File 3 / 12"), no count per owner |
+| The window, round two: owner chips mark | Landed | 92d8fe57e | a chip hides no file: the files of other owners and the steps without the chosen owner's files are muted, a step with them says "Design 2", J/K and N/P move through the owner's sections only; a link of a mark selects a file of another owner without dropping the chip, so the reveal that undid the filter is gone (only the search keeps one); a chip at 0 mutes nothing and says so | the footer still counts every file ("File 3 / 12"), no count per owner |
+| The window, round two: the commits in their steps | Landed | this change | with the plan, a scope of two commits or more lists its commits in the groups of their steps, above the files: the one that starts a step, those that follow it up, those without a story; the column above keeps the scopes; a commit of several concerns is listed once, one of no step in Other commits; a click shows the step, Enter, Show Commit Alone and ⌥↑/⌥↓ the commit alone with its own plan; in the windows of a branch, a stack and a pull request | until the plan of a scope is read the column lists every commit, then they move into the tree; the plan names its commits short, matched by prefix; the first cut listed every commit of a pull request in its Since Your Review, kept commit rows of steps a search had emptied, took the commits out of the column while no tree showed (a search that keeps nothing), and lost the branch heading and the review boundary of the column: a scope lists its own commits, a search keeps the commits of the groups it keeps, the column has them back while the tree lists none, and a row says its branch and "Your review" |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`bd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -167,6 +168,15 @@ the review.
    of a mark to a hidden file had to drop the filter first (a reveal of its own). A chip now marks: every file stays,
    the others are muted, a step says how many of the owner's files it shows, and the keys skip the rest. Focus comes
    from the keys and the weight of the rows, not from removing anything; the same holds with and without the plan.
+10. **The commits live in their steps** (2026-10-31). The sidebar listed the commits in a column above the tree of
+   steps: two lists of the same work, the column newest first, the steps in the order of the story, and an agent's
+   follow-up stood apart from the step it rewrote. The commits now are rows of the groups of their steps, above the
+   files, the round says "follows up"; the column keeps the scopes. A click on a commit scrolls the story to its step,
+   as a step of the brief does, so the story stays the spine; the commit alone (its own plan, its heading) is an
+   explicit Enter, Show Commit Alone or ⌥↑/⌥↓. Without the plan, and for a commit shown alone, the column stays. What
+   the column said by its place moved onto the row: the heading of a branch became the branch of each row, the line of
+   the user's last review the "Your review" of its commit. A commit is never out of reach: while the tree lists none
+   (no tree, a search that keeps no step) the column lists them again.
 
 ## Review Rounds
 
@@ -207,12 +217,14 @@ The plan: [Review Plan → Measurements](../../spec/branch/review-plan.spec.md#m
 - Mark a reviewer's part, never filter to it: a filter by owner or path cuts the declarations and the uses around the
   part, and an approval of a part read without its context approves less than it seems. Mute the rest and let the
   keys skip it.
+- One spine: a list of commits beside a list of steps makes the reviewer join them in the head. Put each commit in
+  the step it tells or follows up, and the commits and the story are one list.
 
 ## Next
 
-0. **The window, round two**: the commit column and the steps, one list, in the windows of a branch, a commit and a
-   pull request ([Review Tour](../../spec/branch/review-tour.spec.md)); one mark per row and the marks of an owner
-   chip have landed.
+0. **The window, what round two left**: Mark Reviewed per owner and approving from the window; a count per owner in
+   the footer ("File 2 / 5" of Design); the card of a row's mark by the keyboard. Round two (one mark per row, the
+   marks of an owner chip, the commits in their steps) has landed ([Review Tour](../../spec/branch/review-tour.spec.md)).
 1. **The author's tour** (`bd tour write`): the agent that wrote the change writes its decisions to approve and the
    places to look closely, by the ids of the units, gated by the plan (every unit in one chapter), kept by the
    fingerprints across a rebase; then "Write Tour" in the window by a model for a range without one.

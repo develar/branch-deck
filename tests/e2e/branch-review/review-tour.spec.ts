@@ -1,7 +1,7 @@
 // @spec spec/branch/review-tour.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { openPlanWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 
 // the `review_tour` template: the branch `layout` of five commits with bodies, a refactor of the manager, the rule
 // `allowed` with its two uses and a test that names it, a change of the paint no test names, the restart story with a
@@ -42,23 +42,28 @@ test.describe("Review tour", () => {
     await expect(step(4).getByTestId("review-brief-step-fact")).toHaveText(["Proven by restart.json"])
     await captureHtmlSnapshot(brief, "review-tour-brief")
 
-    // the tree lists the steps, each with its files, a file of two steps with its row in the step of its most lines and a
-    // row "also in" the other; the diffs tell the story by them
+    // the tree lists the steps, each with its commits, then its files, a file of two steps with its row in the step of its
+    // most lines and a row "also in" the other; the diffs tell the story by them
     const tree = window.getByRole("tree", { name: "Changed files" })
     const rows = () => tree.getByRole("treeitem").evaluateAll(items => items.map(item => item.getAttribute("aria-label")))
     await expect
       .poll(rows)
       .toEqual([
         "1 · The manager drops the hooks nothing sets",
+        "the manager drops the hooks nothing sets",
         "src/a/Manager.kt, also in 1 · The manager drops the hooks nothing sets",
         "2 · The open keeps a stored layout",
+        "the open keeps a stored layout",
+        "the rule names its flag again",
         "src/a/Manager.kt",
         "src/a/Frame.kt",
         "src/b/Welcome.kt",
         "test/a/ManagerTest.kt",
         "3 · The view paints with the first frame",
+        "the view paints with the first frame",
         "src/a/Frame.kt, also in 3 · The view paints with the first frame",
         "4 · The restart story checks the layout",
+        "the restart story checks the layout",
         "spec/window.spec.md",
         "tests/restart.json",
       ])
@@ -86,6 +91,53 @@ test.describe("Review tour", () => {
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
   })
 
+  test("should list the commits in their steps as one list, show the step of a commit on a click, and the commit alone on Enter, Show Commit Alone and Option+Down", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    turnOnReviewPlan(await setupRepo("review_tour"))
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const { commitRow, column } = reviewSidebar(window)
+    const header = window.getByTestId("range-review-commit-header")
+    const bar = window.getByTestId("review-step-bar")
+
+    // the column keeps the scopes; the commits are in the steps of the tree, the round of a step says so
+    await expect(commitRow("the rule names its flag again")).toBeVisible()
+    await expect(column).toHaveText([/^All Changes5 commits$/])
+    await expect(commitRow("the rule names its flag again").getByTestId("review-commit-role")).toHaveText("follows up")
+    await expect(commitRow("the open keeps a stored layout").getByTestId("review-commit-role")).toHaveCount(0)
+    await expect(commitRow("the open keeps a stored layout")).toHaveAttribute("aria-description", /^commit [0-9a-f]{7,}$/)
+
+    // a click selects the commit and puts the first section of its step at the top, the commit stays in the story
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 1 / 4")
+    await commitRow("the view paints with the first frame").click()
+    await expect(commitRow("the view paints with the first frame")).toHaveAttribute("aria-selected", "true")
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 3 / 4")
+    await expect(header).toHaveCount(0)
+
+    // Enter shows the commit alone: its header, the column lists every commit again; All Changes goes back to the story
+    await commitRow("the view paints with the first frame").press("Enter")
+    await expect(header).toContainText("the view paints with the first frame")
+    await expect(column).toHaveCount(6)
+    await expect(commitRow("the view paints with the first frame")).toHaveCount(0)
+    await column.filter({ hasText: "All Changes" }).click()
+    await expect(header).toHaveCount(0)
+    await expect(column).toHaveCount(1)
+
+    // Show Commit Alone of its right-click menu does the same
+    await commitRow("the manager drops the hooks nothing sets").click({ button: "right" })
+    await window.getByRole("menuitem", { name: "Show Commit Alone" }).click()
+    await expect(header).toContainText("the manager drops the hooks nothing sets")
+    await column.filter({ hasText: "All Changes" }).click()
+    await expect(header).toHaveCount(0)
+
+    // Option+Down steps from All Changes to the newest commit alone, as the column did
+    await window.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
+    await window.keyboard.press("Alt+ArrowDown")
+    await expect(header).toContainText("the rule names its flag again")
+  })
+
   test("should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only", async ({
     page,
     setupRepo,
@@ -111,19 +163,22 @@ test.describe("Review tour", () => {
       "4 · The restart story checks the layout",
     ]
     const frameAlso = row("src/a/Frame.kt, also in 3 · The view paints with the first frame")
-    await expect(tree.getByRole("treeitem")).toHaveCount(12)
+    // the steps, their files and their five commits
+    await expect(tree.getByRole("treeitem")).toHaveCount(17)
 
     await window.getByTestId("branch-review-owner").filter({ hasText: "Design" }).click()
     await expect(window.getByTestId("branch-review-owner").filter({ hasText: "Design" })).toHaveAttribute("aria-pressed", "true")
-    // a chip hides nothing: every step and file stays, the steps with its files count them, the others are muted
-    await expect(tree.getByRole("treeitem")).toHaveCount(12)
+    // a chip hides nothing: every step and file stays, the steps with its files count them, the others are muted, their
+    // commits with them
+    await expect(tree.getByRole("treeitem")).toHaveCount(17)
     await expect(row(steps[1]!).getByTestId("review-owner-mark")).toHaveText("Design2")
     await expect(row(steps[1]!)).toHaveAttribute("aria-description", /, 2 files of Design$/)
     await expect(row(steps[2]!).getByTestId("review-owner-mark")).toHaveText("Design1")
     await expect(row(steps[1]!)).not.toHaveAttribute("data-muted")
-    for (const muted of [steps[0]!, steps[3]!, "src/a/Manager.kt", "test/a/ManagerTest.kt"]) {
+    for (const muted of [steps[0]!, steps[3]!, "src/a/Manager.kt", "test/a/ManagerTest.kt", "the manager drops the hooks nothing sets"]) {
       await expect(row(muted)).toHaveAttribute("data-muted", "")
     }
+    await expect(row("the open keeps a stored layout")).not.toHaveAttribute("data-muted")
     await expect(row(steps[0]!).getByTestId("review-owner-mark")).toHaveCount(0)
     await expect(row("src/b/Welcome.kt")).not.toHaveAttribute("data-muted")
     await expect(window.locator('[data-testid="review-file-header"][data-path="src/a/Manager.kt"]').first()).toHaveAttribute("data-muted", "")

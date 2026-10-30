@@ -10,6 +10,7 @@ import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpe
 import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
+import { reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
@@ -270,6 +271,39 @@ test.describe("The scopes of the stack", () => {
     const back = await openedReview(page, 4)
     expect(back.data).toMatchObject({ chain: ["air"] })
     expect(back.data.wholeStack).toBeUndefined()
+  })
+
+  test("should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    turnOnReviewPlan(await setupRepo("stack_island"))
+    await syncAndWaitForBranches()
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "bazel"))
+    const { commitRow, column } = reviewSidebar(window)
+
+    // From Root, a part of two branches: the tree orders the commits by step, so each row says its branch, which the
+    // column said by its headings
+    await window.getByRole("button", { name: "From Root" }).click()
+    await expect(commitRow("Add the agent, part 1").getByTestId("review-commit-branch")).toHaveText("air")
+    await expect(commitRow("Build the deploy jar, part 2").getByTestId("review-commit-branch")).toHaveText("bazel")
+    await expect(commitRow("Build the deploy jar, part 2")).toHaveAttribute("aria-description", /bazel, commit [0-9a-f]{8}$/)
+    await expect(column).toHaveCount(1)
+
+    // the whole stack: each commit row names the branch it came from; Enter shows it alone, whose heading reviews its branch
+    await window.getByTestId("branch-review-whole-stack").click()
+    await reopenLinkedSubWindow(window, await openedReview(page, 2))
+    const fix = commitRow("Fix the jar manifest, part 2")
+    await expect(fix.getByTestId("review-commit-branch")).toHaveText("side-fix")
+    await expect(column).toHaveCount(1)
+    await fix.click()
+    await fix.press("Enter")
+    const header = window.getByTestId("range-review-commit-header")
+    await expect(header).toContainText("Fix the jar manifest, part 2")
+    await header.getByRole("button", { name: "Review side-fix" }).click()
+    const atCommit = await openedReview(page, 3)
+    expect(atCommit.data).toMatchObject({ chain: ["air", "bazel", "side-fix"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
   })
 
   test("should go down from the review of the whole stack the island opens, along its main line", async ({ page, setupRepo, syncAndWaitForBranches }) => {

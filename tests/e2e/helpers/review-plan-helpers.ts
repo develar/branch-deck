@@ -18,6 +18,16 @@ export function turnOnReviewPlan(repo: TestRepositoryBuilder): void {
   appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
 }
 
+/** The sidebar of a review with the plan: the tree, a commit row of it by its subject, and the rows of the column above it */
+export function reviewSidebar(window: Page) {
+  const tree = window.getByRole("tree", { name: "Changed files" })
+  return {
+    tree,
+    commitRow: (subject: string) => tree.getByRole("treeitem", { name: subject, exact: true }),
+    column: window.getByTestId("range-review-commits").getByTestId("range-review-commit"),
+  }
+}
+
 /** The paths of the diffs the review shows of its files, in their order: no use left outside */
 export async function reviewedPaths(page: Page): Promise<string[]> {
   return page

@@ -1,7 +1,19 @@
 // @spec spec/branch/branch-review.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { BranchReviewSegment, Interdiff, ReviewCommit, ReviewPlan } from "@/lib/bindings"
-import { SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, pullRequestItems, rangePosition, segmentItems, shownInterdiff, shownKey } from "@/lib/range-review"
+import {
+  ALL_CHANGES,
+  SINCE_REVIEW,
+  isSingleCommit,
+  keepCommit,
+  localSinceReview,
+  pullRequestItems,
+  rangePosition,
+  segmentItems,
+  shownInterdiff,
+  shownKey,
+  storyCommits,
+} from "@/lib/range-review"
 
 function commit(id: string, subject: string, authorTime = 1): ReviewCommit {
   return { id, subject, message: subject, author: "Test User", authorTime, committerTime: authorTime }
@@ -21,6 +33,8 @@ describe("segmentItems", () => {
       "auth:Add the token",
     ])
     expect(isSingleCommit(items)).toBe(false)
+    // the story orders the commits by step: each says its branch, the heading of the column above it
+    expect(storyCommits(items, ALL_CHANGES).map(item => `${item.branch}:${item.commit.subject}`)).toEqual(["login:Style", "login:Add the form", "auth:Add the token"])
     // one branch: no headings; one commit: nothing to choose
     expect(isSingleCommit(segmentItems([segment("auth", [commit("a1", "Add the token")])]))).toBe(true)
   })
@@ -128,6 +142,12 @@ describe("pullRequestItems", () => {
       ":Second",
       "Your review · c1:First",
     ])
+  })
+
+  it("lists in the story of Since Your Review only the commits after the review, in All Changes every commit, the reviewed one marked", () => {
+    const items = pullRequestItems(commits, "c1")
+    expect(storyCommits(items, SINCE_REVIEW).map(item => item.key)).toEqual(["c3", "c2"])
+    expect(storyCommits(items, ALL_CHANGES).map(item => `${item.key}${item.review === undefined ? "" : ` (${item.review})`}`)).toEqual(["c3", "c2", "c1 (Your review)"])
   })
 
   it("has nothing since a review of the head, or of no commit of the range", () => {

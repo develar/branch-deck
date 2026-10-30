@@ -1,8 +1,9 @@
 import type { CommitFile, DependencyChange, MechanicalKind, ReviewPlan } from "@/lib/bindings"
 import type { FileActionTarget } from "@/lib/file-actions"
+import type { RangeReviewItem } from "@/lib/range-review"
 import { formatAlsoIn, formatHome, OTHER_CHANGES } from "@/presenters/review-concerns"
 import { formatMechanicalGroup } from "@/presenters/review-plan"
-import type { Chapter } from "@/presenters/review-steps"
+import type { Chapter, CommitPlaces, PlacedCommit } from "@/presenters/review-steps"
 
 /** A changed file of the tree, by its name in its directory */
 export interface FileTreeFile {
@@ -54,14 +55,37 @@ export interface FileTreeDirectory {
   deletions: number
   /**
    * A group of files that is no directory: `mechanical`, the Mechanical group at the end of the tree of a review, or
-   * the group of one kind in it or in a concern; `concern`, a task of the range; `other`, what no evidence joined
+   * the group of one kind in it or in a concern; `concern`, a task of the range; `other`, what no evidence joined;
+   * `commits`, the commits of the range no step lists
    */
-  group?: MechanicalKind | "mechanical" | "concern" | "other"
+  group?: MechanicalKind | "mechanical" | "concern" | "other" | "commits"
+  /** The commits of a group of commits, which holds no file */
+  commitCount?: number
   /** Its hover: why the files of a concern are together */
   title?: string
 }
 
-export type FileTreeNode = FileTreeFile | FileTreeAlso | FileTreeDirectory
+/** A commit of the range of a review that holds the commits, the commit of a range review */
+export type ReviewCommitItem = Extract<RangeReviewItem, { kind: "commit" }>
+
+/**
+ * A commit of the range in the group of the step it tells or follows up, above its files, or in Other commits: it
+ * selects the step, Enter shows the commit alone; no file of the tree, so it counts in no group and no position
+ */
+export interface FileTreeCommit {
+  kind: "commit"
+  /** `commitRowKey` of its group and its commit */
+  key: string
+  /** Its subject */
+  name: string
+  depth: number
+  parentKey: string | undefined
+  commit: PlacedCommit<ReviewCommitItem>
+  /** The id of the step it is listed in; null in Other commits */
+  chapter: string | null
+}
+
+export type FileTreeNode = FileTreeFile | FileTreeAlso | FileTreeDirectory | FileTreeCommit
 
 /** Above this many files, the directories below the top level start collapsed */
 export const AUTO_COLLAPSE_FILE_COUNT = 100
@@ -162,6 +186,18 @@ export function concernRowKey(concern: string): string {
   return `${CONCERN_KEY}${concern}/`
 }
 
+/** The key of the group of the commits no step lists, at the end of the tree */
+export const OTHER_COMMITS_KEY = "//commits/"
+
+/** Its name: "Other commits" after the steps, "Commits" without a step */
+export const OTHER_COMMITS = "Other commits"
+const COMMITS = "Commits"
+
+/** The key of the row of the commit `id` in the group `group` (`FileTreeCommit`) */
+export function commitRowKey(group: string, id: string): string {
+  return `${group}commit/${id}`
+}
+
 /** The key of the row of `path` in the concern `concern` that is not its main row (`FileTreeAlso`) */
 export function alsoRowKey(concern: string, path: string): string {
   return `${CONCERN_KEY}${concern}/also/${path}`
@@ -176,12 +212,22 @@ export function alsoRowKey(concern: string, path: string): string {
  * `buildFileTree` groups them, under Other changes; then the Mechanical group with a group per kind (`mechanical`, the
  * kind Rust gave each path, the kinds in its order: `mechanicalKindsOf`), each file named by its path. Without a chapter
  * but the rest, the files of real work as `buildFileTree` groups them, then the Mechanical group. The diffs and J and K
- * follow this order, so the mechanical files come last
+ * follow this order, so the mechanical files come last. With `commits` (a range of several commits shown whole), each
+ * group of a step lists its commits first, then its files, a step that lands nothing its commits alone; the commits no
+ * group lists (of no step, of what no evidence joined) close the tree in Other commits. While a search narrows `files`
+ * (`searched`), the tree is what it found: only a group with a file it kept lists its commits, and no Other commits
  */
-export function buildReviewTree(files: readonly CommitFile[], mechanical: ReadonlyMap<string, MechanicalKind>, chapters: readonly Chapter[]): FileTreeNode[] {
+export function buildReviewTree(
+  files: readonly CommitFile[],
+  mechanical: ReadonlyMap<string, MechanicalKind>,
+  chapters: readonly Chapter[],
+  commits?: CommitPlaces<ReviewCommitItem>,
+  searched = false,
+): FileTreeNode[] {
   const tasks = chapters.filter(chapter => !chapter.rest)
+  const otherCommits = searched ? undefined : commits
   if (tasks.length === 0) {
-    return withMechanicalGroup(buildFileTree(files.filter(file => !mechanical.has(file.path))), files, mechanical)
+    return withOtherCommits(withMechanicalGroup(buildFileTree(files.filter(file => !mechanical.has(file.path))), files, mechanical), otherCommits, new Set(), COMMITS)
   }
   const byPath = new Map(files.map(file => [file.path, file]))
   // the chapter of the main row of each path of a chapter
@@ -215,6 +261,8 @@ export function buildReviewTree(files: readonly CommitFile[], mechanical: Readon
   }
   // the paths whose main row a chapter holds
   const held = new Set<string>()
+  // the chapters with a group, which lists their commits
+  const grouped = new Set<string>()
   const nodes: FileTreeNode[] = []
   for (const chapter of tasks) {
     const key = concernRowKey(chapter.id)
@@ -237,8 +285,10 @@ export function buildReviewTree(files: readonly CommitFile[], mechanical: Readon
       }
     }
     children.push(...kindGroups(folded, mechanical, key, 1))
-    if (children.length > 0) {
-      nodes.push(groupNode(key, chapter.heading, 0, undefined, children, "concern", chapter.hover ?? undefined))
+    const commitRows = searched && children.length === 0 ? [] : commitNodes(commits?.steps.get(chapter.id) ?? [], key, chapter.id)
+    if (children.length > 0 || commitRows.length > 0) {
+      grouped.add(chapter.id)
+      nodes.push(groupNode(key, chapter.heading, 0, undefined, [...commitRows, ...children], "concern", chapter.hover ?? undefined))
     }
   }
   const rest = chapters.find(chapter => chapter.rest)
@@ -248,7 +298,30 @@ export function buildReviewTree(files: readonly CommitFile[], mechanical: Readon
     const children = buildFileTree(other, { key: OTHER_CHANGES_KEY, depth: 1 }).map(node => (rest === undefined ? node : asAlso(node, rest, restElsewhere)))
     nodes.push(groupNode(OTHER_CHANGES_KEY, OTHER_CHANGES, 0, undefined, children, "other"))
   }
-  return withMechanicalGroup(nodes, files, mechanical, held)
+  return withOtherCommits(withMechanicalGroup(nodes, files, mechanical, held), otherCommits, grouped, OTHER_COMMITS)
+}
+
+/** The rows of `commits` in the group `parentKey` of the step `chapter` (null: Other commits) */
+function commitNodes(commits: readonly PlacedCommit<ReviewCommitItem>[], parentKey: string, chapter: string | null): FileTreeCommit[] {
+  return commits.map(commit => ({ kind: "commit", key: commitRowKey(parentKey, commit.id), name: commit.subject, depth: 1, parentKey, commit, chapter }))
+}
+
+/**
+ * `nodes`, then the group `name` of the commits of the steps without a group (`grouped` has the others: what no evidence
+ * joined, every step of a tree without steps) and of those no step lists, as the range lists them; nothing without such
+ * commits
+ */
+function withOtherCommits(nodes: FileTreeNode[], commits: CommitPlaces<ReviewCommitItem> | undefined, grouped: ReadonlySet<string>, name: string): FileTreeNode[] {
+  if (commits === undefined) {
+    return nodes
+  }
+  const listed = [...commits.steps].flatMap(([step, list]) => (grouped.has(step) ? [] : list))
+  const rest = [...listed, ...commits.other].map(commit => ({ ...commit, role: null })).toSorted((a, b) => a.order - b.order)
+  if (rest.length === 0) {
+    return nodes
+  }
+  const group = groupNode(OTHER_COMMITS_KEY, name, 0, undefined, commitNodes(rest, OTHER_COMMITS_KEY, null), "commits")
+  return [...nodes, { ...group, commitCount: rest.length }]
 }
 
 /** `nodes`, then the Mechanical group of the mechanical files no concern holds (`held`), when there is one */
@@ -341,9 +414,9 @@ export function dependencyRows(nodes: readonly FileTreeNode[], dependencies: rea
 
 /**
  * What the actions of a row act on (`fileMenuItems`): a file by its path, a directory by its path and its files, a group
- * by its files
+ * by its files; a commit row has the menu of the commit
  */
-export function fileActionTarget(node: FileTreeNode): FileActionTarget {
+export function fileActionTarget(node: Exclude<FileTreeNode, FileTreeCommit>): FileActionTarget {
   if (node.kind !== "directory") {
     return { kind: "file", path: node.file.path }
   }
@@ -434,6 +507,11 @@ export function foldedGroups(nodes: readonly FileTreeNode[]): string[] {
     }
     return node.group === "mechanical" ? [node.key] : []
   })
+}
+
+/** The tree lists commits (`buildReviewTree` with commits): a range shown whole with its plan */
+export function listsCommits(nodes: readonly FileTreeNode[]): boolean {
+  return nodes.some(node => node.kind === "commit" || (node.kind === "directory" && node.group !== undefined && node.children.some(child => child.kind === "commit")))
 }
 
 /** The tree is that of a review with its groups: the concerns, Other changes, the Mechanical group */

@@ -1,21 +1,26 @@
 import { memo, useEffect, useRef, useState } from "react"
-import type { KeyboardEvent, ReactNode, RefObject } from "react"
+import type { KeyboardEvent, ReactElement, ReactNode, RefObject } from "react"
 import { cn } from "cn"
-import { ChevronRightIcon, FolderIcon, FolderOpenIcon, LayersIcon, TargetIcon } from "lucide-react"
+import { ChevronRightIcon, FolderIcon, FolderOpenIcon, GitCommitHorizontalIcon, LayersIcon, TargetIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { FileRowMark } from "@/components/files/FileRowMark"
+import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
 import type { CommitFile } from "@/lib/bindings"
 import { copyText, isCopyKey } from "@/lib/clipboard"
+import { formatCommitCount } from "@/lib/commit"
 import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
 import { copiedText } from "@/lib/file-actions"
 import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
-import type { FileTreeAlso, FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
+import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
+import { formatShortHash } from "@/lib/hash"
+import type { MenuItemGroups } from "@/lib/menu"
 import type { ReviewPlace } from "@/lib/review-place"
 import { presentRowFacts } from "@/presenters/review-plan"
 import type { DependencyBadge, FileBadges } from "@/presenters/review-plan"
+import { formatCommitRole } from "@/presenters/review-steps"
 
 interface FileTreeBaseProps {
   nodes: readonly FileTreeNode[]
@@ -29,6 +34,18 @@ interface FileTreeBaseProps {
   badges?: FileTreeBadges | null
   /** The files of the chosen owner chip: the other rows are muted; none muted without */
   marks?: FileTreeMarks | null
+  /** What the commit rows of the story of a range review do (`FileTreeCommit`); a tree without them has none */
+  commitRows?: FileTreeCommitRows | null
+}
+
+/** What a commit row does (spec/branch/review-tour.spec.md, "In the Review Window") */
+export interface FileTreeCommitRows {
+  /** A click, or the focus: the step of the commit at the top of the diffs; must keep its identity, the rows are memoized */
+  readonly onSelect: (node: FileTreeCommit) => void
+  /** Enter: the commit alone */
+  readonly onOpen: (node: FileTreeCommit) => void
+  /** Its right-click menu: Show Commit Alone, then the menu of the commit; must keep its identity */
+  readonly menu: (node: FileTreeCommit) => MenuItemGroups
 }
 
 /** What an owner chip marks in a tree (spec/branch/branch-review.spec.md, "Code owners") */
@@ -87,7 +104,7 @@ const CHEVRON_MIDDLE = "7px"
  * path, the rename and the owner are in its hover, Copy Path in its right-click menu and on ⌘C.
  */
 export function FileTree(props: FileTreeProps) {
-  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null } = props
+  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null, commitRows = null } = props
   // a file of a navigation tree has no diff to open
   const expandedFiles = props.mode === "inline" ? props.expandedFiles : null
   const selectedKey = props.mode === "navigate" ? props.selectedKey : null
@@ -111,7 +128,9 @@ export function FileTree(props: FileTreeProps) {
     setFocusedKey(node.key)
     rowElements.current.get(node.key)?.focus()
     // the selection follows the focus
-    if (node.kind !== "directory") {
+    if (node.kind === "commit") {
+      commitRows?.onSelect(node)
+    } else if (node.kind !== "directory") {
       onSelectFile?.(node.file, node.key)
     }
   }
@@ -121,6 +140,8 @@ export function FileTree(props: FileTreeProps) {
     setFocusedKey(node.key)
     if (node.kind === "directory") {
       onToggleDirectory(node.key)
+    } else if (node.kind === "commit") {
+      commitRows?.onSelect(node)
     } else if (onSelectFile !== undefined) {
       onSelectFile(node.file, node.key)
     } else if (node.kind === "file") {
@@ -131,12 +152,12 @@ export function FileTree(props: FileTreeProps) {
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     const key = target.dataset.treeKey
-    // ⌘C on a row copies its path, as Copy Path of its menu
+    // ⌘C on a row copies its path, as Copy Path of its menu; on a commit its hash
     if (key !== undefined && isCopyKey(event)) {
       const node = rows.find(row => row.key === key)
       if (node !== undefined) {
         event.preventDefault()
-        void copyText(copiedText(fileActionTarget(node)))
+        void copyText(node.kind === "commit" ? node.commit.id : copiedText(fileActionTarget(node)))
       }
       return
     }
@@ -186,6 +207,8 @@ export function FileTree(props: FileTreeProps) {
       case "Enter":
         if (node.kind === "file" && onOpenFile !== undefined) {
           onOpenFile(node.file)
+        } else if (node.kind === "commit") {
+          commitRows?.onOpen(node)
         } else {
           toggle(node)
         }
@@ -213,12 +236,13 @@ export function FileTree(props: FileTreeProps) {
           rowElements={rowElements}
           onToggle={toggle}
           onFocusRow={setFocusedKey}
-          owner={node.kind === "directory" ? undefined : fileOwners?.get(node.file.path)}
+          owner={node.kind === "directory" || node.kind === "commit" ? undefined : fileOwners?.get(node.file.path)}
           fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
           dependencyBadge={badges?.dependencies.get(node.key)}
           onSelectPlace={badges?.onSelectPlace}
-          muted={marks !== null && markedCount(node, marks) === 0}
+          muted={marks !== null && isMuted(node, marks)}
           ownerMark={marks === null ? null : ownerMarkOf(node, marks)}
+          commitMenu={node.kind === "commit" ? commitRows?.menu : undefined}
           content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
         />
       ))}
@@ -226,8 +250,22 @@ export function FileTree(props: FileTreeProps) {
   )
 }
 
-/** The files of the chosen owner in a row: of a step its count, of a directory or a group its files, of a file 1 or 0 */
+/**
+ * A row the chosen owner chip plays down: one without its files; a commit of a step as its step, a commit of no step
+ * never (it holds no file)
+ */
+function isMuted(node: FileTreeNode, marks: FileTreeMarks): boolean {
+  if (node.kind === "commit") {
+    return node.chapter !== null && marks.counts.get(node.parentKey ?? "") === 0
+  }
+  return node.kind === "directory" && node.group === "commits" ? false : markedCount(node, marks) === 0
+}
+
+/** The files of the chosen owner in a row: of a step its count, of a directory or a group its files, of a file 1 or 0, of a commit none */
 function markedCount(node: FileTreeNode, marks: FileTreeMarks): number {
+  if (node.kind === "commit") {
+    return 0
+  }
   if (node.kind !== "directory") {
     return marks.paths.has(node.file.path) ? 1 : 0
   }
@@ -236,7 +274,7 @@ function markedCount(node: FileTreeNode, marks: FileTreeMarks): number {
 
 /** The count chip of a step row that shows files of the chosen owner: "Design" and 2 */
 function ownerMarkOf(node: FileTreeNode, marks: FileTreeMarks): OwnerMark | null {
-  const count = marks.counts.get(node.key) ?? 0
+  const count = node.kind === "directory" ? (marks.counts.get(node.key) ?? 0) : 0
   return count === 0 ? null : { label: marks.label, count }
 }
 
@@ -250,7 +288,7 @@ function isRowOpen(node: FileTreeNode, collapsed: ReadonlySet<string>, expandedF
   if (node.kind === "directory") {
     return !collapsed.has(node.key)
   }
-  if (node.kind === "also") {
+  if (node.kind === "also" || node.kind === "commit") {
     return undefined
   }
   return expandedFiles === null ? undefined : expandedFiles.has(node.key)
@@ -275,6 +313,8 @@ interface FileTreeRowProps {
   muted: boolean
   /** The files of the chosen owner a step row shows: "Design 2" */
   ownerMark: OwnerMark | null
+  /** The right-click menu of a commit row */
+  commitMenu: FileTreeCommitRows["menu"] | undefined
   /** The diff under an expanded file */
   content: ReactNode
 }
@@ -293,14 +333,12 @@ const FileTreeRow = memo(function FileTreeRow({
   onSelectPlace,
   muted,
   ownerMark,
+  commitMenu,
   content,
 }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
   const facts = presentRowFacts(fileBadges, dependencyBadge)
-  const counts =
-    node.kind === "directory"
-      ? `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}`
-      : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
+  const counts = rowCounts(node)
   // the mark is no tab stop: the description says every fact of its card
   const described = facts === null || facts.description === "" ? counts : `${counts}, ${facts.description}`
   const description = ownerMark === null ? described : `${described}, ${formatFileCount(ownerMark.count)} of ${ownerMark.label}`
@@ -331,9 +369,9 @@ const FileTreeRow = memo(function FileTreeRow({
         }
       }}
     >
-      <FileContextMenu
-        target={() => fileActionTarget(node)}
-        copyKey
+      <RowMenu
+        node={node}
+        commitMenu={commitMenu}
         // the row takes the focus, so ⌘C copies the same path
         onOpen={() => rowElements.current.get(node.key)?.focus()}
         render={
@@ -372,12 +410,14 @@ const FileTreeRow = memo(function FileTreeRow({
           <DirectoryRowContent node={node} isOpen={isOpen === true} ownerMark={ownerMark} />
         ) : node.kind === "also" ? (
           <AlsoRowContent node={node} owner={owner} />
+        ) : node.kind === "commit" ? (
+          <CommitRowContent node={node} />
         ) : (
           <FileRowContent node={node} owner={owner} />
         )}
         {facts !== null && onSelectPlace !== undefined && <FileRowMark facts={facts} onSelectPlace={onSelectPlace} />}
-        {node.kind === "directory" ? <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
-      </FileContextMenu>
+        {node.kind === "directory" ? node.group !== "commits" && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
+      </RowMenu>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
           {content}
@@ -386,6 +426,87 @@ const FileTreeRow = memo(function FileTreeRow({
     </div>
   )
 })
+
+/** What a row says after its name to a screen reader: the status and the lines of a file, the files of a group, the role of a commit */
+function rowCounts(node: FileTreeNode): string {
+  if (node.kind === "commit") {
+    const { role, item } = node.commit
+    return [formatCommitRole(role), item?.since, item?.review, item?.branch, `commit ${formatShortHash(node.commit.id)}`].filter(part => part != null).join(", ")
+  }
+  if (node.kind === "directory") {
+    return node.group === "commits" ? formatCommitCount(node.commitCount ?? 0) : `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}`
+  }
+  return `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
+}
+
+/** The right-click menu of a row: the actions of its file or directory, of a commit its menu (`FileTreeCommitRows.menu`) */
+function RowMenu({
+  node,
+  commitMenu,
+  onOpen,
+  render,
+  children,
+}: {
+  node: FileTreeNode
+  commitMenu: FileTreeCommitRows["menu"] | undefined
+  onOpen: () => void
+  render: ReactElement
+  children: ReactNode
+}) {
+  if (node.kind === "commit") {
+    return (
+      <LazyContextMenu menu={() => commitMenu?.(node) ?? []} onOpen={onOpen} render={render}>
+        {children}
+      </LazyContextMenu>
+    )
+  }
+  return (
+    <FileContextMenu target={() => fileActionTarget(node)} copyKey onOpen={onOpen} render={render}>
+      {children}
+    </FileContextMenu>
+  )
+}
+
+/**
+ * A commit in the group of its step: its subject, its role ("follows up", "no story"), what it is since the user's
+ * review, the branch of a commit of the whole stack; the hash on hover
+ */
+function CommitRowContent({ node }: { node: FileTreeCommit }) {
+  const { commit } = node
+  const role = formatCommitRole(commit.role)
+  return (
+    <>
+      <GitCommitHorizontalIcon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate" title={commit.subject} data-testid="review-commit-subject">
+        {commit.subject}
+      </span>
+      {role !== null && (
+        <span className="shrink-0 text-xs text-muted-foreground" data-testid="review-commit-role">
+          {role}
+        </span>
+      )}
+      {commit.item?.since !== undefined && (
+        <Badge variant="info" data-testid="review-commit-since">
+          {commit.item.since}
+        </Badge>
+      )}
+      {commit.item?.review !== undefined && (
+        <Badge variant="outline" data-testid="review-commit-review">
+          {commit.item.review}
+        </Badge>
+      )}
+      {commit.item?.branch !== undefined && (
+        <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground" data-testid="review-commit-branch">
+          {commit.item.branch}
+        </span>
+      )}
+      {/* the subject gets the width: the hash shows on hover, and the heading of the commit alone has it */}
+      <span className="hidden font-mono text-xs text-muted-foreground group-hover/row:inline" data-testid="review-commit-hash">
+        {formatShortHash(commit.id)}
+      </span>
+    </>
+  )
+}
 
 function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirectory; isOpen: boolean; ownerMark: OwnerMark | null }) {
   // a group of a review is no directory: its name is what it holds; a concern is a task of the range

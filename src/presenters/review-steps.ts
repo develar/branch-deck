@@ -1,4 +1,4 @@
-import type { ConcernPart, ContractKind, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
+import type { CommitRole, ConcernPart, ContractKind, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
@@ -92,6 +92,79 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
  */
 export function presentOwnerMarks(chapters: readonly Chapter[], paths: ReadonlySet<string>): Map<string, number> {
   return new Map(chapters.map(chapter => [chapter.id, new Set(chapter.paths.filter(path => paths.has(path))).size]))
+}
+
+/** A commit of the range as a row of the tree: in the step it tells or follows up, else in Other commits */
+export interface PlacedCommit<T> {
+  /** The id of the commit: its item's, else the step's */
+  readonly id: string
+  readonly subject: string
+  /** Its role in its step; null in Other commits */
+  readonly role: CommitRole | null
+  /** The commit of the range it is (`RangeReviewItem`); none when the range lists no such commit */
+  readonly item: T | undefined
+  /** Its place in the range: the index of its item, else after them all */
+  readonly order: number
+}
+
+/** Where each commit of the range is listed: the commits of each step by its id, then those no step lists */
+export interface CommitPlaces<T> {
+  readonly steps: ReadonlyMap<string, readonly PlacedCommit<T>[]>
+  readonly other: readonly PlacedCommit<T>[]
+}
+
+/** The same commit by two ids, one maybe short: the plan names a commit as its input did */
+function sameCommit(a: string, b: string): boolean {
+  return a.length > 0 && b.length > 0 && (a.startsWith(b) || b.startsWith(a))
+}
+
+/**
+ * The commits of the range in the steps of the story (spec/branch/review-tour.spec.md, "In the Review Window"): each step
+ * lists its commits in its order (the one that starts it, those that follow it up, those of no story; of a concern the
+ * most lines first). A commit several steps list (the concerns) is listed once, in the step that lists it first (its
+ * most lines there), the first of equal ones; a commit of the range no step lists goes into Other commits, in the order
+ * of `items`
+ */
+export function placeCommits<T extends { readonly commit: { readonly id: string; readonly subject: string } }>(
+  steps: readonly Pick<ReviewStep, "id" | "commits">[],
+  items: readonly T[],
+): CommitPlaces<T> {
+  const itemOf = (commit: StepCommit) => items.find(item => sameCommit(item.commit.id, commit.id))
+  const orderOf = (item: T | undefined) => (item === undefined ? items.length : items.indexOf(item))
+  // the step each commit is listed in: the lowest place in a step's list, the first step of equal ones
+  const home = new Map<string, { step: string; at: number }>()
+  for (const step of steps) {
+    step.commits.forEach((commit, at) => {
+      const id = itemOf(commit)?.commit.id ?? commit.id
+      const known = home.get(id)
+      if (known === undefined || at < known.at) {
+        home.set(id, { step: step.id, at })
+      }
+    })
+  }
+  const placed = new Map<string, PlacedCommit<T>[]>()
+  const listed = new Set<string>()
+  for (const step of steps) {
+    const commits: PlacedCommit<T>[] = []
+    for (const commit of step.commits) {
+      const item = itemOf(commit)
+      const id = item?.commit.id ?? commit.id
+      if (home.get(id)?.step === step.id && !listed.has(id)) {
+        listed.add(id)
+        commits.push({ id, subject: item?.commit.subject ?? commit.subject, role: commit.role, item, order: orderOf(item) })
+      }
+    }
+    if (commits.length > 0) {
+      placed.set(step.id, commits)
+    }
+  }
+  const other = items.filter(item => !listed.has(item.commit.id)).map(item => ({ id: item.commit.id, subject: item.commit.subject, role: null, item, order: orderOf(item) }))
+  return { steps: placed, other }
+}
+
+/** The role of a commit on its row in its step: "follows up", "no story"; nothing for the one that starts it */
+export function formatCommitRole(role: CommitRole | null): string | null {
+  return role === "followsUp" ? "follows up" : role === "noStory" ? "no story" : null
 }
 
 /** The chapters of `concerns` alone, each named by its evidence (the tests of the tree and the story without steps) */

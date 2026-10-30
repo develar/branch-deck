@@ -536,9 +536,10 @@ the repeated edits and the new API. The vision of the review, its progress and t
   whole stack has no Mark Reviewed.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
 - "Since Your Review" must follow "All Changes" in the commit column only while the part is one branch, marked, with
-  a commit added or rewritten since; each such commit says "New" or "Rewritten". Chosen, the column lists only the
-  added and the rewritten commits, adjacent or not, and the diffs show the scope: the commits added on top, or the
-  diff from the carried commit, a rewrite against its reviewed version and new commits apart together; without a
+  a commit added or rewritten since; each such commit says "New" or "Rewritten", on its row in the steps of the tree
+  ([Review Tour](review-tour.spec.md#in-the-review-window)) and in the column of a commit shown alone. Chosen, the
+  tree lists only the added and the rewritten commits, adjacent or not, and the diffs show the scope: the commits
+  added on top, or the diff from the carried commit, a rewrite against its reviewed version and new commits apart together; without a
   scope (the carry conflicted) the newest of them. "All Changes", another part or a mark leaves it.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
@@ -590,8 +591,9 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - The tree must list the concerns of the plan, in All Changes and in "Since Your Review" as one range, and the story
   of the diffs follow them ([Review Concerns](review-concerns.spec.md#in-the-review-window)); with no concern but the
   rest, the files stay in tree order, the plan adds the marks of the rows and the Mechanical group. There is no switch of the
-  order: one tree tells the finished review. A commit of the column shows its plain tree. The facts apply once the
-  plan of the shown scope is read, not while the next one is read.
+  order: one tree tells the finished review. The tree of a scope lists the commits in its steps, the column above it
+  only the scopes; a commit shown alone shows the tree of its own plan, the column every commit. The facts apply once
+  the plan of the shown scope is read, not while the next one is read: until then the column lists every commit.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
 - A row of the tree must show at most one small mark, where its facts are: those of its file and the dependency
   changes the row carries. The mark must be in the warning tone when the file breaks uses left outside the change
@@ -689,7 +691,7 @@ the repeated edits and the new API. The vision of the review, its progress and t
   "new_between_modules": false}]`.
 - The review window, flag on: **Mark Reviewed** in the title bar → toast "Marked plan reviewed" ("plan was already
   marked reviewed at this commit" when nothing moved); the column: "All Changes 3 commits", "Since Your Review 1
-  commit", "read the cache twice  New".
+  commit"; the tree ends with "Commits": "read the cache twice  New", "add the cache", "scale the helper".
 - The card **Review Summary**, "1 possible break · 2 new declarations": "Since your review: 1 new · 1 rewritten", under
   it "Rewritten scale the helper: src/Store.kt +1 −1"; under Possible Breakage `Changed helper src/Store.kt:36
   parameters 3 uses left outside`, under it `− fun helper(value:Int)`, `+ fun helper(value:Int, scale:Int)` and

@@ -421,7 +421,11 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-dialog-review")).toHaveAttribute("data-active")
   })
 
-  test("should show the review plan of the pull request above its changes once the repository turns it on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show the review plan of the pull request above its changes once the repository turns it on, its commits in the tree", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     // the flag of the repository, which the global config of the test machine turns off (`TEST_IDENTITY` of the server)
     appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
@@ -431,6 +435,53 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("commit-review")).toBeVisible()
     // the plan of what the window shows: its card, Rust's words
     await expect(review.getByTestId("review-plan-card").getByTestId("review-plan-summary")).toHaveText(/possible break/)
+
+    // the commits of the pull request in the tree of its story, the column keeps the scope; Enter shows one alone
+    const tree = review.getByRole("tree", { name: "Changed files" })
+    const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
+    await expect(column).toHaveText([/^All Changes\d+ commits$/])
+    const subject = (await tree.getByTestId("review-commit-subject").first().textContent())!
+    await tree.getByRole("treeitem", { name: subject, exact: true }).click()
+    await tree.getByRole("treeitem", { name: subject, exact: true }).press("Enter")
+    await expect(review.getByTestId("range-review-commit-header")).toContainText(subject)
+    await expect(column.filter({ hasText: subject })).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should list in the tree of Since Your Review only the commits after the user's review, and mark the reviewed one in All Changes", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([]) })
+    await syncAndWaitForBranches()
+    appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
+    // the user reviewed the second of the four commits of ABC-123, and the request came again
+    const reviewed = await repo.revision("user-name/virtual/ABC-123~2")
+    await repo.setReviewRequests(availableReviewRequests([{ ...OLD, reRequested: true, reviewedCommit: reviewed }]))
+    await repo.advanceBackendClock(121_000)
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(getReviewRow(page, 101)).toBeVisible()
+    await getReviewRow(page, 101).focus()
+    await page.keyboard.press("d")
+    const review = (await openLinkedSubWindow(page, await openedReviewWindow(page))).getByTestId("review-window")
+    const tree = review.getByRole("tree", { name: "Changed files" })
+    const commitSubjects = tree.getByTestId("review-commit-subject")
+    const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
+
+    // All Changes: every commit in the tree, the one of the review says so, as the boundary of the column did
+    await expect(column).toHaveText(["All Changes4 commits", "Since Your Review2 commits"])
+    await expect(commitSubjects).toHaveCount(4)
+    const reviewedRow = tree.getByRole("treeitem", { name: "ABC-123 Add password hashing utility", exact: true })
+    await expect(reviewedRow.getByTestId("review-commit-review")).toHaveText("Your review")
+    await expect(reviewedRow).toHaveAttribute("aria-description", /Your review/)
+    await expect(tree.getByTestId("review-commit-review")).toHaveCount(1)
+
+    // Since Your Review: its own plan, only the two commits after the review in its tree, none the user saw
+    await column.filter({ hasText: "Since Your Review" }).click()
+    await expect(column.nth(1)).toHaveAttribute("aria-selected", "true")
+    await expect.poll(async () => (await commitSubjects.allTextContents()).toSorted()).toEqual(["ABC-123 Add authentication tests", "ABC-123 Add session management"])
+    await expect(column).toHaveText(["All Changes4 commits", "Since Your Review2 commits"])
+    await expect(tree.getByTestId("review-commit-review")).toHaveCount(0)
   })
 
   test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {

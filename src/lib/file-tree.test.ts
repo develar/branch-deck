@@ -1,11 +1,12 @@
 // @spec spec/commit/commit-files.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitFile, Concern, ConcernName, DependencyChange, FileFacts, FileStatus, MechanicalKind, ReviewUnit } from "@/lib/bindings"
+import type { CommitFile, Concern, ConcernName, DependencyChange, FileFacts, FileStatus, MechanicalKind, ReviewCommit, ReviewUnit, StepCommit } from "@/lib/bindings"
 import { fileMenuItems } from "@/lib/file-actions"
 import {
   alsoRowKey,
   buildFileTree,
   buildReviewTree,
+  commitRowKey,
   concernRowKey,
   dependencyRows,
   fileActionTarget,
@@ -13,22 +14,26 @@ import {
   formatTreeFileLabel,
   getInitiallyCollapsed,
   getVisibleRows,
+  listsCommits,
   MECHANICAL_GROUP_KEY,
   mechanicalKindsOf,
   OTHER_CHANGES_KEY,
+  OTHER_COMMITS_KEY,
   revealInTree,
   sectionRows,
 } from "@/lib/file-tree"
-import type { FileTreeAlso, FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"
-import { concernChapters } from "@/presenters/review-steps"
+import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeNode, ReviewCommitItem } from "@/lib/file-tree"
+import { concernChapters, placeCommits } from "@/presenters/review-steps"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
   return { path, status, oldPath, additions, deletions, binary: false, oldId: null, newId: null, submodule: false }
 }
 
-/** `name` per row, indented by depth, directories with a trailing slash, a file "also in" a concern with its words */
+/** `name` per row, indented by depth, directories with a trailing slash, a file "also in" a concern with its words, a commit after "@" */
 function outline(nodes: readonly FileTreeNode[], collapsed: ReadonlySet<string> = new Set()): string[] {
-  return getVisibleRows(nodes, collapsed).map(node => `${"  ".repeat(node.depth)}${node.name}${node.kind === "directory" ? "/" : node.kind === "also" ? `, ${node.also}` : ""}`)
+  return getVisibleRows(nodes, collapsed).map(
+    node => `${"  ".repeat(node.depth)}${node.kind === "commit" ? "@ " : ""}${node.name}${node.kind === "directory" ? "/" : node.kind === "also" ? `, ${node.also}` : ""}`,
+  )
 }
 
 const AIR = [
@@ -204,7 +209,7 @@ describe("the tree of a review with its plan", () => {
   })
 
   it("copies the paths of a group, which has no path of its own", () => {
-    const group = buildReviewTree(files, mechanical, []).at(-1)!
+    const group = buildReviewTree(files, mechanical, []).at(-1) as FileTreeDirectory
     expect(fileActionTarget(group)).toEqual({ kind: "group", files: ["src/b/b.iml", "src/Base.kt", "src/a/Old.lock"] })
     expect(fileMenuItems(fileActionTarget(group), { copyKey: true }).map(item => item.label)).toEqual(["Copy Changed Paths"])
   })
@@ -340,6 +345,95 @@ describe("the concerns in the tree of a review", () => {
     expect(outline(buildReviewTree(files, mechanical, concernChapters([concerns[2]!])))).toEqual(outline(buildReviewTree(files, mechanical, [])))
     const filtered = files.filter(it => it.path.includes("tools"))
     expect(outline(buildReviewTree(filtered, mechanical, concernChapters(concerns)))).toEqual(["ijproxy/", "  tools/codex/config.toml", "grep → accio/", "  docs/tools.md"])
+  })
+
+  // the commits of the range, newest first, with full ids; the plan names them short
+  const item = (id: string, subject: string): ReviewCommitItem => ({ kind: "commit", key: id, commit: { id, subject } as ReviewCommit })
+  const items = [item("d4d4d4d4", "bump the lock"), item("c3c3c3c3", "tidy App"), item("b2b2b2b2", "drop grep"), item("a1a1a1a1", "drop the proxy")]
+  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, body: "", role })
+  const steps = [
+    { id: "p", commits: [commitOf("a1a1a1a1", "starts"), commitOf("b2b2b2b2", "noStory")] },
+    { id: "g", commits: [commitOf("b2b2b2b2", "starts")] },
+    { id: "r", commits: [commitOf("c3c3c3c3", "noStory")] },
+  ]
+
+  it("lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them", () => {
+    const tree = buildReviewTree(files, mechanical, concernChapters(concerns), placeCommits(steps, items))
+    expect(outline(tree)).toEqual([
+      "ijproxy/",
+      "  @ drop the proxy",
+      "  .codex/config.toml",
+      "  docs/guide.md, also in ijproxy",
+      "  tools/codex/config.toml",
+      "  .mcp.json",
+      "grep → accio/",
+      "  @ drop grep",
+      "  docs/guide.md",
+      "  docs/tools.md",
+      "  Generated (1)/",
+      "    AGENTS.md",
+      "Other changes/",
+      "  src/",
+      "    App.kt",
+      "Mechanical (1)/",
+      "  Generated (1)/",
+      "    pnpm-lock.yaml",
+      "Other commits/",
+      "  @ bump the lock",
+      "  @ tidy App",
+    ])
+    // a commit row is no file: the files, their counts and what starts collapsed are those of the tree without commits
+    const without = buildReviewTree(files, mechanical, concernChapters(concerns))
+    expect(flattenTreeFiles(tree)).toEqual(flattenTreeFiles(without))
+    expect((tree[0] as FileTreeDirectory).fileCount).toBe(3)
+    expect([...getInitiallyCollapsed(tree, files.length)]).toEqual([...getInitiallyCollapsed(without, files.length)])
+    const proxy = (tree[0] as FileTreeDirectory).children[0] as FileTreeCommit
+    expect([proxy.key, proxy.chapter, proxy.commit.role, proxy.commit.item?.key]).toEqual([commitRowKey(concernRowKey("p"), "a1a1a1a1"), "p", "starts", "a1a1a1a1"])
+    const other = tree.at(-1) as FileTreeDirectory
+    expect([other.key, other.group, other.commitCount, other.fileCount]).toEqual([OTHER_COMMITS_KEY, "commits", 2, 0])
+    expect(other.children.map(child => (child as FileTreeCommit).chapter)).toEqual([null, null])
+  })
+
+  it("keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step", () => {
+    const filtered = files.filter(it => it.path.startsWith("docs/tools"))
+    expect(outline(buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items)))).toEqual([
+      "ijproxy/",
+      "  @ drop the proxy",
+      "grep → accio/",
+      "  @ drop grep",
+      "  docs/tools.md",
+      "Other commits/",
+      "  @ bump the lock",
+      "  @ tidy App",
+    ])
+    expect(outline(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items)))).toEqual([
+      "docs/",
+      "  tools.md",
+      "Commits/",
+      "  @ bump the lock",
+      "  @ tidy App",
+      "  @ drop grep",
+      "  @ drop the proxy",
+    ])
+  })
+
+  it("lists under a search only the commits of the steps whose files it found, no Other commits, and says when it lists none", () => {
+    const filtered = files.filter(it => it.path.startsWith("docs/tools"))
+    const tree = buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items), true)
+    expect(outline(tree)).toEqual(["grep → accio/", "  @ drop grep", "  docs/tools.md"])
+    expect(listsCommits(tree)).toBe(true)
+    // a search that finds files of no step: no commit row, the column lists the commits
+    const unlisted = buildReviewTree(
+      files.filter(it => it.path === "src/App.kt"),
+      mechanical,
+      concernChapters(concerns),
+      placeCommits(steps, items),
+      true,
+    )
+    expect(outline(unlisted)).toEqual(["Other changes/", "  src/", "    App.kt"])
+    expect(listsCommits(unlisted)).toBe(false)
+    expect(listsCommits(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items), true))).toBe(false)
+    expect(listsCommits(buildReviewTree(files, mechanical, concernChapters(concerns)))).toBe(false)
   })
 
   it("selects the row of a section in its concern, and shows the first open section of a row", () => {

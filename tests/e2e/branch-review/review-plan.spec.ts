@@ -5,6 +5,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
+import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { openPlanWindow, openReviewWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
@@ -57,6 +58,31 @@ async function commitColumn(page: Page): Promise<string[]> {
         .join(""),
     ),
   )
+}
+
+/** The commit rows of the tree of a scope with the plan: each by its subject with what it is since the review, in their order */
+async function treeCommits(page: Page): Promise<string[]> {
+  return page
+    .getByRole("tree", { name: "Changed files" })
+    .getByTestId("review-commit-subject")
+    .evaluateAll(subjects => subjects.map(subject => `${subject.textContent}${subject.parentElement?.querySelector('[data-testid="review-commit-since"]')?.textContent ?? ""}`))
+}
+
+/** The commit row of `subject` in the tree of a scope with the plan */
+function commitRow(page: Page, subject: string): Locator {
+  return page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: subject, exact: true })
+}
+
+/**
+ * The review window of `plan` once its plan is read: its commits tell no story, so the tree lists them under Commits,
+ * after the files, as the range lists them, and the column keeps the scope
+ */
+async function openPlanCommits(page: Page, repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<unknown>): Promise<Page> {
+  await setupPlan(repo, { experimental: true })
+  const window = await openPlanWindow(page, syncAndWaitForBranches)
+  await expect.poll(() => treeCommits(window)).toEqual(["add the cache", "scale the helper"])
+  await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits"])
+  return window
 }
 
 /**
@@ -273,6 +299,45 @@ test.describe("The review plan in the branch review", () => {
     await expect(cache).not.toHaveAttribute("data-muted")
     await expect(reader).toHaveAttribute("aria-selected", "true")
     await expect(cache).toHaveAttribute("aria-selected", "false")
+  })
+
+  test("should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("symbol_navigation")
+    const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)
+    const search = window.getByRole("textbox", { name: "Filter files" })
+    const column = window.getByTestId("range-review-commits").getByTestId("range-review-commit")
+    // the three commits tell no story: the tree lists them under Commits, the column keeps the scope
+    await expect.poll(async () => (await treeCommits(window)).toSorted()).toEqual(["add the cache", "add the notes", "scale the helper"])
+    await expect(column).toHaveCount(1)
+
+    // the copy key on a commit row copies its hash, Copy Commit Message of its menu its message
+    await commitRow(window, "add the notes").click()
+    await pressCopyKey(window)
+    await expect.poll(() => readClipboard(window)).toBe(await repo.revision("user-name/virtual/plan"))
+    await openContextMenu(window, commitRow(window, "add the notes"))
+    await clickContextMenuItem(window, "Copy Commit Message")
+    await expect.poll(() => readClipboard(window)).toMatch(/add the notes/)
+
+    // a search that finds files of no step keeps no commit row: the column lists the commits again
+    await search.fill("Reader")
+    await expect(planRows(window).reader).toBeVisible()
+    await expect(window.getByRole("tree", { name: "Changed files" }).getByTestId("review-commit-subject")).toHaveCount(0)
+    await expect(column).toHaveCount(4)
+    // a search that keeps nothing: no tree, the commits in the column, a click on one shows it alone
+    await search.fill("nothing matches this")
+    await expect(window.getByTestId("review-files-no-match")).toBeVisible()
+    await expect(column).toHaveCount(4)
+    await column.filter({ hasText: "add the cache" }).click()
+    await expect(window.getByTestId("range-review-commit-header")).toContainText("add the cache")
+    // back in All Changes with no search, the tree has the commits again
+    await search.fill("")
+    await column.filter({ hasText: "All Changes" }).click()
+    await expect(commitRow(window, "add the cache")).toBeVisible()
+    await expect(column).toHaveCount(1)
   })
 
   test("should select the file of a card entry while a search hides every file, under an owner chip that hides none", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -663,12 +728,16 @@ test.describe("The review plan in the branch review", () => {
     await expect(window.getByRole("treeitem", { name: "Store.kt" })).toHaveAttribute("aria-selected", "true")
   })
 
-  test("should show the plan of a commit chosen in the column: its card and the story of its diffs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("symbol_navigation")
-    await setupPlan(repo, { experimental: true })
-    const window = await openPlanWindow(page, syncAndWaitForBranches)
-    await window.getByTestId("range-review-commit").filter({ hasText: "scale the helper" }).click()
+  test("should show the plan of a commit shown alone from its row in the tree: its card and the story of its diffs @webkit", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const window = await openPlanCommits(page, await setupRepo("symbol_navigation"), syncAndWaitForBranches)
+    await commitRow(window, "scale the helper").click()
+    await commitRow(window, "scale the helper").press("Enter")
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
+    await expect(window.getByTestId("range-review-commit-header")).toContainText("scale the helper")
     // the plan of that commit alone: the change of `helper` under its heading, its uses left outside on the card
     const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
     await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — form changed: parameters")
@@ -698,18 +767,18 @@ test.describe("The review plan in the branch review", () => {
 
   test("should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
-    await setupPlan(repo, { experimental: true })
-    const window = await openPlanWindow(page, syncAndWaitForBranches)
-    // never marked: no Since Your Review
-    await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits", "add the cache", "scale the helper"])
+    // never marked: no Since Your Review; the column keeps the scope, the tree lists the commits
+    const window = await openPlanCommits(page, repo, syncAndWaitForBranches)
 
     await markReviewed(window)
 
     // a commit on top, then a sync: Since Your Review is its range, the files of that commit alone
     await repo.commit("(plan) read the cache twice", { "src/a/Reader.kt": READER('cache.get("x") + cache.get("y")') }, 1704124800)
     await syncAndWaitForBranches()
-    await expect.poll(() => commitColumn(window)).toEqual(["All Changes3 commits", "Since Your Review1 commit", "read the cache twiceNew", "add the cache", "scale the helper"])
+    await expect.poll(() => treeCommits(window)).toEqual(["read the cache twiceNew", "add the cache", "scale the helper"])
+    await expect.poll(() => commitColumn(window)).toEqual(["All Changes3 commits", "Since Your Review1 commit"])
     await window.getByTestId("range-review-commit").filter({ hasText: "Since Your Review" }).click()
+    await expect.poll(() => treeCommits(window)).toEqual(["read the cache twiceNew"])
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt"])
     await expect(window.getByTestId("review-plan-since")).toHaveText("Since your review: 1 new")
     await expect(window.getByTestId("branch-review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
@@ -719,17 +788,22 @@ test.describe("The review plan in the branch review", () => {
     await repo.reword(await repo.revision("HEAD~3"), "(plan) use the store and the queue")
     await syncAndWaitForBranches()
     await expect(findBranchRow(page, "nav")).toHaveCount(0)
-    await expect.poll(() => commitColumn(window)).toEqual(["All Changes4 commits", "Since Your Review2 commits", "read the cache twiceNew", "use the store and the queueNew"])
+    await expect.poll(() => treeCommits(window)).toEqual(["read the cache twiceNew", "use the store and the queueNew"])
+    await expect.poll(() => commitColumn(window)).toEqual(["All Changes4 commits", "Since Your Review2 commits"])
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/Queue.kt", "src/Store.kt", "src/Uses.kt"])
     await expect(window.getByTestId("review-plan-since")).toHaveText("Since your review: 2 new")
-    await window.getByTestId("range-review-commit").filter({ hasText: "use the store and the queue" }).click()
+    await commitRow(window, "use the store and the queue").click()
+    await commitRow(window, "use the store and the queue").press("Enter")
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Queue.kt", "src/Store.kt", "src/Uses.kt"])
+    // a commit alone: the column lists every commit
+    await expect.poll(() => commitColumn(window)).toEqual(["All Changes4 commits", "Since Your Review2 commits", "read the cache twiceNew", "use the store and the queueNew"])
 
     // All Changes lists every commit again; marked again, nothing is new: no Since Your Review
     await window.getByTestId("range-review-commit").filter({ hasText: "All Changes" }).click()
-    await expect.poll(() => commitColumn(window)).toHaveLength(6)
+    await expect.poll(() => treeCommits(window)).toHaveLength(4)
     await runAndWaitForAnswer(window, "mark_branch_reviewed", () => window.getByTestId("branch-review-mark-reviewed").click())
-    await expect.poll(() => commitColumn(window)).toEqual(["All Changes4 commits", "read the cache twice", "add the cache", "scale the helper", "use the store and the queue"])
+    await expect.poll(() => commitColumn(window)).toEqual(["All Changes4 commits"])
+    await expect.poll(() => treeCommits(window)).toEqual(["read the cache twice", "add the cache", "scale the helper", "use the store and the queue"])
   })
 
   test("should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version", async ({
@@ -751,7 +825,8 @@ test.describe("The review plan in the branch review", () => {
     await expect(page.getByText("Squashed 1 fixup")).toBeVisible()
 
     // the amended commit is Rewritten, the one above it, replayed with the same changes, is not
-    await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits", "Since Your Review1 commit", "add the cache", "scale the helperRewritten"])
+    await expect.poll(() => treeCommits(window)).toEqual(["add the cache", "scale the helperRewritten"])
+    await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits", "Since Your Review1 commit"])
     // the card of All Changes says what the rewrite changed against the reviewed version, per path
     const since = window.getByTestId("review-plan-since")
     await expect(since).toContainText("Since your review: 1 rewritten")
@@ -761,7 +836,7 @@ test.describe("The review plan in the branch review", () => {
     // never the line before the branch, under the card with that difference
     await window.getByTestId("range-review-commit").filter({ hasText: "Since Your Review" }).click()
     await expect(window.getByTestId("branch-review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
-    await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits", "Since Your Review1 commit", "scale the helperRewritten"])
+    await expect.poll(() => treeCommits(window)).toEqual(["scale the helperRewritten"])
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
     const code = window.getByTestId("diff-view")
     await expect(code).toContainText("value * scale * 2")

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
-import { bodyParagraphs, formatStepTitle, presentBrief, presentChapters, presentOwnerMarks, WITHOUT_A_STORY } from "@/presenters/review-steps"
+import { bodyParagraphs, formatCommitRole, formatStepTitle, placeCommits, presentBrief, presentChapters, presentOwnerMarks, WITHOUT_A_STORY } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 
 function commit(subject: string, body: string, role: StepCommit["role"] = "starts"): StepCommit {
@@ -79,6 +79,52 @@ describe("review steps", () => {
       ["c", 1],
     ])
     expect([...presentOwnerMarks(chapters, new Set())].map(([, count]) => count)).toEqual([0, 0, 0])
+  })
+
+  it("places each commit of the range in the step it tells or follows up, a commit of the concerns once, the rest in Other commits", () => {
+    // the range lists full ids, newest first; the plan names them as its input did, maybe short
+    const item = (id: string, subject: string) => ({ key: `key-${id}`, commit: { id, subject } })
+    const items = [item("e5e5e5e5", "unrelated"), item("d4d4d4d4", "wip"), item("c3c3c3c3", "the rule again"), item("b2b2b2b2", "the paint"), item("a1a1a1a1", "the rule")]
+    const short = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, body: "", role })
+    const told = placeCommits(
+      [step("a1a1", [short("a1a1a1a1", "starts"), short("c3c3c3c3", "followsUp"), short("d4d4d4d4", "noStory")], []), step("b2b2", [short("b2b2b2b2", "starts")], [])],
+      items,
+    )
+    expect([...told.steps].map(([id, commits]) => [id, commits.map(it => [it.id, it.subject, formatCommitRole(it.role), it.item?.key])])).toEqual([
+      [
+        "a1a1",
+        [
+          ["a1a1a1a1", "the rule", null, "key-a1a1a1a1"],
+          ["c3c3c3c3", "the rule again", "follows up", "key-c3c3c3c3"],
+          ["d4d4d4d4", "wip", "no story", "key-d4d4d4d4"],
+        ],
+      ],
+      ["b2b2", [["b2b2b2b2", "the paint", null, "key-b2b2b2b2"]]],
+    ])
+    expect(told.other.map(it => [it.id, it.role])).toEqual([["e5e5e5e5", null]])
+    // the concerns list a commit in each concern of its lines, the most lines first: it is listed in the one that lists it
+    // first, the first of equal ones; a commit of the step no item names keeps the step's id and subject
+    const concerns = placeCommits(
+      [
+        step("proxy", [short("b2b2b2b2", "starts"), short("a1a1a1a1", "starts")], []),
+        step("grep", [short("a1a1a1a1", "starts"), short("b2b2b2b2", "starts")], []),
+        step("tools", [short("c3c3c3c3", "starts"), short("f6f6f6f6", "noStory")], []),
+        step("look", [short("c3c3c3c3", "starts")], []),
+      ],
+      items,
+    )
+    expect([...concerns.steps].map(([id, commits]) => [id, commits.map(it => [it.id, it.item === undefined])])).toEqual([
+      ["proxy", [["b2b2b2b2", false]]],
+      ["grep", [["a1a1a1a1", false]]],
+      [
+        "tools",
+        [
+          ["c3c3c3c3", false],
+          ["f6f6", true],
+        ],
+      ],
+    ])
+    expect(concerns.other.map(it => it.id)).toEqual(["e5e5e5e5", "d4d4d4d4"])
   })
 
   it("words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that name its code, a step no test proves", () => {
