@@ -42,6 +42,25 @@ test.describe("Setup dot", () => {
     await expect(page.locator("[data-slot=toast]", { hasText: "Cannot install the update" })).toContainText("no updater")
   })
 
+  test("should find an update after the app has stayed open for six hours", async ({ page, setupRepo }) => {
+    const silentCheck = page.waitForResponse(response => response.url().endsWith("/invoke/check_for_updates"))
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    const button = page.getByTestId("settings-button")
+    await expect(button).toHaveAccessibleName("Settings")
+    await page.clock.fastForward(3_000)
+    await silentCheck
+    await expect(button.getByTestId("setup-dot")).toHaveCount(0)
+
+    await repo.setAvailableUpdate("1.2.0")
+    const periodicCheck = page.waitForResponse(response => response.url().endsWith("/invoke/check_for_updates"))
+    await page.clock.fastForward(6 * 60 * 60 * 1000)
+    await periodicCheck
+
+    await expect(button.getByTestId("setup-dot")).toBeVisible()
+    await button.click()
+    await expect(page.getByTestId("setup-popover").getByTestId("setup-item")).toHaveText(/Branch Deck 1\.2\.0 is ready to install/)
+  })
+
   test("should update a CLI from the dot, and skip a version until a newer one", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools(teamcityBehindOnHomebrew())

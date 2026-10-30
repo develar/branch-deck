@@ -8,6 +8,7 @@ use app_api::transport::{Later, Updater};
 use domain_types::error::ApiError;
 use domain_types::update::{UpdateInfo, UpdateStatus};
 use std::sync::Arc;
+use sync_utils::single_flight::SingleFlight;
 use tracing::error;
 #[cfg(feature = "auto-update")]
 use tracing::info;
@@ -45,8 +46,13 @@ impl UpdateState {
 pub type SharedUpdateState = std::sync::Mutex<UpdateState>;
 
 #[cfg(feature = "auto-update")]
+fn has_downloaded_version(pending_version: Option<&str>, available_version: &str) -> bool {
+  pending_version == Some(available_version)
+}
+
+#[cfg(feature = "auto-update")]
 mod auto_update_impl {
-  use super::SharedUpdateState;
+  use super::{SharedUpdateState, has_downloaded_version};
   use anyhow::anyhow;
   use domain_types::update::{UpdateInfo, UpdateStatus};
   use tauri::AppHandle;
@@ -62,6 +68,20 @@ mod auto_update_impl {
       Ok(Some(update)) => {
         let available_version = update.version.clone();
         let current_version = app_handle.package_info().version.to_string();
+
+        let already_downloaded = {
+          let state = update_state.lock().map_err(|e| anyhow!("Failed to lock state: {e}"))?;
+          has_downloaded_version(state.pending_update.as_ref().map(|pending| pending.version.as_str()), &available_version)
+        };
+        if already_downloaded {
+          info!("Update already downloaded: {available_version}");
+          return Ok(UpdateInfo {
+            current_version,
+            available_version,
+            is_update_available: true,
+            status: UpdateStatus::Downloaded,
+          });
+        }
 
         info!("Update available: {current_version} -> {available_version}");
 
@@ -146,6 +166,7 @@ pub struct AppUpdater {
   /// The app the updater of the feature checks for and restarts
   pub app: tauri::AppHandle,
   pub state: Arc<SharedUpdateState>,
+  pub check_flight: SingleFlight<(), Result<UpdateInfo, ApiError>>,
 }
 
 impl Updater for AppUpdater {
@@ -153,18 +174,23 @@ impl Updater for AppUpdater {
     Box::pin(async move {
       #[cfg(feature = "auto-update")]
       {
-        info!("Checking for updates");
-        lock_state(&self.state)?.info.status = UpdateStatus::Checking;
-        match auto_update_impl::perform_update_check(&self.app, &self.state).await {
-          Ok(update_info) => {
-            lock_state(&self.state)?.info = update_info.clone();
-            Ok(update_info)
-          }
-          Err(e) => {
-            error!("Update check failed: {e:?}");
-            Err(record_error(&self.state, ApiError::internal(format!("Update check failed: {e:#}"))))
-          }
-        }
+        self
+          .check_flight
+          .run((), || async {
+            info!("Checking for updates");
+            lock_state(&self.state)?.info.status = UpdateStatus::Checking;
+            match auto_update_impl::perform_update_check(&self.app, &self.state).await {
+              Ok(update_info) => {
+                lock_state(&self.state)?.info = update_info.clone();
+                Ok(update_info)
+              }
+              Err(e) => {
+                error!("Update check failed: {e:?}");
+                Err(record_error(&self.state, ApiError::internal(format!("Update check failed: {e:#}"))))
+              }
+            }
+          })
+          .await
       }
 
       #[cfg(not(feature = "auto-update"))]
@@ -218,5 +244,17 @@ impl Updater for AppUpdater {
   fn downloaded(&self) -> Option<String> {
     let state = self.state.lock().ok()?;
     (state.info.is_update_available && state.info.status == UpdateStatus::Downloaded).then(|| state.info.available_version.clone())
+  }
+}
+
+#[cfg(all(test, feature = "auto-update"))]
+mod tests {
+  use super::has_downloaded_version;
+
+  #[test]
+  fn reuses_the_downloaded_release_when_the_manifest_still_names_it() {
+    assert!(has_downloaded_version(Some("1.2.0"), "1.2.0"));
+    assert!(!has_downloaded_version(Some("1.2.0"), "1.2.1"));
+    assert!(!has_downloaded_version(None, "1.2.0"));
   }
 }

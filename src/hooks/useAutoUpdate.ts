@@ -10,14 +10,12 @@ import { refreshSetup } from "@/stores/setup"
 const UPDATE_AVAILABLE_TOAST_ID = "update-available"
 // wait a bit after app startup to avoid interfering with the initial load
 const STARTUP_CHECK_DELAY_MS = 3_000
-
-// the startup check runs once per app session (StrictMode mounts effects twice)
-let isStartupCheckScheduled = false
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 /**
  * Checks for updates and reports the result with toasts.
  * An available update is already downloaded by the check command, so the toast offers to install it right away.
- * Without `showNoUpdateToast` (silent startup check), an available update goes to the Setup dot; a failure is only logged.
+ * Without `showNoUpdateToast` (silent checks), an available update goes to the Setup dot; failures refresh Setup and are logged.
  */
 export async function checkForUpdates(showNoUpdateToast = false): Promise<void> {
   let failure: unknown
@@ -48,6 +46,7 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
     notifyError("Cannot check for updates", failure)
   } else {
     logError("Cannot check for updates", failure)
+    void refreshSetup()
   }
 }
 
@@ -89,22 +88,30 @@ export async function installUpdateNow(): Promise<void> {
   }
 }
 
-/** Schedules a silent update check shortly after startup; runs once per app session and never in development. */
-function checkForUpdatesOnStartup(): void {
-  if (import.meta.env.DEV || isStartupCheckScheduled) {
+/** Schedules a silent update check shortly after startup, then every six hours; never in development. */
+function checkForUpdatesOnStartup(): (() => void) | undefined {
+  if (import.meta.env.DEV) {
     return
   }
-  isStartupCheckScheduled = true
 
-  setTimeout(() => {
+  let every: ReturnType<typeof setInterval> | undefined
+  const startup = setTimeout(() => {
     void checkForUpdates(false)
+    every = setInterval(() => void checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS)
   }, STARTUP_CHECK_DELAY_MS)
+
+  return () => {
+    clearTimeout(startup)
+    if (every !== undefined) {
+      clearInterval(every)
+    }
+  }
 }
 
 /** Main window: silent update check on startup and the "Check for Updates…" menu item. */
 export function useAutoUpdate(): void {
   useEffect(() => {
-    checkForUpdatesOnStartup()
+    return checkForUpdatesOnStartup()
   }, [])
 
   useAppCommand("check_for_updates", () => {

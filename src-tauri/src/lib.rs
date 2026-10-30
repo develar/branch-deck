@@ -233,6 +233,7 @@ pub fn run() {
           updater: Arc::new(AppUpdater {
             app: app.handle().clone(),
             state: update_state,
+            check_flight: sync_utils::single_flight::SingleFlight::default(),
           }),
           agent_cli: Arc::new(agent_cli::AppAgentCli),
         },

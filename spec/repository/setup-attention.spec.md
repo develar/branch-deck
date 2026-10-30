@@ -75,9 +75,13 @@ click lists each item with its action and its skip, then Settings.
   the list: each item's words, its action, its skip, then Settings…. Without items the button opens Settings at once.
   ⌘, (Ctrl+,) always opens Settings.
   [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should open Settings at once while nothing waits`)
-- The update of the app that the silent check after startup downloaded is an item, not a toast: "Branch Deck 1.2.0 is
-  ready to install", Install and Restart.
-  [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should keep a downloaded update of the app in the dot, not in a toast, and install it from there`)
+- The update of the app that the silent check after startup and every 6 hours downloaded is an item, not a toast:
+  "Branch Deck 1.2.0 is ready to install", Install and Restart.
+  [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should keep a downloaded update of the app in the dot, not in a toast, and install it from there`, `should find an update after the app has stayed open for six hours`)
+- A check that finds the release already downloaded reuses it; a newer release replaces it. Concurrent checks share one
+  answer, so they never download the same release twice.
+  [@test] ../../src-tauri/src/auto_update.rs (`reuses_the_downloaded_release_when_the_manifest_still_names_it`)
+  [@test] ../../crates/sync-utils/src/single_flight_test.rs (`callers_that_ask_while_a_read_runs_get_its_answer`)
 - "teamcity 1.7.0 is out" updates the CLI as Settings → Tools does (its toast in the main window), an older skill of the
   agents with it; "The teamcity agent skill 1.4.0 is ready to install" updates the skill.
   [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should update a CLI from the dot, and skip a version until a newer one`)
