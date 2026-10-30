@@ -100,6 +100,13 @@ pub(crate) struct Timing {
   /// How long `upgrade` waits for the hello of the new agent: the drain of the old agent, the wait of the watchdog,
   /// and 30 s for launchd
   pub(crate) upgrade: Duration,
+  /// How often the watch of a run asks whether the person pressed Ctrl+C, and how soon a wait of `Follow` sees a second
+  /// Ctrl+C
+  pub(crate) interrupt_poll: Duration,
+  /// How long the cancel of a run connects again after a failed try
+  pub(crate) cancel_for: Duration,
+  /// How long the end of a run waits for the last lines of its cancel
+  pub(crate) cancel_grace: Duration,
 }
 
 impl Timing {
@@ -113,6 +120,9 @@ impl Timing {
     agent_start: Duration::from_secs(60),
     keepalive: Duration::from_secs(HEARTBEAT_SECONDS),
     upgrade: Duration::from_secs(UPGRADE_DRAIN_SECONDS + UPGRADE_WATCHDOG_SECONDS + 30),
+    interrupt_poll: Duration::from_millis(100),
+    cancel_for: Duration::from_secs(120),
+    cancel_grace: Duration::from_millis(500),
   };
 }
 

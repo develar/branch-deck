@@ -3092,7 +3092,17 @@ rewrites между процессами через файл `s10`; `s12` ждё
     tuning, которое ставит тест (`crates/host-agent/src/tuning.rs` и такое же у клиента), в тестах — миллисекунды,
     значения продукта прежние; тест ждёт состояния, а не спит. `a_new_event_reaches_the_follow_in_less_than_50_ms`
     утверждает механизм (событие толкают, а не опрашивают) и переименован; ссылки на тесты в
-    `spec/cli/host.spec.md` и `docs/design/host-runs.md` — в том же коммите.
+    `spec/cli/host.spec.md` и `docs/design/host-runs.md` — в том же коммите. Сделано: ожидания агента — значения
+    `tuning.rs` (`BD_HOST_TEST_*`), клиента — `Timing` (`crates/host-client/src/lib.rs`, туда же перешли опрос
+    Ctrl+C, окно и grace отмены из `run.rs`); фейки ждут состояния (третий heartbeat, слово рана, флаг конца рана).
+    Тест 50 мс — `a_new_event_is_pushed_to_the_follow_on_macos_and_polled_elsewhere` (на macOS опрос и перепроверка —
+    минута, событие приходит от kqueue), ссылка — с нового требования follow в `host.spec.md`. Studio, load 11,8:
+    четыре crate хоста 152,4 → 133,2 с junit, 10,9 → 9,3 с wall; семь из девяти — 1,1–2,2 с (были 3,3–6,6),
+    `the_chunks_of_a_pack…` 9,3 → 5,0 с (stall 1 с и слово рана на 2 с — пол против гонки под нагрузкой),
+    `an_upgrade_swaps_the_binary…` 5,7 → 5,8 с времени не ждёт (бинарь 35 МБ дважды отправлен и хеширован
+    debug-сборкой). Дедлайны чтения запроса и пака и опрос drain в `serve.rs` остались константами: их не ждёт ни
+    один тест. Стресс: serve 780 из 780 под 16 `yes`, host-client 710 из 710 (`--stress-count 10`, 16 `yes`,
+    load 7 → 20).
   - **`opt-level` зависимостей (s17-8).** `[profile.dev.package."*"]` `Cargo.toml` (сегодня только
     `debug = "line-tables-only"`) с `opt-level = 2` (или 1) собирает с оптимизацией и C зависимостей (грамматики
     tree-sitter, LMDB); crates workspace остаются без неё (`perf:bd-rebuild` прежний). Правка остаётся, только если на

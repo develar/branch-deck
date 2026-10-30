@@ -61,15 +61,6 @@ const NEAR: usize = 16;
 /// How many changed paths the refusal of local changes shows
 const SHOWN_CHANGES: usize = 5;
 
-/// How often the watch of a run asks whether the person pressed Ctrl+C
-const INTERRUPT_POLL: Duration = Duration::from_millis(100);
-
-/// How long the cancel of a run connects again after a failed try
-const CANCEL_FOR: Duration = Duration::from_secs(120);
-
-/// How long the end of a run waits for the last lines of its cancel
-const CANCEL_GRACE: Duration = Duration::from_millis(500);
-
 /// How many times the cancel of a run whose pack did not reach the host tries
 const ABANDON_TRIES: u32 = 3;
 
@@ -346,7 +337,7 @@ impl Client<'_> {
         if self.interrupted() {
           latest.close();
         }
-        thread::sleep(INTERRUPT_POLL);
+        thread::sleep(self.timing.interrupt_poll);
       }
       let _ = syncing.join();
       finished
@@ -726,11 +717,11 @@ impl Client<'_> {
           (self.say)(&line);
         }
       }
-      thread::sleep(INTERRUPT_POLL);
+      thread::sleep(self.timing.interrupt_poll);
     }
     // The answer of the cancel can come just after the end of the run; it gets a moment, not more
     if let Some(said) = cancel {
-      let until = Instant::now() + CANCEL_GRACE;
+      let until = Instant::now() + self.timing.cancel_grace;
       while let Ok(line) = said.recv_timeout(until.saturating_duration_since(Instant::now())) {
         (self.say)(&line);
       }
@@ -785,7 +776,7 @@ impl Client<'_> {
             state.offset,
             state.backoff.as_secs()
           ));
-          sleep_unless(state.backoff, &watch.abandoned);
+          sleep_unless(state.backoff, self.timing.interrupt_poll, &watch.abandoned);
           state.backoff = (state.backoff * 2).min(self.timing.max_backoff);
         }
       }
@@ -881,7 +872,7 @@ fn cancel_on(host: &mut Host, run: &str, deadline: Duration) -> Result<String, R
 }
 
 /// Sends `Cancel` on a thread of its own, and answers the lines that it has to say. It connects again with the backoff
-/// of `Follow` until the agent has the cancel, the run has ended, or `CANCEL_FOR` has passed
+/// of `Follow` until the agent has the cancel, the run has ended, or `Timing::cancel_for` has passed
 fn start_cancel(mut host: Host, run: String, timing: Timing, finished: Arc<AtomicBool>) -> mpsc::Receiver<String> {
   let (said, lines) = mpsc::channel();
   let failed = said.clone();
@@ -894,7 +885,7 @@ fn start_cancel(mut host: Host, run: String, timing: Timing, finished: Arc<Atomi
           let _ = said.send(format!("bd-host: {message}"));
           return;
         }
-        Err(refusal) if is_link(&refusal) && started.elapsed() < CANCEL_FOR && !finished.load(Ordering::Acquire) => {
+        Err(refusal) if is_link(&refusal) && started.elapsed() < timing.cancel_for && !finished.load(Ordering::Acquire) => {
           let _ = said.send(format!(
             "bd-host: cannot send the cancel of the run {run}: {}; again in {} s",
             refusal.message,
@@ -916,15 +907,15 @@ fn start_cancel(mut host: Host, run: String, timing: Timing, finished: Arc<Atomi
   lines
 }
 
-/// Sleeps for `time`, and wakes early when `stop` turns `true`
-fn sleep_unless(time: Duration, stop: &AtomicBool) {
+/// Sleeps for `time`, and wakes early, within `poll`, when `stop` turns `true`
+fn sleep_unless(time: Duration, poll: Duration, stop: &AtomicBool) {
   let until = Instant::now() + time;
   while !stop.load(Ordering::Acquire) {
     let left = until.saturating_duration_since(Instant::now());
     if left.is_zero() {
       return;
     }
-    thread::sleep(left.min(INTERRUPT_POLL));
+    thread::sleep(left.min(poll));
   }
 }
 

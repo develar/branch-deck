@@ -111,8 +111,21 @@ fn run_holding(
   options: RunOptions,
   hold: Duration,
 ) -> Result<RunOutcome, RunFailure> {
-  let command = command();
   let processes = FakeProcesses::default();
+  run_by(&setup.client(&processes, say, presses).with_hold_pack(hold), setup, fetch, options)
+}
+
+/// `run_in` without outputs, Ctrl+C or options, with the deadlines of `timing`
+#[expect(clippy::result_large_err, reason = "the answer of `Client::run`")]
+fn run_timed(setup: &Setup, say: &(dyn Fn(&str) + Sync), timing: Timing) -> Result<RunOutcome, RunFailure> {
+  let processes = FakeProcesses::default();
+  run_by(&setup.client(&processes, say, &calm).with_timing(timing), setup, &[], RunOptions::default())
+}
+
+/// Runs the command of the tests with `client` in the checkout of `setup`
+#[expect(clippy::result_large_err, reason = "the answer of `Client::run`")]
+fn run_by(client: &Client<'_>, setup: &Setup, fetch: &[String], options: RunOptions) -> Result<RunOutcome, RunFailure> {
+  let command = command();
   let request = RunRequest {
     checkout: setup.repo.path(),
     repo: None,
@@ -120,7 +133,7 @@ fn run_holding(
     command: &command,
     fetch,
   };
-  setup.client(&processes, say, presses).with_hold_pack(hold).run(ALIAS, &request, options)
+  client.run(ALIAS, &request, options)
 }
 
 fn kind(request: &Request) -> &'static str {
@@ -552,8 +565,6 @@ fn a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255() {
   assert!(!kinds(&setup).contains(&"forget"), "{:?}", kinds(&setup));
 }
 
-/// An agent that stops answering ends the run after the reconnect window with `timed_out` after the start (255), and
-/// the refusal names `bd-host follow`
 /// An agent that ends while the client follows its run refuses each new connection. The command can still run on the
 /// host, so after the reconnect window the run ends with `timed_out` and exit 255, never with the 75 of `unreachable`
 #[test]
@@ -570,7 +581,11 @@ fn an_agent_that_ends_during_the_follow_times_out_with_255_and_not_75() {
   assert!(stopper.set(setup.agent.stopper()).is_ok());
   let said = Said::default();
   let say = |line: &str| said.push(line);
-  let failure = run_in(&setup, &say, &calm, &[], RunOptions::default()).unwrap_err();
+  let timing = Timing {
+    reconnect_for: Duration::from_millis(300),
+    ..crate::testkit::FAST
+  };
+  let failure = run_timed(&setup, &say, timing).unwrap_err();
   assert_eq!((failure.refusal.code, failure.exit), (Code::TimedOut, Exit::Refused), "{}", failure.refusal.message);
   assert!(failure.refusal.message.contains("`bd-host follow studio "), "{}", failure.refusal.message);
   assert!(said.lines().iter().any(|line| line.contains("following the run")), "{:#?}", said.lines());
@@ -591,11 +606,24 @@ fn a_refusal_of_the_client_after_the_start_never_exits_75() {
   assert_eq!(unseen_after_start(Refusal::new(Code::Interrupted, "a second Ctrl+C")).code, Code::Interrupted);
 }
 
+/// An agent that stops answering ends the run after the reconnect window with `timed_out` after the start (255), and
+/// the refusal names `bd-host follow`. Each `Follow` of the agent stays silent until the run has ended; the read
+/// deadline ends each connection, and the second one ends past the reconnect window
 #[test]
 fn a_silent_agent_times_out_after_the_reconnect_window() {
   let Commits { repo, head, .. } = two_commits();
-  let (setup, _) = agent_following(repo, known(vec![head]), |_, _| thread::sleep(Duration::from_secs(4)));
-  let failure = run_in(&setup, &|_| {}, &calm, &[], RunOptions::default()).unwrap_err();
+  let ended = Arc::new(AtomicBool::new(false));
+  let (setup, _) = agent_following(repo, known(vec![head]), {
+    let ended = Arc::clone(&ended);
+    move |_, _| wait_for(&ended)
+  });
+  let timing = Timing {
+    read: Duration::from_millis(250),
+    reconnect_for: Duration::from_millis(500),
+    ..crate::testkit::FAST
+  };
+  let failure = run_timed(&setup, &|_| {}, timing).unwrap_err();
+  ended.store(true, Ordering::SeqCst);
   assert_eq!((failure.refusal.code, failure.exit), (Code::TimedOut, Exit::Refused));
   assert!(failure.refusal.message.contains("`bd-host follow studio "), "{}", failure.refusal.message);
   assert!(!kinds(&setup).contains(&"forget"), "a run whose end the client did not see stays on the host");
@@ -987,20 +1015,24 @@ fn the_steps_of_a_run_outside_a_follow_are_out_of_turn() {
 }
 
 /// A request that waits gets heartbeats before its reply, and each heartbeat starts the read deadline again. The wait
-/// here is twice the deadline of the short timing
+/// here is twice the read deadline, and a heartbeat comes every third of it
 #[test]
 fn heartbeats_keep_a_waiting_request_alive() {
   let setup = Setup::new(|request, channel| {
     if matches!(request, Request::Runs) {
-      for _ in 0..4 {
-        thread::sleep(Duration::from_millis(1000));
-        let _ = channel.send(&Reply::Heartbeat { elapsed_ms: 1000 });
+      for _ in 0..6 {
+        thread::sleep(Duration::from_millis(100));
+        let _ = channel.send(&Reply::Heartbeat { elapsed_ms: 100 });
       }
       let _ = channel.send(&Reply::Runs { runs: Vec::new() });
     }
   });
   let processes = FakeProcesses::default();
-  assert_eq!(setup.client(&processes, &|_| {}, &calm).runs(ALIAS).unwrap().len(), 0);
+  let timing = Timing {
+    read: Duration::from_millis(300),
+    ..crate::testkit::FAST
+  };
+  assert_eq!(setup.client(&processes, &|_| {}, &calm).with_timing(timing).runs(ALIAS).unwrap().len(), 0);
 }
 
 /// Two commits whose `origin/master` is a commit beside HEAD on the first one, so a base sync sends a pack
@@ -1107,7 +1139,7 @@ fn two_commits_with_a_large_file() -> Commits {
 }
 
 /// An agent that reads the pack late: each write of the pack waits up to the read deadline, not up to the short
-/// connect deadline. The stall of 2 s is four times the connect deadline, so a write with that deadline fails
+/// connect deadline. The stall of 800 ms is four times the connect deadline, so a write with that deadline fails
 #[test]
 fn a_slow_agent_reader_takes_a_large_pack() {
   let Commits { repo, first, .. } = two_commits_with_a_large_file();
@@ -1120,7 +1152,7 @@ fn a_slow_agent_reader_takes_a_large_pack() {
         let mut bytes = Vec::new();
         while let Ok(Frame::Bytes(chunk)) = channel.recv_frame() {
           if bytes.is_empty() && !chunk.is_empty() {
-            thread::sleep(Duration::from_secs(2));
+            thread::sleep(Duration::from_millis(800));
           }
           bytes.extend_from_slice(&chunk);
         }
@@ -1136,23 +1168,10 @@ fn a_slow_agent_reader_takes_a_large_pack() {
     }
   });
   let timing = Timing {
-    connect: Duration::from_millis(500),
-    read: Duration::from_secs(5),
+    connect: Duration::from_millis(200),
     ..crate::testkit::FAST
   };
-  let (command, processes) = (command(), FakeProcesses::default());
-  let request = RunRequest {
-    checkout: setup.repo.path(),
-    repo: None,
-    affinity: AFFINITY,
-    command: &command,
-    fetch: &[],
-  };
-  let outcome = setup
-    .client(&processes, &|_| {}, &calm)
-    .with_timing(timing)
-    .run(ALIAS, &request, RunOptions::default())
-    .unwrap();
+  let outcome = run_timed(&setup, &|_| {}, timing).unwrap();
   assert_eq!(outcome.code, 0);
   let bytes = packed.lock().unwrap_or_else(PoisonError::into_inner);
   assert!(bytes.len() > LARGE_PACK, "{} bytes", bytes.len());

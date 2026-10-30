@@ -27,6 +27,9 @@ pub(crate) const FAST: Timing = Timing {
   agent_start: Duration::from_secs(1),
   keepalive: Duration::from_millis(50),
   upgrade: Duration::from_millis(500),
+  interrupt_poll: Duration::from_millis(10),
+  cancel_for: Duration::from_secs(3),
+  cancel_grace: Duration::from_millis(500),
 };
 
 pub(crate) const ALIAS: &str = "studio";
