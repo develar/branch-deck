@@ -5,25 +5,29 @@
 //! - `interdiff`: the commits of a branch paired with those of its reviewed pair, and the range of the ones added on top
 //! - `api`: the public declarations the reviewed commits add, remove or change in form
 //! - `fan_in`: the usages of the removed and changed ones at the head, from accio
-//! - `risk`: per changed file, its highest fan-in and whether its tests changed with it
 //! - `order`: the changed files in dependency order, a declaration before its uses, a test after its subject
+//! - `links`: which changed file uses which, added, removed or kept by the commits
+//! - `files`: per changed file, its links, why its change is mechanical, its repeated edit, the usages of the API it
+//!   removes or changes and whether its tests changed with it
 //!
 //! The types of the plan: `ReviewPlanParams` names what is reviewed (`ReviewSubject`), `ReviewPlan` is the answer of
 //! `review_plan_core`, the one entry of `bd review-plan` and the app.
 
 pub mod api;
 pub mod fan_in;
+pub mod files;
 pub mod interdiff;
+pub mod links;
 pub mod mark_reviewed;
 pub mod order;
-pub mod risk;
 
 use crate::api::{ApiChange, api_changes};
 use crate::fan_in::add_fan_in;
+use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, hunk_texts};
 use crate::interdiff::{Interdiff, PairState, commits_of, interdiff};
+use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base};
-use crate::order::review_order;
-use crate::risk::{FileRisk, file_risks};
+use crate::order::{ReviewOrder, review_order};
 use anyhow::Result;
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
@@ -87,9 +91,13 @@ pub struct ReviewPlan {
   pub interdiff: Option<Interdiff>,
   /// The public declarations the reviewed commits add, remove or change (`reviewed_commits`), the most usages first
   pub api: Vec<ApiChange>,
-  /// Every file the reviewed commits change and keep, at its last path (a deleted one is not listed): the `risky` ones
-  /// first, then by the most usages, `untested`, path
-  pub risk: Vec<FileRisk>,
+  /// Every file the reviewed commits change, once, at its last path (a deleted one too, none added and deleted again):
+  /// the most `breaks` first, then the `untested` ones, then in tree order
+  pub files: Vec<FileFacts>,
+  /// Which of these files uses which, before and after the commits, by the file that uses, then the one that declares
+  pub links: Vec<FileLink>,
+  /// The groups of files that get the same edit, the most files first
+  pub repeated_edits: Vec<RepeatedEditGroup>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
   /// again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
   /// subject, the tree order inside a cycle and between files with no edge
@@ -119,8 +127,9 @@ pub struct SinceReviewedOfRange(pub String);
 
 /// The plan of the subject of `params`. For a branch: one `for-each-ref` of the reviewed refs with the branches, its base
 /// (`branch_on_base`), then its interdiff when it was marked (`interdiff::interdiff`); for a range: one `rev-parse
-/// --verify` per rev. Then the API, the fan-in, the risk and the order of the reviewed commits (`reviewed_commits`),
-/// the order from the summaries the API read, no git. Reads only;
+/// --verify` per rev. Then the API, the fan-in, the order, the links and the facts of the files of the reviewed
+/// commits (`reviewed_commits`): the order and the links from the summaries the API read, no git; the text of the hunks
+/// from the blobs the diffs read, else one `cat-file` (`files::hunk_texts`). Reads only;
 /// `UnknownReviewBranch`, `UnknownReviewBase`, `NoCommonHistory`, `UnknownRevision` and `SinceReviewedOfRange` are the
 /// caller's errors, `SearchCanceled` the cancel of `sources.index`
 #[instrument(skip(git, sources), fields(subject = ?params.subject))]
@@ -143,15 +152,22 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
   };
 
   let reviewed = reviewed_commits(git, repository_path, &base, &head, interdiff.as_ref(), params.since_reviewed)?;
-  let (mut api, order, diffs) = if reviewed.is_empty() {
+  let diffs = if reviewed.is_empty() {
+    Vec::new()
+  } else {
+    read_commit_diffs_cached(git, repository_path, sources.cache, sources.file_diffs, &reviewed)?
+  };
+  let changed = changed_files(&diffs);
+  let (mut api, order, links) = if diffs.is_empty() {
     (Vec::new(), Vec::new(), Vec::new())
   } else {
-    let diffs = read_commit_diffs_cached(git, repository_path, sources.cache, sources.file_diffs, &reviewed)?;
     let input = read_symbol_input(git, repository_path, sources.cache, &diffs)?;
-    (api_changes(&input, &diffs), review_order(&input, &diffs), diffs)
+    let ReviewOrder { order, links: uses } = review_order(&input, &changed);
+    (api_changes(&input, &diffs), order, link_files(&input, &changed, &uses))
   };
+  let texts = hunk_texts(git, repository_path, sources.file_diffs, &changed)?;
   let index_note = add_fan_in(sources.index, repository_path, &head, &mut api)?;
-  let risk = file_risks(&diffs, &api);
+  let (files, repeated_edits) = file_facts(&changed, &texts, &links, &api);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
@@ -164,13 +180,15 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     head,
     interdiff,
     api,
-    risk,
+    files,
+    links,
+    repeated_edits,
     order,
     index_note,
   })
 }
 
-/// The commits the API, the risk and the order are read from, oldest first: of `base..head`, or with `since_reviewed`
+/// The commits the API, the order and the files are read from, oldest first: of `base..head`, or with `since_reviewed`
 /// only those added or rewritten since the review, adjacent or not, each read against its own parent. A branch never
 /// marked reviewed has no reviewed commit, so all of its commits are new. The commits of the interdiff are those of
 /// `base..head` already; else one `rev-list`
@@ -193,12 +211,14 @@ mod api_test;
 #[cfg(test)]
 mod fan_in_test;
 #[cfg(test)]
+mod files_test;
+#[cfg(test)]
 mod interdiff_test;
+#[cfg(test)]
+mod links_test;
 #[cfg(test)]
 mod mark_reviewed_test;
 #[cfg(test)]
 mod order_test;
-#[cfg(test)]
-mod risk_test;
 #[cfg(test)]
 mod test_support;

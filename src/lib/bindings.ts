@@ -2539,6 +2539,40 @@ export type FileDiffEvent =
 /**  The scopes of the text of a file, for the labels of its hunks */
 { kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[] };
 
+/**  The facts of a changed file */
+export type FileFacts = {
+	/**  Its last path */
+	path: string,
+	/**  Its path before the first commit that changes it, when the commits rename it */
+	oldPath: string | null,
+	/**  Why its change is mechanical; `None` for real work */
+	mechanical: MechanicalKind | null,
+	/**  The changed files it uses, and those that use it, after the commits (the links `Added` or `Kept`) */
+	uses: number,
+	usedBy: number,
+	/**  The links it uses that the commits added */
+	newLinks: number,
+	/**  The usages at the head of the API it removes or changes (`ApiChange::fan_in`) */
+	breaks: number,
+	/**  A source file changed while none of its tests changed */
+	untested: boolean,
+	/**  Its group of `ReviewPlan::repeated_edits` */
+	repeatedEdit: number | null,
+};
+
+/**  A changed file that uses another changed file */
+export type FileLink = {
+	/**  The file that uses, at its last path */
+	from: string,
+	/**  The file that declares, at its last path */
+	to: string,
+	/**  By name: of the side it links on, after the commits when it links on both */
+	symbols: LinkedSymbol[],
+	state: LinkState,
+	/**  The two files are in different modules */
+	crossModule: boolean,
+};
+
 /**
  *  What `get_file_merges` sends through its channel: `files` once, then one `content` for each file, the files in view
  *  first, and a `scopes` after the `content` of a text merge that the caches did not have
@@ -2575,17 +2609,6 @@ export type FileOwner = {
 	rule: string,
 	/**  The `OWNERSHIP` file of the rule, e.g. `plugins/air/OWNERSHIP` */
 	sourceFile: string,
-};
-
-/**  The risk of a changed file */
-export type FileRisk = {
-	path: string,
-	/**  The most usages of a declaration it removes or changes; `None` when it has none with a fan-in */
-	maxFanIn: number | null,
-	/**  A source file changed without a change of any of its tests */
-	untested: boolean,
-	/**  The card raises it: an API with usages removed or changed, or `untested` */
-	risky: boolean,
 };
 
 /**  How a file changed, from the status letter of `--raw` */
@@ -3560,6 +3583,15 @@ export type LinkPullRequestParams = {
 	input: string,
 };
 
+/**  Whether the commits added, removed or kept a link */
+export type LinkState = 
+/**  Only after the commits */
+"added" | 
+/**  Only before the commits */
+"removed" | 
+/**  Before and after the commits */
+"kept";
+
 /**
  *  A pull request the user added by its link, as GitHub answered it: kept in Reviews while open, opened but not kept
  *  once merged or closed
@@ -3567,6 +3599,12 @@ export type LinkPullRequestParams = {
 export type LinkedPullRequestAnswer = {
 	entry: ReviewEntry,
 	kept: boolean,
+};
+
+/**  A name that links two files, and the line of its first use in the file that uses it */
+export type LinkedSymbol = {
+	name: string,
+	line: number,
 };
 
 /**  The holder of the repository lock as the page names it: "`bd push auth` (pid 4242) has held the repository for 40 s" */
@@ -3597,6 +3635,19 @@ export type MarkReviewedParams = {
 	 */
 	baselineBranch?: string | null,
 };
+
+/**  Why a change of a file is mechanical: the review folds it into one group at the end */
+export type MechanicalKind = 
+/**  A file of the build model: `*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml` */
+"buildModel" | 
+/**  Only `import`, `use` and `package` lines and blank lines changed */
+"importsOnly" | 
+/**  Only whitespace changed */
+"whitespace" | 
+/**  Moved, no line changed */
+"renamed" | 
+/**  Deleted */
+"deleted";
 
 /**  A block of a merge */
 export type MergeBlock = {
@@ -5430,6 +5481,15 @@ export type RemoteStatusUpdate = {
 	action: PushAction,
 };
 
+/**  Files that get the same edit: one hunk with the same removed and added lines, without whitespace */
+export type RepeatedEditGroup = {
+	/**  At their last paths, in tree order; 3 or more */
+	files: string[],
+	/**  The first lines the edit removes and adds (at most `LABEL_LINES` of each, trimmed, no blank one), for its label */
+	removed: string[],
+	added: string[],
+};
+
 /**  The settings of Settings → Repository */
 export type RepositoryConfig = {
 	/**  `branchdeck.stacks`, off by default */
@@ -5752,10 +5812,14 @@ export type ReviewPlan = {
 	/**  The public declarations the reviewed commits add, remove or change (`reviewed_commits`), the most usages first */
 	api: ApiChange[],
 	/**
-	 *  Every file the reviewed commits change and keep, at its last path (a deleted one is not listed): the `risky` ones
-	 *  first, then by the most usages, `untested`, path
+	 *  Every file the reviewed commits change, once, at its last path (a deleted one too, none added and deleted again):
+	 *  the most `breaks` first, then the `untested` ones, then in tree order
 	 */
-	risk: FileRisk[],
+	files: FileFacts[],
+	/**  Which of these files uses which, before and after the commits, by the file that uses, then the one that declares */
+	links: FileLink[],
+	/**  The groups of files that get the same edit, the most files first */
+	repeatedEdits: RepeatedEditGroup[],
 	/**
 	 *  Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
 	 *  again), in dependency order (`order`): a file that declares what another uses before it, a test right after its

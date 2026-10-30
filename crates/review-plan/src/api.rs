@@ -6,7 +6,7 @@
 //!   value; a change counts when the declaration is public before or after it, so a narrowed reach is listed.
 //! - **Per key over the commits**, oldest first: the forms of a key in each file before the first commit that touches it
 //!   there, against those after the last one; every rename carries the file's forms along (`ApiChange::file`, the path
-//!   the risk joins on), and those before keep the path they were read at, so a removal names the file and the line
+//!   the facts of the files join on), and those before keep the path they were read at, so a removal names the file and the line
 //!   before the commits. The commits need not be
 //!   adjacent: with `--since-reviewed` they are the added and rewritten ones, each read against its own parent.
 //! - **Any name**: a public declaration of one or two characters is listed too; only the checks of the sync skip them.
@@ -90,7 +90,7 @@ pub struct ApiChange {
   pub after: Option<String>,
   /// Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked or not answered
   pub fan_in: Option<FanIn>,
-  /// The path of its file after the commits, through every rename: the file whose risk it counts in (`risk`); differs
+  /// The path of its file after the commits, through every rename: the file whose `breaks` it counts in (`files`); differs
   /// from `path` for a removal in a file renamed since
   #[serde(skip)]
   pub file: String,

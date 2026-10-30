@@ -1,66 +1,56 @@
 //! The dependency order of the files of a review (spec/branch/review-plan.spec.md, "Dependency order"): a file that
 //! declares what another file of the review uses comes before it, a test right after its subject.
 //!
-//! - **The files**: every path the reviewed commits change, once, at its last path: a renamed file at its new path, a
-//!   deleted one at its path (the review still shows it), none that the commits add and delete again.
+//! - **The files**: every path the reviewed commits change, once, at its last path (`files::changed_files`): a renamed
+//!   file at its new path, a deleted one at its path (the review still shows it), none that the commits add and delete
+//!   again.
 //! - **The graph**, from the syntax summaries the API already read (`SymbolInput`), no git: each kept file as the last
 //!   reviewed commit that changes it leaves it, its declarations against the uses and the imports of the others, with
 //!   the evidence of the symbol dependencies (`trial_check::symbol_dependencies::file_links`), so a name declared in two
 //!   modules links only where an import, a qualified name, a package or a module tells which. A deleted file, a file
-//!   of a language the summaries don't read and a degraded one have no edge.
+//!   of a language the summaries don't read and a degraded one have no edge. The order returns the links of the graph
+//!   with their names and lines, the links after the commits (`links`).
 //! - **The order**: the strongly connected components (Tarjan), each placed when every component it uses is, the one
 //!   that comes first in the tree first; the files of a cycle in tree order. With no edge at all it is the tree order.
-//! - **Tests** (`risk::test_subject`) are left out of the graph when the review changes their subject (`subject_stem`)
+//! - **Tests** (`files::test_subject`) are left out of the graph when the review changes their subject (`subject_stem`)
 //!   and placed right after it, several in tree order; of two subjects of that stem the one the test uses, else the one
 //!   nearest in the tree, else the first. A test without its subject in the review is a file like any other.
 //! - **Tree order**, as the file tree of the review sorts (`file_diffs::service::compare_tree_paths`): at each level
 //!   the directories before the files, then the names without case, a number by its value (`file2` before `file10`).
 
-use crate::risk::{subject_stem, test_subject};
-use file_diffs::service::compare_tree_paths;
+use crate::files::{ChangedFile, subject_stem, test_subject};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap};
-use trial_check::diff_scan::CommitDiff;
-use trial_check::symbol_dependencies::file_links;
+use trial_check::symbol_dependencies::{SymbolLink, file_links};
 use trial_check::symbol_scan::SymbolInput;
 
-/// A changed file after the commits
-struct FileState<'a> {
-  /// Its blob after the last commit that changes it; `None` when deleted
-  blob: Option<&'a str>,
-  /// It was there before the first commit that changes it
-  existed: bool,
+/// The dependency order of the files of a review, and the graph it was read from
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewOrder {
+  /// Every changed path once, at its last path, in dependency order
+  pub order: Vec<String>,
+  /// The uses between the files after the commits: a link per name and pair of files, with the line of its first use,
+  /// sorted by the file of the use, the file of the declaration, the name (`file_links`)
+  pub links: Vec<SymbolLink>,
 }
 
-/// The paths `diffs` (oldest first) change, each once at its last path, in dependency order
-pub fn review_order(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<String> {
-  let mut files: BTreeMap<&str, FileState> = BTreeMap::new();
-  for change in diffs.iter().flat_map(|diff| &diff.files) {
-    let renamed_from = change.old_path.as_deref().filter(|old_path| *old_path != change.path);
-    let earlier = match renamed_from {
-      Some(old_path) => files.remove(old_path),
-      None => files.remove(change.path.as_str()),
-    };
-    let state = FileState {
-      blob: if change.status == 'D' { None } else { change.new_blob.as_deref() },
-      existed: earlier.map_or(change.status != 'A', |earlier| earlier.existed),
-    };
-    files.insert(&change.path, state);
-  }
-  files.retain(|_, state| state.blob.is_some() || state.existed);
-
-  let mut paths: Vec<&str> = files.keys().copied().collect();
-  paths.sort_by(|a, b| compare_tree_paths(a, b));
-  let blobs: Vec<(&str, &str)> = paths.iter().filter_map(|path| Some((*path, files[path].blob?))).collect();
+/// `files` (`files::changed_files`, in tree order) in dependency order, with the links that order them
+pub(crate) fn review_order(input: &SymbolInput, files: &[ChangedFile<'_>]) -> ReviewOrder {
+  let paths: Vec<&str> = files.iter().map(|file| file.path).collect();
+  let blobs: Vec<(&str, &str)> = files.iter().filter_map(|file| Some((file.path, file.after?))).collect();
   let rank: HashMap<&str, usize> = paths.iter().enumerate().map(|(rank, path)| (*path, rank)).collect();
+  let links = file_links(input, &blobs);
   // declaring file -> the files that use it, by rank
   let mut uses: BTreeSet<(usize, usize)> = BTreeSet::new();
-  for link in file_links(input, &blobs) {
+  for link in &links {
     if let (Some(&declared), Some(&used)) = (rank.get(link.declared_in.as_str()), rank.get(link.used_in.as_str())) {
       uses.insert((declared, used));
     }
   }
-  order_files(&paths, &uses).into_iter().map(str::to_string).collect()
+  ReviewOrder {
+    order: order_files(&paths, &uses).into_iter().map(str::to_string).collect(),
+    links,
+  }
 }
 
 /// `paths` (in tree order) in dependency order by `uses` (the rank of a declaring file, of a file that uses it)

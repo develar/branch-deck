@@ -1,10 +1,15 @@
-use crate::order::order_files;
+use crate::files::changed_files;
+use crate::interdiff::commits_of;
+use crate::order::{ReviewOrder, order_files, review_order};
 use crate::test_support::{plan_of, range};
-use file_diffs::service::compare_tree_paths;
+use file_diffs::service::{FileDiffs, compare_tree_paths};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeSet;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use trial_check::diff_scan::read_commit_diffs_cached;
+use trial_check::symbol_scan::read_symbol_input;
 
 /// The order of the plan of one commit that adds `files` on top of a first commit
 fn order_of_added(files: &[(&str, &str)]) -> Vec<String> {
@@ -106,6 +111,36 @@ fn files_of_no_known_language_keep_the_tree_order() {
   let head = repo.commit_with(&["-m", "Move notes"], &[]);
   let order = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap().order;
   assert_eq!(order, ["docs/a2.txt", "docs/a10.txt", "notes/new.txt", "gone.txt", "README.md"]);
+}
+
+/// The order returns the graph it read: a link per name and pair of files, from the file of the use to the file of the
+/// declaration, with the line of the first use
+#[test]
+fn the_order_returns_its_graph_with_the_names_and_lines() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("Add readme", "README.md", "readme\n");
+  let head = repo.create_commit_with_files(
+    "Add files",
+    &[
+      (
+        "src/a/User.kt",
+        "package a\n\nimport b.Store\nimport b.Cache\n\nclass User(val store: Store, val cache: Cache)\n",
+      ),
+      ("src/b/Store.kt", "package b\n\nclass Store\n\nclass Cache\n"),
+    ],
+  );
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  let (cache, file_diffs) = (ObjectCache::disabled(), FileDiffs::for_scans());
+  let ids: Vec<String> = commits_of(git, path, &base, &head).unwrap().into_iter().map(|commit| commit.id).collect();
+  let diffs = read_commit_diffs_cached(git, path, &cache, &file_diffs, &ids).unwrap();
+  let input = read_symbol_input(git, path, &cache, &diffs).unwrap();
+  let ReviewOrder { order, links } = review_order(&input, &changed_files(&diffs));
+  assert_eq!(order, ["src/b/Store.kt", "src/a/User.kt"]);
+  let links: Vec<(&str, &str, &str, u32)> = links
+    .iter()
+    .map(|link| (link.used_in.as_str(), link.declared_in.as_str(), link.name.as_str(), link.line))
+    .collect();
+  assert_eq!(links, [("src/a/User.kt", "src/b/Store.kt", "Cache", 4), ("src/a/User.kt", "src/b/Store.kt", "Store", 3)]);
 }
 
 /// The graph alone: a cycle in tree order before what uses it; a test after the subject of its stem it uses rather

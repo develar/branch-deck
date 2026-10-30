@@ -267,7 +267,7 @@ impl FileDiffs {
   }
 
   /// The texts of the blobs of `requests` by id, without the binary and missing ones
-  pub(crate) fn texts_by_id(&self, git: &GitCommandExecutor, repository_path: &str, requests: &[BlobRequest]) -> Result<HashMap<String, String>> {
+  pub fn texts_by_id(&self, git: &GitCommandExecutor, repository_path: &str, requests: &[BlobRequest]) -> Result<HashMap<String, String>> {
     Ok(
       self
         .blob_texts(git, repository_path, requests)?

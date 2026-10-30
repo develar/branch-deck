@@ -16,7 +16,7 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
   const since = plan?.interdiff == null ? null : formatSinceReview(plan.interdiff)
   const rewritten = plan?.interdiff?.commits.filter(commit => commit.state === "rewritten" && commit.changes !== null) ?? []
   const api = plan === null ? [] : presentApiChanges(plan.api)
-  const risky = plan === null ? [] : presentRiskyFiles(plan.risk)
+  const risky = plan === null ? [] : presentRiskyFiles(plan.files)
   return (
     <section aria-label="API & Risk" data-testid="review-plan-card" className="flex max-h-72 shrink-0 flex-col gap-2 overflow-y-auto border-b border-border px-4 py-3 text-sm">
       <SectionLabel title="API & Risk">

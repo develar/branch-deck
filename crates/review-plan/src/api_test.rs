@@ -1,7 +1,6 @@
 use crate::api::{ApiChange, ApiChangeKind, FanIn, FormChange};
 use crate::fan_in_test::Counts;
 use crate::interdiff::PairState;
-use crate::risk::FileRisk;
 use crate::test_support::{mark, plan_of, range};
 use crate::{ReviewPlan, ReviewPlanParams, ReviewSubject};
 use pretty_assertions::assert_eq;
@@ -92,15 +91,7 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
   assert_eq!(plan.api.iter().map(|change| change.fan_in).collect::<Vec<_>>(), [None; 4]);
   // no accio: why the removal and the change have no fan-in
   assert_eq!(plan.index_note.as_deref(), Some(crate::fan_in::NO_ACCIO));
-  assert_eq!(
-    plan.risk,
-    [FileRisk {
-      path: path.to_string(),
-      max_fan_in: None,
-      untested: true,
-      risky: true,
-    }]
-  );
+  assert_eq!(facts(&plan), [(path, 0, true)]);
 }
 
 /// The usages at the head of the range rank the card: the most first, the change of more usages above the removal
@@ -117,26 +108,19 @@ fn the_fan_in_at_the_head_ranks_the_card() {
   );
   assert_eq!(index.revisions(), [Some(head.clone()), Some(head.clone()), Some(head)]);
   assert_eq!(plan.index_note, None);
-  assert_eq!((plan.risk[0].max_fan_in, plan.risk[0].risky), (Some(7), true));
+  // the usages of the change and of the removal
+  assert_eq!(facts(&plan), [("src/a/Api.kt", 9, true)]);
 }
 
-/// A range of no source file of a known language: no API, and its files carry no risk
+/// A range of no source file of a known language: no API, and its files break nothing and are not untested
 #[test]
 fn a_range_without_source_files_has_no_api() {
   let repo = TestRepo::new();
   let base = repo.create_commit("Add readme", "README.md", "readme\n");
   let head = repo.create_commit("Change readme", "README.md", "readme 2\n");
   let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(facts(&plan), [("README.md", 0, false)]);
   assert_eq!((plan.api, plan.index_note), (vec![], None));
-  assert_eq!(
-    plan.risk,
-    [FileRisk {
-      path: "README.md".to_string(),
-      max_fan_in: None,
-      untested: false,
-      risky: false,
-    }]
-  );
 }
 
 fn kotlin_function(name: &str, parameters: &str) -> String {
@@ -155,11 +139,16 @@ fn branch_params(repo: &TestRepo, since_reviewed: bool) -> ReviewPlanParams {
   }
 }
 
+/// The files of `plan` in its order: the path, the usages of the API it removes or changes, and whether it is untested
+fn facts(plan: &ReviewPlan) -> Vec<(&str, u32, bool)> {
+  plan.files.iter().map(|file| (file.path.as_str(), file.breaks, file.untested)).collect()
+}
+
 fn names(plan: &ReviewPlan) -> Vec<(&str, ApiChangeKind)> {
   plan.api.iter().map(|change| (change.name.as_str(), change.kind)).collect()
 }
 
-/// With `since_reviewed`, the API and the risk are those of the rewritten and the added commits, each against its own
+/// With `since_reviewed`, the API and the files are those of the rewritten and the added commits, each against its own
 /// parent, though an unchanged commit lies between them
 #[test]
 fn since_the_review_the_api_is_that_of_the_added_and_rewritten_commits() {
@@ -180,8 +169,7 @@ fn since_the_review_the_api_is_that_of_the_added_and_rewritten_commits() {
   let states: Vec<PairState> = since.interdiff.as_ref().unwrap().commits.iter().map(|commit| commit.state).collect();
   assert_eq!(states, [PairState::Rewritten, PairState::Added]);
   assert_eq!(names(&since), [("login", ApiChangeKind::Added), ("session", ApiChangeKind::Added)]);
-  let risky: Vec<&str> = since.risk.iter().map(|risk| risk.path.as_str()).collect();
-  assert_eq!(risky, ["src/a/Login.kt", "src/a/Session.kt"]);
+  assert_eq!(facts(&since), [("src/a/Login.kt", 0, true), ("src/a/Session.kt", 0, true)]);
 
   let whole = plan_of(&repo, None, &branch_params(&repo, false)).unwrap();
   assert_eq!(
@@ -271,7 +259,7 @@ fn a_removal_after_a_rename_names_the_path_its_line_is_of() {
   let head = move_file(&repo, &without_removed);
   let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
   assert_eq!(removed(&plan), [row("src/a/Old.kt")]);
-  assert!(plan.risk.iter().all(|risk| risk.path == "src/a/New.kt"), "{:?}", plan.risk);
+  assert!(plan.files.iter().all(|file| file.path == "src/a/New.kt"), "{:?}", plan.files);
 
   let repo = TestRepo::new();
   let base = repo.create_commit("Add api", "src/a/Old.kt", MOVED);
@@ -281,12 +269,12 @@ fn a_removal_after_a_rename_names_the_path_its_line_is_of() {
   assert_eq!(removed(&plan), [row("src/a/New.kt")]);
 }
 
-/// The risk of `path`: its most usages and whether the card raises it
-fn risk_of(plan: &ReviewPlan, path: &str) -> Option<(Option<u32>, bool, bool)> {
-  plan.risk.iter().find(|risk| risk.path == path).map(|risk| (risk.max_fan_in, risk.untested, risk.risky))
+/// The facts of `path`: the usages of the API it removes or changes, and whether it is untested
+fn facts_of(plan: &ReviewPlan, path: &str) -> Option<(u32, bool)> {
+  plan.files.iter().find(|file| file.path == path).map(|file| (file.breaks, file.untested))
 }
 
-/// The fan-in of a declaration a renamed file removes or changes counts in the risk of the file at its new path, while
+/// The fan-in of a declaration a renamed file removes or changes counts in the `breaks` of the file at its new path, while
 /// the card names the path its line is of: a rename with a removal in one commit, a change and then a rename that
 /// changes no declaration, a rename with a change and then a removal
 #[test]
@@ -305,8 +293,8 @@ fn the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path() {
   let head = move_file(&repo, &without_removed);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   assert_eq!(entries(&plan), [("removedCall".to_string(), "src/a/Old.kt".to_string(), fan_in(9))]);
-  assert_eq!(risk_of(&plan, "src/a/New.kt"), Some((Some(9), false, true)));
-  assert_eq!(risk_of(&plan, "src/a/Old.kt"), None);
+  assert_eq!(facts_of(&plan, "src/a/New.kt"), Some((9, false)));
+  assert_eq!(facts_of(&plan, "src/a/Old.kt"), None);
 
   // a change, then a rename that changes no declaration: the change is at the new path
   let repo = TestRepo::new();
@@ -316,7 +304,7 @@ fn the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path() {
   let head = move_file(&repo, &with_changed);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   assert_eq!(entries(&plan), [("fourthCall".to_string(), "src/a/New.kt".to_string(), fan_in(4))]);
-  assert_eq!(risk_of(&plan, "src/a/New.kt"), Some((Some(4), false, true)));
+  assert_eq!(facts_of(&plan, "src/a/New.kt"), Some((4, false)));
 
   // a rename with a change, then a removal of the changed declaration: the removal names the old path
   let repo = TestRepo::new();
@@ -332,5 +320,6 @@ fn the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path() {
       ("fourthCall".to_string(), "src/a/New.kt".to_string(), fan_in(4)),
     ]
   );
-  assert_eq!(risk_of(&plan, "src/a/New.kt"), Some((Some(9), false, true)));
+  // the usages of the removal and of the change
+  assert_eq!(facts_of(&plan, "src/a/New.kt"), Some((13, false)));
 }

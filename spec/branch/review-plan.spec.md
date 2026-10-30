@@ -1,6 +1,6 @@
 ---
 name: Review Plan
-description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`bd review-plan`), the commits since then, and the API surface the reviewed commits change with its fan-in from accio, the risk of each file and the files in dependency order.
+description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`bd review-plan`), the commits since then, and the API surface the reviewed commits change with its fan-in from accio, the facts of each file (its links to the other changed files, a mechanical change, a repeated edit, a missing test) and the files in dependency order.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/lib.rs
@@ -8,7 +8,8 @@ targets:
   - ../../crates/review-plan/src/interdiff.rs
   - ../../crates/review-plan/src/api.rs
   - ../../crates/review-plan/src/fan_in.rs
-  - ../../crates/review-plan/src/risk.rs
+  - ../../crates/review-plan/src/files.rs
+  - ../../crates/review-plan/src/links.rs
   - ../../crates/review-plan/src/order.rs
   - ../../crates/trial-check/src/declaration_checks.rs
   - ../../crates/trial-check/src/symbol_dependencies.rs
@@ -51,8 +52,10 @@ Its first parts are Mark Reviewed, the base and the tip of a local branch kept w
 and Since Your Review: the commits of the branch paired with the reviewed ones, unchanged, rewritten, added or
 dropped, and the plain range of the commits added on top (`bd review-plan`). Then the API surface: the public
 declarations the reviewed commits add, remove or change in form, ranked by their usages at the head of the range from
-accio, and the risk of each changed file: its highest fan-in, and whether it changed without its tests. Then the
-order of the files: a file that declares what another uses before it, a test right after its subject.
+accio, and the facts of each changed file: which other changed files it uses and which use it, whether its change
+is mechanical, the edit it shares with other files, the usages of the API it removes or changes, and whether it
+changed without its tests. Then the order of the files: a file that declares what another uses before it, a test
+right after its subject.
 
 ## Goals
 
@@ -68,7 +71,7 @@ order of the files: a file that declares what another uses before it, a test rig
 - Push or fetch the marks: they are local to the repository, shared by its worktrees.
 - Mark a range that is no branch.
 - Build an accio index: a repository without one gets no fan-in.
-- The owners of a file in the risk: the review already filters by owner.
+- The owners of a file in its facts: the review already filters by owner.
 
 ## Requirements
 
@@ -151,8 +154,8 @@ order of the files: a file that declares what another uses before it, a test rig
 
 - The reviewed commits must be those of `base..head`; with `--since-reviewed` only the `added` and the `rewritten`
   ones, adjacent or not, each read against its own parent, so an unchanged commit between them adds nothing; a branch
-  never marked has no reviewed commit, so all of its commits are read. The `api`, the `risk` and the `order` must be
-  computed from these commits alone.
+  never marked has no reviewed commit, so all of its commits are read. The `api`, the `files`, the `links`, the
+  `repeated_edits` and the `order` must be computed from these commits alone.
   [@test] ../../crates/review-plan/src/api_test.rs (`since_the_review_the_api_is_that_of_the_added_and_rewritten_commits`)
 - `api` must list the public declarations (it and every declaration around it public, Java's `protected` too, none
   around it a function) that the commits add, remove or change in form, as the syntax summaries read them: the
@@ -167,7 +170,7 @@ order of the files: a file that declares what another uses before it, a test rig
   removal, those before the first commit that touched the declaration, so `path:line` is of the same content: the old
   path when that commit also renamed the file. A range of no source file of a known language has an empty `api`.
   [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_range_without_source_files_has_no_api`, `a_removal_after_a_rename_names_the_path_its_line_is_of`, `the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path`)
-  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_risk_of_a_range`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 ### Fan-in
 
@@ -187,28 +190,71 @@ order of the files: a file that declares what another uses before it, a test rig
   cancel of the caller (a newer request of the window) cancels the plan.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_failing_index_keeps_the_api`, `a_canceled_query_cancels_the_plan`)
 
-### Risk
+### Files
 
-- `risk` must list every file the reviewed commits change and keep, at its last path (a renamed file at its new path,
-  a deleted one not at all), with the highest fan-in of the API it removes or changes (`max_fan_in`), `untested` when
-  it is a source file of a known language, no test itself, and no changed test names its stem, and `risky` when it is
-  `untested` or a removed or changed API of it has usages.
-  [@test] ../../crates/review-plan/src/risk_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_risked_at_its_new_path`)
-- The API of a file must count in its risk at its last path, also a removal whose entry names the old path: a file
-  renamed and stripped of a used declaration is `risky` with that fan-in, even when its test changed.
+- `files` must list every path the reviewed commits change exactly once, at its last path: a renamed file at its new
+  path with the path before the first commit (`old_path`), a deleted one at its path, none that the commits add and
+  delete again.
+  [@test] ../../crates/review-plan/src/files_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_listed_at_its_new_path`)
+- A file must be `untested` when it is a source file of a known language, no test itself, not mechanical, and no
+  changed test names its stem.
+  [@test] ../../crates/review-plan/src/files_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_listed_at_its_new_path`)
+- `breaks` must sum the usages at the head of the API a file removes or changes, at its last path, also of a removal
+  whose entry names the old path; an addition breaks nothing.
+  [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)
   [@test] ../../crates/review-plan/src/api_test.rs (`the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path`)
-- The `risky` files must come first, then the most usages, then the `untested` ones, then by path: an API without
-  usages ranks below an untested file.
-  [@test] ../../crates/review-plan/src/risk_test.rs (`the_highest_fan_in_of_a_file_ranks_it_first`, `an_untested_file_ranks_above_an_api_without_usages`)
+- The files with the most `breaks` must come first, then the `untested` ones, then the tree order.
+  [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)
 - A test must be told by its path: a directory `test`, `tests`, `__tests__`, `testFixtures`, or a name `*Test`,
   `*Tests`, `*_test`, `*.test`, `*.spec`, `test_*`; it names the stem without that mark, compared without case.
-  [@test] ../../crates/review-plan/src/risk_test.rs (`a_test_names_its_subject_by_its_path`)
-- `bd review-plan` must print `api`, `risk` and `index_note`, in `bd schema`.
-  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_risk_of_a_range`)
-- The API and the risk must add a fixed number of git processes, whatever the number of commits: one `log` of the
-  changes of the reviewed commits, one `cat-file` of their blobs, and the reads of the syntax summaries; accio runs no
-  git.
+  [@test] ../../crates/review-plan/src/files_test.rs (`a_test_names_its_subject_by_its_path`)
+- `bd review-plan` must print `api`, `files`, `links`, `repeated_edits` and `index_note`, in `bd schema`.
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`, `prints_the_files_in_dependency_order`)
+- The API and the files must add a fixed number of git processes, whatever the number of commits: one `log` of the
+  changes of the reviewed commits, one `cat-file` of their blobs, the reads of the syntax summaries, and one
+  `cat-file` of the blobs of the hunk text that the memory of the diffs lacks; accio runs no git.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_since_the_review`, `a_review_plan_of_a_range`)
+
+### Links
+
+- `links` must give, per pair of changed files, the file that uses (`from`) and the file that declares (`to`), at
+  their last paths, with each name that links them and the line of its first use, by the evidence of the dependency
+  order.
+  [@test] ../../crates/review-plan/src/links_test.rs (`a_new_file_that_another_imports_is_an_added_link`)
+  [@test] ../../crates/review-plan/src/order_test.rs (`the_order_returns_its_graph_with_the_names_and_lines`)
+- A link must be `added` when it exists only after the commits, `removed` when only before them, and `kept` when
+  both; a file before the commits links at its path then, named by its last path. The names of a kept link are those
+  after the commits, of a removed one those before.
+  [@test] ../../crates/review-plan/src/links_test.rs (`a_new_file_that_another_imports_is_an_added_link`, `a_link_before_and_after_is_kept_and_one_only_before_is_removed`, `a_renamed_file_links_at_its_new_path`)
+- `uses` and `used_by` of a file must count its `added` and `kept` links; `new_links` its `added` links as the file
+  that uses.
+  [@test] ../../crates/review-plan/src/links_test.rs (`a_new_file_that_another_imports_is_an_added_link`, `a_link_before_and_after_is_kept_and_one_only_before_is_removed`)
+- A link must be `cross_module` when the nearest directories above its two files with a build file differ.
+  [@test] ../../crates/review-plan/src/links_test.rs (`a_link_between_two_modules_crosses_them`)
+- The links must run no git process: they read the summaries the API read.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
+
+### Mechanical Changes
+
+- A file must be `deleted` when the commits delete it, and `buildModel` when its name is of the build model: `*.iml`,
+  `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`.
+  [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`)
+- Else, from the text of every hunk of every commit that changes it: `renamed` when each change is a rename with no
+  line added or removed; `whitespace` when each hunk has the same text without its whitespace; `importsOnly` when, in
+  a source file, each other hunk has only blank lines and `import`, `use` or `package` lines, at least one.
+  [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`)
+- One hunk with an import line and a line of code, a commit that changes code, an added file, and a file without
+  text must keep the file out of the mechanical ones.
+  [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`, `a_file_is_mechanical_only_when_every_hunk_of_every_commit_is`)
+
+### Repeated Edits
+
+- `repeated_edits` must group the files whose commits make one hunk with the same removed and added lines, without
+  whitespace and blank lines: 3 or more files, the group of the most files first, a file in one group at most
+  (`repeated_edit`, the index of its group), with the first lines removed and added for its label.
+  [@test] ../../crates/review-plan/src/files_test.rs (`the_same_edit_in_three_or_more_files_is_one_group`)
+- A hunk of whitespace alone, and one without a line of 10 or more characters (a `}` alone), must make no group.
+  [@test] ../../crates/review-plan/src/files_test.rs (`the_same_edit_in_three_or_more_files_is_one_group`)
 
 ### Dependency Order
 
@@ -225,7 +271,7 @@ order of the files: a file that declares what another uses before it, a test rig
   them; files with no edge between them keep their tree order: at each level the directories before the files, then
   the names without case, a number by its value.
   [@test] ../../crates/review-plan/src/order_test.rs (`a_cycle_keeps_its_tree_order`, `the_order_of_a_graph`, `the_tree_order_of_paths`)
-- A test (as `risk` tells one) must come right after its subject when the commits change it, also inside a cycle,
+- A test (as `files` tells one) must come right after its subject when the commits change it, also inside a cycle,
   several in tree order; of two subjects of its stem the one it uses, else the one nearest in the tree. A test whose
   subject the commits don't change is a file like any other.
   [@test] ../../crates/review-plan/src/order_test.rs (`a_test_comes_right_after_its_subject`, `the_order_of_a_graph`)
@@ -293,7 +339,7 @@ order of the files: a file that declares what another uses before it, a test rig
   (a rewritten commit shows its whole diff, the card what it changes against its reviewed version): the summary, what changed since the review (a rewritten commit
   with the lines per path it changes against its reviewed version), the API in the order Rust ranked it with its
   kind, `path:line`, the parts that changed, the forms before and after of a removal or a change and the usages, the
-  `risky` files with why, and the `index_note` when the usages are missing.
+  files with used API removed or changed or `untested`, with why, and the `index_note` when the usages are missing.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and order the files by their dependencies, kept for every review`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `words the usages, a cut answer as more, none without a fan-in`, `keeps the order Rust ranked, with the kind, the place, the parts that changed and the forms of a removal or a change`, `raises only the risky files, in Rust's order, with the usages and the missing test`, `sums the card up in its title`)
@@ -314,10 +360,12 @@ order of the files: a file that declares what another uses before it, a test rig
   logout", "state": "added"}], "scope": {"base": <reviewed tip>, "head": <tip>}}}`.
 - `bd review-plan base..head` of a new parameter → `"api": [{"path": "src/a/Api.kt", "line": 3, "name": "open",
   "kind": "changed", "changes": ["parameters"], "before": "fun open(path:String) : Int", "after": "fun
-  open(path:String, mode:Int) : Int", "fan_in": {"usages": 12, "complete": true}}]`, `"risk": [{"path": "src/a/Api.kt",
-  "max_fan_in": 12, "untested": true, "risky": true}]`, `"index_note": null`.
+  open(path:String, mode:Int) : Int", "fan_in": {"usages": 12, "complete": true}}]`, `"files": [{"path": "src/a/Api.kt",
+  "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 12, "untested": true,
+  "repeated_edit": null}]`, `"index_note": null`.
 - `bd review-plan base..head` of a new `Store` that `User` imports, with its test → `"order": ["src/b/Store.kt",
-  "src/test/b/StoreTest.kt", "src/a/User.kt", "README.md"]`.
+  "src/test/b/StoreTest.kt", "src/a/User.kt", "README.md"]`, `"links": [{"from": "src/a/User.kt", "to":
+  "src/b/Store.kt", "symbols": [{"name": "Store", "line": 3}], "state": "added", "cross_module": false}]`.
 - The review window, flag on: **Mark Reviewed** in the title bar → toast "Marked plan reviewed" ("plan was already
   marked reviewed at this commit" when nothing moved); the column: "All Changes 3 commits", "Since Your Review 1
   commit", "read the cache twice  New".
@@ -351,6 +399,10 @@ order of the files: a file that declares what another uses before it, a test rig
 - A key gets one entry: when an overload changed and another was added in the same commits, only the change is
   listed.
 - `untested` sees only test files the commits change; a Rust test module inside its file does not count.
+- `breaks` counts the usages of a name at the head, a namesake and a use the commits already updated included.
+- An import of TypeScript over several lines has lines that are not `import` lines, so its change is no `importsOnly`.
+- The links before the commits read the module roots at the checked out HEAD too: a module the commits add or delete
+  may count a link before them across modules wrongly.
 - The order reads each file as the last reviewed commit leaves it: with `--since-reviewed`, a later unreviewed commit
   may change its uses. A call of a function of the same package without an import is no evidence, so it orders
   nothing, as in the symbol dependencies.

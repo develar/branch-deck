@@ -2,7 +2,7 @@
 // of the commits since the user's review, the API the reviewed commits change with the usages of each declaration, and
 // the risky files. Rust pairs the commits, ranks the API and the files and orders them (`review_plan::review_plan_core`);
 // the card only words them in the order Rust sent.
-import type { ApiChange, ApiChangeKind, CommitChanges, FanIn, FileRisk, FormChange, Interdiff, PairState, ReviewPlan } from "@/lib/bindings"
+import type { ApiChange, ApiChangeKind, CommitChanges, FanIn, FileFacts, FormChange, Interdiff, PairState, ReviewPlan } from "@/lib/bindings"
 
 /** What the commit column says of a commit since the review: "New", "Rewritten"; nothing of the others */
 export function formatPairState(state: PairState): string | null {
@@ -109,32 +109,35 @@ export function presentApiChanges(api: readonly ApiChange[]): ApiEntry[] {
   }))
 }
 
+/** A file the card raises: the usages Rust counted of the API it removes or changes, or Rust's `untested` */
+function isRisky(file: FileFacts): boolean {
+  return file.breaks > 0 || file.untested
+}
+
 /** A risky file of the card and why: "Used in 12 places · No test changed" */
 export interface RiskEntry {
   readonly path: string
   readonly reasons: string
 }
 
-/** The files the card raises (`risky`), in the order Rust ranked them */
-export function presentRiskyFiles(risk: readonly FileRisk[]): RiskEntry[] {
-  return risk
-    .filter(file => file.risky)
-    .map(file => {
-      const reasons: string[] = []
-      if (file.maxFanIn !== null && file.maxFanIn > 0) {
-        reasons.push(file.maxFanIn === 1 ? "An API used in 1 place" : `An API used in ${file.maxFanIn} places`)
-      }
-      if (file.untested) {
-        reasons.push("No test changed")
-      }
-      return { path: file.path, reasons: reasons.join(" · ") }
-    })
+/** The files the card raises (an API with usages removed or changed, or `untested`), in the order Rust ranked them */
+export function presentRiskyFiles(files: readonly FileFacts[]): RiskEntry[] {
+  return files.filter(isRisky).map(file => {
+    const reasons: string[] = []
+    if (file.breaks > 0) {
+      reasons.push(file.breaks === 1 ? "An API used in 1 place" : `An API used in ${file.breaks} places`)
+    }
+    if (file.untested) {
+      reasons.push("No test changed")
+    }
+    return { path: file.path, reasons: reasons.join(" · ") }
+  })
 }
 
 /** "2 API changes · 1 risky file", the line of the card's title; "No API changes" */
-export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "risk">): string {
+export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "files">): string {
   const api = plan.api.length
-  const risky = plan.risk.filter(file => file.risky).length
+  const risky = plan.files.filter(isRisky).length
   const parts = [api === 0 ? "No API changes" : api === 1 ? "1 API change" : `${api} API changes`]
   if (risky > 0) {
     parts.push(risky === 1 ? "1 risky file" : `${risky} risky files`)

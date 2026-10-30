@@ -84,10 +84,10 @@ fn a_branch_never_marked_and_a_range_have_no_interdiff() {
 }
 
 /// A range that changes the parameters of a public Kotlin function and adds an untested file: `api` with the forms
-/// before and after, `risk` per file, and why there is no fan-in (accio missing here, or without an index of the test
-/// repository)
+/// before and after, the facts per file, and why there is no fan-in (accio missing here, or without an index of the
+/// test repository)
 #[test_log::test]
-fn prints_the_api_and_the_risk_of_a_range() {
+fn prints_the_api_and_the_files_of_a_range() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   write(&repo, "src/a/Api.kt", "package a\n\nfun open(path: String): Int = 1\n");
   write(&repo, "src/test/a/ApiTest.kt", "package a\n\nclass ApiTest\n");
@@ -100,7 +100,7 @@ fn prints_the_api_and_the_risk_of_a_range() {
   let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
-    (&output["api"], &output["risk"]),
+    (&output["api"], &output["files"]),
     (
       &json!([{
         "path": "src/a/Api.kt",
@@ -113,8 +113,8 @@ fn prints_the_api_and_the_risk_of_a_range() {
         "fan_in": null,
       }]),
       &json!([
-        { "path": "src/a/Api.kt", "max_fan_in": null, "untested": true, "risky": true },
-        { "path": "src/a/Session.kt", "max_fan_in": null, "untested": true, "risky": true },
+        { "path": "src/a/Api.kt", "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 0, "untested": true, "repeated_edit": null },
+        { "path": "src/a/Session.kt", "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 0, "untested": true, "repeated_edit": null },
       ])
     )
   );
@@ -141,5 +141,10 @@ fn prints_the_files_in_dependency_order() {
   assert_eq!(
     output["order"],
     json!(["src/b/Store.kt", "src/test/b/StoreTest.kt", "src/a/User.kt", "old.txt", "README.md"])
+  );
+  // the link that orders them, new; the test uses a type of its package, which links only inside a known module
+  assert_eq!(
+    output["links"],
+    json!([{ "from": "src/a/User.kt", "to": "src/b/Store.kt", "symbols": [{ "name": "Store", "line": 3 }], "state": "added", "cross_module": false }])
   );
 }

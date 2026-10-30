@@ -3145,7 +3145,7 @@ whose text is translated:
   interdiff; a range resolves its two revs by `rev-parse --verify` (`UnknownRevision`), and `--since-reviewed` of a
   range is `SinceReviewedOfRange`, both `invalid_arguments` in `bd`.
 
-Then the API surface, its fan-in, the risk and the order of the files, from the reviewed commits: those of
+Then the API surface, its fan-in, the order, the links and the facts of the files, from the reviewed commits: those of
 `base..head`, the commits of the interdiff when there is one (no process of their own), else one `rev-list`; with
 `--since-reviewed` only the `added` and the `rewritten` ones, each against its own parent, so an unchanged commit
 between two of them adds nothing:
@@ -3156,8 +3156,10 @@ between two of them adds nothing:
 | 6. Summaries | `cat-file --batch` of the trees above the files at HEAD and of the blobs no cache has (`read_symbol_input`) | parsed in parallel, written back to the cache by blob id |
 | 7. API | none | `changed_declarations` (trial-check) gives per commit and file the forms of the declarations of the names on the changed lines; `api.rs` compares, per key, the forms before the first commit that touches it in a file with those after the last one: public ones added, removed, or changed in the parts a use sees (`changed_form`, the constructors) |
 | 8. Fan-in | `accio references <name> --ref <head>`, no git | the first 20 removals and changes (`MAX_FANIN_QUERIES`), one thread each, through `Lenient`: a failed query leaves its entry without a fan-in and `index_note` says why; no accio or no index is a note too, never an index build; a cancel of the caller cancels the plan |
-| 9. Risk | none | per changed file, the highest fan-in of its removed or changed API, and `untested` when a source file changed with no test that names its stem (`risk.rs`) |
-| 10. Order | none | the summaries of step 6 of each kept file as the last reviewed commit leaves it, the declarations of each against the uses of the others with the evidence of the symbol dependencies (`file_links`, trial-check); Tarjan's components placed in topological order, the first in the tree first, a cycle in tree order, then each test right after its subject (`order.rs`) |
+| 9. Order | none | the summaries of step 6 of each kept file as the last reviewed commit leaves it, the declarations of each against the uses of the others with the evidence of the symbol dependencies (`file_links`, trial-check); Tarjan's components placed in topological order, the first in the tree first, a cycle in tree order, then each test right after its subject (`order.rs`); the links it read are the links after the commits |
+| 10. Links | none | `file_links` again on the summaries of step 6 of each file before the first commit that changes it, at its path then; per pair of files `added`, `removed` or `kept`, across modules when the nearest module roots differ (`links.rs`) |
+| 11. Hunk text | `cat-file --batch` of the old and new blobs of the modified and renamed files, only of those the memory of `FileDiffs` lacks (`hunk_texts`) | none when step 5 read the blobs in this process; the text makes the mechanical kinds and the repeated edits |
+| 12. Files | none | per changed file its link counts, its mechanical kind (by name, deletion, or the text of every hunk), its repeated edit (a hunk key of 3 or more files), the summed fan-in of its removed or changed API (`breaks`), and `untested` when a source file changed with no test that names its stem (`files.rs`) |
 
 `bd` passes `AccioCli::discover()` with no cancel. The app reads the plan with `get_review_plan`, a `window` read
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
@@ -3171,7 +3173,8 @@ the base of a stacked branch. The review windows offer neither when `branchdeck.
 when unset), which the sync carries into the view (`TableHeader.review_experimental`, "Repository settings").
 
 Code: `crates/review-plan/src/mark_reviewed.rs`, `crates/review-plan/src/interdiff.rs`, `crates/review-plan/src/api.rs`,
-`crates/review-plan/src/fan_in.rs`, `crates/review-plan/src/risk.rs`, `crates/review-plan/src/order.rs`,
+`crates/review-plan/src/fan_in.rs`, `crates/review-plan/src/files.rs`, `crates/review-plan/src/links.rs`,
+`crates/review-plan/src/order.rs`,
 `crates/git-ops/src/reviewed_refs.rs`, `crates/bd-rewrite/src/mark_reviewed_command.rs`,
 `crates/bd-rewrite/src/review_plan_command.rs`, `crates/app-api/src/reads/review_plan.rs`,
 `crates/app-api/src/app/mark_reviewed.rs`.

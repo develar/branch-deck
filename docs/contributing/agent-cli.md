@@ -674,8 +674,12 @@ the rewritten commits. A branch never marked and a range have `"interdiff": null
 `api` lists the public declarations the reviewed commits add, remove or change in form (`kind`, `changes`, the form
 `before` and `after`), the most usages first: `fan_in` is the count of `accio references` at the head for the first 20
 removals and changes, `complete: false` past 100; a removal names the file and line before the commit that removed
-it. `risk` gives per changed file that is still there its `max_fan_in` and `untested`, a source file changed while
-none of its tests did, the `risky` ones first. The reviewed commits are those of `base..head`, with
+it. `files` gives per changed file (a deleted one too) its `old_path`, `mechanical` (`buildModel`, `importsOnly`,
+`whitespace`, `renamed`, `deleted`, or `null` for real work), `uses` and `used_by` (the links among the changed files
+after the commits), `new_links`, `breaks` (the usages of the API it removes or changes), `untested` (a source file
+changed while none of its tests did) and `repeated_edit`, the most `breaks` first. `links` lists which changed file
+uses which (`from`, `to`, `symbols` with the line of the first use, `state` `added`, `removed` or `kept`,
+`cross_module`); `repeated_edits` the groups of 3 or more files that get the same edit. The reviewed commits are those of `base..head`, with
 `--since-reviewed` only the added and rewritten ones. Without accio or its index, `fan_in` is `null` and `index_note`
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
@@ -688,7 +692,13 @@ tree order inside a cycle and between files with no edge.
     "scope":{"base":"5e6f7a8b","head":"7a8b9c0d"}},
   "api":[{"path":"src/a/Session.kt","line":3,"name":"logout","kind":"changed","changes":["parameters"],
     "before":"fun logout() : Unit","after":"fun logout(all:Boolean) : Unit","fan_in":{"usages":12,"complete":true}}],
-  "risk":[{"path":"src/a/Session.kt","max_fan_in":12,"untested":true,"risky":true}],
+  "files":[{"path":"src/a/Session.kt","old_path":null,"mechanical":null,"uses":0,"used_by":1,"new_links":0,
+    "breaks":12,"untested":true,"repeated_edit":null},
+    {"path":"src/b/Logout.kt","old_path":null,"mechanical":null,"uses":1,"used_by":0,"new_links":1,"breaks":0,
+    "untested":true,"repeated_edit":null}],
+  "links":[{"from":"src/b/Logout.kt","to":"src/a/Session.kt","symbols":[{"name":"logout","line":5}],"state":"added",
+    "cross_module":false}],
+  "repeated_edits":[],
   "order":["src/a/Session.kt","src/b/Logout.kt"],"index_note":null}
 ```
 

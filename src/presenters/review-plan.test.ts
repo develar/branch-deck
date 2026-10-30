@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiChange, FileRisk, Interdiff, PairedCommit } from "@/lib/bindings"
+import type { ApiChange, FileFacts, Interdiff, PairedCommit } from "@/lib/bindings"
 import {
   formatFanIn,
   formatMarkedReviewed,
@@ -19,8 +19,8 @@ function change(patch: Partial<ApiChange>): ApiChange {
   return { path: "src/Store.kt", line: 34, name: "helper", key: "helper", kind: "changed", changes: [], before: null, after: null, fanIn: null, ...patch }
 }
 
-function risk(patch: Partial<FileRisk>): FileRisk {
-  return { path: "src/Store.kt", maxFanIn: null, untested: false, risky: false, ...patch }
+function facts(patch: Partial<FileFacts>): FileFacts {
+  return { path: "src/Store.kt", oldPath: null, mechanical: null, uses: 0, usedBy: 0, newLinks: 0, breaks: 0, untested: false, repeatedEdit: null, ...patch }
 }
 
 describe("the words of the commits since the review", () => {
@@ -89,10 +89,10 @@ describe("the risky files of the card", () => {
   it("raises only the risky files, in Rust's order, with the usages and the missing test", () => {
     expect(
       presentRiskyFiles([
-        risk({ path: "src/Store.kt", maxFanIn: 3, untested: true, risky: true }),
-        risk({ path: "src/a/Api.kt", maxFanIn: 1, risky: true }),
-        risk({ path: "src/b/Cache.kt", untested: true, risky: true }),
-        risk({ path: "src/a/Reader.kt", maxFanIn: 0 }),
+        facts({ path: "src/Store.kt", breaks: 3, untested: true }),
+        facts({ path: "src/a/Api.kt", breaks: 1 }),
+        facts({ path: "src/b/Cache.kt", untested: true }),
+        facts({ path: "src/a/Reader.kt" }),
       ]),
     ).toEqual([
       { path: "src/Store.kt", reasons: "An API used in 3 places · No test changed" },
@@ -102,9 +102,9 @@ describe("the risky files of the card", () => {
   })
 
   it("sums the card up in its title", () => {
-    expect(formatPlanSummary({ api: [change({})], risk: [risk({ risky: true }), risk({ path: "b", risky: true }), risk({ path: "c" })] })).toBe("1 API change · 2 risky files")
-    expect(formatPlanSummary({ api: [], risk: [risk({})] })).toBe("No API changes")
-    expect(formatPlanSummary({ api: [change({}), change({})], risk: [risk({ risky: true })] })).toBe("2 API changes · 1 risky file")
+    expect(formatPlanSummary({ api: [change({})], files: [facts({ breaks: 2 }), facts({ path: "b", untested: true }), facts({ path: "c" })] })).toBe("1 API change · 2 risky files")
+    expect(formatPlanSummary({ api: [], files: [facts({})] })).toBe("No API changes")
+    expect(formatPlanSummary({ api: [change({}), change({})], files: [facts({ untested: true })] })).toBe("2 API changes · 1 risky file")
   })
 })
 
