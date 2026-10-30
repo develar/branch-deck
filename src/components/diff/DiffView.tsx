@@ -57,6 +57,8 @@ export interface DiffViewFile {
   diff: FileDiff | undefined
   /** The diff has not arrived yet: the header shows, the rows follow */
   pending?: boolean
+  /** Why the review folds the file ("Imports only", "Same edit as Reader.kt"): it starts collapsed, its header says why */
+  folded?: string
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -73,6 +75,8 @@ export interface DiffHeaderProps {
   notice: string | null
   /** The notice says why the file shows no rows: nothing to expand */
   empty: boolean
+  /** Why the review folds the file (`DiffViewFile.folded`) */
+  folded: string | null
   collapsed: boolean
   onToggle: () => void
   /** Shows all the unchanged lines of the file; undefined when it folds none */
@@ -176,6 +180,8 @@ interface PreparedFile {
   /** The texts the view reads: the blobs of the sides, the new side of an uncommitted change by its path too */
   reads: readonly BlobRequest[]
   collapsed: boolean
+  /** Why the review folds the file (`DiffViewFile.folded`) */
+  folded: string | null
   /** The columns of the line numbers: the digits of the largest one, and its padding */
   gutterColumns: number
 }
@@ -217,6 +223,7 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
       worktreePaths: ids.map(() => null),
       reads,
       collapsed: false,
+      folded: null,
       gutterColumns: digits + 2,
     }
   }
@@ -227,7 +234,7 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
   const rows = text === null ? null : buildFileRows(text, fileLayoutOf(mode, oneSide), folds.get(text) ?? getFoldLevels(text))
   const digits = String(Math.max(text?.oldLineCount ?? 0, text?.newLineCount ?? 0, 1)).length
   // without a header nothing collapses: the row above the view is the header
-  const collapsed = toggled !== null && !pending && startsCollapsed(file, diff) !== toggled.has(file.path)
+  const collapsed = toggled !== null && !pending && (startsCollapsed(file, diff) || entry.folded !== undefined) !== toggled.has(file.path)
   const ids = diff === undefined ? [] : [diff.oldId, diff.newId]
   const reads: BlobRequest[] = []
   if (text !== null && diff!.oldId !== null) {
@@ -252,6 +259,7 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
     worktreePaths: diff === undefined ? [] : [null, worktree ? diff.path : null],
     reads,
     collapsed,
+    folded: entry.folded ?? null,
     gutterColumns: digits + 2,
   }
 }
@@ -1076,6 +1084,7 @@ const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
             file: file.file,
             notice,
             empty: file.pending || isEmptyNotice(file.diff, file.rows),
+            folded: file.folded,
             collapsed: file.collapsed,
             onToggle: () => onToggle(file.path),
             onExpandAll: rows !== null && rows.segments.some(segment => segment.kind === "fold") ? () => onExpandAll(file) : undefined,

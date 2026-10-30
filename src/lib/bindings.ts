@@ -2623,6 +2623,8 @@ export type FileFacts = {
 	untested: boolean,
 	/**  Its group of `ReviewPlan::repeated_edits` */
 	repeatedEdit: number | null,
+	/**  Every hunk of every commit that changes it is the edit of its group: the group says all of its change */
+	repeatedEditOnly: boolean,
 };
 
 /**  A changed file that uses another changed file */

@@ -162,6 +162,8 @@ pub struct FileFactsOutput {
   pub untested: bool,
   /// The index of its group in `repeated_edits`
   pub repeated_edit: Option<u32>,
+  /// Every hunk of it is the edit of its group
+  pub repeated_edit_only: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -316,6 +318,7 @@ fn file_output(facts: FileFacts) -> FileFactsOutput {
     breaks_complete: facts.breaks_complete,
     untested: facts.untested,
     repeated_edit: facts.repeated_edit,
+    repeated_edit_only: facts.repeated_edit_only,
   }
 }
 

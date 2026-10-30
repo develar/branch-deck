@@ -26,12 +26,16 @@ function storeText(helper: string): string {
 
 const READER = (body: string) => `package a\n\nimport b.Cache\n\nclass Reader {\n  fun read(cache: Cache) = ${body}\n}\n`
 
+/** The review plan on for the repository: the flag is on when unset, but the global config of the test machine turns it off (`TEST_IDENTITY` of the server) */
+function turnOnReviewPlan(repo: TestRepositoryBuilder): void {
+  // `git config branchdeck.reviewExperimental true` in a terminal: the next sync reads it, and it wins over the global
+  appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
+}
+
 /** The branch `plan` of two commits on top of the template, the index of accio with three usages of `helper` */
 async function setupPlan(repo: TestRepositoryBuilder, { experimental }: { experimental: boolean }): Promise<void> {
-  // the flag is on when unset, but the global config of the test machine turns it off (`TEST_IDENTITY` of the server)
   if (experimental) {
-    // `git config branchdeck.reviewExperimental true` in a terminal: the next sync reads it, and it wins over the global
-    appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
+    turnOnReviewPlan(repo)
   }
   await repo.commit("(plan) scale the helper", { "src/Store.kt": storeText("fun helper(value: Int, scale: Int) = value * scale") }, 1704121200)
   await repo.commit(
@@ -72,10 +76,10 @@ async function openReviewWindow(page: Page, branch: string) {
   return (await getOpenedSubWindows<BranchReviewWindowData>(page))[0]!
 }
 
-/** The review window of `plan` after a sync, as a page of its own beside the main window, its diffs shown */
-async function openPlanWindow(page: Page, syncAndWaitForBranches: () => Promise<unknown>): Promise<Page> {
+/** The review window of `branch` (`plan`) after a sync, as a page of its own beside the main window, its diffs shown */
+async function openPlanWindow(page: Page, syncAndWaitForBranches: () => Promise<unknown>, branch = "plan"): Promise<Page> {
   await syncAndWaitForBranches()
-  const window = await openLinkedSubWindow(page, await openReviewWindow(page, "plan"))
+  const window = await openLinkedSubWindow(page, await openReviewWindow(page, branch))
   await expect(window.getByTestId("review-file-header").first()).toBeVisible()
   return window
 }
@@ -370,6 +374,15 @@ test.describe("The review plan in the branch review", () => {
     await module.getByTestId("directory-dependency-badge").hover()
     await expect(window.getByTestId("directory-dependency-changes")).toHaveText("New module b")
     await captureHtmlSnapshot(tree, "review-plan-tree-mechanical")
+    // their diffs start collapsed, the header saying why
+    for (const [file, name, why] of [
+      ["src/b/b.iml", "b.iml", "Build file"],
+      ["src/Base.kt", "Base.kt", "Whitespace only"],
+    ] as const) {
+      const header = window.locator(`[data-testid="review-file-header"][data-path="${file}"]`)
+      await expect(header.getByTestId("review-file-folded")).toHaveText(why)
+      await expect(header.getByRole("button", { name: `Expand ${name}` })).toHaveAttribute("aria-expanded", "false")
+    }
 
     // the same edit of three files: a click on another file of the group selects it
     const reader = tree.getByRole("treeitem", { name: "Reader.kt" })
@@ -418,6 +431,34 @@ test.describe("The review plan in the branch review", () => {
     await expect(reader).toHaveAttribute("aria-selected", "true")
     await dependencies.getByTestId("review-plan-file").first().click()
     await expect(tree.getByRole("treeitem", { name: "src/b/b.iml" })).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should fold in the diffs a file whose whole change is a repeated edit after the first file of the edit, its header saying so", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the same edit in Alpha, Beta, Gamma and Delta, Delta with a change of its own
+    turnOnReviewPlan(await setupRepo("repeated_edit"))
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "rename")
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Alpha.kt", "src/a/Beta.kt", "src/a/Delta.kt", "src/a/Gamma.kt"])
+    const header = (name: string) => window.locator(`[data-testid="review-file-header"][data-path="src/a/${name}.kt"]`)
+    await expect(window.getByRole("tree", { name: "Changed files" }).getByTestId("file-same-edit-badge").first()).toHaveText("same edit ×4")
+
+    // Alpha shows the edit; Beta and Gamma, the edit alone, are folded under its name; Delta, more than the edit, is open
+    for (const name of ["Alpha", "Delta"]) {
+      await expect(header(name).getByRole("button", { name: `Collapse ${name}.kt` })).toHaveAttribute("aria-expanded", "true")
+      await expect(header(name).getByTestId("review-file-folded")).toHaveCount(0)
+    }
+    for (const name of ["Beta", "Gamma"]) {
+      await expect(header(name).getByTestId("review-file-folded")).toHaveText("Same edit as Alpha.kt")
+      await expect(header(name).getByRole("button", { name: `Expand ${name}.kt` })).toHaveAttribute("aria-expanded", "false")
+    }
+
+    // the chevron opens a folded file
+    await header("Beta").getByRole("button", { name: "Expand Beta.kt" }).click()
+    await expect(header("Beta").getByRole("button", { name: "Collapse Beta.kt" })).toHaveAttribute("aria-expanded", "true")
+    await expect(window.getByTestId("diff-view")).toContainText("class Beta")
   })
 
   test("should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart", async ({ page, setupRepo, syncAndWaitForBranches }) => {

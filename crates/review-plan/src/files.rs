@@ -101,6 +101,8 @@ pub struct FileFacts {
   pub untested: bool,
   /// Its group of `ReviewPlan::repeated_edits`
   pub repeated_edit: Option<u32>,
+  /// Every hunk of every commit that changes it is the edit of its group: the group says all of its change
+  pub repeated_edit_only: bool,
 }
 
 /// A file the reviewed commits change, once, at its last path
@@ -422,6 +424,7 @@ fn edit_key(hunk: &HunkText<'_>) -> Option<EditKey> {
 
 /// The files that make one edit, by their place in the files, and the label of its first hunk
 struct Edit {
+  key: EditKey,
   files: BTreeSet<usize>,
   removed: Vec<String>,
   added: Vec<String>,
@@ -438,23 +441,34 @@ fn label_lines(lines: &[&str]) -> Vec<String> {
     .collect()
 }
 
-/// The groups of files (by their place in `files`) that share an edit, the most files first, then by their first file;
-/// each file in one group at most
-pub(crate) fn repeated_edits(files: &[ChangedFile<'_>], texts: &HashMap<String, String>, mechanical: &[Option<MechanicalKind>]) -> Vec<(Vec<usize>, RepeatedEditGroup)> {
-  let lines: Vec<Vec<Vec<HunkText<'_>>>> = files
+/// A group of files (by their place in `files`) that share an edit, and those of them whose every hunk is that edit
+pub(crate) struct RepeatedEdit {
+  pub members: Vec<usize>,
+  pub only: HashSet<usize>,
+  pub group: RepeatedEditGroup,
+}
+
+/// The groups of files that share an edit, the most files first, then by their first file; each file in one group at
+/// most
+pub(crate) fn repeated_edits(files: &[ChangedFile<'_>], texts: &HashMap<String, String>, mechanical: &[Option<MechanicalKind>]) -> Vec<RepeatedEdit> {
+  // the hunks of each file, and whether every change of it has the text of its hunks
+  let (lines, whole): (Vec<Vec<Vec<HunkText<'_>>>>, Vec<bool>) = files
     .iter()
     .zip(mechanical)
     .map(|(file, kind)| {
       let edited = !matches!(kind, Some(MechanicalKind::Deleted | MechanicalKind::BuildModel));
       let changes = file.changes.iter().filter(|change| edited && has_hunk_text(file, change));
-      changes.filter_map(|change| hunk_lines(change, texts)).collect()
+      let hunks: Vec<Vec<HunkText<'_>>> = changes.filter_map(|change| hunk_lines(change, texts)).collect();
+      let whole = edited && hunks.len() == file.changes.len();
+      (hunks, whole)
     })
-    .collect();
+    .unzip();
   let mut edits: BTreeMap<EditKey, Edit> = BTreeMap::new();
   for (index, changes) in lines.iter().enumerate() {
     for hunk in changes.iter().flatten() {
       let Some(key) = edit_key(hunk) else { continue };
-      let edit = edits.entry(key).or_insert_with(|| Edit {
+      let edit = edits.entry(key.clone()).or_insert_with(|| Edit {
+        key,
         files: BTreeSet::new(),
         removed: label_lines(&hunk.removed),
         added: label_lines(&hunk.added),
@@ -465,21 +479,32 @@ pub(crate) fn repeated_edits(files: &[ChangedFile<'_>], texts: &HashMap<String, 
   let mut candidates: Vec<Edit> = edits.into_values().filter(|edit| edit.files.len() >= MIN_REPEATED_FILES).collect();
   candidates.sort_by_key(|edit| (Reverse(edit.files.len()), edit.files.first().copied()));
   let mut taken: HashSet<usize> = HashSet::new();
-  let mut groups: Vec<(Vec<usize>, RepeatedEditGroup)> = Vec::new();
-  for Edit { files: members, removed, added } in candidates {
+  let mut groups: Vec<RepeatedEdit> = Vec::new();
+  for Edit {
+    key,
+    files: members,
+    removed,
+    added,
+  } in candidates
+  {
     let left: Vec<usize> = members.into_iter().filter(|index| !taken.contains(index)).collect();
     if left.len() < MIN_REPEATED_FILES {
       continue;
     }
     taken.extend(&left);
+    let only = left
+      .iter()
+      .copied()
+      .filter(|&index| whole[index] && lines[index].iter().flatten().all(|hunk| edit_key(hunk).as_ref() == Some(&key)))
+      .collect();
     let group = RepeatedEditGroup {
       files: left.iter().map(|&index| files[index].path.to_string()).collect(),
       removed,
       added,
     };
-    groups.push((left, group));
+    groups.push(RepeatedEdit { members: left, only, group });
   }
-  groups.sort_by_key(|(members, _)| (Reverse(members.len()), members.first().copied()));
+  groups.sort_by_key(|edit| (Reverse(edit.members.len()), edit.members.first().copied()));
   groups
 }
 
@@ -500,11 +525,12 @@ pub(crate) fn file_facts(
     .collect();
   let groups = repeated_edits(files, texts, &mechanical);
   let mut group_of: HashMap<usize, u32> = HashMap::new();
-  for (group, (members, _)) in groups.iter().enumerate() {
-    for &member in members {
+  for (group, edit) in groups.iter().enumerate() {
+    for &member in &edit.members {
       group_of.insert(member, u32::try_from(group).unwrap_or(u32::MAX));
     }
   }
+  let only: HashSet<usize> = groups.iter().flat_map(|edit| edit.only.iter().copied()).collect();
   // a deleted test is a change of the tests of its subject too
   let tested: HashSet<String> = files.iter().filter_map(|file| test_subject(file.path)).collect();
   let count = |matches: &dyn Fn(&FileLink) -> bool| u32::try_from(links.iter().filter(|link| matches(link)).count()).unwrap_or(u32::MAX);
@@ -529,9 +555,10 @@ pub(crate) fn file_facts(
         breaks_complete,
         untested: mechanical.is_none() && source && !tested.contains(&subject_stem(path)),
         repeated_edit: group_of.get(&index).copied(),
+        repeated_edit_only: only.contains(&index),
       }
     })
     .collect();
   facts.sort_by(|a, b| b.breaks.cmp(&a.breaks).then(b.untested.cmp(&a.untested)));
-  (facts, groups.into_iter().map(|(_, group)| group).collect())
+  (facts, groups.into_iter().map(|edit| edit.group).collect())
 }

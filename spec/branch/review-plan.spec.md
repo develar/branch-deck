@@ -42,6 +42,7 @@ targets:
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/files/FileTree.tsx
   - ../../src/components/files/FileRowBadges.tsx
+  - ../../src/components/diff/CommitReviewCode.tsx
 ---
 
 # Review Plan
@@ -346,6 +347,10 @@ the repeated edits and the new API.
   whitespace and line ends: 3 or more files, the group of the most files first, a file in one group at most
   (`repeated_edit`, the index of its group), with the first lines removed and added for its label.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_same_edit_in_three_or_more_files_is_one_group`)
+- A file of a group must be `repeated_edit_only` when every hunk of every commit that changes it is the edit of its
+  group, every change of it with the text of its hunks: the group says all of its change. One with another change
+  beside the edit, or with a change whose hunks are not read, is not.
+  [@test] ../../crates/review-plan/src/files_test.rs (`a_file_whose_every_hunk_is_the_repeated_edit_is_only_that_edit`)
 - A hunk of whitespace alone (a wrapped line too), and one without a line of 10 or more characters (a `}` alone),
   must make no group.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_same_edit_in_three_or_more_files_is_one_group`, `a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`)
@@ -539,6 +544,12 @@ the repeated edits and the new API.
   order Build files, Imports only, Whitespace only, Renamed, Deleted, each file by its path. The group must start
   collapsed, also when the plan comes after the files, unless it holds the selected file. The diffs, J and K must
   reach these files last, and a file selected in it opens it. Its menu and ⌘C copy its changed paths.
+- In the diffs a mechanical file must start collapsed, its header saying why: "Build file", "Imports only",
+  "Whitespace only", "Renamed only", "Deleted". A file that is `repeated_edit_only` must start collapsed too, "Same
+  edit as Alpha.kt", the first file of its group in the order of the diffs, which shows the edit once and stays open;
+  a file of the group with more than the edit stays open. The chevron of the header opens either.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`, `should fold in the diffs a file whose whole change is a repeated edit after the first file of the edit, its header saying so`)
+  [@test] ../../src/presenters/review-plan.test.ts (`folds a mechanical file by its kind, and a file of a repeated edit that is that edit alone after the first file of its group`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/lib/file-tree.test.ts (`folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last`, `starts with the Mechanical group collapsed, and opens it to reveal a file in it`, `copies the paths of a group, which has no path of its own`)
   [@test] ../../src/presenters/review-plan.test.ts (`names the Mechanical group and its groups by kind`)
@@ -565,7 +576,7 @@ the repeated edits and the new API.
   open(path:String, mode:Int) : Int", "usages": {"inside": 2, "outside": 12, "outside_sites": [{"path":
   "src/b/Client.kt", "line": 8}, …], "complete": true}}]`, `"files": [{"path": "src/a/Api.kt",
   "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 12, "breaks_complete":
-  true, "untested": true, "repeated_edit": null}]`, `"index_note": null`.
+  true, "untested": true, "repeated_edit": null, "repeated_edit_only": false}]`, `"index_note": null`.
 - `bd review-plan base..head` of a new `Store` that `User` imports, with its test → `"order": ["src/b/Store.kt",
   "src/test/b/StoreTest.kt", "src/a/User.kt", "README.md"]`, `"links": [{"from": "src/a/User.kt", "to":
   "src/b/Store.kt", "symbols": [{"name": "Store", "line": 3}], "state": "added", "cross_module": false}]`.

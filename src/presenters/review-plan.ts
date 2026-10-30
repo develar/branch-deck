@@ -322,6 +322,40 @@ const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
   deleted: "Deleted",
 }
 
+/** Why the diffs fold a mechanical file, in its header */
+const FOLDED_WORDS: Readonly<Record<MechanicalKind, string>> = {
+  buildModel: "Build file",
+  importsOnly: "Imports only",
+  whitespace: "Whitespace only",
+  renamed: "Renamed only",
+  deleted: "Deleted",
+}
+
+/**
+ * The files the diffs fold, by path, with why their header says: a mechanical file by its kind ("Imports only"); a file
+ * whose whole change is a repeated edit ("Same edit as Reader.kt"), except the first file of its group in `order` (the
+ * paths as the diffs show them), which shows the edit once
+ */
+export function presentFoldedFiles(facts: ReviewFacts, order: readonly string[]): ReadonlyMap<string, string> {
+  const folded = new Map<string, string>()
+  const place = new Map(order.map((path, index) => [path, index]))
+  for (const file of facts.files) {
+    if (file.mechanical !== null) {
+      folded.set(file.path, FOLDED_WORDS[file.mechanical])
+    }
+  }
+  facts.repeatedEdits.forEach((group, index) => {
+    const members = facts.files.filter(file => file.repeatedEdit === index).sort((a, b) => (place.get(a.path) ?? Infinity) - (place.get(b.path) ?? Infinity))
+    const first = members[0]
+    for (const file of members.slice(1)) {
+      if (file.repeatedEditOnly && !folded.has(file.path)) {
+        folded.set(file.path, `Same edit as ${fileName(first!.path)}`)
+      }
+    }
+  })
+  return folded
+}
+
 /** "Mechanical (5)", the group at the end of the tree; "Imports only (2)", a group of one kind in it */
 export function formatMechanicalGroup(kind: MechanicalKind | null, count: number): string {
   return `${kind === null ? "Mechanical" : MECHANICAL_WORDS[kind]} (${count})`

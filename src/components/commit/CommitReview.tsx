@@ -25,7 +25,7 @@ import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPlace } from "@/lib/review-place"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
-import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
+import { presentDependencyBadge, presentFileBadges, presentFoldedFiles } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
@@ -515,8 +515,19 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
       return null
     }
     const byPath = new Map(diffs.map(diff => [diff.path, diff]))
-    return withEngineCounts(files, diffs).map(file => ({ file, diff: byPath.get(file.path), pending: !diffsComplete && !byPath.has(file.path) }))
-  }, [diffs, diffsComplete, files])
+    // the files the review plan folds start collapsed, their headers saying why
+    const folded =
+      reviewFacts === null
+        ? null
+        : presentFoldedFiles(
+            reviewFacts,
+            files.map(file => file.path),
+          )
+    return withEngineCounts(files, diffs).map(file => {
+      const why = folded?.get(file.path)
+      return { file, diff: byPath.get(file.path), pending: !diffsComplete && !byPath.has(file.path), ...(why !== undefined && { folded: why }) }
+    })
+  }, [diffs, diffsComplete, files, reviewFacts])
   const showWindow = useCallback(() => {
     markSubWindowOpenPhase("painted")
     markWindowContentReady()

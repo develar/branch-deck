@@ -417,6 +417,31 @@ pub mod templates {
       )
   }
 
+  /// A branch `rename` whose one commit makes the same edit in three files of the baseline, each of them that edit alone,
+  /// and the same edit with a change of its function in a fourth: the files the review plan folds as the same edit
+  pub fn repeated_edit() -> RepoTemplate {
+    let source = |name: &str, body: &str| format!("package a\n\nclass {name} {{\n  val manager = ProjectManager.getInstance()\n\n  fun run() = {body}\n}}\n");
+    let names = ["Alpha", "Beta", "Gamma", "Delta"];
+    let base: Vec<(String, String)> = names.iter().map(|name| (format!("src/a/{name}.kt"), source(name, "1"))).collect();
+    let edited: Vec<(String, String)> = names
+      .iter()
+      .map(|name| {
+        let body = if *name == "Delta" { "2" } else { "1" };
+        (
+          format!("src/a/{name}.kt"),
+          source(name, body).replace("ProjectManager.getInstance()", "ProjectManagerEx.getInstanceEx()"),
+        )
+      })
+      .collect();
+    fn refs(files: &[(String, String)]) -> Vec<(&str, &str)> {
+      files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect()
+    }
+    RepoTemplate::new("repeated_edit")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &refs(&base), Some(1704117600))
+      .commit_with_timestamp("(rename) use the Ex manager", &refs(&edited), Some(1704119400))
+  }
+
   /// One commit of one TSX file for the colours IntelliJ gives a name of JavaScript by its declaration: an imported
   /// function, a parameter, a local variable, a component, a method
   pub fn script_colors() -> RepoTemplate {

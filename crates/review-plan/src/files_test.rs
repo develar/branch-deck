@@ -1,3 +1,4 @@
+use crate::ReviewPlan;
 use crate::api::{ApiChange, ApiChangeKind, Usages};
 use crate::files::{FileFacts, MechanicalKind, RepeatedEditGroup, changed_files, file_facts, test_subject};
 use crate::test_support::{plan_of, range};
@@ -427,34 +428,32 @@ fn a_file_is_mechanical_only_when_every_hunk_of_every_commit_is() {
   );
 }
 
+/// The plan of one commit that edits `src/a/<name>.kt` of each of `names`, written as `source` gives it, as `edit` (the
+/// index of the name, the text) changes it
+fn plan_of_edits(names: &[&str], source: impl Fn(&str) -> String, edit: impl Fn(usize, &str) -> String) -> ReviewPlan {
+  let repo = TestRepo::new();
+  let files: Vec<(String, String)> = names.iter().map(|name| (format!("src/a/{name}.kt"), source(name))).collect();
+  let refs: Vec<(&str, &str)> = files.iter().map(|(path, content)| (path.as_str(), content.as_str())).collect();
+  let base = repo.create_commit_with_files("Add files", &refs);
+  let edited: Vec<(String, String)> = files.iter().enumerate().map(|(index, (path, content))| (path.clone(), edit(index, content))).collect();
+  let refs: Vec<(&str, &str)> = edited.iter().map(|(path, content)| (path.as_str(), content.as_str())).collect();
+  let head = repo.create_commit_with_files("Use the Ex manager", &refs);
+  plan_of(&repo, None, &range(&repo, &base, &head)).unwrap()
+}
+
 /// The same edit of a line in four files is one group, its files marked with it; an edit of a short line alone (`}`)
 /// in the same four files makes no group, nor an edit of two files
 #[test]
 fn the_same_edit_in_three_or_more_files_is_one_group() {
   let source = |name: &str| format!("package a\n\nclass {name} {{\n  val manager = ProjectManager.getInstance()\n  fun run() {{\n  }}\n}}\n");
-  let names = ["A", "B", "C", "D", "E", "F"];
-  let repo = TestRepo::new();
-  let files: Vec<(String, String)> = names.iter().map(|name| (format!("src/a/{name}.kt"), source(name))).collect();
-  let refs: Vec<(&str, &str)> = files.iter().map(|(path, content)| (path.as_str(), content.as_str())).collect();
-  let base = repo.create_commit_with_files("Add files", &refs);
-  let edited: Vec<(String, String)> = files
-    .iter()
-    .enumerate()
-    .map(|(index, (path, content))| {
-      let content = match index {
-        // the repeated edit, and a `}` alone
-        0..=3 => content
-          .replace("ProjectManager.getInstance()", "ProjectManagerEx.getInstanceEx()")
-          .replace("  fun run() {\n  }\n", "  fun run() {\n  }}\n"),
-        // an edit of two files
-        _ => content.replace("val manager", "var manager"),
-      };
-      (path.clone(), content)
-    })
-    .collect();
-  let refs: Vec<(&str, &str)> = edited.iter().map(|(path, content)| (path.as_str(), content.as_str())).collect();
-  let head = repo.create_commit_with_files("Use the Ex manager", &refs);
-  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  let plan = plan_of_edits(&["A", "B", "C", "D", "E", "F"], source, |index, content| match index {
+    // the repeated edit, and a `}` alone
+    0..=3 => content
+      .replace("ProjectManager.getInstance()", "ProjectManagerEx.getInstanceEx()")
+      .replace("  fun run() {\n  }\n", "  fun run() {\n  }}\n"),
+    // an edit of two files
+    _ => content.replace("val manager", "var manager"),
+  });
   assert_eq!(
     plan.repeated_edits,
     [RepeatedEditGroup {
@@ -474,6 +473,33 @@ fn the_same_edit_in_three_or_more_files_is_one_group() {
       ("src/a/D.kt", Some(0)),
       ("src/a/E.kt", None),
       ("src/a/F.kt", None)
+    ]
+  );
+}
+
+/// A file of a repeated edit is `repeated_edit_only` when every hunk of it is that edit: the group then says all of its
+/// change. One with another change beside the edit is not
+#[test]
+fn a_file_whose_every_hunk_is_the_repeated_edit_is_only_that_edit() {
+  let source = |name: &str| format!("package a\n\nclass {name} {{\n  val manager = ProjectManager.getInstance()\n\n  fun run() = 1\n}}\n");
+  let plan = plan_of_edits(&["A", "B", "C", "D"], source, |index, content| {
+    let content = content.replace("ProjectManager.getInstance()", "ProjectManagerEx.getInstanceEx()");
+    // D changes its function too
+    if index == 3 { content.replace("fun run() = 1", "fun run() = 2") } else { content }
+  });
+  let mut only: Vec<(&str, Option<u32>, bool)> = plan
+    .files
+    .iter()
+    .map(|facts| (facts.path.as_str(), facts.repeated_edit, facts.repeated_edit_only))
+    .collect();
+  only.sort_unstable();
+  assert_eq!(
+    only,
+    [
+      ("src/a/A.kt", Some(0), true),
+      ("src/a/B.kt", Some(0), true),
+      ("src/a/C.kt", Some(0), true),
+      ("src/a/D.kt", Some(0), false),
     ]
   );
 }

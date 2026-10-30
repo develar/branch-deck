@@ -425,6 +425,8 @@ pub enum RepositoryTemplate {
   CommitWhitespace,
   #[serde(rename = "symbol_navigation")]
   SymbolNavigation,
+  #[serde(rename = "repeated_edit")]
+  RepeatedEdit,
   #[serde(rename = "script_colors")]
   ScriptColors,
   #[serde(rename = "stacked_branches")]
@@ -510,6 +512,7 @@ impl RepositoryTemplate {
       Self::CommitManyFiles => "commit_many_files",
       Self::CommitWhitespace => "commit_whitespace",
       Self::SymbolNavigation => "symbol_navigation",
+      Self::RepeatedEdit => "repeated_edit",
       Self::ScriptColors => "script_colors",
       Self::StackedBranches => "stacked_branches",
       Self::StackedChain => "stacked_chain",

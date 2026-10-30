@@ -43,7 +43,7 @@ export interface CommitReviewCodeProps {
 
 /**
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
- * as IntelliJ, lock and generated files and files over 1,000 changed lines collapsed.
+ * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed.
  */
 export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleFileChange, onFirstScreen, fileOwners, revisions }: CommitReviewCodeProps) {
   const softWraps = useDiffSoftWraps()
@@ -143,7 +143,7 @@ export function PendingFileHeaders({ files, fileOwners }: { files: readonly Comm
       {files.slice(0, PENDING_HEADERS).map(file => (
         <div key={file.path} className="dv-card">
           <div className="dv-header">
-            <ReviewFileHeader file={file} notice={null} empty collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} />
+            <ReviewFileHeader file={file} notice={null} empty folded={null} collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} />
           </div>
         </div>
       ))}
@@ -162,7 +162,7 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
  * All, its owner and counts, and the menu of the file. The insets are IntelliJ's: 12 px above and below, 10 px at the
  * sides
  */
-function ReviewFileHeader({ file, notice, empty, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
+function ReviewFileHeader({ file, notice, empty, folded, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
@@ -193,6 +193,11 @@ function ReviewFileHeader({ file, notice, empty, pending = false, owner, collaps
             </TooltipTrigger>
             <TooltipContent>Expand All</TooltipContent>
           </Tooltip>
+        )}
+        {folded !== null && (
+          <span data-testid="review-file-folded" className="text-muted-foreground">
+            {folded}
+          </span>
         )}
         {notice !== null &&
           (empty ? (

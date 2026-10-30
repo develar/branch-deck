@@ -13,6 +13,7 @@ import {
   presentDependencyBadge,
   presentDependencyChanges,
   presentFileBadges,
+  presentFoldedFiles,
   presentNewApi,
   presentRepeatedEdits,
 } from "@/presenters/review-plan"
@@ -30,7 +31,20 @@ function usages(inside: number, outside: number): Usages {
 }
 
 function facts(patch: Partial<FileFacts>): FileFacts {
-  return { path: "src/Store.kt", oldPath: null, mechanical: null, uses: 0, usedBy: 0, newLinks: 0, breaks: 0, breaksComplete: true, untested: false, repeatedEdit: null, ...patch }
+  return {
+    path: "src/Store.kt",
+    oldPath: null,
+    mechanical: null,
+    uses: 0,
+    usedBy: 0,
+    newLinks: 0,
+    breaks: 0,
+    breaksComplete: true,
+    untested: false,
+    repeatedEdit: null,
+    repeatedEditOnly: false,
+    ...patch,
+  }
 }
 
 describe("the words of the commits since the review", () => {
@@ -335,5 +349,35 @@ describe("Mark Reviewed", () => {
   it("says the branch is marked, or that it was at this commit already", () => {
     expect(formatMarkedReviewed("plan", true)).toBe("Marked plan reviewed")
     expect(formatMarkedReviewed("plan", false)).toBe("plan was already marked reviewed at this commit")
+  })
+})
+
+describe("the files the diffs fold", () => {
+  it("folds a mechanical file by its kind, and a file of a repeated edit that is that edit alone after the first file of its group", () => {
+    const group = { files: ["src/a/A.kt", "src/a/B.kt", "src/a/C.kt", "src/a/D.kt"], removed: ["val x = old()"], added: ["val x = new()"] }
+    const folded = presentFoldedFiles(
+      {
+        files: [
+          facts({ path: "src/Imports.kt", mechanical: "importsOnly" }),
+          facts({ path: "b/b.iml", mechanical: "buildModel" }),
+          // the first in the order of the diffs shows the edit, though it is the edit alone
+          facts({ path: "src/a/A.kt", repeatedEdit: 0, repeatedEditOnly: true }),
+          // more work than the edit: it stays open
+          facts({ path: "src/a/B.kt", repeatedEdit: 0, repeatedEditOnly: false }),
+          facts({ path: "src/a/C.kt", repeatedEdit: 0, repeatedEditOnly: true }),
+          facts({ path: "src/a/D.kt", repeatedEdit: 0, repeatedEditOnly: true }),
+        ],
+        links: [],
+        dependencies: [],
+        repeatedEdits: [group],
+      },
+      ["src/a/D.kt", "src/a/A.kt", "src/a/B.kt", "src/a/C.kt", "src/Imports.kt", "b/b.iml"],
+    )
+    expect([...folded].sort(([a], [b]) => a.localeCompare(b))).toEqual([
+      ["b/b.iml", "Build file"],
+      ["src/a/A.kt", "Same edit as D.kt"],
+      ["src/a/C.kt", "Same edit as D.kt"],
+      ["src/Imports.kt", "Imports only"],
+    ])
   })
 })

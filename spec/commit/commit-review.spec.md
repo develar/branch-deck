@@ -185,8 +185,10 @@ where a dialog would cover it.
   review itself keeps the focus, so ⌥↑/⌥↓ and Escape still work. What the user works in beside the diffs (the commits,
   the owner chips) keeps the focus when the diffs of the next subject mount; J, K, N and P work from there too.
 - A binary file, a file without changed lines and a file the patch left out must show only their header, which says
-  so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified and snapshot files, and files with more than 1,000
-  changed lines must start collapsed; the chevron of the header expands them.
+  so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified and snapshot files, files with more than 1,000
+  changed lines and the files the review plan folds, their header saying why
+  ([Review Plan](../branch/review-plan.spec.md#in-the-review-window)), must start collapsed; the chevron of the
+  header expands them.
 - The unchanged lines between hunks must expand as in the Files section ([Commit Files](commit-files.spec.md)).
 - A copy of a selection in the diffs must give the lines its rows show, from the texts, also of rows no longer on
   screen: without the line numbers, the folds and the deleted parts of an Inline row, the old and the new line of a
