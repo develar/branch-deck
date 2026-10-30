@@ -80,38 +80,42 @@ describe("the words of the commits since the review", () => {
 
 describe("the possible breakage of the card", () => {
   it("words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown", () => {
-    expect(formatOutsideUses(usages(1, 2))).toBe("2 uses left outside")
-    expect(formatOutsideUses(usages(0, 1))).toBe("1 use left outside")
-    expect(formatOutsideUses({ ...usages(0, 100), complete: false, updated: false })).toBe("At least 100 uses left outside")
-    expect(formatOutsideUses({ ...usages(3, 0), complete: false, updated: false })).toBe("No use found outside, the count is incomplete")
-    expect(formatOutsideUses(null)).toBe("The uses are unknown")
+    expect(formatOutsideUses(usages(1, 2), false)).toBe("2 uses left outside")
+    expect(formatOutsideUses(usages(0, 1), false)).toBe("1 use left outside")
+    expect(formatOutsideUses({ ...usages(0, 100), complete: false, updated: false }, false)).toBe("At least 100 uses left outside")
+    expect(formatOutsideUses({ ...usages(3, 0), complete: false, updated: false }, false)).toBe("No use found outside, the count is incomplete")
+    expect(formatOutsideUses(null, false)).toBe("The uses are unknown")
+    expect(formatOutsideUses(null, true)).toBe("Finding the uses…")
   })
 
   it("lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites", () => {
-    const { entries, updated } = presentBreakage([
-      change({
-        kind: "removed",
-        name: "open",
-        key: "a.open",
-        path: "src/a/Api.kt",
-        line: 3,
-        before: "fun open(path:String)",
-        usages: { inside: 0, outside: 7, outsideSites: [1, 2, 3, 4, 5].map(line => ({ path: "src/b/Client.kt", line })), complete: true, updated: false },
-      }),
-      change({
-        changes: ["parameters", "reach"],
-        before: "fun helper(value:Int)",
-        after: "fun helper(value:Int, scale:Int)",
-        usages: {
-          ...usages(1, 2),
-          outsideSites: [
-            { path: "src/Base.kt", line: 1 },
-            { path: "src/Uses.kt", line: 4 },
-          ],
-        },
-      }),
-      change({ kind: "added", name: "Cache", key: "b.Cache", path: "src/b/Cache.kt", line: 3, after: "class Cache" }),
-    ])
+    const { entries, updated } = presentBreakage(
+      [
+        change({
+          kind: "removed",
+          name: "open",
+          key: "a.open",
+          path: "src/a/Api.kt",
+          line: 3,
+          before: "fun open(path:String)",
+          usages: { inside: 0, outside: 7, outsideSites: [1, 2, 3, 4, 5].map(line => ({ path: "src/b/Client.kt", line })), complete: true, updated: false },
+        }),
+        change({
+          changes: ["parameters", "reach"],
+          before: "fun helper(value:Int)",
+          after: "fun helper(value:Int, scale:Int)",
+          usages: {
+            ...usages(1, 2),
+            outsideSites: [
+              { path: "src/Base.kt", line: 1 },
+              { path: "src/Uses.kt", line: 4 },
+            ],
+          },
+        }),
+        change({ kind: "added", name: "Cache", key: "b.Cache", path: "src/b/Cache.kt", line: 3, after: "class Cache" }),
+      ],
+      false,
+    )
     expect(updated).toBeNull()
     expect(entries.map(({ key: _key, ...entry }) => entry)).toEqual([
       {
@@ -153,34 +157,46 @@ describe("the possible breakage of the card", () => {
   })
 
   it("folds only the API whose every use is updated, and keeps an unknown or incomplete count listed, also at 0", () => {
-    const { entries, updated } = presentBreakage([
-      change({ name: "unknown", key: "unknown", usages: null }),
-      change({ name: "constructor", key: "constructor", changes: ["constructors"], usages: { ...usages(2, 0), complete: false, updated: false } }),
-      change({ name: "renamed", key: "renamed", kind: "removed", usages: usages(3, 0) }),
-      change({ name: "unused", key: "unused", usages: usages(0, 0) }),
-    ])
+    const { entries, updated } = presentBreakage(
+      [
+        change({ name: "unknown", key: "unknown", usages: null }),
+        change({ name: "constructor", key: "constructor", changes: ["constructors"], usages: { ...usages(2, 0), complete: false, updated: false } }),
+        change({ name: "renamed", key: "renamed", kind: "removed", usages: usages(3, 0) }),
+        change({ name: "unused", key: "unused", usages: usages(0, 0) }),
+      ],
+      false,
+    )
     expect(entries.map(entry => [entry.name, entry.outside])).toEqual([
       ["unknown", "The uses are unknown"],
       ["constructor", "No use found outside, the count is incomplete"],
     ])
     expect(updated?.label).toBe("2 API changes, every use updated in this change")
     expect(updated?.entries.map(entry => entry.name)).toEqual(["renamed", "unused"])
-    expect(presentBreakage([change({ usages: usages(1, 0) })]).updated?.label).toBe("1 API change, every use updated in this change")
+    expect(presentBreakage([change({ usages: usages(1, 0) })], false).updated?.label).toBe("1 API change, every use updated in this change")
+  })
+
+  it("says the uses are being found while Rust asks the index", () => {
+    const { entries } = presentBreakage([change({ name: "open", key: "open", usages: null })], true)
+    expect(entries.map(entry => entry.outside)).toEqual(["Finding the uses…"])
+    expect(formatPlanSummary({ api: [change({ usages: null })], dependencies: [], links: [], repeatedEdits: [] }, true)).toBe("Finding possible breaks")
   })
 
   it("sums the card up in its title, what can break first", () => {
     const plan = { api: [], dependencies: [], links: [], repeatedEdits: [] }
-    expect(formatPlanSummary(plan)).toBe("No possible break")
+    expect(formatPlanSummary(plan, false)).toBe("No possible break")
     expect(
-      formatPlanSummary({
-        api: [change({ usages: null }), change({ usages: usages(1, 0) }), change({ kind: "added", after: "class Cache" }), change({ kind: "added", name: "get" })],
-        dependencies: [dependency({}), dependency({ name: "b" })],
-        links: [
-          { ...link("src/a/Reader.kt", "src/b/Cache.kt", "added"), crossModule: true, newBetweenModules: true },
-          { ...link("src/a/A.kt", "src/b/B.kt", "kept"), crossModule: true },
-        ],
-        repeatedEdits: [{ files: ["a", "b", "c"], removed: [], added: ["// a line of the edit"] }],
-      }),
+      formatPlanSummary(
+        {
+          api: [change({ usages: null }), change({ usages: usages(1, 0) }), change({ kind: "added", after: "class Cache" }), change({ kind: "added", name: "get" })],
+          dependencies: [dependency({}), dependency({ name: "b" })],
+          links: [
+            { ...link("src/a/Reader.kt", "src/b/Cache.kt", "added"), crossModule: true, newBetweenModules: true },
+            { ...link("src/a/A.kt", "src/b/B.kt", "kept"), crossModule: true },
+          ],
+          repeatedEdits: [{ files: ["a", "b", "c"], removed: [], added: ["// a line of the edit"] }],
+        },
+        false,
+      ),
     ).toBe("1 possible break · 2 dependency changes · 1 new link between modules · 1 repeated edit · 2 new declarations")
   })
 })

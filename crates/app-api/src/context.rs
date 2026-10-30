@@ -10,6 +10,7 @@ use crate::app::cli_tools::CliToolsState;
 use crate::app::windows::SubWindowState;
 use crate::operation::run_blocking;
 use crate::reads::conflict_fix::ConflictFixSearch;
+use crate::reads::review_plan::ReviewPlans;
 use crate::reads::symbols::SymbolIndexes;
 use crate::remote::RemoteMemory;
 use crate::repository_state::RepositoryStateCache;
@@ -50,6 +51,8 @@ pub struct AppContext {
   pub symbol_indexes: Arc<dyn SymbolIndexes>,
   /// The search of the fix of the conflicts, one at a time
   pub conflict_fix: ConflictFixSearch,
+  /// The review plans whose every query answered, by what each is of
+  pub review_plans: ReviewPlans,
   /// The sessions of the repositories the windows show (`repository_model::session`), which own their tables and read
   /// their facts; the e2e server shares one between its test repositories
   pub sessions: Arc<Sessions>,

@@ -232,6 +232,20 @@ impl std::io::Write for CapturedWriter {
   }
 }
 
+/// The events of the command `name` with a channel, as the page mock reads them (`X-Progress-Channel`): each
+/// `{ progress }` before its answer, and its answer `{ result }`, which ends the stream
+pub(crate) async fn channel_events(client: &reqwest::Client, addr: SocketAddr, name: &str, params: &Value) -> (Vec<Value>, Value) {
+  let mut messages = Messages::of_channel(command(client, addr, Named::ByPath, name, params), 1).await;
+  let mut events = Vec::new();
+  while let Some(message) = messages.next_or_end().await {
+    match message.get("progress") {
+      Some(event) => events.push(event.clone()),
+      None => return (events, message["result"].clone()),
+    }
+  }
+  panic!("the stream of {name} ended without its answer: {events:?}")
+}
+
 /// The JSON messages of an SSE answer (`invoke::answer_with_progress`), one by one
 pub(crate) struct Messages {
   response: reqwest::Response,

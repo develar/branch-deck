@@ -68,6 +68,7 @@ impl AppState {
       file_diffs: file_diffs::service::FileDiffs::default(),
       symbol_indexes: std::sync::Arc::new(FixtureIndexes),
       conflict_fix: app_api::reads::conflict_fix::ConflictFixSearch::default(),
+      review_plans: app_api::reads::review_plan::ReviewPlans::default(),
       sessions: std::sync::Arc::clone(&self.sessions),
       registry: self.registry.clone(),
       windows: std::sync::Arc::default(),

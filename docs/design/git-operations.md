@@ -3180,7 +3180,11 @@ the other outputs of `bd` with 2. The app reads the plan with `get_review_plan`,
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
 fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the window asks a newer plan or closes
 (`Windows::begin_plan`, a slot of its own, so a Go to Declaration of the window never cancels its plan); a plan
-superseded after its last query answers `canceled` too. Mark Reviewed of the window is `mark_branch_reviewed`, a
+superseded after its last query answers `canceled` too. Its channel carries the plan without the usages before the
+index is asked (`review_plan_of`'s `pending`), then the plan with them, or `disabled` after one `git config` read
+(`ConfigSnapshot`) when the repository turns the plan off; a plan whose every query answered is kept by its subject
+resolved (`ReviewPlans`, a weighed `moka` cache), so a window that asks it again runs only the resolve of its subject
+(`for-each-ref`, `merge-base` or `rev-parse`) and asks no index. Mark Reviewed of the window is `mark_branch_reviewed`, a
 command of the app (`app(ReviewedRefs)`: the refs have their one writer, no session reads them,
 `crates/app-api/src/app/mark_reviewed.rs`), with the same `mark_reviewed_core` and its CAS; both name the branch with
 the prefix the app resolves for the repository (`PrefixInputs`), and the page passes the head of the stack parent as

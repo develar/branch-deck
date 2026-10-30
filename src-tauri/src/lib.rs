@@ -217,6 +217,7 @@ pub fn run() {
         file_diffs: file_diffs::service::FileDiffs::default(),
         symbol_indexes: Arc::new(app_api::reads::symbols::Accio),
         conflict_fix: app_api::reads::conflict_fix::ConflictFixSearch::default(),
+        review_plans: app_api::reads::review_plan::ReviewPlans::default(),
         sessions,
         registry,
         windows: Arc::default(),

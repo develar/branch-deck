@@ -447,6 +447,18 @@ the repeated edits and the new API.
   repository: after a mark and a commit on top, the plan since the review lists that commit as `added` with its scope,
   and the usages come from the index of the host (the fixture `.git/branch-deck-accio.json` in the e2e server).
   [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
+- `get_review_plan` must send the plan on its channel: the plan without the usages of its API (`pending`, no file
+  counting `breaks`) before the index is asked, when there is a query to ask, then the plan with them; the window
+  replaces what it shows with each and words an API without usages "Finding the uses…" and the summary "Finding
+  possible breaks" while `pending`. A repository whose `branchdeck.reviewExperimental` is off must get `disabled` and
+  no plan.
+  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
+  [@test] ../../src/presenters/review-plan.test.ts (`says the uses are being found while Rust asks the index`)
+- A plan whose every query answered (`index_note` null) must be kept in the memory of the app by what it is of (the
+  repository, the prefix, the branch, `base`, `head`, the reviewed pair and `sinceReviewed`), at most 64 MiB of its
+  JSON and 10 minutes unread: asked again, it comes whole in one event, with no git past the resolve of its subject
+  and no query of the index.
+  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
 - An unknown branch must answer `unknown_branch`; a base that names no commit, a branch that shares no history with
   its base, an unknown revision of a range and `sinceReviewed` of a range must answer `invalid_arguments`.
   [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)

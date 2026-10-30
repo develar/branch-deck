@@ -1,4 +1,4 @@
-use crate::test_support::{Messages, Named, command, create_repository, start_test_server};
+use crate::test_support::{Named, channel_events, command, create_repository, start_test_server};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -10,17 +10,10 @@ async fn invoke(client: &reqwest::Client, addr: SocketAddr, name: &str, params: 
   response.json().await.unwrap()
 }
 
-/// The events of a command with a channel, as the page mock reads them (`X-Progress-Channel`): each `{ progress }`
-/// before its answer, `{ result }`, which ends the stream
+/// The events of a command with a channel that answers no data
 async fn stream(client: &reqwest::Client, addr: SocketAddr, name: &str, params: Value) -> Vec<Value> {
-  let mut messages = Messages::of_channel(command(client, addr, Named::ByPath, name, &params), 1).await;
-  let mut events = Vec::new();
-  while let Some(message) = messages.next_or_end().await {
-    match message.get("progress") {
-      Some(event) => events.push(event.clone()),
-      None => assert_eq!(message, json!({ "result": { "status": "ok", "data": null } }), "{name}"),
-    }
-  }
+  let (events, result) = channel_events(client, addr, name, &params).await;
+  assert_eq!(result, json!({ "status": "ok", "data": null }), "{name}");
   events
 }
 

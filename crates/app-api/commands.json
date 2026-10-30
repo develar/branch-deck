@@ -108,7 +108,10 @@
   {
     "name": "get_review_plan",
     "class": "read",
-    "transport": "json"
+    "transport": {
+      "channel": "events",
+      "open": false
+    }
   },
   {
     "name": "mark_branch_reviewed",

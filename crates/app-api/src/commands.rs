@@ -96,9 +96,11 @@ macro_rules! for_each_command {
       /// marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
       /// from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
       /// (`links`), the dependency changes of the build files (`dependencies`), the files that get the same edit
-      /// (`repeated_edits`) and the files in dependency order
-      /// (`review_plan_core`, as `bd review-plan`). A newer plan of the window or its close supersedes it: `canceled`
-      read window get_review_plan(params: review_plan::ReviewPlanParams) -> review_plan::ReviewPlan = $crate::reads::review_plan::get_review_plan;
+      /// (`repeated_edits`), the units of its diff and the files in dependency order
+      /// (`review_plan_core`, as `bd review-plan`), on `events`: `disabled` for a repository that turns it off, else the
+      /// plan without the usages while the index is asked, then with them; a plan whose every query answered is kept
+      /// (`ReviewPlans`). A newer plan of the window or its close supersedes it: `canceled`
+      read window get_review_plan(params: review_plan::ReviewPlanParams) [channel events: review_plan::ReviewPlanEvent] -> () = $crate::reads::review_plan::get_review_plan;
 
       /// Keeps the base and the tip a branch has now as its reviewed pair, which a later plan compares the branch with, and
       /// deletes the pairs of the branches that are gone, in one transaction with CAS (`mark_reviewed_core`, as `bd

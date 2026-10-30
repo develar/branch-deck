@@ -92,11 +92,11 @@ function formatUses(count: number): string {
 
 /**
  * "3 uses left outside", "At least 2 uses left outside" of an incomplete count, "No use found outside, the count is
- * incomplete", "The uses are unknown" without a count
+ * incomplete", "The uses are unknown" without a count, "Finding the uses…" while Rust asks the index (`pending`)
  */
-export function formatOutsideUses(usages: Usages | null): string {
+export function formatOutsideUses(usages: Usages | null, pending: boolean): string {
   if (usages === null) {
-    return "The uses are unknown"
+    return pending ? "Finding the uses…" : "The uses are unknown"
   }
   if (usages.complete) {
     return `${formatUses(usages.outside)} left outside`
@@ -139,7 +139,7 @@ export interface Breakage {
   readonly updated: { readonly label: string; readonly entries: readonly BreakageEntry[] } | null
 }
 
-function breakageEntry(change: ApiChange): BreakageEntry {
+function breakageEntry(change: ApiChange, pending: boolean): BreakageEntry {
   const usages = change.usages
   const more = usages === null ? 0 : usages.outside - usages.outsideSites.length
   return {
@@ -153,7 +153,7 @@ function breakageEntry(change: ApiChange): BreakageEntry {
     changed: change.changes.length === 0 ? null : change.changes.map(it => FORM_WORDS[it]).join(", "),
     before: change.before,
     after: change.kind === "removed" ? null : change.after,
-    outside: formatOutsideUses(usages),
+    outside: formatOutsideUses(usages, pending),
     inside: usages === null || usages.inside === 0 ? null : `${formatUses(usages.inside)} updated in this change`,
     sites: usages?.outsideSites.map(site => ({ label: `${site.path}:${site.line}`, place: { path: site.path, side: "new", line: site.line, name: change.name } })) ?? [],
     moreSites: more > 0 ? `+${more} more` : null,
@@ -162,9 +162,10 @@ function breakageEntry(change: ApiChange): BreakageEntry {
 
 /**
  * The removed and changed API of the card. An entry with a use left outside, or with an unknown or incomplete count,
- * is listed; the entries whose every use is updated in this change fold into one line. An addition breaks no use
+ * is listed; the entries whose every use is updated in this change fold into one line. An addition breaks no use.
+ * `pending`: Rust asks the index, and the plan with the usages follows
  */
-export function presentBreakage(api: readonly ApiChange[]): Breakage {
+export function presentBreakage(api: readonly ApiChange[], pending: boolean): Breakage {
   const entries: BreakageEntry[] = []
   const updated: BreakageEntry[] = []
   for (const change of api) {
@@ -173,9 +174,9 @@ export function presentBreakage(api: readonly ApiChange[]): Breakage {
     }
     // Rust says every use is updated in this change; an unknown or incomplete count never is
     if (change.usages?.updated === true) {
-      updated.push(breakageEntry(change))
+      updated.push(breakageEntry(change, pending))
     } else {
-      entries.push(breakageEntry(change))
+      entries.push(breakageEntry(change, pending))
     }
   }
   const count = updated.length === 1 ? "1 API change" : `${updated.length} API changes`
@@ -282,13 +283,14 @@ function count(n: number, one: string, many: string): string {
 
 /**
  * "2 possible breaks · 3 dependency changes · 1 repeated edit · 4 new declarations", the line of the card's title;
- * what can break leads, "No possible break" when nothing can
+ * what can break leads, "No possible break" when nothing can, "Finding possible breaks" while Rust asks the index
+ * (`pending`)
  */
-export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "dependencies" | "links" | "repeatedEdits">): string {
-  const breaks = presentBreakage(plan.api).entries.length
+export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "dependencies" | "links" | "repeatedEdits">, pending: boolean): string {
+  const breaks = presentBreakage(plan.api, pending).entries.length
   const crossLinks = plan.links.filter(link => link.newBetweenModules).length
   const added = plan.api.filter(change => change.kind === "added").length
-  const parts = [breaks === 0 ? "No possible break" : count(breaks, "possible break", "possible breaks")]
+  const parts = [pending ? "Finding possible breaks" : breaks === 0 ? "No possible break" : count(breaks, "possible break", "possible breaks")]
   if (plan.dependencies.length > 0) {
     parts.push(count(plan.dependencies.length, "dependency change", "dependency changes"))
   }

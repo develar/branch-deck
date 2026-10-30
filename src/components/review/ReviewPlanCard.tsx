@@ -28,10 +28,10 @@ import {
  * review: the line of the declaration or of the use, else the file. Rust decides and ranks; the card words what it sent, in its order.
  */
 export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
-  const { plan, loading, error } = state
+  const { plan, loading, pending, error } = state
   const since = plan?.interdiff == null ? null : formatSinceReview(plan.interdiff)
   const rewritten = plan?.interdiff?.commits.filter(commit => commit.state === "rewritten" && commit.changes !== null) ?? []
-  const breakage = plan === null ? null : presentBreakage(plan.api)
+  const breakage = plan === null ? null : presentBreakage(plan.api, pending)
   const dependencies = plan === null ? null : presentDependencyChanges(plan)
   const repeated = plan === null ? [] : presentRepeatedEdits(plan.repeatedEdits)
   const newApi = plan === null ? [] : presentNewApi(plan.api)
@@ -39,8 +39,8 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
     <section aria-label="Review Summary" data-testid="review-plan-card" className="flex max-h-72 shrink-0 flex-col gap-2 overflow-y-auto border-b border-border px-4 py-3 text-sm">
       <SectionLabel title="Review Summary">
         <span className="flex items-center gap-1.5" data-testid="review-plan-summary">
-          {loading && <Spinner className="size-3" />}
-          {plan === null ? (loading ? "Reading the review plan…" : null) : formatPlanSummary(plan)}
+          {(loading || pending) && <Spinner className="size-3" />}
+          {plan === null ? (loading ? "Reading the review plan…" : null) : formatPlanSummary(plan, pending)}
         </span>
       </SectionLabel>
       {error !== null && (

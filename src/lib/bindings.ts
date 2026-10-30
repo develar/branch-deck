@@ -92,10 +92,12 @@ export const commands = {
 	 *  marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
 	 *  from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
 	 *  (`links`), the dependency changes of the build files (`dependencies`), the files that get the same edit
-	 *  (`repeated_edits`) and the files in dependency order
-	 *  (`review_plan_core`, as `bd review-plan`). A newer plan of the window or its close supersedes it: `canceled`
+	 *  (`repeated_edits`), the units of its diff and the files in dependency order
+	 *  (`review_plan_core`, as `bd review-plan`), on `events`: `disabled` for a repository that turns it off, else the
+	 *  plan without the usages while the index is asked, then with them; a plan whose every query answered is kept
+	 *  (`ReviewPlans`). A newer plan of the window or its close supersedes it: `canceled`
 	 */
-	getReviewPlan: (params: ReviewPlanParams) => typedError<ReviewPlan, ApiError>(__TAURI_INVOKE("get_review_plan", { params })),
+	getReviewPlan: (params: ReviewPlanParams, events: Channel<ReviewPlanEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_review_plan", { params, events })),
 	/**
 	 *  Keeps the base and the tip a branch has now as its reviewed pair, which a later plan compares the branch with, and
 	 *  deletes the pairs of the branches that are gone, in one transaction with CAS (`mark_reviewed_core`, as `bd
@@ -6128,6 +6130,16 @@ export type ReviewPlan = {
 	/**  Why a removed or changed declaration has no usages: no accio, no index of the repository, a failed query */
 	indexNote: string | null,
 };
+
+/**  What the plan of a window tells it, in order (`get_review_plan` of the app) */
+export type ReviewPlanEvent = 
+/**
+ *  The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, and
+ *  the plan with them follows
+ */
+{ kind: "plan"; plan: ReviewPlan; pending: boolean } | 
+/**  The repository turns the review plan off (`branchdeck.reviewExperimental`): the window shows none */
+{ kind: "disabled" };
 
 /**  What a plan is asked for */
 export type ReviewPlanParams = {

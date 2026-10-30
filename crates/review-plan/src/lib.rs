@@ -31,7 +31,7 @@ pub mod order;
 pub mod pair;
 pub mod units;
 
-use crate::api::{ApiChange, api_changes};
+use crate::api::{ApiChange, ApiChangeKind, api_changes};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
 use crate::fan_in::add_usages;
 use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, hunk_blobs};
@@ -127,6 +127,18 @@ pub struct ReviewPlan {
   pub index_note: Option<String>,
 }
 
+/// What the plan of a window tells it, in order (`get_review_plan` of the app)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ReviewPlanEvent {
+  /// The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, and
+  /// the plan with them follows
+  Plan { plan: Box<ReviewPlan>, pending: bool },
+  /// The repository turns the review plan off (`branchdeck.reviewExperimental`): the window shows none
+  Disabled,
+}
+
 /// What a plan reads beside git: the caches of the diffs and the summaries, and the index of the repository for the
 /// usages (`None`: no accio on this machine)
 #[derive(Clone, Copy)]
@@ -157,23 +169,55 @@ pub struct SinceReviewedOfRange(pub String);
 /// caller's errors, `SearchCanceled` the cancel of `sources.index`
 #[instrument(skip(git, sources), fields(subject = ?params.subject))]
 pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, branch_prefix: &str, params: &ReviewPlanParams) -> Result<ReviewPlan> {
+  let subject = resolve_subject(git, branch_prefix, params)?;
+  review_plan_of(git, sources, params, subject, |_| {})
+}
+
+/// What a plan is of, resolved: the branch, `base..head`, and the interdiff of a branch marked reviewed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedSubject {
+  pub branch: Option<String>,
+  pub base: String,
+  pub head: String,
+  pub interdiff: Option<Interdiff>,
+}
+
+/// The subject of `params` resolved (`review_plan_core`): for a branch one `for-each-ref` of the reviewed refs with
+/// the branches, its base, then its interdiff when it was marked; for a range one `rev-parse --verify` per rev
+pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &ReviewPlanParams) -> Result<ResolvedSubject> {
   let repository_path = params.repository_path.as_str();
-  let (branch, base, head, interdiff) = match &params.subject {
+  match &params.subject {
     ReviewSubject::Branch { name, base, baseline_branch } => {
       let refs = read_reviewed_refs(git, repository_path)?;
       let BranchOnBase { branch, tip, base } = branch_on_base(git, repository_path, &refs.branches, branch_prefix, name, (base.as_deref(), baseline_branch.as_deref()))?;
       let interdiff = refs.reviewed(&branch).map(|reviewed| interdiff(git, repository_path, &reviewed, &base, &tip)).transpose()?;
-      (Some(branch), base, tip, interdiff)
+      Ok(ResolvedSubject {
+        branch: Some(branch),
+        base,
+        head: tip,
+        interdiff,
+      })
     }
     ReviewSubject::Range { base, head } => {
       if params.since_reviewed {
         return Err(SinceReviewedOfRange(format!("{base}..{head}")).into());
       }
       let resolved = |rev: &str| -> Result<String> { resolve_commit(git, repository_path, rev)?.ok_or_else(|| UnknownRevision(rev.to_string()).into()) };
-      (None, resolved(base)?, resolved(head)?, None)
+      Ok(ResolvedSubject {
+        branch: None,
+        base: resolved(base)?,
+        head: resolved(head)?,
+        interdiff: None,
+      })
     }
-  };
+  }
+}
 
+/// The plan of `subject` (`resolve_subject` of `params`): `pending` gets it once without the usages of the API, before
+/// the index is asked, when there is a query to ask; the answer is the plan with them
+pub fn review_plan_of(git: &GitCommandExecutor, sources: PlanSources<'_>, params: &ReviewPlanParams, subject: ResolvedSubject, pending: impl FnOnce(&ReviewPlan)) -> Result<ReviewPlan> {
+  let repository_path = params.repository_path.as_str();
+  let ResolvedSubject { branch, base, head, interdiff } = subject;
   let carried = interdiff
     .as_ref()
     .and_then(|found| found.scope.as_ref())
@@ -211,31 +255,38 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     },
   );
   let pairs = pair_blocks(git, repository_path, sources.cache, sources.file_diffs, &changed, &texts)?;
-  let index_note = add_usages(sources.index, repository_path, &head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api)?;
   let Dependencies { changes: dependencies, states } = dependency_changes(&changed, &texts);
   let kinds = file_kinds(&changed, &texts, &states);
   let units = input.as_ref().map_or_else(Vec::new, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
-  let (files, repeated_edits) = file_facts(&changed, &kinds, &links, &api);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
     }
     found
   });
-  Ok(ReviewPlan {
+  let mut plan = ReviewPlan {
     branch,
     base,
     head,
     interdiff,
-    api,
-    files,
+    api: Vec::new(),
+    files: Vec::new(),
     links,
     dependencies,
-    repeated_edits,
+    repeated_edits: Vec::new(),
     units,
     order,
-    index_note,
-  })
+    index_note: None,
+  };
+  if sources.index.is_some() && api.iter().any(|change| change.kind != ApiChangeKind::Added) {
+    (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api);
+    plan.api.clone_from(&api);
+    pending(&plan);
+  }
+  plan.index_note = add_usages(sources.index, repository_path, &plan.head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api)?;
+  (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api);
+  plan.api = api;
+  Ok(plan)
 }
 
 /// The commits the API, the order and the files are read from, oldest first: of `base..head`, or with `since_reviewed`
