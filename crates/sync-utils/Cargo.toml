@@ -35,5 +35,10 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }
 
+# the junctions of the tests of `fs_retry::remove_entry` (Bazel's `bazel-*` links on Windows are junctions): made
+# without admin rights and without a `cmd /C mklink` process
+[target.'cfg(windows)'.dev-dependencies]
+junction = "2.1.0"
+
 [lints]
 workspace = true

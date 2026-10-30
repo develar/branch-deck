@@ -458,11 +458,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   - in both, `incremental/<crate>-<hash>/` is a unit of its own, grouped by crate.
   The uplifted artifacts at the top of the profile dir (`debug/libavl_vm.rlib`, `debug/<bin>`) and `.cargo-lock` are
   never touched. `{ delete = "<path>" }` removes a path, a file, a directory or a symlink (the link, never its
-  target); `{ delete = "<dir>", except = ["<name>", …] }` removes every entry of the directory but the named ones
-  (names of direct entries, no path), a whitelist: a new entry goes without an edit of the rules. A rule below a kept
-  entry applies to it (`out` but for `dev-run`, then `out/dev-run` but for `jar-cache`).
+  target; a junction or a directory symlink of Windows too, such as Bazel's `out/bazel-*`, which a removal neither goes
+  into nor takes for a file held by a process); `{ delete = "<dir>", except = ["<name>", …] }` removes every entry of
+  the directory but the named ones (names of direct entries, no path), a whitelist: a new entry goes without an edit of
+  the rules. A rule below a kept entry applies to it (`out` but for `dev-run`, then `out/dev-run` but for `jar-cache`).
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`, `the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`, `nested_deletes_keep_only_the_whitelist`)
+  [@test] ../../crates/sync-utils/src/fs_retry_test.rs (`remove_entry_removes_a_directory_link_as_the_link_and_keeps_its_target`, `remove_entry_removes_a_file_an_empty_directory_and_a_file_symlink_as_themselves`)
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
 - The table `[host]` belongs to the remote runs of `bd-host` (spec/cli/host.spec.md), which checks its keys. The rules

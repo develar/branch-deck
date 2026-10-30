@@ -1,4 +1,4 @@
-use crate::fs_retry::{remove_dir, remove_dir_all, remove_file, rename};
+use crate::fs_retry::{remove_dir, remove_dir_all, remove_entry, remove_file, rename};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use test_utils::git_in_directory::GitInDirectory;
@@ -106,4 +106,63 @@ fn a_read_only_file_and_directory_are_renamed_and_removed_at_once() {
 
   assert!(!file.exists() && !moved.exists() && !empty.exists());
   assert!(started.elapsed() < Duration::from_millis(500), "waited as for a holder: {:?}", started.elapsed());
+}
+
+/// `remove_entry` of `path`, by the file type of its `symlink_metadata`, as a walk removes it
+fn remove_as_walked(path: &Path) {
+  remove_entry(path, &std::fs::symlink_metadata(path).unwrap().file_type()).unwrap();
+}
+
+/// A link at `link` to the directory `target`: on Windows a junction, as Bazel makes its `bazel-*` links there
+#[cfg(windows)]
+fn directory_link(target: &Path, link: &Path) {
+  junction::create(target, link).unwrap();
+}
+
+#[cfg(unix)]
+fn directory_link(target: &Path, link: &Path) {
+  std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+/// A file and an empty directory are removed as themselves, and on Unix a symlink to a file as the link, its target
+/// kept
+#[test]
+fn remove_entry_removes_a_file_an_empty_directory_and_a_file_symlink_as_themselves() {
+  let dir = tempfile::tempdir().unwrap();
+  let (file, empty) = (dir.path().join("file"), dir.path().join("empty"));
+  std::fs::write(&file, "file").unwrap();
+  std::fs::create_dir_all(&empty).unwrap();
+
+  remove_as_walked(&file);
+  remove_as_walked(&empty);
+
+  assert!(!file.exists() && !empty.exists());
+  #[cfg(unix)]
+  {
+    let (target, link) = (dir.path().join("target"), dir.path().join("link"));
+    std::fs::write(&target, "target").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    remove_as_walked(&link);
+
+    assert!(link.symlink_metadata().is_err(), "the link stays");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "target");
+  }
+}
+
+/// A link to a directory (on Windows a junction, which `DeleteFileW` refuses with the "Access is denied" of a holder)
+/// is removed as the link, at once: never gone into, its target and what is in it kept
+#[test]
+fn remove_entry_removes_a_directory_link_as_the_link_and_keeps_its_target() {
+  let dir = tempfile::tempdir().unwrap();
+  let (target, link) = (dir.path().join("target"), dir.path().join("bazel-out"));
+  std::fs::create_dir_all(&target).unwrap();
+  std::fs::write(target.join("output"), "output").unwrap();
+  directory_link(&target, &link);
+  assert!(link.join("output").exists(), "the link leads to the target");
+
+  remove_as_walked(&link);
+
+  assert!(link.symlink_metadata().is_err(), "the link stays");
+  assert_eq!(std::fs::read_to_string(target.join("output")).unwrap(), "output");
 }

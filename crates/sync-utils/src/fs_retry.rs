@@ -6,6 +6,10 @@
 //! denied" where `std::fs` does not ignore it (the removal of an empty directory; a file system without POSIX deletes):
 //! it is no holder, so it is cleared and the call tried again at once, as git clears it for its own objects. Elsewhere
 //! these are the calls of `std::fs`, which go on under open handles, current directories and read-only modes.
+//!
+//! A walk that removes a tree removes each entry as itself (`remove_entry`): a junction or a directory symlink of
+//! Windows is no directory to go into and no file, and `DeleteFileW` refuses it with the "Access is denied" of a
+//! holder, which a removal would wait out in vain.
 
 use std::path::Path;
 
@@ -33,6 +37,17 @@ pub fn remove_file(path: impl AsRef<Path>) -> std::io::Result<()> {
 pub fn remove_dir(path: impl AsRef<Path>) -> std::io::Result<()> {
   let path = path.as_ref();
   retry_while_shared(&[path], || std::fs::remove_dir(path))
+}
+
+/// Remove one entry as itself, never following it: a file or a symlink with `remove_file`; a directory link of Windows
+/// (a junction, a directory symlink), which `DeleteFileW` refuses, and an empty directory with `remove_dir`.
+/// `file_type` is the one of `symlink_metadata`, which tells a link from its target
+pub fn remove_entry(path: impl AsRef<Path>, file_type: &std::fs::FileType) -> std::io::Result<()> {
+  #[cfg(windows)]
+  let directory_link = std::os::windows::fs::FileTypeExt::is_symlink_dir(file_type);
+  #[cfg(not(windows))]
+  let directory_link = false;
+  if directory_link || file_type.is_dir() { remove_dir(path) } else { remove_file(path) }
 }
 
 /// Whether `error` is the sharing error of a holder that this module waited out in vain (Windows; a read-only attribute,
