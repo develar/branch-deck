@@ -2143,8 +2143,13 @@ return. A `delete` moves its paths into the trash, a rename into `$GIT_COMMON_DI
 time>-<uuid>/`, a `cargo` rule each stale unit as a whole, the return its seeded paths, and the trash is deleted once
 the slot is free, counting its bytes in the same walk: the first return of a slot cloned from the idea-1 main checkout
 deleted 760,000 files, longer than the tool call of an agent, and the lease must not stay `returning` meanwhile. The
-next return or clean deletes the trash of a run whose process is gone. Only another volume deletes in place: on
-Windows a rename fails while a process works in the path or has a file of it open (a shell, a test binary, an
+next return or clean deletes the trash of a run whose process is gone. A link (a symlink, a junction of Windows such
+as Bazel's `out/bazel-*`) never goes into the trash: its delete costs no more than its move, and a junction moved there
+stayed, since `DeleteFileW` refuses a directory link with the "Access is denied" of a holder (issue #159). It is
+deleted in place as the link (`fs_retry::remove_entry`, `remove_dir` for a directory link of Windows) once every other
+path removed with it is moved, so a failed move that puts those back never leaves it lost; a link an earlier version
+left in the trash goes with it the same way. Only another volume deletes in place: on Windows a rename fails while a
+process works in the path or has a file of it open (a shell, a test binary, an
 indexer), and a delete in place there stopped at the held file and left half a directory, or half a unit whose
 fingerprint cargo then trusted. A path that stays held after the retry of `sync_utils::fs_retry` (about a second,
 the helper of every removal and rename, `fs_retry_scan_test.rs`; a read-only attribute, which Windows answers with the

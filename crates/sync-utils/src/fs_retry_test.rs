@@ -2,6 +2,7 @@ use crate::fs_retry::{remove_dir, remove_dir_all, remove_entry, remove_file, ren
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use test_utils::git_in_directory::GitInDirectory;
+use test_utils::links::directory_link;
 
 /// `ERROR_SHARING_VIOLATION`: what Windows answers a removal under a holder
 const SHARING_VIOLATION: i32 = 32;
@@ -111,17 +112,6 @@ fn a_read_only_file_and_directory_are_renamed_and_removed_at_once() {
 /// `remove_entry` of `path`, by the file type of its `symlink_metadata`, as a walk removes it
 fn remove_as_walked(path: &Path) {
   remove_entry(path, &std::fs::symlink_metadata(path).unwrap().file_type()).unwrap();
-}
-
-/// A link at `link` to the directory `target`: on Windows a junction, as Bazel makes its `bazel-*` links there
-#[cfg(windows)]
-fn directory_link(target: &Path, link: &Path) {
-  junction::create(target, link).unwrap();
-}
-
-#[cfg(unix)]
-fn directory_link(target: &Path, link: &Path) {
-  std::os::unix::fs::symlink(target, link).unwrap();
 }
 
 /// A file and an empty directory are removed as themselves, and on Unix a symlink to a file as the link, its target

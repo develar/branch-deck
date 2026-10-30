@@ -1060,7 +1060,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 - The return applies the clean rules of `.branchdeck.toml` (`[lease] clean`: `cargo`, the stale units of a target
   dir; `delete`, a path or a link, with `except` the entries of a directory but the named ones) of the source
   checkout before it frees the slot: a `delete` moves its paths into the trash (`$GIT_COMMON_DIR/branch-deck/trash`),
-  a `cargo` rule each stale unit as a whole, and they are deleted and counted once the slot is free: `cleaned`
+  but deletes a link (a junction of Windows too) in place as the link, a `cargo` rule each stale unit as a whole, and
+  they are deleted and counted once the slot is free: `cleaned`
   [{`rule`, `freed_bytes`, `ms`, `error`}], `trash_left`. What a process keeps (on Windows: works in it, has a file of
   it open) stays whole, and the rule's `error` names the path and says that a process holds it; the next clean deletes
   it once it is free. A rule with an unsafe path (out of the slot, `.git`, tracked, a symlink on its way, a `delete` of

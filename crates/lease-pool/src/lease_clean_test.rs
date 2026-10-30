@@ -5,6 +5,7 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::time::SystemTime;
 use test_utils::git_in_directory::GitInDirectory;
+use test_utils::links::directory_link;
 
 #[test]
 fn the_rules_are_cargo_and_delete_with_their_defaults() {
@@ -304,8 +305,9 @@ fn the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash() {
 }
 
 /// A `delete` with `except` removes every entry of its directory but the kept ones, a symlink at its end as the link (the
-/// target stays), and refuses a symlink on its way. Into the trash, the entries leave the checkout at once and the
-/// trash counts their bytes once it deletes them; the trash of a run whose process is gone goes too
+/// target stays, the link is deleted in place and never goes into the trash), and refuses a symlink on its way. Into
+/// the trash, the entries leave the checkout at once and the trash counts their bytes once it deletes them; the trash of
+/// a run whose process is gone goes too
 #[cfg(unix)]
 #[test]
 fn a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash() {
@@ -333,10 +335,79 @@ fn a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash() {
   assert!(root.join("out/bazel-bin").symlink_metadata().is_err() && outside.path().join("target-file").exists());
   assert!(cleaned[2].error.as_ref().unwrap().contains("is a symlink"), "{cleaned:?}");
   assert_eq!((cleaned[0].freed_bytes, cleaned[0].trashed.len()), (0, 2));
+  assert!(cleaned[1].error.is_none() && cleaned[1].trashed.is_empty(), "the link went into the trash: {cleaned:?}");
   let left = trash.empty(&mut cleaned);
   assert_eq!(left, Vec::<String>::new());
   assert!(cleaned[0].freed_bytes >= 2 * 8192 && cleaned[0].trashed.is_empty(), "{cleaned:?}");
   assert_eq!(std::fs::read_dir(trash_root.path()).unwrap().count(), 0, "the trash of this run and of the gone one");
+}
+
+/// The output base of a Bazel build out of the checkout, with a file in each of the dirs its `out/bazel-*` links lead
+/// to
+fn output_base(links: &[&str]) -> tempfile::TempDir {
+  let output_base = tempfile::tempdir().unwrap();
+  for link in links {
+    let dir = output_base.path().join("execroot/_main").join(link);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("output"), "output").unwrap();
+  }
+  output_base
+}
+
+/// Bazel's `out/bazel-*` links (junctions on Windows, which issue #159 saw stuck in the trash with "Access is denied")
+/// are deleted in place as links by a `delete` through the trash: none goes into the trash, no rule fails, what they
+/// lead to stays, and the kept entry and the trash of the other entries are as without them
+#[test]
+fn a_delete_through_the_trash_deletes_bazel_links_in_place_and_keeps_their_targets() {
+  let (checkout, git) = git_checkout();
+  let root = checkout.path();
+  let links = ["bazel-bin", "bazel-out"];
+  let output_base = output_base(&links);
+  for file in ["out/dev-run/kept", "out/notes/handoff.md"] {
+    std::fs::create_dir_all(root.join(file).parent().unwrap()).unwrap();
+    std::fs::write(root.join(file), vec![1u8; 8192]).unwrap();
+  }
+  for link in links {
+    directory_link(&output_base.path().join("execroot/_main").join(link), &root.join("out").join(link));
+    assert!(root.join("out").join(link).join("output").exists(), "the link leads to the output base");
+  }
+  let rules = parse_clean_rules("[lease]\nclean = [{ delete = \"out\", except = [\"dev-run\"] }]\n").unwrap();
+  let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
+  let trash = Trash::new(trash_root.path());
+
+  let mut cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Trash(&trash));
+
+  assert!(cleaned[0].error.is_none(), "{cleaned:?}");
+  for link in links {
+    assert!(root.join("out").join(link).symlink_metadata().is_err(), "{link} stays");
+    assert_eq!(
+      std::fs::read_to_string(output_base.path().join("execroot/_main").join(link).join("output")).unwrap(),
+      "output"
+    );
+  }
+  assert_eq!(cleaned[0].trashed.len(), 1, "only out/notes goes into the trash: {cleaned:?}");
+  assert!(cleaned[0].trashed[0].join("handoff.md").exists(), "{cleaned:?}");
+  assert!(!root.join("out/notes").exists() && root.join("out/dev-run/kept").exists());
+  assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
+  assert!(cleaned[0].error.is_none() && cleaned[0].freed_bytes >= 8192, "{cleaned:?}");
+  assert_eq!(std::fs::read_dir(trash_root.path()).unwrap().count(), 0, "the trash of this run");
+}
+
+/// A link that an earlier version moved into the trash (a junction on Windows, which it could not delete there) is
+/// deleted as the link by the sweep of the trash of a run that is gone, what it leads to kept
+#[test]
+fn the_sweep_deletes_a_link_left_in_the_trash_of_a_gone_run() {
+  let output_base = output_base(&["bazel-out"]);
+  let trash_root = tempfile::tempdir().unwrap();
+  // the trash of a run that is gone: no process has the pid 0 with the start time 1
+  std::fs::create_dir_all(trash_root.path().join("0-1-gone")).unwrap();
+  directory_link(&output_base.path().join("execroot/_main/bazel-out"), &trash_root.path().join("0-1-gone/0"));
+  assert!(trash_root.path().join("0-1-gone/0/output").exists(), "the link leads to the output base");
+
+  Trash::new(trash_root.path()).sweep();
+
+  assert_eq!(std::fs::read_dir(trash_root.path()).unwrap().count(), 0, "the trash of the gone run");
+  assert_eq!(std::fs::read_to_string(output_base.path().join("execroot/_main/bazel-out/output")).unwrap(), "output");
 }
 
 /// A whitelist of a directory: `out` but for `dev-run` and a mark, and `out/dev-run` but for `jar-cache`, leave only
