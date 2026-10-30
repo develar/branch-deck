@@ -1,3 +1,4 @@
+import { useRef } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { EllipsisIcon } from "lucide-react"
@@ -43,6 +44,8 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
   // the plain button and the one of the roots are one control for the hover
   const controlKey = `more-actions:${name}`
   const plainRef = useControlRef<HTMLButtonElement>(undefined, controlKey)
+  // the popup of the menu, kept after it unmounts: its `finalFocus` asks as the popup goes whether the focus is in it
+  const popup = useRef<HTMLDivElement | null>(null)
   const running = busy !== null
   // a menu unless an action runs without Stop Waiting, or an operation works on the row
   const opensMenu = running ? stopWaiting !== null : !disabled
@@ -82,9 +85,14 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
         item gives it back here. The popup sits in the row's React tree: a right-click in it must not open the row's menu
       */}
       <DropdownMenuContent
+        ref={element => {
+          if (element !== null) {
+            popup.current = element
+          }
+        }}
         align="end"
         className="w-auto min-w-36"
-        finalFocus={focusBackFromMenu}
+        finalFocus={() => focusBackFromMenu(popup.current)}
         onContextMenu={event => {
           event.preventDefault()
           event.stopPropagation()

@@ -138,7 +138,17 @@ export async function bringUnderStillPointer(page: Page, target: Locator, above:
     await page.keyboard.press(key)
     await verifyBranchState(above, key === "ArrowRight" ? "open" : "closed")
   }
-  const isUnder = (at: { x: number; y: number }) => target.evaluate((element, point) => element.contains(document.elementFromPoint(point.x, point.y)), at)
+  // true while `target` is under the point, else what is there and where `target` is: the message of a wait that fails
+  const under = (at: { x: number; y: number }) =>
+    target.evaluate((element, point) => {
+      const hit = document.elementFromPoint(point.x, point.y)
+      if (element.contains(hit)) {
+        return true
+      }
+      const box = element.getBoundingClientRect()
+      const there = hit === null ? "nothing" : hit.outerHTML.slice(0, 200)
+      return `${there} at ${point.x},${point.y}; the target at ${box.x},${box.y} ${box.width}x${box.height}`
+    }, at)
   await above.focus()
   // expanded once first: the table measured its columns for both
   await toggle("ArrowRight")
@@ -147,9 +157,9 @@ export async function bringUnderStillPointer(page: Page, target: Locator, above:
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   await toggle("ArrowRight")
   await page.mouse.move(point.x, point.y)
-  await expect.poll(() => isUnder(point)).toBe(false)
+  await expect.poll(() => under(point)).not.toBe(true)
   await toggle("ArrowLeft")
-  await expect.poll(() => isUnder(point)).toBe(true)
+  await expect.poll(() => under(point)).toBe(true)
   await page.mouse.move(point.x, point.y)
   return point
 }

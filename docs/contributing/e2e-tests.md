@@ -69,8 +69,16 @@ rules in one line each and links here.
   which empties `dist/` under the other run (timeouts in page setup, not test failures).
 - **`CI=1` does not speed up E2E**: it means 1 worker, 2 retries and no reuse of a running server
   (`playwright.config.ts`). A test that fails only under parallel load is a race: fix the wait, don't serialize.
+- **A timeout is read in the trace of its action** before it is called load: the step profile says where the time of
+  the passing runs went, and the action that never ended in a failed one says why (`--trace retain-on-failure`; the
+  tracing slows the frames and raises the rate of a race, 20 of 40 runs where 1 of 30 failed without it). "… intercepts
+  pointer events" for the whole timeout is a popup the page left open, a bug of the page: stack-island.spec.ts waited
+  30 s on Sync under the backdrop of a right-click menu whose focus the closing menu of a "⋯" had taken
+  ([A stall under load](../design/e2e-testing.md#performance-considerations)).
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
-  caret at 0 and the text lands at the start.
+  caret at 0 and the text lands at the start. A Base UI menu takes its focus a frame after it shows (`enqueueFocus`), and
+  a closing one gives it back in a microtask after its popup goes: a key for an open menu waits for the focus in it
+  (`branch-row-layout.spec.ts`, the right-click within the exit of a "⋯" menu), never only for the popup's visibility.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config

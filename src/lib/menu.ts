@@ -115,11 +115,18 @@ export function toPreviewMenu(groups: MenuItemGroups, close: (() => void) | null
 }
 
 /**
- * The `finalFocus` of a menu of a row: an item that opens an inline form gives the focus to it; any other gives it back
- * to the trigger of the menu, so the keys of the row go on (Stop Waiting of the "⋯" by Enter among them). False while
- * the focus is on something outside the menu but the page
+ * The `finalFocus` of a menu of a row, whose `popup` it was: an item that opens an inline form gives the focus to it; any
+ * other gives it back to the trigger of the menu, so the keys of the row go on (Stop Waiting of the "⋯" by Enter among
+ * them). True only while the focus is on the page or in this menu, its popup or a submenu of it (the popups of one root
+ * of Base UI share its `data-rootownerid`): another menu that opened as this one closed keeps it. Escape on the "⋯" of
+ * the island, then the right-click menu of a row within the exit of the first: the focus went back to the "⋯", whose
+ * tooltip took the next Escape, so the right-click menu stayed open over the page (stack-island.spec.ts, 2026-10-30)
  */
-export function focusBackFromMenu(): boolean {
+export function focusBackFromMenu(popup: Element | null): boolean {
   const active = document.activeElement
-  return !(active instanceof HTMLElement) || active === document.body || active.closest("[role=menu]") !== null
+  if (!(active instanceof HTMLElement) || active === document.body) {
+    return true
+  }
+  const root = popup?.getAttribute("data-rootownerid")
+  return root != null && active.closest("[data-rootownerid]")?.getAttribute("data-rootownerid") === root
 }

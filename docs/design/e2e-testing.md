@@ -958,6 +958,18 @@ branch at the commit it was pushed up to.
   stack pull request, GitHub's form from the push toast, the disabled push of the preview), and on 2026-10-30 a sixth
   8-9 s in every run: an item of "Whole Stack ›" of a row's "⋯" under the toast of a review request
   (`whole-stack.spec.ts`), which the timing summary named as the one stalled action of the suite
+- **A stall under load** (s18-2): "should hold the push of the whole stack branch once…" (`stack-island.spec.ts`) ran
+  into its 30 s timeout in the gate of s15, but its step profile beside 40 `yes` workers on the Studio (load 17-44)
+  showed no slow step: 15.5 s on average, 18 s at most, 20 of 20 passed. The traces of the failed runs (locally 20 of
+  40 with `--trace retain-on-failure`) named the action that never ended: the click on Sync, under the
+  `data-base-ui-inert` backdrop of the right-click menu of the root, which stayed open. The page was wrong: Escape on
+  the "⋯" of the island, the right-click menu of the root within the exit of that menu, and the end of the exit gave
+  the focus back to the "⋯" (`focusBackFromMenu` took any open menu for its own), whose tooltip opened and took the
+  next Escape. The slower the frames, the likelier the right-click lands in that exit: under load, or traced. A
+  closing menu gives the focus back only from its own popups now (the `data-rootownerid` of Base UI;
+  `spec/branch/branch-row.spec.md`), and the test, unchanged, passed 40 of 40 traced runs, and 20 of 20 on the Studio
+  beside 40 `yes` workers (load 4-62: 17.8 s on average, 19.8 s at most, no stalled action; the time is the setup, four
+  syncs and the push of the terminal, none of them waiting on another)
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
   client and of the YouTrack and GitHub clients and services are left out (`patronus::client=error`, `youtrack=error`,

@@ -27,6 +27,7 @@ targets:
   - ../../src/hooks/useRowOperation.ts
   - ../../src/lib/rewrite-run.ts
   - ../../src/components/shared/MoreActionsMenu.tsx
+  - ../../src/lib/menu.ts
   - ../../src/components/shared/MenuItemButton.tsx
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
@@ -796,6 +797,12 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   Waiting, Escape closes it again, and the keys of the row go on; the focus fell to the page before, at the item and
   at each state, and the keys stopped until a click.
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should keep the focus on the row's ⋯ through a rewrite started from its menu by key that waits for the lock, and stop it by key`)
+- The menu of a "⋯" must give the focus back only from itself (its popup, a submenu of it) or from the page: a menu
+  that opened as it closed keeps the focus. Escape on a "⋯" and a right-click on a row within the exit of its menu
+  opened the menu of the row, and the end of that exit gave the focus to the "⋯", whose tooltip took the next Escape:
+  the menu of the row stayed open over the page, its keys dead, and every click under it waited (a test of the island
+  ran into its timeout under load).
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the focus in the menu of a right-click on the row that opened as the menu of its ⋯ closed`)
 - The same error toast must not stack: an error with the title and the description of an open error toast updates
   it in place; Activity records each.
 - An item that opens a form must end with "…"; an item that acts at once must not: "Safe Push" and "Dry Run" start at
