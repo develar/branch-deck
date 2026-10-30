@@ -3,7 +3,7 @@
 use crate::blocks::{BlobPair, PairDiff};
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, unhurried_for_scans, write};
 use crate::model::{DiffContent, DiffSource};
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -26,7 +26,7 @@ fn repo() -> (TestRepo, String) {
 fn the_blocks_of_a_scan_are_the_blocks_of_the_view() {
   let (repo, commit) = repo();
   let cache_dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(cache_dir.path());
   let view = unhurried()
     .read(
       repo.git_executor(),
@@ -62,7 +62,7 @@ fn the_blocks_of_a_scan_are_the_blocks_of_the_view() {
 fn a_pair_the_view_showed_costs_no_process() {
   let (repo, commit) = repo();
   let cache_dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(cache_dir.path());
   let diffs = unhurried();
   let view = diffs
     .read(repo.git_executor(), repo_path(&repo), &cache, &DiffSource::Commit { id: commit }, WhitespacePolicy::Default)

@@ -52,8 +52,17 @@ fn merge() -> (MergeKey, MergeResult) {
   (key, MergeResult::Clean { tree: "result".to_string() })
 }
 
+/// The config of these tests: the app's, without the sync of each commit (`CacheConfig::sync_commits`), which
+/// `an_environment_syncs_every_commit` asserts of the app's
+fn test_config() -> CacheConfig {
+  CacheConfig {
+    sync_commits: false,
+    ..CacheConfig::default()
+  }
+}
+
 fn open(dir: &Path) -> ObjectCache {
-  ObjectCache::open_dir(dir, &CacheConfig::default())
+  ObjectCache::open_dir(dir, &test_config())
 }
 
 #[test_log::test]
@@ -128,7 +137,7 @@ fn round_trip() {
 
 /// The cache in `dir` as a binary whose `bumped` stores have a newer version opens it
 fn with_bumped(dir: &Path, bumped: &[Store]) -> ObjectCache {
-  let mut config = CacheConfig::default();
+  let mut config = test_config();
   for store in bumped {
     config.versions[store.index()] += 1;
   }
@@ -289,7 +298,7 @@ fn full_cache_is_cleared() {
     dir.path(),
     &CacheConfig {
       merge_map_size: 1 << 20,
-      ..CacheConfig::default()
+      ..test_config()
     },
   );
   let big = "x".repeat(100 * 1024);
@@ -469,7 +478,7 @@ fn a_full_patch_store_keeps_the_other_stores() {
     dir.path(),
     &CacheConfig {
       patch_map_size: 1 << 20,
-      ..CacheConfig::default()
+      ..test_config()
     },
   );
   assert!(dir.path().join("patches").join("data.mdb").exists());
@@ -501,7 +510,7 @@ fn a_full_main_store_keeps_the_merges() {
     dir.path(),
     &CacheConfig {
       map_size: 1 << 20,
-      ..CacheConfig::default()
+      ..test_config()
     },
   );
   cache.put_commit_trees(&[("c1".to_string(), "t1".to_string())]);
@@ -545,7 +554,7 @@ fn create_databases_with_an_entry(env: &heed::Env, names: &[&str]) {
 #[test_log::test]
 fn the_merges_of_the_main_environment_are_dropped() {
   let dir = tempfile::tempdir().unwrap();
-  let main = open_env(dir.path(), DEFAULT_MAP_SIZE).unwrap();
+  let main = open_env(dir.path(), DEFAULT_MAP_SIZE, false).unwrap();
   create_databases_with_an_entry(&main, &["merge_result.v1", "commit_tree.v1"]);
 
   let cache = open(dir.path());
@@ -554,7 +563,7 @@ fn the_merges_of_the_main_environment_are_dropped() {
   let names = database_names(&main);
   assert!(!names.iter().any(|name| name.starts_with("merge_result") || name.starts_with("commit_tree")), "{names:?}");
   assert!(names.iter().any(|name| name.starts_with("commit_diff")), "{names:?}");
-  let merges = open_env(&dir.path().join("merges"), DEFAULT_MERGE_MAP_SIZE).unwrap();
+  let merges = open_env(&dir.path().join("merges"), DEFAULT_MERGE_MAP_SIZE, false).unwrap();
   assert_eq!(database_names(&merges), ["commit_tree.v1", "merge_result.v1", "word_resolution.v1"]);
 }
 
@@ -562,7 +571,7 @@ fn the_merges_of_the_main_environment_are_dropped() {
 #[test_log::test]
 fn a_retired_store_is_dropped() {
   let dir = tempfile::tempdir().unwrap();
-  let patches = open_env(&dir.path().join("patches"), DEFAULT_PATCH_MAP_SIZE).unwrap();
+  let patches = open_env(&dir.path().join("patches"), DEFAULT_PATCH_MAP_SIZE, false).unwrap();
   create_databases_with_an_entry(&patches, &["commit_patch.v1"]);
 
   let cache = open(dir.path());
@@ -621,7 +630,7 @@ fn conflict_views_are_read_by_their_version_and_big_views_are_not_kept() {
   cache.put_conflict_infos(2, &[(key("c2"), &view)]);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c1")), None);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(2, &key("c2")), Some(view));
-  let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE).unwrap());
+  let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE, false).unwrap());
   assert_eq!(names, ["conflict_chain.v1", "conflict_info.v1"]);
 }
 
@@ -648,7 +657,7 @@ fn a_full_conflict_store_keeps_the_merges() {
     dir.path(),
     &CacheConfig {
       conflict_map_size: 1 << 20,
-      ..CacheConfig::default()
+      ..test_config()
     },
   );
   let view = "x".repeat(100 * 1024);
@@ -698,7 +707,7 @@ fn conflict_chains_are_read_by_their_version() {
   cache.put_conflict_chains(2, &[([2; 32], &chain)]);
   assert_eq!(cache.get_conflict_chain::<Vec<String>>(1, &[1; 32]), None);
   assert_eq!(cache.get_conflict_chain::<Vec<String>>(2, &[2; 32]), Some(chain));
-  let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE).unwrap());
+  let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE, false).unwrap());
   assert!(names.contains(&"conflict_chain.v1".to_string()), "{names:?}");
 }
 
@@ -817,14 +826,31 @@ fn a_lock_file_whose_semaphore_key_another_set_holds_is_made_again() {
   }
 }
 
-/// Every environment syncs each commit (no `MDB_NOSYNC`, no `MDB_NOMETASYNC`): a commit without it costs 0.02 ms instead
-/// of ~4 ms, but a command writes a few transactions at most, and after a power loss without it LMDB promises no
-/// integrity unless the file system keeps the order of writes, so a wrong but readable entry could be read back
-/// (git-operations.md, "One write transaction per phase")
+/// Every environment of the app's config syncs each commit (no `MDB_NOSYNC`, no `MDB_NOMETASYNC`): a commit without it
+/// costs 0.02 ms instead of ~4 ms, but a command writes a few transactions at most, and after a power loss without it
+/// LMDB promises no integrity unless the file system keeps the order of writes, so a wrong but readable entry could be
+/// read back (git-operations.md, "One write transaction per phase")
 #[test]
 fn an_environment_syncs_every_commit() {
   let dir = tempfile::tempdir().unwrap();
-  let env = open_env(dir.path(), DEFAULT_MAP_SIZE).unwrap();
-  let flags = env.get_flags().unwrap();
-  assert_eq!(flags & (heed::EnvFlags::NO_SYNC | heed::EnvFlags::NO_META_SYNC).bits(), 0, "{flags:#x}");
+  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  let flags = cache.env_flags();
+  assert_eq!(flags.len(), 4, "{flags:x?}");
+  for flags in flags {
+    assert_eq!(flags & (heed::EnvFlags::NO_SYNC | heed::EnvFlags::NO_META_SYNC).bits(), 0, "{flags:#x}");
+  }
+}
+
+/// A test's config (`sync_commits` off) opens every environment without the sync of a commit: in a full run of the
+/// tests 2,920 commits each flushed the drive (`F_FULLFSYNC`) in 23 ms, 66 s of the tests' time, against 1.2 s without
+/// (docs/contributing/rust-tests.md, "Beyond the processes")
+#[test]
+fn the_environments_of_a_test_commit_without_a_flush() {
+  let dir = tempfile::tempdir().unwrap();
+  let flags = open(dir.path()).env_flags();
+  assert_eq!(flags.len(), 4, "{flags:x?}");
+  let unsynced = (heed::EnvFlags::NO_SYNC | heed::EnvFlags::NO_META_SYNC).bits();
+  for flags in flags {
+    assert_eq!(flags & unsynced, unsynced, "{flags:#x}");
+  }
 }

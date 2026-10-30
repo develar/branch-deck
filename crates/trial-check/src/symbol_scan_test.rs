@@ -1,6 +1,5 @@
 use crate::diff_scan_test::commit_diffs;
 use crate::symbol_scan::{TsAliases, crate_name, read_symbol_input, ts_aliases};
-use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
 
@@ -40,7 +39,7 @@ fn reads_the_summaries_through_the_cache() {
   );
   let diffs = commit_diffs(&repo, &commit);
   let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(dir.path());
 
   let input = read_symbol_input(repo.git_executor(), repo.path_str(), &cache, &diffs).unwrap();
   // the old and the new lib.rs, and a.ts; not the text file

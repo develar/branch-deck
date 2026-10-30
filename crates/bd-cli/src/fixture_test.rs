@@ -47,6 +47,8 @@ pub fn environment(cwd: &Path) -> Environment {
     remote_retry_delay: Some(std::time::Duration::ZERO),
     // no `teamcity` CLI: a test of `bd robot --full` writes a fake one
     teamcity: Some(cwd.join("no-teamcity")),
+    // a test survives no power loss: its commits of the object cache do not wait for the drive
+    flush_to_drive: false,
   }
 }
 

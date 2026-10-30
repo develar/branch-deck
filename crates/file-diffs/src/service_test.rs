@@ -4,7 +4,7 @@
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams};
 use crate::service::{DiffLimits, FileDiffs, priority_order};
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use object_cache::commit_files::FileStatus;
 use pretty_assertions::assert_eq;
 use std::fmt::Write as _;
@@ -67,7 +67,7 @@ fn text(file: &DiffFile) -> &TextDiff {
 }
 
 fn open_cache(dir: &tempfile::TempDir) -> ObjectCache {
-  ObjectCache::open_dir(dir.path(), &CacheConfig::default())
+  test_utils::process_budget::cache_in(dir.path())
 }
 
 fn commit(id: &str) -> DiffSource {

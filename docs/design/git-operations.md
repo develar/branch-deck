@@ -2792,7 +2792,12 @@ under `Default` (`file_diffs::blocks`).
   transaction in a loop. The sync stays: without it (`MDB_NOSYNC`) a power loss can leave a wrong but readable tree
   id in `merge_result`, and a check would build a branch from it (LMDB keeps its integrity without the sync only on a
   file system that keeps the order of writes, which APFS does not promise; LMDB stores no checksum).
-  `an_environment_syncs_every_commit` (`cache_test.rs`) pins it. Measured 2026-10-24 on the monorepo clone of `pnpm
+  `an_environment_syncs_every_commit` (`cache_test.rs`) pins it. Only a test opens the cache without it
+  (`CacheConfig::sync_commits` off: `bd` of the fixtures through `Environment::flush_to_drive`, `empty_cache` of
+  `test_utils::process_budget`, the tests of the crate), a value the app and `bd` never have: a test outlives no power
+  loss, and the thousands of commits of a full run in 20 processes at once queued at the drive, 66 s of the tests' time
+  (`the_environments_of_a_test_commit_without_a_flush`; [Fast Rust Tests](../contributing/rust-tests.md#beyond-the-processes)).
+  The first open of an environment in a process decides for every later handle of it. Measured 2026-10-24 on the monorepo clone of `pnpm
   perf:monorepo`: a write transaction of 20 entries takes 3.9-4.0 ms synced, 0.02 ms with `MDB_NOSYNC`, and as much
   with `MDB_NOMETASYNC` as synced (LMDB on macOS syncs the data with `F_FULLFSYNC` and writes the meta page with
   `O_DSYNC`, the cheap part); a command writes few transactions: a full sync 4, a cold `commits` 2, a cold `check` 7,

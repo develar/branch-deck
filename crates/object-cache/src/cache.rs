@@ -37,13 +37,13 @@
 //!   run, and are kept.
 //! - **A batch per transaction**: each commit syncs the file (`F_FULLFSYNC` on macOS) and takes the writer lock that
 //!   other processes wait for, so a caller writes what a phase learned at once, never one entry per transaction in a
-//!   loop (`sync_core::cache_memo::CacheMemo`).
+//!   loop (`sync_core::cache_memo::CacheMemo`). Only a test turns the sync off (`CacheConfig::sync_commits`).
 //! - **Every failure is a miss**: it is logged at debug level (an environment that cannot open at warning level) and
 //!   never fails the caller.
 
 use crate::semaphore_key;
 use heed::types::{Bytes, DecodeIgnore};
-use heed::{CommitOrAbort, CommitToken, Database, DatabaseOpener, Env, EnvOpenOptions, OnCommit, RoTxn, RwTxn, WithTls};
+use heed::{CommitOrAbort, CommitToken, Database, DatabaseOpener, Env, EnvFlags, EnvOpenOptions, OnCommit, RoTxn, RwTxn, WithTls};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -251,6 +251,12 @@ pub struct CacheConfig {
   pub conflict_map_size: usize,
   /// The version of each store, by `Store::index`: `Store::version`, or a newer one in a test
   pub(crate) versions: [u32; STORE_COUNT],
+  /// Whether a commit returns only once its pages are on the drive (`F_FULLFSYNC` on macOS, `fdatasync` on Linux,
+  /// `FlushFileBuffers` on Windows): always in the app and in `bd`, where a power loss must not leave a wrong but readable
+  /// entry. A test turns it off (`bd_core::context::Environment::flush_to_drive`): thousands of commits in 20 processes
+  /// at once queue at the drive, and a test survives no power loss. The first open of an environment in a process
+  /// decides for every later handle of it (`ENVS`)
+  pub sync_commits: bool,
 }
 
 impl Default for CacheConfig {
@@ -261,6 +267,7 @@ impl Default for CacheConfig {
       merge_map_size: DEFAULT_MERGE_MAP_SIZE,
       conflict_map_size: DEFAULT_CONFLICT_MAP_SIZE,
       versions: STORES.map(Store::version),
+      sync_commits: true,
     }
   }
 }
@@ -527,7 +534,7 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
   for environment in ENVIRONMENTS {
     let env_dir = environment.dir(dir);
     let stores: Vec<Store> = STORES.iter().copied().filter(|store| store.environment() == environment).collect();
-    let opened = open_env(&env_dir, environment.map_size(config)).and_then(|env| {
+    let opened = open_env(&env_dir, environment.map_size(config), config.sync_commits).and_then(|env| {
       let opened = open_databases(&env, environment, &stores, &config.versions)?;
       Ok((env, opened))
     });
@@ -547,6 +554,15 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
   Ok(Inner { envs, databases })
 }
 
+#[cfg(test)]
+impl ObjectCache {
+  /// The flags of each open environment (`mdb_env_get_flags`), in the order of `ENVIRONMENTS`
+  pub(crate) fn env_flags(&self) -> Vec<u32> {
+    let Some(inner) = &self.inner else { return Vec::new() };
+    inner.envs.iter().flatten().map(|env| env.get_flags().expect("the flags of an open environment")).collect()
+  }
+}
+
 /// Whether this process has the environment of `dir` open
 #[cfg(test)]
 pub(crate) fn is_env_open(dir: &Path) -> bool {
@@ -554,8 +570,9 @@ pub(crate) fn is_env_open(dir: &Path) -> bool {
   open_envs().get(&dir).is_some_and(|env| env.strong_count() > 0)
 }
 
-/// The environment of `dir`, the one of this process if it is open (`ENVS`)
-pub(crate) fn open_env(dir: &Path, map_size: usize) -> Result<EnvHandle, Box<dyn std::error::Error>> {
+/// The environment of `dir`, the one of this process if it is open (`ENVS`); a new one syncs each commit unless
+/// `sync_commits` is off (`CacheConfig::sync_commits`)
+pub(crate) fn open_env(dir: &Path, map_size: usize, sync_commits: bool) -> Result<EnvHandle, Box<dyn std::error::Error>> {
   std::fs::create_dir_all(dir)?;
   let dir = dir.canonicalize()?;
   let mut envs = open_envs();
@@ -568,10 +585,23 @@ pub(crate) fn open_env(dir: &Path, map_size: usize) -> Result<EnvHandle, Box<dyn
   let _opening = lock_opens(&dir)?;
   let open = || {
     semaphore_key::claim(&dir);
+    let mut options = EnvOpenOptions::new();
+    options.map_size(map_size).max_dbs(32);
+    if !sync_commits {
+      // SAFETY: the flags are set before the open. Without `MDB_WRITEMAP` LMDB writes its pages with `write`, so a crash
+      // of the process loses no commit (the pages are the kernel's) and a commit stays atomic; only a crash of the system
+      // may lose the last commits or, on a file system that reorders writes, leave a wrong entry, and only a test, which
+      // outlives no such crash, opens an environment so (`sync_commits`). On Windows `MDB_NOSYNC` skips
+      // `FlushFileBuffers` the same way
+      #[expect(unsafe_code, reason = "heed sets the flags of an LMDB environment through an unsafe call")]
+      unsafe {
+        options.flags(EnvFlags::NO_SYNC | EnvFlags::NO_META_SYNC);
+      }
+    }
     // SAFETY: `ENVS` holds the only `Env` of this directory in the process, and the files are only written by LMDB
     #[expect(unsafe_code, reason = "heed opens an LMDB environment through an unsafe call")]
     unsafe {
-      EnvOpenOptions::new().map_size(map_size).max_dbs(32).open(&dir)
+      options.open(&dir)
     }
   };
   let env = Arc::new(match open() {

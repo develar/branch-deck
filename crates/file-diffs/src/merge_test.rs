@@ -3,7 +3,7 @@
 
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{FileMerge, FileMergeEvent, GetFileMergesParams, GitConflictKind, MergeContent, MergeSide, MergeSource};
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -137,7 +137,7 @@ fn each_conflict_type_has_its_merge() {
 fn a_merge_costs_one_merge_tree_and_one_cat_file_then_nothing() {
   let (repo, source) = conflicts();
   let cache_dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(cache_dir.path());
   let diffs = unhurried();
   let counting = repo.git_executor().with_process_stats("test");
   let first = diffs.read_merges(&counting, &cache, &params(&repo, &source)).unwrap();

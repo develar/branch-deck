@@ -1,5 +1,4 @@
 use crate::commit_files::{CommitFiles, DiffSubject, parse_commit_files, read_commit_files, read_commit_files_cached, read_diff_files, read_files_from_base};
-use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::commit_files::{CommitFile, FileStatus};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -160,7 +159,7 @@ fn lists_the_files_of_each_tip_against_a_base() {
 fn reads_through_the_cache_once_per_commit() {
   let (repo, root, second) = repo_with_all_statuses();
   let cache_dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(cache_dir.path());
   run(&repo, &["commit", "-q", "--allow-empty", "-m", "Nothing"]);
   let empty = repo.head();
 

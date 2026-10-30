@@ -6,7 +6,7 @@ use crate::check::{CheckOutcome, check_plan};
 use domain_types::conflict::{ResolvedFileSummary, WordResolutionSummary};
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::git_test_utils::TestRepo;
@@ -212,7 +212,7 @@ async fn the_same_commits_give_the_same_copy_in_another_repository() {
   assert_eq!(first.head(), second.head());
   sync_events(&first).await;
   let dir = tempfile::tempdir().unwrap();
-  sync_events_with(second.git_executor(), &second, ObjectCache::open_dir(dir.path(), &CacheConfig::default())).await;
+  sync_events_with(second.git_executor(), &second, test_utils::process_budget::cache_in(dir.path())).await;
   assert_eq!(first.rev_parse(BETA).unwrap(), second.rev_parse(BETA).unwrap());
 }
 
@@ -253,7 +253,7 @@ fn checked_beta(repo: &TestRepo, cache: &ObjectCache) -> Option<String> {
 async fn a_check_resolves_as_the_sync_does() {
   let repo = repo_with_a_word_conflict();
   let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(dir.path());
   let head = checked_beta(&repo, &cache).expect("beta builds");
   assert_eq!(checked_beta(&repo, &cache), Some(head.clone()), "the remembered resolve gives the same commit");
   sync_events(&repo).await;

@@ -12,7 +12,7 @@ use git_ops::revs::{current_branch, repository_dirs, with_repository_dirs};
 use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
-use object_cache::cache::ObjectCache;
+use object_cache::cache::{CacheConfig, ObjectCache, cache_dir};
 use patronus::client::PATRONUS_URL;
 use patronus::token::TOKEN_ENV;
 use std::ffi::OsString;
@@ -76,6 +76,9 @@ pub struct Environment {
   pub remote_retry_delay: Option<Duration>,
   /// The `teamcity` CLI of `bd robot --full`; `None` looks it up as the app does (`known_tools::TEAMCITY`), and only then
   pub teamcity: Option<PathBuf>,
+  /// Whether a commit of the object cache reaches the drive before it returns (`CacheConfig::sync_commits`): always for
+  /// the user; a test, whose thousands of commits in 20 processes at once queue at the drive, writes without
+  pub flush_to_drive: bool,
 }
 
 impl Environment {
@@ -99,6 +102,7 @@ impl Environment {
       youtrack_token_file: app_data_dir().as_deref().map(token_file),
       remote_retry_delay: None,
       teamcity: None,
+      flush_to_drive: true,
     }
   }
 }
@@ -170,6 +174,9 @@ pub struct RepoContext {
   pub operation_id: OperationId,
   /// The object cache, opened by the first that asks: opening reads the database names of every environment
   cache: OnceLock<ObjectCache>,
+  /// The config `cache` opens with: the app's, its commits not waiting for the drive in a test
+  /// (`Environment::flush_to_drive`)
+  cache_config: CacheConfig,
   /// The blocks and the blobs of the scans of this command (`file_diffs`)
   file_diffs: OnceLock<FileDiffs>,
   /// The git config, read once (`config`)
@@ -226,6 +233,8 @@ impl RepoContext {
       ));
     }
 
+    let mut cache_config = CacheConfig::default();
+    cache_config.sync_commits = environment.flush_to_drive;
     Ok(Self {
       git,
       prefix: prefix.prefix,
@@ -233,6 +242,7 @@ impl RepoContext {
       short_ids: !options.full_ids,
       git_common_dir,
       use_cache: !options.no_cache,
+      cache_config,
       lock_timeout: environment.lock_timeout,
       patronus_new_api: environment.settings.patronus_new_api,
       operation_id: OperationId::new(),
@@ -366,7 +376,7 @@ impl RepoContext {
       .cache
       .get_or_init(|| {
         if self.use_cache {
-          ObjectCache::open(&self.git_common_dir)
+          ObjectCache::open_dir(&cache_dir(&self.git_common_dir), &self.cache_config)
         } else {
           ObjectCache::disabled()
         }

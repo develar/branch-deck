@@ -2,7 +2,7 @@ use crate::robot_stats::{LIST_TTL_SECONDS, MAX_RUNS_PER_READ, RobotStatsReads, R
 use domain_types::calendar::Calendar;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::robot_stats::{RobotStatsEvent, RobotStatsResult, StatsPeriod};
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use patronus::fake_patronus::{FakePatronus, robot_json, start_fake};
 use patronus::service::PatronusService;
 use patronus::token::{Token, TokenLookup, TokenStamp};
@@ -40,7 +40,7 @@ async fn setup(token: bool) -> Setup {
     }
   });
   let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(dir.path());
   Setup { fake, service, cache, _dir: dir }
 }
 

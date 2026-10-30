@@ -6,7 +6,7 @@ use git_ops::merge_memo::{MergeMemo, MergeOutcome, MergeTrees};
 use history_rewrite::issue_groups::ISSUE_GROUPS;
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::test_commit;
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use object_cache::merge_result::{MergeKey, MergeResult};
 use pretty_assertions::assert_eq;
 use std::sync::{Mutex, mpsc};
@@ -33,7 +33,7 @@ fn plan(branches: &[(&str, &[&String])]) -> RegroupPlan {
 }
 
 fn cache(dir: &tempfile::TempDir) -> ObjectCache {
-  ObjectCache::open_dir(dir.path(), &CacheConfig::default())
+  test_utils::process_budget::cache_in(dir.path())
 }
 
 fn check(repo: &TestRepo, plan: Option<&RegroupPlan>, cache: &ObjectCache) -> Result<CheckReport, RegroupError> {

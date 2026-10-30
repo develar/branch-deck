@@ -61,14 +61,23 @@ pub fn alpha_and_beta_on_origin() -> (TestRepo, Vec<String>) {
   (repo, commits)
 }
 
-/// An empty object cache in a temporary directory, which the cache needs while it is open
+/// The object cache in `dir` as a test opens it: the app's config, its commits not waiting for the drive
+/// (`CacheConfig::sync_commits`), as those of `bd` in a test (`Environment::flush_to_drive`)
+#[must_use]
+pub fn cache_in(dir: &std::path::Path) -> ObjectCache {
+  let mut config = CacheConfig::default();
+  config.sync_commits = false;
+  ObjectCache::open_dir(dir, &config)
+}
+
+/// An empty object cache in a temporary directory, which the cache needs while it is open (`cache_in`)
 ///
 /// # Panics
 /// When no temporary directory can be created
 #[must_use]
 pub fn empty_cache() -> (tempfile::TempDir, ObjectCache) {
   let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  let cache = cache_in(dir.path());
   (dir, cache)
 }
 

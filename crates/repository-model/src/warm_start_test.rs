@@ -10,7 +10,6 @@ use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus, Patronus
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
-use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 
 pub(crate) fn key() -> SessionKey {
@@ -76,7 +75,7 @@ pub(crate) fn answered_facts() -> FactStore {
 #[test]
 fn a_frame_reads_back_from_the_object_cache_as_it_was_written() {
   let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(dir.path());
   let state = synced_state();
   let frame = frame_of(&key(), &state, &answered_facts());
   write_frame(&cache, &frame);

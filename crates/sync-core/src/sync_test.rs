@@ -8,7 +8,7 @@ use git_ops::commit_list::get_commit_list;
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits};
 use indexmap::IndexMap;
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use test_log::test;
@@ -976,7 +976,7 @@ async fn a_remembered_conflict_is_the_one_the_analysis_made() -> anyhow::Result<
   assert_eq!(analysed["MergeConflict"]["conflictAnalysis"]["missingCommits"][0]["branch"], "a");
 
   let dir = tempfile::tempdir()?;
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(dir.path());
   assert_eq!(conflict_of_b(&git_executor, &test_repo, &cache).await, analysed, "analysed and remembered");
   let counting = GitCommandExecutor::new().with_process_stats("test");
   assert_eq!(conflict_of_b(&counting, &test_repo, &cache).await, analysed, "remembered");

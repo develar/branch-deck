@@ -1,7 +1,7 @@
 use crate::landed_test::bd;
 use crate::robot_list::{IDLE_TTL_SECONDS, LIST_OVERLAP_SECONDS, RUNNING_TTL_SECONDS, RobotSource, read_robots_at};
 use bd_cli::remote_fixture_test::{Space, robot};
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use patronus::client::PatronusClient;
 use patronus::fake_patronus::{FakePatronus, robot_json, start_fake};
 use patronus::service::PatronusService;
@@ -34,7 +34,7 @@ impl Fixture {
       fake,
       client,
       token: Arc::new(Mutex::new(token("t"))),
-      cache: ObjectCache::open_dir(dir.path(), &CacheConfig::default()),
+      cache: test_utils::process_budget::cache_in(dir.path()),
       space: SpaceRepository {
         project_key: "ij".to_string(),
         name: "ultimate".to_string(),

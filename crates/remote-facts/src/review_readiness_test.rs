@@ -3,7 +3,7 @@ use domain_types::patronus::{
   BranchReviewReadiness, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState,
 };
 use domain_types::pull_request::{Reviewer, ReviewerState};
-use object_cache::cache::{CacheConfig, ObjectCache};
+use object_cache::cache::ObjectCache;
 use object_cache::review_answer::ReviewAnswer;
 use patronus::fake_patronus::{FakePatronus, start_fake};
 use patronus::service::PatronusService;
@@ -50,7 +50,7 @@ async fn setup() -> Setup {
     })
   });
   let cache_dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
+  let cache = test_utils::process_budget::cache_in(cache_dir.path());
   Setup {
     repo,
     tip,
