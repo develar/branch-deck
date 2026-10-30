@@ -387,7 +387,9 @@ The whole stack is an object of its own in the app, beside its branches, named "
 
 - **Stacked pull requests into the parent's branch.** Each pull request shows only its own commits.
   - *Why not:* Patronus doesn't count their approvals and can't start from them, so every landing goes through the API
-    without approvals, or waits for retargets after each parent lands.
+    without approvals, or waits for retargets after each parent lands. GitHub's own stacks, whose layers master's
+    rules judge and whose merge lands a piece in one move, are the design of the routes without Patronus:
+    [Stacks of GitHub](github-stacks.md) (Draft).
 - **Root first: the Safe Push of a child leads to the Safe Push of its root.** Each branch lands after the one it is
   built on, its own start a muted alternative.
   - *Why not:* one robot per branch, hours each, and each landing rebuilds the children on master and force-pushes
