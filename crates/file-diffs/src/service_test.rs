@@ -444,3 +444,33 @@ fn the_work_takes_the_files_in_view_then_the_tree_order_with_directories_first_a
   let ordered: Vec<&str> = order.into_iter().map(|index| paths[index]).collect();
   assert_eq!(ordered, ["b.txt", "a/b/c.txt", "a/z.txt", "a.txt", "File2.txt", "file10.txt"]);
 }
+
+/// A block whose changed lines are import statements or blank, on each side, is a block of the imports alone, a
+/// statement over several lines too; one with a line of code beside them is not, nor a block of a file of no language
+#[test]
+fn a_block_of_import_statements_alone_is_marked_by_the_syntax() {
+  let kotlin = |imports: &str, body: &str| format!("package a\n\n{imports}\nclass A {{\n  fun run() = {body}\n}}\n");
+  let rust = |imports: &str| format!("use std::collections::{{\n{imports}}};\n\nfn f() {{}}\n");
+  let repo = TestRepo::new();
+  repo.create_commit_with_files(
+    "Initial",
+    &[("A.kt", &kotlin("import b.Old\n", "1")), ("lib.rs", &rust("  HashMap,\n")), ("notes.txt", "import x\n")],
+  );
+  let second = repo.create_commit_with_files(
+    "Imports",
+    &[
+      ("A.kt", &kotlin("import b.New\nimport b.Other\n", "2")),
+      ("lib.rs", &rust("  HashMap,\n  HashSet,\n")),
+      ("notes.txt", "import y\n"),
+    ],
+  );
+  let files = unhurried()
+    .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&second), WhitespacePolicy::Default)
+    .unwrap();
+  // Kotlin: the imports, then the body
+  let a = text(file(&files, "A.kt"));
+  assert_eq!((a.blocks.len(), a.import_blocks.as_slice()), (2, &[0][..]));
+  // a line inside a Rust `use` list over several lines
+  assert_eq!(text(file(&files, "lib.rs")).import_blocks, [0]);
+  assert_eq!(text(file(&files, "notes.txt")).import_blocks, Vec::<u32>::new());
+}

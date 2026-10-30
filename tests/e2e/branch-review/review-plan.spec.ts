@@ -473,6 +473,29 @@ test.describe("The review plan in the branch review", () => {
     await expect(window.getByTestId("diff-view")).toContainText("class Beta")
   })
 
+  test("should play down a block of the imports alone in the diff of a file of real work, and pass it with N", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    // Base.kt gets an import above its function and a function below it: two blocks, the first of the imports alone
+    await repo.commit("(plan) add other", { "src/Base.kt": "import kotlin.math.max\n\nfun outsider(value: Int) = helper(value)\n\nfun other() = max(1, 2)\n" }, 1704124800)
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Base.kt", "src/Store.kt"])
+    const base = window.locator('[data-testid="diff-view-file"][data-path="src/Base.kt"]')
+    await expect(base).toContainText("import kotlin.math.max")
+    // the import is pale, as whitespace alone; the new function is not
+    await expect(base.locator('[data-tint="whitespace"]')).toHaveCount(2)
+
+    // from the top of Base.kt, N passes the imports: the function, then Store.kt
+    const position = window.getByTestId("branch-review-position")
+    await window.getByRole("treeitem", { name: "Base.kt" }).click()
+    await expect(position).toHaveText(/File 3 \/ 4$/)
+    await window.getByTestId("commit-review-code").locator("[aria-label='Changes of the commit']").focus()
+    await window.keyboard.press("n")
+    await expect(position).toHaveText(/File 3 \/ 4$/)
+    await window.keyboard.press("n")
+    await expect(position).toHaveText(/File 4 \/ 4$/)
+  })
+
   test("should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
     await setupPlan(repo, { experimental: true })

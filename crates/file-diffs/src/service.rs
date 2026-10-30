@@ -28,7 +28,7 @@ use anyhow::{Result, bail};
 use code_symbols::extract::{extractor_version, summarize};
 use code_symbols::highlight::lines::LineRuns;
 use code_symbols::language::{Language, language_of};
-use code_symbols::summary::FileSummary;
+use code_symbols::summary::{FileSummary, LineSpan};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, for_each_object};
 use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cached};
@@ -45,12 +45,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_utils::span::in_current_span;
 use text_diff::cancellation::Deadline;
-use text_diff::model::{DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts};
+use text_diff::model::{BlockKind, DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts};
 use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument};
 
 /// The version of the diffs in the `file_diff` store: bump it when `TextDiff`, the comparison or the scopes change
-pub const MODEL_VERSION: u32 = 4;
+pub const MODEL_VERSION: u32 = 5;
 
 /// The diffs that memory keeps, weighed by the size of their model
 pub const DIFF_CACHE_BYTES: u64 = 64 << 20;
@@ -244,10 +244,16 @@ impl FileDiffs {
         headers = files;
       }
       FileDiffEvent::Content { index, content } => contents[index as usize] = Some(content),
-      FileDiffEvent::Scopes { index, old_scopes, new_scopes } => {
+      FileDiffEvent::Scopes {
+        index,
+        old_scopes,
+        new_scopes,
+        import_blocks,
+      } => {
         if let Some(DiffContent::Text(diff)) = &mut contents[index as usize] {
           diff.old_scopes = old_scopes;
           diff.new_scopes = new_scopes;
+          diff.import_blocks = import_blocks;
         }
       }
     })?;
@@ -614,16 +620,22 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
     if old_side.is_some() || new_side.is_some() {
       // the blocks first: the parse of the scopes costs more than the comparison
       send(content_event(DiffContent::Text(diff.clone())));
-      if let Some((language, id)) = old_side {
-        diff.old_scopes = scopes(context.summaries, language, id, old_text, &mut summaries);
-      }
-      if let Some((language, id)) = new_side {
-        diff.new_scopes = scopes(context.summaries, language, id, new_text, &mut summaries);
-      }
+      let old_imports = old_side.map(|(language, id)| {
+        let (scopes, imports) = side_facts(context.summaries, language, id, old_text, &mut summaries);
+        diff.old_scopes = scopes;
+        imports
+      });
+      let new_imports = new_side.map(|(language, id)| {
+        let (scopes, imports) = side_facts(context.summaries, language, id, new_text, &mut summaries);
+        diff.new_scopes = scopes;
+        imports
+      });
+      diff.import_blocks = import_blocks(&diff, [old_text, new_text], [old_imports.as_deref(), new_imports.as_deref()]);
       send(Outcome::Event(FileDiffEvent::Scopes {
         index: to_u32(index),
         old_scopes: diff.old_scopes.clone(),
         new_scopes: diff.new_scopes.clone(),
+        import_blocks: diff.import_blocks.clone(),
       }));
       context.service.diffs.insert(key.clone(), Arc::new(DiffContent::Text(diff.clone())));
       send(Outcome::Store {
@@ -646,16 +658,57 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
 
 /// The scopes of a side: from its cached summary, else from a summary made now, kept for the store unless truncated
 pub(crate) fn scopes(summaries: &HashMap<(u8, String), FileSummary>, language: Language, id: &str, text: &str, made: &mut Vec<((u8, String), FileSummary)>) -> Vec<Scope> {
+  side_facts(summaries, language, id, text, made).0
+}
+
+/// The scopes and the lines of the import statements of a side (`scopes`); no lines of a truncated summary
+fn side_facts(
+  summaries: &HashMap<(u8, String), FileSummary>,
+  language: Language,
+  id: &str,
+  text: &str,
+  made: &mut Vec<((u8, String), FileSummary)>,
+) -> (Vec<Scope>, Vec<LineSpan>) {
   let key = (language.id(), id.to_string());
   if let Some(summary) = summaries.get(&key) {
-    return scopes_of_summary(summary);
+    return (scopes_of_summary(summary), summary.import_lines.clone());
   }
   let summary = summarize(language, text.as_bytes());
-  let scopes = scopes_of_summary(&summary);
+  let facts = (scopes_of_summary(&summary), summary.import_lines.clone());
   if !summary.truncated {
     made.push((key, summary));
   }
-  scopes
+  facts
+}
+
+/// The blocks of `diff` whose every changed line of each side is in an import statement of that side (`imports`, the
+/// lines of a side's statements; `None` for a side of no known language) or blank, with a line of a statement at least
+pub(crate) fn import_blocks(diff: &TextDiff, texts: [&str; 2], imports: [Option<&[LineSpan]>; 2]) -> Vec<u32> {
+  let lines: [Vec<&str>; 2] = texts.map(|text| text.split('\n').collect());
+  // per side, by 0-based line: in a statement, blank, else code
+  let kind = |side: usize, line: u32| -> Option<bool> {
+    let text = lines[side].get(line as usize).copied().unwrap_or_default();
+    if imports[side]?.iter().any(|span| span.start <= line + 1 && line < span.end) {
+      return Some(true);
+    }
+    text.trim().is_empty().then_some(false)
+  };
+  diff
+    .blocks
+    .iter()
+    .enumerate()
+    .filter(|(_, block)| block.kind != BlockKind::Ignored)
+    .filter(|(_, block)| {
+      let changed = [(0, block.old_start..block.old_end), (1, block.new_start..block.new_end)];
+      let kinds: Option<Vec<bool>> = changed
+        .into_iter()
+        .flat_map(|(side, range)| range.map(move |line| (side, line)))
+        .map(|(side, line)| kind(side, line))
+        .collect();
+      kinds.is_some_and(|kinds| kinds.contains(&true))
+    })
+    .map(|(index, _)| to_u32(index))
+    .collect()
 }
 
 /// The indices of `paths` in the order of the work: the `priority_paths` that the subject has, in their order, then the

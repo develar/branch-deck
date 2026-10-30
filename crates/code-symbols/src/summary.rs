@@ -23,6 +23,9 @@ pub struct FileSummary {
   /// The interned names, sorted; every `u32` name below indexes here
   pub names: Vec<String>,
   pub imports: Vec<Import>,
+  /// The lines of the import and package statements, in source order: what a change of the imports alone changes. A
+  /// Rust `pub use` and a TypeScript `export … from` pass names on, so they are none
+  pub import_lines: Vec<LineSpan>,
   /// In source order; `container` indexes into this list
   pub declarations: Vec<Declaration>,
   /// Sorted by name, line, role, qualifier, container, shape and receiver type, without duplicates
@@ -37,6 +40,13 @@ pub struct FileSummary {
   /// ran out of `PARSE_BUDGET`. Such a summary has no imports, declarations or references, so a caller must not take
   /// it for a file without them, and must not cache it.
   pub truncated: bool,
+}
+
+/// Lines of a text, 1-based, both ends included
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineSpan {
+  pub start: u32,
+  pub end: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

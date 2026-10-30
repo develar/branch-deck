@@ -142,7 +142,9 @@ empty last row and a fold counts only real lines.
 ranges draws its lines pale (the change colour mixed 0.6 with the background) and its ranges in the full colour. A
 block without inner ranges (`lineLevelOnly`, or ranges dropped) draws its lines in the full colour. A
 `whitespaceOnly` block draws its lines pale with nothing strong. So a re-indent under `Default` shows pale lines with
-the indentation in the full colour.
+the indentation in the full colour. A review with its plan (`DiffViewFile::quietImports`) draws a block of the imports
+alone (`TextDiff::import_blocks`, from the syntax: each changed line an import or a package statement, or blank) as a
+`whitespaceOnly` one.
 
 **Types.** The cells take IntelliJ's diff types (`row-cells.ts`, the colours in [UI Theme](ui-theme.md#diffs)). Split
 types a block by its sides, inserted, deleted or modified, and its inner ranges by their own `RangeKind`
@@ -531,7 +533,8 @@ layout, so the scroll lands exactly at once:
 - A change goes to its first row, with its 4 rows of context visible below the sticky header.
 
 The targets of N and P are the `block` segments, so N and P skip an `ignored` block and a collapsed file. A
-`whitespaceOnly` block is a target: it is pale, and it counts, as in IntelliJ.
+`whitespaceOnly` block is a target: it is pale, and it counts, as in IntelliJ. A block of the imports alone that a
+review plays down (`quietImports`) is not: it is pale, and N and P pass it.
 They are `FileRows.changeStarts`. The rule of the review stays: after a scroll that the view made, the file
 at the top changes the selection only after a wheel, touch, pointer or key event.
 

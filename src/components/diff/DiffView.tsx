@@ -59,6 +59,8 @@ export interface DiffViewFile {
   pending?: boolean
   /** Why the review folds the file ("Imports only", "Same edit as Reader.kt"): it starts collapsed, its header says why */
   folded?: string
+  /** The review plays down the blocks of the imports alone: pale, and N and P pass them (`buildFileRows`) */
+  quietImports?: boolean
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -231,7 +233,7 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
   const text = diff?.content.kind === "text" ? diff.content : null
   // an added or a deleted file shows its one side, as IntelliJ's one-sided viewer: no empty half beside it in Split
   const oneSide = diff === undefined ? null : oneSideOf(diff)
-  const rows = text === null ? null : buildFileRows(text, fileLayoutOf(mode, oneSide), folds.get(text) ?? getFoldLevels(text))
+  const rows = text === null ? null : buildFileRows(text, fileLayoutOf(mode, oneSide), folds.get(text) ?? getFoldLevels(text), entry.quietImports)
   const digits = String(Math.max(text?.oldLineCount ?? 0, text?.newLineCount ?? 0, 1)).length
   // without a header nothing collapses: the row above the view is the header
   const collapsed = toggled !== null && !pending && (startsCollapsed(file, diff) || entry.folded !== undefined) !== toggled.has(file.path)

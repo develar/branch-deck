@@ -89,7 +89,7 @@ describe("loadFileDiffs", () => {
     await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "b.kt")).toMatchObject({ path: "b.kt", content: text }))
     setFoldLevels(text, [3])
     const scopes = [{ startLine: 0, endLine: 10, label: "class B" }]
-    events().onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: scopes })
+    events().onmessage({ kind: "scopes", index: 1, oldScopes: [], newScopes: scopes, importBlocks: [] })
     end()
     await settle()
     const labelled = fileDiffOf(entryOf(subject), "b.kt")

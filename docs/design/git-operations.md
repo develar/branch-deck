@@ -3009,7 +3009,9 @@ git plumbing does not depend on.
   hunk headers of a view. They come from the summary of the blob in the `blob_summary` store, which the sync of the
   branches made already for most commits. A side without one is parsed (`code_symbols::extract::summarize`), and its
   summary goes to the store. The parse costs more than the comparison (8.1 s against 0.9 s over 300 commits of Branch
-  Deck, one thread), so the `content` of a text goes out before its `scopes`.
+  Deck, one thread), so the `content` of a text goes out before its `scopes`. The same event carries the blocks of
+  the imports alone (`import_blocks`): each changed line of each side in an import or package statement of the
+  summary (`FileSummary::import_lines`) or blank, which a review with its plan plays down.
 - **Caches.** A diff is keyed by its blob pair, the whitespace policy and the languages of the scopes. Blobs never
   change, so one entry serves every commit, range and window that shows the pair. Memory first (64 MiB), then the
   `file_diff` store (`MODEL_VERSION`). The store never keeps a diff that the time cut short; memory keeps it for

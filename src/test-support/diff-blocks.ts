@@ -11,7 +11,7 @@ export function textDiff(
   oldLineCount: number,
   newLineCount: number,
   blocks: DiffBlock[],
-  { oldScopes = [], newScopes = [], emptyLastLine = false }: { oldScopes?: Scope[]; newScopes?: Scope[]; emptyLastLine?: boolean } = {},
+  { oldScopes = [], newScopes = [], emptyLastLine = false, importBlocks = [] }: { oldScopes?: Scope[]; newScopes?: Scope[]; emptyLastLine?: boolean; importBlocks?: number[] } = {},
 ): TextDiff {
   return {
     oldLineCount,
@@ -23,6 +23,7 @@ export function textDiff(
     emptyLastLine: { old: emptyLastLine, new: emptyLastLine },
     lineLevelOnly: false,
     blocks,
+    importBlocks,
     oldScopes,
     newScopes,
   }

@@ -211,6 +211,7 @@ pub(crate) static SPEC: Spec = Spec {
 };
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  w.import_statement(node);
   if let Some(path) = node.named_children(&mut node.walk()).find_map(|it| w.path_of(it)) {
     w.set_package(path.join("."));
   }
@@ -218,6 +219,7 @@ fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
 }
 
 fn import<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  w.import_statement(node);
   let Some(segments) = node.named_children(&mut node.walk()).find(|it| !w.is(*it, "asterisk")).and_then(|it| w.path_of(it)) else {
     return false;
   };

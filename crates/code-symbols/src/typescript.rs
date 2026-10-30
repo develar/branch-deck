@@ -225,6 +225,7 @@ fn module_specifier<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<String> {
 }
 
 fn import<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  w.import_statement(node);
   let specifier = module_specifier(w, node);
   let mut cursor = node.walk();
   let children: Vec<Node<'t>> = node.named_children(&mut cursor).collect();

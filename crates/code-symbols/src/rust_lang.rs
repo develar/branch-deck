@@ -498,6 +498,10 @@ fn field<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
 fn use_declaration<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   let Some(argument) = w.field(node, "argument") else { return false };
   let reach = reach(w, node);
+  // a `pub use` passes the names on: no import statement alone
+  if !is_exported(reach) {
+    w.import_statement(node);
+  }
   let mut stack: Vec<(Node<'t>, Vec<&'t str>)> = vec![(argument, Vec::new())];
   while let Some((item, prefix)) = stack.pop() {
     if w.is(item, "use_list") {

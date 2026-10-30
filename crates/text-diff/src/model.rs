@@ -45,6 +45,9 @@ pub struct TextDiff {
   /// The declarations of the old text, for the labels of the hunks; empty when not known
   pub old_scopes: Vec<Scope>,
   pub new_scopes: Vec<Scope>,
+  /// The blocks, by index, whose every changed line of each side is an import or a package statement or blank: a change
+  /// of the imports alone, from the syntax of the texts; empty when not known
+  pub import_blocks: Vec<u32>,
 }
 
 /// A block of changed lines
@@ -201,6 +204,7 @@ pub fn diff_texts(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffB
     blocks,
     old_scopes: Vec::new(),
     new_scopes: Vec::new(),
+    import_blocks: Vec::new(),
   }
 }
 

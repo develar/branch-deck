@@ -528,7 +528,14 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
           )
     return withEngineCounts(files, diffs).map(file => {
       const why = folded?.get(file.path)
-      return { file, diff: byPath.get(file.path), pending: !diffsComplete && !byPath.has(file.path), ...(why !== undefined && { folded: why }) }
+      // with the plan, the blocks of the imports alone are played down too
+      return {
+        file,
+        diff: byPath.get(file.path),
+        pending: !diffsComplete && !byPath.has(file.path),
+        ...(why !== undefined && { folded: why }),
+        ...(reviewFacts !== null && { quietImports: true }),
+      }
     })
   }, [diffs, diffsComplete, files, reviewFacts])
   const showWindow = useCallback(() => {

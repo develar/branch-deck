@@ -87,6 +87,7 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
         blocks,
         oldScopes: [],
         newScopes: [{ startLine: 0, endLine: spec.lines, label: `class File${fileIndex}` }],
+        importBlocks: [],
       },
     },
     blobs,

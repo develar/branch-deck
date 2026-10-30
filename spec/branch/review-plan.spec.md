@@ -17,6 +17,8 @@ targets:
   - ../../crates/trial-check/src/symbol_scan.rs
   - ../../crates/file-diffs/src/accio.rs
   - ../../crates/file-diffs/src/outside_place.rs
+  - ../../crates/file-diffs/src/service.rs
+  - ../../src/lib/diff/rows.ts
   - ../../crates/app-api/src/reads/symbols.rs
   - ../../crates/git-ops/src/reviewed_refs.rs
   - ../../crates/git-ops/src/carried_review.rs
@@ -566,6 +568,14 @@ the repeated edits and the new API.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/lib/file-tree.test.ts (`folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last`, `starts with the Mechanical group collapsed, and opens it to reveal a file in it`, `copies the paths of a group, which has no path of its own`)
   [@test] ../../src/presenters/review-plan.test.ts (`names the Mechanical group and its groups by kind`)
+- In the diffs of a file of real work, a block whose every changed line of each side is an import or a package
+  statement or blank (`TextDiff::import_blocks`, from the syntax of the texts: the import and package statements of
+  Kotlin, Java, Rust and TypeScript, a Rust `pub use` and a TypeScript `export … from` none) must be pale, as a change
+  of whitespace alone, and N and P must pass it. A block with a line of code beside them is a change as any.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should play down a block of the imports alone in the diff of a file of real work, and pass it with N`)
+  [@test] ../../src/lib/diff/rows.test.ts (`plays down a block of the imports alone in a review: pale, and N and P pass it; elsewhere it is a change as any`)
+  [@test] ../../crates/file-diffs/src/service_test.rs (`a_block_of_import_statements_alone_is_marked_by_the_syntax`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`the_import_lines_are_the_import_and_package_statements`)
 - The dependency changes of a build file must show on the directory row whose chain holds the directory of the build
   file, else on the row of the build file (one at the root, or a module whose only change is its build file):
   `+N deps −M ~K`, `new module`, `deleted module`. Its tooltip must list each change, a changed version as

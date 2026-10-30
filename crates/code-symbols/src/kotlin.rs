@@ -294,6 +294,7 @@ fn file_annotation<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
 }
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  w.import_statement(node);
   if let Some(name) = w.child(node, Child::Kind(&["identifier"])) {
     let segments = segments(w, name);
     w.set_package(segments.join("."));
@@ -365,6 +366,7 @@ fn segments<'t>(w: &Walk<'t>, identifier: Node<'t>) -> Vec<&'t str> {
 }
 
 fn import<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  w.import_statement(node);
   let Some(identifier) = w.child(node, Child::Kind(&["identifier"])) else { return false };
   let segments = segments(w, identifier);
   let line = line_of(node);

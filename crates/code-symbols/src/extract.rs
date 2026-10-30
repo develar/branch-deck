@@ -32,7 +32,7 @@
 //!   summary, unlike a wall-clock timeout. Either gives a `truncated` summary.
 
 use crate::language::Language;
-use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
+use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 17;
+pub const RULES_VERSION: u32 = 18;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -65,6 +65,7 @@ pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u
     jvm_name: None,
     names: Vec::new(),
     imports: Vec::new(),
+    import_lines: Vec::new(),
     declarations: Vec::new(),
     references: Vec::new(),
     shapes: Vec::new(),
@@ -673,6 +674,7 @@ pub(crate) struct Walk<'t> {
   package: Option<String>,
   jvm_name: Option<String>,
   imports: Vec<Import>,
+  import_lines: Vec<LineSpan>,
   declarations: Vec<Declaration>,
   references: Vec<Reference>,
   frames: Vec<Frame<'t>>,
@@ -720,6 +722,7 @@ impl<'t> Walk<'t> {
       package: None,
       jvm_name: None,
       imports: Vec::new(),
+      import_lines: Vec::new(),
       declarations: Vec::new(),
       references: Vec::new(),
       frames: Vec::new(),
@@ -1644,6 +1647,7 @@ impl<'t> Walk<'t> {
     summary.package = self.package;
     summary.jvm_name = self.jvm_name;
     summary.imports = self.imports;
+    summary.import_lines = self.import_lines;
     summary.declarations = self.declarations;
     summary.references = self.references;
     summary.shapes = self.shapes;
@@ -1992,6 +1996,14 @@ impl<'t> Walk<'t> {
 
   pub(crate) fn add_import(&mut self, import: Import) {
     self.imports.push(import);
+  }
+
+  /// The lines of an import or package statement, `node`
+  pub(crate) fn import_statement(&mut self, node: Node<'t>) {
+    self.import_lines.push(LineSpan {
+      start: line_of(node),
+      end: end_line_of(node),
+    });
   }
 
   /// `import a.b.C as D`, `use a::b::C as D`: the `Import` of `name` under `path`, and the `Import` reference to it

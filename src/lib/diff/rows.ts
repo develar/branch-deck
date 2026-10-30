@@ -68,7 +68,8 @@ export type Row = LineRow | FoldRow
 type Item =
   /** Lines equal on every side, from `starts` */
   | { kind: "equal"; starts: readonly number[]; count: number }
-  | { kind: "block"; block: DiffBlock; index: number }
+  /** A block of a diff; `quiet` for a block of the imports alone that a review plays down */
+  | { kind: "block"; block: DiffBlock; index: number; quiet: boolean }
   /** A block of a merge: its lines on each side, from `starts` */
   | { kind: "merge"; block: MergeBlock; index: number; starts: readonly number[]; counts: readonly number[] }
 
@@ -117,7 +118,7 @@ function pushEqual(items: Item[], starts: readonly number[], count: number): voi
  * The items of a diff in order: runs of equal lines and the blocks; an ignored block with equal sides is equal text.
  * The empty last line that the engine counts and no block touches is left out.
  */
-function itemsOf(diff: TextDiff): Item[] {
+function itemsOf(diff: TextDiff, quiet: ReadonlySet<number>): Item[] {
   const items: Item[] = []
   let oldLine = 0
   let newLine = 0
@@ -126,7 +127,7 @@ function itemsOf(diff: TextDiff): Item[] {
     if (block.kind === "ignored" && block.oldEnd - block.oldStart === block.newEnd - block.newStart) {
       pushEqual(items, [block.oldStart, block.newStart], block.newEnd - block.newStart)
     } else {
-      items.push({ kind: "block", block, index })
+      items.push({ kind: "block", block, index, quiet: quiet.has(index) })
     }
     oldLine = block.oldEnd
     newLine = block.newEnd
@@ -216,7 +217,8 @@ function itemRow(item: Item, row: number, mode: RowsMode): LineRow {
   const { block, index } = item
   const deletions = block.oldEnd - block.oldStart
   const additions = block.newEnd - block.newStart
-  const tint = tintOf(block)
+  // a block of the imports alone is pale, as one of whitespace alone
+  const tint = item.quiet ? "whitespace" : tintOf(block)
   const at = (kind: LineRowKind, lines: readonly (number | null)[]): LineRow => ({ kind, lines, block: index, blockRow: row, blockRows: itemRowCount(item, mode), tint })
   if (mode === "split") {
     return at(block.kind === "ignored" ? "ignored" : "changed", [row < deletions ? block.oldStart + row : null, row < additions ? block.newStart + row : null])
@@ -303,10 +305,12 @@ interface Labels {
 /**
  * The rows of a file's diff in a mode. The gaps between the changes fold as IntelliJ's `FoldingModelSupport` nests
  * them: at `levels[gap]` 0, 1 and 2 they keep 4, 8 and 16 lines next to each change, at `EXPANDED` all. A file
- * without a change has no rows.
+ * without a change has no rows. With `quietImports` (the review plan), a block of the imports alone (`importBlocks`
+ * of Rust) is pale and N and P pass it.
  */
-export function buildFileRows(diff: TextDiff, mode: DiffViewMode, levels: ArrayLike<number> = []): FileRows {
-  return rowsOf(itemsOf(diff), mode, levels, { scopes: [diff.oldScopes, diff.newScopes], order: [NEW, OLD] })
+export function buildFileRows(diff: TextDiff, mode: DiffViewMode, levels: ArrayLike<number> = [], quietImports = false): FileRows {
+  const quiet = new Set(quietImports ? diff.importBlocks : [])
+  return rowsOf(itemsOf(diff, quiet), mode, levels, { scopes: [diff.oldScopes, diff.newScopes], order: [NEW, OLD] })
 }
 
 /** The rows of a file's merge in three columns: left, the middle (`middle`), right. The gaps between the blocks fold as in a diff. */
@@ -345,7 +349,10 @@ function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number
       }
       const change = changes[index]
       if (change !== undefined) {
-        changeStarts.push(rowCount)
+        // N and P pass a block of the imports alone
+        if (!(change.kind === "block" && change.quiet)) {
+          changeStarts.push(rowCount)
+        }
         push({ kind: "lines", item: change, from: 0, count: itemRowCount(change, mode) }, itemRowCount(change, mode))
       }
     })

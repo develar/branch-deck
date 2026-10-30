@@ -18,7 +18,7 @@ const stream = createFileStream<DiffFileHeader, DiffContent, FileDiff, FileDiffE
   if (file.content.kind !== "text") {
     return null
   }
-  const content: DiffContent = { ...file.content, oldScopes: event.oldScopes, newScopes: event.newScopes }
+  const content: DiffContent = { ...file.content, oldScopes: event.oldScopes, newScopes: event.newScopes, importBlocks: event.importBlocks }
   // the same diff with its labels: the lines it expanded stay expanded
   setFoldLevels(content, getFoldLevels(file.content))
   return { ...file, content }

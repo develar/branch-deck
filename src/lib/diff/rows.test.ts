@@ -180,6 +180,16 @@ describe("buildFileRows", () => {
     expect(rows.changeStarts.map(start => describeRow(rowAt(rows, start)))).toEqual(["-5", "-30"])
   })
 
+  it("plays down a block of the imports alone in a review: pale, and N and P pass it; elsewhere it is a change as any", () => {
+    const diff = textDiff(40, 40, [block(2, 3, 2, 3), block(20, 21, 20, 21)], { importBlocks: [0] })
+    const quiet = buildFileRows(diff, "unified", [EXPANDED, EXPANDED, EXPANDED], true)
+    expect(quiet.changeStarts.map(start => describeRow(rowAt(quiet, start)))).toEqual(["-20"])
+    // the first row of the block of the imports, after the two lines above it
+    expect(describeRow(rowAt(quiet, 2))).toBe("-2 whitespace")
+    const plain = buildFileRows(diff, "unified", [EXPANDED, EXPANDED, EXPANDED])
+    expect(plain.changeStarts.map(start => describeRow(rowAt(plain, start)))).toEqual(["-2", "-20"])
+  })
+
   it("finds each row from its segment, and keeps the fold levels of a diff object", () => {
     const rows = buildFileRows(ONE_CHANGE, "unified")
     expect(rows.segmentStarts.at(-1)).toBe(rows.rowCount)

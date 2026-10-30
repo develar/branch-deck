@@ -127,8 +127,8 @@ flowchart TD
 - **Budget.** A side over `MAX_INNER_LINES` (20,000) or `MAX_INNER_BYTES` (1 MiB), or an inner comparison out of
   time (`DiffBudget::inner`), gives `line_level_only`: the comparison runs again by line, and the blocks stay exact.
   When the line comparison runs out of time too (`DiffBudget::lines`), the diff is one block of both whole texts.
-  `old_scopes` and `new_scopes` stay empty here: the file-diffs service fills them ([Git Operations](git-operations.md),
-  "File diffs").
+  `old_scopes`, `new_scopes` and `import_blocks` stay empty here: the file-diffs service fills them from the summaries
+  of the texts ([Git Operations](git-operations.md), "File diffs").
 - **Proof.** A property test checks, under every policy and with and without inner ranges, that the blocks partition
   both texts, that the lines between them are equal under `Default`, that each range is inside its line, and that the
   counts are the lines of the blocks.

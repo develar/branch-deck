@@ -2689,8 +2689,8 @@ export type FileDiffEvent =
  *  of the same file fills later: the parse costs more than the comparison
  */
 { kind: "content"; index: number; content: DiffContent } | 
-/**  The scopes of the text of a file, for the labels of its hunks */
-{ kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[] };
+/**  The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone */
+{ kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[]; importBlocks: number[] };
 
 /**  The facts of a changed file */
 export type FileFacts = {
@@ -7674,6 +7674,11 @@ export type TextDiff = {
 	/**  The declarations of the old text, for the labels of the hunks; empty when not known */
 	oldScopes: Scope[],
 	newScopes: Scope[],
+	/**
+	 *  The blocks, by index, whose every changed line of each side is an import or a package statement or blank: a change
+	 *  of the imports alone, from the syntax of the texts; empty when not known
+	 */
+	importBlocks: number[],
 };
 
 /**  The merge of three texts */

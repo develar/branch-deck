@@ -5,7 +5,7 @@ use crate::test_support::{check_golden, declaration, fixture, render, summary_of
 
 /// The value for the grammars and rules of this build. A change of `RULES_VERSION` or of a grammar version changes it:
 /// replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 3_224_653_507;
+const EXTRACTOR_VERSION: u32 = 4_182_194_800;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -225,4 +225,24 @@ fn every_language_gives_declarations_and_references() {
     assert_eq!(declaration(&summary, declared).kind, DeclKind::Type, "{name}");
     assert!(summary.references_to(used).any(|it| it.role == Role::Type || it.role == Role::Value), "{name}");
   }
+}
+
+/// The lines of the import and package statements, a statement over several lines whole; a Rust `pub use` passes its
+/// names on and is none
+#[test]
+fn the_import_lines_are_the_import_and_package_statements() {
+  let spans = |language: Language, text: &str| -> Vec<(u32, u32)> { summarize(language, text.as_bytes()).import_lines.iter().map(|span| (span.start, span.end)).collect() };
+  assert_eq!(spans(Language::Kotlin, "package a.b\n\nimport a.C\nimport a.D as E\n\nclass F\n"), [(1, 1), (3, 3), (4, 4)]);
+  assert_eq!(
+    spans(Language::Java, "package a;\n\nimport a.C;\nimport static a.D.*;\n\nclass F {}\n"),
+    [(1, 1), (3, 3), (4, 4)]
+  );
+  assert_eq!(
+    spans(Language::Rust, "use std::collections::{\n  HashMap,\n  HashSet,\n};\npub use crate::b::C;\n\nfn f() {}\n"),
+    [(1, 4)]
+  );
+  assert_eq!(
+    spans(Language::TypeScript, "import {\n  a,\n  b,\n} from \"./m\"\nimport c from \"c\"\n\nexport const d = 1\n"),
+    [(1, 4), (5, 5)]
+  );
 }

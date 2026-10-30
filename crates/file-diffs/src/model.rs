@@ -86,9 +86,14 @@ pub enum FileDiffEvent {
   /// The content of a file. A `TextDiff` that the caches did not have comes with empty scopes, which a `scopes` event
   /// of the same file fills later: the parse costs more than the comparison
   Content { index: u32, content: DiffContent },
-  /// The scopes of the text of a file, for the labels of its hunks
+  /// The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone
   #[serde(rename_all = "camelCase")]
-  Scopes { index: u32, old_scopes: Vec<Scope>, new_scopes: Vec<Scope> },
+  Scopes {
+    index: u32,
+    old_scopes: Vec<Scope>,
+    new_scopes: Vec<Scope>,
+    import_blocks: Vec<u32>,
+  },
 }
 
 /// What the views show of a file

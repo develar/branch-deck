@@ -30,6 +30,7 @@ function fileOf(target: DeclarationTarget): DiffViewFile {
       blocks: [{ oldStart: 0, oldEnd: 0, newStart: 0, newEnd: lineCount, kind: "changed", inlinePairs: false, oldRanges: [], newRanges: [] }],
       oldScopes: [],
       newScopes: [],
+      importBlocks: [],
     },
   }
   return {
