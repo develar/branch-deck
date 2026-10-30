@@ -10,10 +10,16 @@
 //! - **An entry** has a kind, a name, a version (`Cargo.toml`, `package.json`), a scope and its section. Before and
 //!   after, the entries of one kind and name pair first by their section, then in their order. A pair is `Changed`
 //!   when its version or its scope differs; the rest are `Added` or `Removed`.
+//! - **The module** of a manifest is the name of an `*.iml`, the `id` of a plugin descriptor (else the name of the
+//!   file), the `package.name` of a `Cargo.toml` or the `name` of a `package.json`, else the name of its directory. A
+//!   `Cargo.toml` or `package.json` at the root of the repository without a name, a workspace, is the module `(root)`:
+//!   no crate or package name has parentheses.
 //! - **A new manifest** is a `NewModule` entry `Added`, a deleted one a `NewModule` entry `Removed`.
 //! - **The state** of a manifest tells `files::mechanical_kind` whether only its dependencies changed: its parsed form
 //!   without the entries (the remainder) is the same, and each entry of a pair is the same but for its version and
-//!   scope. A manifest that a side does not parse (no text, a syntax error) has no change and is `Unparsed`.
+//!   scope (`Entry::form`). A version bump together with a new feature of a crate is a `Changed` entry, and the
+//!   manifest changed beside its dependencies. A manifest that a side does not parse (no text, a syntax error) has no
+//!   change and is `Unparsed`.
 //! - **The text** comes with the text of the hunks (`manifest_blobs`): from the memory of the diffs, else in the batch
 //!   of the summaries.
 
@@ -88,7 +94,8 @@ pub struct DependencyChange {
   /// The build file, at its last path
   pub manifest: String,
   /// The module of the build file: the name of an `*.iml`, the `id` of a plugin descriptor (else its name), the
-  /// `package.name` of a `Cargo.toml` or the `name` of a `package.json` (else the name of its directory)
+  /// `package.name` of a `Cargo.toml` or the `name` of a `package.json` (else the name of its directory, `(root)` at the
+  /// root of the repository)
   pub module: String,
   pub kind: DependencyKind,
   /// The module, library, plugin, crate or package; of a `NewModule`, the module
@@ -179,8 +186,8 @@ struct Entry {
   scope: DependencyScope,
   /// The table or element it is in: entries of one kind and name pair first by it
   section: String,
-  /// Its whole form: a pair whose form differs beside its version and scope changed more than its dependency
-  raw: String,
+  /// Its form without its version and scope: a pair whose form differs changed more than its dependency
+  form: String,
 }
 
 /// A manifest without its entries
@@ -282,7 +289,7 @@ struct EntryChange {
 struct EntryDiff {
   /// By kind, then name
   changes: Vec<EntryChange>,
-  /// A pair whose form changed beside its version and scope
+  /// A pair whose form or table changed beside its version and scope
   other: bool,
 }
 
@@ -294,7 +301,8 @@ struct Sides<'a> {
 }
 
 /// The changes from `before` to `after`: the entries of one kind and name pair first by their section, then in their
-/// order; a pair is `Changed` when its version or scope differs
+/// order; a pair is `Changed` when its version or scope differs, and changed beside them when its form differs, or its
+/// section in the same scope
 fn diff_entries(before: &[Entry], after: &[Entry]) -> EntryDiff {
   let mut groups: BTreeMap<(DependencyKind, &str), Sides<'_>> = BTreeMap::new();
   for entry in before {
@@ -335,13 +343,14 @@ fn diff_entries(before: &[Entry], after: &[Entry]) -> EntryDiff {
       scope_before,
     };
     for (old, new) in pairs {
+      if old.form != new.form || (old.section != new.section && old.scope == new.scope) {
+        diff.other = true;
+      }
       if old.version != new.version || old.scope != new.scope {
         let scope_before = (old.scope != new.scope).then_some(old.scope);
         diff
           .changes
           .push(entry(DependencyChangeKind::Changed, new.scope, old.version.clone(), new.version.clone(), scope_before));
-      } else if old.raw != new.raw || old.section != new.section {
-        diff.other = true;
       }
     }
     for old in olds {
@@ -370,9 +379,14 @@ fn file_stem(path: &str) -> &str {
   name.rsplit_once('.').map_or(name, |(stem, _)| stem)
 }
 
-/// The name of the directory of `path`; at the root, `path`
+/// The module of a manifest at the root of the repository without a name
+const ROOT_MODULE: &str = "(root)";
+
+/// The name of the directory of `path`; at the root, `ROOT_MODULE`
 fn directory_name(path: &str) -> &str {
-  path.rsplit_once('/').map_or(path, |(directory, _)| directory.rsplit('/').next().unwrap_or(directory))
+  path
+    .rsplit_once('/')
+    .map_or(ROOT_MODULE, |(directory, _)| directory.rsplit('/').next().unwrap_or(directory))
 }
 
 /// An element of an XML document, its attributes sorted
@@ -417,15 +431,20 @@ impl Element {
 
   /// Its form, the same for the same element whatever the order of its attributes and its whitespace
   fn canonical(&self) -> String {
+    self.canonical_without(None)
+  }
+
+  /// Its form without its attribute `skipped`
+  fn canonical_without(&self, skipped: Option<&str>) -> String {
     let mut out = String::new();
-    self.write_canonical(&mut out);
+    self.write_canonical(&mut out, skipped);
     out
   }
 
-  fn write_canonical(&self, out: &mut String) {
+  fn write_canonical(&self, out: &mut String, skipped: Option<&str>) {
     out.push('<');
     out.push_str(&self.name);
-    for (key, value) in &self.attributes {
+    for (key, value) in self.attributes.iter().filter(|(key, _)| Some(key.as_str()) != skipped) {
       out.push(' ');
       out.push_str(key);
       out.push_str("=\"");
@@ -435,7 +454,7 @@ impl Element {
     out.push('>');
     for child in &self.children {
       match child {
-        Node::Element(element) => element.write_canonical(out),
+        Node::Element(element) => element.write_canonical(out, None),
         Node::Text(text) => out.push_str(text),
       }
     }
@@ -521,7 +540,7 @@ fn iml_entry(element: &Element) -> Option<Entry> {
     version: None,
     scope: iml_scope(scope),
     section: scope.unwrap_or("COMPILE").to_string(),
-    raw: element.canonical(),
+    form: element.canonical_without(Some("scope")),
   })
 }
 
@@ -566,7 +585,7 @@ fn plugin_entry(container: &str, element: &Element) -> Option<Entry> {
     version: None,
     scope: DependencyScope::Main,
     section: container.to_string(),
-    raw: element.canonical(),
+    form: element.canonical(),
   })
 }
 
@@ -600,7 +619,7 @@ fn parse_plugin(path: &str, text: &str) -> Parsed {
         version: None,
         scope: DependencyScope::Main,
         section: "depends".to_string(),
-        raw: element.canonical(),
+        form: element.canonical(),
       });
       false
     }
@@ -628,10 +647,15 @@ fn take_cargo_entries(table: &mut toml::Table, key: &str, section: &str, scope: 
   }
   let Some(toml::Value::Table(dependencies)) = table.remove(key) else { return };
   for (name, value) in dependencies {
-    let version = match &value {
-      toml::Value::String(version) => Some(version.clone()),
-      toml::Value::Table(fields) => fields.get("version").and_then(toml::Value::as_str).map(str::to_string),
-      _ => None,
+    // a plain version and a table of the version alone have the same form
+    let (version, form) = match value {
+      toml::Value::String(version) => (Some(version), String::new()),
+      toml::Value::Table(mut fields) => {
+        let version = fields.remove("version").and_then(|version| version.as_str().map(str::to_string));
+        let form = if fields.is_empty() { String::new() } else { toml::Value::Table(fields).to_string() };
+        (version, form)
+      }
+      other => (None, other.to_string()),
     };
     entries.push(Entry {
       kind: DependencyKind::Crate,
@@ -639,7 +663,7 @@ fn take_cargo_entries(table: &mut toml::Table, key: &str, section: &str, scope: 
       version,
       scope,
       section: section.to_string(),
-      raw: value.to_string(),
+      form,
     });
   }
 }
@@ -705,7 +729,7 @@ fn parse_npm(path: &str, text: &str) -> Parsed {
         version: value.as_str().map(str::to_string),
         scope,
         section: key.to_string(),
-        raw: value.to_string(),
+        form: if value.is_string() { String::new() } else { value.to_string() },
       });
     }
   }

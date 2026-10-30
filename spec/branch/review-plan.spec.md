@@ -252,7 +252,7 @@ the files: a file that declares what another uses before it, a test right after 
   changed ("Dependency Changes"). One that changed beside them, a new one, and one that a side does not parse must
   stay real work. One whose entries and remainder did not change is read as any other file. An `*.iml` that does not
   parse must stay real work too.
-  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_entries_of_an_iml_are_its_dependency_changes`, `the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`, `the_dependencies_of_a_package_json_are_its_dependency_changes`, `the_dependencies_and_the_content_of_a_plugin_descriptor_are_its_dependency_changes`)
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_entries_of_an_iml_are_its_dependency_changes`, `the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`, `the_dependencies_of_a_package_json_are_its_dependency_changes`, `the_dependencies_and_the_content_of_a_plugin_descriptor_are_its_dependency_changes`, `a_new_version_with_new_features_keeps_the_manifest_in_the_tree`)
 - Else, from the text of every hunk of every commit that changes it: `renamed` when each change is a rename with no
   line added or removed; `whitespace` when each hunk has the same text without its whitespace, line ends included, so
   a line wrapped or joined too; `importsOnly` when, in a source file, each other hunk has only blank lines and lines
@@ -308,10 +308,17 @@ the files: a file that declares what another uses before it, a test right after 
 - The entries of a `package.json` must be those of `dependencies`, `devDependencies` and `peerDependencies`. Its
   module is its `name`, else the name of its directory.
   [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_dependencies_of_a_package_json_are_its_dependency_changes`)
+- A `Cargo.toml` or a `package.json` at the root of the repository without a name must have the module `(root)`. A
+  root workspace manifest is the usual case. No crate or package name has parentheses, so the label is unique.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`a_new_version_with_new_features_keeps_the_manifest_in_the_tree`)
 - Before and after, the entries of one kind and name must pair first by their table, then in their order. A pair
   whose version or scope differs must be one `changed` entry with both versions. It has `scope_before` when the scope
   differs. An entry without a pair is `added` or `removed`.
   [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_entries_of_an_iml_are_its_dependency_changes`, `the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`, `the_dependencies_of_a_package_json_are_its_dependency_changes`)
+- A pair must count as a change beside the dependencies when its form without the version and the scope differs, or
+  when it moves to another table of the same scope. This applies also to a `changed` pair: a new version together
+  with new features of a crate is a `changed` entry, and its build file stays real work.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`a_new_version_with_new_features_keeps_the_manifest_in_the_tree`, `the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`)
 - A build file the commits add must be one `newModule` entry `added`, named by its module. A build file the commits
   delete must be one `newModule` entry `removed`.
   [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`)
@@ -475,7 +482,9 @@ the files: a file that declares what another uses before it, a test right after 
 - An `*.iml` that parses is `buildModel` by its name, also when more than its entries changed. Its dependency
   changes still show.
 - A dependency change that is no version or scope stays out of `dependencies`, such as the features of a crate,
-  `exported` or `optional`. Its build file then stays real work.
+  `exported` or `optional`. Its build file then stays real work, also when the same entry gets a new version.
+- An entry that moves to another table of the same scope gives no entry, such as a crate that moves into a
+  `target` table, or a `depends` that becomes a `dependencies` `plugin`. Its build file stays real work.
 - `optionalDependencies` of a `package.json`, `[patch]` of a `Cargo.toml` and an unnamed module library of an
   `*.iml` are part of the remainder: a change of them keeps the build file real work, with no entry.
 - A plugin descriptor is told by its path and its root: an `idea-plugin` elsewhere is no build file.

@@ -1696,7 +1696,8 @@ export type DependencyChange = {
 	manifest: string,
 	/**
 	 *  The module of the build file: the name of an `*.iml`, the `id` of a plugin descriptor (else its name), the
-	 *  `package.name` of a `Cargo.toml` or the `name` of a `package.json` (else the name of its directory)
+	 *  `package.name` of a `Cargo.toml` or the `name` of a `package.json` (else the name of its directory, `(root)` at the
+	 *  root of the repository)
 	 */
 	module: string,
 	kind: DependencyKind,

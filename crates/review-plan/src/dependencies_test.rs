@@ -185,6 +185,68 @@ fn the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes() {
   );
 }
 
+const WORKSPACE: &str = "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.dependencies]\nserde = \"1.0.1\"\n";
+
+/// A new version together with new features of the same entry is a `changed` entry, and the `Cargo.toml` stays in
+/// the tree. A workspace `Cargo.toml` and a `package.json` at the root without a name are the module `(root)`; a new
+/// version of a workspace dependency alone is of the build model
+#[test]
+fn a_new_version_with_new_features_keeps_the_manifest_in_the_tree() {
+  let tokio = CARGO_A.replace(
+    "tokio = { version = \"1\", features = [\"rt\"] }",
+    "tokio = { version = \"2\", features = [\"rt\", \"net\"] }",
+  );
+  let plan = plan_of_change(
+    &[
+      ("Cargo.toml", WORKSPACE),
+      ("package.json", "{\n  \"private\": true,\n  \"devDependencies\": { \"vite\": \"^6.0.0\" }\n}\n"),
+      ("crates/a/Cargo.toml", CARGO_A),
+    ],
+    &[
+      ("Cargo.toml", Some(&WORKSPACE.replace("1.0.1", "1.0.2"))),
+      ("package.json", Some("{\n  \"private\": true,\n  \"devDependencies\": { \"vite\": \"^7.0.0\" }\n}\n")),
+      ("crates/a/Cargo.toml", Some(&tokio)),
+    ],
+  );
+  let version = |before: &str, after: &str, scope: DependencyScope, change: DependencyChange| DependencyChange {
+    version_before: Some(before.to_string()),
+    version_after: Some(after.to_string()),
+    scope,
+    ..change
+  };
+  assert_eq!(
+    plan.dependencies,
+    [
+      version(
+        "1",
+        "2",
+        DependencyScope::Main,
+        change("crates/a/Cargo.toml", "a", DependencyKind::Crate, "tokio", DependencyChangeKind::Changed)
+      ),
+      version(
+        "1.0.1",
+        "1.0.2",
+        DependencyScope::Main,
+        change("Cargo.toml", "(root)", DependencyKind::Crate, "serde", DependencyChangeKind::Changed)
+      ),
+      version(
+        "^6.0.0",
+        "^7.0.0",
+        DependencyScope::Dev,
+        change("package.json", "(root)", DependencyKind::Package, "vite", DependencyChangeKind::Changed)
+      ),
+    ]
+  );
+  assert_eq!(
+    mechanical(&plan),
+    [
+      ("Cargo.toml", Some(MechanicalKind::BuildModel)),
+      ("crates/a/Cargo.toml", None),
+      ("package.json", Some(MechanicalKind::BuildModel)),
+    ]
+  );
+}
+
 const PACKAGE_JSON: &str = r#"{
   "name": "web",
   "version": "1.0.0",
