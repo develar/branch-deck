@@ -9,7 +9,7 @@ use crate::operation::{operation, run_blocking};
 use crate::transport::Call;
 use domain_types::error::ApiError;
 use file_diffs::accio::{AccioCli, SymbolIndex};
-use file_diffs::model::{FindDeclarationParams, FoundDeclarations, FoundUsages};
+use file_diffs::model::{DeclarationTarget, FindDeclarationParams, FoundDeclarations, FoundUsages, OutsidePlaceParams};
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -54,6 +54,13 @@ pub async fn find_usages(ctx: &AppContext, call: &Call, params: FindDeclarationP
     file_diffs.find_usages(&git, index.as_deref(), &params)
   })
   .await
+}
+
+/// A place outside the review at a revision (`FileDiffs::outside_place`): no index, two `cat-file` at most
+#[instrument(skip_all, fields(path = %params.path, line = params.line))]
+pub async fn get_outside_place(ctx: &AppContext, params: OutsidePlaceParams) -> Result<Option<DeclarationTarget>, ApiError> {
+  let (git, file_diffs) = (ctx.git.clone(), ctx.file_diffs.clone());
+  run_blocking(move || file_diffs.outside_place(&git, &params)).await
 }
 
 /// Supersedes the search of the window of `call`

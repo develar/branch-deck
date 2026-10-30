@@ -22,7 +22,10 @@ import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 /** The files whose headers show while the diffs of a review are read */
 const PENDING_HEADERS = 12
 
-export type CommitReviewCodeHandle = DiffViewHandle
+export interface CommitReviewCodeHandle extends DiffViewHandle {
+  /** Opens a file outside the review over it, at the place of `target` */
+  openOutside: (target: DeclarationTarget) => void
+}
 
 export interface CommitReviewCodeProps {
   ref?: Ref<CommitReviewCodeHandle>
@@ -75,6 +78,7 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
       setFileViews([])
       return review.current?.revealDeclaration(place, from) ?? false
     },
+    openOutside: target => openFile(target, null),
   }))
   const inReview = useSymbolNavigation(files, revisions, openFile)
   const shownFile = fileViews.at(-1)?.target

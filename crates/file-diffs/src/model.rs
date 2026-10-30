@@ -146,6 +146,19 @@ pub struct FindDeclarationParams {
   pub revisions: DiffRevisions,
 }
 
+/// The parameters of `get_outside_place`: a place outside the review at a revision, by its path and its line from 1, and
+/// the name there to select (`outside_place.rs`)
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct OutsidePlaceParams {
+  pub repository_path: String,
+  pub revision: String,
+  pub path: String,
+  pub line: u32,
+  pub name: Option<String>,
+}
+
 /// The commits a review compares: the old side (the parent, the base of a range) and the new one
 #[derive(Debug, Clone, Default, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

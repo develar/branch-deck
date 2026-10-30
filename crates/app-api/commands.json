@@ -101,6 +101,11 @@
     "transport": "json"
   },
   {
+    "name": "get_outside_place",
+    "class": "read",
+    "transport": "json"
+  },
+  {
     "name": "get_review_plan",
     "class": "read",
     "transport": "json"

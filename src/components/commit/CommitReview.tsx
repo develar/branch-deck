@@ -12,6 +12,7 @@ import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { SelectReviewFileContext } from "@/hooks/useSelectReviewFile"
+import type { ReviewNavigator } from "@/hooks/useSelectReviewFile"
 import type { CommitFile, DiffRevisions, MechanicalKind } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -23,12 +24,14 @@ import { buildFileTree, buildReviewTree, dependencyRows, flattenTreeFiles, getIn
 import type { FileTreeNode } from "@/lib/file-tree"
 import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPlace } from "@/lib/review-place"
+import { readOutsidePlace } from "@/lib/review-plan"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges, presentFoldedFiles } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
+import { getDiffRepositoryPath } from "@/stores/repository"
 import { setReviewSidebar, useAppSettings } from "@/stores/settings/appSettings"
 import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 
@@ -566,6 +569,24 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     [files, select, onRevealHidden],
   )
 
+  // a use the change left outside: its file at the head of the review opens over it
+  const revision = loaded?.revisions.new ?? null
+  const showOutside = useCallback(
+    (place: ReviewPlace) => {
+      const repositoryPath = getDiffRepositoryPath()
+      if (repositoryPath === undefined || revision === null) {
+        return
+      }
+      void readOutsidePlace(repositoryPath, revision, place).then(target => {
+        if (target !== null) {
+          code.current?.openOutside(target)
+        }
+      })
+    },
+    [revision],
+  )
+  const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside }), [selectChangedFile, showOutside])
+
   // the badges of the review plan
   const badges = useMemo<FileTreeBadges | null>(() => {
     if (reviewFacts === null) {
@@ -679,7 +700,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         <ResizablePanel id="code" minSize="40">
           <div className="flex h-full flex-col">
             {/* a filter that hides every file keeps the card: a click reveals the file */}
-            <SelectReviewFileContext value={loaded === null && !filesRead ? null : selectChangedFile}>{codeTop}</SelectReviewFileContext>
+            <SelectReviewFileContext value={loaded === null && !filesRead ? null : navigator}>{codeTop}</SelectReviewFileContext>
             {loaded === null ? (
               <div className="min-h-0 flex-1 overflow-y-auto">{message}</div>
             ) : viewFiles === null ? (

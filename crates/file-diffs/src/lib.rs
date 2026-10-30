@@ -10,6 +10,7 @@ pub mod blocks;
 pub mod declarations;
 mod merge;
 pub mod model;
+mod outside_place;
 pub mod patch;
 pub mod range_files;
 mod scopes;
@@ -28,6 +29,8 @@ mod declarations_test;
 mod fixture_test;
 #[cfg(test)]
 mod merge_test;
+#[cfg(test)]
+mod outside_place_test;
 #[cfg(test)]
 mod patch_test;
 #[cfg(test)]

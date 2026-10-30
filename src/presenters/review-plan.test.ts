@@ -127,7 +127,8 @@ describe("the possible breakage of the card", () => {
         after: null,
         outside: "7 uses left outside",
         inside: null,
-        sites: ["src/b/Client.kt:1", "src/b/Client.kt:2", "src/b/Client.kt:3", "src/b/Client.kt:4", "src/b/Client.kt:5"],
+        // each at its place at the head, the name of the API selected there
+        sites: [1, 2, 3, 4, 5].map(line => ({ label: `src/b/Client.kt:${line}`, place: { path: "src/b/Client.kt", side: "new", line, name: "open" } })),
         moreSites: "+2 more",
       },
       {
@@ -142,7 +143,10 @@ describe("the possible breakage of the card", () => {
         after: "fun helper(value:Int, scale:Int)",
         outside: "2 uses left outside",
         inside: "1 use updated in this change",
-        sites: ["src/Base.kt:1", "src/Uses.kt:4"],
+        sites: [
+          { label: "src/Base.kt:1", place: { path: "src/Base.kt", side: "new", line: 1, name: "helper" } },
+          { label: "src/Uses.kt:4", place: { path: "src/Uses.kt", side: "new", line: 4, name: "helper" } },
+        ],
         moreSites: null,
       },
     ])

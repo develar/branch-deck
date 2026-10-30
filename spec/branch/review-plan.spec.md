@@ -16,6 +16,8 @@ targets:
   - ../../crates/trial-check/src/symbol_dependencies.rs
   - ../../crates/trial-check/src/symbol_scan.rs
   - ../../crates/file-diffs/src/accio.rs
+  - ../../crates/file-diffs/src/outside_place.rs
+  - ../../crates/app-api/src/reads/symbols.rs
   - ../../crates/git-ops/src/reviewed_refs.rs
   - ../../crates/git-ops/src/carried_review.rs
   - ../../crates/trial-check/src/diff_scan.rs
@@ -504,6 +506,13 @@ the repeated edits and the new API.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API whose every use is updated, and keeps an unknown or incomplete count listed, also at 0`)
+- A click on a site of the uses left outside must open its file at the head of the review over the diffs, as Go to
+  Declaration opens a declaration outside the review, at the line of the use with the name of the API selected
+  (`get_outside_place`: one `cat-file --batch-check` and one `cat-file --batch`, no index); a file or a line the head
+  lacks says "Cannot open src/main/App.kt:9" with "The head of the review has no such line". An entry of the card
+  shown in the review closes the file over it.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
+  [@test] ../../crates/file-diffs/src/outside_place_test.rs (`a_use_outside_the_review_opens_at_its_line_with_its_name_selected`)
 - "Dependencies" must list the dependency changes per build file in Rust's order, under the module and the path of
   the build file: a changed version as `1.0.1 → 1.0.2`, a new or deleted module. Under them it must list the links
   the commits added between the files of two modules (`new_between_modules`: `Reader.kt → Cache.kt`, with the names

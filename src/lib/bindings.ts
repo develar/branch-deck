@@ -83,6 +83,11 @@ export const commands = {
 	 */
 	findUsages: (params: FindDeclarationParams) => typedError<FoundUsages, ApiError>(__TAURI_INVOKE("find_usages", { params })),
 	/**
+	 *  A place outside the review at a revision (`file_diffs::outside_place`), a use the review plan left outside: its
+	 *  file as the view of a declaration outside the review opens it, at the line, the name selected
+	 */
+	getOutsidePlace: (params: OutsidePlaceParams) => typedError<DeclarationTarget | null, ApiError>(__TAURI_INVOKE("get_outside_place", { params })),
+	/**
 	 *  The plan of a review (spec/branch/review-plan.spec.md, Status: Experimental): what changed in a branch since it was
 	 *  marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
 	 *  from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
@@ -4339,6 +4344,18 @@ export type OutsideFile = {
 	blobId: string,
 	/**  The lines of its text, as the view counts them */
 	lineCount: number,
+};
+
+/**
+ *  The parameters of `get_outside_place`: a place outside the review at a revision, by its path and its line from 1, and
+ *  the name there to select (`outside_place.rs`)
+ */
+export type OutsidePlaceParams = {
+	repositoryPath: string,
+	revision: string,
+	path: string,
+	line: number,
+	name: string | null,
 };
 
 /**  A package manager that installs and updates a CLI */

@@ -10,6 +10,7 @@ import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpe
 import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { closeToast } from "../helpers/toast-helpers"
 
 // the `symbol_navigation` template (src/Store.kt with the top-level `helper`, the commit of `nav`), then the branch
 // `plan` of a terminal: `helper` takes a scale (a changed declaration that src/Base.kt and others use), then
@@ -146,8 +147,19 @@ test.describe("The review plan in the branch review", () => {
     await expect(newApi.getByTestId("review-plan-new-api-file")).toHaveCount(0)
     await captureHtmlSnapshot(card, "review-plan-card")
 
-    // an entry selects its file and shows its declaration, the name selected
+    // a use left outside opens its file at the head over the review, the name selected; one the head lacks says so
+    const fileView = window.getByTestId("declaration-file-view")
+    await helper.getByTestId("review-plan-site").filter({ hasText: "src/Base.kt:1" }).click()
+    await expect(fileView).toContainText("outside the review")
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Base.kt" })
+    await helper.getByTestId("review-plan-site").filter({ hasText: "src/main/App.kt:9" }).click()
+    const missing = window.locator("[data-slot=toast]", { hasText: "Cannot open src/main/App.kt:9" })
+    await expect(missing).toContainText("The head of the review has no such line")
+    await closeToast(missing)
+
+    // an entry selects its file and shows its declaration, the name selected, over a file opened outside the review
     await helper.getByTestId("review-plan-breakage-file").click()
+    await expect(fileView).toBeHidden()
     await expect(store).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
     await newApi.getByRole("button", { name: /New API/ }).click()

@@ -168,9 +168,13 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
   )
 }
 
-/** A removed or changed API: its kind and name select its file; its forms before and after, then the uses left outside */
+/**
+ * A removed or changed API: its kind and name show its declaration; its forms before and after, then the uses left
+ * outside, each opening its file at the head of the review
+ */
 function BreakageItem({ entry }: { entry: BreakageEntry }) {
-  const sites = entry.moreSites === null ? entry.sites : [...entry.sites, entry.moreSites]
+  const navigator = useSelectReviewFile()
+  const titles = [...entry.sites.map(site => site.label), ...(entry.moreSites === null ? [] : [entry.moreSites])]
   return (
     <li className="flex min-w-0 flex-col" data-testid="review-plan-breakage-entry" data-name={entry.name} data-path={entry.path}>
       <div className="flex min-w-0 items-center gap-2">
@@ -194,9 +198,30 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
           {`+ ${entry.after}`}
         </code>
       )}
-      {(sites.length > 0 || entry.inside !== null) && (
-        <span className="truncate pl-3 text-xs text-muted-foreground" title={sites.join("\n")} data-testid="review-plan-sites">
-          {[sites.join(" · "), entry.inside].filter(part => part !== null && part !== "").join(" · ")}
+      {(titles.length > 0 || entry.inside !== null) && (
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 pl-3 text-xs text-muted-foreground" title={titles.join("\n")} data-testid="review-plan-sites">
+          {[
+            ...entry.sites.map(site => (
+              <button
+                key={site.label}
+                type="button"
+                className="rounded-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline"
+                disabled={navigator === null}
+                data-testid="review-plan-site"
+                data-path={site.place.path}
+                onClick={() => navigator?.showOutside(site.place)}
+              >
+                {site.label}
+              </button>
+            )),
+            ...[entry.moreSites, entry.inside].filter(part => part !== null).map(part => <span key={part}>{part}</span>),
+          ].map((part, index) => (
+            // the parts apart as the line of a list: "src/Base.kt:1 · src/Uses.kt:4 · 1 use updated in this change"
+            <span key={part.key} className="flex items-baseline gap-x-1.5">
+              {index > 0 && <span aria-hidden="true">·</span>}
+              {part}
+            </span>
+          ))}
         </span>
       )}
     </li>
@@ -222,16 +247,16 @@ function Folded({ title, count, testId, children }: { title: string; count?: num
  * outside a review
  */
 function FileButton({ place, title, testId = "review-plan-file", children }: { place: ReviewPlace; title: string; testId?: string; children: ReactNode }) {
-  const select = useSelectReviewFile()
+  const navigator = useSelectReviewFile()
   return (
     <button
       type="button"
       className="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline"
       title={title}
-      disabled={select === null}
+      disabled={navigator === null}
       data-testid={testId}
       data-path={place.path}
-      onClick={() => select?.(place)}
+      onClick={() => navigator?.show(place)}
     >
       {children}
     </button>

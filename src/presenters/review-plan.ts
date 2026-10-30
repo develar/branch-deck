@@ -126,8 +126,8 @@ export interface BreakageEntry {
   readonly outside: string
   /** "2 uses updated in this change"; null for none or an unknown count */
   readonly inside: string | null
-  /** The first uses left outside, "src/Base.kt:1", then "+4 more" when Rust found more */
-  readonly sites: readonly string[]
+  /** The first uses left outside, "src/Base.kt:1", each at its place at the head, then "+4 more" when Rust found more */
+  readonly sites: readonly { readonly label: string; readonly place: ReviewPlace }[]
   readonly moreSites: string | null
 }
 
@@ -155,7 +155,7 @@ function breakageEntry(change: ApiChange): BreakageEntry {
     after: change.kind === "removed" ? null : change.after,
     outside: formatOutsideUses(usages),
     inside: usages === null || usages.inside === 0 ? null : `${formatUses(usages.inside)} updated in this change`,
-    sites: usages?.outsideSites.map(site => `${site.path}:${site.line}`) ?? [],
+    sites: usages?.outsideSites.map(site => ({ label: `${site.path}:${site.line}`, place: { path: site.path, side: "new", line: site.line, name: change.name } })) ?? [],
     moreSites: more > 0 ? `+${more} more` : null,
   }
 }

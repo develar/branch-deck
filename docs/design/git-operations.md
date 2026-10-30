@@ -3018,17 +3018,19 @@ git plumbing does not depend on.
   have the id.
 - **Go to Declaration** ([Symbol Navigation](../../spec/commit/symbol-navigation.spec.md)). A declaration of the
   review comes from the texts in memory and the summaries of the store: no process. A name the review does not declare
-  asks the index of accio (`symbol --format json --limit 20 --project <root> --ref <the commit of the side> -- <name>`,
+  asks the index of accio (`symbol --no-build --format json --limit 20 --project <root> --ref <the commit of the side> -- <name>`,
   a null stdin, waited for as long as it runs: no deadline, since a loaded machine stretches a query of 0.03–3 s past
   any fixed one; a newer search of the window, Escape or Cancel of the view (`cancel_symbol_search`) or the close of
   the window kills it, and the lookup then answers `canceled` (`SearchCanceled`); an index that fails takes nothing from the answer
-  of the review, which says why), only when the index directory of the repository exists, because a query without
-  an index builds one. For the hits outside the review, one `cat-file --batch-check` names the blobs of
+  of the review, which says why); `--no-build` answers `available: false` at once without a usable index, never
+  building, waiting for or refreshing one. For the hits outside the review, one `cat-file --batch-check` names the blobs of
   `<commit>:<path>` and one `cat-file --batch` reads them (`object_ids_and_types`, `blob_texts`); the texts stay in
   the memory cache, so the view of the file reads nothing again. For uncommitted changes the hits are files of the
   working tree, read from the disk. `declarations_test.rs` pins the two processes. Find Usages runs no process for the
-  review (the texts in memory) and, for the usages outside it, `accio references --format json --limit 100 --project
-  <root> --ref <commit> -- <name>` and the same two `cat-file` (`usages_test.rs`).
+  review (the texts in memory) and, for the usages outside it, `accio references --no-build --format json --limit 100
+  --project <root> --ref <commit> -- <name>` and the same two `cat-file` (`usages_test.rs`). A use the review plan
+  left outside (`get_outside_place`, `outside_place.rs`) asks no index: the same two `cat-file` for `<head>:<path>`
+  (`outside_place_test.rs`).
 
 Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `crates/file-diffs/src/declarations.rs`,
 `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `crates/object-cache/src/file_diff.rs`.
