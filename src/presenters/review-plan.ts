@@ -2,7 +2,7 @@
 // of the commits since the user's review, the API the reviewed commits change with the usages of each declaration, and
 // the risky files. Rust pairs the commits, ranks the API and the files and orders them (`review_plan::review_plan_core`);
 // the card only words them in the order Rust sent.
-import type { ApiChange, ApiChangeKind, CommitChanges, FanIn, FileFacts, FormChange, Interdiff, PairState, ReviewPlan } from "@/lib/bindings"
+import type { ApiChange, ApiChangeKind, CommitChanges, FileFacts, FormChange, Interdiff, PairState, ReviewPlan, Usages } from "@/lib/bindings"
 
 /** What the commit column says of a commit since the review: "New", "Rewritten"; nothing of the others */
 export function formatPairState(state: PairState): string | null {
@@ -52,15 +52,16 @@ export function formatRewrittenChanges(changes: CommitChanges): string {
   return [...byPath].map(([path, { added, removed }]) => `${path} +${added} −${removed}`).join(", ")
 }
 
-/** "3 usages", "1 usage", "100+ usages" when the index cut its answer; null without a fan-in */
-export function formatFanIn(fanIn: FanIn | null): string | null {
-  if (fanIn === null) {
+/** "3 usages", "1 usage", "100+ usages" when the index cut its answer, inside and outside the change; null when unknown */
+export function formatUsages(usages: Usages | null): string | null {
+  if (usages === null) {
     return null
   }
-  if (!fanIn.complete) {
-    return `${fanIn.usages}+ usages`
+  const count = usages.inside + usages.outside
+  if (!usages.complete) {
+    return `${count}+ usages`
   }
-  return fanIn.usages === 1 ? "1 usage" : `${fanIn.usages} usages`
+  return count === 1 ? "1 usage" : `${count} usages`
 }
 
 const KIND_WORDS: Readonly<Record<ApiChangeKind, string>> = { removed: "Removed", changed: "Changed", added: "Added" }
@@ -90,7 +91,7 @@ export interface ApiEntry {
   /** The forms before and after, of a removal or a change */
   readonly before: string | null
   readonly after: string | null
-  readonly fanIn: string | null
+  readonly usages: string | null
 }
 
 /** The API of the card in the order Rust ranked it (the most usages first) */
@@ -105,7 +106,7 @@ export function presentApiChanges(api: readonly ApiChange[]): ApiEntry[] {
     // an addition breaks no use: its place says enough, and the form of a new type is only its constructors
     before: change.kind === "added" ? null : change.before,
     after: change.kind === "added" ? null : change.after,
-    fanIn: formatFanIn(change.fanIn),
+    usages: formatUsages(change.usages),
   }))
 }
 

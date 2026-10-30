@@ -1,26 +1,58 @@
 //! `bd review-plan`: the plan of a review of a branch or a range (`review_plan::review_plan_core`,
 //! spec/branch/review-plan.spec.md), as JSON for an agent or an offline evaluation: for a branch marked reviewed
 //! (`bd mark-reviewed`), its commits paired with the reviewed ones and the plain range of the ones added on top; the
-//! public declarations the reviewed commits add, remove or change, ranked by their usages at the head from accio
-//! (`AccioCli::discover`, never canceled, never an index build); the facts of each changed file, the links between
-//! the files, the dependency changes of the build files and the repeated edits; the changed files in dependency order.
-//! Reads only; the baseline is that of the checked out branch
+//! public declarations the reviewed commits add, remove or change, ranked by their usages at the head left outside the
+//! change, from accio (`AccioCli::discover`, never canceled, never an index build); the facts of each changed file,
+//! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
+//! dependency order. Reads only; the baseline is that of the checked out branch.
+//!
+//! Its output has `"schema": 3` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! experimental, and its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
+//! with `usages`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
-use bd_core::output::{SchemaVersion, ShortIds};
+use bd_core::output::ShortIds;
 use domain_types::error::ErrorCode;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use git_ops::landed_pairing::PathLines;
-use review_plan::api::{ApiChange, ApiChangeKind, FormChange};
+use review_plan::api::{ApiChange, ApiChangeKind, FormChange, UsageSite};
 use review_plan::dependencies::DependencyChange;
 use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
 use review_plan::interdiff::{Interdiff, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
-use schemars::JsonSchema;
-use serde::Serialize;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::{Serialize, Serializer};
+use std::borrow::Cow;
+
+/// The version of the output of `bd review-plan`
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 3;
+
+/// The `"schema": 3` field the output of `bd review-plan` starts with
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReviewPlanSchemaVersion;
+
+impl Serialize for ReviewPlanSchemaVersion {
+  fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u32(REVIEW_PLAN_SCHEMA_VERSION)
+  }
+}
+
+impl JsonSchema for ReviewPlanSchemaVersion {
+  fn inline_schema() -> bool {
+    true
+  }
+
+  fn schema_name() -> Cow<'static, str> {
+    "ReviewPlanSchemaVersion".into()
+  }
+
+  fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+    json_schema!({ "type": "integer", "const": REVIEW_PLAN_SCHEMA_VERSION })
+  }
+}
 
 #[derive(Debug, clap::Args)]
 pub struct ReviewPlanArgs {
@@ -38,7 +70,7 @@ pub struct ReviewPlanArgs {
 /// `bd review-plan`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ReviewPlanOutput {
-  pub schema: SchemaVersion,
+  pub schema: ReviewPlanSchemaVersion,
   pub repository: String,
   /// The full name of the branch (`{prefix}/virtual/<name>` for a virtual branch); `null` for a range
   pub branch: Option<String>,
@@ -48,9 +80,9 @@ pub struct ReviewPlanOutput {
   pub head: String,
   /// What changed since the branch was marked reviewed; `null` for a range and for a branch never marked
   pub interdiff: Option<InterdiffOutput>,
-  /// The public declarations the reviewed commits add, remove or change in form, the most usages first. The reviewed
-  /// commits are those of `base..head`; with `--since-reviewed` only the added and rewritten ones, each against its own
-  /// parent
+  /// The public declarations the reviewed commits add, remove or change in form, no override, the most usages left
+  /// outside the change first. The reviewed commits are those of `base..head`; with `--since-reviewed` only the added
+  /// and rewritten ones, each against its own parent
   pub api: Vec<ApiChangeOutput>,
   /// Every file the reviewed commits change, once, at its last path (a deleted one too): the most `breaks` first, then
   /// the `untested` ones, then in tree order
@@ -68,7 +100,7 @@ pub struct ReviewPlanOutput {
   /// that declares what another uses before it, a test right after its subject; the tree order inside a cycle and
   /// between files with no edge
   pub order: Vec<String>,
-  /// Why a removed or changed declaration has no `fan_in`: accio is not installed, has no index of this repository, or
+  /// Why a removed or changed declaration has no `usages`: accio is not installed, has no index of this repository, or
   /// failed; `null` when every query answered or none was asked
   pub index_note: Option<String>,
 }
@@ -89,14 +121,21 @@ pub struct ApiChangeOutput {
   pub before: Option<String>,
   /// The header after the commits, of a change or an addition
   pub after: Option<String>,
-  /// Of a removal or a change: its usages at the head, from `accio references`; `null` without an answer (`index_note`)
-  /// and for the entries past the first 20
-  pub fan_in: Option<FanInOutput>,
+  /// Of a removal or a change: its usages at the head, from `accio references` by `Owner.name` for a member and by
+  /// `package.name` for a top-level Kotlin or Java declaration; `null` without an answer (`index_note`), for a name
+  /// that nearly every type declares (`equals`, `toString`, `get`, `run`, `invoke` and others) and for the entries
+  /// past the first 20 queries
+  pub usages: Option<UsagesOutput>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct FanInOutput {
-  pub usages: u32,
+pub struct UsagesOutput {
+  /// In the files the reviewed commits change: updated in this change
+  pub inside: u32,
+  /// In the other files: left outside the change, where a removal or a change may break the code
+  pub outside: u32,
+  /// The first 5 usages left outside
+  pub outside_sites: Vec<UsageSite>,
   /// False when accio cut its answer at 100 usages
   pub complete: bool,
 }
@@ -114,7 +153,7 @@ pub struct FileFactsOutput {
   pub used_by: u32,
   /// The links it uses that the commits added
   pub new_links: u32,
-  /// The usages at the head of the API it removes or changes
+  /// The usages left outside the change, at the head, of the API it removes or changes
   pub breaks: u32,
   /// A source file changed while none of its tests changed
   pub untested: bool,
@@ -223,7 +262,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
   });
   let short = context.short_ids([&plan.base, &plan.head].into_iter().chain(interdiff_ids).map(String::as_str));
   Ok(ReviewPlanOutput {
-    schema: SchemaVersion,
+    schema: ReviewPlanSchemaVersion,
     repository: context.repository.clone(),
     base: short.get(&plan.base).to_string(),
     head: short.get(&plan.head).to_string(),
@@ -248,9 +287,11 @@ fn api_output(change: ApiChange) -> ApiChangeOutput {
     changes: change.changes,
     before: change.before,
     after: change.after,
-    fan_in: change.fan_in.map(|fan_in| FanInOutput {
-      usages: fan_in.usages,
-      complete: fan_in.complete,
+    usages: change.usages.map(|usages| UsagesOutput {
+      inside: usages.inside,
+      outside: usages.outside,
+      outside_sites: usages.outside_sites,
+      complete: usages.complete,
     }),
   }
 }

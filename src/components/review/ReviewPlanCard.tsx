@@ -51,9 +51,9 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
                   {entry.location}
                 </span>
                 {entry.changed !== null && <span className="shrink-0 text-xs text-muted-foreground">{entry.changed}</span>}
-                {entry.fanIn !== null && (
+                {entry.usages !== null && (
                   <span className="ml-auto shrink-0 text-xs tabular-nums" data-testid="review-plan-fan-in">
-                    {entry.fanIn}
+                    {entry.usages}
                   </span>
                 )}
               </div>

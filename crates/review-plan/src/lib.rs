@@ -4,7 +4,8 @@
 //!   (`git_ops::reviewed_refs`), which a later review compares the branch with
 //! - `interdiff`: the commits of a branch paired with those of its reviewed pair, and the range of the ones added on top
 //! - `api`: the public declarations the reviewed commits add, remove or change in form
-//! - `fan_in`: the usages of the removed and changed ones at the head, from accio
+//! - `fan_in`: the usages of the removed and changed ones at the head, from accio, updated in this change or left
+//!   outside
 //! - `order`: the changed files in dependency order, a declaration before its uses, a test after its subject
 //! - `links`: which changed file uses which, added, removed or kept by the commits
 //! - `dependencies`: the entries the commits add to, remove from or change in the build files, and the build files they
@@ -26,7 +27,7 @@ pub mod order;
 
 use crate::api::{ApiChange, api_changes};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
-use crate::fan_in::add_fan_in;
+use crate::fan_in::add_usages;
 use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, hunk_blobs};
 use crate::interdiff::{Interdiff, PairState, commits_of, interdiff};
 use crate::links::{FileLink, link_files};
@@ -94,7 +95,8 @@ pub struct ReviewPlan {
   /// What changed since the review of the branch; `None` for a range and for a branch never marked reviewed. With
   /// `since_reviewed`, only its `added` and `rewritten` commits
   pub interdiff: Option<Interdiff>,
-  /// The public declarations the reviewed commits add, remove or change (`reviewed_commits`), the most usages first
+  /// The public declarations the reviewed commits add, remove or change (`reviewed_commits`), the most usages left
+  /// outside the change first
   pub api: Vec<ApiChange>,
   /// Every file the reviewed commits change, once, at its last path (a deleted one too, none added and deleted again):
   /// the most `breaks` first, then the `untested` ones, then in tree order
@@ -110,12 +112,12 @@ pub struct ReviewPlan {
   /// again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
   /// subject, the tree order inside a cycle and between files with no edge
   pub order: Vec<String>,
-  /// Why a removed or changed declaration has no fan-in: no accio, no index of the repository, a failed query
+  /// Why a removed or changed declaration has no usages: no accio, no index of the repository, a failed query
   pub index_note: Option<String>,
 }
 
 /// What a plan reads beside git: the caches of the diffs and the summaries, and the index of the repository for the
-/// fan-in (`None`: no accio on this machine)
+/// usages (`None`: no accio on this machine)
 #[derive(Clone, Copy)]
 pub struct PlanSources<'a> {
   pub cache: &'a ObjectCache,
@@ -135,7 +137,7 @@ pub struct SinceReviewedOfRange(pub String);
 
 /// The plan of the subject of `params`. For a branch: one `for-each-ref` of the reviewed refs with the branches, its base
 /// (`branch_on_base`), then its interdiff when it was marked (`interdiff::interdiff`); for a range: one `rev-parse
-/// --verify` per rev. Then the API, the fan-in, the order, the links, the dependency changes and the facts of the files
+/// --verify` per rev. Then the API, its usages, the order, the links, the dependency changes and the facts of the files
 /// of the reviewed commits (`reviewed_commits`): the order and the links from the summaries the API read, no git; the text of the hunks
 /// and of the build files before and after the commits (`manifest_blobs`) from the memory of the diffs when they read
 /// it in this process, else in the batch of the summaries (`read_symbol_input_with`), which then runs for those blobs
@@ -183,7 +185,8 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     let ReviewOrder { order, links: uses } = review_order(&input, &changed);
     (api_changes(&input, &diffs), order, link_files(&input, &changed, &uses))
   };
-  let index_note = add_fan_in(sources.index, repository_path, &head, &mut api)?;
+  let after_paths: HashSet<&str> = changed.iter().filter(|file| file.after.is_some()).map(|file| file.path).collect();
+  let index_note = add_usages(sources.index, repository_path, &head, &after_paths, &mut api)?;
   let Dependencies { changes: dependencies, states } = dependency_changes(&changed, &texts);
   let (files, repeated_edits) = file_facts(&changed, &texts, &states, &links, &api);
   let interdiff = interdiff.map(|mut found| {

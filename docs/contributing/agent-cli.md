@@ -91,8 +91,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   page (Windows PowerShell 5.1) still reads every path and subject. A plan or a body that bd reads (`--plan`,
   `--body-file`; `-` is stdin) is UTF-8, with or without a byte order mark, or UTF-16 with one. A pipe of Windows
   PowerShell 5.1 turns other characters into `?` before bd reads them, so pass a file there.
-- Every object starts with `"schema": 2`. The version goes up only when a field changes meaning or disappears. New
-  optional fields don't change it.
+- Every object starts with `"schema": 2`. The experimental `bd review-plan` has a version of its own, 3. The version
+  goes up only when a field changes meaning or disappears. New optional fields don't change it.
 - Every object ends with the `operation_id` of the run, an error object and `bd --version` too: a ULID, new for each
   run, the id of the root span of its log lines (`-v`), and of its record in the operations registry and its entry in
   the journal of the operations when the command runs an operation of the remote (`push`, `safe-push`,
@@ -672,11 +672,17 @@ the rewritten commits. A branch never marked and a range have `"interdiff": null
 [Git Operations](../design/git-operations.md#review-plan)).
 
 `api` lists the public declarations the reviewed commits add, remove or change in form (`kind`, `changes`, the form
-`before` and `after`), the most usages first: `fan_in` is the count of `accio references` at the head for the first 20
-removals and changes, `complete: false` past 100; a removal names the file and line before the commit that removed
+`before` and `after`), no override, the most usages left outside the change first. `usages` comes from `accio
+references` at the head, asked by `Owner.name` for a member and by `package.name` for a top-level Kotlin or Java
+declaration, for the first 20 queries: `inside` counts the uses in the changed files, `outside` the others, with the
+first 5 as `outside_sites`, and `complete: false` past 100 hits. An import, a doc mention and a hit in another
+language family are no use, and of a type whose constructors are its only change only a call is. A name that nearly
+every type declares (`equals`, `toString`, `get`, `run`, `new`, `invoke` and others) is never asked without an
+owner: its `usages` is `null`. A member of that name counts only the lines that name its owner, as a lower bound
+(`complete: false`). A removal names the file and line before the commit that removed
 it. `files` gives per changed file (a deleted one too) its `old_path`, `mechanical` (`buildModel`, `importsOnly`,
 `whitespace`, `renamed`, `deleted`, or `null` for real work), `uses` and `used_by` (the links among the changed files
-after the commits), `new_links`, `breaks` (the usages of the API it removes or changes), `untested` (a source file
+after the commits), `new_links`, `breaks` (the usages left outside of the API it removes or changes), `untested` (a source file
 changed while none of its tests did) and `repeated_edit`, the most `breaks` first. `links` lists which changed file
 uses which (`from`, `to`, `symbols` with the line of the first use, `state` `added`, `removed` or `kept`,
 `cross_module`); `dependencies` the entries the commits add to, remove from or change in the build files: the
@@ -685,18 +691,19 @@ a `Cargo.toml` and the dependencies of a `package.json` (`manifest`, `module`, `
 `removed` or `changed`, `version_before`, `version_after`, `scope`, `scope_before`), a new or deleted build file as one
 `newModule` entry; a build file that changed only in these entries is `buildModel`. `repeated_edits` lists the groups
 of 3 or more files that get the same edit. The reviewed commits are those of `base..head`, with
-`--since-reviewed` only the added and rewritten ones. Without accio or its index, `fan_in` is `null` and `index_note`
+`--since-reviewed` only the added and rewritten ones. Without accio or its index, `usages` is `null` and `index_note`
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
 tree order inside a cycle and between files with no edge.
 
 ```json
-{"schema":2,"repository":"/repo","branch":"jane/virtual/auth","base":"1a2b3c4d","head":"7a8b9c0d",
+{"schema":3,"repository":"/repo","branch":"jane/virtual/auth","base":"1a2b3c4d","head":"7a8b9c0d",
   "interdiff":{"reviewed_base":"1a2b3c4d","reviewed_tip":"5e6f7a8b",
     "commits":[{"id":"7a8b9c0d","reviewed_id":null,"subject":"Add logout","state":"added"}],
     "scope":{"base":"5e6f7a8b","head":"7a8b9c0d"}},
   "api":[{"path":"src/a/Session.kt","line":3,"name":"logout","kind":"changed","changes":["parameters"],
-    "before":"fun logout() : Unit","after":"fun logout(all:Boolean) : Unit","fan_in":{"usages":12,"complete":true}}],
+    "before":"fun logout() : Unit","after":"fun logout(all:Boolean) : Unit",
+    "usages":{"inside":1,"outside":12,"outside_sites":[{"path":"src/c/Menu.kt","line":40},…],"complete":true}}],
   "files":[{"path":"src/a/Session.kt","old_path":null,"mechanical":null,"uses":0,"used_by":1,"new_links":0,
     "breaks":12,"untested":true,"repeated_edit":null},
     {"path":"src/b/Logout.kt","old_path":null,"mechanical":null,"uses":1,"used_by":0,"new_links":1,"breaks":0,

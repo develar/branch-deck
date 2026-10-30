@@ -19,11 +19,12 @@ fn rev_parse(path: &str, rev: &str) -> String {
 }
 
 /// The review window's plan through the server's app-api, as the page asks it: Mark Reviewed keeps the branch's base and
-/// tip, a commit after it is the only one the plan since the review reads, with the fan-in of its changed declaration
-/// from the accio fixture of the repository (`FixtureIndex`); a branch that is gone and a range asked since its review
-/// are the caller's errors
+/// tip, a commit after it is the only one the plan since the review reads, with the usages of its changed declaration
+/// from the accio fixture of the repository (`FixtureIndex`): the one in the changed file updated, those in another
+/// file left outside, which the file breaks; a branch that is gone and a range asked since its review are the caller's
+/// errors
 #[tokio::test]
-async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_fan_in() {
+async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages() {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (_, path) = create_repository(&client, addr).await;
@@ -38,7 +39,7 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
     .unwrap();
   let branch = String::from_utf8(output.stdout).unwrap().trim().to_string();
   let base = rev_parse(&path, "HEAD");
-  let reviewed = commit_api(&path, "pub fn run(a: i32) -> i32 {\n  a\n}\n", "Add run");
+  let reviewed = commit_api(&path, "pub fn sum(a: i32) -> i32 {\n  a\n}\n", "Add sum");
 
   let marked = invoke("mark_branch_reviewed", json!({ "repositoryPath": path, "branch": branch, "base": base })).await;
   assert_eq!(
@@ -47,13 +48,10 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
     "{marked}"
   );
 
-  let head = commit_api(&path, "pub fn run(a: i32, b: i32) -> i32 {\n  a + b\n}\n", "Take b");
-  let usage = |line: u32| json!({ "file": "src/main.rs", "line": line, "column": 3, "snippet": "run(1, 2)", "kind": "call" });
-  std::fs::write(
-    Path::new(&path).join(".git/branch-deck-accio.json"),
-    json!({ "references": { "run": [usage(3), usage(7)] } }).to_string(),
-  )
-  .unwrap();
+  let head = commit_api(&path, "pub fn sum(a: i32, b: i32) -> i32 {\n  a + b\n}\n", "Take b");
+  let usage = |file: &str, line: u32| json!({ "file": file, "line": line, "column": 3, "snippet": "sum(1, 2)", "kind": "call" });
+  let usages = [usage("src/main.rs", 3), usage("src/api.rs", 9), usage("src/main.rs", 7)];
+  std::fs::write(Path::new(&path).join(".git/branch-deck-accio.json"), json!({ "references": { "sum": usages } }).to_string()).unwrap();
 
   let subject = json!({ "kind": "branch", "name": branch, "base": base });
   let plan = invoke("get_review_plan", json!({ "repositoryPath": path, "subject": subject, "sinceReviewed": true })).await;
@@ -71,10 +69,16 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
   assert_eq!(interdiff["scope"], json!({ "base": reviewed, "head": head }), "{plan}");
   let api = &plan["api"][0];
   assert_eq!(
-    (&api["name"], &api["kind"], &api["fanIn"], &plan["indexNote"]),
-    (&json!("run"), &json!("changed"), &json!({ "usages": 2, "complete": true }), &json!(null)),
+    (&api["name"], &api["kind"], &api["usages"], &plan["indexNote"]),
+    (
+      &json!("sum"),
+      &json!("changed"),
+      &json!({ "inside": 1, "outside": 2, "outsideSites": [{ "path": "src/main.rs", "line": 3 }, { "path": "src/main.rs", "line": 7 }], "complete": true }),
+      &json!(null)
+    ),
     "{plan}"
   );
+  assert_eq!((&plan["files"][0]["path"], &plan["files"][0]["breaks"]), (&json!("src/api.rs"), &json!(2)), "{plan}");
   assert_eq!(plan["order"], json!(["src/api.rs"]), "{plan}");
 
   let gone = invoke("mark_branch_reviewed", json!({ "repositoryPath": path, "branch": "no-such-branch" })).await;

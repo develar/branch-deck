@@ -92,7 +92,7 @@ pub struct FileFacts {
   pub used_by: u32,
   /// The links it uses that the commits added
   pub new_links: u32,
-  /// The usages at the head of the API it removes or changes (`ApiChange::fan_in`)
+  /// The usages left outside the change, at the head, of the API it removes or changes (`ApiChange::usages`)
   pub breaks: u32,
   /// A source file changed while none of its tests changed
   pub untested: bool,
@@ -514,7 +514,7 @@ pub(crate) fn file_facts(
       let breaks = api
         .iter()
         .filter(|change| change.file == path && change.kind != ApiChangeKind::Added)
-        .filter_map(|change| change.fan_in.map(|fan_in| fan_in.usages))
+        .filter_map(|change| change.usages.as_ref().map(|usages| usages.outside))
         .sum();
       let source = language_of(path).is_some() && test_subject(path).is_none();
       FileFacts {

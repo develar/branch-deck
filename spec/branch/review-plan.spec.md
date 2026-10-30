@@ -1,6 +1,6 @@
 ---
 name: Review Plan
-description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`bd review-plan`), the commits since then, and the API surface the reviewed commits change with its fan-in from accio, the facts of each file (its links to the other changed files, a mechanical change, a repeated edit, a missing test), the dependency changes of the build files and the files in dependency order.
+description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`bd review-plan`), the commits since then, and the API surface the reviewed commits change with its usages from accio, updated in the change or left outside, the facts of each file (its links to the other changed files, a mechanical change, a repeated edit, a missing test), the dependency changes of the build files and the files in dependency order.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/lib.rs
@@ -54,7 +54,7 @@ Its first parts are Mark Reviewed, the base and the tip of a local branch kept w
 and Since Your Review: the commits of the branch paired with the reviewed ones, unchanged, rewritten, added or
 dropped, and the plain range of the commits added on top (`bd review-plan`). Then the API surface: the public
 declarations the reviewed commits add, remove or change in form, ranked by their usages at the head of the range from
-accio, and the facts of each changed file: which other changed files it uses and which use it, whether its change
+accio that the change left outside, and the facts of each changed file: which other changed files it uses and which use it, whether its change
 is mechanical, the edit it shares with other files, the usages of the API it removes or changes, and whether it
 changed without its tests. Then the dependency changes: the module, library, plugin, crate and package entries the
 commits add to, remove from or change in the build files, and the build files they add or delete. Then the order of
@@ -66,14 +66,15 @@ the files: a file that declares what another uses before it, a test right after 
 - Keep the reviewed commits reachable, so that a review after a rewrite or a `git gc` still reads them.
 - Cost a fixed number of git processes, whatever the number of branches, of marks and of commits.
 - Show only what changed since the review, also after the branch was rebased, synced, amended or reworded.
-- Show the contract changes first, the one used most at the top, and never fail a plan because accio cannot answer.
+- Show the contract changes first, the one used most outside the change at the top, and never fail a plan because
+  accio cannot answer.
 
 ## Non-goals
 
 - Mark a pull request of GitHub: its "Since Your Review" stays the one of GitHub.
 - Push or fetch the marks: they are local to the repository, shared by its worktrees.
 - Mark a range that is no branch.
-- Build an accio index: a repository without one gets no fan-in.
+- Build an accio index: a repository without one gets no usages.
 - The owners of a file in its facts: the review already filters by owner.
 
 ## Requirements
@@ -145,7 +146,8 @@ the files: a file that declares what another uses before it, a test right after 
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`, `a_branch_never_marked_and_a_range_have_no_interdiff`)
 - `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope`), with
-  `"schema": 2`, and its output must be in `bd schema`.
+  `"schema": 3`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  of `fan_in`; the other outputs of `bd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must read only and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -167,28 +169,58 @@ the files: a file that declares what another uses before it, a test right after 
   declaration or of a body alone must not be listed, nor a member of a type added or removed with it. A name of one
   or two characters must be listed too (the checks of a sync search only longer ones).
   [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_rust_function_changes_by_its_header`, `a_public_declaration_of_a_short_name_is_listed`)
+- A member that the summary marks as an override (Kotlin `override`, Java `@Override`) must not be listed: its
+  supertype declares the API. A change is of an override when the member overrides before and after it.
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`, `a_changed_override_in_kotlin_or_java_is_no_entry`)
 - Each entry must give its file and line, its name, its kind (`removed`, `changed`, `added`), the parts that
   changed, and its form before and after: the header with the parameters after the name, a type by its constructors.
   The file and line are those after the commits, through every rename, also one that changes no declaration; of a
   removal, those before the first commit that touched the declaration, so `path:line` is of the same content: the old
   path when that commit also renamed the file. A range of no source file of a known language has an empty `api`.
-  [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_range_without_source_files_has_no_api`, `a_removal_after_a_rename_names_the_path_its_line_is_of`, `the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_range_without_source_files_has_no_api`, `a_removal_after_a_rename_names_the_path_its_line_is_of`, `the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`)
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 ### Fan-in
 
-- Every removed or changed entry, the first 20 of the card (`MAX_FANIN_QUERIES`), must get its usages at the head of
-  the range from `accio references <name> --ref <head>`, the declaration itself not counted, with `complete: false`
-  when accio cut its answer at 100; the queries run in parallel; an addition is never asked.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_fan_in`, `a_cut_answer_is_not_complete`, `at_most_twenty_queries_per_plan`)
-  [@test] ../../crates/review-plan/src/api_test.rs (`the_fan_in_at_the_head_ranks_the_card`)
-- The entries must be sorted by their fan-in, the most first and those without one last, then removals, changes and
-  additions, then by file and line.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_fan_in`)
-  [@test] ../../crates/review-plan/src/api_test.rs (`the_fan_in_at_the_head_ranks_the_card`)
-- Without accio, or without its index of the repository, the fan-in must be `null` and `index_note` must say why
+- Every removed or changed entry must get its `usages` at the head of the range from `accio references <query>
+  --ref <head>`, with `complete: false` when accio cut its answer at 100. An addition is never asked.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_usages_left_outside`, `a_cut_answer_is_not_complete`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_at_the_head_rank_the_card`)
+- The query of a member must be `Owner.name`, so that a use on another type drops out. The owner is the type around
+  it that is not a Kotlin `Companion`: `ProjectManager.getInstance`, not `Companion.getInstance`. The query of a
+  top-level declaration of a Kotlin or Java file in a package must be `package.name`; else it is the bare name.
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`, `the_usages_at_the_head_rank_the_card`)
+- Only a hit in code must count as a usage: not the declaration itself, an `import` or a `doc` hit (`NOT_USES`).
+  A hit in a file of another family of languages than the declaration (JVM, Rust, script) must not count: it is a
+  namesake.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls`)
+- Of a type whose only change is its constructors, only a `call` hit must count. A use of the type as a type or an
+  import still compiles.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls`)
+- A name that nearly every type declares (`STOP_NAMES`: `equals`, `hashCode`, `toString`, `get`, `set`, `run`,
+  `invoke`, `close`, `new` and others) must never be asked without an owner, bare or after a package: its `usages`
+  stay `null`, unknown, not a wrong count. Two entries of the same query must share one query.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_asked_by_their_query_and_never_by_a_bare_name_of_the_stop_list`)
+- A member of such a name must be asked by `Owner.name` (a Rust `Store::new` as `Store.new`). accio also answers
+  each call of the name on a receiver that it cannot type, so only a hit whose line names the owner as a word must
+  count, and the usages must be `complete: false`, a lower bound.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_member_of_a_name_of_the_stop_list_counts_the_lines_that_name_its_owner`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_rust_constructor_is_asked_by_its_type`)
+- The plan must ask at most 20 queries (`MAX_USAGE_QUERIES`), for the first entries of the card, in parallel.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`at_most_twenty_queries_per_plan`)
+- A usage must be `inside` when its file is one that the reviewed commits change and still exists after them: this
+  change updated it. Else it is `outside`, and the first 5 outside usages must be listed as `outside_sites` by path
+  and line.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_usages_split_into_those_inside_the_change_and_those_left_outside`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`)
+  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
+- The entries must be sorted by their usages left outside, the most first, then by those inside, those without
+  `usages` last; then removals, changes and additions, then by file and line.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_usages_left_outside`, `the_usages_split_into_those_inside_the_change_and_those_left_outside`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_at_the_head_rank_the_card`)
+- Without accio, or without its index of the repository, the `usages` must be `null` and `index_note` must say why
   ("accio is not installed", "accio has no index of this repository"); a plan never builds an index.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`without_an_index_the_fan_in_is_missing_and_the_note_says_why`)
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`without_an_index_the_usages_are_missing_and_the_note_says_why`)
 - A failing query must fail no plan: the others keep their answers and `index_note` gives the failure; only a
   cancel of the caller (a newer request of the window) cancels the plan.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_failing_index_keeps_the_api`, `a_canceled_query_cancels_the_plan`)
@@ -202,10 +234,10 @@ the files: a file that declares what another uses before it, a test right after 
 - A file must be `untested` when it is a source file of a known language, no test itself, not mechanical, and no
   changed test names its stem.
   [@test] ../../crates/review-plan/src/files_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_listed_at_its_new_path`)
-- `breaks` must sum the usages at the head of the API a file removes or changes, at its last path, also of a removal
-  whose entry names the old path; an addition breaks nothing.
+- `breaks` must sum the usages left outside the change of the API a file removes or changes, at its last path, also
+  of a removal whose entry names the old path. A usage inside the change and an addition break nothing.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)
-  [@test] ../../crates/review-plan/src/api_test.rs (`the_fan_in_of_an_api_of_a_renamed_file_counts_at_its_new_path`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`, `a_member_is_asked_by_its_type_and_an_override_is_no_entry`)
 - The files with the most `breaks` must come first, then the `untested` ones, then the tree order.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)
 - A test must be told by its path: a directory `test`, `tests`, `__tests__`, `testFixtures`, or a name `*Test`,
@@ -361,11 +393,11 @@ the files: a file that declares what another uses before it, a test right after 
 - The app must read the plan with `get_review_plan` and mark a branch with `mark_branch_reviewed`, through the same
   `review_plan_core` and `mark_reviewed_core` as `bd`, the branch named with the prefix the app resolves for the
   repository: after a mark and a commit on top, the plan since the review lists that commit as `added` with its scope,
-  and the fan-in comes from the index of the host (the fixture `.git/branch-deck-accio.json` in the e2e server).
-  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_fan_in`)
+  and the usages come from the index of the host (the fixture `.git/branch-deck-accio.json` in the e2e server).
+  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
 - An unknown branch must answer `unknown_branch`; a base that names no commit, a branch that shares no history with
   its base, an unknown revision of a range and `sinceReviewed` of a range must answer `invalid_arguments`.
-  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_fan_in`)
+  [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
 - A window must read one plan at a time: a newer plan of the window and its close must supersede the plan in flight,
   kill its queries of accio and answer `canceled`; a symbol search of the window and a plan must never supersede each
   other.
@@ -415,7 +447,7 @@ the files: a file that declares what another uses before it, a test right after 
   files with used API removed or changed or `untested`, with why, and the `index_note` when the usages are missing.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and order the files by their dependencies, kept for every review`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
-  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `words the usages, a cut answer as more, none without a fan-in`, `keeps the order Rust ranked, with the kind, the place, the parts that changed and the forms of a removal or a change`, `raises only the risky files, in Rust's order, with the usages and the missing test`, `sums the card up in its title`)
+  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `words the usages inside and outside the change, a cut answer as more, none when unknown`, `keeps the order Rust ranked, with the kind, the place, the parts that changed and the forms of a removal or a change`, `raises only the risky files, in Rust's order, with the usages and the missing test`, `sums the card up in its title`)
 - Order: Tree / Dependencies beside the header of the files must be kept for every review (`reviewFileOrder` of the
   app settings); Dependencies shows the files as one flat list, each by its path, in the plan's `order`, a renamed file
   also by its old path, a file the order lacks after them in tree order; the diffs, J and K follow it.
@@ -433,7 +465,8 @@ the files: a file that declares what another uses before it, a test right after 
   logout", "state": "added"}], "scope": {"base": <reviewed tip>, "head": <tip>}}}`.
 - `bd review-plan base..head` of a new parameter → `"api": [{"path": "src/a/Api.kt", "line": 3, "name": "open",
   "kind": "changed", "changes": ["parameters"], "before": "fun open(path:String) : Int", "after": "fun
-  open(path:String, mode:Int) : Int", "fan_in": {"usages": 12, "complete": true}}]`, `"files": [{"path": "src/a/Api.kt",
+  open(path:String, mode:Int) : Int", "usages": {"inside": 2, "outside": 12, "outside_sites": [{"path":
+  "src/b/Client.kt", "line": 8}, …], "complete": true}}]`, `"files": [{"path": "src/a/Api.kt",
   "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 12, "untested": true,
   "repeated_edit": null}]`, `"index_note": null`.
 - `bd review-plan base..head` of a new `Store` that `User` imports, with its test → `"order": ["src/b/Store.kt",
@@ -466,13 +499,25 @@ the files: a file that declares what another uses before it, a test right after 
 - Two commits of one author with the same subject in the same second share an identity; they pair in order.
 - A rewritten commit is read against its own parent, not against its reviewed version: a declaration it adds shows as
   added even when its reviewed version added it too.
-- The fan-in counts the whole-word usages of a name, so another declaration of the same name counts too; a removal's
-  usages at the head are those left behind, or of a namesake.
+- The usages of a top-level Rust or TypeScript declaration, and of a Kotlin or Java one in no package, are asked by
+  the bare name, so a namesake of the same family of languages counts too. accio resolves `Owner.name` by the text
+  and the types it knows, and it keeps a call on a receiver that it cannot type: a namesake can count there too. A
+  removal's usages at the head are those left behind, or of a namesake; `outside_sites` lets the reader judge.
+- A `string` hit counts: a class name in a plugin descriptor or a reflective call can break. A string that only
+  holds the name counts too.
+- Of a constructor-only change, every call of the type counts, also one that the change left valid, such as a call
+  with named arguments that skips a new default parameter.
+- A member of `STOP_NAMES` counts only the lines that name its owner: `store.close()` through a variable is missed.
+- A usage is inside when its file is changed, not when its line is: a use in a changed file that the change left as
+  it was counts as updated. With `--since-reviewed`, a use that an earlier reviewed commit of the branch updated
+  counts as outside.
+- An answer cut at 100 hits splits only those 100: `outside` is then a lower bound, and `complete` is false.
 - The module roots of the summaries are read at the checked out HEAD, not at the head of the range.
 - A key gets one entry: when an overload changed and another was added in the same commits, only the change is
   listed.
 - `untested` sees only test files the commits change; a Rust test module inside its file does not count.
-- `breaks` counts the usages of a name at the head, a namesake and a use the commits already updated included.
+- `breaks` counts the usages left outside of the first 20 queries only; a name of `STOP_NAMES` without an owner
+  breaks nothing known.
 - An import statement ends where its brackets close. A Kotlin or Java import has no brackets, so a statement over
   several lines without brackets is not seen. A string or a comment over several lines is not seen either.
 - `whitespace` removes the line ends too. In Kotlin, TypeScript or Go, a joined line can change the meaning, and a

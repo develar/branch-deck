@@ -577,8 +577,11 @@ export type ApiChange = {
 	before: string | null,
 	/**  Its form after the commits, of a change or an addition */
 	after: string | null,
-	/**  Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked or not answered */
-	fanIn: FanIn | null,
+	/**
+	 *  Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked (a name of
+	 *  `fan_in::STOP_NAMES`, past `fan_in::MAX_USAGE_QUERIES`) or not answered (no accio, no index, a failed query)
+	 */
+	usages: Usages | null,
 };
 
 /**  What the reviewed commits do to a public declaration */
@@ -2555,13 +2558,6 @@ export type FailureCauses = {
 	flaky: FlakyCheck[],
 };
 
-/**  The usages of a declaration at the head of the range, from the index of the repository (`fan_in`) */
-export type FanIn = {
-	usages: number,
-	/**  False when the index cut its answer at its limit (100): there are more */
-	complete: boolean,
-};
-
 /**  The fastest start hours of everyone else's merges against the slowest one, to say when to start a robot */
 export type FastestHours = {
 	/**  The first local hour of the longest run of the fastest hours (`StartHour::level` 0) */
@@ -2616,7 +2612,7 @@ export type FileFacts = {
 	usedBy: number,
 	/**  The links it uses that the commits added */
 	newLinks: number,
-	/**  The usages at the head of the API it removes or changes (`ApiChange::fan_in`) */
+	/**  The usages left outside the change, at the head, of the API it removes or changes (`ApiChange::usages`) */
 	breaks: number,
 	/**  A source file changed while none of its tests changed */
 	untested: boolean,
@@ -5876,7 +5872,10 @@ export type ReviewPlan = {
 	 *  `since_reviewed`, only its `added` and `rewritten` commits
 	 */
 	interdiff: Interdiff | null,
-	/**  The public declarations the reviewed commits add, remove or change (`reviewed_commits`), the most usages first */
+	/**
+	 *  The public declarations the reviewed commits add, remove or change (`reviewed_commits`), the most usages left
+	 *  outside the change first
+	 */
 	api: ApiChange[],
 	/**
 	 *  Every file the reviewed commits change, once, at its last path (a deleted one too, none added and deleted again):
@@ -5898,7 +5897,7 @@ export type ReviewPlan = {
 	 *  subject, the tree order inside a cycle and between files with no edge
 	 */
 	order: string[],
-	/**  Why a removed or changed declaration has no fan-in: no accio, no index of the repository, a failed query */
+	/**  Why a removed or changed declaration has no usages: no accio, no index of the repository, a failed query */
 	indexNote: string | null,
 };
 
@@ -7842,6 +7841,12 @@ export type UpstreamCommit = {
 	time: number,
 };
 
+/**  A usage of a declaration: a path at the head and a line from 1 */
+export type UsageSite = {
+	path: string,
+	line: number,
+};
+
 /**  A usage: its place (`kind` is how it uses the name: `declaration`, `import`, `call`, `write`, `read`) and its line */
 export type UsageTarget = {
 	target: DeclarationTarget,
@@ -7849,6 +7854,19 @@ export type UsageTarget = {
 	text: string,
 	/**  Where the name starts in `text`, in UTF-16 */
 	textColumn: number,
+};
+
+/**
+ *  The usages of a declaration at the head of the range, from the index of the repository (`fan_in`): in the files the
+ *  reviewed commits change (updated in this change), and in the other files (left outside)
+ */
+export type Usages = {
+	inside: number,
+	outside: number,
+	/**  The first `fan_in::OUTSIDE_SITES` usages left outside, by path and line */
+	outsideSites: UsageSite[],
+	/**  False when the index cut its answer at its limit (100): there are more */
+	complete: boolean,
 };
 
 /**  The parameters of `validate_branch_name` */

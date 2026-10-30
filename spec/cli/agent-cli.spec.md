@@ -196,10 +196,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 
 ### Output contract
 
-- stdout must hold exactly one JSON object per run, and every object must have `"schema": 2` and, after its own
-  fields, the `operation_id` of the run (a ULID, new for each run, an error object and `bd --version` included): the
-  id of the root span of its log lines, and of its record in the operations registry and its entry in the journal
-  when it runs an operation of the remote, a rewrite, an update or a pick that writes.
+- stdout must hold exactly one JSON object per run, and every object must have `"schema": 2` (the experimental
+  `bd review-plan` has 3, spec/branch/review-plan.spec.md) and, after its own fields, the `operation_id` of the run
+  (a ULID, new for each run, an error object and `bd --version` included): the id of the root span of its log lines,
+  and of its record in the operations registry and its entry in the journal when it runs an operation of the remote,
+  a rewrite, an update or a pick that writes.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
   [@test] ../../crates/bd-cli/src/operation_test.rs (`every_log_line_of_a_command_names_its_operation_whose_id_its_json_carries`)

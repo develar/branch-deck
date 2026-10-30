@@ -22,7 +22,7 @@ fn prints_the_commits_since_the_review() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["schema"], &output["branch"], &output["base"], &output["head"]),
-    (&json!(2), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
+    (&json!(3), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
   );
   assert_eq!(
     output["interdiff"],
@@ -84,7 +84,7 @@ fn a_branch_never_marked_and_a_range_have_no_interdiff() {
 }
 
 /// A range that changes the parameters of a public Kotlin function and adds an untested file: `api` with the forms
-/// before and after, the facts per file, and why there is no fan-in (accio missing here, or without an index of the
+/// before and after, the facts per file, and why there are no usages (accio missing here, or without an index of the
 /// test repository)
 #[test_log::test]
 fn prints_the_api_and_the_files_of_a_range() {
@@ -110,7 +110,7 @@ fn prints_the_api_and_the_files_of_a_range() {
         "changes": ["parameters"],
         "before": "fun open(path:String) : Int",
         "after": "fun open(path:String, mode:Int) : Int",
-        "fan_in": null,
+        "usages": null,
       }]),
       &json!([
         { "path": "src/a/Api.kt", "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 0, "untested": true, "repeated_edit": null },

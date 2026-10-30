@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiChange, FileFacts, Interdiff, PairedCommit } from "@/lib/bindings"
+import type { ApiChange, FileFacts, Interdiff, PairedCommit, Usages } from "@/lib/bindings"
 import {
-  formatFanIn,
   formatMarkedReviewed,
   formatPairState,
   formatPlanSummary,
   formatRewrittenChanges,
   formatSinceReview,
+  formatUsages,
   presentApiChanges,
   presentRiskyFiles,
 } from "@/presenters/review-plan"
@@ -16,7 +16,11 @@ function paired(state: PairedCommit["state"], id: string): PairedCommit {
 }
 
 function change(patch: Partial<ApiChange>): ApiChange {
-  return { path: "src/Store.kt", line: 34, name: "helper", key: "helper", kind: "changed", changes: [], before: null, after: null, fanIn: null, ...patch }
+  return { path: "src/Store.kt", line: 34, name: "helper", key: "helper", kind: "changed", changes: [], before: null, after: null, usages: null, ...patch }
+}
+
+function usages(inside: number, outside: number): Usages {
+  return { inside, outside, outsideSites: [], complete: true }
 }
 
 function facts(patch: Partial<FileFacts>): FileFacts {
@@ -54,21 +58,21 @@ describe("the words of the commits since the review", () => {
 })
 
 describe("the API of the card", () => {
-  it("words the usages, a cut answer as more, none without a fan-in", () => {
-    expect(formatFanIn({ usages: 3, complete: true })).toBe("3 usages")
-    expect(formatFanIn({ usages: 1, complete: true })).toBe("1 usage")
-    expect(formatFanIn({ usages: 100, complete: false })).toBe("100+ usages")
-    expect(formatFanIn(null)).toBeNull()
+  it("words the usages inside and outside the change, a cut answer as more, none when unknown", () => {
+    expect(formatUsages(usages(1, 2))).toBe("3 usages")
+    expect(formatUsages(usages(0, 1))).toBe("1 usage")
+    expect(formatUsages({ ...usages(0, 100), complete: false })).toBe("100+ usages")
+    expect(formatUsages(null)).toBeNull()
   })
 
   it("keeps the order Rust ranked, with the kind, the place, the parts that changed and the forms of a removal or a change", () => {
     const entries = presentApiChanges([
-      change({ kind: "removed", name: "open", key: "a.open", path: "src/a/Api.kt", line: 3, before: "fun open(path:String)", fanIn: { usages: 12, complete: true } }),
-      change({ changes: ["parameters", "reach"], before: "fun helper(value:Int)", after: "fun helper(value:Int, scale:Int)", fanIn: { usages: 3, complete: true } }),
+      change({ kind: "removed", name: "open", key: "a.open", path: "src/a/Api.kt", line: 3, before: "fun open(path:String)", usages: usages(0, 12) }),
+      change({ changes: ["parameters", "reach"], before: "fun helper(value:Int)", after: "fun helper(value:Int, scale:Int)", usages: usages(1, 2) }),
       change({ kind: "added", name: "Cache", key: "b.Cache", path: "src/b/Cache.kt", line: 3, after: "class Cache" }),
     ])
     expect(entries.map(({ key: _key, ...entry }) => entry)).toEqual([
-      { name: "open", kind: "Removed", tone: "destructive", location: "src/a/Api.kt:3", changed: null, before: "fun open(path:String)", after: null, fanIn: "12 usages" },
+      { name: "open", kind: "Removed", tone: "destructive", location: "src/a/Api.kt:3", changed: null, before: "fun open(path:String)", after: null, usages: "12 usages" },
       {
         name: "helper",
         kind: "Changed",
@@ -77,9 +81,9 @@ describe("the API of the card", () => {
         changed: "parameters, visibility",
         before: "fun helper(value:Int)",
         after: "fun helper(value:Int, scale:Int)",
-        fanIn: "3 usages",
+        usages: "3 usages",
       },
-      { name: "Cache", kind: "Added", tone: "info", location: "src/b/Cache.kt:3", changed: null, before: null, after: null, fanIn: null },
+      { name: "Cache", kind: "Added", tone: "info", location: "src/b/Cache.kt:3", changed: null, before: null, after: null, usages: null },
     ])
     expect(new Set(entries.map(entry => entry.key)).size).toBe(3)
   })

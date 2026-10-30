@@ -56,7 +56,9 @@ fn schema_lists_every_output() {
     ]
   );
   for (name, schema) in outputs {
-    assert_eq!(schema["properties"]["schema"]["const"], json!(2), "{name}");
+    // the experimental plan of a review has a version of its own
+    let version = if name == "review_plan" { 3 } else { 2 };
+    assert_eq!(schema["properties"]["schema"]["const"], json!(version), "{name}");
     assert_eq!(schema["properties"]["operation_id"]["type"], json!("string"), "{name}");
     for field in ["schema", "operation_id"] {
       assert!(schema["required"].as_array().unwrap().contains(&json!(field)), "{name}: {field}");

@@ -14,9 +14,15 @@
 //!   forms differ (`Form`: the header, the parameters, the reach, `open`, the constructors, what Java sees); one more
 //!   overload is an addition. A change of the body alone, a move between files of one namespace, keep the forms. A
 //!   member of a type added or removed with it is the type's entry.
+//! - **No override**: a member that the summary marks as an override (Kotlin `override`, Java `@Override`) is no entry:
+//!   its supertype declares the API. A change counts as one when it overrides before and after it.
+//! - **The query of its usages** (`ApiChange::query`, `fan_in`): `Owner.name` for a member, by the type around it that
+//!   is not a Kotlin `Companion` (`ProjectManager.getInstance`, not `Companion.getInstance`); `package.name` for a
+//!   top-level declaration of a Kotlin or Java file in a package; else the bare name.
 //! - **Shown** as the header with the parameters after the name (`fun changedCall(x:Int, y:Int) : Int`), a type by its
 //!   constructors.
 
+use code_symbols::language::{Family, language_of};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use trial_check::diff_scan::CommitDiff;
@@ -57,12 +63,26 @@ pub enum FormChange {
   Jvm,
 }
 
-/// The usages of a declaration at the head of the range, from the index of the repository (`fan_in`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// A usage of a declaration: a path at the head and a line from 1
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSite {
+  pub path: String,
+  pub line: u32,
+}
+
+/// The usages of a declaration at the head of the range, from the index of the repository (`fan_in`): in the files the
+/// reviewed commits change (updated in this change), and in the other files (left outside)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct FanIn {
-  pub usages: u32,
+pub struct Usages {
+  pub inside: u32,
+  pub outside: u32,
+  /// The first `fan_in::OUTSIDE_SITES` usages left outside, by path and line
+  pub outside_sites: Vec<UsageSite>,
   /// False when the index cut its answer at its limit (100): there are more
   pub complete: bool,
 }
@@ -88,8 +108,15 @@ pub struct ApiChange {
   pub before: Option<String>,
   /// Its form after the commits, of a change or an addition
   pub after: Option<String>,
-  /// Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked or not answered
-  pub fan_in: Option<FanIn>,
+  /// Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked (a name of
+  /// `fan_in::STOP_NAMES`, past `fan_in::MAX_USAGE_QUERIES`) or not answered (no accio, no index, a failed query)
+  pub usages: Option<Usages>,
+  /// The name its usages are asked by: `Owner.name`, `package.name` or the name
+  #[serde(skip)]
+  pub query: String,
+  /// Of a member: the type of `query` (`Owner`)
+  #[serde(skip)]
+  pub owner: Option<String>,
   /// The path of its file after the commits, through every rename: the file whose `breaks` it counts in (`files`); differs
   /// from `path` for a removal in a file renamed since
   #[serde(skip)]
@@ -227,20 +254,27 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
       None => unmatched_before.push(*site),
     }
   }
-  let entry = |kind: ApiChangeKind, site: Site| ApiChange {
-    path: site.path.to_string(),
-    line: site.form.line,
-    name: site.form.name.clone(),
-    key: key.to_string(),
-    kind,
-    changes: Vec::new(),
-    before: None,
-    after: None,
-    fan_in: None,
-    file: site.file.to_string(),
+  let entry = |kind: ApiChangeKind, site: Site| {
+    let (query, owner) = query_of(site);
+    ApiChange {
+      path: site.path.to_string(),
+      line: site.form.line,
+      name: site.form.name.clone(),
+      key: key.to_string(),
+      kind,
+      changes: Vec::new(),
+      before: None,
+      after: None,
+      usages: None,
+      query,
+      owner,
+      file: site.file.to_string(),
+    }
   };
   match (first_public(&unmatched_before), first_public(&unmatched_after)) {
     (None, None) => None,
+    (Some(old), None) if unmatched_after.is_empty() && old.form.overrides => None,
+    (None, Some(new)) if unmatched_before.is_empty() && new.form.overrides => None,
     (Some(old), None) if unmatched_after.is_empty() => Some(ApiChange {
       before: shown(old.form),
       ..entry(ApiChangeKind::Removed, old)
@@ -253,6 +287,9 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
       // a public form changed, or a form changed its reach to or from public
       let old = old.or_else(|| unmatched_before.first().copied())?;
       let new = new.or_else(|| unmatched_after.first().copied())?;
+      if old.form.overrides && new.form.overrides {
+        return None;
+      }
       Some(ApiChange {
         changes: form_changes(&old.form.form, &new.form.form),
         before: shown(old.form),
@@ -261,6 +298,25 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
       })
     }
   }
+}
+
+/// The name the usages of the declaration of `site` are asked by, and its owner: `Owner.name` for a member (the type
+/// around it that is not a Kotlin `Companion`), `package.name` for a top-level declaration of a JVM file in a package,
+/// else its name
+fn query_of(site: Site) -> (String, Option<String>) {
+  let declaration = site.form;
+  let name = declaration.name.as_str();
+  if !declaration.containers.is_empty() {
+    return match declaration.containers.iter().rev().find(|container| *container != "Companion") {
+      Some(owner) => (format!("{owner}.{name}"), Some(owner.clone())),
+      None => (name.to_string(), None),
+    };
+  }
+  let jvm = language_of(site.path).is_some_and(|language| language.family() == Family::Jvm);
+  if jvm && !declaration.namespace.is_empty() {
+    return (format!("{}.{name}", declaration.namespace.join(".")), None);
+  }
+  (name.to_string(), None)
 }
 
 /// The first public one of `sites`
@@ -283,11 +339,11 @@ fn form_changes(before: &Form, after: &Form) -> Vec<FormChange> {
   .collect()
 }
 
-/// The order of the card: the most usages first, a change without an answer after those with one; then removals,
-/// changes and additions; then by file and line
+/// The order of the card: the most usages left outside first, then the most updated in this change, a change without
+/// an answer after those with one; then removals, changes and additions; then by file and line
 pub fn rank(changes: &mut [ApiChange]) {
   changes.sort_by(|a, b| {
-    let usages = |change: &ApiChange| change.fan_in.map(|fan_in| fan_in.usages);
+    let usages = |change: &ApiChange| change.usages.as_ref().map(|usages| (usages.outside, usages.inside));
     usages(b)
       .cmp(&usages(a))
       .then(a.kind.cmp(&b.kind))

@@ -285,7 +285,13 @@ pub struct DeclarationForm {
   /// Namespace, containers and name: what identifies it across the commits
   pub key: String,
   pub name: String,
+  /// The JVM package, the Rust module path or the TypeScript file path of its file
+  pub namespace: Vec<String>,
+  /// The names of the declarations it is a member of, the outermost first; for a Rust `impl` member its receiver
+  pub containers: Vec<String>,
   pub kind: DeclKind,
+  /// A Kotlin `override` member, a Java method annotated `@Override`
+  pub overrides: bool,
   /// The line of its name, from 1
   pub line: u32,
   /// Its reach and that of every declaration around it are `Public` (Java's `protected` too), and none around it is a
@@ -377,13 +383,19 @@ fn forms_of(ctx: &FileCtx<'_>, keys: &BTreeMap<String, Vec<usize>>) -> Vec<Decla
   keys
     .iter()
     .flat_map(|(key, indices)| indices.iter().map(move |&index| (key, &summary.declarations[index])))
-    .map(|(key, declaration)| DeclarationForm {
-      key: key.clone(),
-      name: summary.name(declaration.name).to_string(),
-      kind: declaration.kind,
-      line: declaration.name_line,
-      public: reaches_out(summary, declaration),
-      form: form_of(&site_of(ctx, declaration)),
+    .map(|(key, declaration)| {
+      let site = site_of(ctx, declaration);
+      DeclarationForm {
+        key: key.clone(),
+        name: summary.name(declaration.name).to_string(),
+        namespace: ctx.namespace.clone(),
+        kind: declaration.kind,
+        overrides: declaration.overrides,
+        line: declaration.name_line,
+        public: reaches_out(summary, declaration),
+        form: form_of(&site),
+        containers: site.containers,
+      }
     })
     .collect()
 }

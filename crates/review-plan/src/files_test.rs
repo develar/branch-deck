@@ -1,4 +1,4 @@
-use crate::api::{ApiChange, ApiChangeKind, FanIn};
+use crate::api::{ApiChange, ApiChangeKind, Usages};
 use crate::files::{FileFacts, MechanicalKind, RepeatedEditGroup, changed_files, file_facts, test_subject};
 use crate::test_support::{plan_of, range};
 use object_cache::commit_diff::FileChange;
@@ -132,8 +132,9 @@ fn a_renamed_file_is_listed_at_its_new_path() {
   );
 }
 
-/// The usages of a file's removed and changed API are its `breaks`, which rank it first; an addition and a declaration
-/// without usages break nothing, so an untested file ranks above them
+/// The usages left outside the change of a file's removed and changed API are its `breaks`, which rank it first; a use
+/// updated in the change, an addition and a declaration without usages break nothing, so an untested file ranks above
+/// them
 #[test]
 fn the_usages_of_a_files_api_rank_it_first() {
   let diffs = [commit(vec![
@@ -163,7 +164,7 @@ fn the_usages_of_a_files_api_rank_it_first() {
   );
 }
 
-/// A declaration `name` of `path` with `usages`
+/// A declaration `name` of `path` with `usages` left outside the change, and one updated in it
 fn api_change(path: &str, name: &str, kind: ApiChangeKind, usages: u32) -> ApiChange {
   ApiChange {
     path: path.to_string(),
@@ -174,7 +175,14 @@ fn api_change(path: &str, name: &str, kind: ApiChangeKind, usages: u32) -> ApiCh
     changes: Vec::new(),
     before: None,
     after: None,
-    fan_in: Some(FanIn { usages, complete: true }),
+    usages: Some(Usages {
+      inside: 1,
+      outside: usages,
+      outside_sites: Vec::new(),
+      complete: true,
+    }),
+    query: name.to_string(),
+    owner: None,
     file: path.to_string(),
   }
 }

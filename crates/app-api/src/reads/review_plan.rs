@@ -1,9 +1,10 @@
 //! The plan of a review in its window (spec/branch/review-plan.spec.md, Status: Experimental): what changed since the
-//! review of the branch, the API it changes with the usages of each declaration, the facts of each file, the links
-//! between the files, the dependency changes of the build files and the dependency order of the files (`review_plan::review_plan_core`, the one entry of `bd review-plan` too). The fan-in asks the index
-//! the host has (`SymbolIndexes`: accio in the app, the fixture of a test repository in the e2e server). One plan per
-//! window (`Windows::begin_plan`): a newer one of the window or its close supersedes the one in flight, whose queries of
-//! the index are killed, and it answers `canceled`; a symbol search of the window goes on beside it
+//! review of the branch, the API it changes with the usages of each declaration (updated in the change or left
+//! outside), the facts of each file, the links between the files, the dependency changes of the build files and the
+//! dependency order of the files (`review_plan::review_plan_core`, the one entry of `bd review-plan` too). The usages
+//! ask the index the host has (`SymbolIndexes`: accio in the app, the fixture of a test repository in the e2e server).
+//! One plan per window (`Windows::begin_plan`): a newer one of the window or its close supersedes the one in flight,
+//! whose queries of the index are killed, and it answers `canceled`; a symbol search of the window goes on beside it
 
 use crate::context::AppContext;
 use crate::operation::run_blocking;
