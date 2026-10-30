@@ -107,10 +107,19 @@ export function unionSeconds(processes) {
   return total + to - from
 }
 
+/**
+ * The name of a test binary of a JUnit report as its file, which names the trace directory: the crate of a unit test
+ * binary (`bd-remote`), the target of an integration test or a binary (`host-agent::serve`, `bd-host::bin/bd-host`)
+ */
+export function binaryFileName(junitBinary) {
+  const [crate, target] = junitBinary.split("::")
+  return (target === undefined ? crate : target.replace(/^bin\//, "")).replaceAll("-", "_")
+}
+
 /** `{binary, test} -> seconds` of a nextest JUnit report; the binary and the test as the trace directories name them */
 function junitTimes(file) {
   const cases = existsSync(file) ? testCases(readFileSync(file, "utf8")) : []
-  return new Map(cases.map(test => [`${test.binary.replaceAll("-", "_")} ${test.name.replaceAll("/", "_")}`, test.seconds]))
+  return new Map(cases.map(test => [`${binaryFileName(test.binary)} ${test.name.replaceAll("/", "_")}`, test.seconds]))
 }
 
 const micro = seconds => Math.round(seconds * 1e6) / 1e6

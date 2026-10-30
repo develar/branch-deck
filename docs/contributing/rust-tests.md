@@ -146,6 +146,58 @@ made for a whole class and measured by `compare` before and after, never by weak
 | **Races under load** | the traced run at load 27–122 (three suites on the Studio at once) failed four: `a_lock_that_a_process_has_open_stays_and_the_answer_names_the_process` (`crates/git-ops/src/index_lock_test.rs:106`: no holder named within the `retry` of 1 s), the two other lock tests of that file (24 and 46 s), `the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_the_stall` (`crates/host-agent/tests/serve/pack.rs:82`); in s16-3 at load 42.7, `a_window_that_watches_a_kept_session_anew_syncs_it_when_the_inputs_changed` (`crates/repository-model/src/session_test.rs:1526`: 2000 polls of 5 ms) | a failed run (in CI a pass on a retry fails it too) | Done (the review of s16): no limit of the clock decides them ([Time](#time)). The lock tests failed on a limit of the code: the `lsof` that names who has the lock open took more than its 10 s at that load (160 ms alone), so no holder was named and no ownerless lock removed; the holders are the file descriptors of each process, read through libproc in the process (`processes_with_open_file` of `crates/sync-utils/src/process_scan.rs`, 35 ms for 1000 processes), with no limit. The waits of the tests end by their state, at a limit no run reaches (`UNHURRIED`), and the holder of `a_step_blocked_…` lets go after the log line of the wait: before it, the refused step finds no lock and stands refused. The pack test sends its chunks until the run says that it waits and for the stall time after: a run that started its wait late under load waited less than the stall within 4 s of chunks from the request; the end at the stall is told by its message, not by 20 s. `counted` of the model saw the count of a check before the session had its answer, so the next open joined that check with the inputs before the commit: the test waits for the answer of an open, its host answers 50 ms after the count (`late_answer`), so a wait for the count fails every run, and the polls end at 1 min, not after 2000 of 5 ms. Beside 40 `yes` on the Studio (load 7 → 38), these tests, the lock tests of `pick_test` and the holders of `process_scan_test`, `--stress-count 20`: 220 of 220, the slowest lock test 2.6 s (it failed at 46 s before) |
 | **The discovery of git in each test process** | every test process that runs git asks `git version` once (`DISCOVERED` of the executor) | 2,682 processes (2.9 %); a `bd` test asked two (the executor's `DISCOVERED`, then `discover_for_cli` of `bd`) | s16-6: each git answers its version once per process (`checked`, `a_git_answers_its_version_once_per_process_and_a_failure_is_asked_again` in `crates/git-executor/src/git_info.rs`) and `bd` of a test runs the fixtures' git: `version` of the six binaries 1,242 → 753 |
 
+## Beyond the processes
+
+The tree of s16 starts as many git processes as the tree of `s0a` and still takes longer (B16 of [Rust as the Domain
+Authority](../design/rust-domain-authority.md)), so s17-2 split the time of every test into its time in git and beside
+it ([Measuring](#measuring)) and measured each suspect on the Studio with throwaway builds (empty tests, switches read
+from the environment; never committed). The raw outputs are in `notes.local/s17-test-suite/s17-2/` of the lease.
+
+**Both trees traced** on 2026-10-30, one after the other with no other run on the Studio (`--profile ci --retries 0`;
+the load at the start 24.8 for this tree, after the E2E of another checkout, and 17.3 for `s0a`, after this tree):
+
+| | `s0a` (`66938306`) | s17-2 (`a81a9835`) |
+|---|---:|---:|
+| tests; git processes | 2,241; 88,459 | 3,800; 88,918 |
+| wall, user, sys | 239.2 s, 474 s, 2,481 s | 278.1 s, 584 s, 3,048 s |
+| the tests' time | 4,233 s | 5,452 s |
+| in git (while one of its processes ran) | 2,214 s, 25.0 ms a process | 2,654 s, 29.8 ms a process |
+| beside git | 2,019 s, 22.8 ms a process | 2,798 s, 31.5 ms a process |
+| beside git: the tests without git | 1,035 tests, 142 s (137 ms a test) | 1,966 tests, 236 s (120 ms a test) |
+| beside git: the tests of 1 to 19 processes | 146 tests, 69 s (34 ms a process) | 587 tests, 322 s (51 ms a process) |
+| beside git: the tests of 20 processes or more | 1,060 tests, 1,809 s (20.9 ms a process) | 1,247 tests, 2,241 s (27.1 ms a process) |
+
+Both halves grew: git itself runs slower in the run of this tree (by git's own clock `rev-parse` 6.9 → 10.9 ms,
+`symbolic-ref` 7.0 → 13.9, `for-each-ref` 14.0 → 25.0, `log` 14.4 → 27.7, `version` 1.3 → 2.7), and every test spends
+more beside its processes. Neither is a burst at the start: a git process costs 48–67 ms of test time in every 30 s of
+this tree's run, 40–53 ms in the run of `s0a`. The binaries of `bd`, in git and beside it per process:
+
+| Binary | Tests | Processes | Test s | In git, ms a process | Beside git, ms a process |
+|---|---:|---:|---:|---:|---:|
+| bd-remote | 99 → 141 | 10,150 → 19,037 | 462 → 1,089 | 21.8 → 33.7 | 23.7 → 23.5 |
+| bd-update | 72 → 100 | 9,387 → 8,537 | 369 → 504 | 15.9 → 28.5 | 23.3 → 30.6 |
+| bd-rewrite | 98 → 116 | 7,023 → 4,935 | 285 → 364 | 17.6 → 39.4 | 22.9 → 34.3 |
+| bd-lease | 37 → 106 | 2,170 → 4,876 | 107 → 282 | 16.8 → 21.2 | 32.6 → 36.7 |
+| bd-cli | 56 → 113 | 2,954 → 4,182 | 116 → 251 | 16.1 → 30.0 | 23.3 → 29.9 |
+| operations (new) | 146 | 6,535 | 335 | 26.0 | 25.2 |
+| sync-core | 813 → 513 | 29,403 → 18,596 | 1,452 → 1,005 | 24.5 → 27.1 | 24.9 → 27.0 |
+| git-ops | 270 → 322 | 7,467 → 6,032 | 320 → 334 | 19.1 → 26.4 | 23.8 → 28.9 |
+
+Inside a test its git processes run one after another (the sum of their spans over their union is 1.0–1.2 in every
+binary but bd-remote 2.7, repository-model 2.9 and test-server 2.4; in `s0a` test-server ran 13,688 processes 26 at
+once), so a git that runs longer by its own clock is not a test that runs several at once: it is the machine. Each
+suspect, measured on its own (the Studio, `--profile ci --retries 0`, the load at the start named; nothing else ran
+through `bd-host` unless said):
+
+| Hypothesis | Measurement | Verdict | Step |
+|---|---|---|---|
+| The start of a git process costs more from a large test binary, from one with many threads or much memory | a test spawns `git --version` 200 times: bd-remote (190.8 MB) 5.5 ms, sync-utils (7.9 MB) 6.0 ms; beside 120 parked threads 5.3 / 6.2 ms; with 256 MiB touched 5.6 / 6.0 ms; the same test inside a full run 12.5–31.4 ms (load 22–41) | no: the binary, its threads and its memory do not change a spawn, the load of the run triples it. The kernel time per process is the contention of 20 full slots, which grows with all that the tests do | none of its own: every class below lowers it |
+| A test process costs more without git | 50 empty tests: bd-remote 22 ms a test, sync-utils 16 ms (junit); beside a run of sync-core 60 and 40 ms | the floor of a process per test; 1,559 tests more than `s0a` are 25–95 s of the tests' time | none: nextest runs a process per test |
+| The scenario table's threads slow the binaries that start with it | the five priority binaries (load 17–29): as they are 2,177 / 2,155 s of junit (the others 2,005 / 1,997 s), 112 / 111 s wall, sys 1,296 / 1,311 s; without the table the others 1,736 s, 90 s wall, sys 1,114 s; with 4 cases at once 2,135 s (others 1,930), 110 s; with 4 and `worker_threads(2)` 2,153 s (1,945), 111 s; with `worker_threads(2)` alone 2,146 s (1,984), 110 s | the table costs its neighbours 265 s and the five 21 s of wall; a bound gives the neighbours 70 s back and the table takes them: the sum −1.4 %, the wall the same; the workers of the runtime change nothing | s17-6 records the numbers and changes nothing |
+| LMDB flushes the drive at each commit (`F_FULLFSYNC`), and so does each durable write (`sync_all`) | a full run with both and without (throwaway `NO_SYNC \| NO_META_SYNC` and no `sync_all`), in turns, load 22–41: 257.3 / 256.8 s against 240.2 / 243.5 s; 2,915 / 2,920 commits of the cache took 66 / 67 s of the tests' time (23 ms each, p90 50 ms) against 1.2 / 1.5 s; 2,836 durable writes 28.8 / 28.2 s against 0.3 / 0.4 s, of them 1,904 of `operations.json` (21.4 s), 310 `repository-state.json`, 226 `studio.json`, 205 `settings.json`. object-cache and the sync tests of sync-core: 193 / 179 s of junit against 135 / 133 s, 10.9 / 10.3 s wall against 8.0 / 7.9 s | yes: 95 s of the tests' time and 13–17 s of a run, at the device, where the 20 slots' flushes queue. For the user a command writes at most 7 transactions (~30 ms, [Object cache](../design/git-operations.md#object-cache)) | the product keeps both: the sync of the cache is what keeps a power loss from leaving a wrong tree id (`an_environment_syncs_every_commit`), the durable write of the registry its state across a crash ([Operations registry](../design/git-operations.md#operations-registry)). s17-5 takes the flushes out of the tests only, by a value of the tests' environment that the product never has, or records the numbers |
+| `ProcessScan::scan()` of `bd lease` walks every process of a loaded machine | 23–24 ms a scan alone and in a full run; 339 scans in bd-lease (8.1 s of its 253 s), 468 in a full run (10.9 s) | no: the scan does not grow with the load. bd-lease takes 2.4 s a test against 2.3 s in `s0a`: its time is its 69 new tests | none |
+| A priority binary costs the kernel more per test than in `s0a`, or git runs slower in it | each binary alone under `/usr/bin/time -l`, `s0a` (load 30–43) against this tree (load 12–22 beside the `pnpm lint:backend` of another checkout; again at 32–40 beside a full run of another, the same numbers): bd-remote 21.7 → 46.7 s wall, sys 230 → 395 s, involuntary context switches 0.65 M → 5.6 M, page reclaims 7.8 M → 15.2 M; bd-update 22.5 → 25.0 s, sys 224 → 250 s; bd-rewrite 13.2 → 13.6 s, 113 → 110 s; bd-lease 6.5 → 13.3 s, 57 → 127 s. Traced alone, git per process: bd-update 14.8 → 21.4 ms, bd-rewrite 17.0 → 27.2 ms; the same subcommand `rev-parse` 4.8 → 7.3, `cat-file` 9.0 → 11.0, `update-ref` 32 → 33, `commit` 46 → 52 ms, while `config` 1,074 → 281 and `version` 570 → 0 processes left and `fast-import` of bd-rewrite 317 → 506 processes, 52 → 93 ms (longer streams) | no: the mean per process is the mix (the cheap processes went, the streams that replaced them stay), a subcommand alone costs about what it cost. bd-remote doubles with its processes (10,150 → 19,037) and the threads of the table (above); bd-lease with its tests. Debug logging costs nothing: the five with `RUST_LOG=off` 100.0 s against 100.4 s, sys 917 against 963 s | none of its own: s17-3 and s17-4 lower the processes |
+
 ## Temporary files on a RAM disk (macOS)
 
 The repositories of the tests live in the temporary directory, and their files cost on the APFS of the disk: with

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { besideGit, comparison, processOf, report, subcommand, summaryOf, totals, unionSeconds } from "./test-processes.mjs"
+import { besideGit, binaryFileName, comparison, processOf, report, subcommand, summaryOf, totals, unionSeconds } from "./test-processes.mjs"
 
 const SID = "20261030T045902.682112Z-H6953c50e-P00007c43"
 
@@ -48,6 +48,12 @@ test("a process that detaches ends at its first end, a killed one at its last ev
   assert.equal(signaled.ended, true)
   assert.ok(Math.abs(signaled.seconds - 0.04) < 1e-9)
   assert.equal(processOf(trace(`${SID}/20261030T045902.697466Z-H6953c50e-P00007c51`, ["git-upload-pack", "/repo"], "2026-10-30T04:59:02.000000Z", [["atexit", 0.01]])), null)
+})
+
+test("a binary of the report is named as its file: the crate of its unit tests, else its target", () => {
+  assert.equal(binaryFileName("bd-remote"), "bd_remote")
+  assert.equal(binaryFileName("host-agent::serve"), "serve")
+  assert.equal(binaryFileName("bd-host::bin/bd-host"), "bd_host")
 })
 
 test("the processes that run at once are counted once in the time git ran", () => {
