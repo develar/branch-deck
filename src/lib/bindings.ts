@@ -5801,7 +5801,7 @@ export type RepositoryConfig = {
 	agentLease: ConfigSetting<boolean>,
 	/**  `branchdeck.agentSubjectBranch`, off by default */
 	agentSubjectBranch: ConfigSetting<boolean>,
-	/**  `branchdeck.reviewExperimental`, on by default, off for a value git refuses */
+	/**  `branchdeck.reviewExperimental`, off by default and for a value git refuses */
 	reviewExperimental: ConfigSetting<boolean>,
 	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
 	detectedGithubRepository: DetectedGitHubRepository | null,
