@@ -344,7 +344,7 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    repack after a commit, which writes only the shared object store; `maintenance_started`: the return started it
    between leases, `branchdeck.leaseMaintenance`) and `caffeinate`. The Bazel servers of the
    worktree (`--workspace_directory` in it, `kind: bazel_server`) serve only it, with an output base of their own: the
-   return stops them with SIGTERM once no other process is there (`stopped_servers`; their output bases stay), so
+   return stops them with SIGTERM (`bazel shutdown` on Windows) once no other process is there (`stopped_servers`; their output bases stay), so
    never run `bazel shutdown` or kill one first. --confirm-preserved discards the changes and gives up the
    commits, only when the user said so. `bd lease status` lists the slots and their leases from the pool state
    (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work`, `reclaimed`, `free_bytes`). The return applies the clean rules of

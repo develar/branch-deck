@@ -1878,7 +1878,8 @@ waits for a clone.
    the pool), then the ones never returned in the order they joined. The slot returned last has the warmest index,
    fsmonitor daemon and build caches and the commit closest to the source; by the order they joined alone, the first
    slot served every lease and the others sat idle for days, cold and thousands of files behind. A free slot whose only
-   processes are its Bazel servers is reserved with them, and the get stops them with SIGTERM before the checkout (one
+   processes are its Bazel servers is reserved with them, and the get stops them with SIGTERM (`bazel shutdown` on
+   Windows, found by their output base as the return below finds them) before the checkout (one
    that does not exit gives the slot back, skipped as busy): the slot is the pool's, and a `--watchfs` server can miss
    the events of a large checkout. The lease is recorded as `preparing`, with the pid and its start time, and with the
    process the get runs for (the nearest ancestor that is no shell: the agent, the terminal), and the lock is released.
@@ -2111,7 +2112,18 @@ idea-1) keeps no lease: Bazel derives its output base from the workspace path, s
 server of the pool had its own, `MonorepoBazel/<md5 of the path>`). Once nothing else refuses, the return sends it
 SIGTERM, waits up to 30 s and names it in `stopped_servers`; the output base stays, and the next lease of the slot
 finds its disk cache. No other process is signalled, and any other process in the slot refuses the return before a
-server is. There is no flag to keep a server: `--keep-servers` turned the stop into a refusal that could never pass
+server is. Windows has no process scan and no signals (issue #159: a server held several GB after the return): there
+the servers are found by their output base (`lease_pool::bazel_servers`). A workspace is the slot or a directory
+right in it with `MODULE.bazel` or `WORKSPACE(.bazel)`; its `bazel-out` link (`bazel-out`, or `out/bazel-out` with
+`--symlink_prefix=out/bazel-`) names `<output base>/execroot/<name>/bazel-out`, and Bazel writes the pid of the
+server into `<output base>/server/server.pid.txt`. A pid that is gone, or whose process started after the file was
+written (a pid the system gave away since), is no server. The return runs `bazel --output_base=<output base>
+shutdown` in the workspace instead of SIGTERM, the clean stop of Bazel, killed after the 30 s, and waits for the pid
+as elsewhere; the pid itself is never signalled. `bazel` is looked up as `cmd` looks it up, with the extensions of
+`PATHEXT`: Bazelisk installed by npm is a `bazel.cmd`, which `CreateProcess` never finds, and the return then waited
+the 30 s for a server nothing had asked and refused it as one that did not exit. A `bazel shutdown` that can't run or
+fails is not waited for: its server keeps the slot busy at once, its `stop_error` naming the program and the error. A
+server whose link is missing or named otherwise is not found and keeps running, as before. There is no flag to keep a server: `--keep-servers` turned the stop into a refusal that could never pass
 while the server ran, and a wrong note that a return stopped a shared server made agents pass it. Unlanded commits,
 local changes and a process of another session in the slot refuse it; with
 `--confirm-preserved` the changes go with `reset --hard HEAD` and `clean -fd`, and the ignored build outputs stay

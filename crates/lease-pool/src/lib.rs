@@ -25,8 +25,11 @@
 //!   `bd lease pick` reads
 //! - `clone_dir`: a directory tree by APFS clones, the new slot of a get on macOS, without what the clean rules delete
 //! - `free_space`: the free space of the volume of the pool, which a get checks
+//! - `bazel_servers`: the Bazel servers of a slot where no process scan tells them (Windows), by the pid file of the
+//!   output base its `bazel-out` link leads to, and their stop with `bazel shutdown`
 
 pub mod agent_workspace;
+mod bazel_servers;
 pub mod check_record;
 pub mod clone_dir;
 pub mod free_space;

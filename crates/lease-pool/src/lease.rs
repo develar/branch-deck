@@ -11,6 +11,7 @@
 //! lock of the lend table of the host slots (`host-slots.lock`, `host_slots`) comes before all three and is a leaf: it is
 //! never held while another is taken.
 
+use crate::bazel_servers::{servers_by_output_base, shutdown};
 use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::available_bytes;
 use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
@@ -30,6 +31,7 @@ use history_rewrite::repository_lock::{LockHolder, RepositoryLock, lock_file_whi
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
@@ -319,6 +321,9 @@ pub struct BusyProcess {
   pub command: String,
   /// The workspace of a Bazel server: a return stops it, a get stops it in a free slot
   pub bazel_workspace: Option<String>,
+  /// Why a Bazel server that still runs was not asked to exit: its `bazel shutdown` could not run (no `bazel` on the
+  /// `PATH`) or failed (Windows)
+  pub stop_error: Option<String>,
 }
 
 impl BusyProcess {
@@ -328,6 +333,7 @@ impl BusyProcess {
       name: process.name.clone(),
       command: process.command_line(COMMAND_LIMIT),
       bazel_workspace: process.bazel_workspace().map(|workspace| display_path(&workspace)),
+      stop_error: None,
     }
   }
 }
@@ -377,7 +383,7 @@ pub enum LeaseRefusal {
   LeaseMismatch { path: String, expected: String, actual: String },
   #[error("Processes work in {path}: {}; wait until they are done{}", describe_processes(.processes), servers_note(.processes))]
   SlotBusy { path: String, processes: Vec<BusyProcess> },
-  #[error("Bazel servers of {path} did not exit on SIGTERM: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
+  #[error("Bazel servers of {path} did not exit on {SERVER_STOP}: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
   #[error(
     "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle` and the Bazel output bases of slots no longer used free space); never pass `--min-free 0` on your own",
@@ -471,7 +477,10 @@ fn describe_processes(processes: &[BusyProcess]) -> String {
   processes
     .iter()
     .map(|process| match &process.bazel_workspace {
-      Some(workspace) => format!("{} ({}, the Bazel server of {workspace})", process.name, process.pid),
+      Some(workspace) => match &process.stop_error {
+        Some(error) => format!("{} ({}, the Bazel server of {workspace}: {error})", process.name, process.pid),
+        None => format!("{} ({}, the Bazel server of {workspace})", process.name, process.pid),
+      },
       None => format!("{} ({}: {})", process.name, process.pid, process.command),
     })
     .collect::<Vec<_>>()
@@ -633,6 +642,8 @@ pub struct LeaseGetParams<'a> {
   pub min_free: Option<u64>,
   /// How long the get waits for the Bazel servers of a free slot it asked to exit
   pub server_timeout: Duration,
+  /// The program of `bazel shutdown`, which stops the servers on Windows; `None`: `bazel` of the `PATH`
+  pub bazel: Option<&'a OsStr>,
   /// The wait for the pool lock and for the lock of the `worktree` commands, and for a clones lock no record names a
   /// live holder of
   pub lock_timeout: Duration,
@@ -1092,8 +1103,7 @@ fn stop_reserved_servers(
     });
   }
   let servers: Vec<&ProcessInfo> = servers.iter().collect();
-  let exited = stop_servers(&servers, params.server_timeout);
-  let running: Vec<&ProcessInfo> = servers.iter().copied().filter(|server| !exited.iter().any(|stopped| stopped.pid == server.pid)).collect();
+  let ServerStop { stopped: exited, running } = stop_servers(&servers, params.bazel, params.server_timeout);
   stopped.extend(exited);
   if running.is_empty() {
     return None;
@@ -1103,9 +1113,7 @@ fn stop_reserved_servers(
   Some(SkippedSlot {
     name: name.to_string(),
     path: path.to_string(),
-    reason: SkipReason::Busy {
-      processes: busy_processes(&running),
-    },
+    reason: SkipReason::Busy { processes: running },
   })
 }
 
@@ -1278,7 +1286,7 @@ fn reserve(
 /// The Bazel servers of `slot` when they are the only processes in it, which the get stops itself; else `None`, and the
 /// slot skipped as busy
 fn servers_alone(scan: &ProcessScan, slot: &Slot, skipped: &mut Vec<SkippedSlot>) -> Option<Vec<ProcessInfo>> {
-  let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = scan.inside(Path::new(&slot.path)).into_iter().partition(|process| process.bazel_workspace().is_some());
+  let (servers, others) = slot_servers(scan, Path::new(&slot.path));
   if !others.is_empty() {
     skipped.push(SkippedSlot {
       name: slot.name.clone(),
@@ -1289,7 +1297,18 @@ fn servers_alone(scan: &ProcessScan, slot: &Slot, skipped: &mut Vec<SkippedSlot>
     });
     return None;
   }
-  Some(servers.into_iter().cloned().collect())
+  Some(servers)
+}
+
+/// The processes in the slot at `path`: its Bazel servers, which serve only it and which a return, a get and a reclaim
+/// stop, and every other process, which keeps it busy. Without a scan (Windows) no other process is known, and the
+/// servers are told by the pid file of their output base (`servers_by_output_base`)
+pub(crate) fn slot_servers<'a>(scan: &'a ProcessScan, path: &Path) -> (Vec<ProcessInfo>, Vec<&'a ProcessInfo>) {
+  if !scan.is_available() {
+    return (servers_by_output_base(path), Vec::new());
+  }
+  let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = scan.inside(path).into_iter().partition(|process| process.bazel_workspace().is_some());
+  (servers.into_iter().cloned().collect(), others)
 }
 
 /// Under the pool lock: the idle lease (`Lease::is_idle`) that was quiet longest (`is_quiet`), of a slot of this
@@ -1907,6 +1926,8 @@ pub struct LeaseReturnParams<'a> {
   pub confirm_preserved: bool,
   /// How long the return waits for the Bazel servers it asked to exit
   pub server_timeout: Duration,
+  /// The program of `bazel shutdown`, which stops the servers on Windows; `None`: `bazel` of the `PATH`
+  pub bazel: Option<&'a OsStr>,
   /// Apply the clean rules of `.branchdeck.toml`, with these overrides; `None` (`--no-clean`) applies none
   pub clean: Option<CleanOverrides>,
   pub lock_timeout: Duration,
@@ -1927,7 +1948,7 @@ pub struct LeaseReturned {
   pub landed_check: Option<LandedCheck>,
   /// Another return of the same lease (a retry) returned it: this one changed nothing, and its lists are empty
   pub joined: bool,
-  /// The Bazel servers of the slot that exited on the SIGTERM of the return
+  /// The Bazel servers of the slot that exited when the return asked them (SIGTERM; `bazel shutdown` on Windows)
   pub stopped_servers: Vec<StoppedServer>,
   /// git's background maintenance in the slot, which does not keep it busy
   pub maintenance: Vec<u32>,
@@ -2128,7 +2149,7 @@ fn return_once(
   let inside = scan.inside(Path::new(&path));
   let maintenance = scan.maintenance_inside(Path::new(&path));
   // the Bazel servers of the slot, which serve only it; every other process keeps the slot busy
-  let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = inside.iter().partition(|process| process.bazel_workspace().is_some());
+  let (servers, others) = slot_servers(&scan, Path::new(&path));
   if !others.is_empty() {
     bail!(LeaseRefusal::SlotBusy {
       path,
@@ -2155,17 +2176,13 @@ fn return_once(
     bail!(LeaseRefusal::DirtyWorktree { path, paths: changes });
   }
   // only now, when nothing else refuses: a server that does not exit keeps the slot busy
-  let stopped_servers = stop_servers(&servers, params.server_timeout);
-  let running: Vec<&ProcessInfo> = servers
-    .iter()
-    .copied()
-    .filter(|server| !stopped_servers.iter().any(|stopped| stopped.pid == server.pid))
-    .collect();
+  let servers: Vec<&ProcessInfo> = servers.iter().collect();
+  let ServerStop {
+    stopped: stopped_servers,
+    running,
+  } = stop_servers(&servers, params.bazel, params.server_timeout);
   if !running.is_empty() {
-    bail!(LeaseRefusal::ServersRunning {
-      path,
-      processes: busy_processes(&running),
-    });
+    bail!(LeaseRefusal::ServersRunning { path, processes: running });
   }
   // from here on the return acts on the slot: reserved under the pool lock, while the lease is still the one it
   // checked, so a retried return beside it, or one that another return overtook and whose slot a get leased meanwhile,
@@ -2346,16 +2363,31 @@ pub struct StoppedServer {
   pub output_base: Option<String>,
 }
 
-/// Ask each Bazel server to exit with SIGTERM and wait up to `timeout` for them; the ones that are gone. No other
-/// process is ever signalled: the caller passes only processes with `--workspace_directory` in the slot, and each is
-/// signalled only while its pid still has the start time of the scan, checked right before its `kill`. Between the
-/// scan and the signal a server can exit and the system can give its pid to an unrelated process. A server without a
-/// known start time is never signalled and stays running, so the slot stays busy
-fn stop_servers(servers: &[&ProcessInfo], timeout: Duration) -> Vec<StoppedServer> {
-  if servers.is_empty() {
-    return Vec::new();
-  }
+/// How a return, a get and a reclaim ask a Bazel server to exit, as their refusal names it
+const SERVER_STOP: &str = if cfg!(windows) { "`bazel shutdown`" } else { "SIGTERM" };
+
+/// What `stop_servers` did with the Bazel servers of a slot
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct ServerStop {
+  /// The servers that are gone
+  pub stopped: Vec<StoppedServer>,
+  /// The servers that still run, each with the `stop_error` of a `bazel shutdown` that could not run or failed
+  pub running: Vec<BusyProcess>,
+}
+
+/// Ask each Bazel server to exit and wait up to `timeout` for them. On macOS and Linux with SIGTERM; on Windows, which
+/// has no signals, with `bazel shutdown` for its output base (`bazel_servers::shutdown`, through `bazel`, else `bazel`
+/// of the `PATH`), all within the same `timeout`. A `bazel shutdown` that could not run or failed is not waited for:
+/// its server, unless gone anyway, runs on with the error as its `stop_error`. No other process is ever signalled: the
+/// caller passes only processes with `--workspace_directory` in the slot, and each is asked only while its pid still
+/// has the start time of the scan, checked right before its `kill`. Between the scan and the signal a server can exit
+/// and the system can give its pid to an unrelated process. A server without a known start time is never signalled and
+/// stays running, so the slot stays busy
+pub(crate) fn stop_servers(servers: &[&ProcessInfo], bazel: Option<&OsStr>, timeout: Duration) -> ServerStop {
+  let deadline = Instant::now() + timeout;
   let running = |server: &ProcessInfo| server.started.is_none_or(|started| is_running(server.pid, Some(started)));
+  // the servers whose `bazel shutdown` could not run or failed, with why
+  let mut failed: Vec<(u32, String)> = Vec::new();
   for server in servers {
     let Some(started) = server.started else {
       debug!(pid = server.pid, "a Bazel server without a start time is not signalled");
@@ -2363,22 +2395,38 @@ fn stop_servers(servers: &[&ProcessInfo], timeout: Duration) -> Vec<StoppedServe
     };
     if is_running(server.pid, Some(started)) {
       debug!(pid = server.pid, argv = ?server.argv, "stopping a Bazel server of the slot");
-      terminate(server.pid);
+      if cfg!(windows) {
+        if let Err(error) = shutdown(bazel, server, deadline.saturating_duration_since(Instant::now())) {
+          warn!(pid = server.pid, argv = ?server.argv, error = %error, "cannot stop a Bazel server of the slot");
+          failed.push((server.pid, error));
+        }
+      } else {
+        terminate(server.pid);
+      }
     }
   }
-  let deadline = Instant::now() + timeout;
-  while servers.iter().any(|server| running(server)) && Instant::now() < deadline {
+  let stop_error = |server: &ProcessInfo| failed.iter().find(|(pid, _)| *pid == server.pid).map(|(_, error)| error.clone());
+  while servers.iter().any(|server| stop_error(server).is_none() && running(server)) && Instant::now() < deadline {
     std::thread::sleep(Duration::from_millis(50));
   }
-  servers
-    .iter()
-    .filter(|server| !running(server))
-    .map(|server| StoppedServer {
-      pid: server.pid,
-      workspace: server.bazel_workspace().map_or_default(|workspace| display_path(&workspace)),
-      output_base: server.output_base().map(str::to_string),
-    })
-    .collect()
+  let (left, gone): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = servers.iter().copied().partition(|server| running(server));
+  ServerStop {
+    stopped: gone
+      .into_iter()
+      .map(|server| StoppedServer {
+        pid: server.pid,
+        workspace: server.bazel_workspace().map_or_default(|workspace| display_path(&workspace)),
+        output_base: server.output_base().map(str::to_string),
+      })
+      .collect(),
+    running: left
+      .into_iter()
+      .map(|server| BusyProcess {
+        stop_error: stop_error(server),
+        ..BusyProcess::of(server)
+      })
+      .collect(),
+  }
 }
 
 /// How `bd lease status` sees a slot, from the state alone
@@ -2664,6 +2712,8 @@ pub struct LeaseReclaimParams<'a> {
   pub clean: CleanOverrides,
   /// How long the reclaim waits for the Bazel servers it asked to exit
   pub server_timeout: Duration,
+  /// The program of `bazel shutdown`, which stops the servers on Windows; `None`: `bazel` of the `PATH`
+  pub bazel: Option<&'a OsStr>,
   pub lock_timeout: Duration,
 }
 
@@ -2749,7 +2799,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       answer.skipped.push(skip(IdleSkip::NotQuiet));
       continue;
     }
-    let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = scan.inside(Path::new(&path)).into_iter().partition(|process| process.bazel_workspace().is_some());
+    let (servers, others) = slot_servers(&scan, Path::new(&path));
     if !others.is_empty() {
       answer.skipped.push(skip(IdleSkip::Busy {
         processes: busy_processes(&others),
@@ -2791,17 +2841,12 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       answer.skipped.push(skip(IdleSkip::Changed));
       continue;
     }
-    reclaimed.stopped_servers = stop_servers(&servers, params.server_timeout);
-    let running: Vec<&ProcessInfo> = servers
-      .iter()
-      .copied()
-      .filter(|server| !reclaimed.stopped_servers.iter().any(|stopped| stopped.pid == server.pid))
-      .collect();
+    let servers: Vec<&ProcessInfo> = servers.iter().collect();
+    let ServerStop { stopped, running } = stop_servers(&servers, params.bazel, params.server_timeout);
+    reclaimed.stopped_servers = stopped;
     if !running.is_empty() {
       restore_ready(&pool, params.lock_timeout, &path, &lease.id);
-      answer.skipped.push(skip(IdleSkip::Busy {
-        processes: busy_processes(&running),
-      }));
+      answer.skipped.push(skip(IdleSkip::Busy { processes: running }));
       continue;
     }
     match finish_return(git_executor, &path, &lease, &[], Some(params.clean), &trash) {

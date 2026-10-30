@@ -83,11 +83,11 @@ fn a_server_is_signalled_only_while_its_pid_has_the_start_time_of_the_scan() {
   assert!(started.is_some());
 
   let unknown = server(pid, None);
-  assert_eq!(stop_servers(&[&unknown], Duration::from_millis(200)), Vec::new());
+  assert_eq!(stop_servers(&[&unknown], None, Duration::from_millis(200)).stopped, Vec::new());
   assert!(child.try_wait().unwrap().is_none(), "a server without a start time was signalled");
 
   let reused = server(pid, started.map(|started| started + 1));
-  let stopped = stop_servers(&[&reused], Duration::from_millis(200));
+  let stopped = stop_servers(&[&reused], None, Duration::from_millis(200)).stopped;
   assert_eq!(stopped.iter().map(|stopped| stopped.pid).collect::<Vec<_>>(), [pid], "the scanned server is gone");
   assert!(child.try_wait().unwrap().is_none(), "the process that got the pid was signalled");
   assert!(is_running(pid, started));

@@ -1,6 +1,6 @@
 #[cfg(unix)]
-use crate::fixture_test::{PREFIX, beside_a_held_sync, repo_with_commits, repo_with_login};
-use crate::fixture_test::{commit_all, git, hold_the_lock, run_in, write};
+use crate::fixture_test::{PREFIX, beside_a_held_sync};
+use crate::fixture_test::{commit_all, git, hold_the_lock, repo_with_commits, repo_with_login, run_in, write};
 #[cfg(unix)]
 use crate::remote_fixture_test::{remote_tip, repo_with_remote};
 use git_ops::revs::short_id;

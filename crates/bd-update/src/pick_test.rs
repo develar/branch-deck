@@ -1,7 +1,7 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, hold_the_lock, repo_with_commits, subcommand};
-use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
+use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, hold_the_lock, subcommand};
+use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, repo_with_commits, run_in, run_json};
 use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
