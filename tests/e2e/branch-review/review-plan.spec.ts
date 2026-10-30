@@ -259,6 +259,64 @@ test.describe("The review plan in the branch review", () => {
     await expect(cache).toHaveAttribute("aria-selected", "false")
   })
 
+  test("should select the file of a card entry while a filter hides every file, and drop only the filter that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    // five notes more, so the window has the search of the files; the owners of the baseline, src/b its own
+    const notes = Object.fromEntries([1, 2, 3, 4, 5].map(number => [`docs/note${number}.txt`, `note ${number}\n`]))
+    await repo.commit("(plan) add the notes", notes, 1704124800)
+    await repo.commitOnRemote("master", {
+      subject: "Add the owners",
+      author: "Jane <jane@example.com>",
+      timestamp: 1704110400,
+      files: { OWNERSHIP: "owner 'Monorepo'\n", "src/b/OWNERSHIP": "owner 'Cache Team'\n" },
+    })
+    await repo.fetchInTerminal()
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    const { cache, store } = planRows(window)
+    const owner = (name: string) => window.getByTestId("branch-review-owner").filter({ hasText: name })
+    const search = window.getByRole("textbox", { name: "Filter files" })
+    const position = window.getByTestId("branch-review-position")
+    const noMatch = window.getByTestId("review-files-no-match")
+    const card = window.getByTestId("review-plan-card")
+    const header = (filePath: string) => window.locator(`[data-testid="review-file-header"][data-path="${filePath}"]`)
+
+    // a search that matches no file: the card stays, its entry clears the search and selects Store
+    await search.fill("nothing matches this")
+    await expect(noMatch).toBeVisible()
+    await card.getByTestId("review-plan-breakage-file").click()
+    await expect(search).toHaveValue("")
+    await expect(noMatch).toHaveCount(0)
+    await expect(store).toHaveAttribute("aria-selected", "true")
+    await expect(position).toHaveText(/File 8 \/ 8$/)
+    await expect(header("src/Store.kt")).toBeInViewport()
+
+    // the owner filter and a search that hides its only file: the entry of Cache drops the search, the owner stays
+    await search.fill("nothing matches this")
+    await owner("Cache Team").click()
+    await expect(noMatch).toBeVisible()
+    const newApi = card.getByTestId("review-plan-new-api")
+    await newApi.getByRole("button", { name: /New API/ }).click()
+    await newApi.getByTestId("review-plan-new-api-file").filter({ hasText: "src/b/Cache.kt" }).getByRole("button").click()
+    // the search is empty, and one file is too few for its field
+    await expect(search).toHaveCount(0)
+    await expect(owner("Cache Team")).toHaveAttribute("aria-pressed", "true")
+    await expect(cache).toHaveAttribute("aria-selected", "true")
+    await expect(position).toHaveText(/File 1 \/ 1$/)
+
+    // the search keeps only Store and the owner filter hides it, so no file shows: the owner filter goes, the search stays
+    await owner("All").click()
+    await search.fill("Store")
+    await owner("Cache Team").click()
+    await expect(noMatch).toBeVisible()
+    await card.getByTestId("review-plan-breakage-file").click()
+    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
+    await expect(search).toHaveValue("Store")
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
+    await expect(store).toHaveAttribute("aria-selected", "true")
+    await expect(header("src/Store.kt")).toBeInViewport()
+  })
+
   test("should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module", async ({
     page,
     setupRepo,

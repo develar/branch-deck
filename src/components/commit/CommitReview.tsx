@@ -255,6 +255,7 @@ export function CommitReview({
         codeTop={codeTop}
         search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
         onRevealHidden={revealHidden}
+        filesRead={commitFiles !== undefined && commitFiles.files.length > 0}
         onRevealApplied={forgetReveal}
       />
     </ReviewRoot>
@@ -353,6 +354,8 @@ interface ReviewLayoutProps {
   search: FileSearch | null
   /** A link of a badge selects a changed file that a filter hides */
   onRevealHidden: (path: string) => void
+  /** The subject has changed files: the card selects one also while a filter hides every file */
+  filesRead: boolean
   /** The tree selected `LoadedReview.revealPath`: it is not selected again */
   onRevealApplied: () => void
 }
@@ -432,7 +435,7 @@ const SIDEBAR_WIDTH = "19rem"
  * The sidebar beside the diffs, in every state of the review: the parts of the sidebar (the commits, the header of the
  * files) stay mounted, only the tree and the diffs start over for another subject or filter.
  */
-function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search, onRevealHidden, onRevealApplied }: ReviewLayoutProps) {
+function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search, onRevealHidden, filesRead, onRevealApplied }: ReviewLayoutProps) {
   const diffViewMode = useDiffViewMode()
   const sidebarShown = useAppSettings(state => state.reviewSidebar)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
@@ -641,7 +644,8 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         {sidebarShown && <ResizableHandle />}
         <ResizablePanel id="code" minSize="40">
           <div className="flex h-full flex-col">
-            <SelectReviewFileContext value={loaded === null ? null : selectChangedFile}>{codeTop}</SelectReviewFileContext>
+            {/* a filter that hides every file keeps the card: a click reveals the file */}
+            <SelectReviewFileContext value={loaded === null && !filesRead ? null : selectChangedFile}>{codeTop}</SelectReviewFileContext>
             {loaded === null ? (
               <div className="min-h-0 flex-1 overflow-y-auto">{message}</div>
             ) : viewFiles === null ? (

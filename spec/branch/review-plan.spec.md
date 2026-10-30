@@ -485,8 +485,10 @@ the repeated edits and the new API.
   [@test] ../../src/presenters/review-plan.test.ts (`groups the dependency changes by build file in Rust's order, and lists only the links the commits added between modules`, `words each repeated edit with its files, and the new API per file in the order of its first declaration`)
 - A click on an entry of the card must select its file in the review, as a link of a badge does: the file that
   declares an API (by its old path too), the build file of a module, the file that uses of a link, a file of a
-  repeated edit, a file of the new API. A filter that hides the file is dropped as for a badge.
+  repeated edit, a file of the new API. A filter that hides the file is dropped as for a badge, also when the
+  filters hide every file.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of a card entry while a filter hides every file, and drop only the filter that hides it`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
 - The files must stay in the tree, in tree order, in All Changes and in "Since Your Review" as one range: the plan
   adds badges and the Mechanical group, and offers no other order. A commit of the column shows its plain tree.
