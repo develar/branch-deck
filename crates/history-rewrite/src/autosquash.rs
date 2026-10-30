@@ -193,26 +193,38 @@ fn without_target(orphans: &[OrphanFixup]) -> String {
   }
 }
 
-/// The commits ahead of the baseline (oldest first), HEAD, the stack setting and the issue groups, as the sync reads them
-fn read_range(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<(String, Vec<Commit>, GroupingInputs)> {
-  let CommitsAhead { commits, .. } = CommitsAhead::read(git_executor, repository_path)?;
-  let head = git_executor.execute_command(&["rev-parse", "HEAD"], repository_path)?.trim().to_string();
-  Ok((head, commits, read_grouping_inputs(git_executor, repository_path)?))
+/// What a plan of a fold is made of: the commits ahead of the baseline (oldest first), HEAD, the stack setting and the
+/// issue groups, as the sync reads them
+pub struct FoldRange {
+  head: String,
+  commits: Vec<Commit>,
+  grouping: GroupingInputs,
+}
+
+impl FoldRange {
+  pub fn read(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Self> {
+    let CommitsAhead { commits, .. } = CommitsAhead::read(git_executor, repository_path)?;
+    let head = git_executor.execute_command(&["rev-parse", "HEAD"], repository_path)?.trim().to_string();
+    let grouping = read_grouping_inputs(git_executor, repository_path)?;
+    Ok(Self { head, commits, grouping })
+  }
+
+  #[must_use]
+  pub fn plan(&self) -> AutosquashPlan {
+    plan_autosquash(self.head.clone(), &self.commits, &self.grouping)
+  }
+
+  /// The branch of every commit of the range, named as the plan names them
+  #[must_use]
+  pub fn branches(&self) -> BTreeSet<String> {
+    self.commits.iter().filter_map(|commit| self.grouping.branch_of(&commit.subject)).collect()
+  }
 }
 
 /// The fixups of the commits ahead of the baseline and where they go
 #[instrument(skip(git_executor))]
 pub fn get_autosquash_plan_core(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<AutosquashPlan> {
-  let (head, commits, grouping) = read_range(git_executor, repository_path)?;
-  Ok(plan_autosquash(head, &commits, &grouping))
-}
-
-/// `get_autosquash_plan_core` with the branch of every commit ahead of the baseline, named as the plan names them, from
-/// the same read
-pub fn get_autosquash_plan_with_branches(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<(AutosquashPlan, BTreeSet<String>)> {
-  let (head, commits, grouping) = read_range(git_executor, repository_path)?;
-  let branches = commits.iter().filter_map(|commit| grouping.branch_of(&commit.subject)).collect();
-  Ok((plan_autosquash(head, &commits, &grouping), branches))
+  Ok(FoldRange::read(git_executor, repository_path)?.plan())
 }
 
 /// Squashes the fixups of `scope` into their targets in one history rewrite that keeps HEAD's tree, so the index and
@@ -222,13 +234,20 @@ pub fn get_autosquash_plan_with_branches(git_executor: &GitCommandExecutor, repo
 /// it, else the error is `HeadMoved`, which a request that named no HEAD computes once more under the lock. A scope with
 /// nothing to squash is `NothingToSquash`. The plan and the new commits come before the repository lock; under it only
 /// the witness of HEAD and the compare-and-swap move of the branch (`RewriteOptions::lock_prepared`)
-#[instrument(skip(git_executor, options))]
 pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<SquashFixupsResult> {
+  squash_fixup_commits_on(git_executor, params, options, None)
+}
+
+/// `squash_fixup_commits_core` whose first plan is made of `range` when the caller read it already (`bd fold`, which
+/// answers a dry run from it); a plan computed again because HEAD moved reads the range anew
+#[instrument(skip(git_executor, options, range))]
+pub fn squash_fixup_commits_on(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions, range: Option<FoldRange>) -> Result<SquashFixupsResult> {
   let repo_path = &params.repository_path;
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let prepare = || prepare_fold(git_executor, params, options);
-  let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, prepare(), prepare)?;
+  let first = prepare_fold(git_executor, params, options, range);
+  let prepare = || prepare_fold(git_executor, params, options, None);
+  let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, first, prepare)?;
   let PreparedFold { rewrite, groups, orphans } = prepared;
   rewrite.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
 
@@ -269,11 +288,14 @@ impl Prepared for PreparedFold {
   }
 }
 
-/// The plan of `params` on HEAD as it reads it, the one `options` expects, and the squashed commits written on temporary
-/// refs (`prepare_squash`): the branch is not moved
-fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<PreparedFold> {
+/// The plan of `params` on HEAD as it reads it (or as `range` read it), the one `options` expects, and the squashed
+/// commits written on temporary refs (`prepare_squash`): the branch is not moved
+fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions, range: Option<FoldRange>) -> Result<PreparedFold> {
   let repo_path = &params.repository_path;
-  let (head, commits, grouping) = read_range(git_executor, repo_path)?;
+  let FoldRange { head, commits, grouping } = match range {
+    Some(range) => range,
+    None => FoldRange::read(git_executor, repo_path)?,
+  };
   options.ensure_head(git_executor, repo_path, &head)?;
   // three reads, each of which must end at that HEAD: a commit between them would give a plan for one head and a
   // rewrite of another

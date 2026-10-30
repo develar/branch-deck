@@ -1053,8 +1053,10 @@ target of the scope (see "Rewrite history"), once the plan names the targets. Th
 fixups` and a CAS on that head; Undo is the squash undo. The core plans and writes the squashed commits before the
 repository lock and holds it for the witness of HEAD and the move, as the squash does, and answers what it squashed
 (`SquashFixupsResult`: each target with its subject, its new id and its fixups, the orphans of the scope).
-`bd fold` passes its `--expect-head` and lock timeout to it and prints that answer, so a HEAD another process moved
-after bd read its plan is folded as the core found it. bd's own plan answers only `--dry-run`, an unknown `--branch` and
+`bd fold` passes its `--expect-head`, its lock timeout and the range its plan was made of (`FoldRange`: HEAD, the
+commits ahead and the grouping inputs, one listing) to it (`squash_fixup_commits_on`) and prints that answer: the first
+plan of the core is made of that range, so a HEAD another process moved after bd read it fails the read of the history
+and is folded as the core finds it under the lock. bd's own plan answers only `--dry-run`, an unknown `--branch` and
 nothing to fold; a `NothingToSquash` of the core (another process folded them) is nothing to fold too.
 
 Code: `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/autosquash_targets.rs` (the target of each

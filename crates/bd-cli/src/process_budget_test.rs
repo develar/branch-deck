@@ -410,8 +410,8 @@ fn a_push_beside_a_robot_started_before_a_restack() {
   );
 }
 
-/// `bd fold`: the guards and the plan of the command, then the squash of the fixups, which reads the witness of HEAD
-/// under the lock
+/// `bd fold`: the guards and the plan of the command, whose range the squash of the fixups takes (one listing of the
+/// commits ahead), then the squash, which reads the witness of HEAD under the lock
 #[test]
 fn a_fold() {
   let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a", "(ui) Add b", "fixup! (auth) Add a"]);
@@ -426,15 +426,15 @@ fn a_fold() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 3),
-      ("config", 2),
+      ("cat-file", 2),
+      ("config", 1),
       ("fast-import", 1),
-      ("for-each-ref", 3),
-      ("log", 4),
+      ("for-each-ref", 2),
+      ("log", 3),
       ("merge-tree", 1),
-      ("remote", 2),
+      ("remote", 1),
       ("replay", 1),
-      ("rev-parse", 6),
+      ("rev-parse", 4),
       ("symbolic-ref", 1),
       ("update-ref", 1),
       ("var", 1),

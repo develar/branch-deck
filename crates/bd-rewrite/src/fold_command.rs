@@ -14,7 +14,7 @@ use domain_types::operation::Intent;
 use domain_types::rewrite::{AutosquashScope, RewriteIntent};
 use git_ops::revs::{DetachedHead, current_branch};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
-use history_rewrite::autosquash::{NothingToSquash, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
+use history_rewrite::autosquash::{FoldRange, NothingToSquash, SquashFixupsParams, squash_fixup_commits_on};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions, ensure_expected_head};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -72,12 +72,13 @@ pub fn fold(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliErr
   recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || folded(context, args))
 }
 
-/// `fold`, recorded unless a dry run. The plan of the command answers a dry run and nothing to fold; a fold prints what
-/// its core folded, on HEAD as the core found it
+/// `fold`, recorded unless a dry run. The plan of the command answers a dry run and nothing to fold; a fold hands the
+/// range it read to its core and prints what the core folded, on HEAD as the core found it
 fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError> {
   let current_branch = ensure_guards(context)?;
-  let (plan, branches) = get_autosquash_plan_with_branches(&context.git, &context.repository)?;
-  if let Some(branch) = args.branch.as_ref().filter(|branch| !branches.contains(*branch)) {
+  let range = FoldRange::read(&context.git, &context.repository)?;
+  let plan = range.plan();
+  if let Some(branch) = args.branch.as_ref().filter(|branch| !range.branches().contains(*branch)) {
     return Err(CliError::new(
       ErrorCode::UnknownBranch,
       format!("No branch named {branch:?} among the commits ahead of the baseline"),
@@ -117,7 +118,7 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
-  let result = match squash_fixup_commits_core(&context.git, &params, &options) {
+  let result = match squash_fixup_commits_on(&context.git, &params, &options, Some(range)) {
     Ok(result) => result,
     // another process folded them on the HEAD the core read: nothing to fold there, no rewrite
     Err(error) => {

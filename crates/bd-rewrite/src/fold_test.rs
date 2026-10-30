@@ -139,21 +139,19 @@ fn a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict() {
   assert_eq!(repo.head(), head);
 }
 
-/// Another process that moves HEAD after the plan of `bd fold`, before its core reads the commits ahead of the baseline
-/// (the second listing of the remotes), or between two reads of the core (its range and its history): `bd fold` folds
-/// the fixups of HEAD as its core finds it, keeps the commit of the other process and prints what the core folded,
-/// from that HEAD, whose undo goes back to it; HEAD without the fixups (another process folded them) is nothing to
-/// fold. With `--expect-head` the moved HEAD is the answer (`head_moved`)
+/// Another process that moves HEAD after the plan of `bd fold`, whose range its core takes, before the core reads the
+/// history it replays: `bd fold` folds the fixups of HEAD as its core finds it under the lock, keeps the commit of the
+/// other process and prints what the core folded, from that HEAD, whose undo goes back to it; HEAD without the fixups
+/// (another process folded them) is nothing to fold. With `--expect-head` the moved HEAD is the answer (`head_moved`)
 #[cfg(unix)]
 #[test_log::test]
 fn a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it() {
   use test_utils::wrapped_git::WrappedGit;
   let commit = "echo g1 > g1.txt && git add -- g1.txt && git commit -q -m '(gamma) G1'";
-  let after_the_plan = WrappedGit::move_head_before("remote", 2, commit);
-  let between_the_reads = WrappedGit::move_head_before("log --first-parent", 1, commit);
-  for (arm, under_the_lock) in [(&after_the_plan, false), (&between_the_reads, true)] {
+  let after_the_plan = WrappedGit::move_head_before("log --first-parent", 1, commit);
+  {
     let (repo, ids) = repo_with_fixups();
-    let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, arm);
+    let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, &after_the_plan);
     let (exit_code, output) = wrapped.run(&["fold"]);
     assert_eq!(exit_code, 0, "{output}");
     assert!(wrapped.dir().join("moved").exists(), "HEAD moved");
@@ -171,12 +169,12 @@ fn a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it() {
     );
     assert_eq!(output["orphans"], json!([short_id(&ids[4])]));
     let read_under_the_lock = wrapped.under_lock().iter().any(|args| bd_cli::fixture_test::subcommand(args) == "log");
-    assert_eq!(read_under_the_lock, under_the_lock, "the range read once more under the lock: {:#?}", wrapped.commands());
+    assert!(read_under_the_lock, "the range read once more under the lock: {:#?}", wrapped.commands());
     assert_undo_restores(&repo, &output, &moved);
   }
 
   let (repo, _) = repo_with_fixups();
-  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, &WrappedGit::move_head_before("remote", 2, "git reset -q --hard HEAD~3"));
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, &WrappedGit::move_head_before("log --first-parent", 1, "git reset -q --hard HEAD~3"));
   let (exit_code, output) = wrapped.run(&["fold"]);
   assert!(wrapped.dir().join("moved").exists(), "HEAD moved");
   let head = short_id(&repo.head()).to_string();
