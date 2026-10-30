@@ -70,6 +70,51 @@ pub struct PullRequestStackEntry {
   pub position: u32,
 }
 
+/// A stack of GitHub as its writes answer it (`POST stacks`, `stacks/<n>/add`, `stacks/<n>/unstack`,
+/// [Stacks of GitHub](../../../docs/design/github-stacks.md#what-github-answers))
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestStack {
+  /// Of the same sequence as the numbers of the pull requests
+  pub number: u32,
+  /// The branch the bottom layer goes into (`base.ref`): GitHub takes a bottom into any branch, not only the default
+  /// one, so a caller checks it
+  pub base_ref_name: String,
+  /// False for the stack an unstack left of the merged layers: closed, nothing joins it again
+  pub open: bool,
+  /// The layers, bottom to top, merged ones included
+  pub pull_requests: Vec<u32>,
+}
+
+/// An asynchronous merge of a pull request (`PUT pulls/<n>/merge-async`), the only merge GitHub has for a layer of a
+/// stack: it merges the layer with every open layer below it, or puts it into the merge queue of the base
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct AsyncMerge {
+  /// The id its result is asked by (`GET pulls/<n>/merge-async/<uuid>`), which GitHub keeps 24 hours after its last
+  /// change; None of an answer that names none: a pull request merged or enqueued before
+  pub uuid: Option<String>,
+  pub status: AsyncMergeStatus,
+}
+
+/// Where an asynchronous merge is (`status` of GitHub's answer)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "status", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum AsyncMergeStatus {
+  /// GitHub merges it in the background; a push of the head before it runs cancels it
+  Pending,
+  /// Merged into the base: `sha` is the commit GitHub made
+  Merged { sha: String },
+  /// In the merge queue of the base. Final: the result stays `Enqueued` after the queue merges it, so the merge itself
+  /// shows on the pull request
+  Enqueued,
+  /// GitHub's words of why it did not merge
+  Failed { message: String },
+}
+
 /// Whether GitHub can merge a pull request now (GitHub's `MergeStateStatus`)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -143,6 +188,16 @@ impl MergeMethod {
       Self::Rebase => "REBASE",
       Self::Merge => "MERGE",
       Self::Squash => "SQUASH",
+    }
+  }
+
+  /// The value of GitHub's REST API (`merge_method`)
+  #[must_use]
+  pub const fn rest(self) -> &'static str {
+    match self {
+      Self::Rebase => "rebase",
+      Self::Merge => "merge",
+      Self::Squash => "squash",
     }
   }
 }

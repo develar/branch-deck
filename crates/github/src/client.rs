@@ -15,8 +15,10 @@ use tracing::{debug, instrument, warn};
 pub const GITHUB_API_URL: &str = "https://api.github.com";
 /// The web host: the OAuth endpoints of the device flow, the pages a toast opens
 pub const GITHUB_URL: &str = "https://github.com";
-/// The REST API version the answers are read as
+/// The REST API version the answers are read as, unless a client names another (`with_api_version`)
 const API_VERSION: &str = "2022-11-28";
+/// The REST API version of the stacks of GitHub and of the asynchronous merge, which the default version lacks
+pub const STACKS_API_VERSION: &str = "2026-03-10";
 
 /// The connection is reused: a refresh is one small request on a kept-alive TLS connection
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -149,6 +151,41 @@ struct ErrorBody {
   errors: Vec<serde_json::Value>,
 }
 
+/// The answer of a write by its status (`GitHubClient::send`): GitHub says the outcome of some writes by it (the 204 of
+/// a stack an unstack dissolved, the 202 of a merge that runs in the background) and describes the request in the body of
+/// some refusals (the 409 of a merge already pending names it)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestAnswer {
+  pub status: u16,
+  /// Empty for a 204
+  pub body: Vec<u8>,
+}
+
+impl RestAnswer {
+  /// The body as `T`
+  pub fn json<T: DeserializeOwned>(&self) -> Result<T, GitHubError> {
+    serde_json::from_slice(&self.body).map_err(|e| GitHubError::InvalidResponse(e.to_string()))
+  }
+}
+
+/// The method of a REST write
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteMethod {
+  Post,
+  Put,
+  Patch,
+}
+
+impl WriteMethod {
+  const fn method(self) -> Method {
+    match self {
+      Self::Post => Method::POST,
+      Self::Put => Method::PUT,
+      Self::Patch => Method::PATCH,
+    }
+  }
+}
+
 /// A user of the REST API, e.g. the answer of `GET /user`
 #[derive(Debug, Clone, Deserialize)]
 pub struct GitHubLogin {
@@ -160,10 +197,12 @@ pub struct GitHubClient {
   http: reqwest::Client,
   api_url: String,
   web_url: String,
-  /// By token and URL: the `ETag` and the body of the last answer
-  etags: Cache<(u64, String), (String, Vec<u8>)>,
+  /// By token, API version and URL: the `ETag` and the body of the last answer
+  etags: Cache<(u64, &'static str, String), (String, Vec<u8>)>,
   /// The wait before a read is asked again after a transient failure (`RETRY_DELAY`; a test of the failure waits none)
   retry_delay: Duration,
+  /// `X-GitHub-Api-Version` of every request (`API_VERSION` unless `with_api_version`)
+  api_version: &'static str,
 }
 
 impl GitHubClient {
@@ -184,6 +223,7 @@ impl GitHubClient {
       web_url: web_url.into(),
       etags: Cache::new(ETAG_CACHE_CAPACITY),
       retry_delay: RETRY_DELAY,
+      api_version: API_VERSION,
     }
   }
 
@@ -193,6 +233,16 @@ impl GitHubClient {
   pub const fn with_retry_delay(mut self, retry_delay: Duration) -> Self {
     self.retry_delay = retry_delay;
     self
+  }
+
+  /// The client that asks in REST API `version` (`STACKS_API_VERSION`) with the same connections and cache: for the
+  /// endpoints GitHub has only in a newer version, while every other request keeps the version its answer is read as
+  #[must_use]
+  pub fn with_api_version(&self, version: &'static str) -> Self {
+    Self {
+      api_version: version,
+      ..self.clone()
+    }
   }
 
   pub fn web_url(&self) -> &str {
@@ -231,7 +281,7 @@ impl GitHubClient {
   #[instrument(skip(self, token))]
   pub async fn get<T: DeserializeOwned>(&self, token: &str, path: &[&str], query: &[(&str, &str)]) -> Result<T, GitHubError> {
     let url = self.rest_url(path, query)?;
-    let key = (token_key(token), url.to_string());
+    let key = (token_key(token), self.api_version, url.to_string());
     let response = read_with_retry(self.retry_delay, || {
       let mut request = self.request(Method::GET, url.as_str(), token);
       if let Some((etag, _)) = self.etags.get(&key) {
@@ -272,6 +322,22 @@ impl GitHubClient {
     self.write(Method::PATCH, token, path, body).await
   }
 
+  /// A REST write of `body`, if any, to `path`, never repeated by itself, read by its status: a success, or a failure
+  /// of a status in `kept`, with its body; any other failure classified
+  #[instrument(skip(self, token, body))]
+  pub async fn send(&self, method: WriteMethod, token: &str, path: &[&str], body: Option<&serde_json::Value>, kept: &[u16]) -> Result<RestAnswer, GitHubError> {
+    let url = self.rest_url(path, &[])?;
+    let mut request = self.request(method.method(), url.as_str(), token);
+    if let Some(body) = body {
+      request = request.json(body);
+    }
+    let response = read_response_keeping(request.send().await, kept).await?;
+    Ok(RestAnswer {
+      status: response.status.as_u16(),
+      body: response.body,
+    })
+  }
+
   async fn write<T: DeserializeOwned, B: Serialize + Sync + ?Sized>(&self, method: Method, token: &str, path: &[&str], body: &B) -> Result<T, GitHubError> {
     let url = self.rest_url(path, &[])?;
     let response = read_response(self.request(method, url.as_str(), token).json(body).send().await).await?;
@@ -286,7 +352,7 @@ impl GitHubClient {
       .request(method, url)
       .bearer_auth(token)
       .header(ACCEPT, "application/vnd.github+json")
-      .header("X-GitHub-Api-Version", API_VERSION)
+      .header("X-GitHub-Api-Version", self.api_version)
       .timeout(REQUEST_TIMEOUT)
   }
 
@@ -348,11 +414,16 @@ fn graphql_answer<T: DeserializeOwned>(response: &ReadResponse) -> Result<GraphQ
 
 /// A successful or `304` answer; a failure classified
 async fn read_response(response: reqwest::Result<reqwest::Response>) -> Result<ReadResponse, GitHubError> {
+  read_response_keeping(response, &[]).await
+}
+
+/// A successful or `304` answer, or a failure of a status in `kept`; any other failure classified
+async fn read_response_keeping(response: reqwest::Result<reqwest::Response>, kept: &[u16]) -> Result<ReadResponse, GitHubError> {
   let response = response.map_err(|e| request_error(&e))?;
   let status = response.status();
   let headers = response.headers().clone();
   let body = response.bytes().await.map_err(|e| request_error(&e))?.to_vec();
-  if status.is_success() || status == StatusCode::NOT_MODIFIED {
+  if status.is_success() || status == StatusCode::NOT_MODIFIED || kept.contains(&status.as_u16()) {
     return Ok(ReadResponse { status, headers, body });
   }
   let error = classify_failure(status, &headers, &body, unix_now());

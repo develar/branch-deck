@@ -740,7 +740,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   sign-in, the one source. The pull requests are checked first: the real parser must read the search of them back into
   the fixture (`fixture_pulls`, `github_host_test.rs`), so a fixture GitHub could not answer (another author, a
   requested reviewer before one who reviewed) fails the setup; an empty `headRefOid` is the tip of the head branch when
-  GitHub answers. The review requests (`/review-requests`, an available repository) put their pull requests there too,
+  GitHub answers. The stacks of GitHub are those the `stack` of the pull requests names (`stacks_of`): a stack whose
+  layers the fixture lists only in part fails the setup; the fake answers the stack endpoints and the asynchronous merge
+  from them (`fake_repository.rs`). The review requests (`/review-requests`, an available repository) put their pull requests there too,
   of their authors, the user asked; a pull request whose request left the list stays, and a GitHub fixture keeps them.
   `/patronus-replies` (`setPatronusReplies`) sets the bot's reply by pull request number (a `PatronusCommandReply`);
   `/github-answer` (`answerGitHub(method, path, status, body)`) scripts the answer of one request before the state, for

@@ -18,7 +18,7 @@ use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailabilit
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
-use github::fake_repository::{FakePull, RepositoryState, search_data};
+use github::fake_repository::{FakePull, RepositoryState, search_data, stacks_of};
 use lease_pool::lease::{Pool, Slot, canonical_path};
 use operations::journal::journal_path;
 use operations::registry::OperationRequest;
@@ -430,7 +430,7 @@ pub struct GitHubFixture {
   /// What the token may do in the repository (`READ`, `WRITE`, `MAINTAIN`, `ADMIN`); unset is `WRITE`
   #[serde(default)]
   pub viewer_permission: Option<String>,
-  /// The number of the next pull request created; one more than the highest of the fixture without it
+  /// The number of the next pull request or stack created; one more than the highest of the fixture without it
   #[serde(default)]
   pub next_number: Option<u32>,
   /// Branches GitHub doesn't have yet although the test repository does: a mirror has not copied them
@@ -531,7 +531,8 @@ pub fn write_github_repository(git: &GitCommandExecutor, repository_path: &str, 
 }
 
 /// Sets what the GitHub of the repository holds and answers from now on (`GitHubFixture`), read by the real service; a
-/// fixture the real parser would not read back as it is fails (`fixture_pulls`)
+/// fixture the real parser would not read back as it is fails (`fixture_pulls`). The stacks of GitHub are those the
+/// `stack` of the pull requests names (`stacks_of`): every layer listed, positions 1 to the size
 pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<GitHubFixture>) -> FixtureResult {
   let (host, path) = host_of(&state, &id)?;
   let answers = github_answers(&fixture).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
@@ -548,9 +549,11 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
   .await
   .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
   .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
-  let next_number = fixture
-    .next_number
-    .unwrap_or_else(|| pulls.iter().map(|pull| pull.pull_request.number).max().unwrap_or(0) + 1);
+  let stacks = stacks_of(&pulls).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
+  let next_number = fixture.next_number.unwrap_or_else(|| {
+    let numbers = pulls.iter().map(|pull| pull.pull_request.number).chain(stacks.iter().map(|stack| stack.number));
+    numbers.max().unwrap_or(0) + 1
+  });
   let (owner, name) = answers.repository.map_or_default(|repository| (repository.owner, repository.name));
   let github = RepositoryState {
     owner,
@@ -560,6 +563,8 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
     refusal: answers.refusal,
     pulls,
     next_number,
+    stacks,
+    async_merges: Vec::new(),
     users: fixture.users,
     missing_branches: fixture.missing_branches,
     dismiss_stale_reviews_on_push: fixture.dismiss_stale_reviews_on_push,

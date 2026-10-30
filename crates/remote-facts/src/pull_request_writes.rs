@@ -5,15 +5,18 @@
 //! review a pull request of the user (`pulls/<n>/requested_reviewers`, also for a new one); GitHub merges a pull request,
 //! or does once its checks pass, and its auto-merge is disabled, through GraphQL (`mergePullRequest`,
 //! `enablePullRequestAutoMerge`, `disablePullRequestAutoMerge`: REST has no auto-merge), each after one read of its node
-//! and with the head the user saw (`expectedHeadOid`). The other writes are the
+//! and with the head the user saw (`expectedHeadOid`). A stack of GitHub is created, grown and taken apart
+//! (`stacks`, `stacks/<n>/add`, `stacks/<n>/unstack`) and a layer of it merged in the background with every layer below
+//! (`pulls/<n>/merge-async`), in the REST API version that has them (`STACKS_API_VERSION`,
+//! docs/design/github-stacks.md). The other writes are the
 //! `/patronus` comment (`patronus_command.rs`), whose merge of a reviewed pull request checks its head first
 //! (`read_pull_request_head`), and a new pull request (`pull_request_create.rs`).
 
 use crate::pull_requests::{GitHubWriteError, visible_data};
 
-use domain_types::pull_request::{MergeMethod, PullRequestReviewEvent, RefusedReviewer, RequestedReviewers};
+use domain_types::pull_request::{AsyncMerge, AsyncMergeStatus, MergeMethod, PullRequestReviewEvent, PullRequestStack, RefusedReviewer, RequestedReviewers};
 use git_ops::revs::is_object_id;
-use github::client::{GitHubClient, GitHubError};
+use github::client::{GitHubClient, GitHubError, STACKS_API_VERSION, WriteMethod};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
@@ -379,4 +382,205 @@ struct GhPullRequestNode {
   id: String,
   #[serde(default)]
   head_ref_oid: String,
+}
+
+/// The stack of GitHub of `pull_requests`, bottom to top (`POST stacks`, 201): each goes into the head branch of the
+/// one below. GitHub refuses fewer than two (422 "2 items required"), a pull request already in a stack (422 "Pull
+/// request #N is already part of a stack") and a chain whose bases don't follow the heads; it takes a bottom into any
+/// branch, so the base of the answer is checked by the caller
+#[instrument(skip(github))]
+pub async fn create_stack(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, pull_requests: &[u32]) -> Result<PullRequestStack, GitHubWriteError> {
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "stacks"];
+  let body = serde_json::json!({"pull_requests": pull_requests});
+  stack_write(github, repository_path, repository, &path, Some(&body)).await?.ok_or_else(no_stack)
+}
+
+/// `pull_requests` on top of stack `stack_number`, bottom to top (`POST stacks/<n>/add`, 200): the lowest goes into
+/// the head branch of the top layer. GitHub refuses a pull request already in a stack (422) and a write while another
+/// changes the stack (409)
+#[instrument(skip(github))]
+pub async fn add_to_stack(
+  github: &GitHubService,
+  repository_path: &str,
+  repository: &GitHubRepository,
+  stack_number: u32,
+  pull_requests: &[u32],
+) -> Result<PullRequestStack, GitHubWriteError> {
+  let number = stack_number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "stacks", number.as_str(), "add"];
+  let body = serde_json::json!({"pull_requests": pull_requests});
+  stack_write(github, repository_path, repository, &path, Some(&body)).await?.ok_or_else(no_stack)
+}
+
+/// Takes the unmerged layers out of stack `stack_number` (`POST stacks/<n>/unstack`): None when none was merged and the
+/// stack is dissolved (204), else the merged layers left in a closed stack (200). Each pull request taken out keeps its
+/// base, which only now may change (`retarget_pull_request`)
+#[instrument(skip(github))]
+pub async fn unstack(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, stack_number: u32) -> Result<Option<PullRequestStack>, GitHubWriteError> {
+  let number = stack_number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "stacks", number.as_str(), "unstack"];
+  stack_write(github, repository_path, repository, &path, None).await
+}
+
+/// A POST of a stack's write to `path`: the stack it answers, None for a 204
+async fn stack_write(
+  github: &GitHubService,
+  repository_path: &str,
+  repository: &GitHubRepository,
+  path: &[&str],
+  body: Option<&serde_json::Value>,
+) -> Result<Option<PullRequestStack>, GitHubWriteError> {
+  github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      let answer = client.with_api_version(STACKS_API_VERSION).send(WriteMethod::Post, &token, path, body, &[]).await?;
+      if answer.status == 204 {
+        return Ok(None);
+      }
+      Ok(Some(answer.json::<GhStack>()?.into_stack()))
+    })
+    .await
+    .map_err(GitHubWriteError::from)
+}
+
+/// A create or an add that GitHub answered with no stack
+fn no_stack() -> GitHubWriteError {
+  GitHubWriteError::Refused("GitHub answered no stack".to_string())
+}
+
+/// A stack of the REST API
+#[derive(Debug, Deserialize)]
+struct GhStack {
+  number: u32,
+  open: bool,
+  base: GhBranchRef,
+  /// Bottom to top
+  #[serde(default)]
+  pull_requests: Vec<GhStackLayer>,
+}
+
+impl GhStack {
+  fn into_stack(self) -> PullRequestStack {
+    PullRequestStack {
+      number: self.number,
+      base_ref_name: self.base.name,
+      open: self.open,
+      pull_requests: self.pull_requests.into_iter().map(|layer| layer.number).collect(),
+    }
+  }
+}
+
+#[derive(Debug, Deserialize)]
+struct GhBranchRef {
+  #[serde(rename = "ref")]
+  name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhStackLayer {
+  number: u32,
+}
+
+/// GitHub merges pull request `number` by `method` in the background while its head is `expected_head` (`PUT
+/// pulls/<n>/merge-async`), with every open layer below it in its stack; into the merge queue of a base that has one.
+/// Pending (202) with the id to ask its result by (`merge_async_status`); merged or enqueued before (200); pending of
+/// an earlier request (409, its id). A push of the head before the merge runs cancels it. GitHub checks only the state
+/// of the pull request here (400 for a closed one or a draft): the rules of the base fail the merge itself (`Failed`)
+#[instrument(skip(github))]
+pub async fn merge_async(
+  github: &GitHubService,
+  repository_path: &str,
+  repository: &GitHubRepository,
+  number: u32,
+  expected_head: &str,
+  method: MergeMethod,
+) -> Result<AsyncMerge, GitHubWriteError> {
+  // the id goes into a field of the request
+  if !is_object_id(expected_head) {
+    return Err(GitHubWriteError::Refused(format!("{expected_head:?} is not a commit id")));
+  }
+  let number = number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls", number.as_str(), "merge-async"];
+  let body = serde_json::json!({"sha": expected_head, "merge_method": method.rest()});
+  let (path, body) = (&path, &body);
+  github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      let answer = client.with_api_version(STACKS_API_VERSION).send(WriteMethod::Put, &token, path, Some(body), &[409]).await?;
+      let merge = answer.json::<GhAsyncMerge>()?;
+      if answer.status == 409 {
+        // the merge of an earlier request: pending, whatever its answer says
+        let uuid = merge
+          .details
+          .uuid
+          .ok_or_else(|| GitHubError::InvalidResponse("a 409 of a merge without its id".to_string()))?;
+        return Ok(AsyncMerge {
+          uuid: Some(uuid),
+          status: AsyncMergeStatus::Pending,
+        });
+      }
+      merge.into_merge(None)
+    })
+    .await
+    .map_err(GitHubWriteError::from)
+}
+
+/// The result of the asynchronous merge `uuid` of pull request `number` (`GET pulls/<n>/merge-async/<uuid>`):
+/// pending, merged with GitHub's commit, enqueued (final) or failed with GitHub's words. GitHub keeps it 24 hours after
+/// its last change, then answers 404
+#[instrument(skip(github))]
+pub async fn merge_async_status(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32, uuid: &str) -> Result<AsyncMerge, GitHubWriteError> {
+  let number = number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls", number.as_str(), "merge-async", uuid];
+  let path = &path;
+  github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      let merge: GhAsyncMerge = client.with_api_version(STACKS_API_VERSION).get(&token, path, &[]).await?;
+      merge.into_merge(Some(uuid))
+    })
+    .await
+    .map_err(GitHubWriteError::from)
+}
+
+/// An asynchronous merge of the REST API: `status` and what it names in `details`
+#[derive(Debug, Deserialize)]
+struct GhAsyncMerge {
+  status: String,
+  #[serde(default)]
+  details: GhAsyncMergeDetails,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GhAsyncMergeDetails {
+  /// Of a pending merge
+  uuid: Option<String>,
+  /// The commit of a merged one
+  sha: Option<String>,
+  message: Option<String>,
+}
+
+impl GhAsyncMerge {
+  /// The merge, of `uuid` when the answer doesn't name it (the result of a known merge)
+  fn into_merge(self, uuid: Option<&str>) -> Result<AsyncMerge, GitHubError> {
+    let details = self.details;
+    let status = match self.status.as_str() {
+      "pending" => AsyncMergeStatus::Pending,
+      "merged" => AsyncMergeStatus::Merged {
+        sha: details
+          .sha
+          .filter(|sha| is_object_id(sha))
+          .ok_or_else(|| GitHubError::InvalidResponse("a merged merge without its commit".to_string()))?,
+      },
+      "enqueued" => AsyncMergeStatus::Enqueued,
+      "failed" => AsyncMergeStatus::Failed {
+        message: details
+          .message
+          .filter(|message| !message.is_empty())
+          .unwrap_or_else(|| "GitHub did not say why".to_string()),
+      },
+      status => return Err(GitHubError::InvalidResponse(format!("a merge in the state {status:?}"))),
+    };
+    Ok(AsyncMerge {
+      uuid: details.uuid.or_else(|| uuid.map(str::to_string)),
+      status,
+    })
+  }
 }

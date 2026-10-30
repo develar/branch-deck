@@ -5,7 +5,9 @@ use crate::session_routes_test::{subscribe, subscription};
 use crate::test_support::{
   Messages, Named, command, create_repository, delete_repository, head, post, post_as, push_intent, start_test_server, start_test_server_with_state, sync,
 };
-use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
+use domain_types::pull_request::{
+  ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState,
+};
 use pretty_assertions::assert_eq;
 use remote_facts::fact_sources::FactSources;
 use repository_model::session::SessionKey;
@@ -234,6 +236,53 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   );
   // the push the creation makes first lists the pull requests again too
   assert_eq!(log["calls"], 6);
+}
+
+/// The stacks of GitHub of a fixture are those the `stack` of its pull requests names: the listing reads each layer's
+/// place back through the real service; a fixture that lists only some layers of a stack is refused
+#[tokio::test]
+async fn the_stack_of_a_fixture_is_listed_on_each_layer_and_a_stack_in_part_is_refused() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, repository_path) = create_repository(&client, addr).await;
+  branch_at_head(&repository_path, "user-name/virtual/auth");
+  branch_at_head(&repository_path, "user-name/virtual/login");
+  let _window = window(&client, addr, &id, &repository_path).await;
+  let layer = |position: u32| {
+    Some(PullRequestStackEntry {
+      number: 9,
+      base_ref_name: "master".to_string(),
+      size: 2,
+      position,
+    })
+  };
+  let auth = PullRequest {
+    stack: layer(1),
+    ..pull_request("auth", 7)
+  };
+  let login = PullRequest {
+    base_ref_name: "user-name/virtual/auth".to_string(),
+    stack: layer(2),
+    ..pull_request("login", 8)
+  };
+  let fixture = available(BTreeMap::from([("auth".to_string(), auth), ("login".to_string(), login.clone())]), BTreeMap::new());
+  post(&client, addr, &format!("/repositories/{id}/pull-requests"), serde_json::to_value(fixture).unwrap()).await;
+  let pull_requests = listed(&client, addr, &repository_path).await;
+  assert_eq!(
+    (
+      pull_requests["pullRequests"]["auth"]["stack"].clone(),
+      pull_requests["pullRequests"]["login"]["stack"].clone()
+    ),
+    (
+      json!({"number": 9, "baseRefName": "master", "size": 2, "position": 1}),
+      json!({"number": 9, "baseRefName": "master", "size": 2, "position": 2})
+    )
+  );
+
+  let in_part = available(BTreeMap::from([("login".to_string(), login)]), BTreeMap::new());
+  let response = client.post(format!("http://{addr}/repositories/{id}/pull-requests")).json(&in_part).send().await.unwrap();
+  assert_eq!(response.status(), 422);
+  assert_eq!(response.text().await.unwrap(), "the layers of stack #9 are not positions 1 to 2 of one base");
 }
 
 /// The writes GitHub got, in their order: method, path and body of every request but the reads and the searches

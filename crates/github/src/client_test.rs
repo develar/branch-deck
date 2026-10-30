@@ -1,4 +1,4 @@
-use crate::client::{GitHubError, classify_failure};
+use crate::client::{GitHubError, RestAnswer, STACKS_API_VERSION, WriteMethod, classify_failure};
 use crate::fake_github::{FakeAnswer, start_fake};
 use pretty_assertions::assert_eq;
 use reqwest::StatusCode;
@@ -197,4 +197,61 @@ async fn a_get_is_asked_again_once_after_a_server_error_and_a_post_never() {
     .unwrap_err();
   assert!(error.is_transient(), "{error:?}");
   assert_eq!(fake.requests_to("POST", "/repos/o/r/issues/1/comments").len(), 1);
+}
+
+/// A client of another API version sends it with every request, the client it came from the default one; the cache of
+/// the conditional GETs keeps the answers of each version apart
+#[tokio::test]
+async fn a_client_of_another_api_version_names_it_and_the_default_stays() {
+  let (fake, client) = start_fake().await;
+  fake.answer_in_turn(
+    "GET",
+    "/repos/o/r/pulls/7",
+    vec![
+      FakeAnswer::ok(json!({"number": 7})).header("etag", "\"v1\""),
+      FakeAnswer::ok(json!({"number": 7, "stack": null})),
+    ],
+  );
+  let stacks = client.with_api_version(STACKS_API_VERSION);
+  let _: serde_json::Value = client.get("t", &["repos", "o", "r", "pulls", "7"], &[]).await.unwrap();
+  let newer: serde_json::Value = stacks.get("t", &["repos", "o", "r", "pulls", "7"], &[]).await.unwrap();
+  assert_eq!(newer, json!({"number": 7, "stack": null}));
+  let requests = fake.requests_to("GET", "/repos/o/r/pulls/7");
+  let versions: Vec<Option<&str>> = requests.iter().map(|request| request.api_version.as_deref()).collect();
+  assert_eq!(versions, [Some("2022-11-28"), Some("2026-03-10")]);
+  assert_eq!(requests[1].if_none_match, None, "the answer of the default version is not the newer one's");
+
+  fake.answer("POST", "/repos/o/r/stacks", FakeAnswer::status(201, json!({"number": 9})));
+  let _: serde_json::Value = stacks.post("t", &["repos", "o", "r", "stacks"], &json!({"pull_requests": [7, 8]})).await.unwrap();
+  let _ = client.viewer_login("t").await;
+  let posted = &fake.requests_to("POST", "/repos/o/r/stacks")[0];
+  assert_eq!(posted.api_version.as_deref(), Some(STACKS_API_VERSION));
+  assert_eq!(fake.requests_to("GET", "/user")[0].api_version.as_deref(), Some("2022-11-28"));
+}
+
+/// A write read by its status: a 204 without a body, a 202, and a refusal of a kept status with the body that names
+/// the request; a refusal of another status is classified
+#[tokio::test]
+async fn a_write_by_its_status_keeps_the_body_of_the_statuses_asked_for() {
+  let (fake, client) = start_fake().await;
+  let path = ["repos", "o", "r", "stacks", "9", "unstack"];
+  fake.answer("POST", "/repos/o/r/stacks/9/unstack", FakeAnswer::status(204, json!(null)));
+  let dissolved = client.send(WriteMethod::Post, "t", &path, None, &[]).await.unwrap();
+  assert_eq!(dissolved, RestAnswer { status: 204, body: Vec::new() });
+  assert_eq!(fake.requests_to("POST", "/repos/o/r/stacks/9/unstack")[0].body, "");
+
+  let merge = ["repos", "o", "r", "pulls", "7", "merge-async"];
+  let body = json!({"sha": "a"});
+  fake.answer(
+    "PUT",
+    "/repos/o/r/pulls/7/merge-async",
+    FakeAnswer::status(409, json!({"status": "pending", "details": {"uuid": "u1"}})),
+  );
+  let pending = client.send(WriteMethod::Put, "t", &merge, Some(&body), &[409]).await.unwrap();
+  assert_eq!(pending.status, 409);
+  assert_eq!(pending.json::<serde_json::Value>().unwrap()["details"]["uuid"], "u1");
+  assert_eq!(fake.requests_to("PUT", "/repos/o/r/pulls/7/merge-async")[0].json(), body);
+  let refused = client.send(WriteMethod::Put, "t", &merge, Some(&body), &[]).await.unwrap_err();
+  assert!(matches!(refused, GitHubError::Http { status: 409, .. }), "{refused:?}");
+  assert_eq!(fake.requests_to("PUT", "/repos/o/r/pulls/7/merge-async").len(), 2, "a write is never asked again");
 }

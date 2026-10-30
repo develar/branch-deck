@@ -49,6 +49,8 @@ pub struct FakeRequest {
   pub query: Option<String>,
   pub authorization: Option<String>,
   pub if_none_match: Option<String>,
+  /// `X-GitHub-Api-Version`
+  pub api_version: Option<String>,
   /// The body as text: JSON for the API, form fields for the OAuth endpoints
   pub body: String,
 }
@@ -260,6 +262,7 @@ impl FakeGitHub {
       query: uri.query().map(str::to_string),
       authorization: header("authorization"),
       if_none_match: header("if-none-match"),
+      api_version: header("x-github-api-version"),
       body: String::from_utf8_lossy(body).into_owned(),
     };
     self.requests.lock().unwrap().push(request.clone());

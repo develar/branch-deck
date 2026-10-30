@@ -1,12 +1,13 @@
 use crate::patronus_command_test::repository;
 use crate::pull_request_writes::{
-  MergeWhen, MergeWrite, close_pull_request, disable_auto_merge, merge_pull_request, read_pull_request_head, request_pull_request_reviewers, retarget_pull_request,
-  submit_pull_request_review,
+  MergeWhen, MergeWrite, add_to_stack, close_pull_request, create_stack, disable_auto_merge, merge_async, merge_async_status, merge_pull_request, read_pull_request_head,
+  request_pull_request_reviewers, retarget_pull_request, submit_pull_request_review, unstack,
 };
-use domain_types::pull_request::{MergeMethod, PullRequestReviewEvent, RefusedReviewer, RequestedReviewers};
+use domain_types::pull_request::{AsyncMerge, AsyncMergeStatus, MergeMethod, PullRequestReviewEvent, PullRequestStack, RefusedReviewer, RequestedReviewers};
 use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use test_log::test;
 
 #[test(tokio::test)]
@@ -318,4 +319,222 @@ async fn the_auto_merge_is_enabled_on_the_head_and_disabled_by_the_node() {
   assert_eq!(bodies[1]["variables"], json!({"id": "PR_7", "method": "SQUASH", "head": HEAD}));
   assert!(bodies[3]["query"].as_str().unwrap().contains("disablePullRequestAutoMerge("));
   assert_eq!(bodies[3]["variables"], json!({"id": "PR_7"}));
+}
+
+const STACKS: &str = "/repos/acme/monorepo/stacks";
+
+/// A stack of the REST API of `layers`, bottom to top
+fn stack_answer(number: u32, open: bool, layers: &[u32]) -> Value {
+  let layers: Vec<Value> = layers
+    .iter()
+    .map(|number| json!({"number": number, "state": "open", "head": {"ref": "h", "sha": HEAD}}))
+    .collect();
+  json!({"id": 4_000_001, "number": number, "node_id": "S_1", "base": {"ref": "master"}, "open": open, "created_at": "2026-10-30T10:00:00Z", "pull_requests": layers})
+}
+
+/// Each write of a stack goes in the API version of stacks; the stack GitHub answers is read bottom to top
+#[test(tokio::test)]
+async fn a_stack_is_created_and_grown_in_the_api_version_of_stacks() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("POST", STACKS, FakeAnswer::status(201, stack_answer(11, true, &[7, 8])));
+  let created = create_stack(&github, ".", &repository(), &[7, 8]).await.unwrap();
+  assert_eq!(
+    created,
+    PullRequestStack {
+      number: 11,
+      base_ref_name: "master".to_string(),
+      open: true,
+      pull_requests: vec![7, 8],
+    }
+  );
+  fake.answer("POST", "/repos/acme/monorepo/stacks/11/add", FakeAnswer::ok(stack_answer(11, true, &[7, 8, 9])));
+  let grown = add_to_stack(&github, ".", &repository(), 11, &[9]).await.unwrap();
+  assert_eq!(grown.pull_requests, [7, 8, 9]);
+  let requests: Vec<(String, Value, Option<String>)> = fake
+    .requests()
+    .into_iter()
+    .map(|request| (request.path.clone(), request.json(), request.api_version))
+    .collect();
+  assert_eq!(
+    requests,
+    [
+      (STACKS.to_string(), json!({"pull_requests": [7, 8]}), Some("2026-03-10".to_string())),
+      (
+        "/repos/acme/monorepo/stacks/11/add".to_string(),
+        json!({"pull_requests": [9]}),
+        Some("2026-03-10".to_string())
+      ),
+    ]
+  );
+}
+
+/// GitHub's refusals of a stack's write are its words: a pull request in a stack already, fewer than two, a write
+/// while another changes the stack
+#[test(tokio::test)]
+async fn a_refused_stack_write_says_what_github_said() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("POST", STACKS, FakeAnswer::status(422, json!({"message": "Pull request #10 is already part of a stack"})));
+  let error = create_stack(&github, ".", &repository(), &[10, 11]).await.unwrap_err().to_string();
+  assert_eq!(error, "Pull request #10 is already part of a stack");
+  fake.answer("POST", STACKS, FakeAnswer::status(422, json!({"message": "2 items required; only 1 was supplied."})));
+  let error = create_stack(&github, ".", &repository(), &[10]).await.unwrap_err().to_string();
+  assert_eq!(error, "2 items required; only 1 was supplied.");
+  fake.answer(
+    "POST",
+    "/repos/acme/monorepo/stacks/11/add",
+    FakeAnswer::status(409, json!({"message": "The stack is being modified by another request"})),
+  );
+  let error = add_to_stack(&github, ".", &repository(), 11, &[9]).await.unwrap_err();
+  assert_eq!(error.to_string(), "The stack is being modified by another request");
+}
+
+/// An unstack that leaves no merged layer dissolves the stack (204); one after a partial merge leaves the merged
+/// layers in a closed stack (200)
+#[test(tokio::test)]
+async fn an_unstack_dissolves_the_stack_or_leaves_its_merged_layers_closed() {
+  let (fake, github) = start_fake_service("t").await;
+  let path = "/repos/acme/monorepo/stacks/11/unstack";
+  fake.answer_in_turn("POST", path, vec![FakeAnswer::status(204, Value::Null), FakeAnswer::ok(stack_answer(11, false, &[7]))]);
+  assert_eq!(unstack(&github, ".", &repository(), 11).await.unwrap(), None);
+  let left = unstack(&github, ".", &repository(), 11).await.unwrap().unwrap();
+  assert_eq!((left.open, left.pull_requests), (false, vec![7]));
+  let request = &fake.requests_to("POST", path)[0];
+  assert_eq!((request.body.as_str(), request.api_version.as_deref()), ("", Some("2026-03-10")));
+}
+
+const MERGE: &str = "/repos/acme/monorepo/pulls/9/merge-async";
+
+/// A merge GitHub runs in the background, of `uuid`
+fn pending(uuid: &str) -> AsyncMerge {
+  AsyncMerge {
+    uuid: Some(uuid.to_string()),
+    status: AsyncMergeStatus::Pending,
+  }
+}
+
+/// The asynchronous merge sends the head and the method of REST once, in the API version of stacks; GitHub answers a
+/// merge it runs in the background (202), one merged or enqueued before (200) and a merge pending of an earlier
+/// request (409, its id)
+#[test(tokio::test)]
+async fn an_async_merge_sends_the_head_and_reads_each_answer() {
+  let (fake, github) = start_fake_service("t").await;
+  let merge = async || merge_async(&github, ".", &repository(), 9, HEAD, MergeMethod::Rebase).await;
+  let details = json!({"message": "accepted", "uuid": "u-1", "merge_method": "rebase", "merge_action": "default", "expected_head_sha": HEAD});
+  fake.answer("PUT", MERGE, FakeAnswer::status(202, json!({"status": "pending", "details": details})));
+  assert_eq!(merge().await.unwrap(), pending("u-1"));
+  let request = &fake.requests_to("PUT", MERGE)[0];
+  assert_eq!(
+    (request.json(), request.api_version.as_deref()),
+    (json!({"sha": HEAD, "merge_method": "rebase"}), Some("2026-03-10"))
+  );
+
+  fake.answer("PUT", MERGE, FakeAnswer::ok(json!({"status": "merged", "details": {"message": "merged", "sha": HEAD}})));
+  assert_eq!(
+    merge().await.unwrap(),
+    AsyncMerge {
+      uuid: None,
+      status: AsyncMergeStatus::Merged { sha: HEAD.to_string() },
+    }
+  );
+  fake.answer("PUT", MERGE, FakeAnswer::ok(json!({"status": "enqueued", "details": {"message": "in the queue"}})));
+  assert_eq!(merge().await.unwrap().status, AsyncMergeStatus::Enqueued);
+  fake.answer("PUT", MERGE, FakeAnswer::status(409, json!({"status": "pending", "details": details})));
+  assert_eq!(merge().await.unwrap(), pending("u-1"));
+  assert_eq!(fake.requests_to("PUT", MERGE).len(), 4, "each merge is sent once");
+}
+
+/// A merge GitHub refuses at once is its words (400 of a closed pull request or a draft); a head that is not a commit
+/// id sends nothing
+#[test(tokio::test)]
+async fn a_refused_async_merge_says_what_github_said_and_a_malformed_head_sends_nothing() {
+  let (fake, github) = start_fake_service("t").await;
+  let error = merge_async(&github, ".", &repository(), 9, "HEAD", MergeMethod::Merge).await.unwrap_err().to_string();
+  assert_eq!(error, "\"HEAD\" is not a commit id");
+  assert!(fake.requests().is_empty(), "GitHub was asked");
+  fake.answer("PUT", MERGE, FakeAnswer::status(400, json!({"message": "Pull request is closed"})));
+  let error = merge_async(&github, ".", &repository(), 9, HEAD, MergeMethod::Squash).await.unwrap_err().to_string();
+  assert_eq!(error, "Pull request is closed");
+  assert_eq!(fake.requests_to("PUT", MERGE)[0].json()["merge_method"], "squash");
+}
+
+/// The result of a merge by its id: pending, merged with GitHub's commit, failed with its words; 404 once GitHub no
+/// longer keeps it
+#[test(tokio::test)]
+async fn the_result_of_an_async_merge_is_read_by_its_id() {
+  let (fake, github) = start_fake_service("t").await;
+  let path = "/repos/acme/monorepo/pulls/9/merge-async/u-1";
+  let running = json!({"status": "pending", "details": {"message": "running", "uuid": "u-1", "merge_method": "rebase", "merge_action": "default", "expected_head_sha": HEAD}});
+  fake.answer_in_turn(
+    "GET",
+    path,
+    vec![
+      FakeAnswer::ok(running),
+      FakeAnswer::ok(json!({"status": "merged", "details": {"message": "merged", "sha": HEAD}})),
+      FakeAnswer::ok(json!({"status": "failed", "details": {"message": "Required status check \"build\" is failing"}})),
+      FakeAnswer::status(404, json!({"message": "Not Found"})),
+    ],
+  );
+  let result = async || merge_async_status(&github, ".", &repository(), 9, "u-1").await;
+  let uuid = Some("u-1".to_string());
+  assert_eq!(result().await.unwrap(), pending("u-1"));
+  assert_eq!(
+    result().await.unwrap(),
+    AsyncMerge {
+      uuid: uuid.clone(),
+      status: AsyncMergeStatus::Merged { sha: HEAD.to_string() },
+    }
+  );
+  assert_eq!(
+    result().await.unwrap(),
+    AsyncMerge {
+      uuid,
+      status: AsyncMergeStatus::Failed {
+        message: "Required status check \"build\" is failing".to_string(),
+      },
+    }
+  );
+  assert!(result().await.unwrap_err().to_string().contains("Not Found"));
+  assert!(fake.requests_to("GET", path).iter().all(|request| request.api_version.as_deref() == Some("2026-03-10")));
+}
+
+/// The writes against the stateful fake of GitHub: a stack of two, a third on top, the merge of the middle layer, its
+/// result, and the unstack that leaves the merged layers
+#[test(tokio::test)]
+async fn the_writes_of_a_stack_agree_with_the_fake_repository() {
+  use github::fake_repository::{FakeGitHubRepository, RepositoryState};
+  let fake_repository = Arc::new(FakeGitHubRepository::default());
+  fake_repository.set(RepositoryState {
+    owner: "acme".to_string(),
+    name: "monorepo".to_string(),
+    token: "t".to_string(),
+    viewer: "me".to_string(),
+    next_number: 7,
+    ..RepositoryState::default()
+  });
+  let tip = |branch: &str| ["master", "a", "b", "c"].iter().position(|name| *name == branch).map(|index| format!("{index:0>40}"));
+  fake_repository.set_branch_tip(Box::new(tip));
+  fake_repository.set_merger(Box::new(|_, _| Ok(())));
+  let fake = Arc::new(github::fake_github::FakeGitHub::with_repository(Arc::clone(&fake_repository)));
+  let url = github::fake_github::serve(Arc::clone(&fake)).await;
+  let tokens = github::token::TokenChain::new(github::token::TokenSources::fixed("t"), git_executor::git_command_executor::GitCommandExecutor::new());
+  let github = github::service::GitHubService::new(github::client::GitHubClient::with_urls(&url, &url, "Branch Deck test"), tokens);
+  for (head, base) in [("a", "master"), ("b", "a"), ("c", "b")] {
+    let body = json!({"title": head, "head": head, "base": base});
+    let _: Value = github.client.post("t", &["repos", "acme", "monorepo", "pulls"], &body).await.unwrap();
+  }
+
+  let stack = create_stack(&github, ".", &repository(), &[7, 8]).await.unwrap();
+  assert_eq!((stack.number, stack.base_ref_name.as_str(), stack.pull_requests.as_slice()), (10, "master", &[7, 8][..]));
+  assert_eq!(add_to_stack(&github, ".", &repository(), 10, &[9]).await.unwrap().pull_requests, [7, 8, 9]);
+  let error = retarget_pull_request(&github, ".", &repository(), 9, "master").await.unwrap_err().to_string();
+  assert_eq!(error, "Validation Failed: Cannot change the base branch because the pull request is part of a stack.");
+
+  let head = tip("b").unwrap();
+  let merge = merge_async(&github, ".", &repository(), 8, &head, MergeMethod::Rebase).await.unwrap();
+  assert_eq!(merge.status, AsyncMergeStatus::Pending);
+  let result = merge_async_status(&github, ".", &repository(), 8, merge.uuid.as_deref().unwrap()).await.unwrap();
+  assert_eq!(result.status, AsyncMergeStatus::Merged { sha: head });
+  let left = unstack(&github, ".", &repository(), 10).await.unwrap().unwrap();
+  assert_eq!((left.open, left.pull_requests), (false, vec![7, 8]));
+  retarget_pull_request(&github, ".", &repository(), 9, "master").await.unwrap();
 }

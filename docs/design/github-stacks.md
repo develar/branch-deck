@@ -132,6 +132,20 @@ After a merge GitHub marks the merged layers merged, so the closing of landed pu
 `push` route the layers above the bottom stay open after the push, so the closing by content closes them with the
 landing comment.
 
+### The client
+
+The stack endpoints and the asynchronous merge exist only in REST version `2026-03-10` (`STACKS_API_VERSION`); a
+request names it through a client of that version (`GitHubClient::with_api_version`), every other request keeps the
+default. The writes are `create_stack`, `add_to_stack`, `unstack`, `merge_async` and `merge_async_status`
+(`remote_facts::pull_request_writes`), their answers `PullRequestStack` and `AsyncMerge` of `domain_types`. A 409 of
+`merge-async` is the merge of an earlier request, pending, by its id: the answer of a merge that was lost is taken up,
+not sent again. The `merge_action` is GitHub's default: the merge queue of a base that has one, else a direct merge.
+
+The fake GitHub of the tests holds the stacks (`FakeStack`) with GitHub's validation (two layers at least, one stack
+per pull request, each base the head below, no retarget of a member) and runs an asynchronous merge at once: the layers
+up to the merged one through the `Merger`, bottom first, the layer above into the base of the stack. It does not
+rebase that layer as GitHub does, and its stacks never close by themselves.
+
 ## Alternatives Considered
 
 - **A link to the diff of the branch's own commits in the body of a pull request into master.**

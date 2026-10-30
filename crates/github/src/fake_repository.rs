@@ -4,8 +4,10 @@
 //! pulls/<n>`, `POST pulls/<n>/requested_reviewers` and `reviews`, `POST issues/<n>/comments` and `assignees`, `GET
 //! issues/comments/<id>`, `GET issues/<n>/comments`, `GET branches/<b>`, `GET rules/branches/<b>`, the GraphQL search of
 //! the user's pull requests and of the assignable users, the node of a pull request and the mutations of its merge and
-//! its auto-merge, whose merge moves its base by the `Merger` of the test), and a write changes what the next read
-//! answers. The Patronus
+//! its auto-merge, whose merge moves its base by the `Merger` of the test; the stacks of GitHub: `GET`/`POST stacks`,
+//! `GET stacks/<n>`, `POST stacks/<n>/add` and `unstack`, a layer's `stack` on the pull request, and `PUT
+//! pulls/<n>/merge-async` with its result `GET pulls/<n>/merge-async/<uuid>`, which merges the layer with every one below
+//! it), and a write changes what the next read answers. The Patronus
 //! bot answers a `/patronus` comment at once, as `patronus_replies` says: a reaction, and for a rejection its `⚠️`
 //! comment. A request of another repository is a 404, one without the token a 401, and
 //! `refusal` answers every request about the repository (a rate limit, no access). A scripted answer of `FakeGitHub`
@@ -13,7 +15,9 @@
 
 use crate::fake_github::FakeAnswer;
 use domain_types::patronus::PatronusCommandReply;
-use domain_types::pull_request::{GitHubUser, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
+use domain_types::pull_request::{
+  AsyncMergeStatus, GitHubUser, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestStackEntry, PullRequestState, ReviewDecision, Reviewer, ReviewerState,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -69,6 +73,59 @@ pub struct FakeReview {
   pub body: Option<String>,
 }
 
+/// A stack of GitHub: a chain of pull requests, each into the head branch of the one below, the bottom into `base`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FakeStack {
+  /// Of the same sequence as the numbers of the pull requests (`next_number`)
+  pub number: u32,
+  pub base: String,
+  /// Bottom to top, merged ones included
+  pub pulls: Vec<u32>,
+  /// False for the closed stack an unstack left of the merged layers
+  pub open: bool,
+}
+
+/// An asynchronous merge GitHub was asked for (`PUT pulls/<n>/merge-async`): the fake runs it at once, so its result is
+/// final
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FakeAsyncMerge {
+  pub uuid: String,
+  /// The pull request it was asked for
+  pub number: u32,
+  pub status: AsyncMergeStatus,
+}
+
+/// The stacks the pull requests of a fixture are layers of (`PullRequest::stack`, as the listing reads them): each
+/// stack's layers by position, which must be 1 to its size, with one base and one size
+pub fn stacks_of(pulls: &[FakePull]) -> Result<Vec<FakeStack>, String> {
+  let mut layers: BTreeMap<u32, Vec<(&PullRequestStackEntry, u32)>> = BTreeMap::new();
+  for pull in pulls {
+    if let Some(entry) = &pull.pull_request.stack {
+      layers.entry(entry.number).or_default().push((entry, pull.pull_request.number));
+    }
+  }
+  layers
+    .into_iter()
+    .map(|(number, mut layers)| {
+      layers.sort_by_key(|(entry, _)| entry.position);
+      let (first, _) = layers[0];
+      let whole = layers
+        .iter()
+        .enumerate()
+        .all(|(index, (entry, _))| entry.base_ref_name == first.base_ref_name && entry.size == first.size && usize::try_from(entry.position).ok() == Some(index + 1));
+      if !whole || usize::try_from(first.size).ok() != Some(layers.len()) {
+        return Err(format!("the layers of stack #{number} are not positions 1 to {} of one base", first.size));
+      }
+      Ok(FakeStack {
+        number,
+        base: first.base_ref_name.clone(),
+        pulls: layers.iter().map(|(_, pull)| *pull).collect(),
+        open: true,
+      })
+    })
+    .collect()
+}
+
 /// What the repository is and holds; replaced as a whole by a test (`FakeGitHubRepository::set`)
 #[derive(Clone, Debug, Default)]
 pub struct RepositoryState {
@@ -81,8 +138,12 @@ pub struct RepositoryState {
   /// The answer to every request about the repository, e.g. a 404 of a token that can't see it
   pub refusal: Option<FakeAnswer>,
   pub pulls: Vec<FakePull>,
-  /// The number of the next pull request created
+  /// The number of the next pull request or stack created
   pub next_number: u32,
+  /// The stacks of GitHub, which name the `stack` of each of their pull requests
+  pub stacks: Vec<FakeStack>,
+  /// The asynchronous merges asked for, in order
+  pub async_merges: Vec<FakeAsyncMerge>,
   /// Who can be assigned and asked to review (`assignableUsers`, the collaborators)
   pub users: Vec<GitHubUser>,
   /// Branches GitHub does not have although the tip answers them: a mirror has not copied them yet
@@ -146,12 +207,13 @@ impl FakeGitHubRepository {
     self.branch_tip.lock().unwrap().as_ref().and_then(|tip| tip(branch))
   }
 
-  /// `pull_request` with an empty head commit resolved
+  /// `pull_request` with an empty head commit resolved, and its place in a stack as the stacks say
   fn resolved(&self, pull_request: &PullRequest, state: &RepositoryState) -> PullRequest {
     let mut pull_request = pull_request.clone();
     if pull_request.head_ref_oid.is_empty() {
       pull_request.head_ref_oid = self.tip(&pull_request.head_ref_name, state).unwrap_or_default();
     }
+    pull_request.stack = stack_entry(state, pull_request.number);
     pull_request
   }
 }
@@ -190,6 +252,12 @@ impl FakeGitHubRepository {
       ("GET", ["pulls"]) => Some(self.list_pulls(&state, request.query.as_deref().unwrap_or_default())),
       ("GET", ["pulls", number]) => Some(self.with_pull(&mut state, number, |this, state, index| Ok(this.rest_pull(state, index)))),
       ("PATCH", ["pulls", number]) => Some(self.with_pull(&mut state, number, |this, state, index| {
+        let changes_base = body["base"].as_str().is_some_and(|base| base != state.pulls[index].pull_request.base_ref_name);
+        if changes_base && stack_entry(state, state.pulls[index].pull_request.number).is_some() {
+          return Err(validation_failed(
+            &json!({"resource": "PullRequest", "field": "base", "code": "custom", "message": "Cannot change the base branch because the pull request is part of a stack."}),
+          ));
+        }
         let pull = &mut state.pulls[index].pull_request;
         if let Some(base) = body["base"].as_str() {
           base.clone_into(&mut pull.base_ref_name);
@@ -203,6 +271,28 @@ impl FakeGitHubRepository {
         pull.updated_at = state.clock;
         Ok(this.rest_pull(state, index))
       })),
+      ("PUT", ["pulls", number, "merge-async"]) => Some(self.with_pull(&mut state, number, |this, state, index| this.merge_async(state, index, &body))),
+      ("GET", ["pulls", number, "merge-async", uuid]) => {
+        let merge = state.async_merges.iter().find(|merge| merge.number.to_string() == *number && merge.uuid == *uuid);
+        Some(merge.map_or_else(|| not_found("Not Found"), |merge| FakeAnswer::ok(async_merge_json(&merge.status, &merge.uuid))))
+      }
+      ("GET", ["stacks"]) => {
+        let wanted = query_value(request.query.as_deref(), "pull_request").and_then(|number| number.parse::<u32>().ok());
+        let stacks: Vec<Value> = state
+          .stacks
+          .iter()
+          .filter(|stack| wanted.is_none_or(|number| stack.pulls.contains(&number)))
+          .map(|stack| self.stack_json(&state, stack))
+          .collect();
+        Some(FakeAnswer::ok(Value::from(stacks)))
+      }
+      ("GET", ["stacks", number]) => Some(match find_stack(&state, number) {
+        Some(index) => FakeAnswer::ok(self.stack_json(&state, &state.stacks[index])),
+        None => not_found("Not Found"),
+      }),
+      ("POST", ["stacks"]) => Some(self.create_stack(&mut state, &body)),
+      ("POST", ["stacks", number, "add"]) => Some(self.add_to_stack(&mut state, number, &body)),
+      ("POST", ["stacks", number, "unstack"]) => Some(self.unstack(&mut state, number)),
       ("POST", ["pulls", number, "requested_reviewers"]) => Some(self.with_pull(&mut state, number, |this, state, index| {
         request_reviewers(state, index, &body)?;
         Ok(this.rest_pull(state, index))
@@ -384,6 +474,9 @@ impl FakeGitHubRepository {
       "draft": pull_request.is_draft,
       "head": {"ref": pull_request.head_ref_name, "sha": pull_request.head_ref_oid},
       "base": {"ref": pull_request.base_ref_name},
+      "stack": pull_request.stack.as_ref().map(|stack| {
+        json!({"id": stack.number, "number": stack.number, "base": {"ref": stack.base_ref_name, "sha": self.tip(&stack.base_ref_name, state)}, "size": stack.size, "position": stack.position})
+      }),
       "updated_at": format_utc_timestamp(pull_request.updated_at),
       "user": pull_request.author.as_ref().map(|login| json!({"login": login})),
       "requested_reviewers": requested.iter().map(|login| json!({"login": login})).collect::<Vec<_>>(),
@@ -504,6 +597,250 @@ impl FakeGitHubRepository {
     pull.updated_at = state.clock;
     FakeAnswer::ok(json!({"data": {"done": {"pullRequest": {"number": pull_request.number}}}}))
   }
+}
+
+impl FakeGitHubRepository {
+  /// `POST stacks {pull_requests}`: the stack of the pull requests, bottom to top (201); GitHub's 422 for fewer than
+  /// two, a pull request it doesn't have, one closed or in a stack already, and a chain whose bases don't follow the
+  /// heads
+  fn create_stack(&self, state: &mut RepositoryState, body: &Value) -> FakeAnswer {
+    let pulls = number_list(&body["pull_requests"]);
+    if pulls.len() < 2 {
+      return unprocessable(&format!("2 items required; only {} was supplied.", pulls.len()));
+    }
+    if let Err(refusal) = check_layers(state, &pulls, None) {
+      return refusal;
+    }
+    let number = state.next_number.max(1);
+    state.next_number = number + 1;
+    let base = pull_of(state, pulls[0]).map_or_default(|pull| pull.base_ref_name.clone());
+    state.stacks.push(FakeStack { number, base, pulls, open: true });
+    let mut answer = FakeAnswer::ok(self.stack_json(state, &state.stacks[state.stacks.len() - 1]));
+    answer.status = 201;
+    answer
+  }
+
+  /// `POST stacks/<n>/add {pull_requests}`: the pull requests on top of an open stack, bottom to top (200); the 422s of
+  /// `create_stack`, the lowest into the head branch of the top layer
+  fn add_to_stack(&self, state: &mut RepositoryState, number: &str, body: &Value) -> FakeAnswer {
+    let Some(index) = find_stack(state, number) else {
+      return not_found("Not Found");
+    };
+    if !state.stacks[index].open {
+      return unprocessable("The stack is closed");
+    }
+    let pulls = number_list(&body["pull_requests"]);
+    if pulls.is_empty() {
+      return unprocessable("1 item required; only 0 was supplied.");
+    }
+    let top = state.stacks[index].pulls.last().copied();
+    if let Err(refusal) = check_layers(state, &pulls, top) {
+      return refusal;
+    }
+    state.stacks[index].pulls.extend(pulls);
+    FakeAnswer::ok(self.stack_json(state, &state.stacks[index]))
+  }
+
+  /// `POST stacks/<n>/unstack`: the unmerged layers out of the stack; 204 when none was merged and the stack is gone,
+  /// else 200 with the merged layers left in a closed stack
+  fn unstack(&self, state: &mut RepositoryState, number: &str) -> FakeAnswer {
+    let Some(index) = find_stack(state, number) else {
+      return not_found("Not Found");
+    };
+    let merged: Vec<u32> = state.stacks[index]
+      .pulls
+      .iter()
+      .copied()
+      .filter(|&pull| pull_of(state, pull).is_some_and(|pull| pull.state == PullRequestState::Merged))
+      .collect();
+    if merged.is_empty() {
+      state.stacks.remove(index);
+      return FakeAnswer::status(204, Value::Null);
+    }
+    let stack = &mut state.stacks[index];
+    stack.pulls = merged;
+    stack.open = false;
+    FakeAnswer::ok(self.stack_json(state, &state.stacks[index]))
+  }
+
+  /// A stack of the REST API, its layers bottom to top
+  fn stack_json(&self, state: &RepositoryState, stack: &FakeStack) -> Value {
+    let layers: Vec<Value> = stack
+      .pulls
+      .iter()
+      .filter_map(|number| pull_of(state, *number))
+      .map(|pull| {
+        let pull = self.resolved(pull, state);
+        let rest_state = if pull.state == PullRequestState::Open { "open" } else { "closed" };
+        json!({
+          "number": pull.number,
+          "html_url": pull.url,
+          "title": pull.title,
+          "state": rest_state,
+          "draft": pull.is_draft,
+          "merged_at": (pull.state == PullRequestState::Merged).then(|| format_utc_timestamp(pull.updated_at)),
+          "head": {"ref": pull.head_ref_name, "sha": pull.head_ref_oid},
+          "base": {"ref": pull.base_ref_name, "sha": self.tip(&pull.base_ref_name, state)},
+        })
+      })
+      .collect();
+    json!({
+      "id": stack.number,
+      "number": stack.number,
+      "url": format!("https://api.github.com/repos/{}/{}/stacks/{}", state.owner, state.name, stack.number),
+      "base": {"ref": stack.base},
+      "open": stack.open,
+      "pull_requests": layers,
+    })
+  }
+
+  /// `PUT pulls/<n>/merge-async {sha, merge_method}`: the pull request merged with every open layer below it in its
+  /// stack, bottom first, each through the `Merger` into the base of the stack; the layer above then goes into that base.
+  /// 202 pending, and the result of its uuid final at once: merged with the head of the top, or failed with GitHub's
+  /// words (a head that moved from `sha`, a layer GitHub can't merge). 200 for a pull request merged before, 400 for a
+  /// closed one or a draft, 422 for a method GitHub doesn't know
+  fn merge_async(&self, state: &mut RepositoryState, index: usize, body: &Value) -> Result<FakeAnswer, FakeAnswer> {
+    let pull_request = self.resolved(&state.pulls[index].pull_request, state);
+    if pull_request.state == PullRequestState::Merged {
+      let details = json!({"message": "Pull request already merged", "sha": pull_request.head_ref_oid});
+      return Ok(FakeAnswer::ok(json!({"status": "merged", "details": details})));
+    }
+    if pull_request.state != PullRequestState::Open || pull_request.is_draft {
+      return Err(FakeAnswer::status(400, json!({"message": "Pull request is not ready to be merged"})));
+    }
+    if body["merge_method"].as_str().is_some_and(|method| !["merge", "squash", "rebase"].contains(&method)) {
+      return Err(unprocessable("merge_method is not one of merge, squash, rebase"));
+    }
+    let uuid = format!("merge-{}", state.async_merges.len() + 1);
+    let status = self.run_merge(state, &pull_request, body["sha"].as_str());
+    state.async_merges.push(FakeAsyncMerge {
+      uuid: uuid.clone(),
+      number: pull_request.number,
+      status,
+    });
+    Ok(FakeAnswer::status(202, async_merge_json(&AsyncMergeStatus::Pending, &uuid)))
+  }
+
+  /// The merge of `top`, with the open layers below it in its stack: what its result says
+  fn run_merge(&self, state: &mut RepositoryState, top: &PullRequest, sha: Option<&str>) -> AsyncMergeStatus {
+    let failed = |message: String| AsyncMergeStatus::Failed { message };
+    if sha.is_some_and(|sha| sha != top.head_ref_oid) {
+      return failed("Head branch was modified. Review and try the merge again.".to_string());
+    }
+    let stack = state.stacks.iter().find(|stack| stack.pulls.contains(&top.number)).cloned();
+    let (base, layers, above) = match &stack {
+      Some(stack) => {
+        let position = stack.pulls.iter().position(|number| *number == top.number).unwrap_or_default();
+        let layers: Vec<PullRequest> = stack.pulls[..=position]
+          .iter()
+          .filter_map(|number| pull_of(state, *number))
+          .filter(|pull| pull.state == PullRequestState::Open)
+          .map(|pull| self.resolved(pull, state))
+          .collect();
+        (stack.base.clone(), layers, stack.pulls.get(position + 1).copied())
+      }
+      None => (top.base_ref_name.clone(), vec![top.clone()], None),
+    };
+    let blocked = layers.iter().find(|layer| {
+      layer.is_draft
+        || matches!(
+          layer.merge_state,
+          Some(MergeStateStatus::Dirty | MergeStateStatus::Behind | MergeStateStatus::Blocked | MergeStateStatus::Draft)
+        )
+    });
+    if let Some(layer) = blocked {
+      return failed(format!("Pull request #{} is not mergeable", layer.number));
+    }
+    for layer in &layers {
+      let merged = self
+        .merger
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map_or_else(|| Err("Merges are not set up".to_string()), |merge| merge(&base, &layer.head_ref_oid));
+      if let Err(message) = merged {
+        return failed(message);
+      }
+      if let Some(pull) = state.pulls.iter_mut().find(|pull| pull.pull_request.number == layer.number) {
+        pull.pull_request.state = PullRequestState::Merged;
+        pull.pull_request.auto_merge = None;
+        pull.pull_request.updated_at = state.clock;
+      }
+    }
+    // the layer above goes into the base of the stack (GitHub also rebases it on the merged ones, which the fake doesn't)
+    if let Some(pull) = above.and_then(|above| state.pulls.iter_mut().find(|pull| pull.pull_request.number == above)) {
+      base.clone_into(&mut pull.pull_request.base_ref_name);
+      pull.pull_request.updated_at = state.clock;
+    }
+    AsyncMergeStatus::Merged { sha: top.head_ref_oid.clone() }
+  }
+}
+
+/// The place of pull request `number` in the stack that lists it
+fn stack_entry(state: &RepositoryState, number: u32) -> Option<PullRequestStackEntry> {
+  state.stacks.iter().find_map(|stack| {
+    let position = stack.pulls.iter().position(|pull| *pull == number)?;
+    Some(PullRequestStackEntry {
+      number: stack.number,
+      base_ref_name: stack.base.clone(),
+      size: u32::try_from(stack.pulls.len()).unwrap_or(u32::MAX),
+      position: u32::try_from(position + 1).unwrap_or(u32::MAX),
+    })
+  })
+}
+
+/// The index of the stack `number` (a path segment)
+fn find_stack(state: &RepositoryState, number: &str) -> Option<usize> {
+  let number = number.parse::<u32>().ok()?;
+  state.stacks.iter().position(|stack| stack.number == number)
+}
+
+fn pull_of(state: &RepositoryState, number: u32) -> Option<&PullRequest> {
+  state.pulls.iter().map(|pull| &pull.pull_request).find(|pull| pull.number == number)
+}
+
+/// Whether `pulls`, bottom to top, can be layers above `below` (a pull request number) or form a stack of their own:
+/// each open and in no stack, each into the head branch of the one below; the 422 of the first that can't
+fn check_layers(state: &RepositoryState, pulls: &[u32], below: Option<u32>) -> Result<(), FakeAnswer> {
+  let mut below = below.and_then(|number| pull_of(state, number));
+  for (index, &number) in pulls.iter().enumerate() {
+    let Some(pull) = pull_of(state, number) else {
+      return Err(unprocessable(&format!("Pull request #{number} does not exist")));
+    };
+    if stack_entry(state, number).is_some() || pulls[..index].contains(&number) {
+      return Err(unprocessable(&format!("Pull request #{number} is already part of a stack")));
+    }
+    if pull.state != PullRequestState::Open {
+      return Err(unprocessable(&format!("Pull request #{number} is not open")));
+    }
+    if let Some(below) = below
+      && pull.base_ref_name != below.head_ref_name
+    {
+      return Err(unprocessable(&format!("Pull request #{number} must target the head branch of #{}", below.number)));
+    }
+    below = Some(pull);
+  }
+  Ok(())
+}
+
+/// An asynchronous merge of the REST API in `status`, of `uuid`
+fn async_merge_json(status: &AsyncMergeStatus, uuid: &str) -> Value {
+  match status {
+    AsyncMergeStatus::Pending => json!({"status": "pending", "details": {"message": "The merge was accepted", "uuid": uuid, "merge_method": "default", "merge_action": "default"}}),
+    AsyncMergeStatus::Merged { sha } => json!({"status": "merged", "details": {"message": "Pull request merged", "sha": sha}}),
+    AsyncMergeStatus::Enqueued => json!({"status": "enqueued", "details": {"message": "Pull request enqueued"}}),
+    AsyncMergeStatus::Failed { message } => json!({"status": "failed", "details": {"message": message}}),
+  }
+}
+
+fn number_list(value: &Value) -> Vec<u32> {
+  value
+    .as_array()
+    .map_or_default(|values| values.iter().filter_map(Value::as_u64).filter_map(|number| u32::try_from(number).ok()).collect())
+}
+
+fn unprocessable(message: &str) -> FakeAnswer {
+  FakeAnswer::status(422, json!({"message": message}))
 }
 
 /// Adds a comment to the pull request at `index`; its id, one more than every comment of the repository so far
@@ -696,6 +1033,8 @@ fn search_node(owner: &str, pull_request: &PullRequest) -> Value {
     "headRepositoryOwner": {"login": owner},
     "mergeStateStatus": pull_request.merge_state.map(merge_state_name),
     "autoMergeRequest": pull_request.auto_merge.map(|method| json!({"mergeMethod": method.graphql()})),
+    "stack": pull_request.stack.as_ref().map(|stack| json!({"number": stack.number, "baseRefName": stack.base_ref_name, "size": stack.size})),
+    "stackEntry": pull_request.stack.as_ref().map(|stack| json!({"position": stack.position})),
     "commits": {"nodes": [{"commit": {"statusCheckRollup": pull_request.checks.as_ref().map(|checks| json!({"contexts": {"nodes": check_runs(checks)}}))}}]},
     "latestReviews": {"nodes": reviews},
     "reviewRequests": {"nodes": requests},
