@@ -23,7 +23,7 @@ pub mod order;
 
 use crate::api::{ApiChange, api_changes};
 use crate::fan_in::add_fan_in;
-use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, hunk_texts};
+use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, hunk_blobs};
 use crate::interdiff::{Interdiff, PairState, commits_of, interdiff};
 use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base};
@@ -38,7 +38,7 @@ use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use trial_check::diff_scan::read_commit_diffs_cached;
-use trial_check::symbol_scan::read_symbol_input;
+use trial_check::symbol_scan::read_symbol_input_with;
 
 /// What a plan is asked for
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -129,7 +129,9 @@ pub struct SinceReviewedOfRange(pub String);
 /// (`branch_on_base`), then its interdiff when it was marked (`interdiff::interdiff`); for a range: one `rev-parse
 /// --verify` per rev. Then the API, the fan-in, the order, the links and the facts of the files of the reviewed
 /// commits (`reviewed_commits`): the order and the links from the summaries the API read, no git; the text of the hunks
-/// from the blobs the diffs read, else one `cat-file` (`files::hunk_texts`). Reads only;
+/// from the memory of the diffs when they read it in this process, else in the batch of the summaries
+/// (`read_symbol_input_with`), which then runs for those blobs alone when it has no summary or manifest to read.
+/// Reads only;
 /// `UnknownReviewBranch`, `UnknownReviewBase`, `NoCommonHistory`, `UnknownRevision` and `SinceReviewedOfRange` are the
 /// caller's errors, `SearchCanceled` the cancel of `sources.index`
 #[instrument(skip(git, sources), fields(subject = ?params.subject))]
@@ -158,14 +160,15 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     read_commit_diffs_cached(git, repository_path, sources.cache, sources.file_diffs, &reviewed)?
   };
   let changed = changed_files(&diffs);
+  let (mut texts, unread) = sources.file_diffs.texts_in_memory(&hunk_blobs(&changed));
   let (mut api, order, links) = if diffs.is_empty() {
     (Vec::new(), Vec::new(), Vec::new())
   } else {
-    let input = read_symbol_input(git, repository_path, sources.cache, &diffs)?;
+    let (input, read) = read_symbol_input_with(git, repository_path, sources.cache, &diffs, &unread)?;
+    texts.extend(unread.into_iter().zip(read).filter_map(|(id, bytes)| Some((id, String::from_utf8(bytes?).ok()?))));
     let ReviewOrder { order, links: uses } = review_order(&input, &changed);
     (api_changes(&input, &diffs), order, link_files(&input, &changed, &uses))
   };
-  let texts = hunk_texts(git, repository_path, sources.file_diffs, &changed)?;
   let index_note = add_fan_in(sources.index, repository_path, &head, &mut api)?;
   let (files, repeated_edits) = file_facts(&changed, &texts, &links, &api);
   let interdiff = interdiff.map(|mut found| {

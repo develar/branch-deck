@@ -2,7 +2,8 @@
 //! after each commit, by blob id: from the session, else from the object cache (`blob_summary`), else from one
 //! `cat-file --batch` of the blobs the cache misses, parsed in parallel and written back in one transaction. The same
 //! process reads the `Cargo.toml` and `tsconfig*.json` files of the directories above the files (`ModuleRoots`, one
-//! `cat-file --batch` of the trees at HEAD), for the names of the crates and the path aliases of TypeScript.
+//! `cat-file --batch` of the trees at HEAD), for the names of the crates and the path aliases of TypeScript. The blobs
+//! of a caller join that process (`read_symbol_input_with`).
 
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
@@ -79,8 +80,21 @@ fn source_blobs(diffs: &[CommitDiff]) -> Vec<(String, Language)> {
 }
 
 /// The summaries of the source files `diffs` change, with the module structure above them
-#[instrument(skip_all, fields(commits = diffs.len()))]
 pub fn read_symbol_input(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, diffs: &[CommitDiff]) -> Result<SymbolInput> {
+  Ok(read_symbol_input_with(git, repository_path, cache, diffs, &[])?.0)
+}
+
+/// `read_symbol_input`, and the bytes of the `extra` blobs of the caller in its one `cat-file --batch`, in order:
+/// `None` for a missing, binary or too large one. With no summary to parse and no manifest to read, the batch reads
+/// `extra` alone; with no `extra` either, it runs no process
+#[instrument(skip_all, fields(commits = diffs.len(), extra = extra.len()))]
+pub fn read_symbol_input_with(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  cache: &ObjectCache,
+  diffs: &[CommitDiff],
+  extra: &[String],
+) -> Result<(SymbolInput, Vec<Option<Vec<u8>>>)> {
   let started = Instant::now();
   let version = extractor_version();
   let wanted = source_blobs(diffs);
@@ -105,7 +119,7 @@ pub fn read_symbol_input(git: &GitCommandExecutor, repository_path: &str, cache:
   }
   let cached_count = summaries.len();
 
-  // the misses and the manifests in one process
+  // the misses, the manifests and the extra blobs in one process
   let manifests: Vec<(String, String)> = roots.manifests().map(|(dir, blob)| (dir.to_string(), blob.to_string())).collect();
   let tsconfigs: Vec<(String, String)> = roots.all_tsconfigs().map(|(path, blob)| (path, blob.to_string())).collect();
   let names: Vec<String> = missing
@@ -113,6 +127,7 @@ pub fn read_symbol_input(git: &GitCommandExecutor, repository_path: &str, cache:
     .map(|(blob, _)| blob.clone())
     .chain(manifests.iter().map(|(_, blob)| blob.clone()))
     .chain(tsconfigs.iter().map(|(_, blob)| blob.clone()))
+    .chain(extra.iter().cloned())
     .collect();
   let mut contents = read_blob_bytes(git, repository_path, &names, MAX_BYTES)?.into_iter();
   let sources: Vec<Option<Vec<u8>>> = contents.by_ref().take(missing.len()).collect();
@@ -126,13 +141,14 @@ pub fn read_symbol_input(git: &GitCommandExecutor, repository_path: &str, cache:
     .collect();
   let aliases: HashMap<String, TsAliases> = tsconfigs
     .iter()
-    .zip(contents)
+    .zip(contents.by_ref())
     .filter_map(|((path, _), content)| {
       let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
       Some((dir.to_string(), ts_aliases(dir, &String::from_utf8_lossy(content.as_deref()?))))
     })
     .filter(|(_, aliases)| !aliases.paths.is_empty())
     .collect();
+  let extra: Vec<Option<Vec<u8>>> = contents.collect();
   let read_time = started.elapsed();
 
   let parse_started = Instant::now();
@@ -172,13 +188,14 @@ pub fn read_symbol_input(git: &GitCommandExecutor, repository_path: &str, cache:
     language.truncated += usize::from(summary.truncated);
   }
   debug!(cached = cached_count, parsed = parsed_count, ?read_time, ?parse_time, "symbol summaries");
-  Ok(SymbolInput {
+  let input = SymbolInput {
     summaries,
     roots,
     crates,
     aliases,
     stats,
-  })
+  };
+  Ok((input, extra))
 }
 
 /// The summaries of `blobs` from their `sources` (`None` for a blob that is missing, binary or too large), parsed by

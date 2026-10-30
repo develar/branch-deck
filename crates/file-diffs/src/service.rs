@@ -439,6 +439,23 @@ impl FileDiffs {
     Ok(blobs)
   }
 
+  /// The texts of `ids` that the memory cache holds, by id, and the ids it holds nothing of, for a caller that reads
+  /// those in a batch of its own; no git. A binary or too large blob is in neither
+  pub fn texts_in_memory(&self, ids: &[String]) -> (HashMap<String, String>, Vec<String>) {
+    let mut texts = HashMap::new();
+    let mut unread = Vec::new();
+    for id in ids {
+      match self.blobs.get(id).as_deref() {
+        Some(BlobText::Text { text, .. }) => {
+          texts.insert(id.clone(), text.clone());
+        }
+        Some(_) => {}
+        None => unread.push(id.clone()),
+      }
+    }
+    (texts, unread)
+  }
+
   /// The texts of blobs, in the order of `requests`: from the memory cache, the working tree (a request with a path,
   /// whose file must have the id), or one `cat-file --batch`
   #[instrument(skip(self, git, requests), fields(blobs = requests.len()))]

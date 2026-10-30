@@ -557,8 +557,9 @@ fn a_mark_reviewed_on_a_base() {
 /// the number of commits: the baseline (`remote`, the `@{u}` probe, a `for-each-ref` of its candidates), one
 /// `for-each-ref` of the reviewed refs with the branches, one `merge-base`, one `rev-list` per side, one `diff-tree` with
 /// one `patch-id` for the changed lines of the commits that are not the same on both sides, and one `diff-tree` for the
-/// interdiff of the rewritten ones; then for the API and the risk of the rewritten and the added commits one `log` of
-/// their changes and one `cat-file` of their blobs (text files: no summary to read)
+/// interdiff of the rewritten ones; then for the API and the files of the rewritten and the added commits one `log` of
+/// their changes and one `cat-file` of their blobs (text files: no summary to read, and the text of the hunks of the
+/// rewritten one from that read)
 #[test]
 fn a_review_plan_since_the_review() {
   let repo = repo_with_branches();
@@ -627,6 +628,72 @@ fn a_review_plan_of_a_range() {
   assert_eq!(output.api.len(), 7);
   assert_eq!(output.order.first().map(String::as_str), Some("src/a/role.kt"));
   assert_processes(&context, &[("cat-file", 3), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+}
+
+/// A repository whose baseline has `manifest` (when any) and four source files of `extension` from `source` (by the
+/// name of the file), then a commit per file: a changed import, an indent, the code twice. A plan of it on a new
+/// context (a new `FileDiffs` memory), then on another one, each with the mechanical kind of each file; the contexts,
+/// which counted their processes
+fn modified_files_plans(extension: &str, manifest: Option<(&str, &str)>, source: impl Fn(&str) -> String, edits: [(&str, &str); 2]) -> [RepoContext; 2] {
+  let names = ["login", "logout", "session", "token"];
+  let files: Vec<(String, String)> = names.iter().map(|name| (format!("src/{name}.{extension}"), source(name))).collect();
+  let refs: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), text.as_str())).chain(manifest).collect();
+  let repo = repo_with_baseline(&refs);
+  for (number, (path, text)) in files.iter().enumerate() {
+    let (from, to) = match number {
+      0 | 1 => edits[number],
+      _ => ("run", "start"),
+    };
+    write(&repo, path, text.replace(from, to));
+    commit_all(&repo, &format!("(auth) Change {path}"), 1_700_000_100 + i64::try_from(number).unwrap() * 100);
+  }
+  let args = ReviewPlanArgs {
+    subject: "origin/master..HEAD".to_string(),
+    base: None,
+    since_reviewed: false,
+  };
+  let expected = [
+    serde_json::json!("importsOnly"),
+    serde_json::json!("whitespace"),
+    serde_json::Value::Null,
+    serde_json::Value::Null,
+  ];
+  [context(&repo), context(&repo)].map(|context| {
+    let output = review_plan(&context, &args).unwrap();
+    let mut kinds: Vec<(String, serde_json::Value)> = output.files.into_iter().map(|file| (file.path, serde_json::json!(file.mechanical))).collect();
+    kinds.retain(|(path, _)| path.starts_with("src/"));
+    kinds.sort_by(|a, b| a.0.cmp(&b.0));
+    let kinds: Vec<serde_json::Value> = kinds.into_iter().map(|(_, kind)| kind).collect();
+    assert_eq!(kinds, expected);
+    context
+  })
+}
+
+/// `bd review-plan` of a range of four commits that modify source files: the text of their hunks makes the mechanical
+/// kinds. The first plan reads the diffs itself, so that text is in memory: no process more than
+/// `a_review_plan_of_a_range`. A second plan, a new process, finds the diffs and the summaries in the object cache:
+/// the blobs of the hunks join the batch of the summaries (`read_symbol_input_with`). In a Kotlin repository that batch
+/// has nothing else to read, so it runs for those blobs alone, one `cat-file` more than the trees at HEAD; in a Rust
+/// crate it reads the `Cargo.toml` anyway, so the hunks cost no process
+#[test]
+fn a_review_plan_of_modified_files() {
+  let kotlin = modified_files_plans(
+    "kt",
+    None,
+    |name| format!("package a\n\nimport b.Old\n\nclass {name} {{\n  fun run(): Int {{\n    return 1\n  }}\n}}\n"),
+    [("import b.Old", "import b.New"), ("    return 1", "      return 1")],
+  );
+  assert_processes(&kotlin[0], &[("cat-file", 3), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&kotlin[1], &[("cat-file", 2), ("rev-list", 1), ("rev-parse", 3)]);
+
+  let rust = modified_files_plans(
+    "rs",
+    Some(("Cargo.toml", "[package]\nname = \"auth\"\n")),
+    |name| format!("use b::Old;\n\npub fn run_{name}() -> i32 {{\n    1\n}}\n"),
+    [("use b::Old;", "use b::New;"), ("    1\n", "      1\n")],
+  );
+  assert_processes(&rust[0], &[("cat-file", 3), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&rust[1], &[("cat-file", 2), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// `bd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the

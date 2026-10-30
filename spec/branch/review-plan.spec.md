@@ -13,6 +13,7 @@ targets:
   - ../../crates/review-plan/src/order.rs
   - ../../crates/trial-check/src/declaration_checks.rs
   - ../../crates/trial-check/src/symbol_dependencies.rs
+  - ../../crates/trial-check/src/symbol_scan.rs
   - ../../crates/file-diffs/src/accio.rs
   - ../../crates/git-ops/src/reviewed_refs.rs
   - ../../crates/bd-rewrite/src/mark_reviewed_command.rs
@@ -211,9 +212,13 @@ right after its subject.
 - `bd review-plan` must print `api`, `files`, `links`, `repeated_edits` and `index_note`, in `bd schema`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`, `prints_the_files_in_dependency_order`)
 - The API and the files must add a fixed number of git processes, whatever the number of commits: one `log` of the
-  changes of the reviewed commits, one `cat-file` of their blobs, the reads of the syntax summaries, and one
-  `cat-file` of the blobs of the hunk text that the memory of the diffs lacks; accio runs no git.
+  changes of the reviewed commits, one `cat-file` of their blobs, and the reads of the syntax summaries; accio runs
+  no git.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_since_the_review`, `a_review_plan_of_a_range`)
+- The text of the hunks must come from the memory of the diffs when they read the blobs in this process. Else the
+  blobs must join the `cat-file` of the summaries, which then reads them alone when it has no summary or manifest to
+  read: one process more only for a plan whose diffs and summaries come from the object cache.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_modified_files`)
 
 ### Links
 
@@ -240,21 +245,27 @@ right after its subject.
   `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`.
   [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`)
 - Else, from the text of every hunk of every commit that changes it: `renamed` when each change is a rename with no
-  line added or removed; `whitespace` when each hunk has the same text without its whitespace; `importsOnly` when, in
-  a source file, each other hunk has only blank lines and `import`, `use` or `package` lines, at least one.
-  [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`)
+  line added or removed; `whitespace` when each hunk has the same text without its whitespace, line ends included, so
+  a line wrapped or joined too; `importsOnly` when, in a source file, each other hunk has only blank lines and lines
+  of import statements, at least one.
+  [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`, `a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`)
+- An import statement must start with an `import`, `use` or `package` line and run until the brackets it opens
+  close, read in the whole file: a line inside a Rust `use a::{` block or a TypeScript `import {` block over several
+  lines is a line of an import statement. A `pub use` re-exports, so it is none.
+  [@test] ../../crates/review-plan/src/files_test.rs (`a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`)
 - One hunk with an import line and a line of code, a commit that changes code, an added file, and a file without
   text must keep the file out of the mechanical ones.
   [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`, `a_file_is_mechanical_only_when_every_hunk_of_every_commit_is`)
 
 ### Repeated Edits
 
-- `repeated_edits` must group the files whose commits make one hunk with the same removed and added lines, without
-  whitespace and blank lines: 3 or more files, the group of the most files first, a file in one group at most
+- `repeated_edits` must group the files whose commits make one hunk with the same removed and added text, without
+  whitespace and line ends: 3 or more files, the group of the most files first, a file in one group at most
   (`repeated_edit`, the index of its group), with the first lines removed and added for its label.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_same_edit_in_three_or_more_files_is_one_group`)
-- A hunk of whitespace alone, and one without a line of 10 or more characters (a `}` alone), must make no group.
-  [@test] ../../crates/review-plan/src/files_test.rs (`the_same_edit_in_three_or_more_files_is_one_group`)
+- A hunk of whitespace alone (a wrapped line too), and one without a line of 10 or more characters (a `}` alone),
+  must make no group.
+  [@test] ../../crates/review-plan/src/files_test.rs (`the_same_edit_in_three_or_more_files_is_one_group`, `a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`)
 
 ### Dependency Order
 
@@ -400,7 +411,10 @@ right after its subject.
   listed.
 - `untested` sees only test files the commits change; a Rust test module inside its file does not count.
 - `breaks` counts the usages of a name at the head, a namesake and a use the commits already updated included.
-- An import of TypeScript over several lines has lines that are not `import` lines, so its change is no `importsOnly`.
+- An import statement ends where its brackets close. A bracket inside a string or a comment of the statement counts
+  too, and a Kotlin or Java import has no brackets, so a statement over several lines without brackets is not seen.
+- The text of the hunks is read only up to the size limit of the summaries: a larger file is never `whitespace` or
+  `importsOnly`. A Python or Go file is of no known language, so it is never `importsOnly`.
 - The links before the commits read the module roots at the checked out HEAD too: a module the commits add or delete
   may count a link before them across modules wrongly.
 - The order reads each file as the last reviewed commit leaves it: with `--since-reviewed`, a later unreviewed commit

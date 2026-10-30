@@ -235,6 +235,59 @@ fn imports_whitespace_renames_deletions_and_the_build_model_are_mechanical() {
   );
 }
 
+const LIB_RS: &str = "use std::{\n  fmt,\n  io,\n};\n\npub fn run() -> io::Result<()> {\n  Ok(())\n}\n";
+const STORE_TS: &str = "import {\n  load,\n  save,\n} from \"./io\"\n\nexport const store = { load, save }\n";
+
+/// A call wrapped over several lines is only whitespace, and the same wrap in three files is no repeated edit; a line
+/// added inside a Rust `use` block or a TypeScript `import` block over several lines is an import change, a change of
+/// code after such a block is not
+#[test]
+fn a_wrapped_line_and_a_line_in_an_import_block_are_mechanical() {
+  let service = SERVICE.replace("    return 1\n", "    return compute(first, second)\n");
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add files",
+    &[
+      ("src/a/Wrap1.kt", &service),
+      ("src/a/Wrap2.kt", &service),
+      ("src/a/Wrap3.kt", &service),
+      ("src/lib.rs", LIB_RS),
+      ("src/main.rs", LIB_RS),
+      ("src/store.ts", STORE_TS),
+    ],
+  );
+  let wrapped = service.replace("    return compute(first, second)\n", "    return compute(\n      first,\n      second\n    )\n");
+  let head = repo.create_commit_with_files(
+    "Wrap and import",
+    &[
+      ("src/a/Wrap1.kt", &wrapped),
+      ("src/a/Wrap2.kt", &wrapped),
+      ("src/a/Wrap3.kt", &wrapped),
+      ("src/lib.rs", &LIB_RS.replace("  io,\n", "  io,\n  collections::HashMap,\n")),
+      (
+        "src/main.rs",
+        &LIB_RS
+          .replace("  io,\n", "  io,\n  collections::HashMap,\n")
+          .replace("Ok(())", "Err(io::Error::other(\"no\"))"),
+      ),
+      ("src/store.ts", &STORE_TS.replace("  save,\n", "  save,\n  remove,\n")),
+    ],
+  );
+  assert_eq!(
+    mechanical(&repo, &base, &head),
+    [
+      ("src/a/Wrap1.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/a/Wrap2.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/a/Wrap3.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/lib.rs".to_string(), Some(MechanicalKind::ImportsOnly)),
+      ("src/main.rs".to_string(), None),
+      ("src/store.ts".to_string(), Some(MechanicalKind::ImportsOnly)),
+    ]
+  );
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(plan.repeated_edits, []);
+}
+
 /// A file is mechanical only when every commit that changes it is: an import change and then a change of code is not
 #[test]
 fn a_file_is_mechanical_only_when_every_hunk_of_every_commit_is() {

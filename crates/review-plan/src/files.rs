@@ -8,11 +8,15 @@
 //!   of `CoRT` and `detectReformatting` of `SmartCommit` do: `Deleted` when the commits delete it, `BuildModel`
 //!   for a file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`),
 //!   else each change a pure rename (status `R`, no line added or removed), or each of its hunks the same text without
-//!   its whitespace (`Whitespace`) or, in a source file, only blank lines and at least one `import`, `use` or `package`
-//!   line (`ImportsOnly`). One import hunk makes the file `ImportsOnly`, else one whitespace hunk `Whitespace`. A file
-//!   without text (binary, too large, an added one) is only mechanical by name or deletion.
-//! - **Repeated edits**: the key of a hunk is its removed and its added lines without whitespace, blank lines left out;
-//!   a hunk of whitespace alone has none, nor one without a line of 10 or more characters. A key of 3 or more files
+//!   its whitespace, line ends included, so a wrapped or joined line too (`Whitespace`), or, in a source file, only
+//!   blank lines and lines of import statements, at least one (`ImportsOnly`). An import statement starts with an
+//!   `import`, `use` or `package` line and runs until the brackets it opens close, so a Rust
+//!   `use a::{` block or a TypeScript `import {` over several lines counts whole; the lines are read in the whole blob,
+//!   so a hunk inside such a block is an import hunk too. One import hunk makes the file `ImportsOnly`, else one
+//!   whitespace hunk `Whitespace`. A file without text (binary, too large, an added one) is only mechanical by name or
+//!   deletion.
+//! - **Repeated edits**: the key of a hunk is the text of its removed and of its added lines without whitespace; a
+//!   hunk of whitespace alone has none, nor one without a line of 10 or more characters. A key of 3 or more files
 //!   makes a group, the key of the most files first; a file is in one group at most, and a group keeps at least 3 files
 //!   that no larger group took.
 //! - **Tests**, by the path: a directory `test`, `tests`, `__tests__` or `testFixtures`; a name `*Test`, `*Tests`
@@ -20,20 +24,19 @@
 //!   mark (`FooTest.kt` and `foo.test.ts` name `Foo` and `foo`), compared without case; a file of a test directory names
 //!   the stem it has. A source file (`code_symbols::language::language_of`), no test, still there and not mechanical,
 //!   is `untested` when no changed test names its stem.
-//! - **The text of the hunks** comes from the blobs the diffs read (`FileDiffs::blob_texts`): from memory, else one
-//!   `cat-file --batch`, only of the modified and the renamed files that are not mechanical by name.
+//! - **The text of the hunks** comes from the old and new blobs of the modified and the renamed files that are not
+//!   mechanical by name (`hunk_blobs`): from the memory of the diffs, else in the batch of the summaries
+//!   (`trial_check::symbol_scan::read_symbol_input_with`). A blob too large for the summaries has no text.
 
 use crate::api::{ApiChange, ApiChangeKind};
 use crate::links::{FileLink, LinkState};
-use anyhow::Result;
 use code_symbols::language::language_of;
-use file_diffs::model::BlobRequest;
-use file_diffs::service::{FileDiffs, MAX_BLOB_REQUESTS, compare_tree_paths};
-use git_executor::git_command_executor::GitCommandExecutor;
+use file_diffs::service::compare_tree_paths;
 use object_cache::commit_diff::{FileChange, Hunk};
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ops::Range;
 use trial_check::diff_scan::CommitDiff;
 
 /// Why a change of a file is mechanical: the review folds it into one group at the end
@@ -183,62 +186,97 @@ fn has_hunk_text(file: &ChangedFile<'_>, change: &FileChange) -> bool {
   !file.deleted && !is_build_model(file.path) && matches!(change.status, 'M' | 'R') && !change.binary && !change.hunks.is_empty()
 }
 
-/// The texts of the blobs whose hunks the facts read (`has_hunk_text`), by id: from the memory of `file_diffs`, else
-/// one `cat-file --batch` (`FileDiffs::texts_by_id`); none for a binary, a too large or a missing blob, nor past
-/// `MAX_BLOB_REQUESTS` blobs
-pub(crate) fn hunk_texts(git: &GitCommandExecutor, repository_path: &str, file_diffs: &FileDiffs, files: &[ChangedFile<'_>]) -> Result<HashMap<String, String>> {
+/// The blobs whose hunks the facts read (`has_hunk_text`), each once
+pub(crate) fn hunk_blobs(files: &[ChangedFile<'_>]) -> Vec<String> {
   let mut seen: HashSet<&str> = HashSet::new();
-  let requests: Vec<BlobRequest> = files
+  files
     .iter()
     .flat_map(|file| file.changes.iter().filter(|change| has_hunk_text(file, change)))
     .flat_map(|change| [change.old_blob.as_deref(), change.new_blob.as_deref()])
     .flatten()
     .filter(|id| seen.insert(id))
-    .take(MAX_BLOB_REQUESTS)
-    .map(|id| BlobRequest { id: id.to_string(), path: None })
-    .collect();
-  if requests.is_empty() {
-    return Ok(HashMap::new());
-  }
-  file_diffs.texts_by_id(git, repository_path, &requests)
-}
-
-/// The lines of the hunks of one change: (removed, added) per hunk
-type HunkLines<'t> = Vec<(Vec<&'t str>, Vec<&'t str>)>;
-
-/// The removed and the added lines of each hunk of `change`; `None` without the text of a side
-fn hunk_lines<'t>(change: &FileChange, texts: &'t HashMap<String, String>) -> Option<HunkLines<'t>> {
-  let lines = |blob: Option<&str>| -> Option<Vec<&'t str>> { Some(texts.get(blob?)?.lines().collect()) };
-  let (old, new) = (lines(change.old_blob.as_deref())?, lines(change.new_blob.as_deref())?);
-  let slice = |lines: &[&'t str], start: u32, count: u32| -> Vec<&'t str> {
-    if count == 0 {
-      return Vec::new();
-    }
-    let start = start.saturating_sub(1) as usize;
-    lines.iter().skip(start).take(count as usize).copied().collect()
-  };
-  Some(
-    change
-      .hunks
-      .iter()
-      .map(|hunk: &Hunk| (slice(&old, hunk.old_start, hunk.old_lines), slice(&new, hunk.new_start, hunk.new_lines)))
-      .collect(),
-  )
-}
-
-/// `lines` without any whitespace, blank lines left out
-fn without_whitespace(lines: &[&str]) -> Vec<String> {
-  lines
-    .iter()
-    .map(|line| line.chars().filter(|char| !char.is_whitespace()).collect::<String>())
-    .filter(|line| !line.is_empty())
+    .map(str::to_string)
     .collect()
 }
 
-/// An `import`, `use` or `package` line (Kotlin, Java, Rust, TypeScript); a `pub use` re-exports, so it is no import
+/// The text of one hunk
+struct HunkText<'t> {
+  removed: Vec<&'t str>,
+  added: Vec<&'t str>,
+  /// Each line it removes or adds is blank or of an import statement (`import_lines`), and at least one is
+  imports: bool,
+}
+
+/// The lines `start` (1-based) and `count` of `-U0` name in a text of `len` lines
+fn line_range(start: u32, count: u32, len: usize) -> Range<usize> {
+  if count == 0 {
+    return 0..0;
+  }
+  let start = (start.saturating_sub(1) as usize).min(len);
+  start..(start + count as usize).min(len)
+}
+
+/// The text of each hunk of `change`; `None` without the text of a side
+fn hunk_lines<'t>(change: &FileChange, texts: &'t HashMap<String, String>) -> Option<Vec<HunkText<'t>>> {
+  let lines = |blob: Option<&str>| -> Option<Vec<&'t str>> { Some(texts.get(blob?)?.lines().collect()) };
+  let (old, new) = (lines(change.old_blob.as_deref())?, lines(change.new_blob.as_deref())?);
+  let (old_imports, new_imports) = (import_lines(&old), import_lines(&new));
+  let hunk_text = |hunk: &Hunk| {
+    let old_range = line_range(hunk.old_start, hunk.old_lines, old.len());
+    let new_range = line_range(hunk.new_start, hunk.new_lines, new.len());
+    let sides = old_range
+      .clone()
+      .map(|index| (old[index], old_imports[index]))
+      .chain(new_range.clone().map(|index| (new[index], new_imports[index])));
+    let (mut any, mut all) = (false, true);
+    for (line, import) in sides {
+      any |= import;
+      all &= import || line.trim().is_empty();
+    }
+    HunkText {
+      removed: old[old_range].to_vec(),
+      added: new[new_range].to_vec(),
+      imports: any && all,
+    }
+  };
+  Some(change.hunks.iter().map(hunk_text).collect())
+}
+
+/// The text of `lines` without any whitespace, line ends included, so a wrapped or joined line reads the same
+fn without_whitespace(lines: &[&str]) -> String {
+  lines.iter().flat_map(|line| line.chars()).filter(|char| !char.is_whitespace()).collect()
+}
+
+/// The first line of an import statement: `import` (Kotlin, Java, TypeScript), `use` (Rust) or `package`; a `pub use`
+/// re-exports, so it is no import
 fn is_import(line: &str) -> bool {
   let line = line.trim_start();
   ["import ", "import{", "use ", "package "].iter().any(|keyword| line.starts_with(keyword))
+}
+
+/// Per line of `lines`, whether it is of an import statement: its first line (`is_import`) and the lines up to the
+/// one that closes the brackets it opens, so a Rust `use a::{` block or a TypeScript `import {` over several lines
+/// counts whole
+fn import_lines(lines: &[&str]) -> Vec<bool> {
+  let mut open: i32 = 0;
+  lines
+    .iter()
+    .map(|line| {
+      let import = open > 0 || is_import(line);
+      if import {
+        let balance: i32 = line
+          .chars()
+          .map(|char| match char {
+            '{' | '(' => 1,
+            '}' | ')' => -1,
+            _ => 0,
+          })
+          .sum();
+        open = (open + balance).max(0);
+      }
+      import
+    })
+    .collect()
 }
 
 /// What a hunk is, when mechanical
@@ -248,14 +286,12 @@ enum HunkKind {
   Imports,
 }
 
-/// The kind of a hunk of `removed` and `added` lines; `source`: of a file of a known language
-fn hunk_kind(removed: &[&str], added: &[&str], source: bool) -> Option<HunkKind> {
-  if without_whitespace(removed) == without_whitespace(added) {
+/// The kind of `hunk`; `source`: of a file of a known language
+fn hunk_kind(hunk: &HunkText<'_>, source: bool) -> Option<HunkKind> {
+  if without_whitespace(&hunk.removed) == without_whitespace(&hunk.added) {
     return Some(HunkKind::Whitespace);
   }
-  let lines = || removed.iter().chain(added);
-  let imports_only = lines().all(|line| line.trim().is_empty() || is_import(line)) && lines().any(|line| is_import(line));
-  (source && imports_only).then_some(HunkKind::Imports)
+  (source && hunk.imports).then_some(HunkKind::Imports)
 }
 
 /// Why the change of `file` is mechanical, `None` when it is not: by its deletion, its name, or the text of each hunk
@@ -275,8 +311,8 @@ pub(crate) fn mechanical_kind(file: &ChangedFile<'_>, texts: &HashMap<String, St
     if !has_hunk_text(file, change) {
       return None;
     }
-    for (removed, added) in hunk_lines(change, texts)? {
-      kinds.insert(hunk_kind(&removed, &added, source)?);
+    for hunk in hunk_lines(change, texts)? {
+      kinds.insert(hunk_kind(&hunk, source)?);
     }
   }
   Some(if kinds.contains(&HunkKind::Imports) {
@@ -295,13 +331,13 @@ const MIN_REPEATED_LINE: usize = 10;
 /// The lines of each side a group keeps for its label
 const LABEL_LINES: usize = 3;
 
-/// The key of the edit of one hunk: its removed and its added lines without whitespace
-type EditKey = (Vec<String>, Vec<String>);
+/// The key of the edit of one hunk: the text of its removed and its added lines without whitespace
+type EditKey = (String, String);
 
-/// The key of the edit of a hunk, `None` for one of whitespace alone or without a long line
-fn edit_key(removed: &[&str], added: &[&str]) -> Option<EditKey> {
-  let key = (without_whitespace(removed), without_whitespace(added));
-  let long = removed.iter().chain(added).any(|line| line.trim().chars().count() >= MIN_REPEATED_LINE);
+/// The key of the edit of `hunk`, `None` for one of whitespace alone (a wrapped line too) or without a long line
+fn edit_key(hunk: &HunkText<'_>) -> Option<EditKey> {
+  let key = (without_whitespace(&hunk.removed), without_whitespace(&hunk.added));
+  let long = hunk.removed.iter().chain(&hunk.added).any(|line| line.trim().chars().count() >= MIN_REPEATED_LINE);
   (key.0 != key.1 && long).then_some(key)
 }
 
@@ -326,7 +362,7 @@ fn label_lines(lines: &[&str]) -> Vec<String> {
 /// The groups of files (by their place in `files`) that share an edit, the most files first, then by their first file;
 /// each file in one group at most
 pub(crate) fn repeated_edits(files: &[ChangedFile<'_>], texts: &HashMap<String, String>, mechanical: &[Option<MechanicalKind>]) -> Vec<(Vec<usize>, RepeatedEditGroup)> {
-  let lines: Vec<Vec<HunkLines<'_>>> = files
+  let lines: Vec<Vec<Vec<HunkText<'_>>>> = files
     .iter()
     .zip(mechanical)
     .map(|(file, kind)| {
@@ -337,12 +373,12 @@ pub(crate) fn repeated_edits(files: &[ChangedFile<'_>], texts: &HashMap<String, 
     .collect();
   let mut edits: BTreeMap<EditKey, Edit> = BTreeMap::new();
   for (index, changes) in lines.iter().enumerate() {
-    for (removed, added) in changes.iter().flatten() {
-      let Some(key) = edit_key(removed, added) else { continue };
+    for hunk in changes.iter().flatten() {
+      let Some(key) = edit_key(hunk) else { continue };
       let edit = edits.entry(key).or_insert_with(|| Edit {
         files: BTreeSet::new(),
-        removed: label_lines(removed),
-        added: label_lines(added),
+        removed: label_lines(&hunk.removed),
+        added: label_lines(&hunk.added),
       });
       edit.files.insert(index);
     }
