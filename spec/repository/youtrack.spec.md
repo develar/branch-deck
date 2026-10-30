@@ -29,6 +29,7 @@ targets:
   - ../../src/lib/youtrack.ts
   - ../../src/stores/youtrack-issues.ts
   - ../../src/stores/auth.ts
+  - ../../src/model/auth-facts.ts
   - ../../src/lib/sign-in-run.ts
   - ../../crates/remote-facts/src/sign_in.rs
   - ../../crates/domain-types/src/sign_in.rs
@@ -207,9 +208,9 @@ client takes a pasted token.
 
 - The status of the sign-in is the `youtrack` part of the status of both accounts (`AuthStatus`), read as GitHub's is
   ([GitHub Sign-In](github-sign-in.spec.md#sign-in)): a window of a repository (the main window, the review window of
-  a branch) takes it from the fact `auth` of its session, any other window reads `get_auth_status` at its start and on
-  `auth-changed`, Settings again on each open of its window (`useAuthSync`, `useAuthStatusOnOpen` of
-  `src/stores/auth.ts`). The answers of the popovers go once the sign-in changed (another YouTrack, user, token or
+  a branch) takes it from the fact `auth` of its session (`applyAuthFacts`, which the store of the session calls with
+  every view), any other window reads `get_auth_status` at its start and on `auth-changed`, Settings again on each
+  open of its window (`useAuthSync`, `useAuthStatusOnOpen` of `src/stores/auth.ts`). The answers of the popovers go once the sign-in changed (another YouTrack, user, token or
   sign-in time), not for a problem the YouTrack found with the same token; a popover that shows asks again
   (`src/stores/youtrack-issues.ts`).
   [@test] ../../src/stores/youtrack-issues.test.ts (`forgets the answers once the YouTrack sign-in changed, not for a problem of the same sign-in`)
@@ -239,11 +240,11 @@ client takes a pasted token.
 - A read of the status that fails is no sign-out: the last status stays (its links keep their popovers), the page
   says why with Retry ([Settings](settings.spec.md#pages)), and the main window tells it once per failure as the
   error "Cannot read the GitHub and YouTrack sign-ins" with Retry, which has its session read the fact `auth` again
-  (a window without a session reads `get_auth_status`); the session reads it again by its rule too (on a focus at
+  (`src/model/auth-facts.ts`; a window without a session reads `get_auth_status`); the session reads it again by its rule too (on a focus at
   most every minute, when it is two minutes old). Without any status the links show no popover and the menus no Mark
   Fixed until a read answers.
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should say a failed read of the sign-in with Retry, never signed out for the session, and show the issues once a read answers`)
-  [@test] ../../src/stores/auth.test.ts (`tells a failed read once, as an error with Retry, and keeps the last status until a read answers`, `has the session of the window read its fact on Retry, and a window without one read it itself`)
+  [@test] ../../src/model/auth-facts.test.ts (`tells a failed read once, as an error with Retry, and keeps the last status until a read answers`, `has the session of the window read its fact on Retry, and a window without one read it itself`)
 
 ### The issue popover
 
@@ -340,7 +341,8 @@ client takes a pasted token.
   scripted answers (the fake of `github::fake_github`), and the session against `FakeYouTrack` (`fake_youtrack.rs`, the
   `fake` feature: a YouTrack with a built-in Hub that redirects its page back with a code, trades it for the verifier
   of its challenge, and keeps issues and the commands that change them; `sign_in_session_test.rs`).
-- `pnpm test:unit`: `src/lib/youtrack.test.ts`, `src/stores/auth.test.ts`, `src/stores/youtrack-issues.test.ts`.
+- `pnpm test:unit`: `src/lib/youtrack.test.ts`, `src/stores/auth.test.ts`, `src/model/auth-facts.test.ts`,
+  `src/stores/youtrack-issues.test.ts`.
 - `pnpm e2e`: `tests/e2e/youtrack/` (the sign-in, the popover). Every YouTrack command runs the real session and service
   of the test server against the `FakeYouTrack` of the test repository ([E2E Testing → Remote
   services](../../docs/design/e2e-testing.md#remote-services)); a test sets its issues and the sign-in of the token file

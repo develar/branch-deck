@@ -1,54 +1,11 @@
 // The page's words of an operation of the session (`RepositoryView.operations`): its busy state as its surfaces say it
 // ("Unstacking oauth", "Waits for Unstacking oauth", whom it waits for while another holder has the repository lock),
-// the rows it works on (`operationOnRow`), and of an operation of another process of the repository: as its record in
-// the operations registry of the repository names it (`OperationHolder`, `operations::registry_file`), the holder of
-// what an operation of the page needs, which made it `busy` (`ErrorDetails.busy`, `describeError`); and as the session
+// the rows it works on (`operationOnRow`), and of an operation of another process of the repository as the session
 // shows it on its row (`RunningOperation` with `origin.otherProcess`, `operations::registry_watch`): "bd: Safe Push of
-// auth".
-import type { HolderTool, Intent, OperationHolder, OperationId, OperationKind, Resource, RewriteIntent, RunningOperation, Subject } from "@/lib/bindings"
-import { formatHeldFor, presentOperationLockWait } from "@/presenters/lock-wait"
+// auth". The holder that made an operation of the page `busy` is worded by `src/presenters/lock-wait.ts`.
+import type { Intent, OperationId, Resource, RewriteIntent, RunningOperation, Subject } from "@/lib/bindings"
+import { presentOperationLockWait, toolName } from "@/presenters/lock-wait"
 import { presentRewrite } from "@/presenters/rewrite"
-
-/** What an operation of `kind` does, in the words of a sentence */
-const KIND_WORDS: Record<OperationKind, string> = {
-  safe_push: "Safe Push",
-  dry_run: "Dry Run",
-  push: "push",
-  restart_robot: "restart of a robot",
-  cancel_robot: "cancel of a robot",
-  retarget: "retarget of a pull request",
-  create_pull_request: "creation of the pull request",
-  request_review: "review request",
-  close_pull_request: "close of a pull request",
-  disable_auto_merge: "cancel of an auto-merge",
-  close_landed_pull_requests: "close of the pull requests a robot landed",
-  submit_review: "review of a pull request",
-  set_issue_state: "change of the state of an issue",
-  forget_start: "forget of a start",
-  rewrite: "rewrite",
-  fetch_baseline: "fetch of the baseline",
-  update_project: "update of the project",
-  dismiss_landed: "dismissal of the landed commits",
-  fetch_review: "fetch of a pull request to review",
-  pick: "pick of commits",
-}
-
-/** Who runs it: `bd`, or another Branch Deck */
-function toolName(tool: HolderTool): string {
-  return tool === "bd" ? "`bd`" : "Branch Deck"
-}
-
-/**
- * Who runs the operation, with the pid that tells two of them apart: "`bd` (pid 4242) has run the Safe Push of auth for
- * 40 s"; of a start whose answer was lost, that it holds until Patronus tells or the start is forgotten
- */
-export function presentOperationHolder(holder: OperationHolder): string {
-  const what = holder.subject === null ? KIND_WORDS[holder.kind] : `${KIND_WORDS[holder.kind]} of ${holder.subject}`
-  if (holder.unknown === true) {
-    return `Cannot tell whether the ${what} that ${toolName(holder.tool)} (pid ${holder.pid}) sent started: it holds until Patronus lists its robot, or until Forget This Start`
-  }
-  return `${toolName(holder.tool)} (pid ${holder.pid}) has run the ${what} for ${formatHeldFor(holder.held_for)}`
-}
 
 /** The row of a subject: the branch, the root of a whole stack */
 function subjectName(subject: Subject): string {

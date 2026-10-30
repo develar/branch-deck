@@ -6,6 +6,7 @@
  */
 import type {
   ApiError,
+  AuthStatus,
   BranchChange,
   BranchHead,
   Commit,
@@ -58,6 +59,12 @@ const EMPTY_HEADER: TableHeader = {
   storeTips: { issueGroups: null, stackParents: null, parked: null },
   landing: { setting: null, onSpace: false, pushRepository: null, target: null },
   reviewExperimental: false,
+}
+
+/** The status of the sign-ins with GitHub's of octocat by the app's own sign-in and no YouTrack */
+export const OCTOCAT_AUTH: AuthStatus = {
+  github: { signInAvailable: true, signedInAs: "octocat", tokenSource: "branchDeck", manageUrl: null },
+  youtrack: { url: null, signedInAs: null, source: null, problem: null, signedInAt: null, manageUrl: null },
 }
 
 /** The view of a session that never synced, at `version` */

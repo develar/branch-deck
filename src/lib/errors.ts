@@ -2,8 +2,7 @@ import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
 import type { ApiError, ErrorCode } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
-import { presentLockHolder } from "@/presenters/lock-wait"
-import { presentOperationHolder } from "@/presenters/operations"
+import { presentLockHolder, presentOperationHolder } from "@/presenters/lock-wait"
 
 /** Whether `error` is the `ApiError` a command answers (`code`, `message`, …), not an `Error` of the page */
 export function isApiError(error: unknown): error is ApiError {

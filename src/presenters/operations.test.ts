@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Intent, RunningOperation, TableWitness } from "@/lib/bindings"
 import type { OperationNames } from "@/presenters/operations"
-import { presentOperationBusy, presentOperationHolder, presentOperationLabel, presentOtherProcess } from "@/presenters/operations"
+import { presentOperationBusy, presentOperationLabel, presentOtherProcess } from "@/presenters/operations"
 
 /** `intent` that `bd` with pid 4242 runs, as the session shows it from the operations registry of the repository */
 function ofBd(intent: Intent): RunningOperation {
@@ -42,20 +42,6 @@ describe("presentOtherProcess", () => {
 
   it("words nothing of an operation of this app", () => {
     expect(presentOtherProcess({ ...ofBd(SAFE_PUSH), origin: { kind: "thisProcess" } })).toBeNull()
-  })
-})
-
-describe("presentOperationHolder", () => {
-  it("names the holder that made an operation busy, what it runs and for how long", () => {
-    expect(presentOperationHolder({ op: "01K", tool: "bd", pid: 4242, kind: "safe_push", subject: "auth", held_for: 40 })).toBe(
-      "`bd` (pid 4242) has run the Safe Push of auth for 40 s",
-    )
-    expect(presentOperationHolder({ op: "01K", tool: "app", pid: 7, kind: "close_landed_pull_requests", subject: null, held_for: 75 })).toBe(
-      "Branch Deck (pid 7) has run the close of the pull requests a robot landed for 1 min 15 s",
-    )
-    expect(presentOperationHolder({ op: "01K", tool: "bd", pid: 4242, kind: "safe_push", subject: "auth", held_for: 90, unknown: true })).toBe(
-      "Cannot tell whether the Safe Push of auth that `bd` (pid 4242) sent started: it holds until Patronus lists its robot, or until Forget This Start",
-    )
   })
 })
 

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { AuthStatus, Fact, FactsView, GitHubAuthStatus, SignInEvent } from "@/lib/bindings"
 import { openSignInPageAgain, runSignIn } from "@/lib/sign-in-run"
-import { applyAuthFacts, authStore, refreshAuthStatus, retryAuthStatus, tellReadFailures } from "@/stores/auth"
+import { applyAuthFacts, authStore, refreshAuthStatus, retryAuthStatus } from "@/stores/auth"
 import { emptyView } from "@/test-support/fake-sessions"
 
 const { backend } = vi.hoisted(() => ({
@@ -16,8 +16,6 @@ const { backend } = vi.hoisted(() => ({
   },
 }))
 const { notifyError, showToast, openUrl } = vi.hoisted(() => ({ notifyError: vi.fn(), showToast: vi.fn(), openUrl: vi.fn(async (_url: string) => {}) }))
-/** The repository of the session the window holds, and the reads of its facts the window asked */
-const { session } = vi.hoisted(() => ({ session: { path: null as string | null, refreshed: [] as unknown[][] } }))
 
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
@@ -38,14 +36,6 @@ vi.mock("@/lib/bindings", () => ({
 vi.mock("@/lib/errors", () => ({ notifyError, getErrorCode: (error: { code?: string }) => error.code }))
 vi.mock("@/lib/toast-message", () => ({ showToast }))
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }))
-vi.mock("@/model/store", () => ({
-  onSessionFacts: () => () => {},
-  sessionRepositoryPath: () => session.path,
-  refreshSessionFacts: async (...args: unknown[]) => {
-    session.refreshed.push(args)
-    return true
-  },
-}))
 
 const signedIn: GitHubAuthStatus = { signInAvailable: true, signedInAs: "octocat", tokenSource: "branchDeck", manageUrl: "https://github.com/settings/connections/applications/c" }
 const youtrack: AuthStatus["youtrack"] = { url: null, signedInAs: null, source: null, problem: null, signedInAt: null, manageUrl: null }
@@ -73,8 +63,6 @@ beforeEach(() => {
   backend.finish = null
   backend.status = null
   backend.statusFailure = null
-  session.path = null
-  session.refreshed = []
   notifyError.mockClear()
   showToast.mockClear()
   openUrl.mockClear()
@@ -184,35 +172,5 @@ describe("the status of the sign-ins", () => {
     expect(authStore.getState().readError).toBeNull()
     await settle()
     expect(authStore.getState()).toMatchObject({ status, readError: null })
-  })
-
-  it("tells a failed read once, as an error with Retry, and keeps the last status until a read answers", async () => {
-    const stop = tellReadFailures()
-    backend.status = status
-    await refreshAuthStatus()
-    backend.statusFailure = "the keychain is locked"
-    await refreshAuthStatus()
-    await refreshAuthStatus()
-    // the links keep their YouTrack: a failure is no sign-out
-    expect(authStore.getState()).toMatchObject({ status, readError: "the keychain is locked" })
-    expect(notifyError).toHaveBeenCalledTimes(1)
-    const [title, , action] = notifyError.mock.calls[0]! as unknown as [string, unknown, { children: string; onClick: () => void }]
-    expect([title, action.children]).toEqual(["Cannot read the GitHub and YouTrack sign-ins", "Retry"])
-
-    backend.statusFailure = null
-    action.onClick()
-    await settle()
-    expect(authStore.getState()).toMatchObject({ status, readError: null })
-    expect(notifyError).toHaveBeenCalledTimes(1)
-    stop()
-  })
-
-  it("has the session of the window read its fact on Retry, and a window without one read it itself", async () => {
-    session.path = "/repo"
-    authStore.setState({ readError: "the token file is unreadable" })
-    retryAuthStatus()
-    await settle()
-    expect(session.refreshed).toEqual([["/repo", "auth", "manual"]])
-    expect(authStore.getState().readError).toBeNull()
   })
 })

@@ -4,17 +4,17 @@ import { createStore } from "zustand/vanilla"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import type { AuthStatus, FactsChanges, FactsView, SignInProvider } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
 import { BRANCH_REVIEW_WINDOW, isMainWindow, windowLabel } from "@/lib/window-label"
-import { onSessionFacts, refreshSessionFacts, sessionRepositoryPath } from "@/model/store"
 
 /*
  * The sign-ins of the app's accounts (spec/repository/github-sign-in.spec.md, youtrack.spec.md): the one status of both
  * accounts and where each sign-in of this window is. A window of a repository (the main window, the review window of a
- * branch) has the status as the fact `auth` of its session (`applyAuthFacts`: the session reads it when a window opens
- * it, after a sign-in or a sign-out of any window and on a focus by its rule); any other window reads it itself
- * (`get_auth_status`: at its start, on each later open of Settings, and on `auth-changed`, which the backend tells every
- * window after a sign-in or a sign-out). `useAuthSync` of `App` keeps it so in every window.
+ * branch) has the status as the fact `auth` of its session: the store of the session applies it with every view
+ * (`applyAuthFacts`, called by `src/model/store.ts`; the session reads it when a window opens it, after a sign-in or a
+ * sign-out of any window and on a focus by its rule), and the window asks its session to read it again
+ * (`src/model/auth-facts.ts`); any other window reads it itself (`get_auth_status`: at its start, on each later open
+ * of Settings, and on `auth-changed`, which the backend tells every window after a sign-in or a sign-out), which
+ * `useAuthSync` of `App` keeps so. The root of every window loads this module: it imports nothing of the session.
  */
 
 /** Where a sign-in of this window is (`src/lib/sign-in-run.ts` moves it by the events of its channel) */
@@ -91,56 +91,26 @@ export async function refreshAuthStatus(): Promise<void> {
 /** The windows that hold the session of a repository (`ensureSession`) and take the status from its fact */
 const takesSessionFact = isMainWindow || windowLabel === BRANCH_REVIEW_WINDOW
 
-/**
- * Reads the status again: the session of the window reads its fact (`refresh_facts`, which every window of the session
- * then has), a window without one reads it itself
- */
-export async function refreshWindowAuth(): Promise<void> {
-  const repositoryPath = takesSessionFact ? sessionRepositoryPath() : null
-  if (repositoryPath === null) {
-    await refreshAuthStatus()
-  } else {
-    await refreshSessionFacts(repositoryPath, "auth", "manual")
-  }
-}
-
-/** Retry of a failed read: the page says it reads again until the answer */
+/** Retry of a failed read of a window without a session (Settings): the page says it reads again until the answer */
 export function retryAuthStatus(): void {
   authStore.setState({ readError: null })
-  void refreshWindowAuth()
+  void refreshAuthStatus()
 }
 
 /**
- * The status in every window (`App`): from the session of a window of a repository; read by any other at its start and
- * on a sign-in or a sign-out of any window (`auth-changed`). The main window tells a failed read once per failure, as
- * the error "Cannot read the GitHub and YouTrack sign-ins" with Retry: without a status the issue links show no
- * popover, the menus no Mark Fixed and the hints of GitHub no sign-in
+ * The status in a window without a session (`App` of every window): read at its start and on a sign-in or a sign-out
+ * of any window (`auth-changed`). A window of a repository takes it from the fact of its session (`applyAuthFacts`),
+ * which the session reads again after a sign-in or a sign-out itself
  */
 export function useAuthSync(): void {
-  // before the first status comes: a session that answers at once may answer a failure
-  useEffect(() => (isMainWindow ? tellReadFailures() : undefined), [])
   useEffect(() => {
     if (!takesSessionFact) {
       void refreshAuthStatus()
-      return
     }
-    return onSessionFacts((_repositoryPath, view, changes) => applyAuthFacts(view.facts, changes?.facts ?? null))
   }, [])
   useTauriListen("auth-changed", () => {
     if (!takesSessionFact) {
       void refreshAuthStatus()
-    }
-  })
-}
-
-/**
- * Tells each failure of a read of the status once, as the error "Cannot read the GitHub and YouTrack sign-ins" with
- * Retry, until a read answered; returns the stop
- */
-export function tellReadFailures(): () => void {
-  return authStore.subscribe((state, before) => {
-    if (state.readError !== null && before.readError === null) {
-      notifyError("Cannot read the GitHub and YouTrack sign-ins", state.readError, { children: "Retry", onClick: retryAuthStatus })
     }
   })
 }

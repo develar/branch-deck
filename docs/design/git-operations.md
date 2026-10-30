@@ -4739,7 +4739,9 @@ of the app runs it, and once it changed an account its host has every session re
 `Sessions::refresh_all(Auth, AfterWrite)`, after GitHub the pull requests and the review requests too, `Manual`) and
 tells the windows without a session (`auth-changed`, on which they ask `get_auth_status`, the same reader). A reason that follows up (`auth_follows_up`: the button, a sign-in) asks once more after a read in
 flight, which may have started before the token was kept. The page keeps the status of its window
-(`src/stores/auth.ts`, `applyAuthFacts`, `useAuthSync`).
+(`src/stores/auth.ts`): the store of a session applies its fact with every view (`applyAuthFacts`, called by
+`src/model/store.ts`), the window asks its session to read it again (`src/model/auth-facts.ts`), and a window
+without a session reads it itself (`useAuthSync`).
 
 #### The Patronus view
 

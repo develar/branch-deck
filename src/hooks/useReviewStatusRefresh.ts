@@ -34,7 +34,7 @@ function isAwaiting(): boolean {
  * it started (`watchRobotCoverage`). The review requests of others are the session's too, with their news
  * (`applyReviewRequestsFacts`: after a sync, on a focus, every five minutes focused or not, and while a subject waits
  * for approvals each of those polls lists the pull requests too; a sign-in or a sign-out of GitHub in any window has the
- * session list them again at once, and read its fact `auth`, which `useAuthSync` of every window takes). The session
+ * session list them again at once, and read its fact `auth`, which the store of the session applies). The session
  * asks the readiness of the shown subjects
  * whose next step depends on it (the demand of the window), the whole stack of an island header too; while a row or
  * such a header waits for an approval

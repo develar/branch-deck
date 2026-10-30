@@ -25,6 +25,7 @@ targets:
   - ../../crates/test-server/src/host.rs
   - ../../crates/test-server/src/remote_host.rs
   - ../../src/stores/auth.ts
+  - ../../src/model/store.ts
   - ../../src/lib/sign-in-run.ts
   - ../../src/components/settings/GitHubSettings.tsx
   - ../../src/components/settings/GitHubPage.tsx
@@ -119,11 +120,15 @@ redirect and without a client secret.
   `auth` of every session (`FactsView.auth`), read by the rule `domain_policy::refresh::auth_due`: when a window opens
   the session, after a sign-in or a sign-out of any window and by the refresh button, once more after a read in flight
   for those; on a focus by the rule of the lists (at least a minute after the last read and when it is two minutes
-  old); never by a sync, a push or a poll. A window of a repository takes it from its session (`applyAuthFacts` of
-  `src/stores/auth.ts`), which keeps the last status until a new session answered and says why a read failed.
+  old); never by a sync, a push or a poll. A window of a repository takes it from its session: the store of the
+  session puts the fact into the status of the window with every view (`applyAuthFacts` of `src/stores/auth.ts`,
+  called by `src/model/store.ts`), which keeps the last status until a new session answered and says why a read
+  failed. The root of every window loads the store of the status alone, never the store of a session: a window
+  without a session reads the status itself.
   [@test] ../../crates/domain-policy/src/refresh_test.rs (`the_sign_ins_are_read_when_the_session_opens_after_a_sign_in_and_on_a_focus_by_the_rule_of_the_lists`)
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_sign_ins_are_read_when_a_window_opens_the_session_after_a_sign_in_and_on_a_late_focus`)
   [@test] ../../src/stores/auth.test.ts (`comes from the fact of the session, which keeps the last status until it answered and says why a read failed`)
+  [@test] ../../src/model/store.test.ts (`puts the fact auth of its session into the status of the sign-ins of the window, from its first view and from each patch of it`)
 
 ### The token file
 

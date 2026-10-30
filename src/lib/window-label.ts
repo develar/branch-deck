@@ -22,3 +22,6 @@ export const isMainWindow = windowLabel === "main"
  * the actions it asks for (`BranchReviewRequest`) with their refusals.
  */
 export const BRANCH_REVIEW_WINDOW = "branch-review"
+
+/** The label of the review window of a commit: one window, reused for the next commit (`openCommitReviewWindow`) */
+export const COMMIT_REVIEW_WINDOW = "commit-review"

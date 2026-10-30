@@ -1,12 +1,12 @@
 import { PencilLineIcon } from "lucide-react"
 import { undoRegroup } from "@/hooks/useStackActions"
 import type { Outcome } from "@/lib/bindings"
-import { showUndoToast } from "@/lib/command"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitHash, getSubjectLine } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
+import { showUndoToast } from "@/lib/undo-toast"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /** The surface of a reword: the editor of the commit message, which shows its progress */

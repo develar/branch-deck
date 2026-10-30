@@ -1,9 +1,9 @@
 import { undoRegroup } from "@/hooks/useStackActions"
 import type { ParkResult, RewriteIntent } from "@/lib/bindings"
-import { showUndoToast } from "@/lib/command"
 import type { RewriteDone, RewriteRunSpec } from "@/lib/rewrite-run"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { joinNames } from "@/lib/text"
+import { showUndoToast } from "@/lib/undo-toast"
 import { presentRewrite } from "@/presenters/rewrite"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 

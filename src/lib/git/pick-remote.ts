@@ -1,8 +1,8 @@
 import type { RewriteIntent, UndoToken } from "@/lib/bindings"
-import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { closeEventToasts, toastKeys } from "@/lib/event-toast"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
+import { showUndoToast } from "@/lib/undo-toast"
 import { getBranch } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 

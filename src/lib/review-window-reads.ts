@@ -1,7 +1,7 @@
-import { getCurrentWindow } from "@tauri-apps/api/window"
 import type { GetBranchReviewParams } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommitReviewWindowData } from "@/lib/commit-review-window"
+import { BRANCH_REVIEW_WINDOW, COMMIT_REVIEW_WINDOW } from "@/lib/window-label"
 import { loadFilesOfSubject } from "@/stores/commit-files"
 import { loadFileDiffs } from "@/stores/file-diffs"
 import { getDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
@@ -24,18 +24,13 @@ export function readBranchReview(params: GetBranchReviewParams): BranchReviewRea
 }
 
 /**
- * The reads of a review window start with its page, beside the load of its route chunk (the diff engine, about
- * 640 KB to parse), which they need nothing of: the files and the diffs of the commit of the commit review (into their
- * stores, which the review then finds read or being read), the segments of the branch review (`readBranchReview`)
+ * The reads of a review window start with its page (`src/lib/review-window-start.ts` imports this module only in a
+ * review window), beside the load of its route chunk (the diff engine, about 640 KB to parse), which they need nothing
+ * of: the files and the diffs of the commit of the commit review (into their stores, which the review then finds read
+ * or being read), the segments of the branch review (`readBranchReview`); `label` is that of the window
  */
-export function startReviewWindowReads(): void {
-  let label: string
-  try {
-    label = getCurrentWindow().label
-  } catch {
-    return
-  }
-  if (label === "commit-review") {
+export function startReviewWindowReads(label: string): void {
+  if (label === COMMIT_REVIEW_WINDOW) {
     const data = window.__INIT_DATA__ as CommitReviewWindowData | undefined
     const id = data?.commits[data.index]?.id
     if (id !== undefined) {
@@ -43,7 +38,7 @@ export function startReviewWindowReads(): void {
       void loadFilesOfSubject(subject)
       loadFileDiffs(subject, getDiffWhitespacePolicy(), { priorityPaths: data?.path == null ? [] : [data.path] })
     }
-  } else if (label === "branch-review") {
+  } else if (label === BRANCH_REVIEW_WINDOW) {
     const data = window.__INIT_DATA__ as BranchReviewWindowData | undefined
     if (data !== undefined) {
       const params = {

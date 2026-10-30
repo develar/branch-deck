@@ -588,10 +588,18 @@ used to download and compile the main window's tree before its own page: 61 modu
 - The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
   its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
   starts the highlight worker when its module loads, beside the reads of the files and the diffs.
-- A review window starts its reads with its page (`startReviewWindowReads` of `main.tsx`): the files and the patch of
-  the commit review into their stores, the segments of the branch review for its first read (`readBranchReview`).
-  Its route chunk holds the diff engine (about 640 KB to parse, about 100 ms in the release build), and the reads
-  waited for it before.
+- A review window starts its reads with its page (`startReviewWindowReads`): the files and the patch of the commit
+  review into their stores, the segments of the branch review for its first read (`readBranchReview`). Its route
+  chunk holds the diff engine (about 640 KB to parse, about 100 ms in the release build), and the reads waited for it
+  before. Only a review window loads them: `src/lib/review-window-start.ts`, which `main.tsx` imports before the
+  router, imports their chunk of about 19 KB with the stores they fill (`import()` by the label of the window), so it is
+  asked before the chunk of the page, whose load the start of the router asks for. A chunk asked after it waited behind
+  the requests of the page: in Chromium the reads of the commit review then started at 62 ms after the open instead of
+  32, its diffs came 9 ms later. Asked first, they start at 35 ms (the window loads its eager part 7 ms sooner), and
+  the review paints as before (`commit-review open 79 ms: loaded 21, shell 62, diffs 62` against `80 ms: loaded 28,
+  shell 63, diffs 64` before, the branch review 100 ms in both, eight opens each in E2E on this Mac). The Undo toast
+  of a rewrite (`src/lib/undo-toast.ts`) is a module apart from `invokeCommand` (`src/lib/command.ts`), so the reads
+  never load the Activity store and its presenters (74 KB of chunks before).
 - A loading line ("Loading changes…", "Loading diff…", "Loading files…", `LoadingLine`) shows only after 300 ms: a
   read from a cache answers before, and a spinner that flashes for a frame reads as a delay where there was none. The
   review shows what it has meanwhile (the tree, the headers of the files).
@@ -600,18 +608,25 @@ used to download and compile the main window's tree before its own page: 61 modu
 
 The eager part, which every window loads before its page (B13 of [Rust as the Domain
 Authority](rust-domain-authority.md#бюджеты-производительности); the entry and the modulepreloads of `dist/index.html`,
-`pnpm perf:eager-js` below), is the entry and 15 modulepreloads: 801,652 bytes (261,332 gzipped) after s13 against 797,568
-(258,780) on master `5879479e5` before it, 0.5 % more. s13 removed the reads of the start (1.8 KB of
-`stores/repository.ts`, `lib/branch-prefix.ts` and `repositorySettings.ts`) and added the seed (1.2 KB of
-`model/store.ts`) and the lazy roots of the popups of a row (3.1 KB: `useLazyRoot`, `popover`, `tooltip`), so the goal
-of B13, less, is not reached. By the source maps 596 KB of it are packages (react-dom 207 KB, Base UI 105 KB,
-react-router 93 KB, zod 88 KB for the schemas of the settings stores) and 179 KB the modules of the page, the store of
-the main window among them (`model/store.ts` 15 KB, `stores/branch-sync.ts` 12 KB), in master too: the root of every
-window reaches it (`App.tsx` imports `stores/auth.ts`, which imports `model/store.ts`; the presenters of Activity and
-of the outcome toasts import `lib/patronus.ts`, which imports `stores/branch-sync.ts`), so its import beside the page
-in the main route moves nothing (rolldown warns `INEFFECTIVE_DYNAMIC_IMPORT`). That graph is the lever of B13. Before
-its first render the main window loads 67 files, 1,773,561 bytes with the chunk of its page and what that imports
-(1,767,354 on master).
+`pnpm perf:eager-js` below), is the entry and 11 modulepreloads: 681,308 bytes (221,764 gzipped) since s15-6, under
+the 719,284 of the tree of s0a, against 810,173 (264,689) in 16 files before it. The root of every window loads no
+store of the main window: `stores/auth.ts`, which `App.tsx` imports for the sign-ins, imports nothing of the session
+(the store of a session puts its fact `auth` into it, `applyAuthFacts` from `model/store.ts`; the read of it again
+and the toast of a failed read are `model/auth-facts.ts`, which the main route and the issue popover import); the
+reads of a review window load in a review window only (above); `describeError` words the holder of a `busy` error by
+`presenters/lock-wait.ts`, which imports no other presenter (`presenters/operations.ts` imported the words of the
+rewrites). Before, the root of every window reached the store (`App.tsx` → `stores/auth.ts` → `model/store.ts`,
+15.7 KB, with `stores/branch-sync.ts`, 11.4 KB, and the rules of the rows), so its import beside the page in the main
+route moved nothing (rolldown warned `INEFFECTIVE_DYNAMIC_IMPORT`), and `main.tsx` reached the reads of the reviews
+with `lib/command.ts`, the Activity store and its presenters (`presenters/activity.ts`, `presenters/outcome.ts`,
+`lib/patronus.ts`). The modules of the page in the eager part went from 186,305 bytes to 63,857; the packages are
+596,483 (react-dom 206,995, Base UI 117,788 with its utils, react-router 93,764, zod 87,809), the bundler's code
+20,968. What a window loads before its first render, the eager part and the static closure of the chunk of its page
+(of the store of the session too for the main window): Settings 920,168 bytes in 39 files (1,042,688 before), the
+commit review 1,223,624 in 50 (1,330,278 in 46), the main window 1,783,236 in 66 (1,791,269 in 63), the other
+windows within 3 KB of before, in more and smaller chunks. Earlier, after s13: 801,652 bytes (261,332) against
+797,568 (258,780) on master `5879479e5`, 0.5 % more: s13 removed the reads of the start (1.8 KB) and added the seed
+(1.2 KB of `model/store.ts`) and the lazy roots of the popups of a row (3.1 KB: `useLazyRoot`, `popover`, `tooltip`).
 
 `pnpm perf:eager-js` (`scripts/perf/eager-js.mjs`) measures it. It builds the page into `tests/results/perf/eager-js/`
 with source maps that no file names (`vp build --sourcemap hidden`, so the bytes are those of `pnpm build`), or reads
@@ -619,10 +634,8 @@ the build `--dist` names, and prints the entry and the modulepreloads of its `in
 the total beside the budget of B13 (719,284 bytes, the tree of s0a), and from the source maps the bytes of each
 package, of each module of the page (`--top`) and of the bundler's own code, which no map names: the imports and
 exports between the chunks, the list of their dependencies and the preload helper. `tests/results/perf/eager-js.json`
-keeps the report. On 2026-10-29, after s15-1: 806,609 bytes (263,474 gzipped), 87,325 over the budget; packages
-597,403 (react-dom 207,039, Base UI 117,799 with its utils, react-router 93,761, zod 87,825), the modules of the page
-182,841 (`model/store.ts` 15,528, `stores/branch-sync.ts` 11,329, the presenters of Activity and of the outcomes
-12,981), the bundler's code 26,365.
+keeps the report. On 2026-10-29, after s15-1: 806,609 bytes (263,474 gzipped), 87,325 over the budget; on
+2026-10-30, after s15-6: 681,308 (221,764), 37,976 under it.
 
 `preloadInterFont` (`vite.config.ts`) adds a `<link rel="preload">` for the upright InterVariable face to the built
 `index.html`. Without it the browser finds the font only after the CSS applies, and a window paints first in the

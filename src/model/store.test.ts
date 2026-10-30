@@ -3,13 +3,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import { commands } from "@/lib/bindings"
-import type { RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
+import type { AuthStatus, Fact, RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
 import { toRemoteStatus } from "@/lib/remote-status"
 import { resetDemand } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
 import { adoptCachedModel, closeSession, openSession, requestSessionSync, resubscribeSession, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
+import { authStore } from "@/stores/auth"
 import { branchSyncStore, getBranch, getStackBranch, whenSynced } from "@/stores/branch-sync"
-import { emptyView, fakeCommit, fakeHead, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
+import { emptyView, fakeCommit, fakeHead, fakeRemoteStatus, fakeSessions, grouping, OCTOCAT_AUTH } from "@/test-support/fake-sessions"
 
 const { toasts, archived, syncRecords, answers } = vi.hoisted(() => ({
   toasts: [] as { type?: string; title: string; description?: string }[],
@@ -106,6 +107,20 @@ describe("the view of the session", () => {
     sync.answer()
     await synced
     expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a", "b"], syncError: null, syncedRepositoryPath: "/repo" })
+  })
+
+  it("puts the fact auth of its session into the status of the sign-ins of the window, from its first view and from each patch of it", async () => {
+    const status = OCTOCAT_AUTH
+    const auth: Fact<AuthStatus> = { value: status, state: { kind: "fresh" }, seq: 1, observedAt: 1 }
+    authStore.setState({ status: null, readError: null })
+    fakeSessions.views.set("/repo", { ...emptyView(), facts: { ...emptyView().facts, auth } })
+    await open()
+    expect(authStore.getState()).toMatchObject({ status, readError: null })
+    // a patch of another fact leaves it; a failed read of it says why, the last status kept
+    await send({ facts: { pullRequests: null } })
+    expect(authStore.getState()).toMatchObject({ status, readError: null })
+    await send({ facts: { auth: { ...auth, state: { kind: "stale", reason: internalError("the keychain is locked") }, seq: 2 } } })
+    expect(authStore.getState()).toMatchObject({ status, readError: "the keychain is locked" })
   })
 
   it("takes the snapshot when a patch of another epoch comes: the session was opened again", async () => {

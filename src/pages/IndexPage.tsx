@@ -27,6 +27,7 @@ import { SETTINGS_WINDOW } from "@/lib/settings-window"
 import type { SettingsTarget } from "@/lib/settings-window"
 import { openSubWindow } from "@/lib/window-management"
 import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
+import { tellReadFailures } from "@/model/auth-facts"
 import { setSessionWindowFocus } from "@/model/store"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
@@ -130,6 +131,8 @@ export function IndexPage() {
   // the repository of the window, its sync when the window opens it, and its review status: whichever view shows
   useReviewStatusRefresh()
   useSyncOnOpen()
+  // a failed read of the sign-ins, told once per failure with Retry, which has the session read its fact `auth` again
+  useEffect(() => tellReadFailures(), [])
   // "Auto-sync on Focus": the item of the native menu, and the sync when the window gets the focus
   useMenuSync()
   // the session checks what a sync reads (a `git config` of the prefix too) and answers `prefix_changed` when the

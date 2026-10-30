@@ -21,9 +21,9 @@
  * of another epoch than the view's is of a session the window left while the session open now still has the view's
  * epoch, and else subscribes the window again: its subscription went with the actor of its session (`whenServedViewAt`).
  * The remote status of a row is the session's: Rust orders a push's outcome against the syncs, so the store shows what
- * it gets. The facts of the remote services and the Patronus view the session derives of them come in the same view
- * and go to whoever listens (`onSessionFacts`: the Patronus store of each window); a fact is asked again with
- * `refreshSessionFacts`.
+ * it gets. The facts of the remote services and the Patronus view the session derives of them come in the same view:
+ * the fact `auth` is the status of the sign-ins of the window (`applyAuthFacts`), the others go to whoever listens
+ * (`onSessionFacts`: the review status of the main window); a fact is asked again with `refreshSessionFacts`.
  */
 import { Channel } from "@tauri-apps/api/core"
 import type {
@@ -65,6 +65,7 @@ import { applyViewPatch } from "@/model/patch"
 import type { BranchStructure } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE, rowsOf } from "@/model/structure"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
+import { applyAuthFacts } from "@/stores/auth"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore, NO_SUBJECT_PARTS, useBranchSyncEntry } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
@@ -612,6 +613,9 @@ function projectView(
     setUnappliedBranches(next.sections.unapplied.map(({ remote, ...info }) => ({ ...info, remoteStatus: remote === null ? null : toRemoteStatus(remote) })))
   }
   projectArchived(previous, next, changes)
+  if (changes === null || changes.facts != null) {
+    applyAuthFacts(next.facts, changes?.facts ?? null)
+  }
   if (changes === null || changes.facts != null || changes.patronus != null || news.length > 0) {
     for (const listener of factsListeners) {
       listener(repositoryPath, next, changes, news)

@@ -23,16 +23,11 @@ vi.mock("@/lib/bindings", () => ({
     },
   },
 }))
-vi.mock("@/stores/auth", async () => {
-  const actual = await vi.importActual<typeof import("@/stores/auth")>("@/stores/auth")
-  return {
-    ...actual,
-    refreshWindowAuth: async () => {
-      backend.authReads++
-    },
-  }
-})
-vi.mock("@/model/store", () => ({ onSessionFacts: () => () => {}, sessionRepositoryPath: () => null, refreshSessionFacts: async () => true }))
+vi.mock("@/model/auth-facts", () => ({
+  refreshWindowAuth: async () => {
+    backend.authReads++
+  },
+}))
 vi.mock("@/stores/settings/repositorySettings", () => ({
   getRecentProjects: () => [{ issueNavigationConfig: { links: [{ issueRegexp: "\\b[A-Z]+-\\d+\\b", linkRegexp: "https://youtrack.example.com/issue/$0" }] } }],
 }))

@@ -4,7 +4,8 @@ import type { YouTrackAuthStatus, YouTrackIssueAnswer } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { compileIssuePatterns, parseTextSegments } from "@/lib/issue-links"
 import { youTrackKeyOf } from "@/lib/youtrack"
-import { authStore, refreshWindowAuth } from "@/stores/auth"
+import { refreshWindowAuth } from "@/model/auth-facts"
+import { authStore } from "@/stores/auth"
 import { getRecentProjects } from "@/stores/settings/repositorySettings"
 
 /*

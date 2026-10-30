@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test"
+import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
 
 const { reads } = vi.hoisted(() => ({ reads: [] as unknown[] }))
 
-vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: "branch-review" }) }))
 vi.mock("@/stores/commit-files", () => ({ loadFilesOfSubject: async () => {} }))
 vi.mock("@/stores/file-diffs", () => ({ loadFileDiffs: () => {} }))
 vi.mock("@/stores/settings/diff-view-settings", () => ({ getDiffWhitespacePolicy: () => "default" }))
@@ -21,7 +21,7 @@ describe("readBranchReview", () => {
   it("gives the first read of the page the read its load started, once, and only for the same review", async () => {
     vi.stubGlobal("window", { __INIT_DATA__: { ...params, groups: [] } })
     const { readBranchReview, startReviewWindowReads } = await import("@/lib/review-window-reads")
-    startReviewWindowReads()
+    startReviewWindowReads(BRANCH_REVIEW_WINDOW)
     expect(reads).toHaveLength(1)
     const started = readBranchReview({ ...params, chain: ["auth", "login"] })
     expect(reads).toHaveLength(1)
@@ -30,7 +30,7 @@ describe("readBranchReview", () => {
     void readBranchReview(params)
     expect(reads).toHaveLength(2)
     // another review never gets a started read
-    startReviewWindowReads()
+    startReviewWindowReads(BRANCH_REVIEW_WINDOW)
     void readBranchReview({ ...params, chain: ["login"] })
     expect(reads).toHaveLength(4)
   })

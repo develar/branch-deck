@@ -1,9 +1,9 @@
 import type { Commit, UndoToken } from "@/lib/bindings"
-import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import type { RewriteDone } from "@/lib/rewrite-run"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
 import { showToast } from "@/lib/toast-message"
+import { showUndoToast } from "@/lib/undo-toast"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**

@@ -1,7 +1,15 @@
 // @spec spec/branch/patronus.spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { LockHolderInfo, OperationStep, RunningOperation } from "@/lib/bindings"
-import { actionOfLabel, canceledBeforeStart, presentLockHolder, presentLockWait, presentOperationLockWait, presentStopWaiting } from "@/presenters/lock-wait"
+import {
+  actionOfLabel,
+  canceledBeforeStart,
+  presentLockHolder,
+  presentLockWait,
+  presentOperationHolder,
+  presentOperationLockWait,
+  presentStopWaiting,
+} from "@/presenters/lock-wait"
 
 const BD_PICK: LockHolderInfo = { tool: "bd", command: "bd pick --follow", pid: 4242, held_for: 12 }
 
@@ -65,5 +73,19 @@ describe("canceledBeforeStart", () => {
       title: "Canceled squashing 2 commits before it started",
       description: "Nothing changed",
     })
+  })
+})
+
+describe("presentOperationHolder", () => {
+  it("names the holder that made an operation busy, what it runs and for how long", () => {
+    expect(presentOperationHolder({ op: "01K", tool: "bd", pid: 4242, kind: "safe_push", subject: "auth", held_for: 40 })).toBe(
+      "`bd` (pid 4242) has run the Safe Push of auth for 40 s",
+    )
+    expect(presentOperationHolder({ op: "01K", tool: "app", pid: 7, kind: "close_landed_pull_requests", subject: null, held_for: 75 })).toBe(
+      "Branch Deck (pid 7) has run the close of the pull requests a robot landed for 1 min 15 s",
+    )
+    expect(presentOperationHolder({ op: "01K", tool: "bd", pid: 4242, kind: "safe_push", subject: "auth", held_for: 90, unknown: true })).toBe(
+      "Cannot tell whether the Safe Push of auth that `bd` (pid 4242) sent started: it holds until Patronus lists its robot, or until Forget This Start",
+    )
   })
 })

@@ -39,7 +39,7 @@ targets:
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/repository/LandedCard.tsx
   - ../../src/components/branch/DroppedCommitList.tsx
-  - ../../src/lib/command.ts
+  - ../../src/lib/undo-toast.ts
   - ../../src/lib/errors.ts
   - ../../crates/app-api/src/operation.rs
   - ../../crates/domain-types/src/error.rs

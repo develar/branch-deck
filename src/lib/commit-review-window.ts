@@ -1,11 +1,9 @@
 import type { ReviewCommit } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
+import { COMMIT_REVIEW_WINDOW } from "@/lib/window-label"
 import { openSubWindow } from "@/lib/window-management"
 import { getDiffRepositoryPath } from "@/stores/repository"
-
-/** The label of the review window of a commit: one window, reused for the next commit */
-export const COMMIT_REVIEW_WINDOW = "commit-review"
 
 /** `__INIT_DATA__` of the review window of a commit (`openCommitReviewWindow`) */
 export interface CommitReviewWindowData {
