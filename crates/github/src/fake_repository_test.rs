@@ -150,6 +150,7 @@ fn bob_pull(repository: &FakeGitHubRepository) {
         author: Some("bob".to_string()),
         merge_state: None,
         auto_merge: None,
+        stack: None,
       },
       body: String::new(),
       comments: Vec::new(),

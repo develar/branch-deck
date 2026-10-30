@@ -529,6 +529,7 @@ fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_land
       },
       pull_requests: BTreeMap::from([("auth".to_owned(), at_tip("auth", 5, "va1")), ("login".to_owned(), at_tip("login", 6, "vl1"))]),
       stack_pull_requests: BTreeMap::new(),
+      github_stacks: false,
     }),
   );
   facts.apply(

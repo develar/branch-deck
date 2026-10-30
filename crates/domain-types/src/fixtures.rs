@@ -55,6 +55,7 @@ pub fn pull_request(branch: &str, number: u32) -> PullRequest {
     author: Some("user".to_string()),
     merge_state: None,
     auto_merge: None,
+    stack: None,
   }
 }
 

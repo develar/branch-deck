@@ -593,6 +593,10 @@ pub struct PullRequestsView {
   pub pull_requests: BTreeMap<String, PullRequest>,
   /// By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's
   pub stack_pull_requests: BTreeMap<String, PullRequest>,
+  /// Whether the repository of the listing that stands can have stacks of GitHub (`PullRequestsResult::github_stacks`);
+  /// false without one
+  #[serde(default)]
+  pub github_stacks: bool,
 }
 
 /// The user's robots of Patronus in the repository, as the session listed and polled them: what Patronus said of the

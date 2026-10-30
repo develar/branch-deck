@@ -39,6 +39,7 @@ fn facts_of(table: BranchTable, pull_requests: Vec<PullRequest>) -> FactStore {
         .map(|pull_request| (pull_request.head_ref_name.trim_start_matches("user/virtual/").to_owned(), pull_request))
         .collect(),
       stack_pull_requests: BTreeMap::new(),
+      github_stacks: false,
     }),
   );
   facts

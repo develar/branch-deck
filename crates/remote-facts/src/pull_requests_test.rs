@@ -1,6 +1,7 @@
-use crate::pull_requests::{PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, list_pull_requests, parse_pull_requests};
+use crate::pull_requests::{PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_STACKS, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, list_pull_requests, parse_pull_requests};
 use domain_types::pull_request::{
-  ChecksState, ChecksSummary, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource, ViewerPermission,
+  ChecksState, ChecksSummary, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource,
+  ViewerPermission,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
@@ -494,4 +495,63 @@ async fn the_merge_state_the_auto_merge_and_the_merge_methods_come_with_the_list
   assert_eq!(result.merge_methods.and_then(MergeMethods::preferred), Some(MergeMethod::Merge));
   let query = requests[0].json()["query"].as_str().unwrap().to_owned();
   assert!(query.contains("mergeStateStatus") && query.contains("autoMergeRequest { mergeMethod }") && query.contains("autoMergeAllowed"));
+}
+
+/// A layer of a stack of GitHub names its stack and its place in it (docs/design/github-stacks.md); a pull request
+/// outside a stack has none, and a schema that has the fields says the repository can have stacks
+#[test(tokio::test)]
+async fn the_stack_of_github_of_each_pull_request_comes_with_the_listing() {
+  let mut auth = node(1, "develar/virtual/auth", "OPEN", "2026-10-30T10:00:00Z");
+  auth["stack"] = serde_json::json!({"number": 4, "baseRefName": "master", "size": 2});
+  auth["stackEntry"] = serde_json::json!({"position": 1});
+  let mut login = node(2, "develar/virtual/login", "OPEN", "2026-10-30T10:00:00Z");
+  login["baseRefName"] = serde_json::json!("develar/virtual/auth");
+  login["stack"] = serde_json::json!({"number": 4, "baseRefName": "master", "size": 2});
+  login["stackEntry"] = serde_json::json!({"position": 2});
+  let mut alone = node(3, "develar/virtual/alone", "OPEN", "2026-10-30T10:00:00Z");
+  alone["stack"] = serde_json::Value::Null;
+  alone["stackEntry"] = serde_json::Value::Null;
+  let data = serde_json::json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": [auth, login, alone]}}});
+  let (result, requests) = list(FakeAnswer::ok(data), &repository("o", "r")).await;
+  let stacks: Vec<_> = result
+    .pull_requests
+    .values()
+    .map(|pull_request| (pull_request.number, pull_request.stack.clone()))
+    .collect();
+  let entry = |position| PullRequestStackEntry {
+    number: 4,
+    base_ref_name: "master".to_string(),
+    size: 2,
+    position,
+  };
+  assert_eq!(stacks, [(3, None), (1, Some(entry(1))), (2, Some(entry(2)))]);
+  assert!(result.github_stacks);
+  let query = requests[0].json()["query"].as_str().unwrap().to_owned();
+  assert!(query.contains("stack { number baseRefName size } stackEntry { position }"), "{query}");
+}
+
+/// A schema of GitHub without stacks refuses their fields: the listing asks again without them, remembers it for every
+/// token, and says the repository has no stacks of GitHub
+#[test(tokio::test)]
+async fn a_schema_without_stacks_is_asked_again_without_them() {
+  let (fake, github) = start_fake_service("t0ken").await;
+  let refused = serde_json::json!({"data": null, "errors": [{"message": "Field 'stack' doesn't exist on type 'PullRequest'",
+    "extensions": {"code": "undefinedField", "typeName": "PullRequest", "fieldName": "stack"}}]});
+  let listed = serde_json::json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": []}}});
+  fake.answer_in_turn("POST", "/graphql", vec![FakeAnswer::ok(refused), FakeAnswer::ok(listed.clone()), FakeAnswer::ok(listed)]);
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  assert!(matches!(result.availability, PullRequestAvailability::Available { .. }), "{result:?}");
+  assert!(!result.github_stacks);
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  assert!(!result.github_stacks);
+  let queries: Vec<serde_json::Value> = fake.requests_to("POST", "/graphql").iter().map(|request| request.json()["query"].clone()).collect();
+  assert_eq!(
+    queries,
+    [
+      serde_json::json!(PULL_REQUESTS_QUERY),
+      serde_json::json!(PULL_REQUESTS_QUERY_WITHOUT_STACKS),
+      serde_json::json!(PULL_REQUESTS_QUERY_WITHOUT_STACKS)
+    ]
+  );
+  assert!(!PULL_REQUESTS_QUERY_WITHOUT_STACKS.contains("stack") && PULL_REQUESTS_QUERY_WITHOUT_STACKS.contains("... on Team { slug }"));
 }

@@ -7,6 +7,7 @@ use crate::token::{Token, TokenChain, token_key};
 use domain_types::pull_request::TokenSource;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use sync_utils::timestamp::unix_now;
 
 /// Enough for every source to be tried once
@@ -44,6 +45,8 @@ pub struct GitHubService {
   /// The tokens GitHub refused a team's slug (`INSUFFICIENT_SCOPES`, no `read:org`): a token of `GH_TOKEN` or of
   /// git. Remembered until the token changes, so a listing asks the query without teams at once
   without_read_org: Mutex<HashSet<u64>>,
+  /// GitHub's schema refused the fields of a stack of GitHub (`undefinedField`): a listing asks without them
+  without_stacks: AtomicBool,
 }
 
 impl GitHubService {
@@ -54,6 +57,7 @@ impl GitHubService {
       denied: Mutex::new(HashMap::new()),
       rate_limited: Mutex::new(HashMap::new()),
       without_read_org: Mutex::new(HashSet::new()),
+      without_stacks: AtomicBool::new(false),
     }
   }
 
@@ -122,6 +126,16 @@ impl GitHubService {
   /// GitHub refused `token` a query that needs `read:org` (`INSUFFICIENT_SCOPES`)
   pub fn note_lacks_read_org(&self, token: &str) {
     self.without_read_org.lock().unwrap().insert(token_key(token));
+  }
+
+  /// Whether GitHub's schema refused the fields of a stack of GitHub once: a listing asks without them from then on
+  pub fn lacks_stacks(&self) -> bool {
+    self.without_stacks.load(Ordering::Relaxed)
+  }
+
+  /// GitHub's schema refused the fields of a stack (`undefinedField`): github.com has one schema for every token
+  pub fn note_lacks_stacks(&self) {
+    self.without_stacks.store(true, Ordering::Relaxed);
   }
 
   /// Until when the rate limit holds listings with `token` back, if it still does at `now`

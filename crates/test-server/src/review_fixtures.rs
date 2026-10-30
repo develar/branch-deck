@@ -356,6 +356,7 @@ fn review_request_pull(request: &ReviewRequest) -> FakePull {
       author: request.author.clone(),
       merge_state: None,
       auto_merge: None,
+      stack: None,
     },
     body: request.body_text.clone(),
     comments: Vec::new(),

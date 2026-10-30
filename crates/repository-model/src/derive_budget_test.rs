@@ -220,6 +220,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
         .map(|(number, branch)| (branch.name.clone(), pull_request(&branch.name, 100 + u32::try_from(number).unwrap_or(0))))
         .collect(),
       stack_pull_requests: BTreeMap::new(),
+      github_stacks: false,
     }),
   );
   let demand = Demand {

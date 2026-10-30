@@ -8,8 +8,8 @@
 use anyhow::Result;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::pull_request::{
-  ChecksState, ChecksSummary, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer,
-  ReviewerState, ViewerPermission,
+  ChecksState, ChecksSummary, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult,
+  ReviewDecision, Reviewer, ReviewerState, ViewerPermission,
 };
 use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
@@ -23,9 +23,10 @@ use tracing::{instrument, warn};
 
 /// The search of the user's pull requests, newest first: the virtual branches under review are among the 50 most
 /// recently updated. `repository` tells "no pull requests" from "the token can't see the repository". The fields are
-/// those `gh pr list --json` read; a reviewer team needs `read:org` (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`).
+/// those `gh pr list --json` read; a reviewer team needs `read:org` (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`), the stack
+/// of GitHub a schema that has stacks (`PULL_REQUESTS_QUERY_WITHOUT_STACKS`, docs/design/github-stacks.md).
 macro_rules! pull_requests_query {
-  ($team:literal) => {
+  ($team:literal, $stack:literal) => {
     concat!(
       "query($q: String!, $owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) { viewerPermission rebaseMergeAllowed mergeCommitAllowed squashMergeAllowed autoMergeAllowed }
@@ -35,7 +36,9 @@ macro_rules! pull_requests_query {
         number title url state isDraft reviewDecision
         author { login }
         headRefName headRefOid baseRefName isCrossRepository updatedAt mergeStateStatus
-        autoMergeRequest { mergeMethod }
+        autoMergeRequest { mergeMethod }",
+      $stack,
+      "
         headRepositoryOwner { login }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
@@ -60,9 +63,30 @@ macro_rules! pull_requests_query {
   };
 }
 
-pub const PULL_REQUESTS_QUERY: &str = pull_requests_query!("\n          ... on Team { slug }");
+pub const PULL_REQUESTS_QUERY: &str = pull_requests_query!("\n          ... on Team { slug }", "\n        stack { number baseRefName size } stackEntry { position }");
 /// For a token without `read:org` (a token of `GH_TOKEN` or of git), which GitHub refuses a team's slug
-pub const PULL_REQUESTS_QUERY_WITHOUT_TEAMS: &str = pull_requests_query!("");
+pub const PULL_REQUESTS_QUERY_WITHOUT_TEAMS: &str = pull_requests_query!("", "\n        stack { number baseRefName size } stackEntry { position }");
+/// For a schema of GitHub without stacks, which refuses the fields of the stack (`undefinedField`)
+pub const PULL_REQUESTS_QUERY_WITHOUT_STACKS: &str = pull_requests_query!("\n          ... on Team { slug }", "");
+pub const PULL_REQUESTS_QUERY_WITHOUT_TEAMS_OR_STACKS: &str = pull_requests_query!("", "");
+
+/// The query of the listing with the teams and the stacks the token and the schema allow
+const fn listing_query(teams: bool, stacks: bool) -> &'static str {
+  match (teams, stacks) {
+    (true, true) => PULL_REQUESTS_QUERY,
+    (false, true) => PULL_REQUESTS_QUERY_WITHOUT_TEAMS,
+    (true, false) => PULL_REQUESTS_QUERY_WITHOUT_STACKS,
+    (false, false) => PULL_REQUESTS_QUERY_WITHOUT_TEAMS_OR_STACKS,
+  }
+}
+
+/// An error of GitHub's schema about a field of the stack: the schema has no stacks of GitHub
+fn refuses_stack_fields(error: &github::client::GraphQlError) -> bool {
+  let extensions = error.extensions.as_ref();
+  let code = extensions.and_then(|extensions| extensions.get("code")).and_then(serde_json::Value::as_str);
+  let field = extensions.and_then(|extensions| extensions.get("fieldName")).and_then(serde_json::Value::as_str);
+  code == Some("undefinedField") && matches!(field, Some("stack" | "stackEntry"))
+}
 
 /// The search of the user's pull requests in `repository`
 pub fn pull_requests_search(repository: &GitHubRepository) -> String {
@@ -91,21 +115,25 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
   let (variables, full_name_ref) = (&variables, full_name.as_str());
   let answer = github
     .ask(repository_path, &full_name, RequestKind::Listing, |client, token| async move {
-      // a token GitHub refused the teams once asks without them from then on: one search per refresh, not two
-      if github.lacks_read_org(&token) {
-        let response = client.graphql::<PullRequestsData>(&token, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, variables).await?;
-        return visible_data(response, full_name_ref, |data| data.repository.is_some());
+      // a token GitHub refused the teams once, a schema that refused the stack once, asks without them from then on:
+      // one search per refresh, not two
+      let (mut teams, mut stacks) = (!github.lacks_read_org(&token), !github.lacks_stacks());
+      loop {
+        let response = client.graphql::<PullRequestsData>(&token, listing_query(teams, stacks), variables).await?;
+        if teams && response.errors.iter().any(|error| error.kind.as_deref() == Some("INSUFFICIENT_SCOPES")) {
+          github.note_lacks_read_org(&token);
+          teams = false;
+        } else if stacks && response.errors.iter().any(refuses_stack_fields) {
+          github.note_lacks_stacks();
+          stacks = false;
+        } else {
+          return visible_data(response, full_name_ref, |data| data.repository.is_some()).map(|data| (data, stacks));
+        }
       }
-      let mut response = client.graphql::<PullRequestsData>(&token, PULL_REQUESTS_QUERY, variables).await?;
-      if response.errors.iter().any(|error| error.kind.as_deref() == Some("INSUFFICIENT_SCOPES")) {
-        github.note_lacks_read_org(&token);
-        response = client.graphql::<PullRequestsData>(&token, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, variables).await?;
-      }
-      visible_data(response, full_name_ref, |data| data.repository.is_some())
     })
     .await;
   match answer {
-    Ok(data) => {
+    Ok((data, github_stacks)) => {
       let merge_methods = data.repository.as_ref().map(GhRepository::merge_methods);
       let viewer_permission = data
         .repository
@@ -121,6 +149,7 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
         merge_methods,
         pull_requests,
         stack_pull_requests,
+        github_stacks,
       }
     }
     Err(failure) => PullRequestsResult::unavailable(availability_of(failure)),
@@ -302,6 +331,24 @@ struct GhPullRequest {
   merge_state_status: Option<String>,
   /// Null while no auto-merge is enabled
   auto_merge_request: Option<GhAutoMerge>,
+  /// Null outside a stack of GitHub; absent of a query that doesn't ask it
+  stack: Option<GhStack>,
+  stack_entry: Option<GhStackEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhStack {
+  number: Option<u32>,
+  #[serde(default)]
+  base_ref_name: String,
+  #[serde(default)]
+  size: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhStackEntry {
+  position: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -461,6 +508,14 @@ fn to_pull_request(gh: GhPullRequest) -> Option<PullRequest> {
     auto_merge: gh
       .auto_merge_request
       .map(|request| request.merge_method.as_deref().and_then(MergeMethod::parse).unwrap_or(MergeMethod::Rebase)),
+    stack: gh.stack.zip(gh.stack_entry).and_then(|(stack, entry)| {
+      Some(PullRequestStackEntry {
+        number: stack.number?,
+        base_ref_name: stack.base_ref_name,
+        size: stack.size,
+        position: entry.position?,
+      })
+    }),
   })
 }
 

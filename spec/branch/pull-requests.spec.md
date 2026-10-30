@@ -134,6 +134,13 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   sort:updated-desc`, first 50, with the fields `gh pr list --json` reads, and `repository(owner, name)`. Newest first,
   unlike `gh pr list`: the virtual branches under review are among the 50 most recently updated.
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
+- Each pull request comes with its place in a stack of GitHub, the stack's number, its base and size and the
+  layer's position (`stack` and `stackEntry` of the same node, `PullRequest.stack`), none outside a stack; the
+  listing says whether the repository can have stacks of GitHub (`githubStacks`,
+  [Stacks of GitHub](../../docs/design/github-stacks.md)). A schema of GitHub that refuses those fields
+  (`undefinedField`) is asked again without them (`PULL_REQUESTS_QUERY_WITHOUT_STACKS`), remembered for the process:
+  the next refresh asks once, without them, and the repository has no stacks of GitHub.
+  [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`the_stack_of_github_of_each_pull_request_comes_with_the_listing`, `a_schema_without_stacks_is_asked_again_without_them`)
 - An answer that lists the pull requests names the repository it asked, its owner and name (`acme/monorepo`), for
   links to GitHub that no pull request carries; the app knows the repository only while GitHub lists its pull requests
   (`getGitHubRepository()`).

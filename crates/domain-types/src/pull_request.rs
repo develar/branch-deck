@@ -47,6 +47,27 @@ pub struct PullRequest {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub auto_merge: Option<MergeMethod>,
+  /// The stack of GitHub the pull request is a layer of (`stack` and `stackEntry` of GraphQL); absent outside a stack and
+  /// where GitHub's schema has no stacks ([Stacks of GitHub](../../../docs/design/github-stacks.md))
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack: Option<PullRequestStackEntry>,
+}
+
+/// A pull request's place in a stack of GitHub: a linear chain of pull requests, each into the branch of the one below,
+/// the bottom into `base_ref_name`, judged by the rules of that base and merged with every layer below it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestStackEntry {
+  /// The stack's number, of the same sequence as the numbers of the pull requests
+  pub number: u32,
+  /// The branch the bottom layer goes into: the target of a stack that lands into master
+  pub base_ref_name: String,
+  /// The layers of the stack, merged ones included
+  pub size: u32,
+  /// 1 for the bottom layer
+  pub position: u32,
 }
 
 /// Whether GitHub can merge a pull request now (GitHub's `MergeStateStatus`)
@@ -323,6 +344,11 @@ pub struct PullRequestsResult {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack_pull_requests: BTreeMap<String, PullRequest>,
+  /// Whether GitHub's schema answered the stack of each pull request: the repository can have stacks of GitHub; false
+  /// unless available, and where GitHub refused the fields
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub github_stacks: bool,
 }
 
 impl PullRequestsResult {
@@ -333,6 +359,7 @@ impl PullRequestsResult {
       merge_methods: None,
       pull_requests: BTreeMap::new(),
       stack_pull_requests: BTreeMap::new(),
+      github_stacks: false,
     }
   }
 }

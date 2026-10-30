@@ -4822,6 +4822,11 @@ export type PullRequest = {
 	 *  absent while none is enabled
 	 */
 	autoMerge?: MergeMethod | null,
+	/**
+	 *  The stack of GitHub the pull request is a layer of (`stack` and `stackEntry` of GraphQL); absent outside a stack and
+	 *  where GitHub's schema has no stacks ([Stacks of GitHub](../../../docs/design/github-stacks.md))
+	 */
+	stack?: PullRequestStackEntry | null,
 };
 
 /**  Whether pull requests can be listed for the repository */
@@ -4882,6 +4887,21 @@ export type PullRequestReviewEvent = "approve" |
 /**  Needs a body: GitHub refuses a request for changes without one */
 "requestChanges";
 
+/**
+ *  A pull request's place in a stack of GitHub: a linear chain of pull requests, each into the branch of the one below,
+ *  the bottom into `base_ref_name`, judged by the rules of that base and merged with every layer below it
+ */
+export type PullRequestStackEntry = {
+	/**  The stack's number, of the same sequence as the numbers of the pull requests */
+	number: number,
+	/**  The branch the bottom layer goes into: the target of a stack that lands into master */
+	baseRefName: string,
+	/**  The layers of the stack, merged ones included */
+	size: number,
+	/**  1 for the bottom layer */
+	position: number,
+};
+
 export type PullRequestState = "open" | "closed" | "merged";
 
 /**
@@ -4936,6 +4956,11 @@ export type PullRequestsView = {
 	pullRequests: { [key in string]: PullRequest },
 	/**  By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's */
 	stackPullRequests: { [key in string]: PullRequest },
+	/**
+	 *  Whether the repository of the listing that stands can have stacks of GitHub (`PullRequestsResult::github_stacks`);
+	 *  false without one
+	 */
+	githubStacks?: boolean,
 };
 
 /**  A push of a subject: of a branch, the stack branch of a whole stack, an unapplied branch (`PushScope::Unapplied`) */

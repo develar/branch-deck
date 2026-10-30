@@ -124,6 +124,7 @@ impl PullRequestsFact {
       merge_methods,
       pull_requests,
       stack_pull_requests,
+      github_stacks,
     } = result;
     let recovers = matches!(availability, PullRequestAvailability::Error { .. } | PullRequestAvailability::RateLimited { .. });
     let mut changed = false;
@@ -143,12 +144,14 @@ impl PullRequestsFact {
         || self.view.stack_pull_requests != stacks
         || self.view.repository != repository
         || self.view.viewer_permission != viewer_permission
-        || self.view.merge_methods != merge_methods;
+        || self.view.merge_methods != merge_methods
+        || self.view.github_stacks != github_stacks;
       self.view.pull_requests = listed;
       self.view.stack_pull_requests = stacks;
       self.view.repository = repository;
       self.view.viewer_permission = viewer_permission;
       self.view.merge_methods = merge_methods;
+      self.view.github_stacks = github_stacks;
       self.listed = matches!(availability, PullRequestAvailability::Available { .. });
       // a write the listing saw needs keeping no more
       self.written.retain(|_, written| *written > seq);

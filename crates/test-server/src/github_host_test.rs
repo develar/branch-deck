@@ -43,6 +43,7 @@ fn available(pull_requests: BTreeMap<String, PullRequest>, stack_pull_requests: 
     },
     pull_requests,
     stack_pull_requests,
+    github_stacks: false,
   }
 }
 
