@@ -38,3 +38,24 @@ fn the_facts_are_read_once_and_again_after_a_wait_for_the_lock() {
   assert_eq!(context.origin_url().unwrap().as_deref(), Some("ssh://git@git.jetbrains.team/ij/app.git"));
   assert_eq!(context.baseline().unwrap().branch, None);
 }
+
+/// HEAD's branch and its baseline do not outlive a call over the network before the lock: the user may switch or detach
+/// HEAD while a fetch runs; the remotes stay
+#[test_log::test]
+fn the_head_is_read_again_after_a_call_over_the_network() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let context = context_with_the_config_prefix(&repo);
+  let url = context.origin_url().unwrap();
+  let baseline = context.over_network(|| {
+    let baseline = context.baseline().unwrap();
+    repo.git(&["switch", "-q", "--detach"]);
+    baseline
+  });
+  assert!(baseline.branch.is_some(), "HEAD was on a branch before the call");
+  let processes = context.git.process_stats().unwrap().total();
+
+  assert_eq!(context.origin_url().unwrap(), url);
+  assert_eq!(context.git.process_stats().unwrap().total(), processes, "the remotes are not read again");
+  assert_eq!(context.head_branch().unwrap(), None);
+  assert_eq!(context.baseline().unwrap().branch, None);
+}

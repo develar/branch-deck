@@ -466,7 +466,8 @@ unapply, the reapply, their undo, the finish of a resolve session) and for `Inde
    back first, so nothing was changed; a follow that gives up is `followed: blocked`, the target picked. A rewrite has
    rewritten the branch already: its error stays the non-retryable one with the `git reset -q` advice, naming the lock.
 5. No refresh follows `read-tree -m -u`: it records the stat data of every file it writes (git 2.56: `diff-files`
-   right after it is empty, also within the second of the index write).
+   right after it is empty, also within the second of the index write; `touched_only_file_passes_thanks_to_the_refresh`,
+   `a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows`).
 
 The happy path costs no process: the lock file is looked at only when a step failed or the git dir is known.
 
@@ -844,7 +845,10 @@ holder while `kill(pid, 0)` still finds the process: otherwise the app would wai
 whom for nowhere, and refuse after 10 s. A core finds the file with one
 `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
 directory its context resolved, and a wait for it makes `bd` read the config and the facts of the command again
-(`RepoContext::forget_config`, `RepoContext::forget_facts`: HEAD's branch, the remotes, the baseline). A sync
+(`RepoContext::forget_config`, `RepoContext::forget_facts`: HEAD's branch, the remotes, the baseline). HEAD's branch
+and the baseline of it never outlive a network call before the lock either (`RepoContext::over_network`, the fetch of
+the target of `bd safe-push`): the user may switch or detach HEAD while it runs, so the guards of the sync under the
+lock read HEAD again (`a_head_detached_during_the_fetch_of_the_target_defers_the_sync`). A sync
 never waits for it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
 repository would make every writer fail with `locked`; only its drop of store lines takes it, while it is free (see
 "Regroup"). Within a session one sync
@@ -2394,7 +2398,9 @@ own (without the directories, or for a branch without commits, one `rev-parse --
 branch-deck/landed.json HEAD^{commit} <baseline>^{commit}`). A caller that read HEAD's branch and the remotes for the
 same operation passes them (`SyncOptions::facts`, `CommandFacts`: `bd`, from `RepoContext::command_facts`): the guards
 take the branch instead of their `symbolic-ref` and the listing the remotes instead of its `remote -v`; the app's
-session passes none, and its sync reads both.
+session passes none, and its sync reads both. HEAD's branch is passed only when no network call ran since it was read
+(`RepoContext::over_network` forgets it after one, as a wait for the repository lock forgets every fact): a branch
+read before a fetch would let a sync run on a HEAD the user detached or switched meanwhile.
 The listing reads refs, never a commit (`LISTED_BRANCH_ATOMS`): no `%(contents:subject)`, no `--sort=-committerdate`,
 which read the commit of every listed ref before the first rows. On the monorepo those were 452 refs (263 remote
 branches under the prefix, 162 archived ones): 0.09 s warm, 1 to 2 s from a cold pack, against 0.03 s for the refs
@@ -3423,7 +3429,8 @@ names of its files anywhere else):
   the state before or after it. Only a test and the E2E server write without the flush (`ProcessRegistry::unflushed`,
   `RegistryFiles::unflushed`, `bd` of the fixtures through `Environment::flush_to_drive`), a value the app and `bd`
   never have: the 1,904 writes of a full run cost 21 s of the tests' time at the drive
-  (`the_registry_flushes_each_write_but_in_a_test`). A file that is no JSON at all (cut short all the same, emptied by hand) tells nothing:
+  (`the_registry_flushes_each_write_but_in_a_test`); the flush is how a registry writes, not which it is: two of the same
+  directory are equal and one key of `registry_watch` (`a_registry_is_its_directory_whatever_its_writes`). A file that is no JSON at all (cut short all the same, emptied by hand) tells nothing:
   it reads as empty, with a warning, and the next change writes it whole.
 - **No clean rule**: the lock is a `flock`, which the system releases with its holder, so `operations.lock` is never
   stale, and deleting a lock file another process still holds would let two holders in; the record of a process that
@@ -3809,7 +3816,9 @@ sync, before anything is asked of Patronus.
 
 0. Before the lock, the fetch of the target for the target conflict check (below, "Target conflict check"): a fetch
    never runs under the lock. It fetches the upstream of the baseline of the command (`RepoContext::baseline`: one
-   `for-each-ref` with HEAD's branch and the remotes the sync takes after it, `fetch_target` of a known `Baseline`).
+   `for-each-ref` with HEAD's branch and the remotes, `fetch_target` of a known `Baseline`). The sync after it takes
+   the remotes; HEAD's branch does not outlive the fetch (`RepoContext::over_network`), and its guards read it again
+   under the lock (one `symbolic-ref`).
    `--create-pull-request` starts no robot and fetches nothing.
 1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, of the remotes the sync took, which
    the push and the GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
@@ -3888,7 +3897,7 @@ of `bd safe-push` and of the app (`sync_core::target_conflict`, one core for bot
 
 1. The fetch of the target's remote branch only (`fetch_target`, through `fetch_baseline_core`, as Update Project
    fetches it): `symbolic-ref`, `remote` and one `for-each-ref` for the baseline and its upstream (`read_baseline`;
-   `bd` passes the `Baseline` of its command, whose HEAD's branch and remotes its sync takes, so only the listing is
+   `bd` passes the `Baseline` of its command, whose remotes its sync takes, so only the listing is
    the check's), then one `fetch`. Never under the repository lock. A failed fetch is no error: the check uses the last fetched tip, and the
    result says why the fetch failed (`fetch_error`).
 2. The replay of what the robot lands onto the target tip, as a plain `git rebase` replays it, with no resolution by

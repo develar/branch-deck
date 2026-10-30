@@ -16,7 +16,7 @@ use domain_types::robot_stats::{RobotStats, StatsPeriod};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::patronus::target_branch_of;
+use sync_core::patronus::required_target_branch_of;
 use sync_utils::timestamp::unix_now;
 
 #[derive(Debug, Default, clap::Args)]
@@ -56,12 +56,7 @@ pub fn robot_stats(context: &RepoContext, args: &RobotStatsArgs, environment: &E
   // the baseline and its upstream from the remotes the Space repository was read with: one `symbolic-ref` and one
   // `for-each-ref` more
   let baseline = context.baseline()?;
-  let target = target_branch_of(baseline.upstream.as_ref()).ok_or_else(|| {
-    CliError::new(
-      ErrorCode::NoBaseline,
-      format!("The baseline {} is not a branch of origin: Patronus pushes into a branch of origin", baseline.name),
-    )
-  })?;
+  let target = required_target_branch_of(&baseline.name, baseline.upstream.as_ref()).map_err(|e| CliError::new(ErrorCode::NoBaseline, e.to_string()))?;
   let cache = context.cache();
   let source = RobotStatsSource {
     service: &service,

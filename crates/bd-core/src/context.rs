@@ -333,6 +333,17 @@ impl RepoContext {
     *self.facts.lock().unwrap_or_else(PoisonError::into_inner) = Facts::default();
   }
 
+  /// `call` over the network (a fetch, a request) before the repository lock: HEAD's branch and the baseline of it read
+  /// before the call do not outlive it, the user may switch or detach HEAD meanwhile; the next `head_branch` and
+  /// `baseline`, the guards of the sync under the lock among them, read them again
+  pub fn over_network<T>(&self, call: impl FnOnce() -> T) -> T {
+    let result = call();
+    let mut facts = self.facts.lock().unwrap_or_else(PoisonError::into_inner);
+    facts.head = None;
+    facts.baseline = None;
+    result
+  }
+
   /// The one runtime of the command: the sync runs on it, and the requests to Patronus and GitHub
   pub fn runtime(&self) -> Result<&Runtime, CliError> {
     if let Some(runtime) = self.runtime.get() {

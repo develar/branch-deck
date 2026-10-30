@@ -223,7 +223,7 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
 - Both moves must be checked before either moves. A source that moved or switched after the check must leave it where
   it is while the branch moves: `followed.state` `head_moved` (or `blocked`), exit 0; the same `bd pick` again finds
   every commit present and moves only the source.
-  [@test] ../../crates/git-ops/src/pick_test.rs (`a_source_that_switched_after_the_check_stays_and_the_same_pick_again_moves_it`)
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_source_that_switched_after_the_check_stays_and_the_same_pick_again_moves_it`, `a_source_that_switched_to_a_branch_at_another_commit_after_the_check_is_attached_and_stays`)
 - A pick or a follow killed between the move of HEAD and its files must leave the mark
   `refs/branch-deck/update-pending/<worktree id>`; the next pick, update or undo must let the files follow first, a
   detached HEAD by the reflog of `HEAD`.

@@ -314,14 +314,29 @@ impl Content {
   }
 }
 
-/// The operations registry of the repository of a `$GIT_COMMON_DIR`
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// The operations registry of the repository of a `$GIT_COMMON_DIR`; one registry per directory, how it writes aside:
+/// two are equal, and hash alike (the key of `registry_watch`), by `dir` only
+#[derive(Debug, Clone)]
 pub struct ProcessRegistry {
   dir: PathBuf,
   /// Whether a write reaches the drive before its rename (`AtomicWrite::durable`): always for the user, so a crash
   /// leaves the old state or the new one; a test, whose writes in 20 processes at once queue at the drive, writes
   /// without (`unflushed`)
   flush: bool,
+}
+
+impl PartialEq for ProcessRegistry {
+  fn eq(&self, other: &Self) -> bool {
+    self.dir == other.dir
+  }
+}
+
+impl Eq for ProcessRegistry {}
+
+impl std::hash::Hash for ProcessRegistry {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.dir.hash(state);
+  }
 }
 
 impl ProcessRegistry {

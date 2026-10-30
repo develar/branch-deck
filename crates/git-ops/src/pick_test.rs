@@ -58,6 +58,18 @@ fn assert_conflict_on_a(plan: &PickPlan, commit: &str, head: &str) {
   assert_eq!(plan.check.new_head, head);
 }
 
+/// A detached worktree with one commit `(lane) change` on `base`, a target that moved on (`(own) other`), and the
+/// checked pick of the worktree with `--follow`: the repository, `base`, the worktree and the plan
+fn a_checked_follow() -> (TestRepo, String, TestWorktree, PickPlan) {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  worktree.commit("(lane) change", "b.txt", "b\n");
+  repo.create_commit("(own) other", "own.txt", "own\n");
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  (repo, base, worktree, plan)
+}
+
 /// Delete the reflog of the target branch: its fork points are gone
 fn expire_reflog(repo: &TestRepo) {
   repo.git(&["reflog", "expire", "--expire=now", "--expire-unreachable=now", "refs/heads/master"]);
@@ -90,6 +102,10 @@ fn a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows() {
 
   let applied = apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
   assert_eq!(applied.followed, Some(FollowState::Moved));
+  // no refresh follows `read-tree -m -u`, in the target and in the source that followed: it records the stat data of
+  // the files it writes (before `status`, which refreshes them itself)
+  assert_eq!(repo.git(&["diff-files", "--name-only"]), "");
+  assert_eq!(worktree.git(&["diff-files", "--name-only"]), "");
   assert_eq!(repo.head(), applied.new_head);
   assert_eq!(subjects(&repo, &format!("{base}..HEAD")), ["(own) other", "(lane) first", "(lane) second"]);
   assert_eq!(read(&repo, "a.txt"), "a2\n");
@@ -455,6 +471,24 @@ fn a_source_that_switched_after_the_check_stays_and_the_same_pick_again_moves_it
   assert_eq!(worktree.git(&["rev-parse", "refs/heads/parked"]), applied.new_head);
 }
 
+/// The detached source switched after the check to a new branch at another commit: the follow's transaction fails on
+/// the old value of HEAD, and the check after the failure names the branch (`HeadAttached`), not a moved HEAD; the
+/// source and its branch stay
+#[test]
+fn a_source_that_switched_to_a_branch_at_another_commit_after_the_check_is_attached_and_stays() {
+  let (repo, base, worktree, plan) = a_checked_follow();
+  worktree.git(&["switch", "-q", "-c", "parked", &base]);
+
+  let applied = apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  let Some(FollowState::HeadMoved(message)) = &applied.followed else {
+    panic!("the follow did not stop: {:?}", applied.followed);
+  };
+  assert!(message.starts_with("HEAD is on parked now, no longer detached"), "{message}");
+  assert_eq!(repo.head(), applied.new_head);
+  assert_eq!(worktree.git(&["rev-parse", "HEAD", "refs/heads/parked"]), format!("{base}\n{base}"));
+  assert_eq!(worktree.git(&["status", "--porcelain"]), "");
+}
+
 #[test]
 fn a_pick_and_a_follow_killed_before_their_files_followed_are_finished() {
   let (repo, [from_commit, to]) = TestRepo::with_commits(&one_file_each([("one", "a.txt", "one\n"), ("two", "a.txt", "two\n")]));
@@ -585,12 +619,7 @@ fn an_undone_fast_forward_pick_is_no_fork_point() {
 
 #[test]
 fn a_pick_waits_for_the_index_lock_of_another_process_and_then_lands_with_its_files() {
-  let repo = TestRepo::new();
-  let base = repo.create_commit("base", "a.txt", "a\n");
-  let worktree = TestWorktree::detached(&repo);
-  worktree.commit("(lane) change", "b.txt", "b\n");
-  repo.create_commit("(own) other", "own.txt", "own\n");
-  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
+  let (repo, base, _worktree, plan) = a_checked_follow();
   // an IDE's `git status` holds the lock of the target for a while: open, so the wait never takes it for a lock that no
   // process owns and removes it itself (`IndexLock`), however late the holder lets it go. The wait polls the lock on
   // the system clock and tells no one that it waits (`IndexLock::wait_while_locked`, which the plan builds itself): the

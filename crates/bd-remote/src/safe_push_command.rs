@@ -580,8 +580,9 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let youtrack = youtrack_service(environment);
 
   // the target moves every minute: its remote branch is fetched for the target conflict check, before the lock, which
-  // no fetch runs under; a pull request starts no robot and needs no check
-  let target_fetch = (!args.create_pull_request).then(|| fetch_target(&context.git, &context.repository, context.baseline().ok()));
+  // no fetch runs under; a pull request starts no robot and needs no check. HEAD's branch read for it does not outlive
+  // the fetch: the guards of the sync read it again under the lock
+  let target_fetch = (!args.create_pull_request).then(|| context.over_network(|| fetch_target(&context.git, &context.repository, context.baseline().ok())));
   // the sync is the part under the lock (its merge-tree writes the virtual branches); the reads of the remote, the trial
   // and the check against the target after it keep no other bd writer waiting, and the run takes the lock again only to
   // witness the refs and freeze its push

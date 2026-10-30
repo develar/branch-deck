@@ -1358,8 +1358,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   `--check` must list it in `refusals`, and `target_check` must say `result` (`clean`, `conflict`, `not_run`) and the
   `target_tip`. A failed fetch must not stop the check: it replays onto the last fetched tip, `fetched` is false, and
   `message` says why. A check that can't run holds nothing back. `--create-pull-request` starts no robot and checks
-  nothing.
-  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the_start`, `a_target_that_moved_without_a_conflict_starts`)
+  nothing. HEAD's branch read for the fetch must not outlive it: a HEAD the user detached while the fetch ran defers
+  the sync under the lock (`detached_head`, exit 4), nothing pushed or started.
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the_start`, `a_target_that_moved_without_a_conflict_starts`, `a_head_detached_during_the_fetch_of_the_target_defers_the_sync`)
+  [@test] ../../crates/bd-cli/src/context_test.rs (`the_head_is_read_again_after_a_call_over_the_network`)
   [@test] ../../crates/sync-core/src/target_conflict_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_conflicts`, `a_target_that_moved_without_a_conflict_is_clean`, `a_failed_fetch_checks_the_last_fetched_target_and_says_so`, `a_branch_that_does_not_resolve_is_not_checked`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_target_conflict_check`)

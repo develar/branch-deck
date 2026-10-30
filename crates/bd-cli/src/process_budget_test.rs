@@ -1312,9 +1312,10 @@ fn a_pick_into_a_branch_the_target_has() {
 
 /// The processes of the target conflict check of `bd safe-push`: before the lock, the fetch of the target takes the
 /// baseline and its upstream of the command (`RepoContext::baseline`: one `for-each-ref` beside HEAD's branch and the
-/// remotes, which the sync takes too), then fetches it (`fetch`); after the sync, one `replay` of the branch onto the
-/// target tip that the sync read
-const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("replay", 1)];
+/// remotes, which the sync takes too), then fetches it (`fetch`); HEAD's branch does not outlive the fetch
+/// (`RepoContext::over_network`), so the guards of the sync read it again under the lock (`symbolic-ref`); after the
+/// sync, one `replay` of the branch onto the target tip that the sync read
+const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("replay", 1), ("symbolic-ref", 1)];
 
 /// What `bd safe-push auth --check` runs besides the target conflict check (`a_safe_push_check`)
 const SAFE_PUSH_CHECK: &[(&str, u32)] = &[

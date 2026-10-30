@@ -481,3 +481,17 @@ fn the_registry_flushes_each_write_but_in_a_test() {
   unflushed.admit(&id("docs"), HolderTool::App, &session("user"), &safe_push("docs")).unwrap().discard();
   assert_eq!(ProcessRegistry::of(directory.path()).records().unwrap().unwrap(), Vec::<Record>::new());
 }
+
+/// A registry is its directory: one written without the flush is the same registry, under the same key of
+/// `registry_watch`; another directory is another registry
+#[test]
+fn a_registry_is_its_directory_whatever_its_writes() {
+  let directory = tempfile::tempdir().unwrap();
+  let other = tempfile::tempdir().unwrap();
+  let registry = ProcessRegistry::of(directory.path());
+  assert_eq!(registry, registry.clone().unflushed());
+  assert_ne!(registry, ProcessRegistry::of(other.path()));
+  let keys: HashSet<ProcessRegistry> = [registry.clone(), registry.clone().unflushed(), ProcessRegistry::of(other.path())].into_iter().collect();
+  assert_eq!(keys.len(), 2);
+  assert!(keys.contains(&registry.unflushed()));
+}

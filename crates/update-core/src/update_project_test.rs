@@ -11,8 +11,8 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{
-  BranchSwitched, CheckPurpose, LandedLookup, NotAnUpdate, PENDING_UPDATE_PREFIX, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, blocked_state, check_update,
-  check_update_undo,
+  BranchSwitched, CheckPurpose, HeadAttached, LandedLookup, NotAnUpdate, PENDING_UPDATE_PREFIX, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, blocked_state,
+  check_update, check_update_undo,
 };
 use git_ops::word_resolve::ResolveMode;
 #[cfg(unix)]
@@ -280,6 +280,9 @@ fn touched_only_file_passes_thanks_to_the_refresh() {
 
   let result = update(&clone).unwrap();
   assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::FastForward });
+  // no refresh follows `read-tree -m -u`: it records the stat data of the files it writes (before `status`, which
+  // refreshes them itself)
+  assert_eq!(git(&clone, &["diff-files", "--name-only"]), "");
   assert_eq!(read(&clone, "shared.txt"), "one\nTWO\nthree\n");
   assert_eq!(status(&clone), "");
 }
@@ -1032,15 +1035,8 @@ fn a_failed_fetch_is_fetch_failed() {
 fn a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused() {
   let (Setup { upstream: _upstream, clone }, head, plan) = checked_rebase();
   git(&clone, &["switch", "-q", "-c", "other"]);
-  let reflog_before = reflog(&clone);
-
-  let error = apply_update(clone.git_executor(), path(&clone), &plan).unwrap_err();
-  let switched = error.downcast_ref::<BranchSwitched>().unwrap_or_else(|| panic!("not BranchSwitched: {error:#}"));
-  assert_eq!((switched.expected.as_str(), switched.actual.as_deref()), ("master", Some("other")));
-  assert_eq!(git(&clone, &["rev-parse", "master", "other"]), format!("{head}\n{head}"));
-  assert_eq!(reflog(&clone), reflog_before);
+  assert_the_switch_to_other_is_refused(&clone, &plan, &head);
   assert_eq!(read(&clone, "shared.txt"), SHARED);
-  assert_eq!(status(&clone), "");
 
   // on the checked branch the update applies; then the same for its undo
   git(&clone, &["switch", "-q", "master"]);
@@ -1057,6 +1053,57 @@ fn a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused() {
   let error = apply_update_undo(clone.git_executor(), path(&clone), &undo).unwrap_err();
   assert!(error.downcast_ref::<BranchSwitched>().is_some(), "{error:#}");
   assert_eq!(git(&clone, &["rev-parse", "master", "other2"]), format!("{0}\n{0}", applied.new_head));
+}
+
+/// A `git switch` after the check to a branch at another commit: the old value of HEAD fails the transaction before its
+/// check of HEAD runs, and the check after the failure names the switch (`BranchSwitched`); neither branch moved
+#[test]
+fn a_switch_to_a_branch_at_another_commit_since_the_check_is_refused() {
+  let (Setup { upstream: _upstream, clone }, head, plan) = checked_rebase();
+  git(&clone, &["branch", "other", "HEAD~1"]);
+  git(&clone, &["switch", "-q", "other"]);
+  assert_ne!(git(&clone, &["rev-parse", "other"]), head);
+  assert_the_switch_to_other_is_refused(&clone, &plan, &head);
+}
+
+/// `apply_update` of `plan`, checked on master at `head`, with HEAD switched to `other` since: `BranchSwitched`, and
+/// neither branch moved, master's reflog unchanged, the files clean
+fn assert_the_switch_to_other_is_refused(clone: &TestRepo, plan: &UpdatePlan, head: &str) {
+  let other = git(clone, &["rev-parse", "other"]);
+  let reflog_before = reflog(clone);
+  let error = apply_update(clone.git_executor(), path(clone), plan).unwrap_err();
+  let switched = error.downcast_ref::<BranchSwitched>().unwrap_or_else(|| panic!("not BranchSwitched: {error:#}"));
+  assert_eq!((switched.expected.as_str(), switched.actual.as_deref()), ("master", Some("other")));
+  assert_eq!(git(clone, &["rev-parse", "master", "other"]), format!("{head}\n{other}"));
+  assert_eq!(reflog(clone), reflog_before);
+  assert_eq!(status(clone), "");
+}
+
+/// A detached HEAD (an update onto a local branch, `bd lease pick`) switched after the check to a new branch at another
+/// commit: the transaction fails on the old value of HEAD, and the check after it names the branch (`HeadAttached`);
+/// nothing moved
+#[test]
+fn a_detached_head_switched_to_a_branch_at_another_commit_since_the_check_is_refused() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("Base", "base.txt", "base\n");
+  let lane = test_utils::git_test_utils::TestWorktree::detached(&repo);
+  lane.commit("(lane) Add a", "a.txt", "a\n");
+  let tip = repo.create_commit("(peer) Add p", "p.txt", "p\n");
+  let master = UpstreamRef {
+    tracking_ref: "refs/heads/master",
+    name: "master",
+    previous: None,
+    local: true,
+  };
+  let plan = check_update(repo.git_executor(), &lane.path, master, CheckPurpose::Apply, LandedLookup::Off, ResolveMode::Off).unwrap();
+  assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  let lane_git = |args: &[&str]| repo.git_executor().execute_command(args, &lane.path).unwrap();
+  lane_git(&["switch", "-q", "-c", "other", &base]);
+
+  let error = apply_update(repo.git_executor(), &lane.path, &plan).unwrap_err();
+  let attached = error.downcast_ref::<HeadAttached>().unwrap_or_else(|| panic!("not HeadAttached: {error:#}"));
+  assert_eq!(attached.actual, "other");
+  assert_eq!(lane_git(&["rev-parse", "other", "master"]), format!("{base}\n{tip}"));
 }
 
 /// A process killed between the move and the files leaves HEAD at the new head and the index and the files at the

@@ -51,8 +51,12 @@ pub fn find_target_branch(git_executor: &GitCommandExecutor, repository_path: &s
 
 /// `find_target_branch` for an action: a baseline that is no branch of origin is an error
 pub fn required_target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> anyhow::Result<String> {
-  find_target_branch(git_executor, repository_path, baseline_branch)?
-    .ok_or_else(|| anyhow::anyhow!("The baseline {baseline_branch} is not a branch of origin: Patronus pushes into a branch of origin"))
+  required_target_branch_of(baseline_branch, resolve_baseline_upstream(git_executor, repository_path, baseline_branch)?.as_ref())
+}
+
+/// `required_target_branch` of the upstream of the baseline a caller read (`Baseline::upstream`): no git process
+pub fn required_target_branch_of(baseline_branch: &str, upstream: Option<&BaselineUpstream>) -> anyhow::Result<String> {
+  target_branch_of(upstream).ok_or_else(|| anyhow::anyhow!("The baseline {baseline_branch} is not a branch of origin: Patronus pushes into a branch of origin"))
 }
 
 /// `find_target_branch` of the upstream of the baseline a caller read (`SyncReport::upstream`): no git process

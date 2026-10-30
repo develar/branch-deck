@@ -1731,3 +1731,24 @@ fn a_target_that_moved_without_a_conflict_starts() {
   assert_eq!(output["robot"]["id"], json!("started"));
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
 }
+
+/// HEAD's branch read for the fetch of the target does not outlive the fetch: the user detaches HEAD while it runs, and
+/// the guards of the sync under the lock read HEAD again, so the sync is deferred (`detached_head`), nothing pushed or
+/// started (docs/design/git-operations.md, "What a sync reads once")
+#[cfg(unix)]
+#[test_log::test]
+fn a_head_detached_during_the_fetch_of_the_target_defers_the_sync() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.publish_target();
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&space.repo, &test_utils::wrapped_git::WrappedGit::move_head_before("fetch", 1, "git switch -q --detach"));
+  let environment = Environment {
+    git: wrapped.environment.git.clone(),
+    ..space.environment()
+  };
+  let (exit_code, output) = run_json(&environment, &["--prefix", PREFIX, "safe-push", "auth"]);
+  assert!(wrapped.dir().join("moved").exists(), "HEAD was detached during the fetch: {:#?}", wrapped.commands());
+  assert_error(&output, exit_code, (4, "detached_head"));
+  assert_eq!(wrapped.locked_runs("symbolic-ref").last(), Some(&true), "{:#?}", wrapped.commands());
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
+  assert_eq!(space.remote_tip(AUTH), "");
+}

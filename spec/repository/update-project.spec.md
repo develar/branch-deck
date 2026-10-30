@@ -250,7 +250,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow`)
 - HEAD switched to another branch since the check, even one at the same commit, and also right before the move, must
   refuse the move (and its undo) with nothing changed.
-  [@test] ../../crates/update-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`, `a_switch_to_a_branch_at_another_commit_since_the_check_is_refused`, `a_detached_head_switched_to_a_branch_at_another_commit_since_the_check_is_refused`)
   [@test] ../../crates/bd-update/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`)
 - A `git switch` while the move holds the lock of HEAD must fail on `HEAD.lock`; the move commits on the checked
   branch.
