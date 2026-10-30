@@ -12,7 +12,8 @@
 //!   distinct query, each on a thread of its own; the caller's index cancels them (`SearchCanceled`, a newer request
 //!   of the window).
 //! - An index that fails fails no plan (`Lenient`): the entries it did not answer keep no usages, and the answer of
-//!   `add_usages` says why, as it does when accio is missing or has no index of the repository. Never an index build.
+//!   `add_usages` says why, as it does when accio is missing or has no usable index of the repository (its own reason,
+//!   `IndexUnavailable`). Never an index build.
 //! - **A usage** is a hit in code: no declaration, `import` or `doc` hit (`NOT_USES`), none in a file of another
 //!   family of languages than the declaration (a Python `.get(` is no use of a Kotlin `Key.get`). Of a type whose
 //!   constructors are its only change, only the `call` hits (`Type(…)`, `new Type(…)`, a Kotlin `class Sub : Type(…)`)
@@ -75,7 +76,8 @@ pub const STOP_NAMES: [&str; 32] = [
 
 /// Why no usages: this machine has no accio
 pub const NO_ACCIO: &str = "accio is not installed";
-/// Why no usages: accio has no index of the repository, which the review never builds
+/// Why no usages: the index answered none and gave no reason (a fixture without its file); accio gives its own
+/// (`IndexUnavailable`). The review never builds an index
 pub const NO_INDEX: &str = "accio has no index of this repository";
 
 /// The kinds of accio hits that use nothing: the declaration itself, an import, a mention in a doc comment
@@ -196,10 +198,11 @@ pub fn add_usages(index: Option<&dyn SymbolIndex>, repository_path: &str, head: 
   }
   debug!(asked = queries.len(), answered, "usages of the API changes");
   rank(api);
+  let unavailable = lenient.unavailable();
   let error = lenient.error();
   Ok(match error {
     Some(error) => Some(error),
-    None if answered == 0 => Some(NO_INDEX.to_string()),
+    None if answered == 0 => Some(unavailable.unwrap_or_else(|| NO_INDEX.to_string())),
     None => None,
   })
 }

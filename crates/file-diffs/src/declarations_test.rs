@@ -206,16 +206,6 @@ fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
   assert_eq!(index.queries.lock().unwrap().len(), 1);
 }
 
-#[test]
-fn knows_where_accio_keeps_the_index_of_a_repository() {
-  let _env = test_utils::env_vars::EnvVars::set(&[("ACCIO_HOME", "/tmp/accio-home")]);
-  // `blob_oid` of the root path, its first 16 hex: what `accio stats` names as the index of Branch Deck's checkout
-  assert_eq!(
-    crate::accio::index_dir("/Users/develar/projects/branch-deck"),
-    Some(std::path::PathBuf::from("/tmp/accio-home/551c076cbbdc6d5b"))
-  );
-}
-
 /// The params of the name at the start of the first line of `Uses.kt`, the only file of the review of `commit`
 pub(crate) fn single_file_params(repo: &TestRepo, files: &[DiffFile], commit: &str) -> FindDeclarationParams {
   let file = &files[0];

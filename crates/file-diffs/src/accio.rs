@@ -2,10 +2,10 @@
 //! the files of a review lack (spec/commit/symbol-navigation.spec.md): `accio symbol <Name|Owner.name>` and
 //! `accio references <name>`, with `--ref <revision>`, answer from the tree of a revision without a checkout.
 //!
-//! - **Never an index build**: a query in a repository without an index builds one (up to 90 s), so the index is
-//!   looked for first, without a process: accio keeps it in `<home>/<the first 16 hex of the blob id of the root path>`
-//!   (`index_dir` of its `index.rs`), `home` being `ACCIO_HOME`, `$XDG_CACHE_HOME/accio`, `%LOCALAPPDATA%\accio` on
-//!   Windows, else `~/.cache/accio`. A changed layout reads as no index: the review then looks only at its files.
+//! - **Never an index build**: every query runs with `--no-build`, so accio neither builds, waits for nor refreshes
+//!   an index; without a usable index of the checkout it answers `available: false` with the reason in `note` ("no
+//!   index of this repository", "accio is building the index of this repository", …), which the lookup answers as no
+//!   index (`IndexUnavailable`): the review then looks only at its files, and the plan says why.
 //! - **No deadline, a cancel**: one process per lookup, a null stdin, waited for as long as it runs: a warm query of the
 //!   IntelliJ monorepo takes 0.03–0.4 s, one at a revision far from the commit of its index reads the changed files
 //!   first (2.8 s for 535 of them), and a loaded machine stretches either, so a fixed bound failed answers the user
@@ -16,7 +16,6 @@
 //!   and Homebrew's directories.
 
 use anyhow::{Context, Result, bail};
-use git_ops::commit_utils::blob_id;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -74,6 +73,19 @@ pub trait SymbolIndex: Send + Sync {
   /// The whole-word usages of `name` in the tree of `revision`; `None` when the repository has no index
   fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>>;
 }
+
+/// accio has no usable index of the repository (`--no-build` answered `available: false`): why, as accio words it. A
+/// lookup through `Lenient` answers it as no index, and keeps the reason
+#[derive(Debug)]
+pub struct IndexUnavailable(pub String);
+
+impl std::fmt::Display for IndexUnavailable {
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    formatter.write_str(&self.0)
+  }
+}
+
+impl std::error::Error for IndexUnavailable {}
 
 /// The lookup was canceled (a newer navigation of the window, Escape, Cancel) and its query killed: it answers nothing
 #[derive(Debug)]
@@ -140,41 +152,17 @@ fn find_accio(home: Option<&Path>, path: Option<&std::ffi::OsStr>) -> Option<Pat
     .find(|candidate| candidate.is_file())
 }
 
-/// Where accio keeps the index of `root`, the absolute path of a repository
-pub fn index_dir(root: &str) -> Option<PathBuf> {
-  let home = std::env::var_os("ACCIO_HOME")
-    .map(PathBuf::from)
-    .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(|it| PathBuf::from(it).join("accio")))
-    .or_else(|| {
-      if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(|it| PathBuf::from(it).join("accio"))
-      } else {
-        None
-      }
-    })
-    .or_else(|| {
-      std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(|it| PathBuf::from(it).join(".cache/accio"))
-    })?;
-  // the SHA-1 blob id of the path's bytes, as `git::blob_oid` of accio
-  let key = blob_id(&"0".repeat(40), root.as_bytes());
-  Some(home.join(&key[..16]))
-}
-
 #[derive(Deserialize)]
 struct Answer {
   hits: Vec<SymbolHit>,
 }
 
 impl AccioSearch<'_> {
-  /// The JSON answer of `accio <command> … -- <query>` at `revision`; `None` without an index of the repository
-  fn query<T: serde::de::DeserializeOwned>(&self, command_name: &str, limit: &str, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<T>> {
-    if !index_dir(repository_root).is_some_and(|dir| dir.join("meta.json").is_file()) {
-      return Ok(None);
-    }
+  /// The JSON answer of `accio <command> --no-build … -- <query>` at `revision`; `IndexUnavailable` when accio has no
+  /// usable index of the repository
+  fn query<T: serde::de::DeserializeOwned>(&self, command_name: &str, limit: &str, repository_root: &str, query: &str, revision: Option<&str>) -> Result<T> {
     let mut command = windowless_command(&self.accio.executable);
-    command.args([command_name, "--format", "json", "--limit", limit, "--project", repository_root]);
+    command.args([command_name, "--no-build", "--format", "json", "--limit", limit, "--project", repository_root]);
     if let Some(revision) = revision {
       command.args(["--ref", revision]);
     }
@@ -186,26 +174,33 @@ impl AccioSearch<'_> {
     if !output.status.success() {
       bail!("{}", output.failure_message("accio"));
     }
-    serde_json::from_slice(&output.stdout).context("the answer of accio").map(Some)
+    let answer: serde_json::Value = serde_json::from_slice(&output.stdout).context("the answer of accio")?;
+    if answer.get("available").and_then(serde_json::Value::as_bool) == Some(false) {
+      let note = answer.get("note").and_then(serde_json::Value::as_str).unwrap_or("accio has no index of this repository");
+      return Err(IndexUnavailable(note.to_string()).into());
+    }
+    serde_json::from_value(answer).context("the answer of accio")
   }
 }
 
 impl SymbolIndex for AccioSearch<'_> {
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>> {
-    Ok(self.query::<Answer>("symbol", LIMIT, repository_root, query, revision)?.map(|answer| answer.hits))
+    Ok(Some(self.query::<Answer>("symbol", LIMIT, repository_root, query, revision)?.hits))
   }
 
   fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>> {
-    self.query("references", REFERENCES_LIMIT, repository_root, name, revision)
+    self.query("references", REFERENCES_LIMIT, repository_root, name, revision).map(Some)
   }
 }
 
 /// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
-/// only a canceled one fails the lookup (`SearchCanceled`), which then answers nothing at all. Shared by the threads of
-/// parallel queries (the fan-in of `review-plan`)
+/// an index accio cannot use answers as none, its reason kept apart (`IndexUnavailable`); only a canceled one fails the
+/// lookup (`SearchCanceled`), which then answers nothing at all. Shared by the threads of parallel queries (the fan-in
+/// of `review-plan`)
 pub struct Lenient<'a> {
   index: &'a dyn SymbolIndex,
   error: std::sync::Mutex<Option<String>>,
+  unavailable: std::sync::Mutex<Option<String>>,
 }
 
 impl<'a> Lenient<'a> {
@@ -213,6 +208,7 @@ impl<'a> Lenient<'a> {
     Self {
       index,
       error: std::sync::Mutex::default(),
+      unavailable: std::sync::Mutex::default(),
     }
   }
 
@@ -230,6 +226,11 @@ impl<'a> Lenient<'a> {
     self.answered(self.index.references(repository_root, name, revision))
   }
 
+  /// Why accio has no usable index of the repository, as accio words it: none while no query was told so
+  pub fn unavailable(&self) -> Option<String> {
+    self.unavailable.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+  }
+
   /// Why the index did not answer, as the review says it: none when it answered every query
   pub fn error(self) -> Option<String> {
     self
@@ -242,6 +243,14 @@ impl<'a> Lenient<'a> {
   fn answered<T>(&self, result: Result<Option<T>>) -> Result<Option<T>> {
     match result {
       Err(error) if error.is::<SearchCanceled>() => Err(error),
+      Err(error) if error.is::<IndexUnavailable>() => {
+        self
+          .unavailable
+          .lock()
+          .unwrap_or_else(std::sync::PoisonError::into_inner)
+          .get_or_insert_with(|| error.to_string());
+        Ok(None)
+      }
       Err(error) => {
         tracing::warn!(error = %format!("{error:#}"), "the index of the repository did not answer");
         self

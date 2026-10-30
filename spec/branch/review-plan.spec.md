@@ -243,9 +243,12 @@ the repeated edits and the new API.
   `usages` last; then removals, changes and additions, then by file and line.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_usages_left_outside`, `the_usages_split_into_those_inside_the_change_and_those_left_outside`)
   [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_at_the_head_rank_the_card`)
-- Without accio, or without its index of the repository, the `usages` must be `null` and `index_note` must say why
-  ("accio is not installed", "accio has no index of this repository"); a plan never builds an index.
+- Without accio, or without a usable index of the repository, the `usages` must be `null` and `index_note` must say
+  why: "accio is not installed", else the reason accio gives ("no index of this repository", "accio is building the
+  index of this repository", "the index was written by another version of accio"). A plan never builds, waits for or
+  refreshes an index: every query runs with `--no-build`.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`without_an_index_the_usages_are_missing_and_the_note_says_why`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`an_index_accio_cannot_use_answers_no_index_with_its_reason`)
 - A failing query must fail no plan: the others keep their answers and `index_note` gives the failure; only a
   cancel of the caller (a newer request of the window) cancels the plan.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_failing_index_keeps_the_api`, `a_canceled_query_cancels_the_plan`)
@@ -571,7 +574,7 @@ the repeated edits and the new API.
   parameters 3 uses left outside`, under it `− fun helper(value:Int)`, `+ fun helper(value:Int, scale:Int)` and
   "src/Base.kt:1 · src/Uses.kt:4 · src/main/App.kt:9"; without an index "The uses are unknown"; "1 API change, every
   use updated in this change"; under Dependencies `b src/b/b.iml` "New module b" and "New links between modules
-  Reader.kt → Cache.kt"; collapsed "Repeated Edits 1" and "New API 2"; "No usages: accio has no index of this
+  Reader.kt → Cache.kt"; collapsed "Repeated Edits 1" and "New API 2"; "No usages: no index of this
   repository"; "Cannot read the review plan: …".
 - The tree, flag on: `Reader.kt` `uses 1 +1 new` `same edit ×3` `no test`; its popover "Uses: Cache.kt Added, Cache,
   get · Reader.kt:3"; `Store.kt` `breaks 2`, or `breaks 2+` and `breaks ?` for a lower bound; the directory `b`
@@ -613,8 +616,6 @@ the repeated edits and the new API.
   (JetBrains/accio#71). A changed parameter list of an open member can therefore read as "every use updated".
 - accio keeps a call of `Owner.member` whose receiver it cannot type and does not tell it from a typed one
   (JetBrains/accio#72); the owner check of `STOP_NAMES` stays until it does.
-- The plan tells "no index" by the layout of accio's index on disk, as no query of accio answers without building
-  one (JetBrains/accio#73).
 - A member of `STOP_NAMES` counts only the lines that name its owner: `store.close()` through a variable is missed.
 - A usage is inside when its file is changed, not when its line is: a use in a changed file that the change left as
   it was counts as updated. With `--since-reviewed`, a use that an earlier reviewed commit of the branch updated

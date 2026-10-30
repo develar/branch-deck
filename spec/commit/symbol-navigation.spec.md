@@ -98,9 +98,10 @@ outside it.
   changes), `Owner.name` first when the owner is known; only declarations of the language family and of the kind of
   the name (a call: a function, a constructor or a type; a type: a type), ranked by the imports of the file, the
   owner, then the top directory. A declaration in a file of the review is shown there. One `cat-file --batch-check` names the blobs of the
-  other files and one `cat-file --batch` reads them; nothing runs when accio is missing or has no index of the
-  repository, never an index build.
-  [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`, `knows_where_accio_keeps_the_index_of_a_repository`)
+  other files and one `cat-file --batch` reads them; nothing runs when accio is missing, and without a usable index of
+  the repository accio answers at once (`--no-build`): never an index build, a wait for one or a refresh.
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`an_index_accio_cannot_use_answers_no_index_with_its_reason`)
 - A declaration outside the review must open its whole file over the review: its path, "at <commit>, outside the
   review" ("the working tree, outside the review" for uncommitted changes), coloured as the diffs, its name selected,
   and Go to Declaration in it as in the review (a declaration of the review closes the file and shows it there).

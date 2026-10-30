@@ -1,24 +1,18 @@
 //! The accio process of a lookup: waited for as long as it runs, killed once the navigation is canceled
 
-use crate::accio::{AccioCli, SearchCanceled, SymbolHit, SymbolIndex, index_dir};
+use crate::accio::{AccioCli, Lenient, SearchCanceled, SymbolHit, SymbolIndex};
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use test_log::test;
-use test_utils::env_vars::EnvVars;
 use test_utils::fake_executable::{fake_executable, shell_path};
 
 const ROOT: &str = "/work/repository";
 
-/// An index of `ROOT` in `home`, as `query` looks for it before it starts accio; and a fake accio that touches
-/// `started` and then runs `then`
-fn indexed_accio(home: &Path, started: &Path, then: &str) -> AccioCli {
-  let index = index_dir(ROOT).unwrap();
-  assert!(index.starts_with(home), "{} is outside the home of the test", index.display());
-  std::fs::create_dir_all(&index).unwrap();
-  std::fs::write(index.join("meta.json"), "{}").unwrap();
-  AccioCli::at(fake_executable(home, "accio", &format!(": > {}\n{then}", shell_path(started))))
+/// A fake accio in `dir` that touches `started` and then runs `then`
+fn fake_accio(dir: &Path, started: &Path, then: &str) -> AccioCli {
+  AccioCli::at(fake_executable(dir, "accio", &format!(": > {}\n{then}", shell_path(started))))
 }
 
 /// Waits until accio touched `started`: the query runs
@@ -31,11 +25,10 @@ fn wait_for(started: &Path) {
 #[test]
 fn waits_for_a_slow_index_as_long_as_it_runs() {
   let dir = tempfile::tempdir().unwrap();
-  let _env = EnvVars::set(&[("ACCIO_HOME", dir.path())]);
   let (started, go) = (dir.path().join("started"), dir.path().join("go"));
   // accio answers only once the test lets it, as one on a loaded machine: no deadline cuts the query meanwhile
   let answer = r#"{"hits":[{"file":"src/Base.kt","line":1,"kind":"function","name":"outsider"}]}"#;
-  let accio = indexed_accio(
+  let accio = fake_accio(
     dir.path(),
     &started,
     &format!("while [ ! -e {} ]; do sleep 0.05; done\nprintf '%s' '{answer}'", shell_path(&go)),
@@ -64,9 +57,8 @@ fn waits_for_a_slow_index_as_long_as_it_runs() {
 #[test]
 fn a_canceled_search_kills_its_query() {
   let dir = tempfile::tempdir().unwrap();
-  let _env = EnvVars::set(&[("ACCIO_HOME", dir.path())]);
   let started = dir.path().join("started");
-  let accio = indexed_accio(dir.path(), &started, "exec sleep 600");
+  let accio = fake_accio(dir.path(), &started, "exec sleep 600");
   let flag = AtomicBool::new(false);
   let canceled = || flag.load(Ordering::SeqCst);
   let search = accio.search(&canceled);
@@ -85,4 +77,24 @@ fn a_canceled_search_kills_its_query() {
   assert!(error.is::<SearchCanceled>(), "{error:#}");
   // killed within the poll interval, not after the 600 s of its sleep
   assert!(waited < Duration::from_secs(60), "{waited:?}");
+}
+
+/// Every query runs with `--no-build`; accio without a usable index answers `available: false`, which the lookup answers
+/// as no index, its reason kept for the plan, never as a failure
+#[test]
+fn an_index_accio_cannot_use_answers_no_index_with_its_reason() {
+  let dir = tempfile::tempdir().unwrap();
+  let started = dir.path().join("started");
+  let unavailable = r#"{"available":false,"note":"accio is building the index of this repository","target":"helper"}"#;
+  let accio = fake_accio(
+    dir.path(),
+    &started,
+    &format!("[ \"$2\" = --no-build ] || {{ echo \"no --no-build: $*\" >&2; exit 2; }}\nprintf '%s' '{unavailable}'"),
+  );
+  let canceled = || false;
+  let search = accio.search(&canceled);
+  let lenient = Lenient::new(&search);
+  assert_eq!(lenient.indexed_references(ROOT, "helper", Some("HEAD")).unwrap(), None);
+  assert_eq!(lenient.unavailable().as_deref(), Some("accio is building the index of this repository"));
+  assert_eq!(lenient.error(), None);
 }
