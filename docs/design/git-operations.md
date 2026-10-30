@@ -452,11 +452,13 @@ unapply, the reapply, their undo, the finish of a resolve session) and for `Inde
    that refused for its own reasons held the lock itself and released it, so a lock that exists now is younger and the
    step's error stands. A blocked step wrote nothing: git takes the lock before it writes (`update-index --refresh` without stat data to write needs no lock and passes,
    which is why step 1 looks at the file itself).
-3. **An ownerless lock is removed.** Every 2 s of a wait, bd asks who owns it: a process that has it open (`lsof` on
-   macOS, `/proc/*/fd` on Linux), or a git in the worktree that started before the lock appeared (a `git commit`
-   closes its lock while a hook runs). Two answers "nobody", 2 s apart, for the same file (device, inode, mtime) remove
-   it; its identity is read again right before the unlink, so the race left is microseconds after a lock that stood
-   ownerless for 2 s. A lock bd can't judge (no `lsof`, Windows) stays.
+3. **An ownerless lock is removed.** Every 2 s of a wait, bd asks who owns it: a process that has it open (the file
+   descriptors of each process, through libproc in bd's own process on macOS, `/proc/*/fd` on Linux; no spawned `lsof`,
+   which took longer than its limit of 10 s on a loaded machine and so named nobody), or a git in the worktree that
+   started before the lock appeared (a `git commit` closes its lock while a hook runs). Two answers "nobody", 2 s
+   apart, for the same file (device, inode, mtime) remove it; its identity is read again right before the unlink, so the
+   race left is microseconds after a lock that stood ownerless for 2 s. A lock bd can't judge (a sandbox that hides the
+   processes, Windows) stays.
 4. **After 30 s** (`INDEX_LOCK_WAIT`, per write) the answer is `IndexLocked` with the file, its age and the processes
    that may own it: `locked` (retryable) with `processes` in bd. A move that gives up after the branch moved moves it
    back first, so nothing was changed; a follow that gives up is `followed: blocked`, the target picked. A rewrite has

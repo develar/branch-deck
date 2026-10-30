@@ -53,6 +53,38 @@ fn a_process_runs_only_with_the_start_time_it_was_recorded_with() {
   assert!(!is_running(pid, None));
 }
 
+/// The holders of a file are the processes with a descriptor of it, each once: this process with two, a child that
+/// opened it itself (its descriptors are not inherited); nobody once they closed it; no answer for a file that is gone
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn the_holders_of_a_file_are_the_processes_with_a_descriptor_of_it_each_once() {
+  use crate::process_scan::processes_with_open_file;
+  let dir = tempfile::tempdir().unwrap();
+  let (path, opened) = (dir.path().join("index.lock"), dir.path().join("opened"));
+  let written = std::fs::File::create(&path).unwrap();
+  let read = std::fs::File::open(&path).unwrap();
+  let mut child = std::process::Command::new("sh")
+    .args(["-c", "exec 3<\"$1\"; : > \"$2\"; exec sleep 60", "sh"])
+    .args([&path, &opened])
+    .spawn()
+    .unwrap();
+  // the child marks that it holds the file
+  while !opened.exists() {
+    std::thread::sleep(std::time::Duration::from_millis(10));
+  }
+  let mut holders = processes_with_open_file(&path).unwrap();
+  holders.sort_unstable();
+  child.kill().unwrap();
+  child.wait().unwrap();
+  let mut expected = vec![std::process::id(), child.id()];
+  expected.sort_unstable();
+  assert_eq!(holders, expected);
+  drop((written, read));
+  assert_eq!(processes_with_open_file(&path), Some(Vec::new()));
+  std::fs::remove_file(&path).unwrap();
+  assert_eq!(processes_with_open_file(&path), None);
+}
+
 /// `KERN_PROCARGS2`: argc, the executable path with its padding, the arguments, then the environment, which is left out
 #[cfg(target_os = "macos")]
 #[test]

@@ -61,12 +61,21 @@ fn the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_th
     commit,
     target: PackTarget::Run("2-1".to_owned()),
   });
-  let building = Instant::now();
-  while building.elapsed() < stall + Duration::from_millis(1000) {
+  // an empty chunk every 100 ms until the run waited past the stall time: it says that it waits after a second of its
+  // wait, and the chunks go on for the stall time after that, whenever a loaded agent started the wait
+  let mut keepalive = || {
     channel.send_keepalive().expect("an empty chunk");
     thread::sleep(Duration::from_millis(100));
+  };
+  let building = Instant::now();
+  while !events(&world, "2-1").contains("waiting for the pack") {
+    assert!(building.elapsed() < Duration::from_mins(1), "the run never waited: {}", agent.dump("2-1"));
+    keepalive();
   }
-  assert!(events(&world, "2-1").contains("waiting for the pack"), "the run still waits: {}", agent.dump("2-1"));
+  let said = Instant::now();
+  while said.elapsed() < stall {
+    keepalive();
+  }
   channel.send_stream(&mut &pack[..], &mut |_| {}).expect("the pack");
   let packed = loop {
     match channel.recv::<Reply>().expect("the reply") {
@@ -81,7 +90,7 @@ fn the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_th
   let waited = followed.phases.iter().find(|phase| phase.name == "pack_wait").map_or(0, |phase| phase.ms);
   assert!(u128::from(waited) >= stall.as_millis(), "the wait outlived the stall time: {followed:?}");
 
-  let started = Instant::now();
+  // the deadline is 30 min: the stall, not the deadline, ended it
   agent.start(RunSpec {
     commit: missing_commit(),
     ..world.spec("2-2", "true")
@@ -91,7 +100,6 @@ fn the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_th
     matches!(&stalled.end, Reply::Refused { code, message } if code == "pack_missing" && message.contains("sent no chunk for 3 s, so its client is gone")),
     "{stalled:?}"
   );
-  assert!(started.elapsed() < Duration::from_secs(20), "{:?}", started.elapsed());
 }
 
 /// A pack that comes after the end of its run lands its objects and its ref, and marks no run: the keeper deletes a

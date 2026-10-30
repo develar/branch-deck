@@ -283,8 +283,9 @@ pub fn process_started(pid: u32) -> Option<u64> {
   platform::started(pid)
 }
 
-/// The pids of the processes that have the file `path` open: `lsof` on macOS, the `fd` links of `/proc` on Linux (the
-/// processes of this user); `None` when that can't be told (no `lsof`, its failure, another platform)
+/// The pids of the processes that have the file `path` open, each once: the file descriptors of each process through
+/// libproc on macOS, the `fd` links of `/proc` on Linux (the processes of this user); `None` when that can't be told
+/// (the file is gone, a sandbox, another platform)
 pub fn processes_with_open_file(path: &Path) -> Option<Vec<u32>> {
   scan::processes_with_open_file(path)
 }
@@ -426,15 +427,102 @@ mod platform {
     std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_micros(started))
   }
 
-  /// `lsof -t -w -- <path>`: the pids on exit 0; exit 1 without a message is no process
+  /// `struct proc_fileinfo` of `sys/proc_info.h`, which libc lacks
+  #[repr(C)]
+  struct FileInfo {
+    open_flags: u32,
+    status: u32,
+    offset: libc::off_t,
+    kind: i32,
+    guard_flags: u32,
+  }
+
+  /// `struct vnode_fdinfo` of `sys/proc_info.h`: the file of a descriptor and its vnode
+  #[repr(C)]
+  struct VnodeFdInfo {
+    file: FileInfo,
+    vnode: libc::vnode_info,
+  }
+
+  /// `PROC_PIDFDVNODEINFO` of `sys/proc_info.h`: the flavor of `proc_pidfdinfo` that answers a `VnodeFdInfo`
+  const PROC_PIDFDVNODEINFO: c_int = 1;
+
+  /// The processes with a descriptor of the file at `path` (its device and inode): one libproc read per process and
+  /// per vnode descriptor, in this process (35 ms for 1000 processes; a spawned `lsof` took 160 ms, and on a loaded
+  /// machine more than its limit of 10 s). A process of another user, or one that exited meanwhile, tells nothing and
+  /// is left out, as the `/proc` of Linux leaves it out. `None` when the file is gone, this process may read no process
+  /// info (a sandbox), or the kernel describes a vnode in a larger struct than this build knows: "nobody" would be a
+  /// guess then, and the index lock removes a lock that nobody has open
   pub(super) fn processes_with_open_file(path: &std::path::Path) -> Option<Vec<u32>> {
-    let mut command = crate::child_process::windowless_command("/usr/sbin/lsof");
-    command.args(["-t", "-w", "--"]).arg(path);
-    let output = crate::child_process::run_child(&mut command, None, std::time::Duration::from_secs(10), &|| false).ok()?;
-    match output.status.code() {
-      Some(0) => Some(String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.trim().parse().ok()).collect()),
-      Some(1) if output.stdout.is_empty() && output.stderr.is_empty() => Some(Vec::new()),
-      _ => None,
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::metadata(path).ok()?;
+    if super::process_info_denied() {
+      return None;
+    }
+    let mut holders = Vec::new();
+    for pid in pids()? {
+      for fd in vnode_fds(pid) {
+        match vnode_of(pid, fd) {
+          Vnode::Of(vnode) if u64::from(vnode.vi_stat.vst_dev) == metadata.dev() && vnode.vi_stat.vst_ino == metadata.ino() => {
+            holders.push(pid);
+            break;
+          }
+          Vnode::Of(_) | Vnode::Gone => {}
+          Vnode::Unknown => return None,
+        }
+      }
+    }
+    Some(holders)
+  }
+
+  /// The descriptors of `pid` that are vnodes (files, directories); none when they can't be read
+  fn vnode_fds(pid: u32) -> Vec<c_int> {
+    let Ok(pid) = c_int::try_from(pid) else { return Vec::new() };
+    // SAFETY: a null buffer of size 0 asks only for the size of the list
+    let size = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
+    let Ok(size) = usize::try_from(size) else { return Vec::new() };
+    // room for the descriptors opened since the size
+    let mut fds: Vec<libc::proc_fdinfo> = Vec::with_capacity(size / size_of::<libc::proc_fdinfo>() + 16);
+    let Ok(capacity) = c_int::try_from(fds.capacity() * size_of::<libc::proc_fdinfo>()) else {
+      return Vec::new();
+    };
+    // SAFETY: the buffer has room for `capacity` bytes, which the call writes at most; it returns how many it wrote
+    let written = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), capacity) };
+    let Ok(written) = usize::try_from(written) else { return Vec::new() };
+    // SAFETY: the call wrote `written` bytes of whole `proc_fdinfo` structs, plain integers, within the capacity
+    unsafe { fds.set_len((written / size_of::<libc::proc_fdinfo>()).min(fds.capacity())) };
+    fds
+      .into_iter()
+      .filter(|fd| c_int::try_from(fd.proc_fdtype) == Ok(libc::PROX_FDTYPE_VNODE))
+      .map(|fd| fd.proc_fd)
+      .collect()
+  }
+
+  /// What `proc_pidfdinfo` tells of a vnode descriptor
+  enum Vnode {
+    Of(libc::vnode_info),
+    /// The descriptor closed, or the process exited, meanwhile
+    Gone,
+    /// The kernel describes a vnode in a larger struct than this build knows (`ENOMEM`, or a size of its own)
+    Unknown,
+  }
+
+  /// The vnode of the descriptor `fd` of `pid`
+  fn vnode_of(pid: u32, fd: c_int) -> Vnode {
+    let (Ok(pid), Ok(size)) = (c_int::try_from(pid), c_int::try_from(size_of::<VnodeFdInfo>())) else {
+      return Vnode::Gone;
+    };
+    let mut info = MaybeUninit::<VnodeFdInfo>::zeroed();
+    // SAFETY: the buffer is a `VnodeFdInfo` of `size` bytes, which the call writes at most
+    let written = unsafe { libc::proc_pidfdinfo(pid, fd, PROC_PIDFDVNODEINFO, info.as_mut_ptr().cast(), size) };
+    if written == size {
+      // SAFETY: the call filled all of it, and every bit pattern is valid for these plain C structs
+      return Vnode::Of(unsafe { info.assume_init() }.vnode);
+    }
+    if written > 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOMEM) {
+      Vnode::Unknown
+    } else {
+      Vnode::Gone
     }
   }
 

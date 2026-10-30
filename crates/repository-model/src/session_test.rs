@@ -74,6 +74,9 @@ struct ScriptedHost {
   inputs: Mutex<Option<SyncInputs>>,
   runs: Mutex<u32>,
   checks: Mutex<u32>,
+  /// How long a read of the inputs takes to answer after it read and counted them, as a blocking thread that a loaded
+  /// machine preempts: a wait for the count alone goes on before the check answered
+  late_answer: Mutex<Duration>,
   /// The reporter of every run, which a test may keep using after its run ended
   reporters: Mutex<Vec<RunReporter>>,
   /// When each event of the runs was sent, on the runtime's clock
@@ -186,8 +189,10 @@ impl ScriptedHost {
 
 impl SessionHost for ScriptedHost {
   fn inputs(&self, _key: &SessionKey) -> Option<SyncInputs> {
+    let inputs = self.inputs.lock().unwrap().clone();
     *self.checks.lock().unwrap() += 1;
-    self.inputs.lock().unwrap().clone()
+    std::thread::sleep(*self.late_answer.lock().unwrap());
+    inputs
   }
 
   fn run(&self, _key: &SessionKey, reporter: RunReporter) -> SyncRun {
@@ -1503,9 +1508,14 @@ async fn patronus_when(sessions: &Sessions, key: &SessionKey, done: impl Fn(&Pat
   view_when(sessions, key, |view| done(&view.patronus)).await.patronus
 }
 
+/// How long a poll of the tests waits for its state: a limit no run reaches, so a loaded machine fails no test by it (the
+/// count of 2000 polls of 5 ms before ran out in a run at load 43)
+const UNHURRIED: Duration = Duration::from_mins(1);
+
 /// The view of the session of `key` once `done` holds of it
 async fn view_when(sessions: &Sessions, key: &SessionKey, done: impl Fn(&RepositoryView) -> bool) -> RepositoryView {
-  for _ in 0..2000 {
+  let started = std::time::Instant::now();
+  while started.elapsed() < UNHURRIED {
     let view = snapshot(sessions, key).await;
     if done(&view) {
       return view;
@@ -1517,13 +1527,11 @@ async fn view_when(sessions: &Sessions, key: &SessionKey, done: impl Fn(&Reposit
 
 /// Waits until `done` holds of what a host counted
 async fn counted(done: impl Fn() -> bool) {
-  for _ in 0..2000 {
-    if done() {
-      return;
-    }
+  let started = std::time::Instant::now();
+  while !done() {
+    assert!(started.elapsed() < UNHURRIED, "the host never counted it");
     tokio::time::sleep(Duration::from_millis(5)).await;
   }
-  panic!("the host never counted it");
 }
 
 /// Patronus answered the session of `key` with `robots`, a full list
@@ -1790,6 +1798,8 @@ async fn a_page_that_reloads_as_the_first_sync_commits_catches_up_from_the_seed_
 async fn a_window_that_watches_a_kept_session_anew_syncs_it_when_the_inputs_changed() {
   let host = Arc::new(ScriptedHost::default());
   host.set_inputs(1);
+  // the checks answer after the test saw their count: what a run at load 43 did
+  *host.late_answer.lock().unwrap() = Duration::from_millis(50);
   host.push(auth_built(), Ok(report(false, &[])));
   host.push(auth_built(), Ok(report(false, &[])));
   let (sessions, _clock) = scripted(&host);
@@ -1803,10 +1813,11 @@ async fn a_window_that_watches_a_kept_session_anew_syncs_it_when_the_inputs_chan
   let checks = *host.checks.lock().unwrap();
   sessions.unsubscribe(id);
 
-  // back with nothing changed: the inputs read once, no run
+  // back with nothing changed: the inputs read once, no run. The open of the window ends with the answer of its check
+  // (an open joins the check in flight, and the view shows none): the next one checks on its own, after a commit
   let (id, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
   counted(|| *host.checks.lock().unwrap() == checks + 1).await;
-  view_when(&sessions, &key, |view| view.sync == SyncState::Idle).await;
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Open)).await, Ok(SyncOutcome::Unchanged));
   assert_eq!(host.runs(), 1);
   sessions.unsubscribe(id);
 

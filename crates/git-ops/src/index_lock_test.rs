@@ -3,11 +3,15 @@ use crate::rewrite_guard::IndexUpdate;
 use anyhow::{Result, bail};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
 use test_log::test;
+use test_utils::captured_log::CapturedLog;
 use test_utils::git_test_utils::TestRepo;
+
+/// The wait of a test that its state ends: a limit no run reaches, which a loaded machine never turns into another answer
+/// (a git under load takes seconds, a scan of the owners as long)
+const UNHURRIED: Duration = Duration::from_mins(2);
 
 fn lock_path(repo: &TestRepo) -> PathBuf {
   repo.path().join(".git").join("index.lock")
@@ -38,27 +42,33 @@ fn repo_with_a_commit() -> TestRepo {
   repo
 }
 
-#[test]
+/// The plain test attribute: the subscriber of `CapturedLog` is the one of the process
+#[::core::prelude::v1::test]
 fn a_step_blocked_by_the_lock_of_another_process_runs_again_once_the_lock_is_gone() {
+  let log = CapturedLog::install(false);
   let repo = repo_with_a_commit();
   let path = lock_path(&repo);
-  std::fs::write(&path, "").unwrap();
-  let runs = Arc::new(AtomicU32::new(0));
-  // the other process lets go of the lock once the first run was refused
-  let remover = {
-    let (path, runs) = (path, Arc::clone(&runs));
+  // open, so the wait never takes it for a lock that no process owns, however late its holder lets go
+  let held = std::fs::File::create(&path).unwrap();
+  let runs = AtomicU32::new(0);
+  // the other process lets go of the lock once the wait started: before it, the refused step would find no lock and
+  // stand as refused. The wait tells no one but its log, after it looked at the lock
+  let lock = IndexLock::at(repo.git_executor(), repo.path_str(), &repo.path().join(".git").display().to_string());
+  let holder = {
+    let path = path.clone();
     std::thread::spawn(move || {
-      while runs.load(Ordering::SeqCst) == 0 {
+      while !log.text().contains("the index lock of another process blocked a step: it waits") {
         std::thread::sleep(Duration::from_millis(10));
       }
+      // closed first: Windows keeps the name of a removed file while it is open
+      drop(held);
       std::fs::remove_file(path).unwrap();
     })
   };
-  // owners are asked every 2 s: the thread removes the lock long before a removal of an ownerless one
-  let lock = IndexLock::at(repo.git_executor(), repo.path_str(), &repo.path().join(".git").display().to_string());
-  lock.retry(Duration::from_secs(20), || refresh(&repo, &runs)).unwrap();
-  remover.join().unwrap();
+  lock.retry(UNHURRIED, || refresh(&repo, &runs)).unwrap();
+  holder.join().unwrap();
   assert_eq!(runs.load(Ordering::SeqCst), 2);
+  assert!(!path.exists());
 }
 
 #[test]
@@ -87,7 +97,9 @@ fn a_lock_that_no_process_owns_is_removed_and_the_step_runs_again() {
   // what a git killed by SIGKILL leaves: an empty lock that nobody has open
   std::fs::write(&path, "").unwrap();
   let runs = AtomicU32::new(0);
-  let result = lock_of(&repo).retry(Duration::from_secs(3), || refresh(&repo, &runs));
+  // Windows ends at the limit: a short one there
+  let wait = if cfg!(windows) { Duration::from_secs(1) } else { UNHURRIED };
+  let result = lock_of(&repo).retry(wait, || refresh(&repo, &runs));
   if cfg!(windows) {
     // no owner check: the lock stays and the answer is `IndexLocked`, without a process to name
     let error = result.unwrap_err();
@@ -106,9 +118,9 @@ fn a_lock_that_no_process_owns_is_removed_and_the_step_runs_again() {
 fn a_lock_that_a_process_has_open_stays_and_the_answer_names_the_process() {
   let repo = repo_with_a_commit();
   let path = lock_path(&repo);
-  // a git in the middle of its write: the file is open
+  // a git in the middle of its write: the file is open, longer than any run, until the test kills it
   let mut holder = std::process::Command::new("sh")
-    .args(["-c", "exec 3>\"$1\"; exec sleep 30", "sh"])
+    .args(["-c", "exec 3>\"$1\"; exec sleep 600", "sh"])
     .arg(&path)
     .spawn()
     .unwrap();
@@ -116,13 +128,14 @@ fn a_lock_that_a_process_has_open_stays_and_the_answer_names_the_process() {
     std::thread::sleep(Duration::from_millis(10));
   }
   let runs = AtomicU32::new(0);
+  // the answer at the end of the wait, however long the step and the scans of the owners took
   let result = lock_of(&repo).retry(Duration::from_secs(1), || refresh(&repo, &runs));
   holder.kill().unwrap();
   holder.wait().unwrap();
   let error = result.unwrap_err();
   let locked = error.downcast_ref::<IndexLocked>().unwrap_or_else(|| panic!("not locked: {error:#}"));
   assert_eq!(locked.holders.iter().map(|holder| holder.pid).collect::<Vec<_>>(), [holder.id()]);
-  assert!(locked.holders[0].command.contains("sleep 30"), "{locked:?}");
+  assert!(locked.holders[0].command.contains("sleep 600"), "{locked:?}");
   assert!(format!("{error:#}").contains(&format!("({})", holder.id())), "{error:#}");
   assert_eq!(runs.load(Ordering::SeqCst), 1);
   assert!(path.exists(), "a held lock is never removed");
