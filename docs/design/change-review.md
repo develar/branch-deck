@@ -127,7 +127,8 @@ the review.
 | Units and the story of the diffs | Landed | 7658a56f7, 9734e000b, a75281f1d | every block in one unit; about 40% of the units are a change of a body alone, which no part showed before | a file of no parsed language (Markdown, JSON, TOML, Python) is one unit as a whole |
 | Concerns (untangling) | Landed: in the plan, `bd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 85.4 vs 84.7, Java 95.3 vs 89.9) and than `inspect`; build files and imports follow their concern; a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
 | The story: the brief and the steps | Landed in the plan and `bd` (schema 10), and in the window | 3b9fb5275, this change | a step per commit whose body tells it, the units that land by the commit of their lines, rounds and rewritten commits glued, mechanical parts with the commit that wrote them; every block in one stop on 38 real ranges; the brief quotes the rules of the specs with the tests their test links name | a follow-up by its lines joins 2 of 8 tasks of their own to the step that made their file; "unnamed" lists a helper a test reaches through an entry (JetBrains/accio#107) |
-| The window, round two: one mark per row | Landed | this change | up to four badges a row (links, `+1 new`, breaks, same edit) and a dependency badge became one mark, warning only when the file breaks uses left outside; its hover card lists Breaks, Uses, Used by, Same edit, Dependencies, a link selects its file; the description of the row keeps every fact | the card opens by the pointer only: the mark is no tab stop, a keyboard reaches the links in the diffs and the Review Summary |
+| The window, round two: one mark per row | Landed | b4b5babc0 | up to four badges a row (links, `+1 new`, breaks, same edit) and a dependency badge became one mark, warning only when the file breaks uses left outside; its hover card lists Breaks, Uses, Used by, Same edit, Dependencies, a link selects its file; the description of the row keeps every fact | the card opens by the pointer only: the mark is no tab stop, a keyboard reaches the links in the diffs and the Review Summary |
+| The window, round two: owner chips mark | Landed | this change | a chip hides no file: the files of other owners and the steps without the chosen owner's files are muted, a step with them says "Design 2", J/K and N/P move through the owner's sections only; a link of a mark selects a file of another owner without dropping the chip, so the reveal that undid the filter is gone (only the search keeps one); a chip at 0 mutes nothing and says so | the footer still counts every file ("File 3 / 12"), no count per owner |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`bd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -160,6 +161,12 @@ the review.
    the story for the eye. A row now shows at most one mark, its links, breaks, same edit and dependency changes in
    the card of its hover. Only what can break keeps a tone of its own (warning), so it still stands out at a glance;
    the rest is one hover away, and the description of the row says it all in words.
+9. **A filter cuts the story; a mark keeps it** (2026-10-31). An owner chip used to filter the tree and the diffs to
+   the owner's files. In a story ordered as "a declaration before its uses" and "every block in one stop", that cut
+   the owner's part out of its context: Design approved a stylesheet without the component that uses it, and a link
+   of a mark to a hidden file had to drop the filter first (a reveal of its own). A chip now marks: every file stays,
+   the others are muted, a step says how many of the owner's files it shows, and the keys skip the rest. Focus comes
+   from the keys and the weight of the rows, not from removing anything; the same holds with and without the plan.
 
 ## Review Rounds
 
@@ -197,12 +204,15 @@ The plan: [Review Plan → Measurements](../../spec/branch/review-plan.spec.md#m
   the names of its tests. A review that shows files and badges first throws it away.
 - A consequence belongs to its cause, not to the noise at the end: a generated file to its source, a new dependency to
   the code that needs it, an import to the declaration it brings in.
+- Mark a reviewer's part, never filter to it: a filter by owner or path cuts the declarations and the uses around the
+  part, and an approval of a part read without its context approves less than it seems. Mute the rest and let the
+  keys skip it.
 
 ## Next
 
-0. **The window, round two**: the owner chips mark the steps rather than hide files; the commit column and the steps,
-   one list; the uses and the users of a file in its hover, one mark per row; the windows of a commit and of a pull
-   request on the same layout ([Review Tour](../../spec/branch/review-tour.spec.md)).
+0. **The window, round two**: the commit column and the steps, one list, in the windows of a branch, a commit and a
+   pull request ([Review Tour](../../spec/branch/review-tour.spec.md)); one mark per row and the marks of an owner
+   chip have landed.
 1. **The author's tour** (`bd tour write`): the agent that wrote the change writes its decisions to approve and the
    places to look closely, by the ids of the units, gated by the plan (every unit in one chapter), kept by the
    fingerprints across a rebase; then "Write Tour" in the window by a model for a range without one.

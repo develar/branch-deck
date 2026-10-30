@@ -7,7 +7,7 @@ import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitRe
 import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
 import type { DiffViewFile } from "@/components/diff/DiffView"
 import { FileTree } from "@/components/files/FileTree"
-import type { FileTreeBadges } from "@/components/files/FileTree"
+import type { FileTreeBadges, FileTreeMarks } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
@@ -25,6 +25,7 @@ import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/l
 import {
   buildFileTree,
   buildReviewTree,
+  concernRowKey,
   dependencyRows,
   flattenTreeFiles,
   foldedGroups,
@@ -43,7 +44,7 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
-import { formatStepPosition, presentBrief, presentChapters } from "@/presenters/review-steps"
+import { formatStepPosition, presentBrief, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
 import type { BriefStep, Chapter } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
@@ -55,10 +56,20 @@ import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff
 // the highlight worker starts with the page of a review, beside the reads of its files and diffs, not after them
 getHighlightClient()
 
-/** The files a review shows (the filters of its sidebar applied) and all of them */
+/** The files a review shows (the search of its sidebar applied) and all of them */
 export interface FilesCount {
   readonly shown: number
   readonly total: number
+}
+
+/**
+ * The files of the chosen owner chip (spec/branch/branch-review.spec.md, "Code owners"): every file stays, the others are
+ * muted, J/K and N/P move through these only; empty (the owner has no files here) mutes nothing and steers nothing
+ */
+export interface OwnerMarks {
+  /** The name of the chip: "Design" */
+  readonly label: string
+  readonly paths: ReadonlySet<string>
 }
 
 export interface CommitReviewProps {
@@ -68,10 +79,8 @@ export interface CommitReviewProps {
   initialPath: string | null
   /** The selected file, for the footer ("File 3 / 12") and for a review that starts again at it */
   onPositionChange: (position: ReviewPosition) => void
-  /** Only these files (by the path or the old path of a rename); all files without it */
-  pathFilter?: ReadonlySet<string> | null
-  /** What an empty filter result says, e.g. "No files of Air Plugin in this range" */
-  filteredEmptyText?: string
+  /** The files of the chosen owner chip: marked in the whole story, the keys move through them; none without */
+  ownerMarks?: OwnerMarks | null
   /** The code owner of a file by its path, in the header of its diff */
   fileOwners?: ReadonlyMap<string, string>
   /** What the range is, in the error: "Cannot read the changes of the pull request" */
@@ -92,8 +101,6 @@ export interface CommitReviewProps {
    * the end of the tree; the plain tree without them
    */
   reviewFacts?: ReviewFacts | null
-  /** Drops `pathFilter`: a file the filter hides is shown when a link of a badge or of `codeTop` selects it */
-  onShowAllPaths?: () => void
 }
 
 /**
@@ -103,14 +110,13 @@ export interface CommitReviewProps {
  * The tree follows the diffs as they scroll, a file selected in the tree scrolls the diffs to it. J and K step through
  * the files, N and P through the blocks of changed lines. From `FILE_FILTER_MIN_FILES` files on the sidebar has a
  * search of the files ("/"): the tree and the diffs show the files with every word in their path, also of the next
- * commit (⌥↑/⌥↓), on top of `pathFilter`.
+ * commit (⌥↑/⌥↓). An owner chip (`ownerMarks`) hides no file: it mutes the others and steers the keys.
  */
 export function CommitReview({
   subject,
   initialPath,
   onPositionChange,
-  pathFilter = null,
-  filteredEmptyText,
+  ownerMarks = null,
   fileOwners,
   rangeNoun = "pull request",
   sidebarTop,
@@ -118,7 +124,6 @@ export function CommitReview({
   codeTop,
   neighbours,
   reviewFacts = null,
-  onShowAllPaths,
 }: CommitReviewProps) {
   const subjectId = diffSubjectId(subject)
   const commitFiles = useFilesOfCommit(subjectId)
@@ -126,21 +131,20 @@ export function CommitReview({
   const entry = useFileDiffs(subject, policy)
   const [filesFailed, setFilesFailed] = useState<string | null>(null)
   const [filterText, setFilterText] = useState("")
-  const filteredFiles = useMemo(() => (commitFiles === undefined ? undefined : filterFiles(commitFiles.files, pathFilter)), [commitFiles, pathFilter])
-  const shownFiles = useMemo(() => (filteredFiles === undefined ? undefined : filterFilesByText(filteredFiles, filterText)), [filteredFiles, filterText])
+  const allFiles = commitFiles?.files
+  const shownFiles = useMemo(() => (allFiles === undefined ? undefined : filterFilesByText(allFiles, filterText)), [allFiles, filterText])
   // the count of the last subject read: the search stays while the next one loads
   const [fileCount, setFileCount] = useState(0)
-  if (filteredFiles !== undefined && filteredFiles.length !== fileCount) {
-    setFileCount(filteredFiles.length)
+  if (allFiles !== undefined && allFiles.length !== fileCount) {
+    setFileCount(allFiles.length)
   }
   const isSearchShown = filterText !== "" || fileCount >= FILE_FILTER_MIN_FILES
 
-  // a file a link of a badge selects while a filter hides it: only the filter that hides it is dropped, then it is
-  // selected once, and the tree reports that (`onRevealApplied`); a subject, search or owner filter other than those
-  // the click left forgets it before
-  const pathFilterKey = pathFilter === null ? null : [...pathFilter].join("\n")
+  // a file a link of a mark selects while the search hides it: the search is cleared, then it is selected once, and the
+  // tree reports that (`onRevealApplied`); a subject or search other than those the click left forgets it before. An
+  // owner chip hides nothing
   const [reveal, setReveal] = useState<PendingReveal | null>(null)
-  if (reveal !== null && (reveal.subjectId !== subjectId || reveal.filterText !== filterText || reveal.pathFilterKey !== pathFilterKey)) {
+  if (reveal !== null && (reveal.subjectId !== subjectId || reveal.filterText !== filterText)) {
     setReveal(null)
   }
   const forgetReveal = useCallback(() => setReveal(null), [])
@@ -151,26 +155,13 @@ export function CommitReview({
       if (file === undefined) {
         return
       }
-      const hiddenByOwner = filterFiles([file], pathFilter).length === 0
-      if (hiddenByOwner) {
-        if (onShowAllPaths === undefined) {
-          return
-        }
-        onShowAllPaths()
-      }
       const hiddenBySearch = filterFilesByText([file], filterText).length === 0
       if (hiddenBySearch) {
         setFilterText("")
       }
-      // the parent drops its filter in the same batch: All has no path filter
-      setReveal({
-        subjectId,
-        place: { ...place, path: file.path },
-        filterText: hiddenBySearch ? "" : filterText,
-        pathFilterKey: hiddenByOwner ? null : pathFilterKey,
-      })
+      setReveal({ subjectId, place: { ...place, path: file.path }, filterText: hiddenBySearch ? "" : filterText })
     },
-    [commitFiles, pathFilter, pathFilterKey, filterText, onShowAllPaths, subjectId],
+    [commitFiles, filterText, subjectId],
   )
   const revealPlace = reveal !== null && shownFiles?.some(file => file.path === reveal.place.path) === true ? reveal.place : null
   const revealPath = revealPlace?.path ?? null
@@ -232,7 +223,7 @@ export function CommitReview({
         Loading changes…
       </LoadingLine>
     )
-  } else if (shownFiles.length === 0 && filteredFiles !== undefined && filteredFiles.length > 0) {
+  } else if (shownFiles.length === 0 && allFiles !== undefined && allFiles.length > 0) {
     message = (
       <div data-testid="review-files-no-match" className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
         <span className="min-w-0 truncate">{formatNoFileMatch(filterText)}</span>
@@ -242,18 +233,14 @@ export function CommitReview({
       </div>
     )
   } else if (shownFiles.length === 0) {
-    message = (
-      <p className="p-6 text-sm text-muted-foreground">
-        {pathFilter !== null && filteredEmptyText !== undefined && commitFiles !== undefined && commitFiles.files.length > 0 ? filteredEmptyText : "No changed files"}
-      </p>
-    )
+    message = <p className="p-6 text-sm text-muted-foreground">No changed files</p>
   } else {
     loaded = {
-      // the selection and the collapsed directories belong to one commit or range, and to one filter
-      key: pathFilterKey === null ? subjectId : `${subjectId}|${pathFilterKey}`,
+      // the selection and the collapsed directories belong to one commit or range; an owner chip keeps them
+      key: subjectId,
       // the counts of the engine, none until its diffs are read: git's numstat counts what the policy ignores too
       files: withEngineCounts(shownFiles, entry?.kind === "loaded" ? entry.files : undefined),
-      totalCount: filteredFiles?.length ?? shownFiles.length,
+      totalCount: allFiles?.length ?? shownFiles.length,
       diffs: entry?.kind === "loaded" ? entry.files : null,
       diffsComplete: entry?.kind === "loaded" && entry.complete,
       initialPath: revealPath ?? (initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null),
@@ -278,6 +265,7 @@ export function CommitReview({
         message={message}
         onPositionChange={onPositionChange}
         fileOwners={fileOwners}
+        ownerMarks={ownerMarks}
         sidebarTop={sidebarTop}
         filesHeader={filesHeader}
         codeTop={codeTop}
@@ -327,26 +315,17 @@ function ReviewRoot({
   )
 }
 
-function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<string> | null): readonly CommitFile[] {
-  if (pathFilter === null) {
-    return files
-  }
-  return files.filter(file => pathFilter.has(file.path) || (file.oldPath !== null && pathFilter.has(file.oldPath)))
-}
-
-/** A place a link of a badge showed while a filter hid its file, at the last path of the file, and the filters that show it */
+/** A place a link of a mark showed while the search hid its file, at the last path of the file, and the search that shows it */
 interface PendingReveal {
   subjectId: string
   place: ReviewPlace
   /** The search after the click: empty when the search hid the file */
   filterText: string
-  /** The owner filter after the click: none when it hid the file, as the parent then drops it */
-  pathFilterKey: string | null
 }
 
 /** The files of the shown subject once read, and their diffs once read too: the tree does not wait for the diffs */
 interface LoadedReview {
-  /** The subject and the filter: a new key starts the tree and the diffs over */
+  /** The subject: a new key starts the tree and the diffs over */
   key: string
   /** The files the search kept */
   files: readonly CommitFile[]
@@ -357,7 +336,7 @@ interface LoadedReview {
   /** Every diff of the subject arrived: a file without one has none */
   diffsComplete: boolean
   initialPath: string | null
-  /** The file a link of a badge selected while a filter hid it, now shown: the tree selects it */
+  /** The file a link of a mark selected while the search hid it, now shown: the tree selects it */
   revealPath: string | null
   /** Its place, which the diffs show once the tree selected it */
   revealPlace: ReviewPlace | null
@@ -378,13 +357,14 @@ interface ReviewLayoutProps {
   message: ReactNode
   onPositionChange: (position: ReviewPosition) => void
   fileOwners: ReadonlyMap<string, string> | undefined
+  ownerMarks: OwnerMarks | null
   sidebarTop: ReactNode
   filesHeader: CommitReviewProps["filesHeader"]
   codeTop: ReactNode
   search: FileSearch | null
-  /** A link of a badge shows a place of a changed file that a filter hides */
+  /** A link of a mark shows a place of a changed file that the search hides */
   onRevealHidden: (place: ReviewPlace) => void
-  /** The subject has changed files: the card selects one also while a filter hides every file */
+  /** The subject has changed files: the card selects one also while the search hides every file */
   filesRead: boolean
   /** The tree selected `LoadedReview.revealPath`: it is not selected again */
   onRevealApplied: () => void
@@ -532,9 +512,22 @@ const SIDEBAR_WIDTH = "19rem"
 
 /**
  * The sidebar beside the diffs, in every state of the review: the parts of the sidebar (the commits, the header of the
- * files) stay mounted, only the tree and the diffs start over for another subject or filter.
+ * files) stay mounted, only the tree and the diffs start over for another subject.
  */
-function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search, onRevealHidden, filesRead, onRevealApplied }: ReviewLayoutProps) {
+function ReviewLayout({
+  loaded,
+  message,
+  onPositionChange,
+  fileOwners,
+  ownerMarks,
+  sidebarTop,
+  filesHeader,
+  codeTop,
+  search,
+  onRevealHidden,
+  filesRead,
+  onRevealApplied,
+}: ReviewLayoutProps) {
   const diffViewMode = useDiffViewMode()
   const sidebarShown = useAppSettings(state => state.reviewSidebar)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
@@ -709,7 +702,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   )
 
   // a place of a popover or of the card of the review plan: its file is selected as a row of the tree is, by its path
-  // or its old path, and the diffs show its line; a file that a filter hides is revealed
+  // or its old path, and the diffs show its line; a file that the search hides is revealed
   const selectChangedFile = useCallback(
     (place: ReviewPlace) => {
       const file = files.find(it => it.path === place.path) ?? files.find(it => it.oldPath === place.path)
@@ -772,6 +765,18 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     return { files: presentFileBadges(reviewFacts), dependencies, onSelectPlace: selectChangedFile }
   }, [reviewFacts, nodes, selectChangedFile])
 
+  // the files of the chosen owner chip: the tree mutes the other rows and counts them on the steps, the diffs mute the
+  // headers of the others, the keys move through these only; an owner without files here marks nothing
+  const marked = ownerMarks === null || ownerMarks.paths.size === 0 ? null : ownerMarks.paths
+  const treeMarks = useMemo<FileTreeMarks | null>(() => {
+    if (ownerMarks === null || marked === null) {
+      return null
+    }
+    const counts = new Map([...presentOwnerMarks(chapters, marked)].map(([chapter, count]) => [concernRowKey(chapter), count]))
+    return { label: ownerMarks.label, paths: marked, counts }
+  }, [ownerMarks, marked, chapters])
+  const accept = marked === null ? undefined : (path: string) => marked.has(path)
+
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
   useEffect(() => {
     if (loadedKey !== null) {
@@ -787,15 +792,21 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     switch (event.code) {
       case "KeyJ":
       case "KeyK": {
-        // with the plan the diffs are the story: J and K step through its sections, the tree follows
+        // with the plan the diffs are the story: J and K step through its sections, the tree follows; under an owner
+        // chip through the sections of its files only, nothing moves past the last one
+        const direction = event.code === "KeyJ" ? 1 : -1
         if (reviewFacts !== null) {
-          const next = code.current?.moveSection(event.code === "KeyJ" ? 1 : -1)
+          const next = code.current?.moveSection(direction, accept)
           if (next !== undefined) {
             showVisibleSection(next.key, next.path)
           }
           break
         }
-        const next = files[selectedIndex + (event.code === "KeyJ" ? 1 : -1)]
+        let index = selectedIndex + direction
+        while (accept !== undefined && files[index] !== undefined && !accept(files[index]!.path)) {
+          index += direction
+        }
+        const next = files[index]
         if (next !== undefined) {
           selectInTree(next, next.path)
         }
@@ -807,7 +818,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         break
       case "KeyN":
       case "KeyP": {
-        const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1)
+        const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1, accept)
         if (path !== undefined) {
           select(path, null)
         }
@@ -868,6 +879,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                     onSelectFile={selectInTree}
                     fileOwners={fileOwners}
                     badges={badges}
+                    marks={treeMarks}
                   />
                 )}
               </div>
@@ -877,7 +889,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         {sidebarShown && <ResizableHandle />}
         <ResizablePanel id="code" minSize="40">
           <div className="flex h-full flex-col">
-            {/* a filter that hides every file keeps the card: a click reveals the file */}
+            {/* a search that hides every file keeps the card: a click reveals the file */}
             <SelectReviewFileContext value={loaded === null && !filesRead ? null : navigator}>{codeTop}</SelectReviewFileContext>
             {loaded !== null && topStep !== null && <StepBar chapter={topStep.chapter} step={topStep.step} count={topStep.count} onShow={showStep} />}
             {loaded === null ? (
@@ -901,6 +913,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                   onVisibleSectionChange={showVisibleSection}
                   onFirstScreen={showWindow}
                   fileOwners={fileOwners}
+                  marked={marked}
                 />
               </div>
             )}

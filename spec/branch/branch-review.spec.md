@@ -68,8 +68,9 @@ parent, Shift+click extends the part, "From Root" shows everything from the base
 is what its Safe Push lands and Patronus checks; "Whole Stack" after it goes up to every branch of the stack. The whole stack, every branch of a stack that forks
 ([Landing](../../docs/design/landing.md)), is reviewed in the same window as its stack branch: "Review Whole Stack";
 each of its commits names its branch, and the segments of the chain it came from go back down.
-The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
-reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push popover names the files each
+The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips mark them by the
+reviewer groups the code-owner check of a Safe Push asks for and by owner: the story keeps every file, the others are
+muted, and the keys move through the chosen owner's files. The Safe Push popover names the files each
 group has to review, and its "Review Changes" opens the review on them. The title bar of the window holds the stack, the diff view and the
 actions on the branch: Open Pull Request, Safe Push (Push to master or Merge #7 in its place, by the route of the
 repository, [Landing Routes](landing-routes.spec.md)) and Push Branch, which the main window runs; the footer holds the
@@ -79,7 +80,7 @@ keys.
 
 - Look at what a branch changes before a push, a Safe Push or a pull request, without leaving the app.
 - See a stacked branch alone and with its parents: a reviewer reads the child on its parent, Patronus checks all.
-- Know which files need whose approval, and look at exactly those.
+- Know which files need whose approval, and look at exactly those, with the declarations and uses around them.
 
 ## Non-goals
 
@@ -136,15 +137,15 @@ keys.
   main window (`getDiffRepositoryPath`).
   [@test] ../../src/lib/branch-review.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`)
 - A commit of a branch of the chain on screen must move the window there, not start it over (`move` of the window
-  data): the part stays when it has the commit, else it is the commit's segment; the owner filter stays unless it
-  hides every file of the commit; the file of `path` shows. A move waits while the "Create pull request" dialog of
+  data): the part stays when it has the commit, else it is the commit's segment; the owner chip stays, it hides no
+  file; the file of `path` shows. A move waits while the "Create pull request" dialog of
   the window is open, and the dialog keeps what was typed.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes`)
   [@test] ../../src/lib/branch-review.test.ts (`moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch`, `keeps the part that has the commit, else shows the commit's segment`, `shows all changes of the commit's branch when the segments don't have the commit`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
 - The review gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, where
   to start (`BranchReviewFocus`: the branch itself, or the whole stack from the Safe Push popover and the island; the
-  filter, the commit, the file), the reviewer groups of the last code-owner check of the branch at its current head.
+  owner chip, the commit, the file), the reviewer groups of the last code-owner check of the branch at its current head.
 - The app must read the review ahead as its window opens, beside the start of the window: the backend reads the
   segments and the files and the patch of the part the window shows first (the branch on its parent, or the whole
   stack) into its memory while the window starts, so its first read finds them read (`prefetch_branch_review`). Once
@@ -209,8 +210,8 @@ keys.
   commits keeps the shown one by its branch, subject and author time.
   [@test] ../../src/lib/range-review.test.ts (`lists all changes, then the commits of the reviewed branch first, each branch headed by its name`, `keeps the commit by its id, else the one a sync rebuilt in its place`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
-- Another commit, another owner filter or a sync that reads the stack again must keep the file on screen when the new
-  changes have it.
+- Another commit, another owner chip or a sync that reads the stack again must keep the file on screen when the new
+  changes have it; an owner chip keeps every file, the selection and the collapsed directories.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 - The window must read the tips of its own subscription: it subscribes to the session of its repository itself
   (`ensureSession` of its own `src/model/store.ts`, `subscribe_view` under its label, beside the main window's
@@ -335,16 +336,29 @@ keys.
   [@test] ../../crates/git-ops/src/ownership_test.rs (`patterns_match_as_jgit_fast_ignore_rule_with_path_match_false`, `the_last_match_wins_by_depth_then_file_then_order`, `reads_the_ownership_files_of_the_ancestor_directories_of_a_tree`)
 - The header of a file must show its owner, muted; the tree row keeps its width for the name and shows the owner in its
   hover ("Owned by Design").
-- The chips must be in the header of the files in the sidebar, above the tree they filter: "All", the reviewer groups the code-owner check asks for (a warning shield; the number of their
+- The chips must be in the header of the files in the sidebar, above the tree they mark: "All", the reviewer groups the code-owner check asks for (a warning shield; the number of their
   files in the part, all of them for a branch-wide group, disabled when nobody tells which files), the other owners
-  most files first, and "No Owner". A chip filters the tree and the diffs; a file of a group matches by its path or by
-  the old path of a rename. A filter that keeps nothing says "No files of <group> in this range".
-  [@test] ../../src/lib/review-owners.test.ts (`lists all files, the groups the check asks for, then the other owners and the files without one`, `keeps the files of a group (a rename by its old path), of an owner, or without an owner`)
-- While a filter is on, the chips must show, its own chip too when the shown changes have none of its files ("Design
-  0"), so the filter can be turned off. Without a filter nothing filters when one owner (or none) has every file and no
-  group asks for an approval: no chips, the header of the files says "1 file · Auth Team".
-  [@test] ../../src/lib/review-owners.test.ts (`is just All when one owner has every file, unless a group asks for an approval`, `keeps the chip of the active filter when the files have none of its own, so it can be turned off`)
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of the filter on a part without its files, and show no chips when one owner has them all`)
+  most files first, and "No Owner". A file of a group matches by its path or by the old path of a rename.
+  [@test] ../../src/lib/review-owners.test.ts (`lists all files, the groups the check asks for, then the other owners and the files without one`, `marks the files of a group (a rename by its old path), of an owner, or without an owner`)
+- A chosen chip must filter nothing: a filter cuts the story, so an owner would approve a part read without the
+  declarations it uses and the uses it changes. The tree, the diffs and the story keep every file, the selection and
+  the collapsed directories. The rows of the tree and the headers of the diffs of the other files are muted, a
+  directory or a group of the tree without a file of the chip too; the chosen owner's keep their full weight. With
+  the review plan, a step that shows files of the chip says how many on its row, a muted chip "Design 2" (its
+  description "2 files of Design"), and a step without one is muted. J and K (the sections of the story, or the files
+  without the plan) and N and P (the blocks) move through the chip's files only; when none is left in that direction,
+  nothing moves. A link of a mark or of the card selects a file of another owner as any file, and the chip stays.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only`)
+  [@test] ../../src/presenters/review-steps.test.ts (`counts the files of the chosen owner each step shows, 0 for a step without one`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select a linked file under an owner chip, which hides none, and clear only a search that hides it`)
+- While a chip is chosen, the chips must show, its own too when the shown changes have none of its files ("Design
+  0"), so it can be turned off; it then mutes nothing, the keys move as without it, and the header of the files says
+  "No files of Design in this range" ("Every file in this range has an owner" for No Owner). With All chosen there
+  are no chips when one owner (or none) has every file and no group asks for an approval: the header of the files
+  says "1 file · Auth Team".
+  [@test] ../../src/lib/review-owners.test.ts (`is just All when one owner has every file, unless a group asks for an approval`, `keeps the chosen chip when the files have none of its own, so it can be turned off`, `names the chosen owner, and says when it has no files in the part`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of an owner on a part without its files, muting nothing, and show no chips when one owner has them all`)
 
 <a id="the-files-of-each-reviewer-group-safe-push-form"></a>
 
@@ -379,7 +393,10 @@ keys.
   `FilterChip` of `FilterChips`, as the state chips of the branch filter: the stock `ToggleGroup`, the chosen one in
   its pressed state (`aria-pressed`), the count after the name in tabular numbers at 70% opacity. Above the chips, from 8 files on,
   is the search of the files ([Commit Review](../commit/commit-review.spec.md#the-search-of-the-files)); it keeps the
-  files of the chosen chip whose path has its words. "From Root" and "Whole Stack" are a `ToggleGroup` (`outline`, `sm`, `spacing={0}`), the shown scope
+  files whose path has its words, the chip marks among them. A muted row or header fades its parts (`*:opacity-60`,
+  `data-muted`), so the selection and the background of a sticky header keep their colour; the count of a step is a
+  `secondary` `Badge` in `text-muted-foreground` after its name (`review-owner-mark`); the note of a chip at 0 is a
+  line of the header (`branch-review-owner-empty`). "From Root" and "Whole Stack" are a `ToggleGroup` (`outline`, `sm`, `spacing={0}`), the shown scope
   pressed (`aria-pressed`). A Whole Stack that can't open is announced as unavailable (`aria-disabled`), dimmed
   (`opacity-50`) and takes no press, its reason in its tooltip, whose trigger is the item itself, so the group keeps
   its joined edges.

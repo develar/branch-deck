@@ -229,7 +229,7 @@ test.describe("The review plan in the branch review", () => {
     },
   )
 
-  test("should select a linked file that a filter hides, and drop only the filter that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should select a linked file under an owner chip, which hides none, and clear only a search that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
     const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)
     const { reader, cache } = planRows(window)
@@ -238,41 +238,18 @@ test.describe("The review plan in the branch review", () => {
     const selectCacheFromReader = async () => {
       await (await openFactsCard(window, reader)).getByTestId("file-link").click()
     }
-
     const position = window.getByTestId("branch-review-position")
-    const ownerAwayAndBack = async () => {
-      await owner("Monorepo").click()
-      await expect(cache).toHaveCount(0)
-      await owner("All").click()
-      await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
-      await expect(cache).toBeVisible()
-    }
 
-    // the owner filter hides Cache: a click on its link shows all files and selects it
+    // the chip of Monorepo keeps Cache, of Cache Team, muted: a click on its link selects it, the chip stays
     await owner("Monorepo").click()
-    await expect(cache).toHaveCount(0)
+    await expect(cache).toHaveAttribute("data-muted", "")
+    await expect(reader).not.toHaveAttribute("data-muted")
     await selectCacheFromReader()
-    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
-    await expect(cache).toBeVisible()
+    await expect(owner("Monorepo")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/File 7 \/ 8$/)
-    // the link selects Cache once: the owner filter away and back starts at the first file
-    await ownerAwayAndBack()
-    await expect(cache).toHaveAttribute("aria-selected", "false")
-    await expect(position).toHaveText(/File 1 \/ 8$/)
-
-    // the owner filter hides Cache and the search shows it: the owner filter goes, the search stays
-    // the search first: the owner filter leaves too few files for its field
-    await search.fill(".kt")
-    await owner("Monorepo").click()
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/Store.kt"])
-    await selectCacheFromReader()
-    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
-    await expect(search).toHaveValue(".kt")
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Store.kt"])
-    await expect(cache).toBeVisible()
-    await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(position).toHaveText(/File 2 \/ 3$/)
+    await owner("All").click()
+    await expect(cache).not.toHaveAttribute("data-muted")
 
     // a search that hides Cache is cleared, and Cache selected; the search does not select it again
     await search.fill("Reader")
@@ -289,11 +266,16 @@ test.describe("The review plan in the branch review", () => {
     await expect(reader).toHaveAttribute("aria-selected", "true")
     await search.fill("")
     await expect(reader).toHaveAttribute("aria-selected", "true")
-    await ownerAwayAndBack()
+    // a chip away and back keeps the selection: it starts nothing over
+    await owner("Monorepo").click()
+    await expect(cache).toHaveAttribute("data-muted", "")
+    await owner("All").click()
+    await expect(cache).not.toHaveAttribute("data-muted")
+    await expect(reader).toHaveAttribute("aria-selected", "true")
     await expect(cache).toHaveAttribute("aria-selected", "false")
   })
 
-  test("should select the file of a card entry while a filter hides every file, and drop only the filter that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should select the file of a card entry while a search hides every file, under an owner chip that hides none", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
     const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)
     const { cache, store } = planRows(window)
@@ -315,29 +297,29 @@ test.describe("The review plan in the branch review", () => {
     await expect(header("src/Store.kt")).toBeInViewport()
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
 
-    // the owner filter and a search that hides its only file: the entry of Cache drops the search, the owner stays
+    // an owner chip and a search that hides every file: the entry of Cache clears the search, the chip stays
     await search.fill("nothing matches this")
     await owner("Cache Team").click()
     await expect(noMatch).toBeVisible()
     const newApi = card.getByTestId("review-plan-new-api")
     await newApi.getByRole("button", { name: /New API/ }).click()
     await newApi.getByTestId("review-plan-new-api-file").filter({ hasText: "src/b/Cache.kt" }).getByRole("button").click()
-    // the search is empty, and one file is too few for its field
-    await expect(search).toHaveCount(0)
+    await expect(search).toHaveValue("")
     await expect(owner("Cache Team")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(position).toHaveText(/File 1 \/ 1$/)
+    await expect(position).toHaveText(/File 7 \/ 8$/)
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })
 
-    // the search keeps only Store and the owner filter hides it, so no file shows: the owner filter goes, the search stays
+    // the chip of Cache Team hides nothing: the search keeps Store, muted, and the entry selects it; chip and search stay
     await owner("All").click()
     await search.fill("Store")
     await owner("Cache Team").click()
-    await expect(noMatch).toBeVisible()
-    await card.getByTestId("review-plan-breakage-file").click()
-    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
-    await expect(search).toHaveValue("Store")
+    await expect(header("src/Store.kt")).toHaveAttribute("data-muted", "")
+    await expect(noMatch).toHaveCount(0)
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
+    await card.getByTestId("review-plan-breakage-file").click()
+    await expect(owner("Cache Team")).toHaveAttribute("aria-pressed", "true")
+    await expect(search).toHaveValue("Store")
     await expect(store).toHaveAttribute("aria-selected", "true")
     await expect(header("src/Store.kt")).toBeInViewport()
   })

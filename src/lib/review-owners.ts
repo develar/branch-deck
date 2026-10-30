@@ -1,7 +1,10 @@
 import type { CommitFile } from "@/lib/bindings"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
-/** What the files of a review are filtered by */
+/**
+ * What the chips of a review mark: a chip filters nothing, it marks the files of its owner in the whole story, mutes the
+ * others, and J/K and N/P move through its files only (spec/branch/branch-review.spec.md, "Code owners")
+ */
 export type ReviewFilter =
   | { readonly kind: "all" }
   /** A reviewer group the code-owner check asks for */
@@ -14,7 +17,7 @@ export type ReviewFilter =
 export interface ReviewFilterChip {
   readonly filter: ReviewFilter
   readonly label: string
-  /** The files of the review it keeps; null for a group whose files Patronus doesn't tell */
+  /** The files of the review it marks; null for a group whose files Patronus doesn't tell */
   readonly count: number | null
   /** The code-owner check asks for the approval of the group */
   readonly needsApproval: boolean
@@ -28,8 +31,11 @@ function sameName(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
 
-/** The paths a filter keeps among the files, null for all of them (or a group whose files are unknown) */
-export function filterPaths(
+/**
+ * The paths a chip marks among the files, null for all of them (All, a branch-wide group) or a group whose files are
+ * unknown; empty when the owner has no files in the part
+ */
+export function ownerPaths(
   filter: ReviewFilter,
   files: readonly CommitFile[],
   groups: readonly BranchReviewGroup[],
@@ -57,8 +63,8 @@ export function filterPaths(
  * The chips of a review: all files, the reviewer groups the code-owner check asks for (their files, all of them for a
  * branch-wide group, unknown when Patronus doesn't tell and no owner has the group's name), then the other owners by
  * the `OWNERSHIP` files, most files first, and the files without an owner. No owner chips without `OWNERSHIP` files.
- * While a filter is `active` the chips show, its own too when the files have none of its own (0), so it can be turned
- * off. Just "All" when nothing filters: one owner (or none) has every file and no group asks for an approval.
+ * While a chip is `active` the chips show, its own too when the files have none of its own (0), so it can be turned
+ * off. Just "All" when no chip would mark less: one owner (or none) has every file and no group asks for an approval.
  */
 export function reviewFilterChips(
   files: readonly CommitFile[],
@@ -69,7 +75,7 @@ export function reviewFilterChips(
   const all: ReviewFilterChip = { filter: { kind: "all" }, label: "All", count: files.length, needsApproval: false }
   const chips: ReviewFilterChip[] = [all]
   for (const group of groups) {
-    const paths = filterPaths({ kind: "group", name: group.name }, files, groups, owners)
+    const paths = ownerPaths({ kind: "group", name: group.name }, files, groups, owners)
     chips.push({
       filter: { kind: "group", name: group.name },
       label: group.name,
@@ -98,13 +104,13 @@ export function reviewFilterChips(
     }
   }
   if (active.kind !== "all") {
-    // the chip of the filter shows while it filters, so it can be turned off
+    // the chosen chip shows while it is chosen, so it can be turned off
     if (!chips.some(chip => sameFilter(chip.filter, active))) {
-      chips.push({ filter: active, label: active.kind === "unowned" ? "No Owner" : (active as { name: string }).name, count: 0, needsApproval: false })
+      chips.push({ filter: active, label: ownerLabel(active)!, count: 0, needsApproval: false })
     }
     return chips
   }
-  // one chip beside "All" that keeps every file filters nothing
+  // one chip beside "All" that marks every file marks nothing
   return chips.length === 2 && !chips[1]!.needsApproval && chips[1]!.count === files.length ? [all] : chips
 }
 
@@ -118,15 +124,20 @@ export function sameFilter(a: ReviewFilter, b: ReviewFilter): boolean {
   return a.kind === b.kind && (a.kind === "all" || a.kind === "unowned" || a.name === (b as { name: string }).name)
 }
 
-/** "No files of Air Plugin in this range" */
-export function filterEmptyText(filter: ReviewFilter): string {
+/** The note under the chips when the chosen one marks no file: "No files of Air Plugin in this range"; null for All */
+export function ownerEmptyText(filter: ReviewFilter): string | null {
   switch (filter.kind) {
     case "all":
-      return "No changed files"
+      return null
     case "group":
     case "owner":
       return `No files of ${filter.name} in this range`
     case "unowned":
       return "Every file in this range has an owner"
   }
+}
+
+/** The name of the chosen chip on the rows it marks: "Design", "No Owner"; null for All */
+export function ownerLabel(filter: ReviewFilter): string | null {
+  return filter.kind === "all" ? null : filter.kind === "unowned" ? "No Owner" : filter.name
 }

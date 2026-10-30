@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon, LayersIcon, TargetIcon } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
@@ -26,6 +27,18 @@ interface FileTreeBaseProps {
   fileOwners?: ReadonlyMap<string, string>
   /** The facts of the review plan on the rows, one mark each (`FileRowMark`); none without a plan */
   badges?: FileTreeBadges | null
+  /** The files of the chosen owner chip: the other rows are muted; none muted without */
+  marks?: FileTreeMarks | null
+}
+
+/** What an owner chip marks in a tree (spec/branch/branch-review.spec.md, "Code owners") */
+export interface FileTreeMarks {
+  /** The name of the chip, on the rows of the steps: "Design 2" */
+  readonly label: string
+  /** The paths of its files */
+  readonly paths: ReadonlySet<string>
+  /** How many of its files each step shows, by the key of the step's row (`presentOwnerMarks`); 0 mutes the step */
+  readonly counts: ReadonlyMap<string, number>
 }
 
 /** The badges of the rows of a tree, by the key of the row */
@@ -74,7 +87,7 @@ const CHEVRON_MIDDLE = "7px"
  * path, the rename and the owner are in its hover, Copy Path in its right-click menu and on ⌘C.
  */
 export function FileTree(props: FileTreeProps) {
-  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null } = props
+  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null } = props
   // a file of a navigation tree has no diff to open
   const expandedFiles = props.mode === "inline" ? props.expandedFiles : null
   const selectedKey = props.mode === "navigate" ? props.selectedKey : null
@@ -204,11 +217,32 @@ export function FileTree(props: FileTreeProps) {
           fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
           dependencyBadge={badges?.dependencies.get(node.key)}
           onSelectPlace={badges?.onSelectPlace}
+          muted={marks !== null && markedCount(node, marks) === 0}
+          ownerMark={marks === null ? null : ownerMarkOf(node, marks)}
           content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
         />
       ))}
     </div>
   )
+}
+
+/** The files of the chosen owner in a row: of a step its count, of a directory or a group its files, of a file 1 or 0 */
+function markedCount(node: FileTreeNode, marks: FileTreeMarks): number {
+  if (node.kind !== "directory") {
+    return marks.paths.has(node.file.path) ? 1 : 0
+  }
+  return marks.counts.get(node.key) ?? node.children.reduce((sum, child) => sum + markedCount(child, marks), 0)
+}
+
+/** The count chip of a step row that shows files of the chosen owner: "Design" and 2 */
+function ownerMarkOf(node: FileTreeNode, marks: FileTreeMarks): OwnerMark | null {
+  const count = marks.counts.get(node.key) ?? 0
+  return count === 0 ? null : { label: marks.label, count }
+}
+
+interface OwnerMark {
+  label: string
+  count: number
 }
 
 /** A directory is open unless collapsed; a file is open while its diff shows, `undefined` where it has none to show */
@@ -237,6 +271,10 @@ interface FileTreeRowProps {
   fileBadges: FileBadges | undefined
   dependencyBadge: DependencyBadge | undefined
   onSelectPlace: ((place: ReviewPlace) => void) | undefined
+  /** Holds no file of the chosen owner chip: played down, it stays in the story */
+  muted: boolean
+  /** The files of the chosen owner a step row shows: "Design 2" */
+  ownerMark: OwnerMark | null
   /** The diff under an expanded file */
   content: ReactNode
 }
@@ -253,6 +291,8 @@ const FileTreeRow = memo(function FileTreeRow({
   fileBadges,
   dependencyBadge,
   onSelectPlace,
+  muted,
+  ownerMark,
   content,
 }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
@@ -262,7 +302,8 @@ const FileTreeRow = memo(function FileTreeRow({
       ? `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}`
       : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
   // the mark is no tab stop: the description says every fact of its card
-  const description = facts === null || facts.description === "" ? counts : `${counts}, ${facts.description}`
+  const described = facts === null || facts.description === "" ? counts : `${counts}, ${facts.description}`
+  const description = ownerMark === null ? described : `${described}, ${formatFileCount(ownerMark.count)} of ${ownerMark.label}`
   // a file of a review also in another concern: the row tells it from the row of the file
   const label = node.kind === "also" ? `${node.name}, ${node.also}` : node.name
   return (
@@ -282,6 +323,7 @@ const FileTreeRow = memo(function FileTreeRow({
       aria-description={description}
       tabIndex={inTabOrder ? 0 : -1}
       data-tree-key={node.key}
+      data-muted={muted ? "" : undefined}
       className="group/tree-item flex flex-col outline-none"
       onFocus={event => {
         if (event.target === event.currentTarget) {
@@ -299,6 +341,8 @@ const FileTreeRow = memo(function FileTreeRow({
             className={cn(
               "group/row relative flex h-6 cursor-default items-center gap-1.5 rounded-md pr-1 text-sm transition-colors select-none group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset hover:bg-muted",
               isSelected && "bg-primary/15 hover:bg-primary/15",
+              // its parts fade, not the row: the selection and the hover keep their colour
+              muted && "*:opacity-60",
             )}
             style={{ paddingLeft: `calc(${indent} + ${ROW_START})` }}
             onClick={() => onToggle(node)}
@@ -325,7 +369,7 @@ const FileTreeRow = memo(function FileTreeRow({
           <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />
         )}
         {node.kind === "directory" ? (
-          <DirectoryRowContent node={node} isOpen={isOpen === true} />
+          <DirectoryRowContent node={node} isOpen={isOpen === true} ownerMark={ownerMark} />
         ) : node.kind === "also" ? (
           <AlsoRowContent node={node} owner={owner} />
         ) : (
@@ -343,7 +387,7 @@ const FileTreeRow = memo(function FileTreeRow({
   )
 })
 
-function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory; isOpen: boolean }) {
+function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirectory; isOpen: boolean; ownerMark: OwnerMark | null }) {
   // a group of a review is no directory: its name is what it holds; a concern is a task of the range
   const Icon = node.group === "concern" ? TargetIcon : node.group !== undefined ? LayersIcon : isOpen ? FolderOpenIcon : FolderIcon
   return (
@@ -356,6 +400,12 @@ function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory; isOpen
       >
         {node.name}
       </span>
+      {ownerMark !== null && (
+        <Badge variant="secondary" data-testid="review-owner-mark" className="max-w-[45%] shrink text-muted-foreground">
+          <span className="min-w-0 truncate">{ownerMark.label}</span>
+          <span className="tabular-nums">{ownerMark.count}</span>
+        </Badge>
+      )}
     </>
   )
 }

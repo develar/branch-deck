@@ -127,11 +127,15 @@ export interface DiffViewHandle {
   scrollToSection: (key: string) => void
   /**
    * Shows the next (1) or previous (-1) block of changed lines, from the last one shown in the file at the top; into
-   * the next file at the end of one. Collapsed files are skipped. Returns the path of the file it shows
+   * the next file at the end of one. Collapsed files, and with `accept` the files it refuses, are skipped. Returns the
+   * path of the file it shows; undefined, and nothing moves, when no block is left in that direction
    */
-  moveChange: (direction: 1 | -1) => string | undefined
-  /** Shows the next (1) or previous (-1) section at the top, from the one at the top now; returns its key and its file */
-  moveSection: (direction: 1 | -1) => { key: string; path: string } | undefined
+  moveChange: (direction: 1 | -1, accept?: (path: string) => boolean) => string | undefined
+  /**
+   * Shows the next (1) or previous (-1) section at the top, from the one at the top now, with `accept` the next one of a
+   * file it accepts; returns its key and its file, undefined (nothing moves) when none is left in that direction
+   */
+  moveSection: (direction: 1 | -1, accept?: (path: string) => boolean) => { key: string; path: string } | undefined
   focus: () => void
   /**
    * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
@@ -959,7 +963,7 @@ export function DiffView({
         showSection(index)
       }
     },
-    moveChange: direction => {
+    moveChange: (direction, accept) => {
       const order = prepared.map(file => file.key)
       const start = changeCursor.current ?? { key: visibleKey.current ?? order[0] ?? "", index: -1 }
       let fileIndex = order.indexOf(start.key)
@@ -974,11 +978,11 @@ export function DiffView({
         index = Number.MAX_SAFE_INTEGER
       }
       while (fileIndex >= 0 && fileIndex < order.length) {
-        const targets = layout.files[fileIndex]!.rows?.changeStarts ?? []
+        const { key, path } = prepared[fileIndex]!
+        const targets = accept === undefined || accept(path) ? (layout.files[fileIndex]!.rows?.changeStarts ?? []) : []
         const clamped = index === Number.MAX_SAFE_INTEGER ? targets.length - 1 : index
         const target = targets[clamped]
         if (target !== undefined && clamped >= 0) {
-          const { key, path } = prepared[fileIndex]!
           changeCursor.current = { key, index: clamped }
           visibleKey.current = key
           visiblePath.current = path
@@ -990,14 +994,19 @@ export function DiffView({
       }
       return undefined
     },
-    moveSection: direction => {
+    moveSection: (direction, accept) => {
       const at = prepared.findIndex(file => file.key === visibleKey.current)
-      const next = prepared[at + direction] === undefined || at < 0 ? -1 : at + direction
-      if (next < 0) {
+      if (at < 0) {
         return undefined
       }
-      showSection(next)
-      return { key: prepared[next]!.key, path: prepared[next]!.path }
+      for (let next = at + direction; next >= 0 && next < prepared.length; next += direction) {
+        const { key, path } = prepared[next]!
+        if (accept === undefined || accept(path)) {
+          showSection(next)
+          return { key, path }
+        }
+      }
+      return undefined
     },
     focus: () => scroller.current?.focus(),
     revealDeclaration: (place, from) => {

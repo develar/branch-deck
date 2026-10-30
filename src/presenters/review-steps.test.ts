@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
-import { bodyParagraphs, formatStepTitle, presentBrief, presentChapters, WITHOUT_A_STORY } from "@/presenters/review-steps"
+import { bodyParagraphs, formatStepTitle, presentBrief, presentChapters, presentOwnerMarks, WITHOUT_A_STORY } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 
 function commit(subject: string, body: string, role: StepCommit["role"] = "starts"): StepCommit {
@@ -54,6 +54,31 @@ describe("review steps", () => {
     const of = plan([{ ...step("c", [commit("one", "")], [["u:a", "a.json"]]), concern: "c" }], null, [concern])
     const [chapter] = presentChapters(of)
     expect([chapter!.label, chapter!.heading, chapter!.hover, chapter!.elsewhere]).toEqual(["proxy", "proxy", "Joined by the identifier ij-proxy", ["a.json"]])
+  })
+
+  it("counts the files of the chosen owner each step shows, 0 for a step without one", () => {
+    const chapters = presentChapters(
+      plan([
+        step(
+          "a",
+          [commit("the rule", "Why.")],
+          [
+            ["u:rule", "src/Rule.kt"],
+            ["u:rule2", "src/Rule.kt"],
+            ["u:style", "ui/style.css"],
+          ],
+        ),
+        step("b", [commit("the paint", "Why.")], [["u:paint", "src/Frame.kt"]]),
+        step("c", [commit("the look", "Why.")], [["u:look", "ui/look.css"]]),
+      ]),
+    )
+    const marks = presentOwnerMarks(chapters, new Set(["ui/style.css", "ui/look.css", "src/Rule.kt"]))
+    expect([...marks]).toEqual([
+      ["a", 2],
+      ["b", 0],
+      ["c", 1],
+    ])
+    expect([...presentOwnerMarks(chapters, new Set())].map(([, count]) => count)).toEqual([0, 0, 0])
   })
 
   it("words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that name its code, a step no test proves", () => {

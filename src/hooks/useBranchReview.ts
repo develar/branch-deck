@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { planFacts, useReviewPlan } from "@/hooks/useReviewPlan"
 import type { ReviewPlanState } from "@/hooks/useReviewPlan"
-import type { BranchReviewSegment, ReviewSubject } from "@/lib/bindings"
+import type { BranchReviewSegment, CommitFile, ReviewSubject } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { focusRange, keepSegmentRange, moveView, segmentRangeSubject } from "@/lib/branch-review"
 import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
@@ -11,7 +11,6 @@ import { diffSubjectId } from "@/lib/commit-files"
 import { isTypingTarget } from "@/lib/preview-keys"
 import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, rangePosition, segmentItems, shownInterdiff } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
-import { filterPaths } from "@/lib/review-owners"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { markBranchReviewed } from "@/lib/review-plan"
 import type { ReviewPosition } from "@/lib/review-position"
@@ -27,7 +26,7 @@ import type { BranchReviewGroup } from "@/types/sub-window"
 /*
  * The review of a branch (spec/branch/branch-review.spec.md), in the dialog of the branch preview and in its window: its
  * stack from the baseline (a click picks the part, Shift+click extends it), the commits of the part beside the diffs
- * (`RangeReview`), the files filtered by a reviewer group of the code-owner check or an owner by the `OWNERSHIP` files.
+ * (`RangeReview`), the files of a reviewer group of the code-owner check or of an owner by the `OWNERSHIP` files marked.
  * A sync that moves a tip of the stack reads it again, keeping the part, the commit and the file. The parts it renders
  * are in `@/components/review/BranchReview`.
  */
@@ -110,7 +109,7 @@ export interface BranchReviewModel {
     readonly items: readonly RangeReviewItem[]
     readonly selected: string
     readonly subject: DiffSubject
-    readonly files: Parameters<typeof filterPaths>[1] | undefined
+    readonly files: readonly CommitFile[] | undefined
     readonly owners: ReadonlyMap<string, string>
     /** The branch the actions act on: the reviewed end of the part (for the whole stack, the reviewed branch) */
     readonly target: string
@@ -188,17 +187,15 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     }
   }, [repositoryPath, baselineBranch, chainKey, wholeStack, readTips])
 
-  // a move to a commit of the chain: once the review is read, not under an open dialog
+  // a move to a commit of the chain: once the review is read, not under an open dialog; the owner chip stays, it hides
+  // no file
   const [movedAt, setMovedAt] = useState(move?.openedAt)
-  // the filter of the files stays unless it hides every file of the commit moved to; checked once its files are read
-  const [checksFilter, setChecksFilter] = useState(false)
   if (move !== undefined && move.focus !== null && move.openedAt !== movedAt && state.status === "loaded" && !move.held) {
     setMovedAt(move.openedAt)
     setState({ status: "loaded", view: moveView(state.view, move.focus) })
     if (move.focus.path != null) {
       setLastPath(move.focus.path)
     }
-    setChecksFilter(filter.kind !== "all")
   }
 
   const view = state.status === "loaded" ? state.view : null
@@ -237,12 +234,6 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   const files = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
   const paths = useMemo(() => files?.map(file => file.path) ?? [], [files])
   const owners = useFileOwners(repositoryPath, baselineBranch, paths)
-  if (checksFilter && files !== undefined) {
-    setChecksFilter(false)
-    if (filterPaths(filter, files, source.groups, owners)?.size === 0) {
-      setFilter({ kind: "all" })
-    }
-  }
 
   // a range is read for this review only: drop it once another one shows, and at the end of the review
   const rangeId = rangeSubject === null ? null : diffSubjectId(rangeSubject)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile } from "@/lib/bindings"
-import { filterEmptyText, filterPaths, reviewFilterChips, soleOwner } from "@/lib/review-owners"
+import { ownerEmptyText, ownerLabel, ownerPaths, reviewFilterChips, soleOwner } from "@/lib/review-owners"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 function file(path: string, oldPath: string | null = null): CommitFile {
@@ -47,7 +47,7 @@ describe("reviewFilterChips", () => {
     expect(reviewFilterChips([file("README.md")], [], owners).map(chip => chip.label)).toEqual(["All"])
   })
 
-  it("keeps the chip of the active filter when the files have none of its own, so it can be turned off", () => {
+  it("keeps the chosen chip when the files have none of its own, so it can be turned off", () => {
     const airFiles = files.slice(0, 2)
     expect(reviewFilterChips(airFiles, [], owners, { kind: "owner", name: "IJ Build Scripts Maintainers" }).map(chip => [chip.label, chip.count])).toEqual([
       ["All", 2],
@@ -55,7 +55,7 @@ describe("reviewFilterChips", () => {
       ["IJ Build Scripts Maintainers", 0],
     ])
     expect(reviewFilterChips(airFiles, [], owners, { kind: "unowned" }).map(chip => chip.label)).toEqual(["All", "Air Plugin", "No Owner"])
-    // an active filter that keeps every file, or a part without files, still shows its chip
+    // a chosen chip that marks every file, or a part without files, still shows
     expect(reviewFilterChips(airFiles, [], owners, { kind: "owner", name: "Air Plugin" }).map(chip => chip.label)).toEqual(["All", "Air Plugin"])
     expect(reviewFilterChips([], [], owners, { kind: "unowned" }).map(chip => [chip.label, chip.count])).toEqual([
       ["All", 0],
@@ -73,16 +73,24 @@ describe("soleOwner", () => {
   })
 })
 
-describe("filterPaths", () => {
-  it("keeps the files of a group (a rename by its old path), of an owner, or without an owner", () => {
-    expect(filterPaths({ kind: "all" }, files, groups, owners)).toBeNull()
-    expect([...filterPaths({ kind: "group", name: "Air Plugin" }, files, groups, owners)!]).toEqual(["plugins/air/A.kt", "plugins/air/B.kt"])
-    expect(filterPaths({ kind: "group", name: "Bazel QA" }, files, groups, owners)).toBeNull()
-    expect([...filterPaths({ kind: "owner", name: "IJ Build Scripts Maintainers" }, files, groups, owners)!]).toEqual(["build/x.kts"])
-    expect([...filterPaths({ kind: "unowned" }, files, groups, owners)!]).toEqual(["README.md"])
+describe("ownerPaths", () => {
+  it("marks the files of a group (a rename by its old path), of an owner, or without an owner", () => {
+    expect(ownerPaths({ kind: "all" }, files, groups, owners)).toBeNull()
+    expect([...ownerPaths({ kind: "group", name: "Air Plugin" }, files, groups, owners)!]).toEqual(["plugins/air/A.kt", "plugins/air/B.kt"])
+    // a branch-wide group marks every file, one Patronus doesn't tell none: nothing is muted
+    expect(ownerPaths({ kind: "group", name: "Bazel QA" }, files, groups, owners)).toBeNull()
+    expect(ownerPaths({ kind: "group", name: "Delegated" }, files, groups, owners)).toBeNull()
+    expect([...ownerPaths({ kind: "owner", name: "IJ Build Scripts Maintainers" }, files, groups, owners)!]).toEqual(["build/x.kts"])
+    expect([...ownerPaths({ kind: "unowned" }, files, groups, owners)!]).toEqual(["README.md"])
+    expect(ownerPaths({ kind: "owner", name: "Design" }, files, groups, owners)!.size).toBe(0)
   })
 
-  it("says why a filter shows nothing", () => {
-    expect(filterEmptyText({ kind: "group", name: "Air Plugin" })).toBe("No files of Air Plugin in this range")
+  it("names the chosen owner, and says when it has no files in the part", () => {
+    expect(ownerLabel({ kind: "owner", name: "Design" })).toBe("Design")
+    expect(ownerLabel({ kind: "unowned" })).toBe("No Owner")
+    expect(ownerLabel({ kind: "all" })).toBeNull()
+    expect(ownerEmptyText({ kind: "group", name: "Air Plugin" })).toBe("No files of Air Plugin in this range")
+    expect(ownerEmptyText({ kind: "unowned" })).toBe("Every file in this range has an owner")
+    expect(ownerEmptyText({ kind: "all" })).toBeNull()
   })
 })

@@ -86,6 +86,14 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
   })
 }
 
+/**
+ * The marks of an owner chip on the steps (spec/branch/branch-review.spec.md, "Code owners"): for each chapter by its
+ * id, how many of the files it shows (its own rows and those "also in" it) the chip marks; 0 mutes the step
+ */
+export function presentOwnerMarks(chapters: readonly Chapter[], paths: ReadonlySet<string>): Map<string, number> {
+  return new Map(chapters.map(chapter => [chapter.id, new Set(chapter.paths.filter(path => paths.has(path))).size]))
+}
+
 /** The chapters of `concerns` alone, each named by its evidence (the tests of the tree and the story without steps) */
 export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns"]): Chapter[] {
   return concerns.map((concern, index) => {

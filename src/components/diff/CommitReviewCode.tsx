@@ -1,5 +1,6 @@
 import { useImperativeHandle, useRef, useState } from "react"
 import type { Ref } from "react"
+import { cn } from "cn"
 import { UnfoldVerticalIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -43,13 +44,15 @@ export interface CommitReviewCodeProps {
   fileOwners?: ReadonlyMap<string, string>
   /** The commits of the sides: a declaration outside the review is read at them */
   revisions: DiffRevisions
+  /** The files an owner chip marks: the headers of the others are muted; none muted without */
+  marked?: ReadonlySet<string> | null
 }
 
 /**
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
  * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed.
  */
-export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleSectionChange, onFirstScreen, fileOwners, revisions }: CommitReviewCodeProps) {
+export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleSectionChange, onFirstScreen, fileOwners, revisions, marked = null }: CommitReviewCodeProps) {
   const softWraps = useDiffSoftWraps()
   const review = useRef<DiffViewHandle>(null)
   // the files outside the review a jump opened, each with the name it started from, the last one shown over the review;
@@ -74,13 +77,13 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
       setFileViews([])
       review.current?.scrollToSection(key)
     },
-    moveChange: direction => {
+    moveChange: (direction, accept) => {
       setFileViews([])
-      return review.current?.moveChange(direction)
+      return review.current?.moveChange(direction, accept)
     },
-    moveSection: direction => {
+    moveSection: (direction, accept) => {
       setFileViews([])
-      return review.current?.moveSection(direction)
+      return review.current?.moveSection(direction, accept)
     },
     focus: () => review.current?.focus(),
     revealDeclaration: (place, from) => {
@@ -114,7 +117,7 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
         onFirstScreen={onFirstScreen}
         onGoToDeclaration={inReview.goToDeclaration}
         onFindUsages={inReview.findUsages}
-        renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} />}
+        renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={marked !== null && !marked.has(header.file.path)} />}
       />
       {shownFile !== undefined && (
         <DeclarationFileView
@@ -167,6 +170,7 @@ export function PendingFileHeaders({ files, fileOwners }: { files: readonly Comm
               onToggle={() => {}}
               pending
               owner={fileOwners?.get(file.path)}
+              muted={false}
             />
           </div>
         </div>
@@ -179,6 +183,8 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
   /** The diffs are not read yet: no notice, nothing to collapse */
   pending?: boolean
   owner: string | undefined
+  /** Of another owner than the chosen chip's: played down, its card stays in the story */
+  muted: boolean
 }
 
 /**
@@ -186,13 +192,21 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
  * All, its owner and counts, and the menu of the file. The insets are IntelliJ's: 12 px above and below, 10 px at the
  * sides
  */
-function ReviewFileHeader({ file, notice, empty, folded, heading, concern, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
+function ReviewFileHeader({ file, notice, empty, folded, heading, concern, pending = false, owner, muted, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
       target={() => ({ kind: "file", path: file.path })}
       selectable
-      render={<div data-testid="review-file-header" data-path={file.path} className="group/file-header flex items-center gap-2 px-2.5 text-sm" />}
+      render={
+        <div
+          data-testid="review-file-header"
+          data-path={file.path}
+          data-muted={muted ? "" : undefined}
+          // its parts fade, not the header: its background hides the rows that scroll under it
+          className={cn("group/file-header flex items-center gap-2 px-2.5 text-sm", muted && "*:opacity-60")}
+        />
+      }
     >
       <Button
         variant="ghost"

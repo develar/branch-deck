@@ -224,10 +224,13 @@ where a dialog would cover it.
   shown layout in its pressed state, no colour of its own (`DiffLayoutButtons`).
   Soft wraps follow the setting of Settings → Diffs & Merge ([Commit Files](commit-files.spec.md#soft-wraps)).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
-- A review may show a part of its files (the branch review filters by code owner: by the path or the old path of a
-  rename) and the owner of each file, muted in the header of its diff and in the hover of its tree row; a tree row
-  keeps its width for the name. A filter that keeps nothing says why ("No files of Air Plugin in this range").
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- A review may show the owner of each file, muted in the header of its diff and in the hover of its tree row; a tree
+  row keeps its width for the name. It may mark the files of one owner (the owner chips of the branch review,
+  [Branch Review](../branch/branch-review.spec.md#code-owners)): every file stays, the rows and the headers of the
+  others muted, a step of the story with its count ("Design 2"), and J, K, N and P move through the marked files only;
+  none left in that direction, nothing moves. An owner without files there marks nothing.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`, `should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only`)
 
 ### The search of the files
 
@@ -238,8 +241,8 @@ where a dialog would cover it.
 - The tree and the diffs must show the files with every word of the text in their path or the old path of a rename,
   ignoring case, as it is typed; the header says "Files 3 of 9". The directories of what it found are open, the
   selected file stays while the search keeps it, else the first one is selected, and the diffs show it at the top.
-  It applies on top of the filter of the surface (the owner chips of a branch review) and holds for the next commit
-  (⌥↑/⌥↓) until the window closes.
+  It is the only filter of the files (the owner chips of a branch review mark, they hide nothing) and holds for the
+  next commit (⌥↑/⌥↓) until the window closes.
   [@test] ../../src/lib/file-filter.test.ts (`keeps the files with every word in their path, ignoring case`, `finds a renamed file by its old path`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should filter the files of a review by their path, with / from the diffs, Escape and Clear Filter`)
 - `/` must focus the search from anywhere in the window and select its text, except in another input, a menu or a

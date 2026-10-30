@@ -4,7 +4,7 @@ import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { FilesCount } from "@/components/commit/CommitReview"
+import type { FilesCount, OwnerMarks } from "@/components/commit/CommitReview"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
@@ -17,7 +17,7 @@ import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchRev
 import { getReviewCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
 import { branchGoneReason, reviewCommitKey } from "@/lib/branch-review"
 import type { MenuItemGroups } from "@/lib/menu"
-import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
+import { ownerEmptyText, ownerLabel, ownerPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 import { markWindowContentReady } from "@/lib/sub-window"
 import type { BranchReviewMenuItem, ReviewedBranch, WholeStackScope } from "@/types/sub-window"
@@ -82,7 +82,10 @@ export function BranchReviewGone({ model }: { model: BranchReviewModel }) {
   )
 }
 
-/** The header of the files: the owner chips, or the owner of them all ("18 files · Air Plugin") */
+/**
+ * The header of the files: the owner chips, under a chosen one that has no files here the note that says so; or the owner
+ * of them all ("18 files · Air Plugin")
+ */
 function BranchReviewFilesHeader({ model, count }: { model: BranchReviewModel; count: FilesCount | null }) {
   const { loaded } = model
   if (loaded === null || loaded.files === undefined) {
@@ -90,7 +93,17 @@ function BranchReviewFilesHeader({ model, count }: { model: BranchReviewModel; c
   }
   const chips = reviewFilterChips(loaded.files, model.source.groups, loaded.owners, model.filter)
   if (chips.length > 1) {
-    return <OwnerFilter chips={chips} filter={model.filter} onFilterChange={model.setFilter} />
+    const empty = ownerPaths(model.filter, loaded.files, model.source.groups, loaded.owners)?.size === 0 ? ownerEmptyText(model.filter) : null
+    return (
+      <>
+        <OwnerFilter chips={chips} filter={model.filter} onFilterChange={model.setFilter} />
+        {empty !== null && (
+          <span data-testid="branch-review-owner-empty" className="w-full">
+            {empty}
+          </span>
+        )}
+      </>
+    )
   }
   const owner = soleOwner(loaded.files, loaded.owners)
   return (
@@ -121,7 +134,7 @@ export function BranchReviewMarkReviewed({ model }: { model: BranchReviewModel }
 
 /** The commits of the part beside the diffs; the error, or the loading line, before they are read */
 export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; moves: BranchReviewMoves }) {
-  const { state, loaded, filter, source } = model
+  const { state, loaded, source } = model
   // the error is the content of the window (the window of a review shows by its content, `readyByContent`)
   const failed = state.status === "error"
   useEffect(() => {
@@ -152,15 +165,13 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       subject={loaded.subject}
       initialPath={model.lastPath}
       onPositionChange={model.showPosition}
-      pathFilter={loaded.files === undefined ? null : filterPaths(filter, loaded.files, source.groups, loaded.owners)}
-      filteredEmptyText={filterEmptyText(filter)}
+      ownerMarks={ownerMarksOf(model)}
       fileOwners={loaded.owners}
       rangeNoun="branch"
       filesHeader={count => <BranchReviewFilesHeader model={model} count={count} />}
       scopeTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
       commitTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
       reviewFacts={loaded.reviewFacts}
-      onShowAllPaths={() => model.setFilter({ kind: "all" })}
       commitMenu={commit => {
         // the commit's branch: the segment that has it
         const branch = loaded.segments.find(segment => segment.commits.some(it => it.id === commit.id))?.name
@@ -183,6 +194,13 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       }}
     />
   )
+}
+
+/** The files the chosen owner chip marks in the story; null for All, a branch-wide group, or before the files are read */
+function ownerMarksOf({ loaded, filter, source }: BranchReviewModel): OwnerMarks | null {
+  const label = ownerLabel(filter)
+  const paths = loaded?.files === undefined ? null : ownerPaths(filter, loaded.files, source.groups, loaded.owners)
+  return label === null || paths === null ? null : { label, paths }
 }
 
 /** The icons of the actions on the branch: the items come over the link of the window, without their icons */

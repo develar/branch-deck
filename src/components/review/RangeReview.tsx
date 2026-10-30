@@ -33,8 +33,8 @@ export interface RangeReviewProps {
   subject: DiffSubject
   initialPath: string | null
   onPositionChange: (position: ReviewPosition) => void
-  pathFilter?: ReadonlySet<string> | null
-  filteredEmptyText?: string
+  /** The files of the chosen owner chip, marked in the whole story */
+  ownerMarks?: CommitReviewProps["ownerMarks"]
   fileOwners?: ReadonlyMap<string, string>
   /** What the range is, in the error: "Cannot read the changes of the branch" */
   rangeNoun: string
@@ -50,8 +50,6 @@ export interface RangeReviewProps {
   commitTop?: ReactNode
   /** The facts of the review plan of the scope: the badges of the files, the Mechanical group */
   reviewFacts?: CommitReviewProps["reviewFacts"]
-  /** Drops `pathFilter` for a file a link of a badge selects */
-  onShowAllPaths?: () => void
 }
 
 /**
@@ -67,8 +65,7 @@ export function RangeReview({
   subject,
   initialPath,
   onPositionChange,
-  pathFilter,
-  filteredEmptyText,
+  ownerMarks,
   fileOwners,
   rangeNoun,
   filesHeader,
@@ -77,7 +74,6 @@ export function RangeReview({
   scopeTop,
   commitTop,
   reviewFacts,
-  onShowAllPaths,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
@@ -99,15 +95,13 @@ export function RangeReview({
         subject={subject}
         initialPath={initialPath}
         onPositionChange={onPositionChange}
-        pathFilter={pathFilter}
-        filteredEmptyText={filteredEmptyText}
+        ownerMarks={ownerMarks}
         fileOwners={fileOwners}
         rangeNoun={rangeNoun}
         neighbours={neighbours}
         sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} commitMenu={commitMenu} />}
         filesHeader={filesHeader}
         reviewFacts={reviewFacts}
-        onShowAllPaths={onShowAllPaths}
         codeTop={
           shown?.kind === "commit" ? (
             <>

@@ -85,4 +85,66 @@ test.describe("Review tour", () => {
     await window.keyboard.press("j")
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
   })
+
+  test("should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    // Design owns src/b and src/a/Frame.kt: the files of steps 2 and 3, none of steps 1 and 4
+    await repo.commitOnRemote("master", {
+      subject: "Add the owners",
+      author: "Jane <jane@example.com>",
+      timestamp: 1704110400,
+      files: { OWNERSHIP: "owner 'Monorepo'\n", "src/b/OWNERSHIP": "owner 'Design'\n", "src/a/OWNERSHIP": "/Frame.kt\nowner 'Design'\n" },
+    })
+    await repo.fetchInTerminal()
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const tree = window.getByRole("tree", { name: "Changed files" })
+    const row = (name: string) => tree.getByRole("treeitem", { name, exact: true })
+    const steps = [
+      "1 · The manager drops the hooks nothing sets",
+      "2 · The open keeps a stored layout",
+      "3 · The view paints with the first frame",
+      "4 · The restart story checks the layout",
+    ]
+    const frameAlso = row("src/a/Frame.kt, also in 3 · The view paints with the first frame")
+    await expect(tree.getByRole("treeitem")).toHaveCount(12)
+
+    await window.getByTestId("branch-review-owner").filter({ hasText: "Design" }).click()
+    await expect(window.getByTestId("branch-review-owner").filter({ hasText: "Design" })).toHaveAttribute("aria-pressed", "true")
+    // a chip hides nothing: every step and file stays, the steps with its files count them, the others are muted
+    await expect(tree.getByRole("treeitem")).toHaveCount(12)
+    await expect(row(steps[1]!).getByTestId("review-owner-mark")).toHaveText("Design2")
+    await expect(row(steps[1]!)).toHaveAttribute("aria-description", /, 2 files of Design$/)
+    await expect(row(steps[2]!).getByTestId("review-owner-mark")).toHaveText("Design1")
+    await expect(row(steps[1]!)).not.toHaveAttribute("data-muted")
+    for (const muted of [steps[0]!, steps[3]!, "src/a/Manager.kt", "test/a/ManagerTest.kt"]) {
+      await expect(row(muted)).toHaveAttribute("data-muted", "")
+    }
+    await expect(row(steps[0]!).getByTestId("review-owner-mark")).toHaveCount(0)
+    await expect(row("src/b/Welcome.kt")).not.toHaveAttribute("data-muted")
+    await expect(window.locator('[data-testid="review-file-header"][data-path="src/a/Manager.kt"]').first()).toHaveAttribute("data-muted", "")
+    await expect(window.locator('[data-testid="review-file-header"][data-path="src/a/Frame.kt"]').first()).not.toHaveAttribute("data-muted")
+
+    // N from the first section passes the blocks of Manager.kt to the first of Frame.kt
+    await window.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
+    await window.keyboard.press("n")
+    await expect(row("src/a/Frame.kt")).toHaveAttribute("aria-selected", "true")
+    // J goes on through the sections of Design: Welcome.kt, then past ManagerTest.kt to the part of Frame.kt in step 3
+    await window.keyboard.press("j")
+    await expect(row("src/b/Welcome.kt")).toHaveAttribute("aria-selected", "true")
+    await window.keyboard.press("j")
+    await expect(frameAlso).toHaveAttribute("aria-selected", "true")
+    await expect(window.getByTestId("review-step-bar").getByTestId("review-step-position")).toHaveText("Step 3 / 4")
+    // none of Design is left: J moves nothing, so with All it goes on from Frame.kt to the first section of step 4
+    await window.keyboard.press("j")
+    await window.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
+    await expect(row(steps[0]!)).not.toHaveAttribute("data-muted")
+    await window.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
+    await window.keyboard.press("j")
+    await expect(row("spec/window.spec.md")).toHaveAttribute("aria-selected", "true")
+  })
 })
