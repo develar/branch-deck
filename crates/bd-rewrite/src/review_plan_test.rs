@@ -121,7 +121,11 @@ fn prints_the_api_and_the_files_of_a_range() {
       ])
     )
   );
-  assert!(output["index_note"].as_str().is_some_and(|note| note.starts_with("accio ")), "{output}");
+  // no accio on the machine, or accio's reason under `--no-build`: the repository of the test has no index
+  assert!(
+    matches!(output["index_note"].as_str(), Some("accio is not installed" | "no index of this repository")),
+    "{output}"
+  );
   let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["review_plan"], &schema["outputs"]["review_plan"], &output, "review_plan");
 }
