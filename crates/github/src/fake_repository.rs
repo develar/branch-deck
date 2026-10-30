@@ -708,7 +708,7 @@ impl FakeGitHubRepository {
     if pull_request.state != PullRequestState::Open || pull_request.is_draft {
       return Err(FakeAnswer::status(400, json!({"message": "Pull request is not ready to be merged"})));
     }
-    if body["merge_method"].as_str().is_some_and(|method| !["merge", "squash", "rebase"].contains(&method)) {
+    if body["merge_method"].as_str().is_some_and(|method| !matches!(method, "merge" | "squash" | "rebase")) {
       return Err(unprocessable("merge_method is not one of merge, squash, rebase"));
     }
     let uuid = format!("merge-{}", state.async_merges.len() + 1);
