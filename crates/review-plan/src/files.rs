@@ -255,7 +255,7 @@ fn hunk_lines<'t>(change: &FileChange, texts: &'t HashMap<String, String>) -> Op
 }
 
 /// The text of `lines` without any whitespace, line ends included, so a wrapped or joined line reads the same
-fn without_whitespace(lines: &[&str]) -> String {
+pub(crate) fn without_whitespace(lines: &[&str]) -> String {
   lines.iter().flat_map(|line| line.chars()).filter(|char| !char.is_whitespace()).collect()
 }
 
@@ -353,7 +353,7 @@ const INDENTED_EXTENSIONS: [&str; 8] = ["py", "pyi", "bzl", "star", "bazel", "ym
 const INDENTED_NAMES: [&str; 5] = ["Makefile", "makefile", "GNUmakefile", "BUILD", "WORKSPACE"];
 
 /// Whether the whitespace of `path` has a meaning, so a change of it is no `Whitespace` change
-fn indentation_matters(path: &str) -> bool {
+pub(crate) fn indentation_matters(path: &str) -> bool {
   let name = path.rsplit('/').next().unwrap_or(path);
   let extension = name.rsplit_once('.').map(|(_, extension)| extension);
   INDENTED_NAMES.contains(&name) || extension.is_some_and(|extension| INDENTED_EXTENSIONS.iter().any(|known| extension.eq_ignore_ascii_case(known)))
@@ -413,12 +413,17 @@ const MIN_REPEATED_LINE: usize = 10;
 const LABEL_LINES: usize = 3;
 
 /// The key of the edit of one hunk: the text of its removed and its added lines without whitespace
-type EditKey = (String, String);
+pub(crate) type EditKey = (String, String);
 
 /// The key of the edit of `hunk`, `None` for one of whitespace alone (a wrapped line too) or without a long line
 fn edit_key(hunk: &HunkText<'_>) -> Option<EditKey> {
-  let key = (without_whitespace(&hunk.removed), without_whitespace(&hunk.added));
-  let long = hunk.removed.iter().chain(&hunk.added).any(|line| line.trim().chars().count() >= MIN_REPEATED_LINE);
+  lines_edit_key(&hunk.removed, &hunk.added)
+}
+
+/// The key of the edit that removes `removed` and adds `added` (`edit_key`)
+pub(crate) fn lines_edit_key(removed: &[&str], added: &[&str]) -> Option<EditKey> {
+  let key = (without_whitespace(removed), without_whitespace(added));
+  let long = removed.iter().chain(added).any(|line| line.trim().chars().count() >= MIN_REPEATED_LINE);
   (key.0 != key.1 && long).then_some(key)
 }
 
@@ -443,6 +448,8 @@ fn label_lines(lines: &[&str]) -> Vec<String> {
 
 /// A group of files (by their place in `files`) that share an edit, and those of them whose every hunk is that edit
 pub(crate) struct RepeatedEdit {
+  /// The edit every member has
+  pub key: EditKey,
   pub members: Vec<usize>,
   pub only: HashSet<usize>,
   pub group: RepeatedEditGroup,
@@ -502,28 +509,34 @@ pub(crate) fn repeated_edits(files: &[ChangedFile<'_>], texts: &HashMap<String, 
       removed,
       added,
     };
-    groups.push(RepeatedEdit { members: left, only, group });
+    groups.push(RepeatedEdit { key, members: left, only, group });
   }
   groups.sort_by_key(|edit| (Reverse(edit.members.len()), edit.members.first().copied()));
   groups
 }
 
-/// The facts of `files` (`changed_files`) and the groups of their repeated edits: by the states of their manifests
-/// (`manifests`, by place; none past its end), `links` and the usages of `api`, the most `breaks` first, then the
-/// `untested` ones, then in tree order
-pub(crate) fn file_facts(
-  files: &[ChangedFile<'_>],
-  texts: &HashMap<String, String>,
-  manifests: &[Option<ManifestState>],
-  links: &[FileLink],
-  api: &[ApiChange],
-) -> (Vec<FileFacts>, Vec<RepeatedEditGroup>) {
+/// Why the change of each changed file is mechanical, by place, and the groups of their repeated edits
+pub(crate) struct FileKinds {
+  pub mechanical: Vec<Option<MechanicalKind>>,
+  pub edits: Vec<RepeatedEdit>,
+}
+
+/// The kinds of `files` (`changed_files`): by their hunk text (`texts`) and the states of their manifests (`manifests`,
+/// by place; none past its end)
+pub(crate) fn file_kinds(files: &[ChangedFile<'_>], texts: &HashMap<String, String>, manifests: &[Option<ManifestState>]) -> FileKinds {
   let mechanical: Vec<Option<MechanicalKind>> = files
     .iter()
     .enumerate()
     .map(|(index, file)| mechanical_kind(file, texts, manifests.get(index).copied().flatten()))
     .collect();
-  let groups = repeated_edits(files, texts, &mechanical);
+  let edits = repeated_edits(files, texts, &mechanical);
+  FileKinds { mechanical, edits }
+}
+
+/// The facts of `files` (`changed_files`) and the groups of their repeated edits: by their kinds (`file_kinds`),
+/// `links` and the usages of `api`, the most `breaks` first, then the `untested` ones, then in tree order
+pub(crate) fn file_facts(files: &[ChangedFile<'_>], kinds: &FileKinds, links: &[FileLink], api: &[ApiChange]) -> (Vec<FileFacts>, Vec<RepeatedEditGroup>) {
+  let FileKinds { mechanical, edits: groups } = kinds;
   let mut group_of: HashMap<usize, u32> = HashMap::new();
   for (group, edit) in groups.iter().enumerate() {
     for &member in &edit.members {
@@ -547,7 +560,7 @@ pub(crate) fn file_facts(
       FileFacts {
         path: path.to_string(),
         old_path: (file.first_path != path).then(|| file.first_path.to_string()),
-        mechanical,
+        mechanical: *mechanical,
         uses: count(&|link| link.from == path && link.state != LinkState::Removed),
         used_by: count(&|link| link.to == path && link.state != LinkState::Removed),
         new_links: count(&|link| link.from == path && link.state == LinkState::Added),
@@ -560,5 +573,5 @@ pub(crate) fn file_facts(
     })
     .collect();
   facts.sort_by(|a, b| b.breaks.cmp(&a.breaks).then(b.untested.cmp(&a.untested)));
-  (facts, groups.into_iter().map(|edit| edit.group).collect())
+  (facts, groups.iter().map(|edit| edit.group.clone()).collect())
 }

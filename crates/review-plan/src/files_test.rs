@@ -1,6 +1,6 @@
 use crate::ReviewPlan;
 use crate::api::{ApiChange, ApiChangeKind, Usages};
-use crate::files::{FileFacts, MechanicalKind, RepeatedEditGroup, changed_files, file_facts, test_subject};
+use crate::files::{FileFacts, MechanicalKind, RepeatedEditGroup, changed_files, file_facts, file_kinds, test_subject};
 use crate::test_support::{plan_of, range};
 use object_cache::commit_diff::FileChange;
 use pretty_assertions::assert_eq;
@@ -30,7 +30,8 @@ fn commit(files: Vec<FileChange>) -> CommitDiff {
 
 /// The facts of `diffs` with no text, no link, and `api`
 fn facts_of(diffs: &[CommitDiff], api: &[ApiChange]) -> Vec<FileFacts> {
-  file_facts(&changed_files(diffs), &HashMap::new(), &[], &[], api).0
+  let files = changed_files(diffs);
+  file_facts(&files, &file_kinds(&files, &HashMap::new(), &[]), &[], api).0
 }
 
 /// The paths of the facts that are untested

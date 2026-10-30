@@ -330,7 +330,8 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    change carried onto the base, also after an amend or a rebase; its `api` names the public declarations they change, ranked by their usages
    from accio, `files` the facts of each file (mechanical, untested, its links), `links` which file uses which and
    `dependencies` the entries the commits add to, remove from or change in the build files;
-   `order` lists the files to read, each declaration before its uses.
+   `order` lists the files to read, each declaration before its uses, and `units` the changes to read once in that
+   order (a form, a body, a new or removed declaration, one unit per mechanical kind and repeated edit).
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by

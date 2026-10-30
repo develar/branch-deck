@@ -328,7 +328,7 @@ fn first_public<'a>(sites: &[Site<'a>]) -> Option<Site<'a>> {
 }
 
 /// The parts in which two forms of one declaration differ
-fn form_changes(before: &Form, after: &Form) -> Vec<FormChange> {
+pub(crate) fn form_changes(before: &Form, after: &Form) -> Vec<FormChange> {
   [
     (before.header != after.header, FormChange::Header),
     (before.parameters != after.parameters, FormChange::Parameters),

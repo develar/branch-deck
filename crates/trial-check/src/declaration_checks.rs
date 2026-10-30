@@ -31,7 +31,7 @@ use crate::symbol_dependencies::{
 };
 use crate::symbol_scan::SymbolInput;
 use code_symbols::language::{Family, Language, language_of};
-use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, MemberKind, Reach, Reference, Role, Shape};
+use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Shape};
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -381,23 +381,73 @@ fn form_of(site: &Site<'_>) -> Form {
 fn forms_of(ctx: &FileCtx<'_>, keys: &BTreeMap<String, Vec<usize>>) -> Vec<DeclarationForm> {
   let summary = ctx.summary;
   keys
+    .values()
+    .flat_map(|indices| indices.iter().map(|&index| declaration_form(ctx, &summary.declarations[index])))
+    .collect()
+}
+
+/// The form of `declaration` of `ctx`, under its key (`site_of`)
+fn declaration_form(ctx: &FileCtx<'_>, declaration: &Declaration) -> DeclarationForm {
+  let summary = ctx.summary;
+  let site = site_of(ctx, declaration);
+  DeclarationForm {
+    key: site.key.clone(),
+    name: summary.name(declaration.name).to_string(),
+    namespace: ctx.namespace.clone(),
+    kind: declaration.kind,
+    overrides: declaration.overrides,
+    line: declaration.name_line,
+    public: reaches_out(summary, declaration),
+    form: form_of(&site),
+    containers: site.containers,
+  }
+}
+
+/// A declaration of one side of a file with its lines, for the units of a review (`spanned_declarations`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpannedDeclaration {
+  pub form: DeclarationForm,
+  /// Its first line, with the doc comments and attributes directly above, and its last, from 1, both included
+  pub start_line: u32,
+  pub end_line: u32,
+  /// What tells it from an overload of the same key: its parameters as a call sees them, else its header, else empty
+  pub signature: String,
+}
+
+/// The declarations of one side of a file (`spanned_declarations`) and the lines of its import statements
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileDeclarations {
+  pub declarations: Vec<SpannedDeclaration>,
+  /// What a change of the imports alone changes (`FileSummary::import_lines`)
+  pub import_lines: Vec<LineSpan>,
+}
+
+/// The declarations of the file `path` of the summary of `blob` that another declaration of the file is not a local of
+/// (none inside a function or a value), with their lines and forms; no `Binding` and none the parser may have misread
+/// (`in_error`). `None` when the summary of `blob` is missing, degraded or truncated: its declarations are not known
+pub fn spanned_declarations(input: &SymbolInput, path: &str, blob: &str) -> Option<FileDeclarations> {
+  let summary = input.summaries.get(blob).map(AsRef::as_ref).filter(|summary| !summary.is_degraded() && !summary.truncated)?;
+  let ctx = input.file_ctx(path, summary);
+  let local = |declaration: &Declaration| outward(summary, declaration.container).any(|(_, container)| matches!(container.kind, DeclKind::Function | DeclKind::Value));
+  let declarations = summary
+    .declarations
     .iter()
-    .flat_map(|(key, indices)| indices.iter().map(move |&index| (key, &summary.declarations[index])))
-    .map(|(key, declaration)| {
-      let site = site_of(ctx, declaration);
-      DeclarationForm {
-        key: key.clone(),
-        name: summary.name(declaration.name).to_string(),
-        namespace: ctx.namespace.clone(),
-        kind: declaration.kind,
-        overrides: declaration.overrides,
-        line: declaration.name_line,
-        public: reaches_out(summary, declaration),
-        form: form_of(&site),
-        containers: site.containers,
+    .filter(|declaration| declaration.kind != DeclKind::Binding && !declaration.in_error && !local(declaration))
+    .map(|declaration| {
+      let form = declaration_form(&ctx, declaration);
+      let signature = form.form.parameters.clone().or_else(|| form.form.header.clone()).unwrap_or_default();
+      SpannedDeclaration {
+        start_line: declaration.start_line,
+        end_line: declaration.end_line,
+        signature,
+        form,
       }
     })
-    .collect()
+    .collect();
+  Some(FileDeclarations {
+    declarations,
+    import_lines: summary.import_lines.clone(),
+  })
 }
 
 /// The declarations each source file of `diff` touches, before and after the commit (`ChangedDeclarations`), whatever

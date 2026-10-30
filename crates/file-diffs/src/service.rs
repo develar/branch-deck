@@ -40,6 +40,7 @@ use object_cache::commit_files::{CommitFile, FileStatus};
 use object_cache::file_diff::DiffKey;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -685,6 +686,21 @@ fn side_facts(
 /// lines of a side's statements; `None` for a side of no known language) or blank, with a line of a statement at least
 pub(crate) fn import_blocks(diff: &TextDiff, texts: [&str; 2], imports: [Option<&[LineSpan]>; 2]) -> Vec<u32> {
   let lines: [Vec<&str>; 2] = texts.map(|text| text.split('\n').collect());
+  diff
+    .blocks
+    .iter()
+    .enumerate()
+    .filter(|(_, block)| block.kind != BlockKind::Ignored)
+    .filter(|(_, block)| imports_only([block.old_start..block.old_end, block.new_start..block.new_end], [&lines[0], &lines[1]], imports))
+    .map(|(index, _)| to_u32(index))
+    .collect()
+}
+
+/// Whether the changed lines of a block (`changed`, of each side from 0, the end excluded) are each in an import
+/// statement of their side (`imports`, the lines of a side's statements; `None` for a side of no known language) or
+/// blank, with a line of a statement at least; `lines` the text of each side by line. The one test of a change of the
+/// imports alone, for the diffs and the units of a review (`review_plan::units`)
+pub fn imports_only(changed: [Range<u32>; 2], lines: [&[&str]; 2], imports: [Option<&[LineSpan]>; 2]) -> bool {
   // per side, by 0-based line: in a statement, blank, else code
   let kind = |side: usize, line: u32| -> Option<bool> {
     let text = lines[side].get(line as usize).copied().unwrap_or_default();
@@ -693,22 +709,13 @@ pub(crate) fn import_blocks(diff: &TextDiff, texts: [&str; 2], imports: [Option<
     }
     text.trim().is_empty().then_some(false)
   };
-  diff
-    .blocks
-    .iter()
+  let kinds: Option<Vec<bool>> = changed
+    .into_iter()
     .enumerate()
-    .filter(|(_, block)| block.kind != BlockKind::Ignored)
-    .filter(|(_, block)| {
-      let changed = [(0, block.old_start..block.old_end), (1, block.new_start..block.new_end)];
-      let kinds: Option<Vec<bool>> = changed
-        .into_iter()
-        .flat_map(|(side, range)| range.map(move |line| (side, line)))
-        .map(|(side, line)| kind(side, line))
-        .collect();
-      kinds.is_some_and(|kinds| kinds.contains(&true))
-    })
-    .map(|(index, _)| to_u32(index))
-    .collect()
+    .flat_map(|(side, range)| range.map(move |line| (side, line)))
+    .map(|(side, line)| kind(side, line))
+    .collect();
+  kinds.is_some_and(|kinds| kinds.contains(&true))
 }
 
 /// The indices of `paths` in the order of the work: the `priority_paths` that the subject has, in their order, then the

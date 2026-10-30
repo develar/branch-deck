@@ -6,9 +6,9 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 3` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
-//! experimental, and its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
-//! with `usages`
+//! Its output has `"schema": 4` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
+//! with `usages`, and version 4 added the `units`, the changes a reviewer reads once in the order of the story
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -22,15 +22,16 @@ use review_plan::dependencies::DependencyChange;
 use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
 use review_plan::interdiff::{Interdiff, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
+use review_plan::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 3;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 4;
 
-/// The `"schema": 3` field the output of `bd review-plan` starts with
+/// The `"schema": 4` field the output of `bd review-plan` starts with
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReviewPlanSchemaVersion;
 
@@ -96,6 +97,12 @@ pub struct ReviewPlanOutput {
   pub dependencies: Vec<DependencyChange>,
   /// The groups of 3 or more files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditOutput>,
+  /// The changes a reviewer reads once, in the order of the story, of the diff of `base..head` (with `--since-reviewed`
+  /// of `scope`): a change of the form of a declaration (`shape`), of its body alone (`behaviour`), a new or removed
+  /// declaration, a new file, one unit per kind of mechanical change and per repeated edit over all of their files,
+  /// and a change of no declaration (`other`). Every block of the diff is in one unit, every changed file in one at
+  /// least; the mechanical units come last
+  pub units: Vec<UnitOutput>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too), in dependency order: a file
   /// that declares what another uses before it, a test right after its subject; the tree order inside a cycle and
   /// between files with no edge
@@ -182,6 +189,80 @@ pub struct FileLinkOutput {
   pub cross_module: bool,
   /// The commits added it between two modules: a new dependency of a module
   pub new_between_modules: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct UnitOutput {
+  /// Names it in this plan: of a declaration its file, key and signature
+  pub id: String,
+  pub kind: UnitKindOutput,
+  /// Of a `shape`: the parts of the form that changed
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub changes: Vec<FormChange>,
+  /// Of a `mechanical` unit: its kind
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub mechanical: Option<MechanicalKind>,
+  /// Of a `repeatedEdit`: its group in `repeated_edits`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub group: Option<u32>,
+  /// Of an `other` unit: why no declaration holds it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reason: Option<OtherReason>,
+  /// Of a declaration its name, of a file the name of the file
+  pub name: Option<String>,
+  /// Of a declaration: namespace, containers and name, as the `api` entry of a public one
+  pub key: Option<String>,
+  /// Of a declaration: what tells it from an overload of the same key
+  pub signature: Option<String>,
+  pub public: bool,
+  /// Of a declaration: the line of its name, after the commits (before them for a removal)
+  pub line: Option<u32>,
+  /// What it changes in each file
+  pub slices: Vec<UnitSliceOutput>,
+  /// The change, wherever it sits: the same across a rebase or an amend that keeps it
+  pub fingerprint: String,
+}
+
+/// What a unit changes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum UnitKindOutput {
+  /// The form of a declaration, as a use sees it
+  Shape,
+  /// The body of a declaration alone
+  Behaviour,
+  /// A declaration added to a file that was there
+  Added,
+  /// A declaration removed from a file that stays
+  Removed,
+  /// A file the commits add
+  NewFile,
+  /// One kind of mechanical change, over every file that has it
+  Mechanical,
+  /// The same edit in 3 or more files
+  RepeatedEdit,
+  /// A change of no declaration, or of a file whose declarations are not known
+  Other,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct UnitSliceOutput {
+  pub path: String,
+  /// The path before the commits, when they rename the file
+  pub old_path: Option<String>,
+  /// The unit takes the whole file: a new, deleted, renamed or binary file, or a file whose change is mechanical
+  pub whole: bool,
+  /// Its blocks of the diff, by their place in it and their lines on each side from 1, both included (`null` for a
+  /// side with none)
+  pub blocks: Vec<UnitBlockOutput>,
+  pub fingerprint: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct UnitBlockOutput {
+  pub index: u32,
+  pub old: Option<[u32; 2]>,
+  pub new: Option<[u32; 2]>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -287,6 +368,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     links: plan.links.into_iter().map(link_output).collect(),
     dependencies: plan.dependencies,
     repeated_edits: plan.repeated_edits.into_iter().map(repeated_edit_output).collect(),
+    units: plan.units.into_iter().map(unit_output).collect(),
     order: plan.order,
     index_note: plan.index_note,
   })
@@ -335,6 +417,49 @@ fn link_output(link: FileLink) -> FileLinkOutput {
     state: link.state,
     cross_module: link.cross_module,
     new_between_modules: link.new_between_modules,
+  }
+}
+
+fn unit_output(unit: ReviewUnit) -> UnitOutput {
+  let block = |block: UnitBlock| {
+    let lines = |start: u32, end: u32| (end > start).then_some([start + 1, end]);
+    UnitBlockOutput {
+      index: block.index,
+      old: lines(block.old_start, block.old_end),
+      new: lines(block.new_start, block.new_end),
+    }
+  };
+  let slice = |slice: UnitSlice| UnitSliceOutput {
+    path: slice.path,
+    old_path: slice.old_path,
+    whole: slice.whole,
+    blocks: slice.blocks.into_iter().map(block).collect(),
+    fingerprint: slice.fingerprint,
+  };
+  let (kind, changes, mechanical, group, reason) = match unit.kind {
+    UnitKind::Shape { changes } => (UnitKindOutput::Shape, changes, None, None, None),
+    UnitKind::Behaviour => (UnitKindOutput::Behaviour, Vec::new(), None, None, None),
+    UnitKind::Added => (UnitKindOutput::Added, Vec::new(), None, None, None),
+    UnitKind::Removed => (UnitKindOutput::Removed, Vec::new(), None, None, None),
+    UnitKind::NewFile => (UnitKindOutput::NewFile, Vec::new(), None, None, None),
+    UnitKind::Mechanical { mechanical } => (UnitKindOutput::Mechanical, Vec::new(), Some(mechanical), None, None),
+    UnitKind::RepeatedEdit { group } => (UnitKindOutput::RepeatedEdit, Vec::new(), None, Some(group), None),
+    UnitKind::Other { reason } => (UnitKindOutput::Other, Vec::new(), None, None, Some(reason)),
+  };
+  UnitOutput {
+    id: unit.id,
+    kind,
+    changes,
+    mechanical,
+    group,
+    reason,
+    name: unit.name,
+    key: unit.key,
+    signature: unit.signature,
+    public: unit.public,
+    line: unit.line,
+    slices: unit.slices.into_iter().map(slice).collect(),
+    fingerprint: unit.fingerprint,
   }
 }
 

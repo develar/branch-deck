@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::{assert_covered, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
 use pretty_assertions::assert_eq;
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// After a mark, a commit added on top is the only commit since the review, its range the scope; after a second mark,
 /// an amend of that commit is `rewritten` with the lines of each version, and the scope is the diff from the reviewed
@@ -23,7 +23,7 @@ fn prints_the_commits_since_the_review() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["schema"], &output["branch"], &output["base"], &output["head"]),
-    (&json!(3), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
+    (&json!(4), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
   );
   assert_eq!(
     output["interdiff"],
@@ -120,6 +120,21 @@ fn prints_the_api_and_the_files_of_a_range() {
         { "path": "src/a/Session.kt", "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 0, "breaks_complete": true, "untested": true, "repeated_edit": null, "repeated_edit_only": false },
       ])
     )
+  );
+  // the units: the change of the form of `open`, then the new file, each with its block and lines from 1
+  let units: Vec<(&Value, &Value, &Value, &Value)> = output["units"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|unit| (&unit["kind"], &unit["name"], &unit["slices"][0]["path"], &unit["slices"][0]["blocks"]))
+    .collect();
+  assert_eq!(
+    units,
+    [
+      (&json!("shape"), &json!("open"), &json!("src/a/Api.kt"), &json!([{ "index": 0, "old": [3, 3], "new": [3, 3] }])),
+      (&json!("newFile"), &json!("Session.kt"), &json!("src/a/Session.kt"), &json!([])),
+    ],
+    "{output}"
   );
   // no accio on the machine, or accio's reason under `--no-build`: the repository of the test has no index
   assert!(

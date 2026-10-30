@@ -699,10 +699,16 @@ of 3 or more files that get the same edit. The reviewed commits are those of `ba
 `--since-reviewed` only the added and rewritten ones. Without accio or its index, `usages` is `null` and `index_note`
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
-tree order inside a cycle and between files with no edge.
+tree order inside a cycle and between files with no edge. `units` (since `"schema": 4`) cuts the diff of the review
+into the changes a reviewer reads once, in that order ([Review Units](../../spec/branch/review-units.spec.md)): a
+change of the form of a declaration (`shape` with `changes`), of its body alone (`behaviour`), a new or removed
+declaration (`added`, `removed`), a new file (`newFile`), one unit per kind of mechanical change and per repeated edit
+over all of their files (`mechanical`, `repeatedEdit`, last), and a change of no declaration (`other` with its
+`reason`); each with its `slices`: the file, its `blocks` by `index` with their `old` and `new` lines from 1, and a
+`fingerprint` of the change that a rebase or an amend keeps.
 
 ```json
-{"schema":3,"repository":"/repo","branch":"jane/virtual/auth","base":"1a2b3c4d","head":"7a8b9c0d",
+{"schema":4,"repository":"/repo","branch":"jane/virtual/auth","base":"1a2b3c4d","head":"7a8b9c0d",
   "interdiff":{"reviewed_base":"1a2b3c4d","reviewed_tip":"5e6f7a8b",
     "commits":[{"id":"7a8b9c0d","reviewed_id":null,"subject":"Add logout","state":"added"}],
     "scope":{"base":"5e6f7a8b","head":"7a8b9c0d"}},
@@ -718,6 +724,13 @@ tree order inside a cycle and between files with no edge.
   "dependencies":[{"manifest":"src/b/intellij.b.iml","module":"intellij.b","kind":"module","name":"intellij.a",
     "change":"added","version_before":null,"version_after":null,"scope":"main","scope_before":null}],
   "repeated_edits":[],
+  "units":[{"id":"declaration:src/a/Session.kt:a.logout:all:Boolean","kind":"shape","changes":["parameters"],
+    "name":"logout","key":"a.logout","signature":"all:Boolean","public":true,"line":3,"slices":[{"path":"src/a/Session.kt",
+    "old_path":null,"whole":false,"blocks":[{"index":0,"old":[3,3],"new":[3,3]}],"fingerprint":"5f0c…"}],
+    "fingerprint":"5f0c…"},
+    {"id":"new:src/b/Logout.kt","kind":"newFile","name":"Logout.kt","key":null,"signature":null,"public":false,
+    "line":null,"slices":[{"path":"src/b/Logout.kt","old_path":null,"whole":true,"blocks":[],"fingerprint":"a1d9…"}],
+    "fingerprint":"a1d9…"}],
   "order":["src/a/Session.kt","src/b/Logout.kt"],"index_note":null}
 ```
 

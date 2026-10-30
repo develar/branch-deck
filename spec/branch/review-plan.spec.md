@@ -172,8 +172,9 @@ the repeated edits and the new API.
 - `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope` with `base`, `head`
   and `carried`), with
-  `"schema": 3`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
-  of `fan_in`; the other outputs of `bd` keep `"schema": 2`.
+  `"schema": 4`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)); the other outputs of `bd` keep
+  `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and

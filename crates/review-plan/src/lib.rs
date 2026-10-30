@@ -6,7 +6,10 @@
 //! - `api`: the public declarations the reviewed commits add, remove or change in form
 //! - `fan_in`: the usages of the removed and changed ones at the head, from accio, updated in this change or left
 //!   outside
-//! - `pair`: the lines at the head the reviewed commits changed, which tell a use updated from one left outside
+//! - `pair`: the blocks of each changed file from before the commits to after them, as the diffs show the range, and
+//!   the lines at the head they change, which tell a use updated from one left outside
+//! - `units`: those blocks cut into the changes a reviewer reads once (spec/branch/review-units.spec.md), in the order
+//!   of the story
 //! - `order`: the changed files in dependency order, a declaration before its uses, a test after its subject
 //! - `links`: which changed file uses which, added, removed or kept by the commits
 //! - `dependencies`: the entries the commits add to, remove from or change in the build files, and the build files they
@@ -26,16 +29,18 @@ pub mod links;
 pub mod mark_reviewed;
 pub mod order;
 pub mod pair;
+pub mod units;
 
 use crate::api::{ApiChange, api_changes};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
 use crate::fan_in::add_usages;
-use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, hunk_blobs};
+use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, hunk_blobs};
 use crate::interdiff::{Interdiff, PairState, commits_of, interdiff};
 use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base};
 use crate::order::{ReviewOrder, review_order};
-use crate::pair::changed_lines;
+use crate::pair::{ChangedLines, pair_blocks};
+use crate::units::{ReviewUnit, review_units};
 use anyhow::Result;
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
@@ -111,6 +116,9 @@ pub struct ReviewPlan {
   pub dependencies: Vec<DependencyChange>,
   /// The groups of files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditGroup>,
+  /// The changes of the pair the plan reads (`units`): every block of its diffs in one unit, every changed file in one
+  /// at least, in the order of the story
+  pub units: Vec<ReviewUnit>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
   /// again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
   /// subject, the tree order inside a cycle and between files with no edge
@@ -188,18 +196,26 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     .filter(|id| seen.insert(id.clone()))
     .collect();
   let (mut texts, unread) = sources.file_diffs.texts_in_memory(&wanted);
-  let (mut api, order, links) = if diffs.is_empty() {
-    (Vec::new(), Vec::new(), Vec::new())
+  let input = if diffs.is_empty() {
+    None
   } else {
     let (input, read) = read_symbol_input_with(git, repository_path, sources.cache, &diffs, &unread)?;
     texts.extend(unread.into_iter().zip(read).filter_map(|(id, bytes)| Some((id, String::from_utf8(bytes?).ok()?))));
-    let ReviewOrder { order, links: uses } = review_order(&input, &changed);
-    (api_changes(&input, &diffs), order, link_files(&input, &changed, &uses))
+    Some(input)
   };
-  let lines = || changed_lines(git, repository_path, sources.cache, sources.file_diffs, &changed);
-  let index_note = add_usages(sources.index, repository_path, &head, lines, &mut api)?;
+  let (mut api, order, links) = input.as_ref().map_or_else(
+    || (Vec::new(), Vec::new(), Vec::new()),
+    |input| {
+      let ReviewOrder { order, links: uses } = review_order(input, &changed);
+      (api_changes(input, &diffs), order, link_files(input, &changed, &uses))
+    },
+  );
+  let pairs = pair_blocks(git, repository_path, sources.cache, sources.file_diffs, &changed, &texts)?;
+  let index_note = add_usages(sources.index, repository_path, &head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api)?;
   let Dependencies { changes: dependencies, states } = dependency_changes(&changed, &texts);
-  let (files, repeated_edits) = file_facts(&changed, &texts, &states, &links, &api);
+  let kinds = file_kinds(&changed, &texts, &states);
+  let units = input.as_ref().map_or_else(Vec::new, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
+  let (files, repeated_edits) = file_facts(&changed, &kinds, &links, &api);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
@@ -216,6 +232,7 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     links,
     dependencies,
     repeated_edits,
+    units,
     order,
     index_note,
   })
@@ -258,3 +275,5 @@ mod mark_reviewed_test;
 mod order_test;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod units_test;

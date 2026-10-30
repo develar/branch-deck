@@ -4497,6 +4497,21 @@ export type OrphanFixup = {
 	branch: string | null,
 };
 
+/**  Why a change is of no declaration */
+export type OtherReason = 
+/**  Lines outside any declaration of a source file */
+"outside" | 
+/**  A file of no language the review parses */
+"noLanguage" | 
+/**  A source file whose summary is missing, degraded or truncated on a side */
+"unparsed" | 
+/**  Binary, over 8 MiB, or unreadable */
+"noText" | 
+/**  Only the line ends changed, in a file where the indentation has a meaning */
+"lineEnds" | 
+/**  Its type changed: a symlink, a submodule */
+"typeChanged";
+
 /**  How an operation ended (the contract's `Outcome`): each effect of its plan with its status, in order */
 export type Outcome = {
 	op: OperationId,
@@ -6100,6 +6115,11 @@ export type ReviewPlan = {
 	/**  The groups of files that get the same edit, the most files first */
 	repeatedEdits: RepeatedEditGroup[],
 	/**
+	 *  The changes of the pair the plan reads (`units`): every block of its diffs in one unit, every changed file in one
+	 *  at least, in the order of the story
+	 */
+	units: ReviewUnit[],
+	/**
 	 *  Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
 	 *  again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
 	 *  subject, the tree order inside a cycle and between files with no edge
@@ -6311,6 +6331,27 @@ base?: string | null;
 baselineBranch?: string | null } | 
 /**  The commits of `base..head`; no reviewed pair */
 { kind: "range"; base: string; head: string };
+
+/**  A change a reviewer reads once */
+export type ReviewUnit = {
+	/**  Names it in the plan: of a declaration its file, key and signature */
+	id: string,
+	kind: UnitKind,
+	/**  Of a declaration: its name; of a new file or a change of no declaration: the name of its file */
+	name: string | null,
+	/**  Of a declaration: namespace, containers and name, as `ApiChange::key` (a public one has its entry by key and path) */
+	key: string | null,
+	/**  Of a declaration: what tells it from an overload of its key */
+	signature: string | null,
+	/**  Of a declaration: another module may name it */
+	public: boolean,
+	/**  Of a declaration: the line of its name after the commits, before them for a removal, from 1 */
+	line: number | null,
+	/**  One per file, in the order of the files; of a group, every file of it */
+	slices: UnitSlice[],
+	/**  The change across plans: the slice's, or of a group the set of its slices' (`units`, "Identity") */
+	fingerprint: string,
+};
 
 /**  The base and the tip of a branch as the user reviewed it */
 export type ReviewedPair = {
@@ -7932,6 +7973,51 @@ export type UndoToken = {
 	token: string,
 };
 
+/**
+ *  A block of the diff of a file, as the diffs of the pair under `Default` have it: its place there, its lines on each
+ *  side from 0, the end excluded
+ */
+export type UnitBlock = {
+	index: number,
+	oldStart: number,
+	oldEnd: number,
+	newStart: number,
+	newEnd: number,
+};
+
+/**  What a unit changes */
+export type UnitKind = 
+/**  The form of a declaration, as a use sees it: these parts of it */
+{ kind: "shape"; changes: FormChange[] } | 
+/**  The body of a declaration alone: its form is the same */
+{ kind: "behaviour" } | 
+/**  A declaration the commits add to a file that was there */
+{ kind: "added" } | 
+/**  A declaration the commits remove from a file that stays */
+{ kind: "removed" } | 
+/**  A file the commits add */
+{ kind: "newFile" } | 
+/**  A change the review folds: of one kind, over every file that has it */
+{ kind: "mechanical"; mechanical: MechanicalKind } | 
+/**  The same edit in 3 or more files: the group of `ReviewPlan::repeated_edits` it is */
+{ kind: "repeatedEdit"; group: number } | 
+/**  A change no declaration holds, or of a file whose declarations are not known */
+{ kind: "other"; reason: OtherReason };
+
+/**  What a unit changes in one file */
+export type UnitSlice = {
+	/**  The path after the commits; before them for a deleted file */
+	path: string,
+	/**  The path before the first commit that changes it, when the commits rename it */
+	oldPath: string | null,
+	/**  The unit takes the file whole: all of its blocks, or a file that has none (added, deleted, renamed, binary) */
+	whole: boolean,
+	/**  Its blocks, in order: every block of the file for `whole`; none for a declaration whose block another unit holds */
+	blocks: UnitBlock[],
+	/**  The change this slice makes, by its text without whitespace or its blobs (`units`, "Identity") */
+	fingerprint: string,
+};
+
 /**  Why Patronus can't tell */
 export type UnknownReadinessReason = 
 /**
@@ -8075,8 +8161,8 @@ export type UsageTarget = {
 };
 
 /**
- *  The usages of a declaration at the head of the range, from the index of the repository (`fan_in`): in the files the
- *  reviewed commits change (updated in this change), and in the other files (left outside)
+ *  The usages of a declaration at the head of the range, from the index of the repository (`fan_in`): on the lines the
+ *  reviewed commits changed (updated in this change), and on the other lines (left outside)
  */
 export type Usages = {
 	inside: number,
